@@ -1,7 +1,7 @@
 import type { ViewName } from "../center/state.ts";
 import { commandKey, WINDOWS } from "./platform.ts";
 
-export type WindowCommand =
+type WindowCommand =
   | { kind: "history"; forward: boolean }
   | { kind: "close" }
   | { kind: "project-window"; project: string }

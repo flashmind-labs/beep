@@ -156,7 +156,7 @@ async function start(s: AgentRow, to: MoveTarget, stop: boolean) {
     const r = await invoke<MoveRecord>("session_move", {
       machineId: s.machine_id, to: to.id, agent: s.agent, session: s.id, project, cwd: s.cwd,
       worktreeFolder: tree?.linked ? tree.folder : null, worktreeBranch: tree?.linked ? tree.branch ?? "" : null,
-      mode: null, stop,
+      mode: null, model: s.model ?? null, stop,
     });
     const { records, progress } = moveStore.getState();
     moveStore.setState({

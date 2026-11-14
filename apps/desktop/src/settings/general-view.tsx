@@ -1,8 +1,9 @@
 import { useEffect } from "react";
 import { useStore } from "zustand";
 import { skillSync, projectSync, beepSyncOverSyncthing, type SyncSettingKind } from "./skill-sync.ts";
-import type { MacSettings } from "./settings.ts";
+import type { MacSettings } from "./settings.tsx";
 import { Button, Switch } from "../ui/kit.tsx";
+import { SettingRow } from "./overview-view.tsx";
 
 interface Props {
   settings: MacSettings; phone: boolean; busy: ReadonlySet<string>;
@@ -18,12 +19,12 @@ function SyncPreference({ kind }: { kind: SyncSettingKind }) {
   const state = useStore(store.state);
   useEffect(() => { void store.load(); }, [store]);
   const note = state.enabled === null ? loading : state.enabled ? on : off;
-  return <div id={id} className="dtoggle"><span><b>{title}</b><small>{note}</small>{state.error && <span className="derr" role="alert">{state.error}{state.enabled === null && <> <Button look="quiet" onClick={() => void store.load()}>Retry</Button></>}</span>}</span><Switch label={title} on={state.enabled ?? false} disabled={state.busy || state.enabled === null} flip={() => void store.change()} /></div>;
+  return <SettingRow id={id} title={title} note={note} extra={state.error && <span className="derr" role="alert">{state.error}{state.enabled === null && <> <Button look="quiet" onClick={() => void store.load()}>Retry</Button></>}</span>}><Switch label={title} on={state.enabled ?? false} disabled={state.busy || state.enabled === null} flip={() => void store.change()} /></SettingRow>;
 }
 export function GeneralView(p: Props) {
   const s = p.settings;
-  return <>{!p.phone && <div className="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the tray after a restart</small></span><Switch id="autostart" label="Launch at login" on={s.autostart} disabled={p.busy.size > 0} flip={() => p.autostart(!s.autostart)} /></div>}
-    <div className="dtoggle"><span><b>Coding agent notifications</b><small>{s.agent_notices ? "When a coding agent asks something or finishes a turn" : "Coding agents only show under Waiting"}</small></span><Switch id="agentNotices" label="Coding agent notifications" on={s.agent_notices} disabled={p.busy.size > 0} flip={() => p.notices(!s.agent_notices)} /></div>
-    <SyncPreference kind="skills" /><SyncPreference kind="projects" /><SyncPreference kind="syncthing" />{!p.phone && <div className="dtoggle"><span><b>Save files to</b><small>{s.save_folder ?? "No folder"}</small></span><span>{s.save_folder_picked && <Button look="quiet" id="useDownloads" disabled={p.busy.size > 0} onClick={p.useDownloads}>Use Downloads</Button>}<Button id="chooseSaves" disabled={p.busy.size > 0} onClick={p.chooseSaves}>Choose…</Button></span></div>}<div className="dtoggle"><span><b>Keyboard shortcuts</b><small>Every shortcut, by where it works</small></span><Button id="openShortcuts" onClick={p.shortcuts}>Show…</Button></div><div className="dtoggle"><span><b>Report a problem</b><small>Collect logs from your machines and send them to us</small></span><Button id="openReport" onClick={p.report}>Report…</Button></div>
+  return <>{!p.phone && <SettingRow title="Launch at login" note="Keep Beep in the tray after a restart"><Switch id="autostart" label="Launch at login" on={s.autostart} disabled={p.busy.size > 0} flip={() => p.autostart(!s.autostart)} /></SettingRow>}
+    <SettingRow title="Coding agent notifications" note={s.agent_notices ? "When a coding agent asks something or finishes a turn" : "Coding agents only show under Waiting"}><Switch id="agentNotices" label="Coding agent notifications" on={s.agent_notices} disabled={p.busy.size > 0} flip={() => p.notices(!s.agent_notices)} /></SettingRow>
+    <SyncPreference kind="skills" /><SyncPreference kind="projects" /><SyncPreference kind="syncthing" />{!p.phone && <SettingRow title="Save files to" note={s.save_folder ?? "No folder"}><span>{s.save_folder_picked && <Button look="quiet" id="useDownloads" disabled={p.busy.size > 0} onClick={p.useDownloads}>Use Downloads</Button>}<Button id="chooseSaves" disabled={p.busy.size > 0} onClick={p.chooseSaves}>Choose…</Button></span></SettingRow>}<SettingRow title="Keyboard shortcuts" note="Every shortcut, by where it works"><Button id="openShortcuts" onClick={p.shortcuts}>Show…</Button></SettingRow><SettingRow title="Report a problem" note="Collect logs from your machines and send them to us"><Button id="openReport" onClick={p.report}>Report…</Button></SettingRow>
   </>;
 }

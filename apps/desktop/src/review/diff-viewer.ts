@@ -11,7 +11,7 @@ import { readView, writeView } from "../agentpane/view-memory.ts";
 import type { Feedback } from "./feedback.ts";
 import { loadDraft } from "./draftstore.ts";
 import { matchesFilter, placeComments, sameDiffFile, type DiffFile, type DiffView, type Extent, type ReviewComment } from "./diff-state.ts";
-import type { DiffSource } from "./diff.ts";
+import type { DiffSource } from "./diff.tsx";
 
 /// Wider than this, the file list shows on the left.
 export const WIDE = 900;

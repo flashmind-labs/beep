@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { useInteractOutside } from "react-aria/useInteractOutside";
 import type { StashEntry } from "./stash-state.ts";
-import { useDialogRef } from "../ui/parts.ts";
+import { useDialogRef } from "../ui/parts.tsx";
 
 interface StashPanelProps {
   project: string;

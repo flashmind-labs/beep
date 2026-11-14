@@ -1,11 +1,12 @@
 import { SunriseArt } from "../ui/painted-art.tsx";
+import { Icon } from "../ui/icons.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import { createPortal } from "react-dom";
 import { Fragment, useLayoutEffect, useMemo, useRef, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
 import { FieldMenu } from "./composer-ui.tsx";
 
 export interface StartComposerNodes { input: HTMLTextAreaElement | null; project: HTMLButtonElement | null; machine: HTMLButtonElement | null; folder: HTMLButtonElement | null; harness: HTMLButtonElement | null; pick: HTMLDivElement | null; att: HTMLDivElement | null; box: HTMLDivElement | null; grow: () => void }
-export interface ChoiceContents { project: ReactNode; machine: ReactNode; folder: ReactNode }
+interface ChoiceContents { project: ReactNode; machine: ReactNode; folder: ReactNode }
 /// Which pill's menu or picker is open.
 type ComposerOpen = "pick" | "project" | "host" | "folder" | "base" | null;
 
@@ -37,7 +38,7 @@ export interface StartComposerActions {
 const FIELD_MAX = 200;
 
 export function ProjectChoice({ name }: { name: string }) {
-  return <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>{name}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg></>;
+  return <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>{name}<Icon name="caretDown" size={12} /></>;
 }
 export function FolderChoice({ checkout, label, detail }: { checkout: boolean; label: string; detail: string }) {
   if (checkout) return <>{label} <small>{detail}</small></>;

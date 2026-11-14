@@ -2,13 +2,13 @@
 // or pasted on the session: they upload into its host's temporary cache and
 // are mentioned by absolute path.
 
-import { attachPreview } from "./images.ts";
+import { attachPreview } from "./images.tsx";
 import { AG } from "./agents.ts";
 import type { Attached } from "./agentqueue.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { agentMessage } from "./session-frame.tsx";
 import { joinPath, uploadParts } from "../agentpane/files-state.ts";
-import { fileBase64 } from "../chat/attach.ts";
+import { fileBase64 } from "../chat/attach.tsx";
 import { rememberLocalUpload } from "../agentpane/read.ts";
 import { reloadFolder } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
@@ -101,15 +101,6 @@ export function addMention(path: string) {
   if (p && !MN.paths.includes(p)) MN.paths.push(p);
   MN.redraw();
   agentMessage.current?.focus();
-}
-
-/// Takes the mentions for a message being sent.
-export function takeMentions() {
-  const paths = MN.paths;
-  MN.paths = [];
-  MN.files.clear();
-  MN.redraw();
-  return paths;
 }
 
 export function removeMention(index: number) {

@@ -6,8 +6,9 @@ import type { ArtifactAction, ArtifactPreview, ArtifactsModel } from "./artifact
 
 import { type Artifact, artifactVersion, goneArtifacts, goneMessage, KIND_NAMES, readPlace, relativeTo } from "./artifacts-state.ts";
 import { revealPath } from "./files.ts";
-import { fileSize } from "../chat/media.ts";
+import { fileSize } from "../chat/media.tsx";
 import { openPath, paneSession } from "./media.ts";
+import { writeClipboard } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
 
@@ -263,6 +264,6 @@ function action(act: ArtifactAction) {
     const rel = relativeTo(s.cwd, a.path);
     if (rel != null) revealPath(rel);
   } else if (act === "copy") {
-    navigator.clipboard.writeText(a.path).then(() => { if (stillPicked()) note(`Copied ${a.path}`); }, err => { if (stillPicked()) note(`Could not copy: ${err}`); });
+    writeClipboard(a.path).then(() => { if (stillPicked()) note(`Copied ${a.path}`); }, err => { if (stillPicked()) note(`Could not copy: ${err}`); });
   }
 }

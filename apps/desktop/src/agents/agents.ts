@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { createStore } from "zustand/vanilla";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { AgentListRow } from "./agents-list-view.tsx";
-import { cap, formatAgo } from "../ui/format.ts";
+import { cap, formatAgo, plural } from "../ui/format.ts";
 import { machineConnecting, machinesReachNow, onConnecting, type MachinesReach } from "../machines/machine-state.ts";
 import type { ProviderCredits } from "../ui/credits.ts";
 // agents/: coding agents in the bar: the start form, the picker, one
@@ -15,8 +15,8 @@ import type { ProviderCredits } from "../ui/credits.ts";
 import { type Nested, nest, splitEnded } from "./nesting-state.ts";
 import { parentSession, ensureSessions, loadSessions, sessions, sessionsChanged } from "./sessions.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
-import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
-import { preloadModels } from "./agentpicker.ts";
+import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.tsx";
+import { preloadModels } from "./agentpicker.tsx";
 import type { CheckoutPick } from "./agentpick.ts";
 import type { Attached, OutboxRow, Waiting } from "./agentqueue.ts";
 import { mainTarget } from "../project/projectwindow.ts";
@@ -26,20 +26,20 @@ import { draftEsc } from "./draft-state.ts";
 import { type AgentReturn, bar, PANE, S, toWindow, windowHooks } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { renderWaiting } from "../bar/waiting.ts";
-import { openAgent, closeOpenSession, submitAgentMessage } from "./session.ts";
-import { openEditorKey } from "./session-head.ts";
+import { openAgent, closeOpenSession, submitAgentMessage } from "./session.tsx";
+import { openEditorKey } from "./session-head.tsx";
 import { sessionMenu } from "./sessionmenu.ts";
 import type { AgentQuestion } from "./running-state.ts";
 import { byOrder } from "./agentpick.ts";
 import { AGENT_ACTIVE, TAKEOVER } from "./sessionmenu-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { jumpToStart, loadOlder, logJumpKey, nearTop } from "./older.ts";
-import { jumpToLatest } from "./logview.ts";
+import { jumpToLatest } from "./logview.tsx";
 import { pageDirection } from "./logkeys-state.ts";
 import type { OlderStop } from "./older-state.ts";
-import { closeModelPicker } from "./modelpill.ts";
+import { closeModelPicker } from "./modelpill.tsx";
 import { interruptAgent, answerFirst } from "./messages.ts";
-import { cycleMode } from "./modepill.ts";
+import { cycleMode } from "./modepill.tsx";
 import { money } from "../ui/format.ts";
 import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
@@ -77,6 +77,8 @@ export interface AgentSession {
   parent?: AgentParent | null;
   /// A temporary reviewer of its parent's changes.
   reviewer?: boolean;
+  /// The model it runs on, when its node says.
+  model?: string | null;
 }
 
 /// Where the session that started another runs and the ids it is listed
@@ -493,7 +495,7 @@ export function drawAgents(loading: boolean) {
   const going = split.live.filter(n => !n.row.reviewer).map(n => n.row), machines = new Set(going.map(s => s.machine_id)).size;
   const reach = machinesReachNow();
   const summary = loading && !nested.length ? "Looking at your machines…"
-    : going.length ? `${going.length} live on ${machines} ${machines === 1 ? "machine" : "machines"}`
+    : going.length ? `${going.length} live on ${plural(machines, "machine", "machines")}`
     // Until a machine answers, nothing is known to run.
     : reach === "reached" ? "Nothing running" : "";
 

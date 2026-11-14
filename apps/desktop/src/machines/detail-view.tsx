@@ -5,7 +5,7 @@ import { machineTag, nodeBehind, coders, isCoder, nodeVersion, removalNote, show
 import { signInOffer } from "./signin-state.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import { RemoveAsk } from "./list-view.tsx";
-import type { Asking, Machine, MachineSearch, ToolUpdate } from "./machines.ts";
+import type { Asking, Machine, MachineSearch, ToolUpdate } from "./machines.tsx";
 
 export interface MachineLog { id: string; text: string | null; busy: boolean; error: string }
 interface DetailProps {

@@ -1,5 +1,5 @@
-//! How often a node runs git to list the checkouts sessions worked in. A
-//! wrapper on `PATH` notes every run. One test in this file: it sets `HOME`
+//! A node lists the checkouts sessions worked in without running git: it
+//! reads them in process. A wrapper on `PATH` notes any run. One test in this file: it sets `HOME`
 //! and `PATH` for the whole process.
 #![cfg(unix)]
 
@@ -41,7 +41,7 @@ fn runs(log: &Path) -> Vec<String> {
 }
 
 #[test]
-fn listing_checkouts_runs_git_once_per_change() {
+fn listing_checkouts_runs_no_git_and_sees_changes() {
     let real_git = Command::new("sh")
         .args(["-c", "command -v git"])
         .output()
@@ -118,11 +118,8 @@ fn listing_checkouts_runs_git_once_per_change() {
             for answer in &answers {
                 assert_eq!(answer.as_ref().expect("the node can say"), &first);
             }
-            let listed = runs(&log);
-            let logs = listed.iter().filter(|run| run.starts_with("log ")).count();
-            assert_eq!(logs, 2, "one look per checkout: {listed:?}");
+            assert_eq!(runs(&log), Vec::<String>::new());
 
-            // Nothing changed: the next listing runs no git.
             agents.found_folders(ASK).await.expect("the node can say");
             assert_eq!(runs(&log), Vec::<String>::new());
 
@@ -139,7 +136,7 @@ fn listing_checkouts_runs_git_once_per_change() {
                 .find(|folder| Path::new(&folder.path) == widget)
                 .expect("the checkout is listed");
             assert_eq!(changed.last_activity, 1_100_000_000);
-            assert_eq!(runs(&log).len(), 1);
+            assert_eq!(runs(&log), Vec::<String>::new());
 
             // So does a branch switch.
             git(&widget, &["switch", "-q", "-c", "old", "HEAD~1"], None);

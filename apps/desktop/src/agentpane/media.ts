@@ -7,7 +7,7 @@
 import { shownMessage } from "../agents/session-frame.tsx";
 import { type SubagentRow } from "./subagents-view.tsx";
 import { readView, writeView, viewKey } from "./view-memory.ts";
-import { isHtmlFile, queuePreview } from "./html-preview-state.ts";
+import { isHtmlFile } from "./html-preview-state.ts";
 import { baseName, type Dock, type FileRef, DOCKS, type ImageView, type MediaKind, mediaKind, moveTab, type PaneLayout, readLayout, resolvePath, SIDE_BY_SIDE_MIN, tabDock } from "./media-state.ts";
 import { terminalName } from "./files-state.ts";
 import type { ModelView } from "./model3d.ts";
@@ -17,7 +17,7 @@ import { focusChanges, revalidateChanges } from "./changes.ts";
 import { pointFilesAt } from "./files.ts";
 import { paneRoot, startWorktrees } from "./worktree.ts";
 import { dropTerm, killTerm, type PaneTerm, type TermPlace } from "./terminal.ts";
-import type { TerminalRow } from "../terminals/terminals.ts";
+import type { TerminalRow } from "../terminals/terminals.tsx";
 import { newTermLike } from "../terminals/newkey-state.ts";
 import { readError, loadText, startTerminal, load } from "./read.ts";
 import { togglePreview } from "./text-view.tsx";
@@ -86,6 +86,8 @@ export interface MediaTab {
   /// The same file in the session's folder, read when it is not in the
   /// worktree it was looked for in.
   elsewhere?: string | null;
+  /// Its HTML preview opens as soon as its text is read.
+  previewQueued?: boolean;
   preview?: { active: boolean; loading: boolean; src: string; error: string };
   /// A terminal tab's terminal, once it started.
   term?: PaneTerm;
@@ -251,7 +253,7 @@ export function openPath(path: string) {
   return true;
 }
 
-export function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Partial<MediaTab>) {
+function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Partial<MediaTab>) {
   if (!P.tabs.some(x => x.id === t.id)) {
     const tab: MediaTab = { size: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, ...t };
     P.tabs.push(tab);
@@ -323,7 +325,7 @@ export function previewWorkFile(rel: string) {
 
 export function previewTab(t: MediaTab) {
   if (t.preview?.active) return;
-  if (!t.text) { queuePreview(t); return; }
+  if (!t.text) { t.previewQueued = true; return; }
   void togglePreview(t);
 }
 

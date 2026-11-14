@@ -2,7 +2,7 @@
 // agent's log and field. Import it after the DOM environment.
 import { createElement } from "react";
 import { SessionField, showSessionFrame } from "../src/agents/session-frame.tsx";
-import { agentHints } from "../src/agents/session-head.ts";
+import { agentHints } from "../src/agents/session-head.tsx";
 import type { ChatBody } from "../src/ui/turn.ts";
 
 /// Shows an empty log body, 800px tall, and with `field` the message field.

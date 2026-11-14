@@ -555,6 +555,7 @@ mod mesh_state {
             stop: bool,
             at: u64,
             worktree: Option<MovedWorktree>,
+            model: Option<String>,
             added_later: u8,
         }
         let (from, to) = (
@@ -572,6 +573,7 @@ mod mesh_state {
             stop: true,
             at: 7,
             worktree: None,
+            model: None,
             added_later: 1,
         };
         let record = SessionMove::from_bytes(&rmp_serde::to_vec(&sent).unwrap()).unwrap();

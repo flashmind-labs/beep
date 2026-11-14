@@ -1,6 +1,6 @@
 import { Fragment, useLayoutEffect, useRef, type RefObject } from "react";
-import type { Hit } from "./palette.ts";
-import { useDialogRef } from "../ui/parts.ts";
+import type { Hit } from "./palette.tsx";
+import { useDialogRef } from "../ui/parts.tsx";
 
 function Marked({ text, query }: { text: string; query: string }) {
   const terms = query.trim().split(/\s+/u).filter(Boolean);

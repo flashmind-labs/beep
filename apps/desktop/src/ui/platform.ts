@@ -8,11 +8,11 @@ export function commandKey(e: { metaKey: boolean; ctrlKey?: boolean }, windows =
 }
 
 /// Windows narrower than this show the phone layout.
-export const NARROW_PX = 700;
+const NARROW_PX = 700;
 /// A touch screen up to this wide does too (a tablet keeps the desktop layout).
 const TOUCH_PX = 900;
 
-export interface LayoutEnv {
+interface LayoutEnv {
   width: number;
   /// `(pointer: coarse)`: the main pointer is a finger.
   coarse: boolean;

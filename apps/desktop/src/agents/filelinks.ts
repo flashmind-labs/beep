@@ -1,8 +1,8 @@
 // File references in the log use the same local apps as the Files tab.
 import { localFileItems, type FileTarget } from "../agentpane/localfile.ts";
 import { type FileRef, linkedPath, resolvePath } from "../agentpane/media-state.ts";
-import { openMenu, type MenuItem } from "../ui/menu.ts";
-import { copy } from "../ui/parts.ts";
+import { openMenu, type MenuItem } from "../ui/menu.tsx";
+import { copy } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 
 export function fileLinkMenu(e: MouseEvent, folder: Omit<FileTarget, "path">, session: string, open: (ref: FileRef) => void) {

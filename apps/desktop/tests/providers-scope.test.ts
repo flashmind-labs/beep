@@ -31,7 +31,7 @@ test("machine selection preserves shared drafts and each save writes only its sc
   answers.agent_models = null;
   const root = document.createElement("div");
   document.body.append(root);
-  const { providersPage } = await import("../src/settings/providers.ts");
+  const { providersPage } = await import("../src/settings/providers.tsx");
   const { fireEvent } = await import("@testing-library/react");
   void providersPage({ invoke, redrawTop: () => {}, openSettings: () => {}, follow: () => {} }).mount(root, { settings: true, agent: "claude" });
   await settle();
@@ -80,7 +80,7 @@ test("shared compaction stays editable when no machine is online", async () => {
   answers.list_machines = [];
   const root = document.createElement("div");
   document.body.replaceChildren(root);
-  const { providersPage } = await import("../src/settings/providers.ts");
+  const { providersPage } = await import("../src/settings/providers.tsx");
   void providersPage({ invoke, redrawTop: () => {}, openSettings: () => {}, follow: () => {} }).mount(root, { settings: true, agent: "claude" });
   await settle();
   const threshold = root.querySelector<HTMLInputElement>('[aria-label="Auto-compact threshold"]');

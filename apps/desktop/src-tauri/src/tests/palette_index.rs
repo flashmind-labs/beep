@@ -37,6 +37,7 @@ fn agent_session(
         external: false,
         question: None,
         subagents: 0,
+        model: None,
     }
 }
 

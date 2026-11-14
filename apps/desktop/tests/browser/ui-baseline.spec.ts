@@ -555,3 +555,18 @@ test("add a project", async ({ page }) => {
   await sheet.getByText("Browse repositories on connected hosts").click();
   await baseline(page, "add-project");
 });
+
+test("agent sign-in", async ({ page }) => {
+  await openDesktop(page, false, {
+    ...settingsResponses,
+    agent_accounts: { claude: null, codex_key: null, machines: [{ id: "test-box", name: "test-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null }] },
+    list_machines: [{ ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }] } }],
+    machine_sign_in: { state: "waiting", url: "https://example.test/oauth/authorize?code=true&client_id=0000&response_type=code&scope=profile+inference&state=abcdef", code: null, asks_code: true, reason: null },
+  });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await settings.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Sign in to Claude Code on test-box", exact: true }).getByRole("button", { name: "Open in browser" })).toBeVisible();
+  await baseline(page, "agent-sign-in");
+});

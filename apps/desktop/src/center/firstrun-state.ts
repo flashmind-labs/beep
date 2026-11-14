@@ -1,6 +1,6 @@
 // First run, Set up this computer: what this computer has of what Beep's agents need, and what
 // Set up does next. firstrun-setup.ts runs it.
-import type { MachineEnv } from "../machines/machines.ts";
+import type { MachineEnv } from "../machines/machines.tsx";
 
 /// What the setup checks, in the order Set up works through them.
 export type Item = "git" | "node" | "claude" | "codex";
@@ -38,12 +38,12 @@ export type Row =
 
 export const isAgent = (item: Item): item is Agent => item === "claude" || item === "codex";
 
-export function version(env: MachineEnv | null, item: Item): string | null | false {
+function version(env: MachineEnv | null, item: Item): string | null | false {
   const tool = env?.tools.find(t => t.name === item);
   return tool ? tool.version : false;
 }
 
-export function signedIn(env: MachineEnv | null, agent: Agent): { account: string | null } | null {
+function signedIn(env: MachineEnv | null, agent: Agent): { account: string | null } | null {
   const login = env?.logins.find(l => l.tool === agent && l.signed_in);
   return login ? { account: login.account } : null;
 }

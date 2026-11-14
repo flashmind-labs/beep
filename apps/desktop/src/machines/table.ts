@@ -1,12 +1,12 @@
 // The command center's machines table: one row per machine, its terminals
 // under it, and the menu that removes one.
 import { invoke } from "../ui/tauri.ts";
-import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { state } from "../center/state.ts";
-import { currentLocation } from "../center/views.ts";
-import { draw } from "../center/home.ts";
-import { openTerminals } from "../terminals/view.ts";
-import { reloadGroup } from "../center/sidebar.ts";
+import { currentLocation } from "../center/views.tsx";
+import { draw } from "../center/home.tsx";
+import { openTerminals } from "../terminals/view.tsx";
+import { reloadGroup } from "../center/sidebar.tsx";
 import { fsync } from "../project/sections.ts";
 import { refresh } from "../center/refresh.ts";
 import { type MacControl } from "./machine-state.ts";

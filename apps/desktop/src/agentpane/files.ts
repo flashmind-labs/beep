@@ -7,6 +7,7 @@
 import { createRef, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { createStore } from "zustand";
 import type { FilesMenuProps } from "./files-menu.tsx";
+import { writeClipboard } from "../ui/parts.tsx";
 import { isHtmlFile } from "./html-preview-state.ts";
 import { type Listing, type TreeRow, isTree, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
 import { relativeTo } from "./artifacts-state.ts";
@@ -16,9 +17,9 @@ import { mentioned } from "./worktree-state.ts";
 import { openWorkFile, previewWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
 import { localFileItems } from "./localfile.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
-import { hideDropOverlay } from "../chat/attach.ts";
+import { hideDropOverlay } from "../chat/attach.tsx";
 import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileClipboard } from "./file-actions-state.ts";
-import { confirmSheet, renameSheet } from "../ui/menu.ts";
+import { confirmSheet, renameSheet } from "../ui/menu.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { AMBIENT_MS, ambient, paneShown } from "../ui/active.ts";
 import { savedIn } from "../ui/platform.ts";
@@ -598,7 +599,7 @@ function menu(path: string, folder: boolean, x: number, y: number) {
     else if (act === "mention") paths.forEach(p => addMention(mentioned(paneRoot(), s.cwd, p)));
     else if (act === "abs" || act === "rel") {
       const text = paths.map(p => act === "abs" ? resolvePath(paneRoot(), p) : p).join("\n");
-      navigator.clipboard.writeText(text).then(() => note(`Copied ${paths.length} paths`), err => note(`Could not copy: ${err}`));
+      writeClipboard(text).then(() => note(`Copied ${paths.length} paths`), err => note(`Could not copy: ${err}`));
     } else if (act === "copy" || act === "cut") clipboard(act === "cut");
     else if (act === "paste") void paste(dir);
     else if (act === "rename") renameItem();

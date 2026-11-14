@@ -107,7 +107,7 @@ test("project groups load progressively without replacing earlier groups", async
   }
   await expect(page.locator('.pj-org').filter({ hasText: 'Group 39' })).toHaveCount(1);
   await expect(first).toHaveAttribute('data-identity', 'kept');
-  await expect(view.getByRole('button', { name: 'Add', exact: true })).toBeVisible();
+  await expect(page.locator('.cc-top').getByRole('button', { name: 'Add a project' })).toBeVisible();
 });
 
 test("project groups remain available without IntersectionObserver", async ({ page }) => {

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Pill } from "./compose-text.ts";
 import { Button } from "../ui/kit.tsx";
+import { plural } from "../ui/format.ts";
 
 export function ComposeOverlay({ value, pills, fence }: { value: string; pills: Pill[]; fence: { start: number; end: number } | null }) {
   const code = useRef<HTMLSpanElement>(null);
@@ -33,5 +34,5 @@ export function ComposePopup({ text, lines, node, expand, remove }: { text: stri
   const pop = useRef<HTMLDivElement>(null);
   const [down, setDown] = useState(false);
   useLayoutEffect(() => { if (!down && pop.current && pop.current.getBoundingClientRect().top < 4) setDown(true); }, [down]);
-  return <div className={down ? "cx-pop down" : "cx-pop"} ref={element => { pop.current = element; node(element); }}><div className="h"><b>Pasted text</b><span>{lines === 1 ? "1 line" : `${lines} lines`}</span><span className="sp" /><Button look="quiet" onMouseDown={event => event.preventDefault()} onClick={event => { event.stopPropagation(); expand(); }}>Expand</Button><Button look="quiet" onMouseDown={event => event.preventDefault()} onClick={event => { event.stopPropagation(); remove(); }}>Remove</Button></div><pre>{text}</pre></div>;
+  return <div className={down ? "cx-pop down" : "cx-pop"} ref={element => { pop.current = element; node(element); }}><div className="h"><b>Pasted text</b><span>{plural(lines, "line", "lines")}</span><span className="sp" /><Button look="quiet" onMouseDown={event => event.preventDefault()} onClick={event => { event.stopPropagation(); expand(); }}>Expand</Button><Button look="quiet" onMouseDown={event => event.preventDefault()} onClick={event => { event.stopPropagation(); remove(); }}>Remove</Button></div><pre>{text}</pre></div>;
 }

@@ -13,7 +13,7 @@ test("phone navigation retains buttons and focus as the selected pane changes", 
   const nav = document.querySelector("nav");
   assert.ok(nav);
   const root = createRoot(nav);
-  const tabs = [{ id: "log", name: "Log" }, { id: "files", name: "Files" }];
+  const tabs = [{ id: "log", name: "Chat" }, { id: "files", name: "Files" }];
   let selected = "log";
   const draw = () => flushSync(() => root.render(createElement(PhonePaneTabs, { tabs, selected, select: id => { selected = id; draw(); } })));
   draw();

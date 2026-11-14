@@ -7,7 +7,7 @@
 // `files` topic said something changed, the worktree moved, or on Refresh.
 
 import type { DiffView } from "../review/diff-state.ts";
-import { type DiffViewHandle, type DiffOwner, diffView } from "../review/diff.ts";
+import { type DiffViewHandle, type DiffOwner, diffView } from "../review/diff.tsx";
 import { sendReview } from "../agents/messages.ts";
 import { openWorkFile, paneSession } from "./media.ts";
 import { localFileItems } from "./localfile.ts";

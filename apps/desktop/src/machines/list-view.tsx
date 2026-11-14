@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { bareVersion, coderColumns, coders, machineTag, nodeBehind, nodeVersion, removalNote, specLine, toolChips } from "./machines-state.ts";
 import { adapterLine } from "./adapters-state.ts";
-import type { Asking, Machine } from "./machines.ts";
+import type { Asking, Machine } from "./machines.tsx";
 import { clockWarning } from "./clock.ts";
 import { Button, onRowKey, SkeletonRows } from "../ui/kit.tsx";
 

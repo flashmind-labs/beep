@@ -30,18 +30,18 @@ const stubs = new Map(Object.entries({
   "ui/tauri.ts": "export const invoke = async () => {}; export const recordTiming = () => {};",
   "ui/mesh-events.ts": "export const refreshTopicSubscriptions = () => {};",
   "ui/active.ts": "export const SLOW_MS = 2000; export const shownChanged = () => {};",
-  "center/sidebar.ts": "export const drawSide = () => {}; export const openProjects = () => {}; export const projectRows = () => [];",
+  "center/sidebar.tsx": "export const drawSide = () => {}; export const openProjects = () => {}; export const projectRows = () => [];",
   "project/projects-state.ts": "export const projectName = project => project.display_name ?? project.name;",
   "project/agent.ts": "export const shortName = name => name;",
   "settings/sheet.ts": page("export const openSettings = () => {}; export const instructionsView = v('instructions'); export const providersView = v('providers');"),
-  "center/pane.ts": page("export const paneView = v('pane');"),
-  "center/home.ts": page("export const homeView = v('home');"),
-  "project/page.ts": page("export const projectsView = v('projects'); export const ProjectsPage = () => null;"),
-  "terminals/view.ts": page("export const terminalsView = v('terminals'); export const TerminalsPage = () => null;"),
+  "center/pane.tsx": page("export const paneView = v('pane');"),
+  "center/home.tsx": page("export const homeView = v('home');"),
+  "project/page.tsx": page("export const projectsView = v('projects'); export const ProjectsPage = () => null;"),
+  "terminals/view.tsx": page("export const terminalsView = v('terminals'); export const TerminalsPage = () => null;"),
   "bar/core.ts": "export const S = { view: null };",
-  "center/mobile.ts": "export const syncMobile = () => {}; export const canGoBack = () => false;",
+  "center/mobile.tsx": "export const syncMobile = () => {}; export const canGoBack = () => false;",
   // The window's tree without the router.
-  "center/window-root.ts": `import { createElement } from "react"; import { flushSync } from "react-dom"; import { createRoot } from "react-dom/client";
+  "center/window-root.tsx": `import { createElement } from "react"; import { flushSync } from "react-dom"; import { createRoot } from "react-dom/client";
     import { CenterWindow, shell } from "./window-shell.tsx";
     const root = createRoot(document.querySelector(".cwin"));
     flushSync(() => root.render(createElement(CenterWindow)));
@@ -53,7 +53,7 @@ const hooks = registerHooks({
     return source === undefined ? next(url, context) : { format: "module", source, shortCircuit: true };
   },
 });
-const { go, goHistory } = await import("../src/center/views.ts");
+const { go, goHistory } = await import("../src/center/views.tsx");
 hooks.deregister();
 
 test("Back and Forward restore the project section a resumed session came from", () => {

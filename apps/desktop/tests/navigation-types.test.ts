@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { go, goTo } from "../src/center/views.ts";
+import type { go, goTo } from "../src/center/views.tsx";
 import type { CenterView } from "../src/center/state.ts";
 import { mainTarget } from "../src/project/projectwindow.ts";
 import type { BackTo } from "../src/bar/core.ts";

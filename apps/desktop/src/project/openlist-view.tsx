@@ -1,4 +1,4 @@
-import { issueStartPlan, loadStartHosts, startIssues } from "./composer.ts";
+import { issueStartPlan, loadStartHosts, startIssues } from "./composer.tsx";
 import { agentLabel } from "./projects-state.ts";
 import { choiceOf, outcomes, starting, type Outcome } from "./openlist.ts";
 import { OPENED_IN, pickedInOrder, startLabel, type StartEntry, type StartRow } from "./openlist-state.ts";

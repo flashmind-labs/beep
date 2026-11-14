@@ -12,7 +12,7 @@ import { FeedbackBox, FeedbackNoteBox } from "./feedback-view.tsx";
 import { allFolded, type DiffFile } from "./diff-state.ts";
 import { NARROW, WIDE, type Viewer, keepCurrent, remeasure, remember, saveSplit, shown } from "./diff-viewer.ts";
 import { foldAll, jump, jumpToLine, markCurrent, onKey } from "./diff-keys.ts";
-import { load, sendReview } from "./diff.ts";
+import { load, sendReview } from "./diff.tsx";
 import { useTreeWidth } from "./treewidth.ts";
 
 export function DiffViewer({ v }: { v: Viewer }) {

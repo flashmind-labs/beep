@@ -14,11 +14,11 @@ import { PaneDock, PaneDropZone, PaneMain, PaneShell } from "../agentpane/dock-v
 import { MoveBox, MoveHere } from "./move-view.tsx";
 import { FieldAttachments, FieldControl, FieldMenu, FieldQueue, modelPickHost, StopButton, useFieldDrop, useUploadPending, WorkLine } from "./composer-ui.tsx";
 import { cancelContinue, continuing } from "./continue-here.ts";
-import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.ts";
+import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.tsx";
 import { conversationAppearance } from "../ui/conversation-appearance.ts";
-import { syncJump } from "./logview.ts";
+import { syncJump } from "./logview.tsx";
 import { ComposerPresence, PluginSlot, SessionHeaderSlot } from "../plugins/slot-view.tsx";
-import { Button } from "../ui/kit.tsx";
+import { Button, Spinner } from "../ui/kit.tsx";
 import type { SessionUsage } from "./agents.ts";
 
 interface AgentHintsModel { value: HintViewModel; project: string | null }
@@ -164,8 +164,8 @@ export const shownMessage = () => [agentMessage.current, draftMessage.current].f
 function ContinueHere({ target, start }: ContinueHereProps) {
   const state = useStore(continuing);
   const shown = state.kind !== "none" && state.key === target ? state : null;
-  if (shown?.kind === "waiting") return <><Button id="agcontinue" disabled><span className="dspin" />Waiting for the turn to end</Button><Button look="quiet" onClick={cancelContinue}>Cancel</Button></>;
-  if (shown?.kind === "closing") return <Button id="agcontinue" disabled><span className="dspin" />Closing it there</Button>;
+  if (shown?.kind === "waiting") return <><Button id="agcontinue" disabled><Spinner />Waiting for the turn to end</Button><Button look="quiet" onClick={cancelContinue}>Cancel</Button></>;
+  if (shown?.kind === "closing") return <Button id="agcontinue" disabled><Spinner />Closing it there</Button>;
   return <>{shown?.kind === "failed" && <span className="derr">{shown.message}</span>}<Button id="agcontinue" onClick={start}>Continue here</Button></>;
 }
 

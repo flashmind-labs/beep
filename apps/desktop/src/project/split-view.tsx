@@ -3,10 +3,10 @@ import { moveLabel } from "../agents/move-store.ts";
 import { closingNote } from "../agents/closing.ts";
 import { runningWhen, type RunningAgent } from "../agents/running-state.ts";
 import { formatAgo } from "../ui/format.ts";
-import { terminalNote, terminalWhere, type TerminalRow } from "../terminals/terminals.ts";
+import { terminalNote, terminalWhere, type TerminalRow } from "../terminals/terminals.tsx";
 import type { Freshness } from "../ui/pagecache.ts";
 import type { TileData } from "./board.ts";
-import type { LabelFilter, SplitGroup, SplitItem } from "./split.ts";
+import type { LabelFilter, SplitGroup, SplitItem } from "./split.tsx";
 import { Button, EmptyPanel, LineRow, Section, SectionHead } from "../ui/kit.tsx";
 import { FreshNote } from "./page-view.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
@@ -83,7 +83,7 @@ export function ProjectOverview({ run, prs, issues, prNote, issueNote, machines,
     {!!terminals.length && <OverviewBox title="Terminals" count={terminals.length} open={() => openTile("machines")}>{terminals.slice(0, 5).map(terminal => <LineRow key={`${terminal.machine_id}:${terminal.id}`} lead={<span className={`ddot${terminal.state === "running" ? "" : " off"}`}/>} title={terminal.name} sub={<>{terminal.machine_name} · {terminalWhere(terminal)}</>} right={terminalNote(terminal, ms => formatAgo(ms, "short"))} rowTitle={`${terminal.machine_name}: ${terminal.command} in ${terminal.cwd}`} onOpen={() => openTerminal(terminal)} />)}</OverviewBox>}
   </div><div>
     {prs.length ? <OverviewBox title="Pull requests" count={prs.length} open={() => openTile(prs[0].key)}>{rows(prs.slice(0, 5))}</OverviewBox> : empty("Pull requests", prNote)}
-    {issues.length ? <div id=""><div className="cc-sec"><h4><Button className="lk" onClick={() => openTile("issues")}>Issues</Button><span className="n">{issues.length}</span></h4></div><div className="cc-panel pj-scroll pj-ov-issues">{rows(issues)}</div></div> : empty("Issues", issueNote)}
+    {issues.length ? <div id=""><SectionHead title={<Button className="lk" onClick={() => openTile("issues")}>Issues</Button>} count={issues.length} /><div className="cc-panel pj-scroll pj-ov-issues">{rows(issues)}</div></div> : empty("Issues", issueNote)}
   </div></>;
 }
 

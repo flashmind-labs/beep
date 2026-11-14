@@ -47,7 +47,7 @@ export class SessionPicks extends Map<string, SessionPick> {
 
   override set(id: string, pick: SessionPick): this {
     super.set(id, pick);
-    try { localStorage.setItem(this.key, JSON.stringify([...this].slice(-500))); } catch { /* Keep in memory. */ }
+    this.save();
     return this;
   }
 
@@ -58,8 +58,12 @@ export class SessionPicks extends Map<string, SessionPick> {
 
   override delete(id: string): boolean {
     const removed = super.delete(id);
-    try { localStorage.setItem(this.key, JSON.stringify([...this].slice(-500))); } catch { /* Keep in memory. */ }
+    this.save();
     return removed;
+  }
+
+  private save() {
+    try { localStorage.setItem(this.key, JSON.stringify([...this].slice(-500))); } catch { /* Keep in memory. */ }
   }
 }
 

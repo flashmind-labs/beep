@@ -364,6 +364,9 @@ wire_structs! {
         /// an older node.
         #[serde(default)]
         pub subagents: u32,
+        /// The model it runs on, when its node says.
+        #[serde(default)]
+        pub model: Option<ModelId>,
     }
 }
 

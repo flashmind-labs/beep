@@ -10,7 +10,6 @@ use beep_proto::node::{
 };
 use std::{
     path::{Path, PathBuf},
-    time::Duration,
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -32,40 +31,19 @@ pub(super) async fn watch_paths(root: &Path) -> Result<Vec<PathBuf>> {
         return Ok(Vec::new());
     }
 
-    let output = tokio::time::timeout(
-        Duration::from_secs(5),
-        crate::run::process::command("git")
-            .arg("-C")
-            .arg(root)
-            .args([
-                "rev-parse",
-                "--path-format=absolute",
-                "--git-dir",
-                "--git-common-dir",
-            ])
-            .kill_on_drop(true)
-            .output(),
-    )
-    .await
-    .context("finding Git metadata timed out")?;
-    crate::run::process::finished("git", &output);
-    let output = match output {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        other => other?,
+    // Read in process: no git process for each folder the events watch.
+    let root = root.to_owned();
+    let found = tokio::task::spawn_blocking(move || {
+        let repo = gix::discover(&root).ok()?;
+        Some((repo.git_dir().to_owned(), repo.common_dir().to_owned()))
+    })
+    .await?;
+    let Some((git, common)) = found else {
+        return Ok(Vec::new());
     };
 
-    if !output.status.success() {
-        return Ok(Vec::new());
-    }
-
-    let text = String::from_utf8(output.stdout).context("Git metadata path is not UTF-8")?;
-    let mut paths = text.lines();
-    let git = paths
-        .next()
-        .context("Git did not name its metadata folder")?;
-    let common = paths.next().context("Git did not name its common folder")?;
-    let git = tokio::fs::canonicalize(root.join(git)).await?;
-    let common = tokio::fs::canonicalize(root.join(common)).await?;
+    let git = tokio::fs::canonicalize(git).await?;
+    let common = tokio::fs::canonicalize(common).await?;
     // Everything the Git projections and diffs read besides the working tree:
     // the branch, index, refs, upstream settings, worktrees and exclusions.
     Ok(vec![

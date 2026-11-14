@@ -2,7 +2,7 @@
 // in its folder, kept running by the node like any terminal (Home lists it
 // under the machine).
 
-import { describeMessage, endsForGood, inOrderChannel, newView, readTermMessage, Replay, retryDelay, sizeChanged, splice, type Screen, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
+import { describeMessage, endsForGood, inOrderChannel, newView, readTermMessage, Replay, retryDelay, sizeChanged, splice, type Screen, type TerminalRow, type TermSize } from "../terminals/terminals.tsx";
 import { indexedChannel, invoke, logError, logInfo } from "../ui/tauri.ts";
 import { onShownChange } from "../ui/active.ts";
 

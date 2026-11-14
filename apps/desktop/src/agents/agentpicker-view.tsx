@@ -3,9 +3,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { agentKind } from "./agents.ts";
 import { effortNote, effortsOf, placePopover, railOf, type ModelRow } from "./agentpick.ts";
-import { HarnessIcon } from "../ui/icons.tsx";
-import type { Picked } from "./agentpicker.ts";
-import { useDialogRef } from "../ui/parts.ts";
+import { HarnessIcon, Icon } from "../ui/icons.tsx";
+import type { Picked } from "./agentpicker.tsx";
+import { useDialogRef } from "../ui/parts.tsx";
 
 interface PickerProps {
   picked: Picked;
@@ -69,7 +69,7 @@ function Check() {
 }
 
 export function AgentPillContent({ agent, detail }: { agent: string; detail: string }) {
-  return <><HarnessIcon agent={agent}/>{detail}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg></>;
+  return <><HarnessIcon agent={agent}/>{detail}<Icon name="caretDown" size={12} /></>;
 }
 
 export function AgentPicker({ picked, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, anchor, bounds, search }: PickerProps) {

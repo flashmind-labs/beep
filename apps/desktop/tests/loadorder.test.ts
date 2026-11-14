@@ -23,12 +23,12 @@ test("the command center runs its state before any page", async () => {
   const state = order.indexOf("src/center/state.ts");
   assert.ok(state >= 0);
 
-  for (const page of ["src/project/page.ts", "src/center/views.ts", "src/center/home.ts"]) {
+  for (const page of ["src/project/page.tsx", "src/center/views.tsx", "src/center/home.tsx"]) {
     assert.ok(order.indexOf(page) > state, `${page} runs before center/state.ts`);
   }
 });
 
 test("the bar's window loads no command center page", async () => {
   const order = await runOrder("src/bar/app.ts");
-  assert.deepEqual(order.filter(file => file.startsWith("src/center/") || file === "src/project/page.ts"), []);
+  assert.deepEqual(order.filter(file => file.startsWith("src/center/") || file === "src/project/page.tsx"), []);
 });

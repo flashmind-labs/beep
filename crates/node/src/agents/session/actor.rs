@@ -1043,13 +1043,18 @@ impl Actor {
     pub(super) fn model_is(&mut self, model: Option<&str>) {
         if let Some(model) = model {
             let model = ModelId::new(model);
-            self.live.send_if_modified(|live| {
+            let changed = self.live.send_if_modified(|live| {
                 if live.info.model.as_ref() == Some(&model) {
                     return false;
                 }
                 live.info.model = Some(model);
                 true
             });
+
+            // Noted, so a crash after a switch resumes on the new model.
+            if changed {
+                crate::link::restart::changed();
+            }
         }
 
         if self.compactor.set_model(model) {

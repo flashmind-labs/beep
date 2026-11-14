@@ -16,16 +16,16 @@ import { fsync } from "../project/sections.ts";
 import { syncProjects } from "../project/syncpage.ts";
 import { HarnessIcon, Icon, PROJECT_COLORS } from "../ui/icons.tsx";
 import { type HomeView, needsLine } from "./home-state.ts";
-import { homeSessions, openAsking } from "./home.ts";
+import { homeSessions, openAsking } from "./home.tsx";
 import { itemChips, newestFirst, projectsWithOpen, reviewStart, waitsOnYou } from "./openitems-state.ts";
 import { openUrl } from "./openitems.ts";
-import { projectRows } from "./sidebar.ts";
+import { projectRows } from "./sidebar.tsx";
 import { state } from "./state.ts";
-import { go } from "./views.ts";
+import { go } from "./views.tsx";
 import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
 import { isMobile } from "../ui/platform.ts";
-import { Button, Section } from "../ui/kit.tsx";
+import { Button, Section, EmptyPanel } from "../ui/kit.tsx";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
 import { RunningStatus } from "../project/split-view.tsx";
 
@@ -165,6 +165,6 @@ export function HomeOverview({ home }: { home: HomeView }) {
 /// Nothing to show: nothing runs, or no machine has answered yet.
 function Empty({ home }: { home: HomeView }) {
   const reach = machinesReach(home.machines ?? []);
-  if (reach !== "reached") return <div className="cc-panel cc-empty"><span>{reach === "connecting" ? "Connecting to your machines…" : "No machine is online."}</span></div>;
+  if (reach !== "reached") return <EmptyPanel text={reach === "connecting" ? "Connecting to your machines…" : "No machine is online."} />;
   return <PaintedEmpty><b>{state.home ? "Nothing running" : "Start an agent"}</b><span>{state.home ? "Start an agent on this computer, or add a machine to run it there." : "Your machines connect in the background."}</span><Button look="primary" small onClick={() => go("pane", { agentnew: { prompt: "" } })}>Start an agent</Button></PaintedEmpty>;
 }

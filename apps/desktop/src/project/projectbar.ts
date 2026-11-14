@@ -77,7 +77,7 @@ export type Forge = "github" | "forgejo";
 
 /// An agent review of pull request `number`, and the session that reviewed
 /// it before, which goes on with the new review instead of a new session.
-export interface Review {
+interface Review {
   number: number;
   earlier: ReviewSession | null;
 }

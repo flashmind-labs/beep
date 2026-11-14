@@ -5,15 +5,15 @@ const RECENT_MAX = 8;
 /// Of those, how many are read ahead while the window is idle.
 const PREFETCH_RECENT = 3;
 
-/// `list` with `name` first, at most `max` long.
-export function touchRecent(list: readonly string[], name: string, max = RECENT_MAX): string[] {
-  return [name, ...list.filter(n => n !== name)].slice(0, max);
+/// `list` with `name` first, at most `RECENT_MAX` long.
+export function touchRecent(list: readonly string[], name: string): string[] {
+  return [name, ...list.filter(n => n !== name)].slice(0, RECENT_MAX);
 }
 
 /// The projects to read ahead: the last opened, not the one on screen,
 /// that still exist.
-export function prefetchOrder(list: readonly string[], shown: string | null, exists: (name: string) => boolean, n = PREFETCH_RECENT): string[] {
-  return list.filter(name => name !== shown && exists(name)).slice(0, n);
+export function prefetchOrder(list: readonly string[], shown: string | null, exists: (name: string) => boolean): string[] {
+  return list.filter(name => name !== shown && exists(name)).slice(0, PREFETCH_RECENT);
 }
 
 /// The saved list, or none when it does not parse.

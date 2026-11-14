@@ -1,14 +1,14 @@
 import { commandKey, WINDOWS } from "./platform.ts";
 // Page zoom: ⌘= (or ⌘+) in, ⌘- out, ⌘0 back to 100%, in steps of 10%.
 
-export const ZOOM_MIN = 70;
-export const ZOOM_MAX = 200;
-export const ZOOM_STEP = 10;
+const ZOOM_MIN = 70;
+const ZOOM_MAX = 200;
+const ZOOM_STEP = 10;
 
 /// Fired on `window` after the zoom changed, once the page has its new size.
 export const ZOOMED = "beep:zoomed";
 
-export type ZoomKey = "in" | "out" | "reset";
+type ZoomKey = "in" | "out" | "reset";
 
 /// What a key does to the zoom, or null when it is not a zoom key.
 export function zoomKey(e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey">): ZoomKey | null {

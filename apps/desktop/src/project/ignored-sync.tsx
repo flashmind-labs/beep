@@ -1,10 +1,10 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { openSheet } from "../ui/parts.ts";
+import { openSheet } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
 import { ignoredSelection, type IgnoredSync } from "./ignored-sync-state.ts";
-import { Button, Checkbox } from "../ui/kit.tsx";
+import { Button, Checkbox, SheetHead } from "../ui/kit.tsx";
 
 export function chooseIgnoredFolders(project: string, initial: IgnoredSync, onChanged: () => void) {
   let busy = false;
@@ -33,7 +33,7 @@ function IgnoredSyncView({ initial, save, cancel }: { initial: IgnoredSync; save
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const textarea = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => { textarea.current?.focus(); }, []);
-  return <><div className="am-head"><b>Sync gitignored</b><kbd>esc</kbd></div>
+  return <><SheetHead title="Sync gitignored" />
     <label className="am-line"><Checkbox checked={enabled} disabled={busy} change={setEnabled} />Sync selected ignored folders on all machines</label>
     <div className="am-label">Folders relative to the project, one per line</div><textarea ref={textarea} className="ip-path ip-list" rows={4} value={paths} placeholder={"assets/models\ndata/captures"} aria-label="Folders relative to the project, one per line" disabled={busy} onChange={event => setPaths(event.currentTarget.value)} />
     <div className="am-sub">Each folder must be wholly ignored by Git and contain no tracked or staged files. These folders use file sync, including conflict copies. Other uncommitted edits stay local. Build output, linked repositories and paths excluded in .beepignore stay local.</div>

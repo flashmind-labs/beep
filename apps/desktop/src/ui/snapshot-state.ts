@@ -12,11 +12,11 @@ const VIEW_COMMANDS = [
   "project_sync", "git_items", "usage_get", "agent_accounts", "center_project_lists",
   "center_project_runs", "center_project_run",
 ] as const;
-export type ViewCommand = typeof VIEW_COMMANDS[number];
+type ViewCommand = typeof VIEW_COMMANDS[number];
 const COMMANDS = new Set<string>(VIEW_COMMANDS);
 const MAX_VIEWS = 128;
 const MAX_BYTES = 8 * 1024 * 1024;
-export type CachedView =
+type CachedView =
   | { kind: "value"; value: unknown }
   | { kind: "error"; error: string };
 interface Snapshot { command: string; args: Record<string, unknown>; result: CachedView }
@@ -90,7 +90,7 @@ export function clearViews(): void {
 }
 
 /// Which rendered views a command can change before their next snapshot arrives.
-export type WriteScope =
+type WriteScope =
   | { kind: "none" }
   | { kind: "views"; commands: readonly ViewCommand[] }
   | { kind: "all" };

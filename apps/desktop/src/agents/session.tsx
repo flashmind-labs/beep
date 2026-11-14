@@ -1,0 +1,588 @@
+// One coding agent session in the bar: opening it, drawing its frame and
+// reading it while it shows. Following it is in session-follow.ts, its head
+// in session-head.ts and what a click in it does in session-click.ts.
+import { showUploadPending } from "./composer-ui.tsx";
+import { SessionPicks } from "./agentmodels.ts";
+import { agentMessage, SessionField, SessionHead, sessionBody, showSessionFrame } from "./session-frame.tsx";
+import { disposeLogShell } from "./log-shell.tsx";
+import { bindSessionStash } from "./stash.ts";
+import { transcriptKey } from "./transcript-cache-state.ts";
+import { agentDrop } from "../chat/attach.tsx";
+import { fileLinkMenu } from "./filelinks.ts";
+import { agentKey, conversationHistory, conversationKey, retitle, sessionKey, type Retitled } from "./conversation-state.ts";
+import { syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
+import { composeField } from "../chat/compose.tsx";
+import { $, type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
+import { showFailure } from "../ui/failbanner-view.tsx";
+import { readRunning } from "../agentpane/running.ts";
+import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/media.ts";
+import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
+import { bindMentionMenu } from "./mentionmenu.ts";
+import { MN, activateMentions, currentMentions, rememberMentionImages } from "./workdrop.ts";
+import { type AgentRow, type AgentPage, type OpenAgent, AG, drawAgents, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
+import { agentAttachError, drawAgentAttached } from "./images.tsx";
+import { removeLastAttachment } from "./attachments-view.tsx";
+import { keepNativeSession, ensureSessions, loadSessions, sessions, sessionsRead } from "./sessions.ts";
+import { closeSession, shownStatus } from "./closing.ts";
+import { sessionOffers } from "./sessionmenu-state.ts";
+import { thinking, drawAgentBody, syncJump, scrolledLog } from "./logview.tsx";
+import { drawModelPill } from "./modelpill.tsx";
+import { readModes } from "./modepill.tsx";
+import { readTasks } from "./tasks.tsx";
+import { disposeQueue, interruptAgent, readOutbox, sendAgentMessage, steerMessage } from "./messages.ts";
+import type { ChatBody } from "../ui/turn.ts";
+import { invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
+import { perfFresh } from "../ui/perf.ts";
+import { AMBIENT_MS, ambient, onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
+import { onPhone } from "../ui/platform.ts";
+import { readError } from "../agentpane/read.ts";
+import { loadOlder, nearTop } from "./older.ts";
+import { joinRuns, lacksPrompt, newestRead } from "./older-state.ts";
+import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, retryDelay } from "./reconnect-state.ts";
+import { drawMove } from "./move.ts";
+import { moveStore, refreshMoves } from "./move-store.ts";
+import { movedTo } from "./move-state.ts";
+import { sameSession } from "./running-state.ts";
+import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
+import { feed, flushDraw, keptTranscript, offScreen, transcripts } from "./session-follow.ts";
+import { drawAgentHeading, headText, readUsage, redrawAgentHints, agentHints, shownUsage } from "./session-head.tsx";
+import { agentClick, openParent, toolKey } from "./session-click.ts";
+import { askContinueHere, continueAfterTurn, keepContinuing } from "./continue-here.ts";
+
+/// Opens session `s` (a session row) and follows it while it is on screen. With `adopt`,
+/// the empty view that started it becomes the session in place: its pane, terminal
+/// tabs included, stays as it is.
+export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: { why?: string; back?: AgentReturn; adopt?: boolean } = {}) {
+  conversationHistory.visit(s);
+  traceSession("opening", openOf(s), { status: s.status, adopt });
+
+  // Already open: keep its log, draft, queue and scroll, and only ask for news.
+  if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
+    if (AG.page.session.status === "ended" && s.status !== "ended") {
+      clearTimeout(AG.timer);
+      feed.drop(AG.open!);
+      AG.page.session = s;
+      AG.sig = "";
+      drawAgentHeading();
+      drawModelPill();
+      redrawAgentHints();
+    }
+    if (AG.open) firstRead = { open: AG.open, at: performance.now() };
+    if (from !== undefined) AG.back = from;
+    // Its log may come back from a hidden page, which WebKit shows scrolled
+    // to the top: it goes back to its end, or where the reader left it,
+    // before its scroll handler takes that for the reader's move.
+    const shown = sessionBody();
+
+    if (S.view === "agent" && shown) {
+      restorePane();
+      shown.scrollTop = returnScroll(shown, shown.top ?? 0);
+      return void pollAgent(true);
+    }
+
+    if (from === undefined) AG.back = S.view === "agents" ? "agents" : "hide";
+    S.view = "agent";
+    Object.assign(AG, { sig: "", rest: "" });
+    // Its log goes back where the reader left it, or to its end.
+    drawAgentFrame(false, keptLogs.get(sessionKey(s))?.body ?? null);
+    watchRead(AG.open!);
+    return void pollAgent(true);
+  }
+
+  if (from === undefined) from = S.view === "agents" ? "agents" : "hide";
+  const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
+  if (AG.open) steerQueues.set(transcriptKey(AG.open), AG.queue);
+  for (const [key, queue] of steerQueues) if (!queue.length) steerQueues.delete(key);
+  rememberMentionImages();
+  leaveLog();
+  S.view = "agent";
+  AG.draft = null;
+  const open: OpenAgent = openOf(s);
+  const log = inPlace ? null : keptLogs.get(sessionKey(s)) ?? null;
+  const held = keptPage(log, transcripts.get(transcriptKey(open))?.page ?? null);
+  Object.assign(AG, {
+    open,
+    page: held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+    why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
+    attError: "", opened: new Set(), steps: new Map(), all: new Set(),
+    queue: steerQueues.get(transcriptKey(open)) ?? [],
+    outbox: [], stopping: null, modelOpen: false, modes: null,
+    older: { stop: "", loading: false, gaveUp: false },
+  });
+  const kept = offScreen.get(transcriptKey(AG.open!));
+
+  if (kept) {
+    offScreen.delete(transcriptKey(AG.open!));
+    AG.modes = kept.modes;
+    AG.tasks = kept.tasks;
+  }
+
+  firstRead = { open, at: performance.now() };
+  drawAgentFrame(inPlace, held && log && held.earlier <= log.page.earlier ? log.body : null);
+  watchRead(open);
+  void readOutbox(open);
+  if (held) return void pollAgent(true);
+  // Not held in this window: the page kept on disk draws at once, and the follow goes on from it.
+  readingKept = open;
+  void keptTranscript(open).then(page => {
+    if (readingKept === open) readingKept = null;
+    if (AG.open !== open) return;
+    // The session row it opened with is newer than the kept one, and the steers it held went long ago.
+    if (page && !AG.sig && AG.page) {
+      AG.page = { ...page, session: AG.page.session, queued: 0, queued_messages: [] };
+      if (isOpen(open)) { drawAgentBody(); keptFresh = { open, done: perfFresh("session") }; }
+    }
+
+    void pollAgent(true);
+  });
+}
+
+/// The parts that stay while the session updates: the head, the body and the field.
+/// With `inPlace` only the head and the conversation are replaced, so the pane
+/// beside them, its terminals running, is not drawn again. `kept`, the log
+/// already drawn, goes back in as it is, where it was scrolled.
+export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
+  const page = AG.page!, s = page.session, k = agentKind(s.agent);
+  disposeQueue();
+  const project = windowHooks?.sessionProject?.(s);
+  // Out of the page a box reads 0: it keeps where the reader left it.
+  const keptTop = kept ? (kept.isConnected ? kept.scrollTop : kept.top ?? 0) : 0;
+  const b = kept ?? document.createElement("div") as ChatBody;
+  if (!kept) { b.className = "dbody"; b.id = "agbody"; }
+  const mode = isNativeSession(s.id) ? "native" : followsOnly(s) ? "readonly" : "writable";
+  const takeover = canTakeOver(s.agent) && !isNativeSession(s.id);
+  const banner = takeover ? "Running outside Beep. Beep follows it here." : "Started outside Beep. Beep follows it here.";
+  const continueHere = takeover ? { target: agentKey(s), start: () => askContinueHere(s) } : null;
+  keepContinuing(s);
+  // The saved title shows at once; `agent-title-changed` brings it to the lists.
+  const saveTitle = async (title: string) => {
+    await invoke("agent_title_save", { ...where(openOf(s)), title });
+    await retitleOpen({ ...openOf(s), title: title || null });
+  };
+  const head = <SessionHead agent={s.agent} {...headText(s)} openProject={project?.open ?? null} cwd={s.cwd} machine={s.machine_name} machineId={s.machine_id} session={s.id} usage={shownUsage(s)} moveKey={agentKey(s)} saveTitle={saveTitle} />;
+  const field = <SessionField mode={mode} name={k.name} banner={banner} moveKey={agentKey(s)} machine={s.machine_id} session={s.id} continueHere={continueHere} attach={agentDrop} send={submitAgentMessage} stop={() => void interruptAgent()} openParent={openParent} />;
+  showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
+  activateMentions(s);
+  drawAgentHeading();
+  MN.redraw = drawAgentAttached;
+  MN.error = agentAttachError;
+  const place = { ...s, project: project?.name };
+  if (inPlace) rebindPane(place); else startPane(place);
+  void refreshMoves().then(drawMove);
+  const msg = agentMessage.current;
+
+  if (msg) {
+    composeField(msg, { images: agentDrop, removeLast: removeLastAttachment, grow: 156, draft: conversationKey(s) });
+    bindMentionMenu(msg);
+    bindSessionStash(msg);
+    showUploadPending(currentMentions().sending);
+  }
+
+  drawAgentAttached();
+  drawModelPill();
+  keepLog(sessionKey(s), b, page);
+
+  // A kept log at its end goes there as `drawAgentBody` fills it, with no layout read here.
+  if (kept) {
+    if (kept.stuck === false) kept.scrollTop = keptTop;
+  } else {
+    b.stuck = true;
+    // Release the end immediately; redraw visible turns once per frame.
+    // Wheel and touch gestures hold off pins to the end (`pinEnd`).
+    let frame = 0, top = b.scrollTop, height = b.clientHeight, total = b.scrollHeight;
+    b.onscroll = () => {
+      if (!b.isConnected || !paneShown()) return;
+      const layoutChanged = height !== b.clientHeight || total !== b.scrollHeight;
+      const readerScrolling = b.touching || pinWait(performance.now(), b.wheel) > 0;
+      b.stuck = followsAfterScroll(b.stuck !== false, top, b, layoutChanged && !readerScrolling);
+      height = b.clientHeight;
+      total = b.scrollHeight;
+      top = b.top = b.scrollTop;
+      frame ||= requestAnimationFrame(() => {
+        frame = 0;
+        if (!b.isConnected || !paneShown()) return;
+        scrolledLog(b);
+        top = b.top = b.scrollTop;
+        height = b.clientHeight;
+        total = b.scrollHeight;
+        syncJump(b);
+        if (nearTop(b)) void loadOlder("near");
+      });
+    };
+    b.addEventListener("touchstart", () => { b.touching = true; b.wheel = performance.now(); }, { passive: true });
+    b.addEventListener("touchmove", () => {
+      b.wheel = performance.now();
+      b.stuck = false;
+    }, { passive: true });
+    const touchEnd = () => { b.touching = false; b.wheel = performance.now(); };
+    b.addEventListener("touchend", touchEnd, { passive: true });
+    b.addEventListener("touchcancel", touchEnd, { passive: true });
+    b.addEventListener("wheel", () => { b.wheel = performance.now(); }, { passive: true });
+    b.addEventListener("keydown", toolKey);
+  }
+
+  b.oncontextmenu = e => fileLinkMenu(e, { machineId: s.machine_id, root: s.cwd }, s.id, openLinked);
+  drawAgentBody();
+  // On a touch layout a focused composer raises the keyboard and lays the page out for it.
+  if (!document.body.classList.contains("mobile")) agentMessage.current?.focus();
+  bar.onclick = agentClick;
+}
+
+/// Asks for the open session, then again after `agentDelay()` while it
+/// stays on screen. Opening reads once even if the webview's
+/// visibility has not caught up. Never two calls at once for one session.
+export async function pollAgent(readNow = false) {
+  clearTimeout(AG.timer);
+  const o = AG.open;
+  if (!o) { feed.leave(); return; }
+  const trace = readNow || !AG.sig;
+  const skip = !isOpen(o) ? "different-view" : AG.inflight === o || readingKept === o ? "in-flight" : !readNow && !paneShown() ? "hidden" : null;
+
+  if (skip) {
+    if (skip !== "in-flight") feed.leave();
+    if (trace) traceSession("read-skipped", o, { reason: skip, readNow });
+    return;
+  }
+
+  if (paneShown()) feed.follow(o);
+  else feed.leave();
+
+  // Followed all along: what came while it was away is drawn once from its model.
+  if (feed.live(o)) {
+    flushDraw();
+    if (!AG.sig) shownFromModel(o);
+    // Shown again with its log already drawn: it is ready now, not at the next change.
+    else finishFirstRead(o, "ok");
+    return;
+  }
+
+  // The follow answers with the page; a read is only for when it fails.
+  if (feed.waiting(o)) return;
+  const version = feed.version(o);
+  AG.inflight = o;
+  const read = ++AG.polls;
+  const current = { open: o, at: Date.now(), pending: new Set(["view", "modes", "tasks", "processes"]) };
+  reading = current;
+  if (trace) traceSession("read-started", o, { readNow });
+  const tracked = <T,>(name: string, call: Promise<T>) => call.finally(() => {
+    current.pending.delete(name);
+    if (trace) traceSession("read-settled", o, { part: name, ms: Date.now() - current.at, pending: [...current.pending] });
+  });
+
+  const still = () => isOpen(o) && feed.version(o) === version;
+  // The page shows as soon as it comes; modes, tasks and processes join it as each arrives.
+  void tracked("modes", readModes(o)).then(modes => { if (still()) { AG.modes = modes; drawRest(); } });
+  void tracked("tasks", readTasks(o)).then(tasks => { if (still()) { AG.tasks = tasks; drawRest(); } });
+  void tracked("processes", readRunning());
+
+  try {
+    const page = await tracked("view", invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST) }, AGENT_READ_WAIT_MS));
+
+    if (still()) {
+      // A push received while this fallback read ran is newer than its reply.
+      flushDraw(true);
+      applyAgentPage(o, page, read);
+      if (trace) traceSession("read-applied", o, { status: page.session.status, entries: page.entries.length, ms: Date.now() - current.at });
+    }
+  } catch (e) {
+    if (trace) traceSession("read-failed", o, { pending: [...current.pending], ms: Date.now() - current.at });
+
+    if (still()) {
+      // A dropped link is read again with backoff; a session its machine
+      // came back without has ended, and no turn runs on.
+      const failed = readFailed(AG.link, e, AG.page?.session.machine_name || "the machine");
+      AG.link = failed.link;
+      AG.readError = AG.note = failed.note;
+      if (failed.link.ended && AG.page) AG.page = endedPage(AG.page);
+      drawAgentBody();
+      finishFirstRead(o, "error");
+    }
+  } finally {
+    if (AG.inflight === o) AG.inflight = null;
+    if (reading === current) reading = null;
+  }
+
+  // Another session opened while this one was asked: follow that one.
+  if (AG.open !== o) { if (isOpen(AG.open) && !AG.inflight) pollAgent(); return; }
+
+  if (!isOpen(o) || !paneShown()) {
+    if (trace) traceSession("polling-stopped", o, { reason: !isOpen(o) ? "different-view" : "hidden" });
+    return;
+  }
+
+  const delay = AG.link.lost ? retryDelay(AG.link.lost) : agentDelay();
+  if (!feed.live(o)) AG.timer = setTimeout(pollAgent, delay);
+}
+
+let firstRead: { open: OpenAgent; at: number } | null = null;
+/// The session whose page kept on disk is being read: its follow starts after, from its cursor.
+let readingKept: OpenAgent | null = null;
+const steerQueues = new Map<string, Waiting[]>();
+/// Times a session from its page kept on disk to its first fresh read.
+let keptFresh: { open: OpenAgent; done: () => void } | null = null;
+function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
+  if (keptFresh?.open === open) { if (outcome === "ok") keptFresh.done(); keptFresh = null; }
+  if (!firstRead || firstRead.open !== open) return;
+  recordTiming("data", "agent", performance.now() - firstRead.at, outcome);
+  firstRead = null;
+}
+
+/// A session opened that still has no read after this long leaves a line in the log.
+const READ_WATCH_MS = 30_000;
+
+let reading: { open: OpenAgent; at: number; pending: Set<string> } | null = null;
+
+function traceSession(stage: string, o: OpenAgent, details: Record<string, unknown> = {}) {
+  logInfo(`session view: ${JSON.stringify({ stage, session: o.session, machine: o.machine_id, view: S.view, body: !!sessionBody(), ...visibilitySnapshot(), ...details })}`);
+}
+
+/// Logs it when the session `o` opened still shows nothing read after
+/// `READ_WATCH_MS` with no error said: the view is stuck, and why (#427).
+function watchRead(o: OpenAgent) {
+  setTimeout(() => {
+    if (AG.open !== o || !isOpen(o) || AG.sig || AG.readError) return;
+    logError(`session view: nothing read for session ${o.session} after ${READ_WATCH_MS / 1000} s ${JSON.stringify({ reading: AG.inflight === o, pending: reading?.open === o ? [...reading.pending] : [], view: S.view, body: !!sessionBody(), ...visibilitySnapshot() })}`);
+  }, READ_WATCH_MS);
+}
+
+// The open session moved and its new machine lists it: the page follows it there.
+sessionsRead.add(() => {
+  if (S.view !== "agent" || !AG.open) return;
+  const there = movedTo(AG.open, moveStore.getState().records, sessions);
+  if (there) openAgent(there, { back: AG.back });
+});
+
+/// The logs drawn last, by session, to go back to as they were: switching
+/// between them puts their turns back without drawing them again. Out of the
+/// page they do no work; their clocks stop (`Since`).
+/// Each keeps the page it was drawn from, older entries read while it showed included.
+interface KeptLog { body: ChatBody; page: AgentPage }
+const keptLogs = new Map<string, KeptLog>();
+const KEPT_LOGS = 3;
+
+function keepLog(key: string, b: ChatBody, page: AgentPage) {
+  const prior = keptLogs.get(key);
+  if (prior && prior.body !== b) disposeLogShell(prior.body);
+  keptLogs.delete(key);
+  keptLogs.set(key, { body: b, page });
+
+  for (const [old, log] of keptLogs) {
+    if (keptLogs.size <= KEPT_LOGS) break;
+    keptLogs.delete(old);
+    disposeLogShell(log.body);
+  }
+}
+
+/// The open session's kept log takes its page as the reader leaves it.
+export function leaveLog() {
+  const log = AG.open && keptLogs.get(sessionKey({ machine_id: AG.open.machine_id, id: AG.open.session }));
+  if (log && AG.page) log.page = AG.page;
+}
+
+/// The page a session opens with: the one held in this window, or the kept log's when it
+/// reaches further back, with the newest held joined on.
+function keptPage(log: KeptLog | null, held: AgentPage | null): AgentPage | null {
+  if (!log || (held && held.earlier <= log.page.earlier)) return held;
+  return held ? joinRuns(log.page, held) : log.page;
+}
+
+/// Drops the kept log of a deleted session.
+export function forgetLog(s: { machine_id: string; id: string }) {
+  const key = sessionKey(s);
+  const log = keptLogs.get(key);
+  if (!log) return;
+  keptLogs.delete(key);
+  disposeLogShell(log.body);
+}
+
+export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;
+
+/// A `pushed` update always holds something new; a polled one is compared
+/// with the last read.
+export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = false, pushed = false) {
+  if (AG.page) page.session = nativeUpdate(AG.page.session, page.session);
+
+  if (isNativeSession(page.session.id)) {
+    const row = sessions.find(s => s.machine_id === page.session.machine_id && s.id === page.session.id);
+    if (row) keepNativeSession({ ...row, ...page.session });
+  }
+
+  const sig = pushed ? `pushed ${read}` : JSON.stringify(page);
+  const moved = pushed || sig !== AG.sig;
+  if (moved) { AG.sig = sig; AG.changed = Date.now(); }
+  if (page.session.question?.id !== AG.answering) AG.answering = null;
+  // A session opened with no folder (from a notice) draws again once a read gives it.
+  const placed = !AG.page?.session.cwd && !!page.session.cwd;
+  // The session closed or was taken over: the composer replaces the banner.
+  const field = !!AG.page && followsOnly(AG.page.session) !== followsOnly(page.session);
+  const news = hasNews(AG.page, page);
+  // The older entries held stay while the newest are read again.
+  AG.page = replace ? page : joinRuns(AG.page, page);
+  drawModelPill();
+  drawAgentHeading();
+  // The frame around the log is drawn again; the log itself stays.
+  if (placed) drawAgentFrame(false, sessionBody());
+  else if (field && $("#agconv")) drawAgentFrame(true, sessionBody());
+  // Back after a lost link, or something new came: earlier errors no longer hold.
+  AG.note = noteAfterRead({ note: AG.note, failed: AG.readError, link: AG.link, news });
+  AG.readError = "";
+  AG.link = LINKED;
+  AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
+  continueAfterTurn(page.session);
+  // The node holds the steers: show those another app sent, drop those it took.
+  syncSteers(AG.queue, page, read);
+  drawRest(moved, placed);
+  finishFirstRead(o, "ok");
+  void readUsage(o, page);
+  // The oldest turn shown has its prompt: read back until it does.
+  if (lacksPrompt(AG.page) && !AG.older.gaveUp) void loadOlder("prompt");
+}
+
+/// Draws the log again when the page `moved` or what shows with it changed; nothing the log
+/// shows changed: no draw.
+function drawRest(moved = false, placed = false) {
+  const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.answering, stoppingNow(), AG.queue.map(q => q.state), placed]);
+  if (!moved && rest === AG.rest) return;
+  // Only the page moved: the turns it left as they were keep their rows.
+  const news = rest === AG.rest;
+  AG.rest = rest;
+  drawAgentBody(undefined, true, false, news);
+}
+
+/// How long until an older node is asked again. Quiet sessions keep following.
+function agentDelay() {
+  const s = AG.page?.session;
+  if (!s || s.status === "ended") return AGENT_SLOW_MS;
+  const still = Date.now() - AG.changed;
+  // A question nobody answers for a while is asked about slowly; an answer
+  // from here or a notice reads it at once.
+  if (s.status === "asking" && still >= AGENT_SLOW_AFTER) return AGENT_SLOW_MS;
+  if (thinking && AGENT_ACTIVE.has(s.status)) return AGENT_THINK_POLL_MS;
+  // Once stopped, the turn ending shows as soon as it does.
+  if (!s.external && AGENT_ACTIVE.has(s.status)) return stoppingNow() ? AGENT_STOP_POLL_MS : AGENT_POLL_MS;
+  return still >= AGENT_SLOW_AFTER ? AGENT_SLOW_MS : AGENT_POLL_MS;
+}
+
+/// The session opened again was followed off screen: its model, drawn with
+/// the frame, counts as its first read.
+function shownFromModel(o: OpenAgent) {
+  const read = ++AG.polls;
+  AG.sig = `pushed ${read}`;
+  AG.changed = Date.now();
+  // Steers the node delivered while the session was away go.
+  if (AG.page) syncSteers(AG.queue, AG.page, read);
+  // Live: the connecting line under the kept log goes.
+  drawRest(true);
+  finishFirstRead(o, "ok");
+  if (AG.page) void readUsage(o, AG.page);
+}
+
+/// Follows the open session again after showing it or sending a message.
+export function resumeAgent() {
+  AG.changed = Date.now();
+  pollAgent();
+}
+
+// Put a shown log back before a read or a scroll event can mistake a
+// hidden view's reset for the reader scrolling up.
+function restoreAgentScroll() {
+  const b = sessionBody();
+  if (!b) return;
+  b.scrollTop = returnScroll(b, b.top ?? 0);
+  scrolledLog(b);
+  syncJump(b);
+}
+
+// A pane shown again resumes its subscription.
+window.addEventListener("agent-pane-shown", () => {
+  if (S.view === "agent") resumeAgent();
+});
+
+onShownChange(shown => {
+  if (AG.open && S.view === "agent") traceSession("visibility-changed", AG.open, { shown });
+
+  if (!shown) { clearTimeout(AG.timer); feed.leave(); }
+  else if (S.view === "agent") {
+    flushDraw();
+    restoreAgentScroll();
+    pollAgent();
+  }
+}, true);
+
+// A phone app back from the background may have been suspended, and its
+// links with it: each followed session reads on once from where it was,
+// and the open one falls back to a read if its stream does not answer.
+onShownChange(shown => {
+  if (!shown || !onPhone()) return;
+  feed.resync();
+  if (S.view === "agent") void pollAgent();
+});
+
+/// Shows the title saved for the open session in its head, and in the switcher, which lists it.
+/// A followed session pushes only when it works, so a read would not bring the title.
+async function retitleOpen(change: Retitled) {
+  const s = AG.page?.session;
+  if (!s || !retitle(s, change, [])) return;
+  const listed = change.title === null ? await loadSessions().catch(e => { console.warn("session titles:", e); return []; }) : [];
+  const now = AG.page?.session;
+  const shown = now && retitle(now, change, listed);
+  if (!shown || !AG.page) return;
+  AG.page.session = shown;
+  drawAgentHeading();
+}
+
+const titlesChanged = ambient(() => S.view === "agents" ? ensureSessions().then(() => drawAgents(false)) : undefined, AMBIENT_MS);
+listen<Retitled>("agent-title-changed", e => { void retitleOpen(e.payload); titlesChanged(); });
+
+// A notice about a session that asks may mean it was answered elsewhere.
+listen("sessions-changed", () => { if (AG.page?.session.status === "asking" && S.view === "agent") pollAgent(); });
+
+/// Whether the open session's turn runs, so Enter steers and ⌘. stops.
+export const turnRuns = () => {
+  const s = AG.page?.session;
+  return !!s && !s.external && !s.question && AGENT_ACTIVE.has(s.status);
+};
+
+/// Sends what the field holds: while the turn runs it steers it after its current tool call.
+export function submitAgentMessage(input: HTMLTextAreaElement) {
+  if (input.readOnly) return;
+  if (turnRuns()) steerMessage(input);
+  else void sendAgentMessage();
+}
+
+/// Whether the user stopped the open session's turn and it has not ended.
+export const stoppingNow = () => {
+  const s = AG.page?.session;
+  return !!s && AG.stopping?.id === s.id && AGENT_ACTIVE.has(s.status);
+};
+
+/// The harnesses that switch models in a running session.
+export const SWITCHES = new Set(["claude", "codex", "opencode", "flsh", "hermes"]);
+/// The model and thinking switched to in each session from here, by session.
+export const sessionPicks = new SessionPicks();
+
+/// Closes the open session, preserving its conversation for later.
+export async function closeOpenSession() {
+  const s = AG.page?.session, o = AG.open;
+  if (AG.draft || !s || !o || shownStatus(s) === "closing" || !sessionOffers({ ...s, status: shownStatus(s) }).close) return;
+  const closing = closeSession(s);
+  // Leave before the machine acknowledges the close.
+  agentBack(true);
+
+  try {
+    await closing;
+  } catch (e) {
+    if (isOpen(o) && paneShown()) {
+      AG.note = readError(e);
+      drawAgentBody();
+    } else {
+      showFailure(`Could not close session: ${readError(e)}`);
+    }
+  }
+}
+
+/// A session started outside Beep that only shows here: still running there,
+/// or of an agent Beep cannot take over. A closed one continues from the field.
+export function followsOnly(s: AgentRow) {
+  return isNativeSession(s.id) || (s.external && !(s.status === "ended" && canTakeOver(s.agent)));
+}

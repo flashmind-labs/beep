@@ -1,5 +1,5 @@
-import { useDialogRef } from "../ui/parts.ts";
-import { createRef, isValidElement, useLayoutEffect, useRef, useState, useEffect, lazy, Suspense, type ReactElement, type ReactNode } from "react";
+import { useDialogRef } from "../ui/parts.tsx";
+import { createRef, isValidElement, useLayoutEffect, useRef, useState, useEffect, lazy, Suspense, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
 import { AgentQueue } from "./queue-view.tsx";
@@ -7,6 +7,9 @@ import { AgentStopFace } from "./mode-view.tsx";
 import type { OutboxRow, Waiting } from "./agentqueue.ts";
 import type { Row } from "./mention-state.ts";
 import { Button } from "../ui/kit.tsx";
+import { Icon } from "../ui/icons.tsx";
+import { plural } from "../ui/format.ts";
+import { openViewer } from "../chat/media.tsx";
 
 // What the session's composer shows around its field: the queued steers,
 // attachments, the mention menu, the background work line, the pills and
@@ -172,6 +175,11 @@ const AttachmentSheet = lazy(async () => {
   } };
 });
 
+/// The x on an attachment chip; `data` names the data attribute that holds `index`.
+export function RemoveChip({ name, data, index, remove }: { name: string; data: string; index: number; remove(): void }) {
+  return <button type="button" aria-label={`Remove ${name}`} {...{ [data]: index }} onClick={remove}><Icon name="x" /></button>;
+}
+
 /// The input bar keeps one attachment control; its window shows every file.
 export function AttachmentBatch({ count, children }: { count: number; children: ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -182,11 +190,23 @@ export function AttachmentBatch({ count, children }: { count: number; children: 
 
   if (!count) return null;
 
-  return <><Button ref={trigger} className="attachment-count" onMouseDown={event => event.preventDefault()} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>{count} {count === 1 ? "file" : "files"}</Button>
+  return <><Button ref={trigger} className="attachment-count" onMouseDown={event => event.preventDefault()} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>{plural(count, "file", "files")}</Button>
     {open && <Suspense fallback={null}><AttachmentSheet onClose={dismiss}>
-      <header><b>{count} {count === 1 ? "attachment" : "attachments"}</b><Button ref={close} look="quiet" aria-label="Close attachments" onClick={dismiss}>Close</Button></header>
+      <header><b>{plural(count, "attachment", "attachments")}</b><Button ref={close} look="quiet" aria-label="Close attachments" onClick={dismiss}>Close</Button></header>
       <div ref={dialog} className="ag-att attachment-gallery" onClick={event => {
         if (!event.currentTarget.closest(".attachment-window")?.contains(document.activeElement)) close.current?.focus();
       }}>{children}</div>
     </AttachmentSheet></Suspense>}</>;
+}
+
+/// The chip of an image: its name and a preview that opens `images` at `index`.
+/// `listed` marks one of an indexed batch (expandable, drawn at once); a lone
+/// file's preview is drawn lazily.
+export function ImagePreview({ images, index, listed }: { images: { url: string; name: string }[]; index: number; listed: boolean }) {
+  const { url, name } = images[index];
+  const open = (event: MouseEvent<HTMLButtonElement>) => openViewer(images.map(a => ({ url: a.url, name: a.name, saves: true })), index, event.currentTarget.closest<HTMLElement>(".attachment-window") ?? undefined);
+
+  return listed
+    ? <button type="button" className="preview" data-att-preview={index} aria-label={`Preview ${name}`} title="Expand image" onClick={open}><img src={url} alt="" /><span className="nm">{name}</span></button>
+    : <button type="button" className="preview" aria-label={`Preview ${name}`} onClick={open}><img src={url} alt="" loading="lazy" /><span className="nm">{name}</span></button>;
 }

@@ -6,12 +6,12 @@ import { S } from "../src/bar/core.ts";
 import { SLOW_MS } from "../src/ui/active.ts";
 import { drawMove } from "../src/agents/move.ts";
 import { moveStore } from "../src/agents/move-store.ts";
-import { drawAgentFrame } from "../src/agents/session.ts";
+import { drawAgentFrame } from "../src/agents/session.tsx";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { imageLines } from "../src/agents/agentlog.ts";
 import { disposeQueue } from "../src/agents/messages.ts";
 import type { ChatBody } from "../src/ui/turn.ts";
-import { fillLog } from "../src/agents/logwindow.ts";
+import { fillLog } from "../src/agents/logwindow.tsx";
 
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { useStore } from "zustand";
 import { Button, Spinner } from "../ui/kit.tsx";
 import { Icon } from "../ui/icons.tsx";
-import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { skills, type SkillsState } from "./skills.ts";
 import { foundWhere, libraryProjects, placeText, plural, problemLines, skillPlace, urlText, whereChip, type FoundLibrary, type SkillLibrary } from "./skills-state.ts";
 

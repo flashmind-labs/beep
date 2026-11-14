@@ -36,11 +36,13 @@ case "$1" in
   remove)
     set -e
     prefix=$2
-    # Drop only this job's keychain. Restoring the list saved at the
-    # start would also drop one another job on this Mac added since.
+    # Drop only this job's keychain, by its full path. Restoring the list
+    # saved at the start, or matching by name, would also drop the keychain
+    # of another job signing on this Mac at the same time.
+    keychain=$(cd "$RUNNER_TEMP" && pwd -P)/$prefix-signing.keychain-db
     keychains=()
     while IFS= read -r current; do
-      [[ "$current" == */$prefix-signing.keychain-db ]] || keychains+=("$current")
+      [[ "$current" == "$keychain" || "$current" == "$RUNNER_TEMP/$prefix-signing.keychain-db" ]] || keychains+=("$current")
     done < <(security list-keychains -d user | sed 's/^ *"//; s/"$//')
     security list-keychains -d user -s "${keychains[@]}"
     security delete-keychain "$RUNNER_TEMP/$prefix-signing.keychain-db" || true

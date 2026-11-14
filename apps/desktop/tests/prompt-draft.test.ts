@@ -29,7 +29,7 @@ Object.assign(document, {
   createElement: () => ({ setAttribute() {}, className: "", hidden: false }),
   execCommand: () => false,
 });
-const { composeField, composeMessage } = await import("../src/chat/compose.ts");
+const { composeField, composeMessage } = await import("../src/chat/compose.tsx");
 
 const stored = new Map<string, string>();
 const storage = {

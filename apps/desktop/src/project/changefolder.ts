@@ -4,9 +4,9 @@
 // had stays on disk as it is.
 import { state } from "../center/state.ts";
 import { refresh } from "../center/refresh.ts";
-import type { MenuItem } from "../ui/menu.ts";
-import { openAddToMachine } from "./addmachine.ts";
-import { loadWhere } from "./loads.ts";
+import type { MenuItem } from "../ui/menu.tsx";
+import { openAddToMachine } from "./addmachine.tsx";
+import { loadWhere } from "./loads.tsx";
 
 /// Opens the sheet for `project` on `machine`, whose folder is `from` now.
 export function changeFolder(project: string, machine: { id: string; name: string }, from: string) {

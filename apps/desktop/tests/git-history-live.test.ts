@@ -1,7 +1,7 @@
 import { calls } from "./git-history-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { makeGitHistory } from "../src/review/history.ts";
+import { makeGitHistory } from "../src/review/history.tsx";
 import { topic, type MeshEvent } from "../src/ui/mesh-events.ts";
 import { SLOW_MS } from "../src/ui/active.ts";
 import type { HistoryPage } from "../src/review/history-state.ts";

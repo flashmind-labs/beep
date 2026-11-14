@@ -7,7 +7,7 @@ export type Period = "hour" | "today" | "day";
 /// How a machine answered (`Answer` in beep-report, externally tagged).
 export type Answer = "Answered" | "OlderNode" | "Silent" | { Offline: { reason: string } } | { Failed: { reason: string } };
 
-export interface MachineEntry {
+interface MachineEntry {
   id: string;
   name: string;
   kind: string;
@@ -17,12 +17,12 @@ export interface MachineEntry {
   os_version: string;
 }
 
-export interface FileEntry {
+interface FileEntry {
   path: string;
   bytes: number;
 }
 
-export interface Manifest {
+interface Manifest {
   version: number;
   sender: string;
   mesh: string | null;
@@ -37,7 +37,7 @@ export interface Manifest {
 }
 
 /// One collected file, its text already redacted.
-export interface DraftFile {
+interface DraftFile {
   path: string;
   text: string;
 }
@@ -54,7 +54,7 @@ export interface Sent {
   gh: boolean;
 }
 
-export type Step = "form" | "collecting" | "files" | "sending" | "sent" | "issue" | "failed";
+type Step = "form" | "collecting" | "files" | "sending" | "sent" | "issue" | "failed";
 
 export type ReportState = {
   step: Step;

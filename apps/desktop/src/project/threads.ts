@@ -2,7 +2,7 @@
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { Ago } from "../ui/format.ts";
 import { plural, reason } from "../ui/format.ts";
-import { openMenu, type MenuItem } from "../ui/menu.ts";
+import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
 import type { ThreadActions } from "./threaddetail-view.tsx";
 import type { ReviewSession } from "./projectbar.ts";

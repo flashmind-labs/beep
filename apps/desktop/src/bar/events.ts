@@ -1,7 +1,7 @@
 import "./keys.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
 import { bar, PANE } from "./core.ts";
-import { openViewer } from "../chat/media.ts";
+import { openViewer } from "../chat/media.tsx";
 import { forgetHeight } from "./size.ts";
 import { show } from "./views.ts";
 import { copyCode } from "../agents/turnrows.ts";

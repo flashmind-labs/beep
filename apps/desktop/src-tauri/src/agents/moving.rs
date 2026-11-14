@@ -8,7 +8,7 @@ use crate::{
 };
 use beep_fleet::{AskedWorktree, MoveAsk, MoveState, WorktreeMove};
 use beep_proto::{
-    ApiError,
+    ApiError, ModelId,
     node::{
         agent::{MovePhase, MoveProgress},
         mesh_state::SessionMove,
@@ -113,6 +113,7 @@ pub async fn session_move(
     worktree_folder: Option<String>,
     worktree_branch: Option<String>,
     mode: Option<String>,
+    model: Option<String>,
     stop: bool,
 ) -> Result<MoveView> {
     let ask = MoveAsk {
@@ -127,6 +128,7 @@ pub async fn session_move(
             branch: worktree_branch.as_deref().unwrap_or_default(),
         }),
         mode,
+        model: model.map(ModelId::new),
         stop,
     };
     Ok(desk(&fleet).await?.move_session(ask).await?.into())

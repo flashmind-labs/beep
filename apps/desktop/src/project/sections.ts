@@ -10,34 +10,33 @@ import type { Project, SessionRow } from "./projects-state.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import type { BarTarget, ReviewSession } from "./projectbar.ts";
 import { type BaseBranches, DEFAULT_CHECKOUT } from "../agents/agentpick.ts";
-import type { Picked } from "../agents/agentpicker.ts";
+import type { Picked } from "../agents/agentpicker.tsx";
 import type { AgentHost} from "../agents/agents.ts";
-import { lazyScreen, makeTerminals } from "../terminals/terminals.ts";
+import { lazyScreen, makeTerminals } from "../terminals/terminals.tsx";
 import type { BranchSessionRow } from "../review/history-state.ts";
-import { makeGitHistory } from "../review/history.ts";
+import { makeGitHistory } from "../review/history.tsx";
 import { sessions } from "../agents/sessions.ts";
 import { showChanges } from "../agentpane/media.ts";
 import { makeFileSync } from "./filesync.ts";
-import { changeFolder } from "./changefolder.ts";
 import { makeThreads, type IssueRow, type PullRequestRow, type RepoActs } from "./threads.ts";
-import { makeThreadDetail } from "./threaddetail.ts";
-import { makeRuns, type RunDetail } from "./runs.ts";
+import { makeThreadDetail } from "./threaddetail.tsx";
+import { makeRuns, type RunDetail } from "./runs.tsx";
 import { state, keptSection } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
-import { currentLocation, go, drawTop } from "../center/views.ts";
-import { openTile } from "./split.ts";
+import { currentLocation, go, drawTop } from "../center/views.tsx";
+import { openTile } from "./split.tsx";
 import { AG } from "../agents/agents.ts";
-import { barOn, drawProjectComp, workOnIssue, continuePr, reviewPr, earlierReview, fixRun, fixConflict } from "./composer.ts";
+import { barOn, drawProjectComp, workOnIssue, continuePr, reviewPr, earlierReview, fixRun, fixConflict } from "./composer.tsx";
 import { redrawSync } from "./syncpage.ts";
-import { openSyncRepair } from "./loads.ts";
-import { drawProjects } from "./page.ts";
+import { openSyncRepair } from "./loads.tsx";
+import { drawProjects } from "./page.tsx";
 
 /// The row of the project's list picked, null for the first, and a run to
 /// open on the Actions tile.
 export const pa = { tile: null as string | null, run: null as { project: string; id: number; host: string } | null };
 
 export const terms = makeTerminals({ invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => redrawProjects(), kept: keptSection("terminals") });
-export const fsync = makeFileSync({ invoke, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, fixGit: (project, machine, error) => void openSyncRepair(project, machine, error), changeFolder: (project, m) => changeFolder(project, { id: m.machine_id, name: m.machine_name }, m.folder), kept: keptSection("filesync") });
+export const fsync = makeFileSync({ invoke, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, fixGit: (project, machine, error) => void openSyncRepair(project, machine, error), kept: keptSection("filesync") });
 
 export const gitHistory = makeGitHistory({
   invoke,

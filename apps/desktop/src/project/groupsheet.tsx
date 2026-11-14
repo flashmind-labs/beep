@@ -1,10 +1,10 @@
 import { createRef, useLayoutEffect, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { invoke } from "../ui/tauri.ts";
-import { openSheet } from "../ui/parts.ts";
+import { openSheet } from "../ui/parts.tsx";
 import { addGroupFolder, groupPath, type ProjectGroup } from "./projects-state.ts";
 import { reason } from "../ui/format.ts";
-import { Button } from "../ui/kit.tsx";
+import { Button, SheetHead } from "../ui/kit.tsx";
 
 interface GroupSheetOptions {
   group?: ProjectGroup | null;
@@ -66,7 +66,7 @@ export function openGroupSheet(options: GroupSheetOptions) {
 
 function GroupSheet({ input, title, paths, error, saving, summary, add, remove, close, save }: { input: RefObject<HTMLInputElement | null>; title: string; paths: readonly string[]; error: string | null; saving: boolean; summary: string; add(): boolean; remove(path: string): void; close(): void; save(): void }) {
   useLayoutEffect(() => { input.current?.focus(); }, []);
-  return <><div className="am-head"><b>{title}</b><kbd>esc</kbd></div><div className="am-label">Folder</div>
+  return <><SheetHead title={title} /><div className="am-label">Folder</div>
     <div className="am-line"><input ref={input} className="gp-field" placeholder="~/Projects/work" spellCheck={false} autoCapitalize="off" /><Button onClick={add}>Add</Button></div>
     <div className="am-sub">Repos in this folder on any machine go in the group. ~/Projects/work and ~/work count as one folder.</div>
     {paths.map(path => <div className="gp-path" key={path}><span>{path}</span><Button look="quiet" danger small onClick={() => remove(path)}>Remove</Button></div>)}

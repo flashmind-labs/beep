@@ -3,6 +3,8 @@
 // text between two triple line breaks goes out in a code fence, and a
 // pasted path to a picture attaches the picture. No DOM here.
 
+import { plural } from "../ui/format.ts";
+
 /// A paste of more lines than this becomes a pill.
 export const PASTE_PILL_LINES = 10;
 /// How many pasted texts are kept for pills still in some field.
@@ -79,7 +81,7 @@ export class Pastes {
 
 /// The label a pill shows in the field.
 export function pillLabel(id: number, lines: number) {
-  return `${MARK}Pasted text · ${lines === 1 ? "1 line" : `${lines} lines`}${MARK}${id.toString(2).replace(/0/g, ZERO).replace(/1/g, ONE)}${MARK}`;
+  return `${MARK}Pasted text · ${plural(lines, "line", "lines")}${MARK}${id.toString(2).replace(/0/g, ZERO).replace(/1/g, ONE)}${MARK}`;
 }
 
 /// The pills in `value`, in order.
@@ -99,7 +101,7 @@ export function expandPills(value: string, pastes: Pick<Pastes, "get">) {
 
   for (const p of pillsIn(value)) {
     out += value.slice(at, p.start);
-    out += pastes.get(p.id) ?? `[Pasted text · ${p.lines === 1 ? "1 line" : `${p.lines} lines`}]`;
+    out += pastes.get(p.id) ?? `[Pasted text · ${plural(p.lines, "line", "lines")}]`;
     at = p.end;
   }
 

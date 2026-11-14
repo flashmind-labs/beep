@@ -12,7 +12,7 @@ test("first run remembers Start and closes the screen when another machine is li
   let machines = ["local"];
   Object.defineProperty(dom.window, "__TAURI__", { value: { core: { invoke: async (cmd: string) => cmd === "list_machines" ? machines : null, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, cleanup, waitFor } = await import("@testing-library/react");
-  const { firstRun } = await import("../src/center/firstrun.ts");
+  const { firstRun } = await import("../src/center/firstrun.tsx");
   try {
     await act(async () => { await firstRun(); });
     const start = screen.getByRole("button", { name: /^Start/ });

@@ -1,6 +1,6 @@
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
-import { conflictList, conflictPrompt, conflictTotal, fileSyncTile, machineMeta, originalOf, stateChip, stateNote, syncSummary, waitingList } from "../src/project/filesync.ts";
+import { conflictList, conflictPrompt, fileSyncTile, machineMeta, originalOf, stateChip, stateNote, syncSummary, waitingList } from "../src/project/filesync.ts";
 import type { MachineDetail, SyncDetail } from "../src/project/filesync.ts";
 
 function machine(over: Partial<MachineDetail> = {}): MachineDetail {
@@ -53,13 +53,6 @@ test("a conflict is fixed on the first online machine that has it", () => {
   ]));
   assert.equal(list[0].holder, "up");
   assert.equal(conflictList(detail([machine({ conflicts: [copy], status: "offline" })]))[0].holder, null);
-});
-
-test("the sidebar counts conflicts across projects, unread ones as none", () => {
-  const a = detail([machine({ conflicts: ["a (conflict 11111111).txt", "b (conflict 22222222).txt"] })]);
-  const b = detail([machine({ conflicts: ["c (conflict 33333333).txt"] }), machine({ machine_id: "m2", conflicts: ["c (conflict 33333333).txt"] })]);
-  assert.equal(conflictTotal([a, b, null, undefined]), 3);
-  assert.equal(conflictTotal([]), 0);
 });
 
 test("the file prompt names both files, merges, deletes the copy and does not commit", () => {

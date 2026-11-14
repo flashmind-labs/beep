@@ -1,14 +1,14 @@
 // Home's Open PRs and issues tab, and importing a repo from it.
 import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
-import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.ts";
+import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.tsx";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
-import { importFound } from "../addproject/addproject.ts";
+import { importFound } from "../addproject/addproject.tsx";
 import { projectsWithOpen, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
 import { state } from "./state.ts";
-import { draw } from "./home.ts";
-import { currentLocation, go } from "./views.ts";
-import { loadFound } from "./sidebar.ts";
+import { draw } from "./home.tsx";
+import { currentLocation, go } from "./views.tsx";
+import { loadFound } from "./sidebar.tsx";
 import { refresh } from "./refresh.ts";
 import { single } from "../ui/active.ts";
 

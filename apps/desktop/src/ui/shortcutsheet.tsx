@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { WINDOWS } from "./platform.ts";
-import { openSheet } from "./parts.ts";
+import { SheetHead } from "./kit.tsx";
+import { openSheet } from "./parts.tsx";
 import { filterShortcuts, SHORTCUTS, type ShortcutSection } from "./shortcuts.ts";
 
 let shut: (() => void) | null = null;
@@ -17,7 +18,7 @@ function ShortcutSheet({ all }: { all: readonly ShortcutSection[] }) {
   const [filter, setFilter] = useState("");
   const found = filterShortcuts(all, filter);
   return <>
-    <div className="am-head"><b>Keyboard shortcuts</b><kbd>esc</kbd></div>
+    <SheetHead title="Keyboard shortcuts" />
     <input className="ip-field ks-filter" type="text" placeholder="Filter" aria-label="Filter shortcuts"
       autoComplete="off" spellCheck={false} autoFocus value={filter} onChange={event => setFilter(event.currentTarget.value)} />
     <div className="ks-list">{found.length ? found.map(section =>

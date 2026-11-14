@@ -1,5 +1,5 @@
 import { AG, hostChanges, loadAgentHosts } from "../agents/agents.ts";
-import { renderSettings } from "../settings/settings.ts";
+import { renderSettings } from "../settings/settings.tsx";
 import { renderWaiting } from "./waiting.ts";
 
 /// Hosts stand until machines or accounts change.

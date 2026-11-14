@@ -1,13 +1,12 @@
-//! The checkout a folder is in, asked of git: its main folder (a worktree's
+//! The checkout a folder is in, read with gitoxide: its main folder (a worktree's
 //! is the checkout it was added to, a subfolder's the top) and its `origin`
 //! remote, and when its checked-out commit was made.
 //!
 //! Folder listings ask this of hundreds of folders at a time, so answers are
 //! kept while the files git read for them keep their stamps: a commit, a
 //! branch switch or a new remote rewrites one of them. A folder with no
-//! `.git` above it is in no checkout, and git is not asked at all.
+//! `.git` above it is in no checkout, and the repository is not opened.
 
-use crate::agents::work_folder::git;
 use crate::files::paths;
 use crate::lock;
 use beep_proto::node::agent::WorkPlace;
@@ -54,28 +53,39 @@ fn ask_checkout(dir: &Path) -> Option<Checkout> {
     Some(Checkout { root, origin })
 }
 
+/// The repository `dir` is in, found as git finds it.
+fn open(dir: &Path) -> Option<gix::Repository> {
+    gix::discover(dir).ok()
+}
+
 /// The top folder of the work tree `dir` is in, and of the repository's main
 /// checkout.
 fn folders(dir: &Path) -> Option<(PathBuf, PathBuf)> {
-    let said = git(dir, &["rev-parse", "--show-toplevel", "--git-common-dir"])?;
-    let mut lines = said.lines();
-    let top = PathBuf::from(lines.next()?.trim());
-    let common = PathBuf::from(lines.next()?.trim());
-    let main = main_folder(dir, &top, &common);
+    folders_of(&open(dir)?, dir)
+}
+
+/// Both resolved, as git prints them.
+fn folders_of(repo: &gix::Repository, dir: &Path) -> Option<(PathBuf, PathBuf)> {
+    let real = |path: &Path| paths::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let top = real(repo.workdir()?);
+    let main = main_folder(dir, &top, &real(repo.common_dir()));
     Some((top, main))
 }
 
 /// The checkout `dir` is in, as a session's place: whether it is a linked
 /// worktree of its repository, and the branch. `None` when `dir` is in no
-/// checkout or git is missing. Three runs of git: call it from a blocking
-/// task, and not for every update.
+/// checkout. Reads the repository's files: call it from a blocking task,
+/// and not for every update.
 pub(crate) fn place(dir: &Path) -> Option<WorkPlace> {
     GitFiles::above(dir)?;
-    let (top, main) = folders(dir)?;
+    let repo = open(dir)?;
+    let (top, main) = folders_of(&repo, dir)?;
     let real_top = paths::canonicalize(&top).unwrap_or_else(|_| top.clone());
-    let branch = git(dir, &["symbolic-ref", "--short", "-q", "HEAD"])
-        .map(|name| name.trim().to_owned())
-        .filter(|name| !name.is_empty());
+    let branch = repo
+        .head_name()
+        .ok()
+        .flatten()
+        .map(|name| name.shorten().to_string());
     Some(WorkPlace {
         linked: real_top != main,
         folder: top.to_string_lossy().into_owned(),
@@ -87,8 +97,12 @@ pub(crate) fn place(dir: &Path) -> Option<WorkPlace> {
 
 /// The `origin` remote of the checkout at `root`; empty when it has none.
 pub(super) fn origin(root: &Path) -> String {
-    git(root, &["remote", "get-url", "origin"])
-        .map(|url| url.trim().to_owned())
+    open(root)
+        .and_then(|repo| {
+            let remote = repo.find_remote("origin").ok()?;
+            let url = remote.url(gix::remote::Direction::Fetch)?;
+            Some(url.to_bstring().to_string())
+        })
         .unwrap_or_default()
 }
 
@@ -99,10 +113,8 @@ pub(crate) fn last_commit(root: &Path) -> Option<u64> {
     let files = GitFiles::above(root)?;
     let stamp = files.stamp(&files.head_files());
     COMMITS.get(root, stamp, || {
-        git(root, &["log", "-1", "--format=%ct"])?
-            .trim()
-            .parse()
-            .ok()
+        let seconds = open(root)?.head_commit().ok()?.committer().ok()?.seconds();
+        u64::try_from(seconds).ok()
     })
 }
 
@@ -124,7 +136,7 @@ fn main_folder(dir: &Path, top: &Path, common: &Path) -> PathBuf {
     let common = if common.is_absolute() {
         common.to_owned()
     } else {
-        // Relative to `dir`, as git prints it there, spelled as the user knows it.
+        // Relative to `dir`, spelled as the user knows it.
         match paths::canonicalize(dir.join(common)) {
             Ok(path) => path,
             Err(_) => return top.to_owned(),

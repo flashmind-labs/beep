@@ -2,6 +2,58 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.30] - 2026-11-14
+
+### Changed
+
+- beep-node: agent sessions always run in the project folder, which is
+  the repository's main checkout. A session asked to work in a worktree
+  runs in the project and is told to work in that worktree. A session
+  may use several worktrees and branches. Once its work merges, the
+  session is told to remove every worktree it created.
+
+### Fixed
+
+- beep-node: a session whose worktree was removed resumes in its project
+  folder after beep-node restarts, instead of failing to resume.
+- Node: a session goes on with the model it last ran on when it is
+  taken over again after the node restarted, or after the node stopped
+  without a clean shutdown, instead of the agent's default model.
+
+## [0.6.29] - 2026-11-14
+
+### Added
+
+- Node: a session keeps the emulator or simulator its agent last used with the `device` tool, also across a node restart.
+- Node: `agent list` takes a project name or `all` and shows every running
+  agent on every machine, not only the ones you started. Agents in the same
+  project can find each other whatever harness they run.
+- Node: `agent send` messages any agent from that list. The receiver gets the
+  message as a new turn and can reply with `agent send`. An agent takes at
+  most five messages from other agents between two messages from you, so
+  agents cannot keep each other talking.
+
+### Changed
+
+- Node: agents are told how to install and start an app on an emulator or
+  simulator, to reuse a device that is already on, and not to shut down one
+  the user may be using.
+
+### Performance
+
+- Node: a synced Git project checks only the branches that moved
+  when another machine announces its branches, instead of running Git
+  for every branch.
+- Node: a file or Git view whose read keeps failing retries less
+  often instead of up to four times a second.
+- Node: checking whether a path lies in a session's worktrees runs
+  Git again only after worktrees are added or removed.
+- Node: idle agent sessions share one process list read about once
+  a minute instead of each reading its own.
+- Node: Git sync and the project and session views read branches,
+  commits and repository folders directly instead of starting a Git
+  process for each question, which uses less battery.
+
 ## [0.6.28] - 2026-11-14
 
 ### Added

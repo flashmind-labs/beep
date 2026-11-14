@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
-import type { Machine } from "../src/machines/machines.ts";
+import type { Machine } from "../src/machines/machines.tsx";
 
 test("machine list retains focused rows through live updates and routes actions", async () => {
   const dom = new JSDOM("<!doctype html><div id='bar' data-mode='window'></div>", { url: "https://app.test" });

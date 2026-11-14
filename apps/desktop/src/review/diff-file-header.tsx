@@ -1,3 +1,4 @@
+import { Icon } from "../ui/icons.tsx";
 import { grouped, type DiffFile } from "./diff-state.ts";
 
 interface DiffFileHeaderProps {
@@ -18,7 +19,7 @@ export function DiffFileHeader({ file, count, readOnly, openLabel, onComment, on
     onClick={event => { if (!(event.target instanceof Element) || !event.target.closest(".dv-facts")) onToggle(true); }}
     onKeyDown={event => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onToggle(false); } }}>
     <span className="dv-chev"><span style={{ display: "grid" }}>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M9 6l6 6-6 6"/></svg>
+      <Icon name="twist" size={12} />
     </span></span>
     <span className="dv-path">
       {file.old_path && <>
@@ -48,9 +49,7 @@ export function DiffFileHeader({ file, count, readOnly, openLabel, onComment, on
       {openLabel !== null && file.status !== "deleted" && <button type="button" className="dv-btn icon" title={openLabel}
         onClick={event => { event.stopPropagation(); onOpen(); }}>
         <span style={{ display: "grid" }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
-            <path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/>
-          </svg>
+          <Icon name="panePdf" />
         </span>
       </button>}
     </span>

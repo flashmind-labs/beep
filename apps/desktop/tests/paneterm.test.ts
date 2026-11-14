@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { attach, dropTerm, paneTerm, termStatus } from "../src/agentpane/terminal.ts";
 import { P, closeTab, closePaneTabs, type MediaTab } from "../src/agentpane/media.ts";
-import { makeTerminals, ALL, LOST_MS, type Screen, type TermMessage, type TerminalRow } from "../src/terminals/terminals.ts";
+import { makeTerminals, ALL, LOST_MS, type Screen, type TermMessage, type TerminalRow } from "../src/terminals/terminals.tsx";
 import { indexedChannel } from "../src/ui/tauri.ts";
 
 const ROW: TerminalRow = {

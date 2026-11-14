@@ -1,5 +1,5 @@
 import { plural } from "../ui/format.ts";
-import { jump } from "../center/home.ts";
+import { jump } from "../center/home.tsx";
 import { machineDot, type MachineCard, type MacRow } from "./machine-state.ts";
 import { showMachineMenu, useThisMac } from "./table.ts";
 import { Button } from "../ui/kit.tsx";

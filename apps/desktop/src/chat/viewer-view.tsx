@@ -4,8 +4,8 @@ import { hintModel } from "../bar/hints.ts";
 import { HintView } from "../bar/hints-view.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { COPY_ICON, ICON } from "../ui/icons.tsx";
-import { viewerAct, viewerKeys, type ViewerPic } from "./media.ts";
-import { useDialogRef } from "../ui/parts.ts";
+import { viewerAct, viewerKeys, type ViewerPic } from "./media.tsx";
+import { useDialogRef } from "../ui/parts.tsx";
 import { pinchStep, zoomAt, type ImageView, type Touches } from "../agentpane/media-state.ts";
 import { Button } from "../ui/kit.tsx";
 

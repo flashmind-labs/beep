@@ -9,11 +9,11 @@ import { DESKTOP_LIMITS, Ghostty, loadGhostty, PHONE_LIMITS, RenderState, Termin
 import { GridRenderer, type FontSpec } from "./ghostty-render.ts";
 import { TerminalInput, type KeyInput, type MouseButton } from "./ghostty-input.ts";
 import { cellAt, fitGrid, routeKey, SYMBOLS_FONT, wheelAction, withSymbols, type Grid } from "./screen-state.ts";
-import { isTouchDevice, makeTouchBar } from "./touchbar.ts";
+import { isTouchDevice, makeTouchBar } from "./touchbar.tsx";
 import { ZOOMED } from "../ui/zoom-state.ts";
 import { APPLE, onPhone } from "../ui/platform.ts";
 import { logError } from "../ui/tauri.ts";
-import type { Screen } from "./terminals.ts";
+import type { Screen } from "./terminals.tsx";
 
 /// The terminal's colours, as the mock's terminal pane.
 const THEME = {

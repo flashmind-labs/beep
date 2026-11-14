@@ -78,6 +78,7 @@ body.cbody
               svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
       div#home-box.cc-box [hidden]
         div#view.cc-view
+          canvas.haze.painted-art [aria-hidden="true" height="15" width="272"]
           div.cc-mstrip
             div.m.off [title="This computer: Joining your machines"]
               span.ddot.off
@@ -225,14 +226,14 @@ body.cbody
                             span.w "after the current step"
                             button [data-act="edit" data-agq="0"] "Edit"
                             button [aria-label="Remove" data-agq="0"]
-                              svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                              svg [fill="none" height="12" stroke-linecap="round" stroke-width="3" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                           div.it.steer
                             span.lbl "Steer"
                             span.t [title="Then run clippy"] "Then run clippy"
                             span.w "after the current step"
                             button [data-act="edit" data-agq="1"] "Edit"
                             button [aria-label="Remove" data-agq="1"]
-                              svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                              svg [fill="none" height="12" stroke-linecap="round" stroke-width="3" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                     div [data-agent-work-line="true"] style(display)
                       button.ag-workline [aria-expanded="false" type="button"]
                         i

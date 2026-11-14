@@ -2,7 +2,9 @@
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
 use super::{
-    Agents, Begin, Command, Prompt,
+    AgentKind, Agents, Begin, Command, Prompt, checkout,
+    found::Agent,
+    moving,
     family::RemoteKid,
     session::{NODE_STOPPED, Session},
 };
@@ -13,8 +15,12 @@ use beep_proto::{
     node::agent::{Entry, ParentLink, SessionDevice, Status},
 };
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::Arc, time::Duration};
-use tokio::time::timeout;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
+use tokio::{task::spawn_blocking, time::timeout};
 
 /// How long resumed sessions wait for the user's agent settings before
 /// starting without them.
@@ -28,6 +34,18 @@ pub(super) const CONTINUE: &str = "The node restarted while you were working. Co
 /// The most transcript entries kept across a restart for an agent that
 /// does not replay its sessions.
 const KEPT_ENTRIES: usize = 1000;
+
+/// The most session models the note keeps, for sessions taken over later.
+const KEPT_MODELS: usize = 500;
+
+/// The model a session last ran on, kept so it goes on with it when it is
+/// taken over again after it ended.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct LastModel {
+    /// The agent's own id for the session.
+    session: String,
+    model: ModelId,
+}
 
 /// Why a session is read to start again.
 #[derive(Clone, Copy, PartialEq)]
@@ -140,6 +158,43 @@ impl Agents {
             .collect()
     }
 
+    /// The models sessions here last ran on, the ones running now last,
+    /// added to those kept from before.
+    pub(crate) fn last_models(&self) -> Vec<LastModel> {
+        // Copied out, as in `open_sessions`.
+        let sessions: Vec<Arc<Session>> = self.lock().values().cloned().collect();
+        let now: Vec<LastModel> = sessions
+            .iter()
+            .filter_map(|session| {
+                watched::read(&session.live, |live| {
+                    Some(LastModel {
+                        session: live.agent_session.clone()?,
+                        model: live.info.model.clone()?,
+                    })
+                })
+            })
+            .collect();
+        let mut kept = crate::lock(&self.last_models);
+        kept.retain(|old| !now.iter().any(|new| new.session == old.session));
+        kept.extend(now);
+        let over = kept.len().saturating_sub(KEPT_MODELS);
+        kept.drain(..over);
+        kept.clone()
+    }
+
+    /// Takes the models kept in the note from before the node started.
+    pub(crate) fn keep_models(&self, models: Vec<LastModel>) {
+        *crate::lock(&self.last_models) = models;
+    }
+
+    /// The model session `id`, by the agent's own id, last ran on here.
+    pub(super) fn last_model(&self, id: &str) -> Option<ModelId> {
+        crate::lock(&self.last_models)
+            .iter()
+            .rfind(|kept| kept.session == id)
+            .map(|kept| kept.model.clone())
+    }
+
     /// What it takes to start `session` again, read from its state in one
     /// go. The state is never read a second time while held: the second
     /// read waits behind a write that came in between, which waits on the
@@ -250,6 +305,7 @@ impl Agents {
             .named(&open.agent)
             .with_context(|| format!("this node no longer runs {}", open.agent))?;
         self.prepare(&kind).await?;
+        to_project(&kind, &open.session, &open.cwd).await;
         let cwd = open.cwd.to_string_lossy();
         let follows = open
             .parent
@@ -296,6 +352,28 @@ impl Agents {
         }
 
         Ok(())
+    }
+}
+
+/// Readies resumed session `id` of `kind`, kept for `cwd`, to run in its
+/// project folder when `cwd` is in a worktree (`Agents::start`): Claude
+/// Code's transcript goes along. A failure only costs the history.
+pub(super) async fn to_project(kind: &AgentKind, id: &str, cwd: &Path) {
+    if kind.name.parse::<Agent>() != Ok(Agent::Claude) {
+        return;
+    }
+
+    let (id, cwd) = (id.to_owned(), cwd.to_owned());
+    let moved = spawn_blocking(move || {
+        let Some(project) = checkout::project_of(&cwd) else {
+            return Ok(());
+        };
+        moving::rehome_claude(&id, &cwd, &project)
+    })
+    .await;
+
+    if let Ok(Err(e)) | Err(e) = moved.map_err(anyhow::Error::from) {
+        log::warn!("could not carry a Claude transcript to its project folder: {e:#}");
     }
 }
 

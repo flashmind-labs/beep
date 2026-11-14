@@ -7,6 +7,66 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.36] - 2026-11-14
+
+### Changed
+
+- Desktop: Home and Projects show a faint painted dawn band along the
+  top. It stays above the cards and never covers them.
+- Desktop: Home's board labels each project row with its name in small
+  mono text, in place of a bold heading with a rule. Lanes with no cards
+  have dimmer titles.
+- Desktop: Projects group and organization headers use small mono text
+  with tighter spacing. The "Add a project" row at the end of the list is
+  gone once projects exist. The button in the title bar stays.
+
+### Fixed
+
+- Desktop: a session moved to another machine keeps its model instead
+  of starting on the agent's default.
+
+## [0.8.35] - 2026-11-14
+
+### Performance
+
+- Desktop: Git sync and the project and session views read branches,
+  commits and repository folders directly instead of starting a Git
+  process for each question, which uses less battery.
+
+## [0.8.34] - 2026-11-14
+
+### Added
+
+- Desktop: each session remembers the emulator or simulator it last used, so its Device tab opens on that device again after a restart or on another desktop. A device that is no longer running is not shown and is forgotten.
+- Desktop: Cmd+F in the Changes tab opens its filter, which now matches changed lines as well as file names. Matching lines are listed under each file; click one to jump to it.
+- Desktop: a General setting, "Always use Beep sync over Syncthing", excludes every project from Syncthing on all machines, and each project imported later too.
+
+### Changed
+
+- Desktop: a session's project, branch and machine show on a line under
+  its title, so a long title and a long project name are no longer cut
+  against each other.
+- Desktop: an agent's sign-in shows numbered steps (open the page, paste
+  the code) with the link on one line, instead of the whole address in a
+  tall box.
+
+### Fixed
+
+- Desktop: file and attachment uploads keep running while bytes transfer, and time out only after 30 seconds without progress.
+- Desktop: the code in a diff can be selected and copied again.
+
+### Performance
+
+- Desktop: a synced Git project checks only the branches that moved
+  when another machine announces its branches, instead of running Git
+  for every branch.
+- Desktop: a file or Git view whose read keeps failing retries less
+  often instead of up to four times a second.
+- Desktop: checking whether a path lies in a session's worktrees runs
+  Git again only after worktrees are added or removed.
+- Desktop: idle agent sessions share one process list read about once
+  a minute instead of each reading its own.
+
 ## [0.8.33] - 2026-11-14
 
 ### Added

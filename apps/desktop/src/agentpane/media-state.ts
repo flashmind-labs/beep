@@ -232,7 +232,7 @@ export interface ImageView {
   fit: boolean;
 }
 
-export const ZOOM_MIN = 0.05;
+const ZOOM_MIN = 0.05;
 export const ZOOM_MAX = 16;
 
 /// The view that fits a `w` by `h` picture in a `bw` by `bh` box, centred,

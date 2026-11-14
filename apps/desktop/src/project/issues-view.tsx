@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import { LabelGroup, Row } from "./split-view.tsx";
-import type { LabelFilter, SplitItem } from "./split.ts";
+import type { LabelFilter, SplitItem } from "./split.tsx";
 import { Checkbox } from "../ui/kit.tsx";
 
 interface Props {

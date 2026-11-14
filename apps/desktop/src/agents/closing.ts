@@ -2,9 +2,7 @@ import { forgetView } from "../agentpane/view-memory.ts";
 // Running sessions disappear as soon as closing starts. A refusal restores them.
 import { invoke, listen } from "../ui/tauri.ts";
 import type { RunningAgent } from "./running-state.ts";
-import { Closings } from "./closing-state.ts";
-
-type Ref = { machine_id: string; id: string };
+import { Closings, type Ref } from "./closing-state.ts";
 
 const closings = new Closings();
 const listeners = new Set<() => void>();

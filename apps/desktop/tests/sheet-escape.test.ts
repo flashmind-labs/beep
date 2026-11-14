@@ -1,7 +1,7 @@
 import "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { openSheet, sheetAbove } from "../src/ui/parts.ts";
+import { openSheet, sheetAbove } from "../src/ui/parts.tsx";
 
 test("Escape closes the top sheet before Settings and other sheets", () => {
   const settings = document.createElement("div");

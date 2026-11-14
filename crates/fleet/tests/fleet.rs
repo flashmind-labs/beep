@@ -2647,6 +2647,7 @@ async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cann
             branch: "",
         }),
         mode: None,
+        model: None,
         stop: false,
     };
     let why = |result: Result<_, FleetError>| match result {
@@ -2744,6 +2745,7 @@ async fn a_session_that_entered_a_worktree_from_the_checkout_moves() {
             branch: "x",
         }),
         mode: None,
+        model: None,
         stop: false,
     };
 
@@ -2790,6 +2792,7 @@ async fn a_move_takes_folders_from_place_records_when_there_is_no_sync_record() 
         cwd: "/srv/build/app/crates/a",
         worktree: None,
         mode: None,
+        model: None,
         stop: false,
     };
     f.studio
@@ -3150,6 +3153,7 @@ async fn session_title_overrides_replicate_and_clear_without_changing_generated_
         external: false,
         question: None,
         subagents: 0,
+        model: None,
     };
     let mut refreshed = generated.clone();
     session_titles::apply(&other.mesh, &mut refreshed);

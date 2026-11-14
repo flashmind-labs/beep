@@ -6,6 +6,7 @@
 use super::{Env, Harness, rewrite, store};
 use crate::agents::{AgentKind, Begin, found::Agent};
 use anyhow::{Context, Result};
+use beep_proto::ModelId;
 use iroh::EndpointId;
 use std::{borrow::Cow, path::PathBuf};
 use tokio::task::spawn_blocking;
@@ -14,6 +15,8 @@ use tokio::task::spawn_blocking;
 pub(super) struct Arrival<'a> {
     pub(super) id: &'a str,
     pub(super) mode: Option<String>,
+    /// The model it ran on.
+    pub(super) model: Option<ModelId>,
     /// The machine that ran it.
     pub(super) from: EndpointId,
 }
@@ -76,6 +79,7 @@ pub(super) async fn resume(
         Begin {
             resume: Some(arrival.id.to_owned()),
             mode: arrival.mode.clone(),
+            model: arrival.model.clone(),
             note: Some(note),
             brief: Some(Cow::Owned(brief)),
             ..Begin::default()

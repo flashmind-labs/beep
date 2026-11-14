@@ -1,27 +1,27 @@
-import { closeChatFind, openChatFind, stepChatFind } from "../chat/find.ts";
+import { closeChatFind, openChatFind, stepChatFind } from "../chat/find.tsx";
 import { loadOlder } from "../agents/older.ts";
-import { logSearchSources, revealLogUnit, watchLogSearch } from "../agents/logwindow.ts";
+import { logSearchSources, revealLogUnit, watchLogSearch } from "../agents/logwindow.tsx";
 import type { ChatBody } from "../ui/turn.ts";
 import { commandKey, WINDOWS } from "../ui/platform.ts";
-import { closeAgentNewMenus, renderAgentNew } from "../agents/agentnew.ts";
+import { closeAgentNewMenus, renderAgentNew } from "../agents/agentnew.tsx";
 import { agentBack, agentKeys } from "../agents/agents.ts";
 import { $, bar, PANE, S, windowHooks } from "./core.ts";
 import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
 import { closeFilesMenu } from "../agentpane/files.ts";
-import { viewerKeys } from "../chat/media.ts";
+import { viewerKeys } from "../chat/media.tsx";
 import { newTerminal } from "../agentpane/media.ts";
-import { renderSettings } from "../settings/settings.ts";
+import { renderSettings } from "../settings/settings.tsx";
 import { waitingBack, waitingKeys } from "./waiting.ts";
 import { windowTakes } from "../ui/windowkeys.ts";
 import { invoke } from "../ui/tauri.ts";
-import { dialogOpen } from "../ui/parts.ts";
+import { dialogOpen } from "../ui/parts.tsx";
 
 // ---------- Keys ----------
 
 /// Normalize events dispatched on the document to its body.
 const target = (event: KeyboardEvent): Element => event.target instanceof Element ? event.target : document.body;
 
-export function back() {
+function back() {
   if (closeAgentNewMenus()) return;
   if (S.view === "agent" || S.view === "agentnew" || S.view === "agents") return agentBack();
   if (S.view === "waiting" && waitingBack()) return;

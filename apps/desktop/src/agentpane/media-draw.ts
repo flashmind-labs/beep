@@ -18,8 +18,8 @@ import { invoke } from "../ui/tauri.ts";
 import { runningCount } from "./running.ts";
 import { onShownChange } from "../ui/active.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
-import { openMenu, type MenuItem } from "../ui/menu.ts";
-import { writeClipboard } from "../ui/parts.ts";
+import { openMenu, type MenuItem } from "../ui/menu.tsx";
+import { writeClipboard } from "../ui/parts.tsx";
 import { type TabKind, ARTS, CHANGES, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
 import { type DockModel, type DockView, docked, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
 import { savedIn } from "../ui/platform.ts";
@@ -86,10 +86,10 @@ function publish(split: Record<Dock, string[]>) {
   place({ right: dockModel("right", split.right), bottom: dockModel("bottom", split.bottom) }, { phone: phone && { tabs: phone, selected: log ? "log" : P.on.bottom } });
 }
 
-/// On a phone the session shows one pane at a time: Log, the conversation, or one of the
+/// On a phone the session shows one pane at a time: Chat, the conversation, or one of the
 /// bottom dock's tabs filling the screen; mobile.css hides the dock's own strip.
 function phoneTabs(ids: string[]) {
-  return [{ id: "log", name: "Log" }, ...ids.map(id => ({ id, name: paneTabItem(id).name }))];
+  return [{ id: "log", name: "Chat" }, ...ids.map(id => ({ id, name: paneTabItem(id).name }))];
 }
 
 /// A tab picked in the phone's strip.

@@ -6,7 +6,7 @@ import { playwright, stubInit } from "./stub.mjs";
 const code = buildSync({
   stdin: { contents: `export { S } from "./src/bar/core.ts";
     export { AG } from "./src/agents/agents.ts";
-    export { openAgent, stopAgentFollow } from "./src/agents/session.ts";
+    export { openAgent, stopAgentFollow } from "./src/agents/session.tsx";
     export { steerMessage } from "./src/agents/messages.ts";
     export { setPaneShown } from "./src/ui/active.ts";`, resolveDir: process.cwd() },
   bundle: true, write: false, format: "iife", globalName: "steerCheck",

@@ -1,6 +1,6 @@
 import { answerHtml } from "./turnrows.ts";
 import type { AgentQuestion } from "./agents.ts";
-import { Button } from "../ui/kit.tsx";
+import { Button, Spinner } from "../ui/kit.tsx";
 
 /// A question on screen as its buttons show it: the key it was drawn for, whether
 /// each option allows, and whether an answer is on its way.
@@ -33,7 +33,7 @@ export function AgentStatus({ status, stopping }: { status: string; stopping: bo
   return <span className="dstate">{status === "ended" ? "Ended" : "Idle"}</span>;
 }
 export function AgentStopFace({ stopping }: { stopping: boolean }) {
-  return <><span className={stopping ? "dspin" : "dstopico"} />{stopping ? "Stopping" : "Stop"}</>;
+  return <>{stopping ? <Spinner /> : <span className="dstopico" />}{stopping ? "Stopping" : "Stop"}</>;
 }
 export function AgentPlan({ harness, plan, question, approvalKey, answering }: { harness: string; plan: string; question: AgentQuestion; approvalKey: string; answering: number | string | null }) {
   return <div className="ag-plan"><div className="h"><b>Plan ready</b><small>{harness} waits for you</small></div>{plan && <div className="dcoderen agent md" dangerouslySetInnerHTML={{ __html: answerHtml(plan) }} />}<div className="acts" ref={questionRef({ key: approvalKey, allows: question.options.map(option => option.allow), disabled: question.id === answering })}>{question.options.map((option, index) => <Button key={option.id} look={option.allow ? "primary" : "secondary"} data-agopt={index} data-agquestion={approvalKey} data-agallow={String(option.allow)} disabled={question.id === answering}>{option.name}</Button>)}</div></div>;

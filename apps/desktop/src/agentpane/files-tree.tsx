@@ -1,3 +1,4 @@
+import { Icon } from "../ui/icons.tsx";
 import { Checkbox, Spinner } from "../ui/kit.tsx";
 import { lazy, memo, Suspense, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { observeElementRect, useVirtualizer, type Rect, type Virtualizer } from "@tanstack/react-virtual";
@@ -123,8 +124,8 @@ interface FileRowProps { row: TreeRow; index: number; start: number; on: boolean
 /// One file or folder. A refresh draws again only the rows it changed.
 const FileRow = memo(function FileRow({ row, index, start, on, drop, measure }: FileRowProps) {
   return <div ref={measure} data-index={index} className={`agtr${on ? " on" : ""}${row.ignored ? " ign" : ""}${drop ? " drop" : ""}`} role="treeitem" aria-selected={on} id={rowId(row.path)} style={place(row.depth, start)} draggable data-fpath={row.path} data-ffolder={row.folder ? "1" : undefined} aria-expanded={row.folder ? row.open : undefined} title={row.path}>
-    <span className={`tw${row.folder && row.open ? " open" : ""}`}>{row.folder && (row.loading ? <Spinner /> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M9 6l6 6-6 6" /></svg>)}</span>
-    {row.folder ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg> : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="M14 3H6v18h12V7z" /><path d="M14 3v4h4" /></svg>}
+    <span className={`tw${row.folder && row.open ? " open" : ""}`}>{row.folder && (row.loading ? <Spinner /> : <Icon name="twist" />)}</span>
+    {row.folder ? <Icon name="paneFiles" /> : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="M14 3H6v18h12V7z" /><path d="M14 3v4h4" /></svg>}
     <span className="nm">{row.name}</span>{row.change && <span className={`gm ${row.change}`} title={marks[row.change][1]}>{marks[row.change][0]}</span>}
   </div>;
 }, (a, b) => a.index === b.index && a.start === b.start && a.on === b.on && a.drop === b.drop && a.measure === b.measure && sameRow(a.row, b.row));

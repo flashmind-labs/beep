@@ -1,21 +1,21 @@
 // The pane: the bar's views drawn inside the command center window, which
 // drives them through `pane`.
 import "./events.ts";
-import { type AgentPlace, renderAgentNew } from "../agents/agentnew.ts";
+import { type AgentPlace, renderAgentNew } from "../agents/agentnew.tsx";
 import { type AgentRow, renderAgents } from "../agents/agents.ts";
-import { openAgent } from "../agents/session.ts";
+import { openAgent } from "../agents/session.tsx";
 import { closePaneTabs, newTerminal, openTerminal, showChanges } from "../agentpane/media.ts";
-import type { TerminalRow } from "../terminals/terminals.ts";
+import type { TerminalRow } from "../terminals/terminals.tsx";
 import { sessions } from "../agents/sessions.ts";
 import { type BackTo, changeListeners, connectWindow, current, type PaneNow } from "./core.ts";
 import { mountPane } from "./keys.ts";
 import { loadHosts } from "./views.ts";
-import { renderMachines } from "../machines/machines.ts";
-import { renderSettings, settingsBack } from "../settings/settings.ts";
+import { renderMachines } from "../machines/machines.tsx";
+import { renderSettings, settingsBack } from "../settings/settings.tsx";
 import { setPaneShown } from "../ui/active.ts";
 
 /// What the window can open in the pane by name.
-export type PanePage = "agents" | "settings" | "machines";
+type PanePage = "agents" | "settings" | "machines";
 
 /// What the window can open in the pane: a page, or an agent view.
 export type PaneTarget =
@@ -55,7 +55,7 @@ export const pane = {
 
       if ("draft" in target) {
         // Loaded when needed: it brings in the project page, which only the command center has.
-        return import("../agents/draft.ts").then(m => {
+        return import("../agents/draft.tsx").then(m => {
           m.openDraft(target.draft.project, target.draft.machine);
           const { terminal } = target.draft;
           if (terminal === true) newTerminal(undefined, true); else if (terminal) openTerminal(terminal);

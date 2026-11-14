@@ -3,10 +3,10 @@
 // opens one in the bar, with its conversation and composer.
 import { flushSync } from "react-dom";
 import { type AgentSession, folderName } from "../agents/agents.ts";
-import { renderAgentNew } from "../agents/agentnew.ts";
+import { renderAgentNew } from "../agents/agentnew.tsx";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { placeRepo } from "../agents/place-state.ts";
-import { openAgent } from "../agents/session.ts";
+import { openAgent } from "../agents/session.tsx";
 import { ensureSessions, sessions, sessionsRead } from "../agents/sessions.ts";
 import { onClosing, sessionVisible } from "../agents/closing.ts";
 import type { Note } from "../center/notices-state.ts";
@@ -18,7 +18,8 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { $, bar, PANE, S } from "./core.ts";
 import { hintModel } from "./hints.ts";
 import { type BarPageSlot, openBarPage } from "./bar-app.tsx";
-import { sessionKey, waitingSessions, type WaitingSession } from "./waiting-state.ts";
+import { waitingSessions, type WaitingSession } from "./waiting-state.ts";
+import { sessionKey } from "../agents/conversation-state.ts";
 import type { WaitingRow } from "./waiting-view.tsx";
 
 const W = { sel: 0, query: "", rows: [] as WaitingSession[] };
@@ -56,7 +57,7 @@ function row({ session: s, kind }: WaitingSession): WaitingRow {
 }
 
 /// Draws the list; the list takes the focus with `focus`, or when it had it.
-export function drawWaiting(focus = false) {
+function drawWaiting(focus = false) {
   if (S.view !== "waiting") return;
   W.rows = pick();
   W.sel = Math.min(W.sel, Math.max(0, W.rows.length - 1));

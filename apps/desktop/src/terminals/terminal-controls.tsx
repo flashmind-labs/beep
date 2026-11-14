@@ -1,7 +1,7 @@
-import type { TerminalRow } from "./terminals.ts";
+import type { TerminalRow } from "./terminals.tsx";
 import { Button } from "../ui/kit.tsx";
 
-export type TerminalControlLink = "attaching" | "attached" | "detached" | "ended" | "view_only";
+type TerminalControlLink = "attaching" | "attached" | "detached" | "ended" | "view_only";
 export function TerminalHeader({ terminal, state, link, watching, focus, toggle, detach, attach, stop }: {
   terminal: TerminalRow; state: string; link: TerminalControlLink; watching: boolean;
   focus: () => void; toggle: () => void; detach: () => void; attach: () => void; stop: () => void;

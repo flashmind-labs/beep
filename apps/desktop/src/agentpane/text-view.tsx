@@ -38,7 +38,7 @@ const readScrolled = (key: string): Scrolled | null => {
   return saved && typeof saved === "object" && "top" in saved && "left" in saved && typeof saved.top === "number" && typeof saved.left === "number" ? { top: saved.top, left: saved.left } : null;
 };
 
-export function TextView({ tab, text }: { tab: MediaTab; text: TreeText; rev: number }) {
+export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
   const code = useRef<HTMLDivElement>(null);
   const rel = tab.rel ?? "", lang = languageOf(rel);
   const scrollKey = P.session ? `${viewKey(P.session.machine_id, P.session.id)}:file:${tab.id}` : null;

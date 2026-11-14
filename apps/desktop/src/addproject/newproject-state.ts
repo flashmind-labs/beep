@@ -89,7 +89,7 @@ export function shownName(form: NewProjectForm) {
 }
 
 /// "a", "a and b", "a, b and c".
-export function joined(names: readonly string[]) {
+function joined(names: readonly string[]) {
   if (names.length < 2) return names[0] ?? "";
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }

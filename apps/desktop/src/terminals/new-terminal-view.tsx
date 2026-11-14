@@ -1,5 +1,5 @@
 import { ChipToggle } from "../ui/kit.tsx";
-import type { TerminalPlace } from "./terminals.ts";
+import type { TerminalPlace } from "./terminals.tsx";
 import { Button } from "../ui/kit.tsx";
 
 export function NewTerminalFields({ places, machine, cwd, command, name, busy, choose, change, start, cancel }: {

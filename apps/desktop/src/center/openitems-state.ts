@@ -3,7 +3,7 @@
 import type { Project } from "../project/projects-state.ts";
 
 /// A saved git host, as `git_items` lists it (GitHostRow).
-export interface GitHostRow {
+interface GitHostRow {
   host: string;
   forgejo: boolean;
   account: string | null;

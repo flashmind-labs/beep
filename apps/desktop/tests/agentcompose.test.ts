@@ -8,18 +8,18 @@ import { S, connectWindow, windowHooks, type BackTo, type AgentReturn, type Wind
 import { AG, type AgentPage, type AgentRow, type AgentTask, agentBack, agentKeys, agentsList, drawAgents, usageLine } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
-import { closeOpenSession, pollAgent, sessionPicks } from "../src/agents/session.ts";
-import { agentHints } from "../src/agents/session-head.ts";
+import { closeOpenSession, pollAgent, sessionPicks } from "../src/agents/session.tsx";
+import { agentHints } from "../src/agents/session-head.tsx";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
-import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.ts";
+import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.tsx";
 import { disposeComposerUi, FieldControl } from "../src/agents/composer-ui.tsx";
 import { createElement } from "react";
 import { createDocumentView } from "../src/ui/document-root.tsx";
 import type { Waiting } from "../src/agents/agentqueue.ts";
 import { MN } from "../src/agents/workdrop.ts";
 import { agentMessage } from "../src/agents/session-frame.tsx";
-import { drawTasks } from "../src/agents/tasks.ts";
+import { drawTasks } from "../src/agents/tasks.tsx";
 import type { TranscriptUpdate } from "../src/agents/transcript-cache-state.ts";
 
 /// Polls follow the session only while the page shows.

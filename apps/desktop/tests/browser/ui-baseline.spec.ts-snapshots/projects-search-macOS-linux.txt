@@ -106,6 +106,7 @@ body.cbody
               svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
       div#home-box.cc-box [hidden]
         div#view.cc-view
+          canvas.haze.painted-art [aria-hidden="true" height="15" width="272"]
           div.cc-mstrip
             button.m [type="button"]
               span.busy.ddot [title="Online · 2 agents running"]
@@ -179,6 +180,7 @@ body.cbody
       div.cc-box
         div.cc-view [data-project]
           div style(display)
+            canvas.haze.painted-art [aria-hidden="true" height="33" width="272"]
             div.pj-toolbar
               div.pj-find [data-rac]
                 input#<id>.react-aria-Input [aria-label="Search projects" autocomplete="off" data-focus-visible="true" data-focused="true" data-rac placeholder="Search projects" spellcheck="false" tabindex="0" title type="search" value="gadget"] value="gadget" (focused)

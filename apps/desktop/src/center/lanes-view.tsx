@@ -4,7 +4,7 @@ import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "rea
 import { flushSync } from "react-dom";
 import { Icon } from "../ui/icons.tsx";
 import { Button, LineRow, onRowKey } from "../ui/kit.tsx";
-import { openMenu, type MenuAction } from "../ui/menu.ts";
+import { openMenu, type MenuAction } from "../ui/menu.tsx";
 import { heroCard, motionAllowed, movePlaying, setHeroCard, withMove } from "../ui/motion.ts";
 import { LANES, byLane, byProject, travelled, withoutProject, type Lane } from "./lanes-state.ts";
 
@@ -28,7 +28,7 @@ export interface BoardCard {
 }
 
 /// What a card's button does: one thing, or a menu of them.
-export type CardAction =
+type CardAction =
   | { kind: "run"; label: string; primary: boolean; run(): void }
   | { kind: "menu"; label: string; items: readonly MenuAction[] };
 

@@ -2856,6 +2856,7 @@ async fn ask_to_move_in(
         project: "proj".to_owned(),
         path: path.to_owned(),
         mode: None,
+        model: None,
         stop,
         at: 1_793_696_400_000,
         worktree: None,
@@ -3256,6 +3257,7 @@ async fn ask_to_move_worktree(
         project: "proj".to_owned(),
         path: String::new(),
         mode: None,
+        model: None,
         stop: false,
         at: 1_793_696_400_000 + at,
         worktree: Some(beep_proto::node::mesh_state::MovedWorktree {
@@ -3363,7 +3365,9 @@ async fn a_session_in_a_worktree_moves_with_its_branch_and_uncommitted_work() {
         "not committed\n"
     );
     let load = line_sent(&pair.work.path().join("sent-b.jsonl"), "session/load").await;
-    assert!(load.contains(&b_worktree.display().to_string()), "{load}");
+    // The session runs in the project folder; the worktree moved beside it.
+    let cwd = format!("\"cwd\":\"{}\"", pair.b_folder.display());
+    assert!(load.contains(&cwd), "{load}");
     // `a` lost nothing, and its worktree let go of the branch.
     assert_eq!(
         fs::read_to_string(a_worktree.join("notes.txt")).expect("kept"),
@@ -3475,7 +3479,9 @@ async fn a_syncthing_worktree_moves_with_local_commits_and_relocated_session_pat
         "on the branch\n"
     );
     let load = line_sent(&pair.work.path().join("sent-b.jsonl"), "session/load").await;
-    assert!(load.contains(&tree.display().to_string()), "{load}");
+    // The session runs in the project folder; the worktree moved beside it.
+    let cwd = format!("\"cwd\":\"{}\"", pair.b_folder.display());
+    assert!(load.contains(&cwd), "{load}");
     let moved = fs::read_to_string(
         pair.b
             .home
