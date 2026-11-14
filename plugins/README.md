@@ -170,12 +170,13 @@ paused: nothing is drawn, timers wait (overdue ones run once each when a window 
 again), and topic updates pile up, only the newest per topic and machine kept, and
 arrive then. A plugin cannot run while hidden.
 
-The host adds up the time a plugin spends in its script. A plugin that uses more than
-500 ms in any 60 seconds is stopped, with the reason, and shows nothing until its files
+The host adds up the CPU time a plugin uses in its script (time waiting for a busy
+machine does not count). A plugin that uses more than
+500 ms of CPU in any 60 seconds is stopped, with the reason, and shows nothing until its files
 change. The `plugins_status` command lists each plugin's id, name, version, description,
 `permissions` asked for, `approved` permissions, `source` (`local`, `git` or `dev`),
 `enabled`, `state` (`waiting`, `running`, `paused`, `disabled`, `needs-approval` with
-the `missing` permissions, or `stopped` with a `reason`), `usedMs` over the last minute
+the `missing` permissions, or `stopped` with a `reason`), `usedMs` (CPU time) over the last minute
 and `pendingTimers`. The desktop emits `plugins-status` when a plugin is added, removed
 or changes state.
 

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use cpu_time::ThreadTime;
 use rquickjs::context::EvalOptions;
 use rquickjs::{CatchResultExt, Context, Ctx, Function, Object, Persistent, Runtime};
 use thiserror::Error;
@@ -23,6 +24,7 @@ const PRELUDE: &str = include_str!("prelude.js");
 
 const MEMORY_LIMIT: usize = 16 * 1024 * 1024;
 const STACK_LIMIT: usize = 256 * 1024;
+/// CPU time one entry into the script may use.
 const CPU_BUDGET: Duration = Duration::from_millis(50);
 const MAX_TIMERS: usize = 64;
 const MIN_TIMER_MS: f64 = 16.0;
@@ -69,7 +71,7 @@ pub(crate) enum SandboxError {
     Image { src: String, reason: ImageError },
     #[error("invalid sprite: {0}")]
     Sprite(#[from] SpriteError),
-    #[error("used {used_ms} ms of script time in the last minute, the budget is {budget_ms} ms")]
+    #[error("used {used_ms} ms of CPU time in the last minute, the budget is {budget_ms} ms")]
     OverBudget { used_ms: u64, budget_ms: u64 },
 }
 
@@ -99,21 +101,46 @@ struct Timers {
     pending: Vec<(u32, Instant)>,
 }
 
-/// Wall time an entry into the script may take, enforced by the interrupt handler.
+/// CPU time the calling thread has used since `start`. A plugin waiting for a
+/// busy machine is not charged for the wait.
+struct Cpu(Option<ThreadTime>);
+
+impl Cpu {
+    fn start() -> Self {
+        Self(ThreadTime::try_now().ok())
+    }
+
+    /// `None` when the thread's clock cannot be read.
+    fn elapsed(&self) -> Option<Duration> {
+        self.0.as_ref().map(ThreadTime::elapsed)
+    }
+
+    /// Time to record, zero when the clock cannot be read.
+    fn spent(&self) -> Duration {
+        self.elapsed().unwrap_or_default()
+    }
+}
+
+/// CPU time an entry into the script may take, enforced by the interrupt
+/// handler. The handler runs on the thread that entered the script, so the
+/// thread's CPU clock is the right one.
 #[derive(Clone, Default)]
-struct Budget(Arc<Mutex<Option<Instant>>>);
+struct Budget(Arc<Mutex<Option<Cpu>>>);
 
 impl Budget {
     fn start(&self) {
-        *locked(&self.0) = Some(Instant::now() + CPU_BUDGET);
+        *locked(&self.0) = Some(Cpu::start());
     }
 
     fn stop(&self) {
         *locked(&self.0) = None;
     }
 
+    /// An unreadable clock counts as exceeded, so a loop cannot run unchecked.
     fn exceeded(&self) -> bool {
-        locked(&self.0).is_some_and(|deadline| Instant::now() > deadline)
+        locked(&self.0)
+            .as_ref()
+            .is_some_and(|cpu| cpu.elapsed().is_none_or(|used| used > CPU_BUDGET))
     }
 }
 
@@ -124,7 +151,7 @@ impl Sandbox {
         Self::load_metered(dir, now, Arc::new(Meter::new(crate::meter::BUDGET)))
     }
 
-    /// Like `load`, counting the plugin's script time in `meter`.
+    /// Like `load`, counting the plugin's CPU time in `meter`.
     pub(crate) fn load_metered(
         dir: &Path,
         now: Instant,
@@ -165,7 +192,7 @@ impl Sandbox {
 
         let subscriptions = Arc::new(Mutex::new(Subscriptions::new(&manifest.permissions)));
 
-        let started = Instant::now();
+        let started = Cpu::start();
         budget.start();
         let can_place = manifest.allows(Permission::UiAdd);
         let filename = manifest.entry.display().to_string();
@@ -198,7 +225,7 @@ impl Sandbox {
         });
         let drained = drain_jobs(&runtime);
         budget.stop();
-        meter.record(Instant::now(), started.elapsed());
+        meter.record(Instant::now(), started.spent());
         let (fire, emit, instances, invoke, render) = loaded?;
         drained?;
         check_meter(&meter)?;
@@ -352,12 +379,12 @@ impl Sandbox {
         &self,
         work: impl for<'js> FnOnce(&Ctx<'js>) -> Result<R, SandboxError>,
     ) -> Result<R, SandboxError> {
-        let started = Instant::now();
+        let started = Cpu::start();
         self.budget.start();
         let result = self.context.with(|ctx| work(&ctx));
         let drained = drain_jobs(&self.runtime);
         self.budget.stop();
-        self.meter.record(Instant::now(), started.elapsed());
+        self.meter.record(Instant::now(), started.spent());
         self.meter.set_timers(locked(&self.timers).pending.len());
 
         let value = result?;
@@ -425,7 +452,7 @@ fn subscribe_functions<'js>(
     ))
 }
 
-/// Fails when the plugin used more script time than its budget in the last minute.
+/// Fails when the plugin used more CPU time than its budget in the last minute.
 fn check_meter(meter: &Meter) -> Result<(), SandboxError> {
     let used = meter.used(Instant::now());
     if used > meter.budget() {

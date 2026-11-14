@@ -9,6 +9,7 @@ description = "Runs Beep plugins: TypeScript in a QuickJS sandbox that places UI
 
 [dependencies]
 blake3 = "1"
+cpu-time = "1.0.0"
 log = "0.4"
 mime_guess = "2"
 notify = "8"

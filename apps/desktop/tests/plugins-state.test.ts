@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assetRefs, clipBytes, connectPluginSlots, connectPluginTopics, connectPluginVisibility, connectPlugins, createInstanceBook, indexPlacements, instanceFits, instanceId, meshTopics, parsePlacements, parseWanted, placementsFor, pluginsStore, publishUi, sendPluginEvent } from "../src/plugins/plugins-state.ts";
-import type { InstanceBatch, SlotInstance, WantedTopic } from "../src/plugins/plugins-state.ts";
+import { assetRefs, clipBytes, connectPluginSlots, connectPluginTopics, connectPluginVisibility, connectPlugins, createInstanceBook, followPlugin, indexPlacements, instanceFits, instanceId, meshTopics, parsePlacements, parseWanted, placementsFor, pluginsStore, publishUi, sendPluginEvent, startDraft, typeInto } from "../src/plugins/plugins-state.ts";
+import type { InputDraft, InstanceBatch, SlotInstance, WantedTopic } from "../src/plugins/plugins-state.ts";
 
 const ref = (digit: string, mime = "image/png") => ({ hash: digit.repeat(64), mime });
 const image = { kind: "image", asset: ref("a"), width: 60, height: 48, pixelated: true };
@@ -380,4 +380,65 @@ test("the page tells the desktop whether it is visible, now and on each change",
   change(true);
 
   assert.deepEqual(calls, [["plugins_visible", { visible: true }], ["plugins_visible", { visible: false }], ["plugins_visible", { visible: true }]]);
+});
+
+test("a late echo of older text does not replace newer typing", () => {
+  let draft: InputDraft = startDraft("");
+  for (const typed of ["a", "ab", "abc"]) draft = typeInto(draft, typed);
+
+  // The plugin answers "a" and "ab" after the user typed "abc".
+  draft = followPlugin(draft, "a");
+  assert.equal(draft.text, "abc");
+  draft = followPlugin(draft, "ab");
+  assert.equal(draft.text, "abc");
+  draft = followPlugin(draft, "abc");
+  assert.deepEqual(draft, { text: "abc", pending: [] });
+});
+
+test("echoes that skip a value or arrive out of step keep the newest typing", () => {
+  let draft: InputDraft = startDraft("");
+  for (const typed of ["a", "ab", "abc"]) draft = typeInto(draft, typed);
+
+  // "ab" arrives first, which also settles "a".
+  draft = followPlugin(draft, "ab");
+  assert.deepEqual(draft, { text: "abc", pending: ["abc"] });
+
+  // The user types on before the last echo.
+  draft = typeInto(draft, "abcd");
+  draft = followPlugin(draft, "abc");
+  assert.deepEqual(draft, { text: "abcd", pending: ["abcd"] });
+  draft = followPlugin(draft, "abcd");
+  assert.deepEqual(draft, { text: "abcd", pending: [] });
+});
+
+test("a value the plugin sets on its own replaces the draft", () => {
+  let draft: InputDraft = startDraft("");
+  draft = typeInto(draft, "hello");
+  draft = followPlugin(draft, "hello");
+
+  // The plugin clears the field after a submit.
+  draft = followPlugin(draft, "");
+  assert.deepEqual(draft, { text: "", pending: [] });
+
+  // Typing then works as before.
+  draft = typeInto(draft, "x");
+  assert.deepEqual(followPlugin(draft, "x"), { text: "x", pending: [] });
+});
+
+test("a plugin value that was never sent replaces the draft and forgets older sends", () => {
+  let draft: InputDraft = startDraft("start");
+  draft = typeInto(draft, "start!");
+
+  draft = followPlugin(draft, "reset by plugin");
+  assert.deepEqual(draft, { text: "reset by plugin", pending: [] });
+  // The echo of the older send is now a plugin value too, since the page no longer waits for it.
+  assert.deepEqual(followPlugin(draft, "start!"), { text: "start!", pending: [] });
+});
+
+test("the page keeps a bounded list of values it waits for", () => {
+  let draft: InputDraft = startDraft("");
+  for (let index = 0; index < 200; index++) draft = typeInto(draft, "x".repeat(index + 1));
+
+  assert.equal(draft.pending.length, 64);
+  assert.equal(draft.text.length, 200);
 });

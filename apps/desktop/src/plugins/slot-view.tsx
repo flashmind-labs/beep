@@ -4,7 +4,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { onShownChange, pageShown } from "../ui/active.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { createSpriteDriver, createSpriteScript, type SpriteDriver } from "./sprite.ts";
-import { clipBytes, connectPluginSlots, connectPluginTopics, connectPluginVisibility, connectPlugins, instanceBook, instanceId, placementsFor, pluginsStore, publishUi, sendPluginEvent } from "./plugins-state.ts";
+import { clipBytes, connectPluginSlots, connectPluginTopics, connectPluginVisibility, connectPlugins, followPlugin, instanceBook, instanceId, placementsFor, pluginsStore, publishUi, sendPluginEvent, startDraft, typeInto } from "./plugins-state.ts";
 import type { CallbackId, ComposerShown, Placement, PluginAction, PluginNode, PluginPosition, SlotInstance } from "./plugins-state.ts";
 
 const bridge = { invoke: (cmd: string, args?: Record<string, unknown>) => invoke(cmd, args), listen };
@@ -125,10 +125,12 @@ function SpriteView({ node }: { node: Extract<PluginNode, { kind: "sprite" }> })
 
 const children = (nodes: readonly PluginNode[], plugin: string) => nodes.map((child, index) => <NodeView key={index} node={child} plugin={plugin} />);
 
-/// A text field that shows what is typed at once and follows the plugin's `value` when that changes.
+/// A text field that shows what is typed at once and follows the plugin's `value` when that changes. A late
+/// echo of older text does not replace newer typing.
 function PluginInput({ node, plugin }: { node: Extract<PluginNode, { kind: "input" }>; plugin: string }) {
-  const [text, setText] = useState(node.value);
-  useEffect(() => setText(node.value), [node.value]);
+  const [draft, setDraft] = useState(() => startDraft(node.value));
+  const { text } = draft;
+  useEffect(() => setDraft(current => followPlugin(current, node.value)), [node.value]);
 
   const keys = (event: KeyboardEvent<HTMLInputElement>) => {
     // The app's own keys stay out of a field, except its modifier shortcuts.
@@ -140,8 +142,9 @@ function PluginInput({ node, plugin }: { node: Extract<PluginNode, { kind: "inpu
   return <input type="text" className="pluginin pluginctl" aria-label={node.label} placeholder={node.placeholder} maxLength={MAX_INPUT_CHARS} value={text} spellCheck={false} autoComplete="off"
     onKeyDown={keys}
     onChange={event => {
-      setText(event.currentTarget.value);
-      if (node.onChange !== null) send(plugin, node.onChange, { kind: "text", value: event.currentTarget.value });
+      const { value } = event.currentTarget;
+      setDraft(current => typeInto(current, value));
+      if (node.onChange !== null) send(plugin, node.onChange, { kind: "text", value });
     }} />;
 }
 

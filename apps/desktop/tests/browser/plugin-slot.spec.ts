@@ -250,6 +250,27 @@ test("the open session's header reports its instance, and a header button press 
   await expect(field).toHaveValue("cleared");
 });
 
+test("a late echo of older text does not replace what the user typed since", async ({ page }) => {
+  await openSession(page, []);
+  const withValue = (value: string) => [inline("session.header", "build-box:notice-one", { kind: "input", label: "Session note", value, placeholder: "", onChange: 3, onSubmit: null })];
+  await page.evaluate(list => window.__navigation.emit("plugins-changed", list), withValue(""));
+  const field = page.getByRole("textbox", { name: "Session note" });
+  await field.click();
+  await page.keyboard.type("abc");
+
+  // The plugin answers "a" and "ab" late, then "abc".
+  for (const echo of ["a", "ab"]) {
+    await page.evaluate(list => window.__navigation.emit("plugins-changed", list), withValue(echo));
+    await expect(field).toHaveValue("abc");
+  }
+  await page.evaluate(list => window.__navigation.emit("plugins-changed", list), withValue("abc"));
+  await expect(field).toHaveValue("abc");
+
+  // A value the plugin sets on its own still shows.
+  await page.evaluate(list => window.__navigation.emit("plugins-changed", list), withValue(""));
+  await expect(field).toHaveValue("");
+});
+
 test("a composer slot with a control takes the pointer there only, and the cat still takes none", async ({ page }) => {
   const cat = placement("cat-idle.png");
   const press = { plugin: "composer-cat", slot: "composer", instance: "composer", position: { kind: "edge", align: "start", offset: 8, sink: 0 }, node: { kind: "button", label: "Poke", children: [], onPress: 2 } };
@@ -292,28 +313,50 @@ test("a sprite stacks its frames, shows the rest frame and takes no pointer", as
   expect(hit).toBe(false);
 });
 
+/// Freezes the page's clock before it loads, so a sprite's timers fire only when the test runs the clock.
+async function freezeClock(page: Page): Promise<void> {
+  await page.clock.install({ time: 0 });
+  await page.clock.pauseAt(1000);
+}
+
 test("a repeating motion changes the visible frame with no plugin traffic", async ({ page }) => {
+  await freezeClock(page);
   await openSession(page, [catSprite({ kind: "every", minMs: 100, maxMs: 100 }, 300)]);
   await expect.poll(() => visibleFrames(page)).toEqual([0]);
   const before = await traffic(page);
 
-  // The page plays the motion by itself, then rests, then plays it again.
-  await expect.poll(() => visibleFrames(page)).toEqual([1]);
-  await expect.poll(() => visibleFrames(page)).toEqual([0]);
-  await expect.poll(() => visibleFrames(page)).toEqual([1]);
+  // The page plays the motion by itself, then rests, then plays it again. Each step is
+  // exact: nothing moves until the clock runs.
+  await page.clock.runFor(99);
+  expect(await visibleFrames(page)).toEqual([0]);
+  await page.clock.runFor(1);
+  expect(await visibleFrames(page)).toEqual([1]);
+  await page.clock.runFor(299);
+  expect(await visibleFrames(page)).toEqual([1]);
+  await page.clock.runFor(1);
+  expect(await visibleFrames(page)).toEqual([0]);
+  await page.clock.runFor(100);
+  expect(await visibleFrames(page)).toEqual([1]);
 
   expect(await traffic(page)).toEqual(before);
   expect(before.filter(command => command === "plugins_event")).toEqual([]);
 });
 
 test("a motion that plays once starts at once and holds the rest frame after it", async ({ page }) => {
+  await freezeClock(page);
   await openSession(page, [catSprite({ kind: "once" }, 200)]);
 
   await expect.poll(() => visibleFrames(page)).toEqual([1]);
-  await expect.poll(() => visibleFrames(page)).toEqual([0]);
+  await page.clock.runFor(199);
+  expect(await visibleFrames(page)).toEqual([1]);
+  await page.clock.runFor(1);
+  expect(await visibleFrames(page)).toEqual([0]);
+  await page.clock.runFor(10_000);
+  expect(await visibleFrames(page)).toEqual([0]);
 });
 
 test("reduced motion holds the rest frame", async ({ page }) => {
+  await freezeClock(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   // A motion that plays at once would show frame 1 as soon as the sprite is drawn.
   await openSession(page, [catSprite({ kind: "once" })]);
@@ -327,6 +370,7 @@ test("reduced motion holds the rest frame", async ({ page }) => {
 });
 
 test("nothing animates while the window is hidden, and the desktop is told", async ({ page }) => {
+  await freezeClock(page);
   await openSession(page, [catSprite({ kind: "once" })]);
   await expect.poll(() => visibleFrames(page)).toEqual([1]);
 

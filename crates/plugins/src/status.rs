@@ -49,7 +49,7 @@ pub struct PluginStatus {
     pub enabled: bool,
     #[serde(flatten)]
     pub state: PluginState,
-    /// Script time over the last minute, in ms.
+    /// CPU time over the last minute, in ms.
     pub used_ms: u64,
     pub pending_timers: usize,
 }
@@ -132,7 +132,7 @@ impl Registry {
         self.visible = visible;
     }
 
-    /// The list as `list` gives it, with no script time or timers, so two
+    /// The list as `list` gives it, with no CPU time or timers, so two
     /// reads differ only when a plugin or its state did.
     pub(crate) fn list_without_cost(&self) -> Vec<PluginStatus> {
         let mut all = self.list(Instant::now());

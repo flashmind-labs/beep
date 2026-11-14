@@ -41,7 +41,7 @@ pub trait Handler: Send + Sync + 'static {
     fn wanted(&self, topics: &[Topic]);
 
     /// Something in the plugins' list or states changed, such as a plugin turned
-    /// off, stopped or installed. Read it with `Host::status`. Script time and
+    /// off, stopped or installed. Read it with `Host::status`. CPU time and
     /// pending timers do not count.
     fn status_changed(&self) {}
 }
@@ -198,7 +198,7 @@ impl Host {
         locked(&self.published.assets).get(hash).cloned()
     }
 
-    /// Every plugin's state, script time over the last minute and pending timers.
+    /// Every plugin's state, CPU time over the last minute and pending timers.
     pub fn status(&self) -> Vec<PluginStatus> {
         locked(&self.published.registry).list(Instant::now())
     }

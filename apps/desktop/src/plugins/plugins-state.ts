@@ -418,6 +418,30 @@ export function createInstanceBook(schedule: (run: () => void) => void): Instanc
 export type PluginAction = { kind: "press" } | { kind: "toggle"; value: boolean } | { kind: "text"; value: string };
 export interface PluginEvent { plugin: string; id: CallbackId; action: PluginAction }
 
+/// A text field's draft. `pending` holds the values sent to the plugin that it has not echoed back yet, oldest first.
+export interface InputDraft { text: string; pending: readonly string[] }
+
+/// Values sent and not yet echoed, at most. An echo older than these counts as a value the plugin set.
+const MAX_PENDING_ECHOES = 64;
+
+export const startDraft = (value: string): InputDraft => ({ text: value, pending: [] });
+
+/// The user typed `value`: it shows at once, and the plugin is sent it.
+export function typeInto(draft: InputDraft, value: string): InputDraft {
+  return { text: value, pending: [...draft.pending, value].slice(-MAX_PENDING_ECHOES) };
+}
+
+/// The plugin's value is now `value`. If it is one the page sent, it is an echo: it and the older ones are
+/// done, and what the user typed since stays. Anything else is the plugin's own value, such as a field it
+/// clears after a submit, and replaces the draft. A plugin that changes the text it was sent, to "a" after
+/// it got "A", looks like an echo when the page sent "a" before.
+export function followPlugin(draft: InputDraft, value: string): InputDraft {
+  const echoed = draft.pending.indexOf(value);
+  if (echoed < 0) return startDraft(value);
+
+  return { text: draft.text, pending: draft.pending.slice(echoed + 1) };
+}
+
 /// The slots on the page, reported to the host once `connectPluginSlots` ran.
 export const instanceBook = createInstanceBook(run => queueMicrotask(run));
 

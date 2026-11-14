@@ -7,13 +7,14 @@ use crate::sandbox::locked;
 
 /// The window the CPU figure covers.
 pub(crate) const WINDOW: Duration = Duration::from_secs(60);
-/// Script time a plugin may use in one window before it is stopped.
+/// CPU time a plugin may use in one window before it is stopped.
 pub(crate) const BUDGET: Duration = Duration::from_millis(500);
 /// Entries closer together than this share one record, so the record stays short.
 const MERGE: Duration = Duration::from_millis(250);
 
-/// Wall time a plugin spent inside its script over the last minute, and its
-/// pending timers. The caller passes the time, so a test can use its own clock.
+/// CPU time a plugin spent inside its script over the last minute, and its
+/// pending timers. The window moves on the time the caller passes, so a test can
+/// use its own clock; the amounts are CPU time measured by the sandbox.
 pub(crate) struct Meter {
     budget: Duration,
     used: Mutex<VecDeque<(Instant, Duration)>>,
@@ -33,7 +34,7 @@ impl Meter {
         self.budget
     }
 
-    /// Counts `spent` script time that ended at `now`.
+    /// Counts `spent` CPU time for an entry that ended at `now`.
     pub(crate) fn record(&self, now: Instant, spent: Duration) {
         let mut used = locked(&self.used);
         Self::expire(&mut used, now);
@@ -46,12 +47,14 @@ impl Meter {
         }
     }
 
-    /// Script time in the window that ends at `now`.
+    /// CPU time in the window that ends at `now`.
     pub(crate) fn used(&self, now: Instant) -> Duration {
         let mut used = locked(&self.used);
         Self::expire(&mut used, now);
 
-        used.iter().map(|(_, spent)| *spent).sum()
+        used.iter().fold(Duration::ZERO, |total, (_, spent)| {
+            total.saturating_add(*spent)
+        })
     }
 
     pub(crate) fn set_timers(&self, count: usize) {

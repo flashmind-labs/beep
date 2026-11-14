@@ -1581,19 +1581,25 @@ fn a_sprite_has_at_most_thirty_two_frames() {
 }
 
 #[test]
-fn a_plugin_over_its_script_time_budget_is_stopped() {
+fn a_plugin_over_its_cpu_budget_is_stopped() {
     let fixture = Fixture::new(
         r#""ui.add""#,
         r#"
         const word = beep.state("a");
         beep.place({ slot: "composer" }, () => beep.text(word.get()));
-        beep.after(20, () => { const end = Date.now() + 30; while (Date.now() < end) {} word.set("b"); });
+        beep.after(20, () => {
+          let n = 0;
+          for (let i = 0; i < 300000; i++) n += i;
+          word.set("b" + (n > 0));
+        });
         "#,
     );
     let start = Instant::now();
     let meter = Arc::new(Meter::new(Duration::from_millis(25)));
     let mut sandbox =
         with_composer(Sandbox::load_metered(&fixture.dir(), start, meter.clone()).unwrap());
+    // The meter now holds the whole budget, so any CPU the timer uses is over it.
+    meter.record(Instant::now(), Duration::from_millis(25));
     assert_eq!(meter.timers(), 1);
 
     let error = sandbox
