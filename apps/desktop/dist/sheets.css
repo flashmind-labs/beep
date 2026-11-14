@@ -105,7 +105,7 @@
    whose blur is on a layer behind it. */
 .fr-scrim { position: fixed; inset: 0; z-index: 40; display: grid; align-items: center; justify-items: start; padding: 0 max(6vw, 40px); background: var(--ink); overflow: hidden }
 .fr-scrim.under { z-index: 30 }
-.fr-scrim.fr-scrim > .dither-art { display: block; position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; opacity: 1; transform: none; image-rendering: pixelated }
+.fr-scrim.fr-scrim > .painted-art { display: block; position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; opacity: 1; transform: none; -webkit-mask-image: none; mask-image: none }
 .fr-card { position: relative; isolation: isolate; width: min(440px, 100%); padding: 24px 26px; border-radius: var(--radius); display: grid; gap: 16px }
 .fr-card::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: color-mix(in srgb, var(--ink) 80%, transparent); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent), 0 24px 70px -12px color-mix(in srgb, var(--shade, #000) 60%, transparent) }
 .fr-setup { width: min(480px, 100%) }

@@ -1,6 +1,7 @@
 body.cbody.mobile
   div.cwin [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
+      canvas.haze.painted-art [aria-hidden="true"]
       div.cc-head
       div.cc-brand
         b "Beep"

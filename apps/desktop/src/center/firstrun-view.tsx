@@ -4,7 +4,7 @@ import { useDialogRef } from "../ui/parts.ts";
 import { ITEMS, ITEM_NAMES, ITEM_ROLES, pending, ready, row, type Item, type Row, type Setup } from "./firstrun-state.ts";
 import type { SetupRun } from "./firstrun-setup.ts";
 import { Button } from "../ui/kit.tsx";
-import { SunriseArt } from "../ui/sunrise-art.tsx";
+import { SunriseArt } from "../ui/painted-art.tsx";
 
 type Step = { kind: "choose" } | { kind: "link" } | { kind: "setup"; run: SetupRun };
 

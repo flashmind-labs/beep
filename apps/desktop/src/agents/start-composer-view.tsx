@@ -1,4 +1,4 @@
-import { DitherArt } from "../ui/dither-art.tsx";
+import { SunriseArt } from "../ui/painted-art.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import { createPortal } from "react-dom";
 import { Fragment, useLayoutEffect, useMemo, useRef, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
@@ -79,7 +79,7 @@ export function StartComposerView({ nodes, choices, projectPicker, externalChoic
   const choice = (which: "project" | "host" | "folder") => () => actions.choice?.(which);
   const expanded = (which: ComposerOpen) => state.open === which;
   const sendLabel = state.centered ? state.busy ? "Starting" : "Start" : undefined;
-  return <>{state.centered && <section className="agc-intro"><DitherArt /><h3 aria-label={state.welcome}><span aria-hidden="true">{state.welcome.split(" ").map((word, index) => <Fragment key={index}>{index > 0 && " "}<span className="agc-word" style={{ "--word": index } as CSSProperties}>{word}</span></Fragment>)}</span></h3><p>A fresh idea. A tricky bug. A place to start.</p></section>}
+  return <>{state.centered && <section className="agc-intro"><SunriseArt replay={false} /><h3 aria-label={state.welcome}><span aria-hidden="true">{state.welcome.split(" ").map((word, index) => <Fragment key={index}>{index > 0 && " "}<span className="agc-word" style={{ "--word": index } as CSSProperties}>{word}</span></Fragment>)}</span></h3><p>A fresh idea. A tricky bug. A place to start.</p></section>}
     <div className={`box${state.invalid ? " err" : ""}${state.dropping ? " dropping" : ""}`} id={id("agbox")} ref={refs.box}>
       <textarea ref={refs.input} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label="Task for a coding agent" title={title} placeholder={state.placeholder}
         onInput={event => { grow(); actions.input?.(event.currentTarget.value); }}

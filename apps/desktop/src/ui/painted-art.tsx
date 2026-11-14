@@ -1,40 +1,56 @@
-// A sunrise over a harbour painted in short brush strokes, after Monet's
-// "Impression, Sunrise". The sun rises once, over RISE_MS, and the painting
-// is still from then on; with Reduce motion on it is drawn risen.
+// Scenes painted in short brush strokes, after Monet: a sunrise over a
+// harbour ("Impression, Sunrise") and the dawn haze of its sky alone. A scene paints
+// itself once and is still from then on; with Reduce motion on it is drawn
+// finished.
 import { useLayoutEffect, useRef } from "react";
 
-export function SunriseArt() {
+/// The sunrise. `replay` false shows it risen once it has played since the app opened.
+export function SunriseArt({ replay = true }: { replay?: boolean }) {
+  return <PaintedArt scene="sunrise" replay={replay} />;
+}
+
+/// The dawn haze, which fills in stroke by stroke the first time it shows.
+export function HazeArt() {
+  return <PaintedArt scene="haze" replay={false} />;
+}
+
+type Scene = "sunrise" | "haze";
+/// The scenes that have played since the app opened.
+const played = new Set<Scene>();
+
+function PaintedArt({ scene, replay }: { scene: Scene; replay: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useLayoutEffect(() => {
     const target = canvas.current;
     if (!target) return;
 
     let frame = 0, strokes: Stroke[] = [], began: number | null = null, last = 0;
-    const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const still = (!replay && played.has(scene)) || (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    played.add(scene);
     const paint = (now: number) => {
       began ??= now;
-      const risen = still ? 1 : Math.min(1, (now - began) / RISE_MS);
+      const done = still ? 1 : Math.min(1, (now - began) / PLAY_MS[scene]);
 
-      if (risen === 1 || now - last >= FRAME_MS) {
+      if (done === 1 || now - last >= FRAME_MS) {
         last = now;
-        draw(target, strokes, risen);
+        draw(target, strokes, done, scene);
       }
-      frame = risen < 1 ? requestAnimationFrame(paint) : 0;
+      frame = done < 1 ? requestAnimationFrame(paint) : 0;
     };
     const resized = new ResizeObserver(() => {
-      strokes = layStrokes(target.clientWidth, target.clientHeight);
+      strokes = layStrokes(target.clientWidth, target.clientHeight, scene);
       if (!frame) frame = requestAnimationFrame(paint);
     });
     resized.observe(target);
     return () => { resized.disconnect(); if (frame) cancelAnimationFrame(frame); };
-  }, []);
+  }, [scene, replay]);
 
-  return <canvas ref={canvas} className="dither-art sunrise-art" aria-hidden="true" />;
+  return <canvas ref={canvas} className={`painted-art ${scene}`} aria-hidden="true" />;
 }
 
-/// How long the sun takes to rise, and the time between two painted frames.
-const RISE_MS = 9000, FRAME_MS = 33;
-/// The side of one painted pixel in CSS pixels: 1 paints smoothly, more paints in blocks.
+/// How long each scene takes to paint itself, and the time between two painted frames.
+const PLAY_MS: Record<Scene, number> = { sunrise: 9000, haze: 2600 }, FRAME_MS = 33;
+/// The side of one painted pixel in CSS pixels: the scenes are painted in blocks.
 const PIXEL = 4;
 /// Where the water meets the sky, and where the sun stands across the width.
 const HORIZON = 0.58, SUN_X = 0.57;
@@ -60,23 +76,31 @@ function sequence(seed: number) {
 }
 
 /// The strokes for a canvas of this size: broad ones that cover it, then finer ones over them.
-function layStrokes(width: number, height: number): Stroke[] {
+function layStrokes(width: number, height: number, scene: Scene): Stroke[] {
   const next = sequence(7), strokes: Stroke[] = [];
+  // The haze is a narrow picture, painted with a finer brush.
+  const brush = scene === "haze" ? 0.55 : 1;
   const add = (x: number, y: number, length: number, thick: number) => {
-    const water = y / height > HORIZON;
-    strokes.push({ x, y, length: length * (0.7 + next() * 0.6), width: thick * (0.7 + next() * 0.6), tilt: (next() - 0.5) * (water ? 0.12 : 0.5), tint: next(), glint: next() });
+    const water = scene === "sunrise" && y / height > HORIZON;
+    strokes.push({ x, y, length: length * brush * (0.7 + next() * 0.6), width: thick * brush * (0.7 + next() * 0.6), tilt: (next() - 0.5) * (water ? 0.12 : 0.5), tint: next(), glint: next() });
   };
 
-  for (let y = 0; y < height + 10; y += 10) {
-    for (let x = 0; x < width + 26; x += 26) add(x + (next() - 0.5) * 20, y + (next() - 0.5) * 8, 40, 13);
+  for (let y = 0; y < height + 10; y += 10 * brush) {
+    for (let x = 0; x < width + 26; x += 26 * brush) add(x + (next() - 0.5) * 20 * brush, y + (next() - 0.5) * 8 * brush, 40, 13);
   }
-  for (let i = Math.round(width * height / 260); i > 0; i--) add(next() * width, next() * height, 18, 5);
+  for (let i = Math.round(width * height / (260 * brush * brush)); i > 0; i--) add(next() * width, next() * height, 18, 5);
 
   return strokes;
 }
 
-/// The colour of the scene at a point (both from 0 to 1), with the sun `rise` of its way up.
-function scene(u: number, v: number, aspect: number, rise: number, glint: number): Rgb {
+/// The colour of the haze at a point (both from 0 to 1): the sunrise's sky, warm in its top corner.
+function haze(u: number, v: number, glint: number): Rgb {
+  const corner = Math.hypot(u * 0.5, v * 1.6);
+  return mix(mix(SKY_LOW, SKY_HIGH, Math.min(1, v * 1.2 + glint * 0.2)), GLOW, Math.exp(-corner * corner / 0.12) * 0.8);
+}
+
+/// The colour of the sunrise at a point (both from 0 to 1), with the sun `rise` of its way up.
+function sunrise(u: number, v: number, aspect: number, rise: number, glint: number): Rgb {
   const sunV = HORIZON + 0.06 - rise * 0.3;
   const across = (u - SUN_X) * aspect, distance = Math.hypot(across, v - sunV);
 
@@ -93,12 +117,12 @@ function scene(u: number, v: number, aspect: number, rise: number, glint: number
   return lit ? mix(water, SUN, 0.35 + 0.65 * rise) : water;
 }
 
-function draw(target: HTMLCanvasElement, strokes: Stroke[], risen: number) {
+function draw(target: HTMLCanvasElement, strokes: Stroke[], done: number, scene: Scene) {
   const context = target.getContext("2d");
   const width = target.clientWidth, height = target.clientHeight;
   if (!context || !width || !height) return;
 
-  const scale = PIXEL > 1 ? 1 / PIXEL : Math.min(window.devicePixelRatio || 1, 2);
+  const scale = 1 / PIXEL;
   if (target.width !== Math.round(width * scale) || target.height !== Math.round(height * scale)) {
     target.width = Math.round(width * scale);
     target.height = Math.round(height * scale);
@@ -106,8 +130,9 @@ function draw(target: HTMLCanvasElement, strokes: Stroke[], risen: number) {
   context.setTransform(scale, 0, 0, scale, 0, 0);
   context.lineCap = "round";
 
-  // Slows as it climbs; the light comes up with it.
-  const rise = 1 - (1 - risen) ** 3, light = 0.5 + 0.5 * rise, aspect = width / height;
+  // The sun slows as it climbs and the light comes up with it; the haze is lit evenly.
+  const rise = 1 - (1 - done) ** 3, light = scene === "sunrise" ? 0.5 + 0.5 * rise : 0.95, aspect = width / height;
+  const colourAt = (u: number, v: number, glint: number) => scene === "sunrise" ? sunrise(u, v, aspect, rise, glint) : haze(u, v, glint);
   const stroke = (x: number, y: number, length: number, thick: number, tilt: number, colour: Rgb, shade: number) => {
     const dx = Math.cos(tilt) * length / 2, dy = Math.sin(tilt) * length / 2;
     context.strokeStyle = `rgb(${Math.round(colour[0] * shade)},${Math.round(colour[1] * shade)},${Math.round(colour[2] * shade)})`;
@@ -120,12 +145,19 @@ function draw(target: HTMLCanvasElement, strokes: Stroke[], risen: number) {
 
   // An underpainting, so no gap between strokes shows the page.
   for (let y = 0; y < height; y += 6) {
-    const colour = scene(0.05, y / height, aspect, rise, 0);
-    context.fillStyle = `rgb(${Math.round(colour[0] * light)},${Math.round(colour[1] * light)},${Math.round(colour[2] * light)})`;
+    const colour = colourAt(0.05, y / height, 0);
+    context.fillStyle = `rgb(${Math.round(colour[0] * light * 0.8)},${Math.round(colour[1] * light * 0.8)},${Math.round(colour[2] * light * 0.8)})`;
     context.fillRect(0, y, width, 6);
   }
 
-  for (const s of strokes) stroke(s.x, s.y, s.length, s.width, s.tilt, scene(s.x / width, s.y / height, aspect, rise, s.glint), light * (0.86 + s.tint * 0.28));
+  // The sunrise is repainted whole as the sun moves; the haze fills in stroke by stroke.
+  const shown = scene === "sunrise" ? strokes.length : Math.round(strokes.length * done);
+  for (let i = 0; i < shown; i++) {
+    const s = strokes[i];
+    stroke(s.x, s.y, s.length, s.width, s.tilt, colourAt(s.x / width, s.y / height, s.glint), light * (0.86 + s.tint * 0.28));
+  }
+
+  if (scene === "haze") return;
 
   // Masts in the haze along the horizon, then two boats and their shadows on the water.
   const horizon = height * HORIZON;

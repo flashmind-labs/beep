@@ -35,7 +35,8 @@ test("an idle window with working agents runs few callbacks, and nothing once hi
   await page.addInitScript(countCallbacks);
   await openDesktop(page);
   await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
-  await page.waitForTimeout(1000);
+  // The sidebar's painting fills in once as the window opens.
+  await page.waitForTimeout(3500);
 
   const home = await idle(page, 3000);
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);

@@ -1,6 +1,7 @@
 body.cbody
   div.cwin [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="46"]
       div.cc-head
       div.cc-brand
         b "Beep"
@@ -191,7 +192,7 @@ body.cbody
           svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
   div
     div.fr-scrim
-      canvas.dither-art.sunrise-art [aria-hidden="true" height="225" width="320"]
+      canvas.painted-art.sunrise [aria-hidden="true" height="225" width="320"]
       div.fr-card.fr-setup [aria-label="Set up this computer" role="dialog"]
         div.fr-head
           svg [aria-hidden="true" fill="currentColor" height="34" viewBox="0 0 28 28" width="34"]

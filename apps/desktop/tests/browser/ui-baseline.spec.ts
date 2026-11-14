@@ -500,8 +500,6 @@ async function openFirstRun(page: Page) {
   const env = { os: "macos", os_version: "macOS 26", arch: "aarch64", hostname: "build-box", cpus: 8, memory_mb: 16384, home: "/Users/me", avds: [], tools: [{ name: "git", version: "2.50.1" }, { name: "node", version: "25.9.0" }, { name: "claude", version: "2.1.0" }], logins: [] };
   await openDesktop(page, false, { center_home: home, list_machines: [{ ...machine(machineId, machineId, true, 0), env }] });
   await page.addInitScript(() => localStorage.removeItem("beep.firstRunDone"));
-  // The sun has risen: the painting is still, as with Reduce motion.
-  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.reload();
   await page.waitForFunction(() => window.__navigation.ready());
   await expect(page.getByRole("dialog", { name: "First run" })).toBeVisible();

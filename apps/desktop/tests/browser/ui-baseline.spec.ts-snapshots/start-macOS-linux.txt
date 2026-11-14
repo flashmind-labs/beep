@@ -1,6 +1,7 @@
 body.cbody
   div.cwin [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="46"]
       div.cc-head
       div.cc-brand
         b "Beep"
@@ -174,7 +175,7 @@ body.cbody
             div#agcomposer.agc-wrap
               form.cc-pjc.centered
                 section.agc-intro
-                  canvas.dither-art [aria-hidden="true" height="640" width="1500"]
+                  canvas.painted-art.sunrise [aria-hidden="true" height="160" width="375"]
                   h3 [aria-label="What are we building today?"]
                     span [aria-hidden="true"]
                       span.agc-word style(--word) "What"

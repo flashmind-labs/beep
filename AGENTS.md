@@ -26,7 +26,7 @@ Change the app's UI directly; there are no mockups. The committed screenshots of
 them with the change, and add one for a screen that has none.
 
 The desktop's style: a dark, Linear-style app with monospaced chrome, frosted
-glass on the layers that float, and dithered dot art for atmosphere.
+glass on the layers that float, and brush-stroke paintings for atmosphere.
 
 - Chrome (labels, tabs, buttons, statuses, numbers) is set in the mono face;
   reading text and titles stay in the sans.
@@ -34,8 +34,10 @@ glass on the layers that float, and dithered dot art for atmosphere.
 - Glass only on floating layers (palette, menus, dialogs, composers), never on
   reading areas. A blur on an element becomes what its fixed descendants are
   placed against, so put it on a layer behind.
-- Dithered art is still, drawn in the skin's colours, and never runs behind
-  words. No full-screen takeovers and no ambient animation.
+- The paintings (`src/ui/painted-art.tsx`) are drawn in blocks of short
+  strokes. One paints itself once and is still after that; words sit on a
+  panel or a clear patch, not on the strokes. No full-screen takeovers of
+  the desktop and no ambient animation.
 - The rules live in `apps/desktop/dist/native.css`, scoped away from the phone
   layout.
 

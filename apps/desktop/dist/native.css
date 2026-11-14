@@ -259,18 +259,16 @@ body:not(.mobile) .dcoder .q .dups .dbtn { min-height: 32px; padding: 0 12px; bo
 body:not(.mobile) .dcoder .q .dups .dbtn:hover:not(:disabled) { background: var(--elev) }
 body:not(.mobile) .dcoder .q .dups .dbtn.pri { box-shadow: none }
 
-/* The sidebar's backdrop: dots of the accent that fade out from the window's top corner. */
-body:not(.mobile) .cwin::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .4;
-  background-image: radial-gradient(circle, color-mix(in srgb, var(--accent) 75%, var(--fg)) 1px, transparent 1.6px), radial-gradient(circle, color-mix(in srgb, var(--accent) 75%, var(--fg)) .6px, transparent 1.1px);
-  background-size: 8px 8px, 8px 8px; background-position: 0 0, 4px 4px;
-  -webkit-mask-image: radial-gradient(95% 80% at 0% 0%, #000, transparent 80%); mask-image: radial-gradient(95% 80% at 0% 0%, #000, transparent 80%) }
-html[data-material="vibrant"] body:not(.mobile) .cwin::before { opacity: .3 }
+/* The sidebar's backdrop: the dawn haze painted down it (src/ui/painted-art.tsx), strongest at
+   the top and gone by the foot, faint enough for the rows over it to read. */
+body:not(.mobile) .cc-side { position: relative; isolation: isolate }
+body:not(.mobile) .cc-side > .painted-art { display: block; position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; opacity: .5; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent 82%); mask-image: linear-gradient(#000, transparent 82%) }
 
-/* ----- The start screen: a dithered sunset behind the headline (src/ui/dither-art.tsx), with the
+/* ----- The start screen: a painted sunrise behind the headline (src/ui/painted-art.tsx), with the
    composer as frosted glass over its water ----- */
-.dither-art { display: none }
+.painted-art { display: none; image-rendering: pixelated }
 body:not(.mobile) .cc-pjc.centered { position: relative; isolation: isolate }
-body:not(.mobile) .dither-art { display: block; position: absolute; z-index: -1; left: 50%; top: -96px; width: min(1180px, 160%); height: 600px; opacity: .85; transform: translateX(-50%); pointer-events: none }
+body:not(.mobile) .agc-intro > .painted-art { display: block; position: absolute; z-index: -1; left: 50%; top: -96px; width: min(1180px, 160%); height: 600px; opacity: .9; transform: translateX(-50%); pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent); mask-image: radial-gradient(closest-side, #000 45%, transparent) }
 body:not(.mobile) .cc-pjc.centered .agc-intro h3 { text-shadow: 0 2px 24px var(--ink) }
 body:not(.mobile) .cc-pjc.centered .agc-intro p { font-family: var(--mono); font-size: 12px; text-shadow: 0 1px 12px var(--ink) }
 /* Frosted glass: a light tint, a strong blur, a bright rim. */
@@ -280,8 +278,8 @@ body:not(.mobile) .cc-pjc.centered .box::before { background: color-mix(in srgb,
 /* The start screen fills its card on any window: the old 960px box cut the picture on a large one.
    The doubled id outranks the pane's own rule in center.css. */
 body:not(.mobile) #pane-box#pane-box > .dbar:has(.cc-pjc.centered) { width: 100%; max-width: none; border: 0; border-radius: 0; background: none; box-shadow: none }
-body:not(.mobile) .dither-art { width: 1500px; height: 640px; top: -156px }
-/* The words stand on a soft patch of the card's own colour, so the dots never run through them. */
+body:not(.mobile) .agc-intro > .painted-art { width: 1500px; height: 640px; top: -290px }
+/* The words stand on a soft patch of the card's own colour, so the strokes never run through them. */
 body:not(.mobile) .cc-pjc.centered .agc-intro { position: relative }
 body:not(.mobile) .cc-pjc.centered .agc-intro::after { content: ""; position: absolute; z-index: -1; inset: -34px 2% -6px; pointer-events: none; background: radial-gradient(closest-side, color-mix(in srgb, var(--ink) 92%, transparent) 55%, transparent) }
 body:not(.mobile) .cc-pjc.centered .agc-intro p { color: color-mix(in srgb, var(--fg) 78%, transparent) }

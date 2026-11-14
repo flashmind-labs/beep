@@ -4,6 +4,7 @@
 import { useLayoutEffect, type ReactNode } from "react";
 import { createStore, useStore } from "zustand";
 import { SideGrip } from "./sidewidth.tsx";
+import { HazeArt } from "../ui/painted-art.tsx";
 import type { ViewName } from "./state.ts";
 
 /// The places of the window that modules fill.
@@ -54,7 +55,7 @@ export function CenterWindow() {
   }, []);
 
   return <>
-    <aside className="cc-side" id="side" ref={refs.side}>{parts.sidebar}</aside>
+    <aside className="cc-side" id="side" ref={refs.side}><HazeArt />{parts.sidebar}</aside>
     <SideGrip />
     <div className="cc-main" id="main" ref={refs.main}>
       <div className="cc-top" data-tauri-drag-region="" ref={refs.top}>

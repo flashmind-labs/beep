@@ -1,6 +1,7 @@
 body.cbody
   div.cwin.side-collapsed [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="20"]
       div.cc-head
       div.cc-brand
         b "Beep"
