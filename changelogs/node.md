@@ -2,6 +2,24 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.30] - 2026-11-14
+
+### Changed
+
+- beep-node: agent sessions always run in the project folder, which is
+  the repository's main checkout. A session asked to work in a worktree
+  runs in the project and is told to work in that worktree. A session
+  may use several worktrees and branches. Once its work merges, the
+  session is told to remove every worktree it created.
+
+### Fixed
+
+- beep-node: a session whose worktree was removed resumes in its project
+  folder after beep-node restarts, instead of failing to resume.
+- Node: a session goes on with the model it last ran on when it is
+  taken over again after the node restarted, or after the node stopped
+  without a clean shutdown, instead of the agent's default model.
+
 ## [0.6.29] - 2026-11-14
 
 ### Added
