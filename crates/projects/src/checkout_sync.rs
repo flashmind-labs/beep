@@ -159,9 +159,14 @@ fn signed_out(output: &str) -> bool {
     .any(|sign| lower.contains(sign))
 }
 
-/// Reads the state of the checkout in `folder`.
+/// Reads the state of the checkout in `folder`, after a fetch.
 pub async fn read_state(shell: &dyn Shell, folder: &str) -> Result<CheckoutState> {
     parse_state(&run_script(shell, &state_script(folder), STATE_LIMIT).await?)
+}
+
+/// Reads the state of the checkout in `folder` from its local refs, without a fetch.
+pub async fn read_local_state(shell: &dyn Shell, folder: &str) -> Result<CheckoutState> {
+    parse_state(&run_script(shell, &local_state_script(folder), STATE_LIMIT).await?)
 }
 
 /// Pulls or pushes `branch` of the checkout in `folder`; the error is for the user.
