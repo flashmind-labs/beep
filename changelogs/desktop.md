@@ -7,6 +7,62 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.0] - 2026-11-14
+
+### Added
+
+- Desktop: plugins in the plugins folder load at runtime and can place UI on the message box, such as the example cat. Plugins can also follow the open session and react when its turn ends: the example cat looks happy. Prototype: set `BEEP_PLUGINS_DIR` to use another folder.
+- Desktop: plugins can add short text, buttons, switches and text fields to each session's row in the Coding agents list and to the open session's header, each knowing which session it belongs to. Plugin controls look like the app's own and work from the keyboard.
+- Desktop: `beep.log` and `console.log`, `console.warn` and `console.error`
+  lines from a plugin go to the Beep log file, tagged with the plugin's id.
+- Desktop: a plugin can keep small data between restarts with `beep.store`.
+  Removing the plugin deletes its data.
+- Desktop: a plugin can be split over several files with relative imports.
+- Desktop: a plugin names the plugin API version it needs in its manifest,
+  `"api": 1`. A plugin that needs a newer Beep shows why in Settings,
+  Plugins instead of running.
+- Desktop: coding agents can list your plugins, read a plugin's state and
+  recent log lines, and create new plugins. A new plugin waits until you
+  allow it in Settings, Plugins.
+- Desktop: a plugin with the "Give tools to your agents" permission can
+  offer its own tools, and agents can call them.
+- Desktop: a Plugins page in Settings lists your plugins with their source, permissions and state, and turns each on or off. Install one from a Git repository (`owner/repo`, an optional branch or tag and folder) or from a folder on your computer, update a Git plugin, or remove it after a confirmation.
+- Desktop: a plugin shows what it asks for, in plain words, before it installs or updates, and an update shows the permissions it adds. Nothing runs until you allow it.
+- Desktop: Beep ships a built-in plugin, the composer cat, a small animated
+  pixel cat that sits on the message box. It is on by default and needs no
+  approval. It updates with the app and cannot be removed.
+- Desktop: the composer cat can be turned off in Settings, Plugins. The
+  choice is kept.
+- Desktop: the cat on the message box follows the session. It types while
+  the agent works, shows a question mark when the agent asks something, and
+  reacts to how each turn ended: happy when it finishes, startled when you
+  stop it, sad when it fails, and yawns when it hits a limit.
+- Desktop: plugins can follow a session's turn state and outcome, play
+  one-shot sprite reactions, and fade or rise in and out.
+
+### Changed
+
+- Desktop: plugins cost nothing while idle. Animations are played by the page from
+  a declaration, so the example cat no longer wakes its plugin for every blink.
+- Desktop: plugin images are sent to the page once instead of in every update.
+- Desktop: a plugin can start only when the slot it draws in appears, and one that
+  draws only in slots stops a minute after they leave the page.
+- Desktop: plugins pause while no window is visible, and animations stop and show
+  their resting frame while the window is hidden or reduced motion is on.
+- Desktop: plugins in the app data folder run only after you allow the permissions they ask for, and stop again when an update asks for more. Plugins in the folder named by `BEEP_PLUGINS_DIR` still run without approval, for development.
+- Desktop: the Running tab shows one row per command the agent started, with the processes it spawned counted under it and listed when the row is clicked. Stop on a row stops the whole command. Rows show the command the agent ran instead of its shell wrapper, with shorter paths.
+
+### Fixed
+
+- Desktop: a plugin that uses more than half a second of script time in a minute is
+  stopped with a reason instead of slowing the app.
+- Desktop: a plugin's controls in the session header no longer cover the
+  title, usage or state when the window is narrow. They hide when there is
+  no room.
+- Desktop: the new-agent start screen could scroll sideways, shifting
+  the headline and composer under the sidebar. It now scrolls only
+  vertically.
+
 ## [0.8.39] - 2026-11-14
 
 ### Changed

@@ -2,6 +2,18 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.0] - 2026-11-14
+
+### Added
+
+- Node: agents on every machine get a `plugins` tool. On a machine without
+  the Beep desktop, the call goes to an online desktop in the mesh. It fails
+  with a clear message when no desktop is online.
+
+### Changed
+
+- Node: running session processes report the process that started them and a longer command line, so the desktop can group them and show the command inside an agent's shell wrapper.
+
 ## [0.6.33] - 2026-11-14
 
 ### Changed
