@@ -8,6 +8,7 @@
 //! - [`Interface`] represents one interface and its collected metadata.
 //! - [`get_default_interface`] and [`get_default_gateway`] are available with the `gateway` feature (default).
 //!
+#![allow(warnings)] // vendored upstream code
 pub mod interface;
 pub mod net;
 mod os;

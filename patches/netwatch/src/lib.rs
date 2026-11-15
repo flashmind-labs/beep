@@ -1,5 +1,6 @@
 //! Networking related utilities
 
+#![allow(warnings)] // vendored upstream code
 pub mod interfaces;
 pub mod ip;
 mod ip_family;
