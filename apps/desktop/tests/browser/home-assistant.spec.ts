@@ -28,3 +28,16 @@ test("Cmd+N on Home starts the assistant with its harness in the home folder", a
     { machineId: "build-box", agent: "flsh", cwd: null, prompt: "How is the widget project doing?", images: [], model: null, effort: "high", checkout: null, assistant: true },
   ]);
 });
+
+test.describe("on a phone", () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  test("New assistant on Home opens the assistant's start form", async ({ page }) => {
+    await openDesktop(page, false, { agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null } });
+    await expect(page.locator("body")).toHaveClass(/mobile/);
+    await page.getByRole("button", { name: "New assistant" }).tap();
+    await expect(page.locator("#agprompt")).toBeVisible();
+    await expect(page.locator("#agpillb .flsh")).toBeVisible();
+    await expect(page.locator("#agfoldb")).toBeHidden();
+  });
+});
