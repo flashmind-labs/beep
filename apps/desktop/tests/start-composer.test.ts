@@ -74,6 +74,9 @@ test("start composers consume Enter once and preserve Shift+Enter and compositio
     enter({ shiftKey: true }); enter({ isComposing: true });
     assert.equal(submitted, 3);
     enter(); assert.equal(submitted, 4);
+    // On a phone, Return adds a line.
+    Object.defineProperty(env.dom.window, "innerWidth", { value: 390, configurable: true });
+    assert.equal(enter(), true); assert.equal(submitted, 4);
   } finally { composer.dispose(); env.close(); }
 });
 

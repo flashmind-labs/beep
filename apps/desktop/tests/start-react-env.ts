@@ -4,6 +4,8 @@ export function startDom() {
   const dom = new JSDOM("<!doctype html><body><div id='bar'></div></body>", { url: "https://app.test" });
   Reflect.set(dom.window, "__TAURI__", Reflect.get(globalThis, "__TAURI__"));
   Object.assign(dom.window.HTMLElement.prototype, { attachEvent() {}, detachEvent() {} });
+  // jsdom has no media queries: answer as a desktop with a mouse.
+  Reflect.set(dom.window, "matchMedia", (query: string) => ({ matches: false, media: query, addEventListener() {}, removeEventListener() {} }));
   const previous = new Map<string, PropertyDescriptor | undefined>();
   for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, HTMLTextAreaElement: dom.window.HTMLTextAreaElement, HTMLInputElement: dom.window.HTMLInputElement, Element: dom.window.Element, Node: dom.window.Node, MutationObserver: dom.window.MutationObserver })) {
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
