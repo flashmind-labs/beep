@@ -1454,3 +1454,41 @@ fn a_running_file_send_shows_the_bytes_sent_until_it_ends() {
     let text = live.transcript(10).0.last().unwrap().text.clone();
     assert_eq!(text, "Beep: Send 1 file to build-box [completed]");
 }
+
+#[test]
+fn a_plan_step_keeps_when_it_ran_across_plan_updates() {
+    let plan = |steps: &[(&str, &str)]| {
+        let entries: Vec<Value> = steps
+            .iter()
+            .map(|(content, status)| json!({"content": content, "priority": "medium", "status": status}))
+            .collect();
+        update(json!({"sessionUpdate": "plan", "entries": entries}))
+    };
+    let mut live = live();
+
+    // Loaded history is not dated: nobody knows when it ran.
+    live.apply(&plan(&[("Build", "in_progress")]));
+    assert_eq!(live.info.state.plan[0].started_at, None);
+
+    live.info.state.status = Status::Idle;
+    live.info.state.plan[0].started_at = Some(5);
+    live.apply(&plan(&[
+        ("Build", "completed"),
+        ("Review", "in_progress"),
+        ("Ship", "pending"),
+        ("Skipped", "completed"),
+    ]));
+    let [build, review, ship, skipped] = &live.info.state.plan[..] else {
+        panic!("four steps");
+    };
+    assert_eq!(build.started_at, Some(5));
+    assert!(build.ended_at.is_some_and(|at| at > 5));
+    assert!(review.started_at.is_some() && review.ended_at.is_none());
+    assert_eq!((ship.started_at, ship.ended_at), (None, None));
+    assert!(skipped.started_at.is_some() && skipped.started_at == skipped.ended_at);
+
+    // A step taken up again runs once more.
+    live.apply(&plan(&[("Build", "in_progress")]));
+    assert_eq!(live.info.state.plan[0].started_at, Some(5));
+    assert_eq!(live.info.state.plan[0].ended_at, None);
+}

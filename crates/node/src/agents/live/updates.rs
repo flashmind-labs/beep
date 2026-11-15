@@ -91,19 +91,14 @@ impl Live {
                 self.count_subagents();
             }
             SessionUpdate::Plan(plan) => {
-                self.info.state.plan = plan
-                    .entries
-                    .iter()
-                    .take(MAX_PLAN)
-                    .map(|entry| PlanEntry {
-                        content: cut(&entry.content, MAX_LINE),
-                        status: match entry.status {
-                            PlanEntryStatus::InProgress => PlanStatus::InProgress,
-                            PlanEntryStatus::Completed => PlanStatus::Completed,
-                            _ => PlanStatus::Pending,
-                        },
-                    })
-                    .collect();
+                self.set_plan(plan.entries.iter().map(|entry| {
+                    let status = match entry.status {
+                        PlanEntryStatus::InProgress => PlanStatus::InProgress,
+                        PlanEntryStatus::Completed => PlanStatus::Completed,
+                        _ => PlanStatus::Pending,
+                    };
+                    (entry.content.as_str(), status)
+                }));
             }
             SessionUpdate::SessionInfoUpdate(info) => {
                 if let MaybeUndefined::Value(new) = &info.title
@@ -150,6 +145,44 @@ impl Live {
         }
 
         self.info.state != before || self.info.title != title
+    }
+
+    /// Replaces the plan with `steps`. A step keeps when it started and
+    /// ended from the step of the same text in the plan before; a live
+    /// session dates a step when it begins to run and when it stops.
+    pub(super) fn set_plan<'a>(&mut self, steps: impl Iterator<Item = (&'a str, PlanStatus)>) {
+        let before = std::mem::take(&mut self.info.state.plan);
+        let now = (self.info.state.status != Status::Starting).then(crate::agents::unix_now);
+
+        self.info.state.plan = steps
+            .take(MAX_PLAN)
+            .map(|(content, status)| {
+                let content = cut(content, MAX_LINE);
+                let was = before.iter().find(|step| step.content == content);
+                let mut started_at = was.and_then(|step| step.started_at);
+                let mut ended_at = was.and_then(|step| step.ended_at);
+
+                match status {
+                    PlanStatus::InProgress => {
+                        started_at = started_at.or(now);
+                        ended_at = None;
+                    }
+                    _ if started_at.is_some() => ended_at = ended_at.or(now),
+                    PlanStatus::Completed => {
+                        started_at = now;
+                        ended_at = now;
+                    }
+                    _ => {}
+                }
+
+                PlanEntry {
+                    content,
+                    status,
+                    started_at,
+                    ended_at,
+                }
+            })
+            .collect();
     }
 
     /// Whether the agent compacted the conversation since the last ask.

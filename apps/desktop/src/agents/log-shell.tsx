@@ -20,7 +20,10 @@ function sameQuestion(a: AgentQuestion | null, b: AgentQuestion | null) {
 }
 
 function samePlan(a: LogShell["plan"], b: LogShell["plan"]) {
-  return a.length === b.length && a.every((item, index) => item.status === b[index].status && item.content === b[index].content);
+  return a.length === b.length && a.every((item, index) => {
+    const other = b[index];
+    return item.status === other.status && item.content === other.content && item.count === other.count && JSON.stringify(item.subs) === JSON.stringify(other.subs);
+  });
 }
 
 function sameNote(a: LogShell["note"], b: LogShell["note"]) {

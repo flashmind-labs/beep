@@ -366,6 +366,12 @@ pub struct PlanEntry {
     pub content: String,
     #[serde(default)]
     pub status: PlanStatus,
+    /// Unix seconds when the step first ran, and when it stopped running;
+    /// absent from an older node and for a step of loaded history.
+    #[serde(default)]
+    pub started_at: Option<u64>,
+    #[serde(default)]
+    pub ended_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

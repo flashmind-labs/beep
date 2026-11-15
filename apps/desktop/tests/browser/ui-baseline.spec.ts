@@ -492,6 +492,22 @@ test("agent question", async ({ page }) => {
   await baseline(page, "agent-question");
 });
 
+test("agent plan with the subagents of a step", async ({ page }) => {
+  const sub = (title: string, status: string, sent_at: number) => ({ kind: "tool", sent_at, text: `${title} [${status}]\n[steps] 4\n[agent] general-purpose\n[session] subagent:claude:${sent_at}\n[model] claude-sonnet-5-5\nDone` });
+  const plan = [
+    { content: "Add the flag to sessions", status: "completed", started_at: 100, ended_at: 200 },
+    { content: "Answer the projects tool", status: "in_progress", started_at: 200, ended_at: null },
+    { content: "Write the changelog", status: "pending", started_at: null, ended_at: null },
+  ];
+  const entries = [...transcript, sub("Build the flag", "completed", 110), sub("Review the flag", "completed", 150), sub("Build the tool", "in_progress", 210)];
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "working" }, plan, entries } });
+  await expect(page.locator(".dcoder .plan .step")).toHaveText([/2 agents/, /1 agent/]);
+  await page.locator(".dcoder .plan .step").first().click();
+  await expect(page.locator(".dcoder .plan .subs .dsubrow")).toHaveText([/Build the flag/, /Review the flag/]);
+  await page.mouse.move(0, 0);
+  await baseline(page, "agent-plan-subagents");
+});
+
 test("agent with commands running and messages queued", async ({ page }) => {
   const steers = ["Also log each retry", "Then run clippy"];
   const tasks = ["cargo test -p sync", "npm run dev"].map((name, i) => ({ id: `task-${i}`, name, description: name, state: "running", can_stop: true, output_file: null, summary: null, entry: null }));

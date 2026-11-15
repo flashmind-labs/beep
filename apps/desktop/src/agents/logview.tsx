@@ -18,7 +18,8 @@ import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive, trackLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { showLogShell } from "./log-shell.tsx";
-import type { LogShell } from "./log-shell-view.tsx";
+import type { LogShell, PlanRow } from "./log-shell-view.tsx";
+import { stepAt } from "./plan-state.ts";
 import { connectingNote } from "./reconnect-state.ts";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.tsx";
 import { answerHtml, blockedReply } from "./turnrows.ts";
@@ -87,7 +88,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   const shell = { why, starting: s.status === "starting", log: !!units,
     question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
     questionKey: question ? questionKey(question, openOf(s)) : null,
-    answering: !!question && question.id === AG.answering, plan: p.plan.map(item => ({ ...item })), asking: s.status === "asking",
+    answering: !!question && question.id === AG.answering, plan: planRows(p), asking: s.status === "asking",
     error: p.error, external: s.external, note, retry };
   if (!showLog(b, shell, units, polled)) { AG.rest = ""; return; }
   // The pane follows the open conversation into its worktree.
@@ -305,6 +306,38 @@ function subData(at: number, inPane: boolean): SubagentRow {
       dismiss: inPane && st !== "working" && st !== "needs you", stoppable: !!kid && (st === "working" || st === "needs you"),
       result: !kid && !x.sub.session && AG.steps.get(at) ? x.sub.result || "The agent has not provided a readable conversation yet." : null,
       prompt: !inPane && x.prompt ? { text: x.prompt, open: AG.steps.get(at) ?? false } : null };
+}
+
+/// The plan's steps opened to their subagents, by session and the step's text.
+const openSteps = new Set<string>();
+const stepKey = (content: string) => `${AG.open?.session}\n${content}`;
+
+/// Opens or folds the step at `index` of the open session's plan.
+export function toggleStep(index: number) {
+  const step = AG.page?.plan[index];
+  if (!step) return;
+
+  const key = stepKey(step.content);
+  if (!openSteps.delete(key)) openSteps.add(key);
+  drawAgentBody();
+}
+
+/// The plan with the subagents of the entries shown under the step that
+/// ran when each started.
+function planRows(p: AgentPage): PlanRow[] {
+  const under = new Map<number, number[]>();
+
+  for (const at of subagentsShown(p)) {
+    const sent = p.entries[at - p.earlier].sent_at;
+    const step = sent == null ? null : stepAt(p.plan, sent);
+    if (step != null) under.set(step, [...(under.get(step) ?? []), at]);
+  }
+
+  return p.plan.map((item, index) => {
+    const ats = under.get(index) ?? [];
+    const open = ats.length > 0 && openSteps.has(stepKey(item.content));
+    return { status: item.status, content: item.content, count: ats.length, subs: open ? ats.map(at => ({ ...subData(at, true), dismiss: false })) : null };
+  });
 }
 
 function paneSubs(p: AgentPage) {

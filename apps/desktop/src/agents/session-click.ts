@@ -9,7 +9,7 @@ import { AG, openOf, where } from "./agents.ts";
 import { fullPic } from "./images.tsx";
 import { childRow } from "./nesting-state.ts";
 import { parentSession, keepNativeSession, loadSessions, sessions } from "./sessions.ts";
-import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub } from "./logview.tsx";
+import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub, toggleStep } from "./logview.tsx";
 import { toggleModelPicker, closeModelPicker } from "./modelpill.tsx";
 import { cycleMode } from "./modepill.tsx";
 import { answerAgentQuestion } from "./messages.ts";
@@ -58,6 +58,8 @@ export function agentClick(e: MouseEvent) {
     return drawAgentBody(clickedRow(prompt));
   }
 
+  const planStep = inLog<HTMLElement>("[data-planstep]");
+  if (planStep) return toggleStep(Number(planStep.dataset.planstep));
   const summary = target.closest<HTMLElement>("[data-subsummary]");
   if (summary) { const at = Number(summary.dataset.subsummary); AG.steps.set(at, !AG.steps.get(at)); drawAgentBody(); return; }
   const sub = inLogOrPane<HTMLElement>("[data-native]");

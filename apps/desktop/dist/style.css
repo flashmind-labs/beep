@@ -303,6 +303,13 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoder .row { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px }
 .dcoder .sec { font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim); padding: 8px 12px 2px }
 .dcoder .plan { display: grid; gap: 2px; padding: 0 12px }
+.dcoder .plan .step { padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font-family: inherit; text-align: left; cursor: default }
+.dcoder .plan .step:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
+.dcoder .plan .step:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.dcoder .plan .step > span:nth-child(2) { flex: 1; min-width: 0 }
+.dcoder .plan .step small { font: 11px var(--mono); color: var(--dim) }
+.dcoder .plan .step > svg { width: 12px; height: 12px; color: var(--dim) } .dcoder .plan .step[aria-expanded="true"] > svg { transform: rotate(90deg) }
+.dcoder .plan .subs { display: grid; gap: 2px; padding-left: 16px }
 .dcoder .files { display: grid; gap: 1px; padding: 0 12px; font-family: var(--mono); font-size: 12px }
 .dcoder .files span { display: flex; gap: 10px } .dcoder .files b { flex: 1; font-weight: 400; overflow-wrap: anywhere }
 .dcoder .q { margin: 10px 12px 0; padding: 10px; border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--warn) 6%, transparent); display: grid; gap: 6px; font-size: 13px; line-height: 19px }

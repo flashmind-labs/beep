@@ -35,6 +35,7 @@ import { AGENT_ACTIVE, TAKEOVER } from "./sessionmenu-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { jumpToStart, loadOlder, logJumpKey, nearTop } from "./older.ts";
 import { jumpToLatest } from "./logview.tsx";
+import type { PlanStep } from "./plan-state.ts";
 import { pageDirection } from "./logkeys-state.ts";
 import type { OlderStop } from "./older-state.ts";
 import { closeModelPicker, toggleModelPicker } from "./modelpill.tsx";
@@ -129,7 +130,7 @@ export interface AgentToolCall {
 export interface AgentPage {
   model?: string | null;
   session: AgentRow;
-  plan: { content: string; status: string }[];
+  plan: PlanStep[];
   files: string[];
   last_message: string;
   error: string | null;
