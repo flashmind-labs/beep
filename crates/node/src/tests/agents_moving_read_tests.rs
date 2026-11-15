@@ -636,9 +636,14 @@ async fn the_checkout_lists_only_the_sessions_worktrees_that_are_still_there() {
 async fn a_worktree_comes_with_its_new_commits_and_uncommitted_work() {
     let (_dir, main, server) = project_server().await;
     let (tx, rx) = stream(&server).await;
-    let fetched = super::read::worktree(tx, rx, ID, ".worktrees/feat", true)
-        .await
-        .expect("the worktree");
+    let base = git(&main, &["rev-parse", "HEAD"]);
+    let ask = super::read::WorktreeAsk {
+        id: ID,
+        path: ".worktrees/feat",
+        base: &base,
+        bundle: true,
+    };
+    let fetched = super::read::worktree(tx, rx, &ask).await.expect("the worktree");
     assert_eq!(
         fetched.work.head,
         git(&main.join(".worktrees/feat"), &["rev-parse", "HEAD"])
@@ -651,7 +656,13 @@ async fn a_worktree_comes_with_its_new_commits_and_uncommitted_work() {
 async fn a_worktree_the_session_did_not_make_is_refused() {
     let (_dir, _main, server) = project_server().await;
     let (tx, rx) = stream(&server).await;
-    let refused = super::read::worktree(tx, rx, ID, ".worktrees/other", false)
+    let ask = super::read::WorktreeAsk {
+        id: ID,
+        path: ".worktrees/other",
+        base: "",
+        bundle: false,
+    };
+    let refused = super::read::worktree(tx, rx, &ask)
         .await
         .expect_err("not the session's");
     assert!(format!("{refused:#}").contains("refused"), "{refused:#}");

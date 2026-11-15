@@ -4,6 +4,7 @@
 //! Everything here blocks: call it from `spawn_blocking`.
 
 use super::read::MovingWorktree;
+use serde::{Deserialize, Serialize};
 use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use std::{
@@ -98,7 +99,7 @@ impl Work {
 }
 
 /// How the worktree for a move is got.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) enum Placed {
     /// Made for the move.
     Made,
@@ -270,7 +271,15 @@ pub(super) fn moving(main: &Path, made: &[String]) -> Vec<MovingWorktree> {
     made.iter()
         .filter_map(|made| {
             let dir = paths::canonicalize(Path::new(made)).ok()?;
-            let relative = dir.strip_prefix(&main).ok()?.to_str()?.to_owned();
+            // Named with `/` whatever this machine's separator, so the
+            // target reads it the same.
+            let relative = dir
+                .strip_prefix(&main)
+                .ok()?
+                .components()
+                .map(|part| part.as_os_str().to_str())
+                .collect::<Option<Vec<_>>>()?
+                .join("/");
             let branch = listed
                 .iter()
                 .find(|(there, _)| same_folder(there, &dir))?
@@ -495,6 +504,36 @@ pub(super) fn attach(main: &Path, path: &Path, branch: &str, work: &Work) -> Res
     }
 
     Ok(placed)
+}
+
+/// Takes back what `attach` placed at `path` for a move that did not
+/// happen, only while it holds exactly `applied` (a `fingerprint`): a
+/// worktree made for it goes, a reused one is detached at its old commit
+/// again. Anything else is the user's, and stays.
+pub(super) fn take_back(main: &Path, path: &Path, placed: &Placed, applied: &str) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    if fingerprint(path)? != applied {
+        bail!("{} holds changes made since", path.display());
+    }
+
+    match placed {
+        Placed::Made => {
+            let made = path.to_string_lossy();
+            run(path, &["reset", "--hard", "--quiet"], None)?;
+            run(path, &["clean", "-fdq"], None)?;
+            run(main, &["worktree", "remove", &made], None)?;
+        }
+        Placed::Reused { prior } => {
+            run(path, &["checkout", "--quiet", "--force", "--detach", prior], None)?;
+            run(path, &["clean", "-fdq"], None)?;
+        }
+        Placed::Held => {}
+    }
+
+    Ok(())
 }
 
 /// Takes away a worktree this machine just made, which holds nothing yet.

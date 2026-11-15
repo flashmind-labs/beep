@@ -377,3 +377,50 @@ fn the_head_of_a_folder_outside_git_is_none() {
     let (_dir, wt) = source();
     assert_eq!(head(&wt).expect("read"), Some(git(&wt, &["rev-parse", "HEAD"])));
 }
+
+#[test]
+fn taking_back_removes_a_made_worktree_unchanged_since_and_leaves_one_with_edits() {
+    let (dir, wt) = source();
+    let main = dir.path().join("main");
+    let work = snapshot(&wt).expect("a snapshot");
+    detach(&wt).expect("detached");
+    let target = dir.path().join("target-wt");
+    let placed = attach(&main, &target, "feat", &work).expect("made");
+    let applied = fingerprint(&target).expect("a fingerprint");
+    take_back(&main, &target, &placed, &applied).expect("taken back");
+    assert!(!target.exists());
+    assert!(!git(&main, &["worktree", "list"]).contains("target-wt"));
+
+    let placed = attach(&main, &target, "feat", &work).expect("made again");
+    let applied = fingerprint(&target).expect("a fingerprint");
+    fs::write(target.join("a.txt"), "edited since\n").expect("an edit");
+    assert!(take_back(&main, &target, &placed, &applied).is_err());
+    assert_eq!(fs::read_to_string(target.join("a.txt")).unwrap(), "edited since\n");
+}
+
+#[test]
+fn taking_back_detaches_a_reused_worktree_at_its_old_commit() {
+    let (dir, wt) = source();
+    let main = dir.path().join("main");
+    let work = snapshot(&wt).expect("a snapshot");
+    detach(&wt).expect("detached");
+    clean(&wt);
+    let prior = git(&wt, &["rev-parse", "HEAD"]);
+    let placed = attach(&main, &wt, "feat", &work).expect("reused");
+    let applied = fingerprint(&wt).expect("a fingerprint");
+    take_back(&main, &wt, &placed, &applied).expect("taken back");
+    assert!(run(&wt, &["symbolic-ref", "-q", "HEAD"], None).is_err());
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), prior);
+    assert_eq!(git(&wt, &["status", "--porcelain"]), "");
+}
+
+#[test]
+fn a_worktree_folder_is_named_with_forward_slashes() {
+    let (dir, _wt) = source();
+    let main = dir.path().join("main");
+    git(&main, &["worktree", "add", "-q", "-b", "deep", ".worktrees/a/b"]);
+    let made = vec![main.join(".worktrees/a/b").to_string_lossy().into_owned()];
+    let moving = moving(&main, &made);
+    assert_eq!(moving.len(), 1);
+    assert_eq!(moving[0].path, ".worktrees/a/b");
+}

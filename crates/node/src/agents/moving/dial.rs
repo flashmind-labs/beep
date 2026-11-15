@@ -38,14 +38,14 @@ pub(super) async fn dial(env: &Env, peer: EndpointId) -> Result<Connection> {
         .context("could not reach the other machine in time")??)
 }
 
-/// What the target of `record` says of the move now.
-async fn ask(env: &Env, record: &SessionMove) -> Result<Target> {
-    let connection = dial(env, record.to).await?;
+/// What the target `to` says of the move of session `id` made at `at`.
+pub(super) async fn ask(env: &Env, to: EndpointId, id: &str, at: u64) -> Result<Target> {
+    let connection = dial(env, to).await?;
     let (send, recv) = connection.open_bi().await?;
     let (mut tx, mut rx) = link(send, recv);
     tx.send(&Request::State {
-        id: record.id.clone(),
-        at: record.at,
+        id: id.to_owned(),
+        at,
     })
     .await?;
     let answer = timeout(ANSWER_WITHIN, rx.recv::<Reply>())
@@ -76,7 +76,7 @@ pub(super) async fn watch_target(env: &Env, record: &SessionMove, said: watch::S
     let mut reached = None;
 
     loop {
-        let more = match ask(env, record).await {
+        let more = match ask(env, record.to, &record.id, record.at).await {
             Ok(now) => {
                 if reached != Some(true) {
                     log::info!(

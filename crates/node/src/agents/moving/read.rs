@@ -88,6 +88,9 @@ pub(crate) enum Request {
         id: String,
         path: String,
         bundle: bool,
+        /// The checkout's commit the target matched, which the bundle
+        /// leaves out.
+        base: String,
     },
 }
 
@@ -342,7 +345,12 @@ pub(super) async fn serve(
 
             tx.finish().await
         }
-        Some(Request::Worktree { id, path, bundle }) => {
+        Some(Request::Worktree {
+            id,
+            path,
+            bundle,
+            base,
+        }) => {
             if !access.allows(Asked::Read, &id).await {
                 return tx.send(&refuse("no move of that session to you")).await;
             }
@@ -355,7 +363,9 @@ pub(super) async fn serve(
                 return tx.send(&refuse("this machine does not keep the project")).await;
             };
 
-            match spawn_blocking(move || send_worktree(&leaving, &path, bundle)).await? {
+            let wanted = bundle.then_some(base);
+
+            match spawn_blocking(move || send_worktree(&leaving, &path, wanted.as_deref())).await? {
                 Ok((dir, work, bytes)) => {
                     agents.moves.sent(&id, dir, work.fingerprint());
                     tx.send(&Reply::Work { head: work.head }).await?;
@@ -402,12 +412,12 @@ pub(super) async fn serve(
 }
 
 /// The worktree at `path` in `leaving`'s project, if the session made it:
-/// its folder, what it holds and, when `bundle`, the commits the project's
-/// checkout lacks. Blocks.
+/// its folder, what it holds and, with a `base`, its commits that `base`
+/// lacks. Blocks.
 fn send_worktree(
     leaving: &Leaving,
     path: &str,
-    bundle: bool,
+    base: Option<&str>,
 ) -> Result<(PathBuf, Work, Option<Vec<u8>>)> {
     let Some(tree) = worktree::moving(&leaving.folder, &leaving.worktrees)
         .into_iter()
@@ -417,11 +427,9 @@ fn send_worktree(
     };
     let dir = leaving.folder.join(&tree.path);
     let work = worktree::snapshot(&dir)?;
-    let bytes = match (bundle, worktree::head(&leaving.folder)?) {
-        (true, Some(base)) => Some(worktree::bundle(&dir, &work.head, &base)?),
-        (true, None) => bail!("the project's checkout has no commit"),
-        (false, _) => None,
-    };
+    let bytes = base
+        .map(|base| worktree::bundle(&dir, &work.head, base))
+        .transpose()?;
     Ok((dir, work, bytes))
 }
 
@@ -634,19 +642,25 @@ pub(crate) async fn checkout(mut tx: LinkTx, mut rx: LinkRx, id: &str) -> Result
     }
 }
 
-/// Asks a source for the worktree at `path` of session `id`, with the
-/// commits the project's checkout lacks when `bundle`.
-pub(crate) async fn worktree(
-    mut tx: LinkTx,
-    mut rx: LinkRx,
-    id: &str,
-    path: &str,
-    bundle: bool,
-) -> Result<Fetched> {
+/// What a target asks of one worktree.
+pub(crate) struct WorktreeAsk<'a> {
+    pub(crate) id: &'a str,
+    /// Its folder in the project, as `Checkout` named it.
+    pub(crate) path: &'a str,
+    /// The checkout's commit both machines are at.
+    pub(crate) base: &'a str,
+    /// Its commits are not here yet.
+    pub(crate) bundle: bool,
+}
+
+/// Asks a source for one of a session's worktrees.
+pub(crate) async fn worktree(mut tx: LinkTx, mut rx: LinkRx, ask: &WorktreeAsk<'_>) -> Result<Fetched> {
+    let bundle = ask.bundle;
     tx.send(&Request::Worktree {
-        id: id.to_owned(),
-        path: path.to_owned(),
+        id: ask.id.to_owned(),
+        path: ask.path.to_owned(),
         bundle,
+        base: ask.base.to_owned(),
     })
     .await?;
     let head = match next(&mut rx, QUIET_FOR).await? {

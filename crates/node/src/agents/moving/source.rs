@@ -7,6 +7,7 @@
 
 use super::{
     Env,
+    dial::ask,
     progress::Target,
     saved::{Phase, Saved},
     worktree,
@@ -17,7 +18,19 @@ use anyhow::{Context, Result, anyhow};
 use beep_proto::node::{agent::Status, mesh_state::SessionMove};
 use beep_proto::watched;
 use std::sync::Arc;
-use tokio::{sync::watch, task::spawn_blocking};
+use iroh::EndpointId;
+use std::time::Duration;
+use tokio::{
+    sync::watch,
+    task::spawn_blocking,
+    time::{Instant, sleep, timeout},
+};
+
+/// How long a cancelled move waits for the session to end, and for the
+/// target to say whether it took the session anyway.
+const CLOSE_WITHIN: Duration = Duration::from_secs(30);
+const ASK_WITHIN: Duration = Duration::from_secs(20);
+const ASK_AGAIN: Duration = Duration::from_millis(500);
 
 pub(super) async fn run(
     env: &Env,
@@ -119,6 +132,7 @@ async fn end(
                 phase: Phase::Closed,
                 reason: None,
                 open: open.clone(),
+                placed: Vec::new(),
             },
         )
         .context("keeping that the session ended")?;
@@ -206,21 +220,61 @@ async fn fail(
 }
 
 /// The move is cancelled: a session still waiting for its turn goes on as
-/// it was, and one this side already ended starts again.
-pub(super) async fn cancel(env: &Env, id: &str) {
-    if let Some(session) = live(env, id) {
-        if let Err(e) = session.order(Command::NotMoving).await {
-            log::debug!("session {id} was not told the move is off: {e}");
-        }
+/// it was, and one this side ended starts again, unless the target already
+/// starts or runs it (`to` says, about the move made at `at`).
+pub(super) async fn cancel(env: &Env, id: &str, at: u64, to: EndpointId) {
+    let open = env
+        .state
+        .load(id)
+        .filter(|saved| saved.at == at && saved.phase == Phase::Closed)
+        .and_then(|saved| saved.open);
 
-        return;
+    if let Some(session) = live(env, id) {
+        let Some(_) = &open else {
+            if let Err(e) = session.order(Command::NotMoving).await {
+                log::debug!("session {id} was not told the move is off: {e}");
+            }
+
+            return;
+        };
+        // Closing for the move: it starts again once it ended.
+        let mut live = session.live.clone();
+        let ended = watched::wait_for(&mut live, |live| live.status() == Status::Ended);
+
+        if timeout(CLOSE_WITHIN, ended).await.is_err() {
+            log::warn!("session {id} did not end in time, so it is not started again");
+            return;
+        }
     }
 
-    let Some(open) = env.state.load(id).and_then(|saved| saved.open) else {
+    let Some(open) = open else {
         return;
     };
+
+    if target_has_it(env, id, at, to).await {
+        log::info!("session {id} stays on the machine it moved to: it started there");
+        return;
+    }
 
     if let Err(e) = env.agents.reopen_one(open).await {
         log::warn!("session {id} could not start again after its move was cancelled: {e:#}");
     }
+}
+
+/// Whether the target of a cancelled move starts or runs the session
+/// anyway, past taking back. Asked until it says, for `ASK_WITHIN` at most;
+/// a target out of reach has not.
+async fn target_has_it(env: &Env, id: &str, at: u64, to: EndpointId) -> bool {
+    let until = Instant::now() + ASK_WITHIN;
+
+    while Instant::now() < until {
+        match ask(env, to, id, at).await {
+            Ok(Target::Landed) => return true,
+            Ok(Target::Failed(_)) | Err(_) => return false,
+            // It has not heard of the cancel yet.
+            Ok(Target::Taken | Target::Unknown) => sleep(ASK_AGAIN).await,
+        }
+    }
+
+    false
 }

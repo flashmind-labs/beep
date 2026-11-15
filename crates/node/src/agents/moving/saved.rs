@@ -1,6 +1,7 @@
 //! What a node keeps of a move across a restart: how it ended, and the
 //! copy of the conversation while it waits (`<state>/moves/`).
 
+use super::worktree::Placed;
 use crate::agents::OpenSession;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -31,6 +32,21 @@ pub(super) struct Saved {
     /// What starts the session again at the source, once it ended there.
     #[serde(default)]
     pub(super) open: Option<OpenSession>,
+    /// The worktrees a target placed for the move so far, taken back if it
+    /// does not happen.
+    #[serde(default)]
+    pub(super) placed: Vec<PlacedTree>,
+}
+
+/// A worktree a target placed for a move.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(super) struct PlacedTree {
+    /// The project's checkout, and the worktree's folder in it.
+    pub(super) main: PathBuf,
+    pub(super) path: PathBuf,
+    pub(super) placed: Placed,
+    /// `worktree::fingerprint` once placed.
+    pub(super) applied: String,
 }
 
 impl Saved {
@@ -41,6 +57,7 @@ impl Saved {
             phase,
             reason,
             open: None,
+            placed: Vec::new(),
         }
     }
 

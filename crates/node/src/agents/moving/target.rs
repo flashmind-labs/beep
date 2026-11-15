@@ -8,9 +8,9 @@ use super::{
     flsh,
     folder::{Folders, project_folder},
     progress::{Tracker, show},
-    read::{self, Checkout, MovingWorktree, Refused},
+    read::{self, Checkout, Refused},
     resume::{Arrival, resume},
-    saved::{Phase, Saved},
+    saved::{Phase, PlacedTree, Saved},
     worktree,
 };
 use crate::agents::found::Agent;
@@ -47,7 +47,10 @@ pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> R
     let result = move_here(env, record, tracker).await;
     let (phase, reason) = match &result {
         Ok(()) => (Phase::Done, None),
-        Err(e) => (Phase::Failed, Some(format!("{e:#}"))),
+        Err(e) => {
+            take_back(env, &record.id).await;
+            (Phase::Failed, Some(format!("{e:#}")))
+        }
     };
     show_end(tracker, &phase, reason.clone());
     env.state.clear(&record.id, false);
@@ -116,7 +119,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         .iter()
         .map(|tree| roots.new.join(&tree.path).to_string_lossy().into_owned())
         .collect();
-    worktrees(env, record, tracker, &roots.new, checkout.worktrees).await?;
+    worktrees(env, record, tracker, &roots.new, checkout).await?;
     log::info!("session {}: the worktrees are here, resuming", record.id);
     show(tracker, |progress| progress.phase = MovePhase::Resuming);
     let arrival = Arrival {
@@ -323,20 +326,26 @@ async fn ask_checkout(env: &Env, record: &SessionMove) -> Result<Checkout> {
 }
 
 /// Brings each of the session's worktrees from the source and makes it
-/// here, at the same folder in the project's checkout `root`.
+/// here, at the same folder in the project's checkout `root`. Each one
+/// placed is kept in the move's state, to take back if the move does not
+/// happen.
 async fn worktrees(
     env: &Env,
     record: &SessionMove,
     tracker: &Tracker,
     root: &Path,
-    trees: Vec<MovingWorktree>,
+    checkout: Checkout,
 ) -> Result<()> {
-    let total = u32::try_from(trees.len()).unwrap_or(u32::MAX);
+    let total = u32::try_from(checkout.worktrees.len()).unwrap_or(u32::MAX);
+    let base = checkout.head.unwrap_or_default();
 
-    for (at, tree) in (1..).zip(trees) {
+    for (at, tree) in (1..).zip(checkout.worktrees) {
         let relative = Path::new(&tree.path);
+        let inside = relative
+            .components()
+            .all(|part| matches!(part, Component::Normal(name) if name != ".git"));
 
-        if !relative.components().all(|part| matches!(part, Component::Normal(_))) {
+        if !inside {
             bail!("the worktree {} is not inside the project", tree.path);
         }
 
@@ -350,19 +359,33 @@ async fn worktrees(
         });
         let (main, head) = (root.to_owned(), tree.head.clone());
         let bundle = !spawn_blocking(move || worktree::has_commit(&main, &head)).await?;
-        let fetched = fetch_worktree(env, record, &tree.path, bundle)
+        let ask = read::WorktreeAsk {
+            id: &record.id,
+            path: &tree.path,
+            base: &base,
+            bundle,
+        };
+        let fetched = fetch_worktree(env, record, tracker, ask)
             .await
             .with_context(|| format!("bringing the worktree {name}"))?;
         let (main, path) = (root.to_owned(), root.join(relative));
-        spawn_blocking(move || -> Result<()> {
+        let placed = spawn_blocking(move || -> Result<PlacedTree> {
             if let Some(bytes) = &fetched.bundle {
                 worktree::import(&main, &fetched.work.head, bytes)?;
             }
 
-            worktree::attach(&main, &path, &tree.branch, &fetched.work).map(|_| ())
+            let placed = worktree::attach(&main, &path, &tree.branch, &fetched.work)?;
+            let applied = worktree::fingerprint(&path)?;
+            Ok(PlacedTree {
+                main,
+                path,
+                placed,
+                applied,
+            })
         })
         .await?
         .with_context(|| format!("making the worktree {name} here"))?;
+        keep_placed(env, record, placed)?;
         log::info!("session {}: the worktree {name} is here", record.id);
     }
 
@@ -370,16 +393,72 @@ async fn worktrees(
     Ok(())
 }
 
+/// Notes a worktree placed for the move in its state.
+fn keep_placed(env: &Env, record: &SessionMove, placed: PlacedTree) -> Result<()> {
+    let mut saved = env
+        .state
+        .load(&record.id)
+        .filter(|saved| saved.at == record.at)
+        .unwrap_or_else(|| Saved::over(record.at, Phase::Working, None));
+    saved.placed.push(placed);
+    env.state
+        .save(&record.id, &saved)
+        .context("keeping the worktrees placed for the move")
+}
+
+/// Takes back the worktrees placed for the move of session `id`, which did
+/// not happen. One that changed since stays, and is logged.
+pub(super) async fn take_back(env: &Env, id: &str) {
+    let placed = env.state.load(id).map(|saved| saved.placed).unwrap_or_default();
+
+    for tree in placed {
+        let shown = tree.path.display().to_string();
+        let done = spawn_blocking(move || {
+            worktree::take_back(&tree.main, &tree.path, &tree.placed, &tree.applied)
+        })
+        .await;
+
+        match done {
+            Ok(Ok(())) => log::info!("took back the worktree {shown} made for a move"),
+            Ok(Err(e)) => log::warn!("the worktree {shown} made for a move stays: {e:#}"),
+            Err(e) => log::warn!("taking back the worktree {shown} failed: {e}"),
+        }
+    }
+}
+
+/// One worktree from the source, asked again while the source cannot be
+/// reached; a refusal ends it.
 async fn fetch_worktree(
     env: &Env,
     record: &SessionMove,
-    path: &str,
-    bundle: bool,
+    tracker: &Tracker,
+    ask: read::WorktreeAsk<'_>,
 ) -> Result<read::Fetched> {
-    let connection = dial(env, record.from).await?;
-    let (send, recv) = connection.open_bi().await?;
-    let (tx, rx) = link(send, recv);
-    let fetched = read::worktree(tx, rx, &record.id, path, bundle).await;
-    connection.close(0u32.into(), b"done");
-    fetched
+    let mut wait = FIRST_WAIT;
+
+    loop {
+        let fetched = async {
+            let connection = dial(env, record.from).await?;
+            let (send, recv) = connection.open_bi().await?;
+            let (tx, rx) = link(send, recv);
+            let fetched = read::worktree(tx, rx, &ask).await;
+            connection.close(0u32.into(), b"done");
+            fetched
+        }
+        .await;
+
+        match fetched {
+            Ok(fetched) => {
+                show(tracker, |progress| progress.source_away = false);
+                return Ok(fetched);
+            }
+            Err(e) if e.is::<Refused>() => return Err(e),
+            Err(e) => {
+                log::debug!("session {}: a worktree not read yet: {e:#}", record.id);
+                show(tracker, |progress| progress.source_away = true);
+                sleep(wait).await;
+                wait = (wait * 2).min(LAST_WAIT);
+            }
+        }
+    }
 }

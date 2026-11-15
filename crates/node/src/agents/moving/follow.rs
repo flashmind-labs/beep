@@ -18,7 +18,7 @@ use beep_proto::node::{
     agent::MovePhase,
     mesh_state::{SessionMove, StateValue},
 };
-use iroh::Endpoint;
+use iroh::{Endpoint, EndpointId};
 use std::{
     collections::HashMap,
     fs,
@@ -32,6 +32,8 @@ use tokio_util::task::AbortOnDropHandle;
 pub(super) struct Running {
     at: u64,
     target: bool,
+    /// The machine the session moves to.
+    to: EndpointId,
     task: AbortOnDropHandle<()>,
 }
 
@@ -146,10 +148,12 @@ pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<String, Runn
         if one.task.is_finished() {
             running.remove(&id);
         } else if !one.committed(env, &id)
-            && let Some(one) = running.remove(&id)
+            && let Some(mut one) = running.remove(&id)
         {
-            drop(one.task);
-            cancelled(env, &id, one.at, one.target).await;
+            // Its task stops first, so nothing it does races the take-back.
+            one.task.abort();
+            let _ = (&mut one.task).await;
+            cancelled(env, &id, &one).await;
         }
         // Past the resume the session runs here: nothing to take back, and
         // the task is left to finish starting it.
@@ -172,6 +176,7 @@ pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<String, Runn
             Running {
                 at: record.at,
                 target,
+                to: record.to,
                 task,
             },
         );
@@ -207,13 +212,14 @@ fn spawn(env: Arc<Env>, record: SessionMove, target: bool) -> AbortOnDropHandle<
     }))
 }
 
-async fn cancelled(env: &Env, id: &str, at: u64, target: bool) {
-    if target {
-        env.agents.moves.begin(id, at).send_modify(|progress| {
+async fn cancelled(env: &Env, id: &str, one: &Running) {
+    if one.target {
+        target::take_back(env, id).await;
+        env.agents.moves.begin(id, one.at).send_modify(|progress| {
             progress.phase = MovePhase::Cancelled;
         });
     } else {
-        source::cancel(env, id).await;
+        source::cancel(env, id, one.at, one.to).await;
     }
 
     env.state.clear(id, true);

@@ -258,7 +258,7 @@ async fn a_cancelled_move_lets_prompts_in_again() {
         .order(Command::Moving { stop: false })
         .await
         .expect("held");
-    source::cancel(&source.env, "held-1").await;
+    source::cancel(&source.env, "held-1", 1_793_696_400_000, record(&source.env, true).to).await;
     session
         .order(Command::Prompt("after".to_owned().into()))
         .await
@@ -374,7 +374,7 @@ async fn a_move_cancelled_after_the_session_ended_starts_it_again_here() {
             () = ended(&session) => {}
         }
     }
-    source::cancel(&source.env, "held-1").await;
+    source::cancel(&source.env, "held-1", record.at, record.to).await;
     assert!(
         source.env.agents.runs("held-1"),
         "the session runs again where it was"
@@ -434,6 +434,17 @@ async fn a_move_taken_back_after_an_earlier_one_ended_here_still_frees_the_sessi
         .await
         .expect("the session takes prompts again: the old tracker did not hide the cancel");
     env.agents.shutdown().await;
+}
+
+#[test]
+fn a_target_that_resumes_the_session_reads_as_landed() {
+    let moves = crate::agents::moving::Moves::default();
+    let tracker = moves.begin("held-1", 7);
+    moves.take("held-1");
+    show(&tracker, |progress| progress.phase = MovePhase::Files);
+    assert_eq!(moves.target("held-1", 7), Target::Taken);
+    show(&tracker, |progress| progress.phase = MovePhase::Resuming);
+    assert_eq!(moves.target("held-1", 7), Target::Landed, "past the point of no return");
 }
 
 #[test]

@@ -26,7 +26,7 @@ pub(super) enum Target {
     Taken,
     /// It gave up, and why.
     Failed(String),
-    /// The session runs there.
+    /// The session starts or runs there.
     Landed,
 }
 
@@ -105,7 +105,8 @@ impl Moves {
         let taken = one.taken;
 
         watched::read_sent(&one.tracker, |progress| match progress.phase {
-            MovePhase::Done => Target::Landed,
+            // Starting here is past taking back: a cancel leaves it be.
+            MovePhase::Resuming | MovePhase::Done => Target::Landed,
             MovePhase::Failed | MovePhase::Cancelled => Target::Failed(
                 progress
                     .reason
