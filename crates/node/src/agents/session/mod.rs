@@ -236,6 +236,8 @@ pub(super) struct Start<'a> {
     /// The Beep MCP server for the agent, passed in `session/new` and
     /// `session/load`. With it the brief also says what its tools are.
     pub(super) mcp: Option<McpServer>,
+    /// The home assistant, whose standing text adds the assistant's brief.
+    pub(super) assistant: bool,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
     /// Where what its turns spend goes.
@@ -287,6 +289,7 @@ impl Session {
             brief,
             rule,
             mcp,
+            assistant,
             images,
             usage,
             alerts,
@@ -404,7 +407,10 @@ impl Session {
             running: HashSet::new(),
             brief: brief.map(Cow::into_owned),
             standing: actor::joined(
-                actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
+                actor::joined(
+                    actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
+                    (assistant && mcp.is_some()).then_some(super::mcp::ASSISTANT),
+                ),
                 mcp.is_some().then_some(super::mcp::CHAT),
             ),
             mcp_servers: mcp.into_iter().collect(),
@@ -436,7 +442,7 @@ impl Session {
             live,
             moved_cwd: Mutex::new(None),
             reviewer: false,
-            assistant: false,
+            assistant,
             processes,
             _task: AbortOnDropHandle::new(task),
             guards: Mutex::new(guard.into_iter().collect()),

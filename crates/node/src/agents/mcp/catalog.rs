@@ -13,6 +13,9 @@ pub(super) const DEVICE: &str = "device";
 /// Beep plugins, which run in the desktop app. `tools/1` takes the call whole
 /// as `Tool::Plugins`, and the desktop checks each action's fields.
 const PLUGINS: &str = "plugins";
+/// The home assistant's projects, which a desktop creates, clones and imports.
+/// `tools/1` takes the call whole as `Tool::Projects`, like `plugins`.
+const PROJECTS: &str = "projects";
 
 /// The grouped tools and what each action calls, by the tool's name before
 /// grouping, which the node still routes by.
@@ -93,8 +96,8 @@ pub(super) fn ungroup(name: &str, mut args: Value) -> Result<(&str, Value), Stri
 
 /// Every tool, in the order agents see them. A reviewer gets
 /// `submit_review` in place of `review`; without other machines, `run` and
-/// `files` are left out.
-pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
+/// `files` are left out; only the home assistant gets `projects`.
+pub(super) fn tools(reviewer: bool, alone: bool, assistant: bool) -> Value {
     let text = |what: &str| json!({ "type": "string", "description": what });
     let action = |group: &str| {
         let (_, actions) = GROUPS
@@ -331,6 +334,41 @@ pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
             },
             "annotations": { "title": "Plugins", "destructiveHint": false, "openWorldHint": false }
         }),
+        json!({
+            "name": PROJECTS,
+            "description": "The user's projects, set up by the Beep desktop. Actions:\n\
+                hosts: the Git hosts and owners the user's credentials reach\n\
+                create: name, machines, optional folder and repository; a new project\n\
+                clone: url, machines, optional name and folder; checks a repository out\n\
+                found: optional machines; Git checkouts on the machines that are no project yet\n\
+                import: projects (names from found), optional machines; makes them projects",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["hosts", "create", "clone", "found", "import"] },
+                    "name": { "type": "string" },
+                    "machines": {
+                        "type": "array",
+                        "items": text("A machine by its name or id")
+                    },
+                    "folder": { "type": "string" },
+                    "url": { "type": "string" },
+                    "repository": {
+                        "type": "object",
+                        "properties": {
+                            "host": { "type": "string" },
+                            "owner": { "type": "string" },
+                            "private": { "type": "boolean" }
+                        },
+                        "additionalProperties": false
+                    },
+                    "projects": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Projects", "destructiveHint": false, "openWorldHint": true }
+        }),
     ];
 
     for tool in &mut tools {
@@ -340,6 +378,7 @@ pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
     tools
         .into_iter()
         .filter(|tool| !(alone && ELSEWHERE.iter().any(|name| tool["name"] == *name)))
+        .filter(|tool| assistant || tool["name"] != PROJECTS)
         .collect()
 }
 
@@ -508,7 +547,7 @@ pub(super) fn validate(name: &str, args: &Value) -> Result<(), String> {
             let mut validators = HashMap::new();
 
             for reviewer in [false, true] {
-                let listed = tools(reviewer, false);
+                let listed = tools(reviewer, false, true);
                 let Some(listed) = listed.as_array() else {
                     return Err("Invalid tool catalog".to_owned());
                 };

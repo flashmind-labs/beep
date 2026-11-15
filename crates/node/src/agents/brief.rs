@@ -13,6 +13,13 @@ pub(crate) const BRIEF: &str = "The `beep` MCP server's tools reach the user's o
 
 For Rust, C or C++ builds, use sccache when it is installed: for Rust set RUSTC_WRAPPER=sccache if no wrapper is set; for C or C++ keep the project's compiler launcher. Do not install it or change global configuration unless asked.";
 
+/// What the home assistant hears after the brief.
+pub(crate) const ASSISTANT: &str = "You are the Beep assistant, working in the user's home folder. \
+    Use machines, agent and projects to look after the user's machines, projects and sessions. \
+    When importing projects, pick them by recent activity and sessions, then report what you \
+    imported and what you skipped. Ask with ask_user when the host, owner or machines are \
+    unclear. Create repositories as private unless the user says otherwise.";
+
 /// What the agent hears, after the brief, about the Beep chat its replies
 /// show in.
 pub(crate) const CHAT: &str = "Your replies show in the Beep chat, next to a file pane. \

@@ -891,6 +891,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         brief: None,
         rule: None,
         mcp: None,
+        assistant: false,
         images: Arc::default(),
         usage: Arc::default(),
         alerts: Arc::default(),

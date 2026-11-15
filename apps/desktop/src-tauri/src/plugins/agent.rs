@@ -8,11 +8,11 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use beep_node::agents::mcp::PluginTools;
+use beep_node::agents::mcp::DesktopTools;
 use beep_plugins::{
     MAX_DESCRIPTION, Manifest, Permission, PluginId, PluginStatus, Policy, ToolName,
 };
-use beep_proto::node::tools::Reply;
+use beep_proto::node::tools::{Reply, Tool};
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -55,16 +55,23 @@ struct AgentTools {
     logs: Option<PathBuf>,
 }
 
-pub(crate) fn tools(app: &AppHandle) -> Arc<dyn PluginTools> {
+pub(crate) fn tools(app: &AppHandle) -> Arc<dyn DesktopTools> {
     Arc::new(AgentTools {
         app: app.clone(),
         logs: super::super::platform::logfile::dir(),
     })
 }
 
-impl PluginTools for AgentTools {
-    fn call(&self, args: String) -> BoxFuture<'_, Reply> {
+impl DesktopTools for AgentTools {
+    fn call(&self, tool: Tool, args: String) -> BoxFuture<'_, Reply> {
         Box::pin(async move {
+            if tool != Tool::Plugins {
+                return Reply::Done {
+                    text: format!("This desktop does not answer {tool} yet."),
+                    failed: true,
+                };
+            }
+
             let app = self.app.clone();
             let logs = self.logs.clone();
             // A tool call waits for the plugin's thread, and the log is read from disk.

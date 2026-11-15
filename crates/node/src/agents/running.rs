@@ -609,13 +609,13 @@ impl Agents {
             brief,
             rule,
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
+            assistant,
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts,
             stopping: self.stopping.clone(),
         })?;
         session.reviewer = begin.review;
-        session.assistant = assistant;
         let session = Arc::new(session);
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());

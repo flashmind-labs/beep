@@ -58,6 +58,9 @@ pub(crate) trait Backend: Sync {
     /// Whether `session` is a temporary reviewer, which is offered
     /// `submit_review`.
     fn reviewer(&self, session: &str) -> bool;
+    /// Whether `session` is the home assistant, which hears its brief and is
+    /// offered `projects`.
+    fn assistant(&self, session: &str) -> bool;
     /// Whether the mesh has no other machine to run on, so the tools that
     /// reach one are left out.
     fn alone(&self) -> bool {
@@ -156,6 +159,11 @@ async fn answer<B: Backend>(
             let version = asked
                 .filter(|asked| VERSIONS.contains(asked))
                 .unwrap_or(VERSIONS[0]);
+            let assistant = if backend.assistant(session) {
+                format!("\n\n{}", super::ASSISTANT)
+            } else {
+                String::new()
+            };
             let brief = media.as_deref().and_then(Media::brief).unwrap_or_default();
             success(
                 id,
@@ -163,13 +171,17 @@ async fn answer<B: Backend>(
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": true } },
                     "serverInfo": { "name": super::SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": format!("{}{brief}", super::BRIEF),
+                    "instructions": format!("{}{assistant}{brief}", super::BRIEF),
                 }),
             )
         }
         "ping" => success(id, json!({})),
         "tools/list" => {
-            let mut tools = catalog::tools(backend.reviewer(session), backend.alone());
+            let mut tools = catalog::tools(
+                backend.reviewer(session),
+                backend.alone(),
+                backend.assistant(session),
+            );
 
             if let (Some(listed), Some(media)) = (tools.as_array_mut(), media.as_deref()) {
                 listed.extend(media.listed());
@@ -315,6 +327,10 @@ async fn call_tool<B: Backend>(backend: &B, session: &str, name: &str, args: Val
         }
         // Only a reviewer hands a review in.
         Ok(Tool::SubmitReview) if !backend.reviewer(session) => {
+            return Called::failed(format!("There is no tool {name}."));
+        }
+        // Only the home assistant creates and imports projects.
+        Ok(Tool::Projects) if !backend.assistant(session) => {
             return Called::failed(format!("There is no tool {name}."));
         }
         Ok(tool) => tool,

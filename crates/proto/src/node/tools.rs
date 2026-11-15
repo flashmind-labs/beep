@@ -83,6 +83,10 @@ pub enum Tool {
     /// Beep plugins, which run in a desktop: its `args` hold the `plugins`
     /// tool's arguments. A node forwards it to a desktop of the mesh.
     Plugins,
+    /// Projects the home assistant creates, clones and imports, which a
+    /// desktop does: its `args` hold the `projects` tool's arguments. A node
+    /// forwards it to a desktop of the mesh.
+    Projects,
     /// A tool a newer node calls that this one does not know.
     #[serde(other)]
     Unknown,

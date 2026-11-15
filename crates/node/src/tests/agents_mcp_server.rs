@@ -13,6 +13,8 @@ struct Fake {
     media: Option<std::path::PathBuf>,
     /// The mesh has no other machine.
     alone: bool,
+    /// The session is the home assistant.
+    assistant: bool,
 }
 
 impl Fake {
@@ -24,6 +26,7 @@ impl Fake {
             reviewer: false,
             media: None,
             alone: false,
+            assistant: false,
         }
     }
 }
@@ -74,6 +77,11 @@ impl Backend for Fake {
     fn reviewer(&self, session: &str) -> bool {
         assert_eq!(session, "a3f9c1");
         self.reviewer
+    }
+
+    fn assistant(&self, session: &str) -> bool {
+        assert_eq!(session, "a3f9c1");
+        self.assistant
     }
 
     fn alone(&self) -> bool {
@@ -456,6 +464,61 @@ async fn the_plugins_tool_lists_its_actions_and_reaches_the_backend_whole() {
     assert_eq!(out[2]["result"]["isError"], true);
 }
 
+fn names(tools: &Value) -> Vec<&str> {
+    tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect()
+}
+
+#[test]
+fn assistant_session_lists_projects_tool() {
+    assert!(names(&catalog::tools(false, false, true)).contains(&"projects"));
+    assert!(!names(&catalog::tools(false, false, false)).contains(&"projects"));
+}
+
+#[tokio::test]
+async fn assistant_initialize_has_brief() {
+    let initialize = || [request(1, "initialize", json!({}))];
+    let assistant = Fake {
+        assistant: true,
+        ..Fake::new("allow")
+    };
+    let out = exchange(&assistant, &initialize()).await;
+    let instructions = out[0]["result"]["instructions"].as_str().unwrap();
+    assert!(instructions.contains(super::super::ASSISTANT), "{instructions}");
+
+    let out = exchange(&Fake::new("allow"), &initialize()).await;
+    let instructions = out[0]["result"]["instructions"].as_str().unwrap();
+    assert!(!instructions.contains(super::super::ASSISTANT), "{instructions}");
+}
+
+#[tokio::test]
+async fn projects_call_refused_for_normal_session() {
+    let call = || {
+        [request(
+            1,
+            "tools/call",
+            json!({ "name": "projects", "arguments": { "action": "hosts" } }),
+        )]
+    };
+    let fake = Fake::new("allow");
+    let out = exchange(&fake, &call()).await;
+    assert_eq!(out[0]["result"]["isError"], true);
+    assert!(fake.calls.lock().unwrap().is_empty());
+
+    let assistant = Fake {
+        assistant: true,
+        ..Fake::new("allow")
+    };
+    exchange(&assistant, &call()).await;
+    let calls = assistant.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].tool, Tool::Projects);
+}
+
 /// The tools agents get without API keys stay within a context budget, at
 /// about four bytes a token.
 #[test]
@@ -463,7 +526,7 @@ fn the_tool_definitions_fit_the_budget() {
     // Includes the constraints that reject fields belonging to other actions.
     const TOKENS: usize = 3_750;
 
-    let listed = catalog::tools(false, false).to_string();
+    let listed = catalog::tools(false, false, false).to_string();
     let tokens = listed.len() / 4;
     assert!(tokens <= TOKENS, "{tokens} tokens");
     let brief = (super::super::BRIEF.len()) / 4;
@@ -537,7 +600,7 @@ macro_rules! strict_action_test {
         async fn $test() {
             let fake = Fake::new("allow");
             let valid = $args;
-            let catalog = catalog::tools(false, false);
+            let catalog = catalog::tools(false, false, false);
             let schema = &catalog.as_array().unwrap().iter()
                 .find(|tool| tool["name"] == $group).unwrap()["inputSchema"];
             assert!(catalog::validate($group, &valid).is_ok());

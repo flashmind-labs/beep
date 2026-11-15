@@ -7,7 +7,7 @@ fn caller(table: Table, node_here: bool) -> Caller {
         commands_off: None,
         transfers: None,
         agents: None,
-        plugins: None,
+        desktop: None,
     }
 }
 
@@ -207,8 +207,8 @@ async fn peer_requests_keep_accepting_extra_fields() {
 async fn a_node_gets_a_plugins_answer_from_a_desktop_that_runs_them_and_a_refusal_otherwise() {
     struct Plugins;
 
-    impl PluginTools for Plugins {
-        fn call(&self, _args: String) -> futures::future::BoxFuture<'_, Reply> {
+    impl DesktopTools for Plugins {
+        fn call(&self, _tool: Tool, _args: String) -> futures::future::BoxFuture<'_, Reply> {
             Box::pin(async {
                 Reply::Done {
                     text: "no plugins".to_owned(),
@@ -225,7 +225,7 @@ async fn a_node_gets_a_plugins_answer_from_a_desktop_that_runs_them_and_a_refusa
         ..run_on()
     };
     let with = Caller {
-        plugins: Some(Arc::new(Plugins)),
+        desktop: Some(Arc::new(Plugins)),
         ..caller(table, false)
     };
 
