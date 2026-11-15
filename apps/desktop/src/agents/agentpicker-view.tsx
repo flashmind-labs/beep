@@ -79,6 +79,8 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
   const [lit, setLit] = useState<string | null>(null);
   const highlight = lit === null ? -1 : rows.findIndex(row => rowKey(row) === lit);
   useLayoutEffect(() => { setLit(null); }, [machineId, picked.agent]);
+  // The search takes the keys as the picker opens, so ⇧⌘M and typing picks a model.
+  useLayoutEffect(() => { search.current?.focus(); }, [search]);
   // The thinking level the search names, taken with the model picked.
   const effort = (rows[highlight] ?? rows[0])?.effort ?? null;
   const move = (to: number) => { const row = rows[to]; if (!row) return; setLit(rowKey(row)); };

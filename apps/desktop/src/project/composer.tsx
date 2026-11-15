@@ -107,7 +107,6 @@ function toggleBarPicker() {
   pc.open = !pc.open;
   pc.picked.query = "";
   redrawProjects();
-  if (pc.open) focusSearch(projectComp.pick);
 }
 
 function openMachineMenu(e: MouseEvent) {

@@ -399,7 +399,6 @@ export function togglePicker() {
   f.open = f.open === "pick" ? null : "pick";
   f.query = "";
   drawParts();
-  if (f.open === "pick" && composer) focusSearch(composer.pick);
 }
 
 /// Closes an open menu or the folder field; true when there was one, so
