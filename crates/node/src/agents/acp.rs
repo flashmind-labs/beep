@@ -1,5 +1,6 @@
 //! ACP requests and bounded adapter transport.
 
+mod elicitation;
 mod permissions;
 mod prompt;
 mod session;
@@ -8,6 +9,7 @@ mod transport;
 mod version;
 pub(super) use version::{Capabilities, Protocol};
 
+pub(super) use elicitation::{Answer, Fields, Form};
 pub(super) use permissions::{Permission, permission_v2};
 pub(super) use permissions::{allow_option, cancelled, plan_of, selected};
 pub(super) use prompt::{Prompt, SteeringOutcome, prompt, steering, takes_images, takes_steering};

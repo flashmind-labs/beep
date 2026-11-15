@@ -478,6 +478,68 @@ async fn a_declining_answer_counts_steers_against_the_queue_limit() {
     session.close().await;
 }
 
+/// An adapter that asks two questions in one form, as Claude Code's
+/// AskUserQuestion reaches the node, logs the answer and ends its turn.
+const FORM_ADAPTER: &str = r#"
+handshake "$1"
+read -r line
+prompt=$(id)
+echo '{"jsonrpc":"2.0","id":"e1","method":"elicitation/create","params":{"mode":"form","sessionId":"s","message":"Please answer the following questions.","requestedSchema":{"type":"object","properties":{"question_0":{"type":"string","title":"Scope","description":"Which layout?","oneOf":[{"const":"Source","title":"Source"},{"const":"Screen","title":"Screen"}]},"question_0_custom":{"type":"string","title":"Other"},"question_1":{"type":"array","title":"Parts","description":"Which parts?","items":{"anyOf":[{"const":"Sidebar","title":"Sidebar"},{"const":"Composer","title":"Composer"}]}},"question_1_custom":{"type":"string","title":"Other"}}}}}'
+read -r line; log "$1"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_form_is_asked_field_by_field_and_sent_whole() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let session =
+        Session::start(start_on(&script("pi", FORM_ADAPTER, &log), dir, None)).unwrap();
+    settle(&session).await;
+    let first = session.info().question.expect("the first field");
+    assert_eq!(first.text, "Which layout?");
+    let names: Vec<&str> = first.options.iter().map(|o| o.name.as_str()).collect();
+    assert_eq!(names, ["Source", "Screen", "Skip"]);
+
+    let answer = Command::Answer {
+        question: first.id,
+        reply: "2".into(),
+    };
+    session.order(answer).await.unwrap();
+    let second = session.info().question.expect("the second field");
+    assert_eq!(second.text, "Which parts?");
+    // Words typed while a form asks answer it.
+    let words = Command::Prompt(String::from("Composer, Toolbar").into());
+    session.order(words).await.unwrap();
+
+    let mut live = session.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        watched::wait_for(&mut live, |live| live.info.turns >= 1),
+    )
+    .await
+    .expect("the turn ends once the form is sent")
+    .unwrap();
+    let sent = sent(&log);
+    let answer = sent.last().expect("the form's answer");
+    assert_eq!(answer["id"], "e1");
+    assert_eq!(
+        answer["result"],
+        serde_json::json!({
+            "action": "accept",
+            "content": {
+                "question_0": "Screen",
+                "question_1": ["Composer"],
+                "question_1_custom": "Toolbar",
+            },
+        })
+    );
+    session.close().await;
+}
+
 /// An adapter that puts a choice to the user, then ends its turn without
 /// waiting for it, logs the answer the node gives and exits.
 const ABANDONING_ADAPTER: &str = r#"
