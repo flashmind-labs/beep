@@ -257,10 +257,11 @@ body:not(.mobile) .dcard.dcoder:has(> .q) { border-color: color-mix(in srgb, var
 body:not(.mobile) .cc-side > .painted-art { display: block; position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; opacity: .5; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent 82%); mask-image: linear-gradient(#000, transparent 82%) }
 
 /* ----- The start screen: a painted sunrise behind the headline (src/ui/painted-art.tsx), with the
-   composer as frosted glass over its water ----- */
+   composer as frosted glass over its water. It is no wider than the draft area, which clips it,
+   so its mask fades out before the edges instead of being cut. ----- */
 .painted-art { display: none; image-rendering: pixelated }
 .cc-pjc.centered { position: relative; isolation: isolate }
-.agc-intro > .painted-art { display: block; position: absolute; z-index: -1; left: 50%; top: -290px; width: 1500px; height: 640px; opacity: .9; transform: translateX(-50%); pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent); mask-image: radial-gradient(closest-side, #000 45%, transparent) }
+.agc-intro > .painted-art { display: block; position: absolute; z-index: -1; left: 50%; top: -290px; width: min(1500px, 100cqw); height: 640px; opacity: .9; transform: translateX(-50%); pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent); mask-image: radial-gradient(closest-side, #000 45%, transparent) }
 .cc-pjc.centered .agc-intro h3 { text-shadow: 0 2px 24px var(--ink) }
 .cc-pjc.centered .agc-intro p { font-family: var(--mono); font-size: 12px; color: color-mix(in srgb, var(--fg) 78%, transparent); text-shadow: 0 1px 12px var(--ink) }
 /* Frosted glass: a light tint, a strong blur, a bright rim. */
