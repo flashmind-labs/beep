@@ -29,7 +29,9 @@ server features, and nodes do not connect to it.
 
 - Every feature the user asks for gets a GitHub issue in `flashmind-labs/beep`
   (`gh issue create`) before work starts. Link it from the commit or close it
-  when the feature ships.
+  when the feature ships. A subagent on a small model writes the issue's
+  title and body from your notes: Haiku 5.5 (`claude-haiku-5-5`) under Claude
+  ACP, Terra 6.1 (`gpt-6-1-terra`) under Codex ACP.
 - Label every issue: one or more areas (`area: desktop`, `area: phone`,
   `area: node`, `area: mesh`, `area: sync`, `area: server`, `area: agents`
   for coding agent sessions, ACP and MCP, `area: release` for builds,
