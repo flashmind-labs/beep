@@ -324,6 +324,31 @@ pub(super) fn moving(main: &Path, made: &[String]) -> Vec<MovingWorktree> {
         .collect()
 }
 
+/// Whether the checkout `main` has changes not committed, leaving out the
+/// worktrees inside it. False outside Git. Blocks.
+pub(super) fn has_edits(main: &Path) -> bool {
+    let Ok(out) = run(main, &["status", "--porcelain", "-z"], None) else {
+        return false;
+    };
+    let main = paths::canonicalize(main).unwrap_or_else(|_| main.to_owned());
+    let worktrees: Vec<PathBuf> = listed(&main)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(dir, _)| paths::canonicalize(&dir).ok())
+        .filter(|dir| *dir != main)
+        .collect();
+
+    // Each entry is `XY name`; a worktree inside shows as a new folder.
+    out.split(|byte| *byte == 0)
+        .filter_map(|entry| entry.get(3..))
+        .filter(|name| !name.is_empty())
+        .any(|name| {
+            let name = String::from_utf8_lossy(name);
+            let path = main.join(name.trim_end_matches('/'));
+            !worktrees.iter().any(|tree| tree.starts_with(&path))
+        })
+}
+
 /// The worktrees of the checkout `main` with the branch each has checked
 /// out, none for a detached one.
 fn listed(main: &Path) -> Result<Vec<(PathBuf, Option<String>)>> {

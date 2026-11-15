@@ -436,3 +436,15 @@ fn a_worktree_folder_is_named_with_forward_slashes() {
     assert_eq!(moving.len(), 1);
     assert_eq!(moving[0].path, ".worktrees/a/b");
 }
+
+#[test]
+fn edits_in_the_checkout_count_but_a_worktree_inside_it_does_not() {
+    let (dir, _wt) = source();
+    let main = dir.path().join("main");
+    git(&main, &["worktree", "add", "-q", "-b", "inside", ".worktrees/inside"]);
+    fs::write(main.join(".worktrees/inside/a.txt"), "edited there\n").unwrap();
+    assert!(!has_edits(&main), "a worktree inside is not the checkout's edit");
+    fs::write(main.join("loose.txt"), "new\n").unwrap();
+    assert!(has_edits(&main));
+    assert!(!has_edits(&dir.path().join("nowhere")), "outside Git");
+}

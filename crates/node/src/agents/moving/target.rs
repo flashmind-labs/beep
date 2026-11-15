@@ -290,6 +290,7 @@ async fn checkouts(
             show(tracker, |progress| {
                 progress.source_away = false;
                 progress.reason = None;
+                progress.edits_left = theirs.edits;
             });
             return Ok(theirs);
         }

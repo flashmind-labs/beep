@@ -22,7 +22,7 @@ test("the open conversation follows a completed move even when its target lists 
   const target = { ...source, machine_id: "studio", machine_name: "studio" };
   const page: AgentPage = { session: source, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
   const record = { session: "s1", agent: "codex", from: "laptop", to: "studio", project: "acme/app", at: Date.now() };
-  const progress = { answer: "known" as const, phase: "done" as const, copied: 0, total: 0, source_away: false, reason: null, worktree: null, worktree_at: 0, worktrees: 0 };
+  const progress = { answer: "known" as const, phase: "done" as const, copied: 0, total: 0, source_away: false, reason: null, worktree: null, worktree_at: 0, worktrees: 0, edits_left: false };
   S.view = "agent";
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   // This check draws the header; the composer needs native textarea accessors.

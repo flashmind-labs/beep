@@ -1557,6 +1557,7 @@ mod agent {
                     worktree: Some("feat".into()),
                     worktree_at: 1,
                     worktrees: 2,
+                    edits_left: true,
                 }),
             };
             let bytes = rmp_serde::to_vec(&reply).expect("encodes");
