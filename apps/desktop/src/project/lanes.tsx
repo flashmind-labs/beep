@@ -3,7 +3,7 @@
 import { byRecent, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { Board, type BoardCard } from "../center/lanes-view.tsx";
+import type { BoardCard } from "../center/lanes-view.tsx";
 import { endedToday, laneOf } from "../center/lanes-state.ts";
 import { state } from "../center/state.ts";
 import { go } from "../center/views.tsx";
@@ -14,7 +14,8 @@ import type { SessionRow } from "./projects-state.ts";
 import { fsync } from "./sections.ts";
 import { RunningStatus } from "./split-view.tsx";
 
-export function ProjectBoard({ project, running, past, openTile }: {
+/// The cards on project `project`'s board; none leaves the page to the bar.
+export function projectCards({ project, running, past, openTile }: {
   project: string; running: readonly RunningAgent[]; past: readonly SessionRow[]; openTile(key: string): void;
 }) {
   const projects = state.home?.projects || [];
@@ -39,5 +40,5 @@ export function ProjectBoard({ project, running, past, openTile }: {
       foot: formatAgo(session.last_activity, "since"), action: null, dim: false, hint: null, open: () => go("pane", { agent: { kind: "agent", ...session } }), menu: null });
   }
 
-  return <Board cards={cards} more={{ working: () => openTile("running"), done: () => openTile("agents") }} rows={null}/>;
+  return cards;
 }

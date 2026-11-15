@@ -287,6 +287,16 @@ test("project page", async ({ page }) => {
   await baseline(page, "project-page");
 });
 
+test("project with nothing on its board", async ({ page }) => {
+  const hosts = [{ machine_id: machineId, machine_name: machineId, agents: ["codex"], workspace: null, home: null, capabilities: [] }];
+  await openDesktop(page, false, { center_home: { ...home, running: [] }, ...projectPage, project_sessions: [], agent_hosts: hosts });
+  // The headline is drawn by lot, as on the start screen.
+  await page.evaluate(() => { Math.random = () => 0; });
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
+  await expect(page.locator(".cc-pjc.centered .agc-intro h3")).toBeVisible();
+  await baseline(page, "project-blank");
+});
+
 test("project bar when its machine runs no coding agent yet", async ({ page }) => {
   const wslBox = { ...machine("wsl-box", "Ubuntu on desk-pc", true, 0), env: { os: "linux", os_version: "Ubuntu 24.04", arch: "x86_64", hostname: "desk-pc", cpus: 8, memory_mb: 16384, home: "/home/user", tools: [{ name: "claude", version: "2.1.0" }], logins: [], avds: [], gpus: [], wsl: [] }, adapters: [{ agent: "claude", failed: "needs Node.js: unpacking failed" }] };
   const hosts = [{ machine_id: machineId, machine_name: machineId, agents: ["codex"], workspace: null, home: null, capabilities: [] }];
