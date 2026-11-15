@@ -113,6 +113,29 @@ pub struct DeviceStatus {
     pub last_seen: Option<SystemTime>,
 }
 
+/// The ways to reach `addr`, for a log or a report: its relay and its
+/// addresses, or that there are none and it is looked up by its id.
+pub fn ways(addr: &EndpointAddr) -> String {
+    let relays: Vec<_> = addr.relay_urls().map(ToString::to_string).collect();
+    let ips: Vec<_> = addr.ip_addrs().map(ToString::to_string).collect();
+
+    if relays.is_empty() && ips.is_empty() {
+        return "its id alone".to_owned();
+    }
+
+    let relay = if relays.is_empty() {
+        "no relay".to_owned()
+    } else {
+        format!("relay {}", relays.join(" "))
+    };
+
+    if ips.is_empty() {
+        return format!("{relay}, no address");
+    }
+
+    format!("{relay}, {}", ips.join(" "))
+}
+
 pub(crate) struct Live {
     pub conn: Connection,
     /// Who opened the connection: the smaller id's wins when both did.

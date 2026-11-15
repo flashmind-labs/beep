@@ -9,6 +9,8 @@ use crate::{
     settings::cli_login::find_tool,
 };
 use anyhow::Context;
+#[cfg(mobile)]
+use beep_mesh::ways;
 use beep_mesh::{Device, DeviceKind, PeerClient};
 #[cfg(mobile)]
 use beep_report::{Answer, Share, local_log};
@@ -18,6 +20,10 @@ use beep_report::{
 };
 use futures::future::join_all;
 use iroh::EndpointId;
+#[cfg(mobile)]
+use iroh::Watcher;
+#[cfg(mobile)]
+use iroh_metrics::{MetricsSource, Registry};
 use serde::Serialize;
 #[cfg(mobile)]
 use std::io;
@@ -78,7 +84,10 @@ pub async fn report_collect(
     #[cfg_attr(desktop, expect(unused_mut))]
     let mut shares = collect(targets, since).await;
     #[cfg(mobile)]
-    shares.insert(0, phone_share(me, machine.name().to_owned(), since).await);
+    shares.insert(
+        0,
+        phone_share(fleet, machine.name().to_owned(), since).await,
+    );
     let sender = Sender {
         id: me,
         mesh: fleet.mesh().map(|mesh| mesh.id()),
@@ -93,7 +102,7 @@ pub async fn report_collect(
 /// The phone's own part of a report: its app log from `since` on, so a phone
 /// that reaches no machine can still say why.
 #[cfg(mobile)]
-async fn phone_share(id: EndpointId, name: String, since: i64) -> Share {
+async fn phone_share(fleet: &Fleet, name: String, since: i64) -> Share {
     let log = match crate::platform::logfile::dir() {
         Some(dir) => spawn_blocking(move || local_log(&dir, since))
             .await
@@ -104,16 +113,74 @@ async fn phone_share(id: EndpointId, name: String, since: i64) -> Share {
     };
 
     Share {
-        id,
+        id: fleet.id(),
         name,
         kind: DeviceKind::Desktop,
         answer: Answer::Answered,
         log,
-        status: String::new(),
+        status: phone_status(fleet).await,
         version: env!("CARGO_PKG_VERSION").to_owned(),
         os: std::env::consts::OS.to_owned(),
         os_version: String::new(),
     }
+}
+
+/// What the phone's network looks like: how it is reached itself, its relay
+/// and what its last network check found, each machine with whether it is
+/// linked, the address held for it and the paths iroh knows to it, then the
+/// transport's counters.
+#[cfg(mobile)]
+async fn phone_status(fleet: &Fleet) -> String {
+    let me = fleet.id();
+    let endpoint = fleet.endpoint();
+    let devices = fleet.mesh().map(|mesh| mesh.devices()).unwrap_or_default();
+    let machines = join_all(
+        devices
+            .into_iter()
+            .filter(|status| status.device.id != me)
+            .map(|status| async move {
+                let link = match (status.online, status.last_seen) {
+                    (true, _) => "linked".to_owned(),
+                    (false, Some(seen)) => format!(
+                        "last linked {} s ago",
+                        seen.elapsed().map_or(0, |ago| ago.as_secs())
+                    ),
+                    (false, None) => "not linked since the app opened".to_owned(),
+                };
+                let held = status.addr.as_ref().map_or_else(|| "none".to_owned(), ways);
+                let paths = match endpoint.remote_info(status.device.id).await {
+                    Some(info) => info
+                        .addrs()
+                        .map(|path| format!("{} ({:?})", path.addr(), path.usage()))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    None => "none".to_owned(),
+                };
+
+                format!(
+                    "{} ({}): {link}; address held: {held}; paths: {paths}",
+                    status.device.name,
+                    status.device.id.fmt_short()
+                )
+            }),
+    )
+    .await;
+
+    let mut registry = Registry::default();
+    registry.register_all(endpoint.metrics());
+    let counters = registry
+        .encode_openmetrics_to_string()
+        .unwrap_or_else(|e| format!("not read: {e}"));
+
+    format!(
+        "this phone ({}): {}\nsockets: {:?}\nhome relay: {:?}\nnetwork check: {:?}\n\n{}\n\ntransport counters:\n{counters}",
+        me.fmt_short(),
+        ways(&endpoint.addr()),
+        endpoint.bound_sockets(),
+        endpoint.home_relay_status().get(),
+        endpoint.net_report().get(),
+        machines.join("\n")
+    )
 }
 
 /// A client for `id` within `REACH_LIMIT`, or why there is none.

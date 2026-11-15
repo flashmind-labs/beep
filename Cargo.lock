@@ -637,6 +637,7 @@ dependencies = [
  "image",
  "iroh",
  "iroh-blobs",
+ "iroh-metrics",
  "iroh-tickets",
  "libc",
  "log",
