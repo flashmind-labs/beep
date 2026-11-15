@@ -54,7 +54,7 @@ async fn shows_a_plugged_in_iphone() {
     let shown = tokio::time::timeout(CALL_TIMEOUT, async {
         loop {
             live.screen.changed().await.expect("the view runs");
-            let screen = live.screen.borrow_and_update().clone();
+            let screen = beep_proto::watched::read_and_update(&mut live.screen, Clone::clone);
 
             match screen {
                 Screen::Starting => {}
