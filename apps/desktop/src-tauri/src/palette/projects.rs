@@ -34,17 +34,28 @@ pub(super) fn within(cwd: &str, folder: &str) -> bool {
 }
 
 /// The project a session runs in: the imported project whose folder on its
-/// machine holds it (the deepest), else its folder's name.
+/// machine holds it (the deepest), else its folder's name. A folder named
+/// like an imported project's repo is that project.
 fn session_project<'a>(
     session: &'a MachineSession,
     imported: &'a [ImportedProject],
 ) -> Option<&'a str> {
-    imported
+    let holding = imported
         .iter()
         .filter(|p| p.machine_id == session.machine_id && within(&session.cwd, &p.folder))
-        .max_by_key(|p| p.folder.len())
-        .map(|p| p.project.as_str())
-        .or_else(|| last_part(&session.cwd))
+        .max_by_key(|p| p.folder.len());
+
+    if let Some(p) = holding {
+        return Some(&p.project);
+    }
+
+    let folder = last_part(&session.cwd)?;
+    let repo = folder.to_lowercase();
+    let named = imported
+        .iter()
+        .find(|p| last_part(&p.project).unwrap_or(&p.project).to_lowercase() == repo);
+
+    Some(named.map_or(folder, |p| &p.project))
 }
 
 /// A folder coding agents worked in that no project covers.
@@ -55,12 +66,10 @@ struct FolderRow<'a> {
 }
 
 /// Projects by name, once each: imported ones, then the folders coding
-/// agents worked in. A folder named like a listed
-/// project's repo is that project.
+/// agents worked in.
 pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]) -> Vec<Entry> {
     let mut entries = Vec::new();
     let mut names: HashSet<&str> = HashSet::new();
-    let mut repos: HashSet<String> = HashSet::new();
 
     for p in imported {
         // A project is imported once per machine it is on; it lists once.
@@ -68,7 +77,6 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
             continue;
         }
 
-        repos.insert(last_part(&p.project).unwrap_or(&p.project).to_lowercase());
         let (id, name, machine) = (
             p.project.clone(),
             p.display_name.as_ref().unwrap_or(&p.project).clone(),
@@ -90,7 +98,7 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
             continue;
         };
 
-        if names.contains(name) || repos.contains(&name.to_lowercase()) {
+        if names.contains(name) {
             continue;
         }
 
@@ -171,5 +179,6 @@ pub(super) fn session_entry(s: &MachineSession, imported: &[ImportedProject]) ->
     let id = format!("{} {}", s.machine_id, s.id);
     let mut entry = Entry::new(HitKind::AgentSession, id, title.to_owned(), detail, &keys);
     entry.session = Some(SessionRow::from(s.clone()));
+    entry.project = project.map(str::to_owned);
     entry
 }
