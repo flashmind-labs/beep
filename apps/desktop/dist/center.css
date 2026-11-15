@@ -26,6 +26,11 @@ html, body.cbody { background: var(--ink) }
 .ddot.busy { background: var(--ok) }
 .cc-foot { display: flex; align-items: center; gap: 6px; margin-top: auto; padding: 8px; font-size: 11.5px; line-height: 16px; color: var(--muted) }
 .cc-foot b { color: var(--fg); font-weight: 500 }
+.cc-star { display: flex; align-items: center; margin: auto 8px 0; border-radius: 6px; background: color-mix(in srgb, var(--accent) 14%, transparent) }
+.cc-star .dbtn { flex: none; min-height: 32px; padding: 0 6px; border-color: transparent; white-space: nowrap }
+.cc-star .dbtn.open.quiet { flex: 1; min-width: 0; justify-content: flex-start; padding-left: 10px; color: var(--fg); font-size: 11px }
+.cc-star .dbtn.open svg { flex: none; color: var(--accent) }
+.cc-star + .cc-foot { margin-top: 0 }
 .cc-main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size }
 .cc-top { min-height: 38px; flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border) }
 .cc-top h2 { white-space: nowrap; margin: 0; font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: -0.03em; line-height: 1 }
@@ -988,7 +993,7 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 /* A phone has no window buttons to clear: the rail is as narrow as its icons. */
 html[data-phone] .cwin.side-collapsed { grid-template-columns: 32px minmax(0, 1fr) }
 html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
-.side-collapsed .cc-brand b, .side-collapsed > .cc-grip, .side-collapsed .cc-foot, .side-collapsed .cc-grp h3, .side-collapsed .cc-si.none, .side-collapsed .cc-si > :not(svg):not(.sidebar-icon):not(.cc-pdot):not(.ddot):not(.open), .side-collapsed .cc-si .open > :not(svg):not(.sidebar-icon):not(.cc-pdot):not(.ddot), .side-collapsed .cc-org > :not(svg):not(.sidebar-icon):not(.twist) { display: none }
+.side-collapsed .cc-brand b, .side-collapsed > .cc-grip, .side-collapsed .cc-foot, .side-collapsed .cc-star, .side-collapsed .cc-grp h3, .side-collapsed .cc-si.none, .side-collapsed .cc-si > :not(svg):not(.sidebar-icon):not(.cc-pdot):not(.ddot):not(.open), .side-collapsed .cc-si .open > :not(svg):not(.sidebar-icon):not(.cc-pdot):not(.ddot), .side-collapsed .cc-org > :not(svg):not(.sidebar-icon):not(.twist) { display: none }
 .side-collapsed .cc-si, .side-collapsed .cc-org { justify-content: center; padding: 8px; min-height: 32px; box-sizing: border-box }
 .side-collapsed .cc-si .open { justify-content: center; padding: 0 }
 .side-collapsed .cc-si:focus-visible, .side-collapsed .cc-org:focus-visible, .side-collapsed .cc-si .open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
