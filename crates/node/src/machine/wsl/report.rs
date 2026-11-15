@@ -3,7 +3,7 @@
 //! starts it; `probe_all` looks into every one when the user asks.
 
 use super::{
-    distro::{DistroName, Found},
+    distro::{DistroName, Found, FoundAgent},
     keeper, steps,
 };
 use anyhow::Result;
@@ -14,7 +14,7 @@ use std::{
     sync::{LazyLock, Mutex},
     time::Duration,
 };
-use tokio::time::timeout;
+use tokio::{sync::Notify, time::timeout};
 
 /// How long the routine report waits for the running distributions' probes.
 const PROBES_LIMIT: Duration = Duration::from_secs(10);
@@ -23,6 +23,26 @@ const PROBE_ALL_LIMIT: Duration = Duration::from_secs(60);
 
 /// What each distribution had when it was last probed well.
 static FOUND: LazyLock<Mutex<HashMap<DistroName, Found>>> = LazyLock::new(Mutex::default);
+/// Told when a probe finds other agents than before.
+static AGENTS_CHANGED: Notify = Notify::const_new();
+
+/// The coding agent `name` installed in a distribution, the first by name
+/// when several have it, as last probed.
+pub(crate) fn agent(name: &str) -> Option<(DistroName, FoundAgent)> {
+    let found = crate::lock(&FOUND);
+    let mut with: Vec<(&DistroName, &FoundAgent)> = found
+        .iter()
+        .filter_map(|(distro, found)| Some((distro, found.agents.iter().find(|agent| agent.name == name)?)))
+        .collect();
+    with.sort_by_key(|(distro, _)| *distro);
+
+    with.first().map(|(distro, agent)| ((*distro).clone(), (*agent).clone()))
+}
+
+/// Waits until a probe finds other agents in a distribution than before.
+pub(crate) async fn agents_changed() {
+    AGENTS_CHANGED.notified().await;
+}
 
 /// The machine's WSL distributions, with what each had when last probed
 /// and how its node stands; empty when WSL is not installed.
@@ -76,7 +96,12 @@ async fn probe(distros: &[&DistroName], limit: Duration) {
     let probes = distros.iter().map(|distro| async move {
         match steps::probe(distro).await {
             Ok(found) => {
-                crate::lock(&FOUND).insert((*distro).clone(), found);
+                let agents = found.agents.clone();
+                let before = crate::lock(&FOUND).insert((*distro).clone(), found);
+
+                if before.is_none_or(|before| before.agents != agents) {
+                    AGENTS_CHANGED.notify_one();
+                }
             }
             Err(e) => log::debug!("probing WSL distribution {distro} failed: {e:#}"),
         }
@@ -103,7 +128,7 @@ fn described(distro: &DistroName, found: Option<Found>) -> WslDistro {
 
     WslDistro {
         name: distro.to_string(),
-        agents: found.agents,
+        agents: found.agents.into_iter().map(|agent| agent.name).collect(),
         node: found.node,
         machine_id: found.machine_id,
         kept: standing.is_some(),

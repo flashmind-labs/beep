@@ -53,7 +53,16 @@ some line a profile printed
     assert_eq!(
         found(printed),
         Found {
-            agents: vec!["claude".into(), "codex".into()],
+            agents: vec![
+                FoundAgent {
+                    name: "claude".into(),
+                    path: "/home/sam/.local/bin/claude".into(),
+                },
+                FoundAgent {
+                    name: "codex".into(),
+                    path: "/home/sam/.npm-global/bin/codex".into(),
+                },
+            ],
             node: Some("0.7.4".into()),
             machine_id: Some("4f1c".into()),
         }
@@ -84,4 +93,28 @@ fn a_state_in_another_language_asks_for_the_quiet_lists() {
     let verbose = "  NAME      STATUS            VERSION\n* Ubuntu    Wird ausgefuehrt  2\n";
     assert_eq!(listed(verbose), None);
     assert_eq!(listed(""), Some(Vec::new()));
+}
+
+#[test]
+fn a_windows_drive_path_is_under_mnt_in_wsl() {
+    let cases = [
+        (r"C:\Users\sam\code", Some("/mnt/c/Users/sam/code")),
+        (r"\\?\D:\work\", Some("/mnt/d/work")),
+        ("C:", Some("/mnt/c")),
+        (r"\\server\share\code", None),
+        (r"C:code", None),
+        ("/home/sam", None),
+    ];
+    for (windows, linux) in cases {
+        assert_eq!(linux_path(windows).as_deref(), linux, "{windows}");
+    }
+}
+
+#[test]
+fn a_linux_path_in_wsl_is_under_wsl_localhost() {
+    let distro: DistroName = "Ubuntu".parse().expect("a name");
+    assert_eq!(
+        windows_path(&distro, "/home/sam/.claude"),
+        r"\\wsl.localhost\Ubuntu\home\sam\.claude"
+    );
 }

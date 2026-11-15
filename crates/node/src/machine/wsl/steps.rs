@@ -87,6 +87,66 @@ pub(crate) fn run_command(distro: &DistroName) -> Command {
     command
 }
 
+/// `wsl.exe` running the Linux `program` with `args` in `distro`, in the
+/// folder `cwd` of the distribution, with `forwarded` and the variables a
+/// coding agent reads (`AGENT_VARS`) carried in from Windows.
+pub(crate) fn agent_command(
+    distro: &DistroName,
+    cwd: &str,
+    program: &str,
+    args: &[String],
+    forwarded: &[&str],
+) -> Command {
+    let mut command = crate::run::process::command("wsl.exe");
+    let distro: &std::ffi::OsStr = distro.as_ref();
+    command
+        .arg("-d")
+        .arg(distro)
+        .args(["--cd", cwd, "--exec", program])
+        .args(args)
+        .env("WSLENV", wslenv(forwarded));
+    command
+}
+
+/// The home folder of `distro`'s default user, as a Linux path.
+pub(crate) async fn home(distro: &DistroName) -> Result<String> {
+    let printed = wsl(in_distro(distro, "printf %s \"$HOME\""), None, RUNNING_LIMIT).await?;
+    Ok(printed.trim().to_owned())
+}
+
+/// The variables set in this process that a coding agent reads: its
+/// credentials and settings. `PATH` stays out, as WSL makes its own.
+const AGENT_VARS: &[&str] = &["CLAUDE_", "ANTHROPIC_", "DISABLE_AUTO_COMPACT", "GH_TOKEN"];
+
+/// `WSLENV` naming the variables that cross into a distribution: the ones
+/// it already names, `forwarded`, and the `AGENT_VARS` this process has.
+fn wslenv(forwarded: &[&str]) -> String {
+    let set: Vec<String> = std::env::vars_os()
+        .filter_map(|(name, _)| name.into_string().ok())
+        .filter(|name| AGENT_VARS.iter().any(|var| name.starts_with(var)))
+        .collect();
+    let names = forwarded.iter().copied().chain(set.iter().map(String::as_str));
+
+    joined_wslenv(std::env::var("WSLENV").ok().as_deref(), names)
+}
+
+/// `existing` with `names` added once each, `:` between them.
+fn joined_wslenv<'a>(existing: Option<&'a str>, names: impl Iterator<Item = &'a str>) -> String {
+    let mut all: Vec<&str> = existing
+        .into_iter()
+        .flat_map(|existing| existing.split(':'))
+        .filter(|name| !name.is_empty())
+        .collect();
+
+    for name in names {
+        if !all.contains(&name) {
+            all.push(name);
+        }
+    }
+
+    all.join(":")
+}
+
 /// Which list `wsl.exe` prints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum List {

@@ -27,7 +27,11 @@ use agent_client_protocol::{
 use anyhow::{Context, Result};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use serde_json::{Map, Value, json};
-use std::collections::{HashMap, HashSet};
+use crate::machine::wsl::{self, DistroName};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+};
 use tokio::{sync::mpsc, task::spawn_blocking};
 
 /// How many messages from the client wait to be handled.
@@ -45,9 +49,11 @@ const MODES: &[(&str, &str)] = &[
 const MODEL: &str = "model";
 
 /// Serves ACP on this process's stdio, driving Claude Code's CLI `program`
-/// with the user's `args`, until the client closes it or the CLI exits.
+/// with the user's `args`, in the WSL distribution `wsl` when given, until
+/// the client closes it or the CLI exits.
 /// Logs go to stderr: stdout carries ACP.
-pub async fn serve(program: String, args: Vec<String>) -> Result<()> {
+pub async fn serve(program: String, args: Vec<String>, wsl: Option<&str>) -> Result<()> {
+    let wsl = wsl.map(str::parse::<DistroName>).transpose()?;
     let (events_tx, mut events) = mpsc::channel(EVENTS);
     // Its reports go unread: a dropped message is logged where it is read.
     let (oversized, _) = mpsc::channel(1);
@@ -80,6 +86,7 @@ pub async fn serve(program: String, args: Vec<String>) -> Result<()> {
                     cx,
                     program,
                     args,
+                    wsl,
                     asks: false,
                     session: None,
                     answers: FuturesUnordered::new(),
@@ -189,6 +196,8 @@ struct Bridge {
     cx: ConnectionTo<Client>,
     program: String,
     args: Vec<String>,
+    /// The WSL distribution the CLI runs in, on a Windows machine.
+    wsl: Option<DistroName>,
     /// The client takes forms, for `AskUserQuestion`.
     asks: bool,
     session: Option<Session>,
@@ -245,8 +254,9 @@ impl Bridge {
             }
             "session/load" => {
                 let request = LoadSessionRequest::parse_message(&method, params)?;
-                let (cwd, id) = (request.cwd.clone(), request.session_id.0.to_string());
-                let replay = spawn_blocking(move || replayed(&cwd, &id)).await?;
+                let id = request.session_id.0.to_string();
+                let transcript = self.transcript(&request.cwd, &id).await;
+                let replay = spawn_blocking(move || replayed(transcript, &id)).await?;
                 let start = Start::Load(responder.cast(), replay);
                 self.start(&request.session_id.0, true, &request.cwd, &request.mcp_servers, request.system_prompt.as_ref(), start)?;
             }
@@ -334,6 +344,22 @@ impl Bridge {
         }
     }
 
+    /// Where Claude Code keeps session `id` it ran in `cwd`: under the
+    /// user's home, or in WSL the distribution's.
+    async fn transcript(&self, cwd: &Path, id: &str) -> Option<PathBuf> {
+        let Some(distro) = &self.wsl else {
+            return updates::transcript(cwd, id);
+        };
+        let cwd = wsl::linux_path(&cwd.to_string_lossy())?;
+        let home = wsl::home(distro)
+            .await
+            .inspect_err(|e| log::warn!("the home folder in WSL {distro} is not known: {e:#}"))
+            .ok()?;
+        let folder = crate::agents::claude::slug(Path::new(&cwd));
+
+        Some(wsl::windows_path(distro, &format!("{home}/.claude/projects/{folder}/{id}.jsonl")).into())
+    }
+
     /// Starts the CLI on session `id` in `cwd`, resumed or new; `start` is
     /// answered once it initialized.
     fn start(
@@ -362,7 +388,8 @@ impl Bridge {
             cwd,
             session: id,
             resume,
-            mcp: mcp_config(mcp),
+            wsl: self.wsl.as_ref(),
+            mcp: mcp_config(mcp, self.wsl.is_some()),
             system: system.map(system_text).filter(|text| !text.is_empty()),
             asks: self.asks,
         };
@@ -691,10 +718,10 @@ fn commands(initialized: &Value) -> Vec<AvailableCommand> {
         .collect()
 }
 
-/// The updates replaying session `id`'s transcript, which Claude Code keeps
-/// by the folder it ran in; none when it cannot be read.
-fn replayed(cwd: &std::path::Path, id: &str) -> Vec<SessionUpdate> {
-    let Some(path) = updates::transcript(cwd, id) else {
+/// The updates replaying session `id`'s transcript at `path`; none when it
+/// cannot be read.
+fn replayed(path: Option<PathBuf>, id: &str) -> Vec<SessionUpdate> {
+    let Some(path) = path else {
         return Vec::new();
     };
     updates::replay(&path).unwrap_or_else(|e| {
@@ -746,8 +773,10 @@ fn system_text(prompt: &SystemPrompt) -> String {
         .join("\n\n")
 }
 
-/// The MCP servers as `--mcp-config` takes them.
-fn mcp_config(servers: &[McpServer]) -> Option<String> {
+/// The MCP servers as `--mcp-config` takes them. In WSL a server on stdio
+/// is a Windows program: it is named by its path inside the distribution,
+/// and its variables cross over in `WSLENV`.
+fn mcp_config(servers: &[McpServer], in_wsl: bool) -> Option<String> {
     let pairs = |pairs: Vec<(String, String)>| -> Map<String, Value> {
         pairs.into_iter().map(|(name, value)| (name, Value::String(value))).collect()
     };
@@ -755,14 +784,20 @@ fn mcp_config(servers: &[McpServer]) -> Option<String> {
 
     for server in servers {
         let (name, entry) = match server {
-            McpServer::Stdio(stdio) => (
-                &stdio.name,
-                json!({
-                    "command": stdio.command,
-                    "args": stdio.args,
-                    "env": pairs(stdio.env.iter().map(|var| (var.name.clone(), var.value.clone())).collect()),
-                }),
-            ),
+            McpServer::Stdio(stdio) => {
+                let mut env: Vec<(String, String)> =
+                    stdio.env.iter().map(|var| (var.name.clone(), var.value.clone())).collect();
+                let command = stdio.command.display().to_string();
+                let command = match in_wsl {
+                    true => {
+                        let names: Vec<&str> = env.iter().map(|(name, _)| name.as_str()).collect();
+                        env.push(("WSLENV".to_owned(), names.join(":")));
+                        wsl::linux_path(&command).unwrap_or(command)
+                    }
+                    false => command,
+                };
+                (&stdio.name, json!({"command": command, "args": stdio.args, "env": pairs(env)}))
+            }
             McpServer::Http(http) => (
                 &http.name,
                 json!({

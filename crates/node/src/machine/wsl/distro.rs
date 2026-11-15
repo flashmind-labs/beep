@@ -128,11 +128,46 @@ fn for_an_app(name: &DistroName) -> bool {
         .any(|app| name.0.starts_with(app))
 }
 
+/// `path` on a Windows drive as a distribution sees it, such as
+/// `C:\Users\sam` as `/mnt/c/Users/sam`; `None` for a path on no drive
+/// letter, such as a network share.
+pub(crate) fn linux_path(path: &str) -> Option<String> {
+    let path = path.strip_prefix(r"\\?\").unwrap_or(path);
+    let mut chars = path.chars();
+    let (Some(drive), Some(':')) = (chars.next(), chars.next()) else {
+        return None;
+    };
+    let rest = chars.as_str();
+
+    if !drive.is_ascii_alphabetic() || !(rest.is_empty() || rest.starts_with(['\\', '/'])) {
+        return None;
+    }
+
+    let rest = rest.replace('\\', "/");
+    let rest = rest.trim_end_matches('/');
+    Some(format!("/mnt/{}{rest}", drive.to_ascii_lowercase()))
+}
+
+/// The Linux path `path` inside `distro` as Windows reaches it, through
+/// `\\wsl.localhost`.
+pub(crate) fn windows_path(distro: &DistroName, path: &str) -> String {
+    format!(r"\\wsl.localhost\{distro}{}", path.replace('/', "\\"))
+}
+
+/// A coding agent CLI the probe found inside a distribution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FoundAgent {
+    /// Its name among the harnesses, such as `claude`.
+    pub(crate) name: String,
+    /// Where it is installed, inside the distribution.
+    pub(crate) path: String,
+}
+
 /// What the probe found inside a distribution.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Found {
     /// The coding agent CLIs, in the order Beep lists harnesses.
-    pub(crate) agents: Vec<String>,
+    pub(crate) agents: Vec<FoundAgent>,
     /// The version of the beep-node installed in it.
     pub(crate) node: Option<String>,
     /// That node's id in the mesh.
@@ -151,8 +186,11 @@ pub(crate) fn found(printed: &str) -> Found {
 
         match (words.next(), words.next(), words.next()) {
             (Some("agent"), Some(agent), Some(path)) if !path.starts_with("/mnt/") => {
-                if !found.agents.iter().any(|known| known == agent) {
-                    found.agents.push(agent.to_owned());
+                if !found.agents.iter().any(|known| known.name == agent) {
+                    found.agents.push(FoundAgent {
+                        name: agent.to_owned(),
+                        path: path.to_owned(),
+                    });
                 }
             }
             (Some("node"), Some("beep-node"), Some(version)) => {
@@ -163,10 +201,10 @@ pub(crate) fn found(printed: &str) -> Found {
         }
     }
 
-    let order = |agent: &String| {
+    let order = |agent: &FoundAgent| {
         HARNESSES
             .iter()
-            .position(|harness| harness.agent == agent)
+            .position(|harness| harness.agent == agent.name)
             .unwrap_or(HARNESSES.len())
     };
     found.agents.sort_by_key(order);

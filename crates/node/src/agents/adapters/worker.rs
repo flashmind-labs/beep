@@ -137,6 +137,7 @@ impl Agents {
                 tokio::select! {
                     () = tokio::time::sleep(RECHECK) => {}
                     () = agents.adapters.again.notified() => {}
+                    () = crate::machine::wsl::agents_changed() => {}
                 }
             }
         }))

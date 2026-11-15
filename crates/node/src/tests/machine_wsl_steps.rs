@@ -89,7 +89,17 @@ fn the_probe_script_runs_in_sh() {
         .expect("sh runs");
     assert!(out.status.success());
     let found = distro::found(&String::from_utf8_lossy(&out.stdout));
-    assert_eq!(found.agents, ["claude", "codex"]);
+    let names: Vec<&str> = found.agents.iter().map(|agent| agent.name.as_str()).collect();
+    assert_eq!(names, ["claude", "codex"]);
     assert_eq!(found.node.as_deref(), Some("0.7.4"));
     assert_eq!(found.machine_id.as_deref(), Some("4f1c"));
+}
+
+#[test]
+fn wslenv_adds_each_name_once() {
+    assert_eq!(
+        joined_wslenv(Some("USERPROFILE/p:GH_TOKEN"), ["GH_TOKEN", "BEEP_MCP_TOKEN"].into_iter()),
+        "USERPROFILE/p:GH_TOKEN:BEEP_MCP_TOKEN"
+    );
+    assert_eq!(joined_wslenv(None, ["A"].into_iter()), "A");
 }

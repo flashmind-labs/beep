@@ -123,12 +123,14 @@ enum Command {
         session: String,
     },
     /// Started by the node for Claude Code's Direct driver: ACP on stdio,
-    /// spoken to the Claude Code CLI `cli` itself. Arguments after `--` go
-    /// to the CLI.
+    /// spoken to the Claude Code CLI `cli` itself, inside the WSL
+    /// distribution `wsl` when given. Arguments after `--` go to the CLI.
     #[command(name = agents::DIRECT_COMMAND, hide = true)]
     ClaudeAcp {
         #[arg(long, default_value = "claude")]
         cli: String,
+        #[arg(long)]
+        wsl: Option<String>,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -519,7 +521,9 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Command::Mcp { session } => mcp::pipe(&dir, &session).await,
-        Command::ClaudeAcp { cli, args } => agents::claude_direct::serve(cli, args).await,
+        Command::ClaudeAcp { cli, wsl, args } => {
+            agents::claude_direct::serve(cli, args, wsl.as_deref()).await
+        }
         #[cfg(unix)]
         Command::PtyHost => beep_node::run_terminal_host(&dir).await,
         Command::Hook { event: _ } => {

@@ -2,7 +2,10 @@
 //! its stdin and the frames read from its stdout.
 
 use crate::agents::{Line, LineReader, acp::MAX_MESSAGE};
-use crate::run::process::command;
+use crate::{
+    machine::wsl::{self, DistroName},
+    run::process::command,
+};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::{io::Write, path::Path, process::Stdio};
@@ -23,6 +26,8 @@ pub(super) struct Launch<'a> {
     /// The user's arguments, added last.
     pub(super) extra: &'a [String],
     pub(super) cwd: &'a Path,
+    /// The WSL distribution it runs in, on a Windows machine.
+    pub(super) wsl: Option<&'a DistroName>,
     /// The session it starts as, or resumes.
     pub(super) session: &'a str,
     pub(super) resume: bool,
@@ -39,7 +44,8 @@ impl Launch<'_> {
     /// Its arguments. The MCP servers are read from `files.mcp` and the
     /// system prompt from `files.system`: the one holds secrets, the other
     /// can be longer than a Windows command line takes.
-    fn args(&self, files: &Files) -> Vec<String> {
+    /// `place` names a file as the CLI sees it.
+    fn args(&self, files: &Files, place: impl Fn(&Path) -> Result<String>) -> Result<Vec<String>> {
         let mut args: Vec<String> = [
             "--print",
             "--input-format",
@@ -68,13 +74,13 @@ impl Launch<'_> {
         args.extend([session.to_owned(), self.session.to_owned()]);
 
         if let Some(mcp) = &files.mcp {
-            args.extend(["--mcp-config".to_owned(), mcp.path().display().to_string()]);
+            args.extend(["--mcp-config".to_owned(), place(mcp.path())?]);
         }
 
         if let Some(system) = &files.system {
             args.extend([
                 "--append-system-prompt-file".to_owned(),
-                system.path().display().to_string(),
+                place(system.path())?,
             ]);
         }
 
@@ -83,7 +89,7 @@ impl Launch<'_> {
         }
 
         args.extend(self.extra.iter().cloned());
-        args
+        Ok(args)
     }
 }
 
@@ -99,6 +105,12 @@ fn file(text: &str) -> Result<NamedTempFile> {
     file.write_all(text.as_bytes())
         .context("writing Claude Code's settings")?;
     Ok(file)
+}
+
+/// `path` on Windows as WSL sees it.
+fn in_wsl(path: &Path) -> Result<String> {
+    wsl::linux_path(&path.to_string_lossy())
+        .with_context(|| format!("WSL does not reach {}, which is on no drive", path.display()))
 }
 
 /// A running CLI. Dropping it kills it.
@@ -118,9 +130,18 @@ impl Cli {
             mcp: launch.mcp.as_deref().map(file).transpose()?,
             system: launch.system.as_deref().map(file).transpose()?,
         };
-        let mut process = command(launch.program);
+        let mut process = match launch.wsl {
+            Some(distro) => {
+                let args = launch.args(&files, in_wsl)?;
+                wsl::agent_command(distro, &in_wsl(launch.cwd)?, launch.program, &args, &[])
+            }
+            None => {
+                let mut process = command(launch.program);
+                process.args(launch.args(&files, |path| Ok(path.display().to_string()))?);
+                process
+            }
+        };
         process
-            .args(launch.args(&files))
             .current_dir(launch.cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
