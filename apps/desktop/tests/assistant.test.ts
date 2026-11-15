@@ -5,20 +5,27 @@ import { assistantHost, assistantRows, isAssistant, resolveAssistant } from "../
 
 const HOME = "/home/user";
 
-test("a session is the assistant by its flag, else when top-level in the home folder off Windows", () => {
+const OLD_NODE = { home: HOME, windows: false, marks: false };
+
+test("a session is the assistant by its flag, else on an older node when top-level in the home folder off Windows", () => {
   const found = { assistant: false, cwd: HOME, parent: null };
-  assert.equal(isAssistant({ assistant: true, cwd: "/srv/project", parent: null }, HOME, true), true);
-  assert.equal(isAssistant(found, HOME, false), true);
-  assert.equal(isAssistant(found, HOME, true), false);
-  assert.equal(isAssistant({ ...found, parent: { machine_id: "build-box", id: "a1", key: "a1" } }, HOME, false), false);
-  assert.equal(isAssistant({ ...found, cwd: `${HOME}/project` }, HOME, false), false);
-  assert.equal(isAssistant(found, null, false), false);
+  assert.equal(isAssistant({ assistant: true, cwd: "/srv/project", parent: null }, { ...OLD_NODE, windows: true }), true);
+  assert.equal(isAssistant(found, OLD_NODE), true);
+  assert.equal(isAssistant(found, { ...OLD_NODE, windows: true }), false);
+  assert.equal(isAssistant({ ...found, parent: { machine_id: "build-box", id: "a1", key: "a1" } }, OLD_NODE), false);
+  assert.equal(isAssistant({ ...found, cwd: `${HOME}/project` }, OLD_NODE), false);
+  assert.equal(isAssistant(found, { ...OLD_NODE, home: null }), false);
 });
 
-test("a fresh Beep start in the home folder is the assistant, its children are not", () => {
-  const fresh = { assistant: false, cwd: HOME, parent: null };
-  assert.equal(isAssistant(fresh, HOME, false), true);
-  assert.equal(isAssistant({ ...fresh, parent: { machine_id: "build-box", id: "a1", key: "a1" } }, HOME, false), false);
+test("a reviewer is never the assistant", () => {
+  assert.equal(isAssistant({ assistant: false, cwd: HOME, parent: null, reviewer: true }, OLD_NODE), false);
+  assert.equal(isAssistant({ assistant: true, cwd: HOME, parent: null, reviewer: true }, OLD_NODE), false);
+});
+
+test("a newer node's flag is the answer, as in WSL, where its home folder holds no assistant", () => {
+  const newer = { ...OLD_NODE, marks: true };
+  assert.equal(isAssistant({ assistant: false, cwd: HOME, parent: null }, newer), false);
+  assert.equal(isAssistant({ assistant: true, cwd: HOME, parent: null }, newer), true);
 });
 
 const session = (id: string, machine_id: string, cwd: string, status: string, last_activity: number, assistant = false, external = true): AgentSession => ({
@@ -27,8 +34,9 @@ const session = (id: string, machine_id: string, cwd: string, status: string, la
 
 test("the assistant list splits running from ended, the latest first", () => {
   const machines = [
-    { id: "build-box", env: { os: "linux", home: HOME } },
-    { id: "win-box", env: { os: "windows", home: "C:\\Users\\user" } },
+    { id: "build-box", version: "0.7.12", env: { os: "linux", home: HOME } },
+    { id: "win-box", version: "0.7.12", env: { os: "windows", home: "C:\\Users\\user" } },
+    { id: "wsl-box", version: "0.7.13", env: { os: "linux", home: HOME } },
   ];
   const rows = assistantRows([
     session("old", "build-box", HOME, "idle", 10),
@@ -38,8 +46,10 @@ test("the assistant list splits running from ended, the latest first", () => {
     session("windows", "win-box", "C:\\Users\\user", "idle", 50),
     session("unknown", "gone-box", HOME, "idle", 60),
     session("fresh", "build-box", HOME, "idle", 70, false, false),
+    session("wsl", "wsl-box", HOME, "idle", 80),
+    session("wsl-flagged", "wsl-box", "/srv/y", "idle", 90, true),
   ], machines);
-  assert.deepEqual(rows.running.map(s => s.id), ["fresh", "new", "old"]);
+  assert.deepEqual(rows.running.map(s => s.id), ["wsl-flagged", "fresh", "new", "old"]);
   assert.deepEqual(rows.ended.map(s => s.id), ["done"]);
 });
 
