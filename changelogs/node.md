@@ -2,6 +2,31 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.6] - 2026-11-15
+
+### Added
+
+- Windows: the node runs the WSL machines it added only while Beep may use
+  the computer. It leaves one alone when another Beep on the PC already
+  runs it. If you stop WSL, for example with `wsl --shutdown`, the node
+  waits until the machine is turned on again or the node restarts. A
+  distribution removed from WSL is forgotten.
+- WSL: a node running in WSL is named after its distribution and the
+  Windows PC, such as Ubuntu on gpu-box.
+
+### Fixed
+
+- Linux (including WSL 1): installing Node.js for a coding agent's adapter,
+  and the gh, teacli and flsh tools, no longer depends on the system `tar`.
+  That `tar` fails on Ubuntu 24.04 under WSL 1, so these installs failed
+  there.
+- Node: Claude Code can be installed from Settings > Coding agents on a machine
+  without Node.js, Windows included. Beep uses Claude Code's own installer when
+  npm is missing.
+- Node: on Windows, installs and updates find the npm that Beep set up in its
+  own folder.
+- Node: when a desktop does not run commands, the message names the "Let Beep use this computer" setting by its current name.
+
 ## [0.7.5] - 2026-11-14
 
 ### Added
