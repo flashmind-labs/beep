@@ -44,3 +44,28 @@ fn lists_reachable_iphones_and_ipads_only() {
         }]
     );
 }
+
+#[tokio::test]
+#[ignore = "needs an iPhone plugged into this Mac"]
+async fn shows_a_plugged_in_iphone() {
+    let iphone = list().await.into_iter().next().expect("an iPhone is plugged in");
+    let mut live = attach(&iphone.id, 512).await.expect("the iPhone attaches");
+
+    let shown = tokio::time::timeout(CALL_TIMEOUT, async {
+        loop {
+            live.screen.changed().await.expect("the view runs");
+            let screen = live.screen.borrow_and_update().clone();
+
+            match screen {
+                Screen::Starting => {}
+                Screen::Frame(frame) => break frame,
+                Screen::Ended(reason) => panic!("{reason}"),
+            }
+        }
+    })
+    .await
+    .expect("a frame comes in time");
+
+    assert!(shown.width.max(shown.height) <= 512);
+    assert!(!shown.jpeg.is_empty());
+}
