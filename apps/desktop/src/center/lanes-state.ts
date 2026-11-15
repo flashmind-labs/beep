@@ -49,6 +49,15 @@ export function byProject<T extends { lane: Lane; project: string | null }>(card
   });
 }
 
+/// `rows` with the projects of `before` kept in that order, so Home's rows stay
+/// put while cards change lane. A new project takes its sorted place.
+export function keepOrder<T extends { project: string | null }>(rows: readonly T[], before: readonly (string | null)[]): T[] {
+  const at = new Map(before.map((project, index) => [project, index]));
+  const kept = rows.filter(row => at.has(row.project)).sort((a, b) => (at.get(a.project) ?? 0) - (at.get(b.project) ?? 0));
+  let next = 0;
+  return rows.map(row => at.has(row.project) ? kept[next++] ?? row : row);
+}
+
 /// A card's muted line under its project's heading, without the project's name.
 export function withoutProject(sub: string, project: string | null) {
   if (project === null) return sub;

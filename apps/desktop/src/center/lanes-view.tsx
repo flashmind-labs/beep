@@ -7,7 +7,7 @@ import { Icon } from "../ui/icons.tsx";
 import { Button, LineRow, onRowKey } from "../ui/kit.tsx";
 import { openMenu, type MenuAction } from "../ui/menu.tsx";
 import { heroCard, motionAllowed, movePlaying, setHeroCard, withMove } from "../ui/motion.ts";
-import { LANES, byLane, byProject, travelled, withoutProject, type Lane } from "./lanes-state.ts";
+import { LANES, byLane, byProject, keepOrder, travelled, withoutProject, type Lane } from "./lanes-state.ts";
 
 export interface BoardCard {
   key: string;
@@ -54,10 +54,12 @@ export function CardRow({ card }: { card: BoardCard }) {
 
 /// `more` makes a lane's title open the full list behind it. `rows` gives
 /// each project a row of its own under the lanes' titles. Without rows, ended
-/// sessions are a short list, and `beside` fills the room next to a quiet board.
+/// sessions are a short list, and `beside` fills the room beside the lanes in
+/// a wide window. Lanes and rows stay put; only the cards move.
 export function Board({ cards, more, rows, recency = null, beside = null }: { recency?: ReadonlyMap<string, number> | null; cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; rows: ProjectRows | null; beside?: ReactNode }) {
   const lanes = byLane(cards);
   const box = useTravel(cards);
+  const order = useRef<(string | null)[]>([]);
   const [, redraw] = useState(0);
 
   const open = (card: BoardCard) => {
@@ -71,20 +73,18 @@ export function Board({ cards, more, rows, recency = null, beside = null }: { re
   const heading = (lane: Lane, title: string) => <h4>{more[lane] ? <button type="button" onClick={more[lane]}>{title}</button> : title}<span>{lanes[lane].length || ""}</span></h4>;
 
   if (rows) {
+    const projects = keepOrder(byProject(cards, recency), order.current);
+    order.current = projects.map(row => row.project);
     return <div className="bd-rows" ref={box}>
       {LANES.map(({ lane, title }) => <div className="bd-lane hd" key={lane}>{heading(lane, title)}</div>)}
-      {byProject(cards, recency).map(row => { const own = byLane(row.cards), name = row.project ?? "Other", head = row.project === null ? { color: null, open: null } : rows(row.project); return <Fragment key={row.project ?? ""}>
+      {projects.map(row => { const own = byLane(row.cards), name = row.project ?? "Other", head = row.project === null ? { color: null, open: null } : rows(row.project); return <Fragment key={row.project ?? ""}>
         <h3 className="pj" title={name}>{head.color && <span className="cc-pdot" style={{ background: head.color }}/>}{head.open ? <button type="button" onClick={head.open}>{name}</button> : <span>{name}</span>}</h3>
         {LANES.map(({ lane }) => <div className="bd-lane" key={lane}>{own[lane].map(card => <Card key={card.key} card={typeof card.sub === "string" ? { ...card, sub: withoutProject(card.sub, row.project) } : card} open={() => open(card)}/>)}</div>)}
       </Fragment>; })}
     </div>;
   }
 
-  // Needs you shows only while something waits; the other lanes always show.
-  const shown = LANES.filter(({ lane }) => lane !== "needs" || lanes.needs.length);
-  const quiet = LANES.filter(({ lane }) => lanes[lane].length).length <= QUIET_LANES;
-
-  return <div className="bd-lanes" ref={box}>{shown.map(({ lane, title }) => lane === "done"
+  return <div className="bd-lanes" ref={box}>{LANES.map(({ lane, title }) => lane === "done"
     ? <div className="bd-lane log" key={lane}>
       {heading(lane, title)}
       <div className="bd-log">{lanes.done.slice(0, DONE_SHOWN).map(card => <CardRow key={card.key} card={{ ...card, sub: "" }}/>)}</div>
@@ -93,11 +93,9 @@ export function Board({ cards, more, rows, recency = null, beside = null }: { re
     : <div className={lanes[lane].length > WIDE_FROM ? "bd-lane many" : "bd-lane"} key={lane}>
       {heading(lane, title)}
       {lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}
-    </div>)}{beside !== null && quiet && <div className="bd-art">{beside}</div>}</div>;
+    </div>)}{beside !== null && <div className="bd-art">{beside}</div>}</div>;
 }
 
-/// A board with cards in this many lanes or fewer is quiet: it has room beside them.
-const QUIET_LANES = 2;
 /// How many ended sessions the done log lists before its "All" button.
 const DONE_SHOWN = 10;
 /// A lane with more cards than this takes two columns in a wide window.
