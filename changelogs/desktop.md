@@ -7,6 +7,30 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.15] - 2026-11-15
+
+### Added
+
+- Desktop: when a session moves to another machine and its project folder
+  on the source machine has uncommitted edits, the move steps above the
+  composer say so. Those edits stay on the source machine. Only the session
+  and the worktrees it made move.
+
+### Changed
+
+- Desktop: while a session moves, the steps show "Waiting for checkouts
+  to match" with both commits, then each worktree as it comes over
+  ("Worktree name 1 of 2").
+- Desktop: a project's board always shows the Working, Ready to
+  review and Done today lanes, even when one is empty. Needs you
+  appears only while something waits on you.
+
+### Fixed
+
+- Desktop: on the board (Home and a project's page), a Working card with
+  a long running command now cuts the command with an ellipsis at the
+  card's edge instead of spilling into the next lane.
+
 ## [0.9.14] - 2026-11-15
 
 ### Changed

@@ -2,6 +2,30 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.12] - 2026-11-15
+
+### Added
+
+- Node: moving a session reports to the desktop when the project folder on
+  the source machine has uncommitted edits. Those edits stay on the source
+  machine. Only the session and the worktrees it made move.
+
+### Changed
+
+- Node: moving a session no longer waits for every file of the project.
+  The target waits until its checkout is at the same commit as the
+  source's.
+- Node: the worktrees a session created move with it, including their
+  branch, commits and uncommitted changes. Other worktrees stay where
+  they are. The source keeps its copy of a moved worktree, detached from
+  the branch.
+
+### Fixed
+
+- Node: cancelling a session move after the source machine had already
+  stopped the session now starts it again there, instead of leaving it
+  ended.
+
 ## [0.7.11] - 2026-11-15
 
 ### Added
