@@ -2,6 +2,7 @@
 //! over iroh, so sync goes on while the server is down, and `PeerHandler`
 //! serves them to each project's peers only.
 
+use tracing::Instrument;
 use super::{
     Syncs,
     gitdir::{BranchTip, Checkout, Oid, Repo},
@@ -164,7 +165,7 @@ impl ProtocolHandler for PeerHandler {
                     }
 
                     let (tx, rx) = link(send, recv);
-                    streams.spawn(serve(self.syncs.clone(), peer, tx, rx));
+                    streams.spawn(serve(self.syncs.clone(), peer, tx, rx).in_current_span());
                 }
                 Some(ended) = streams.join_next() => {
                     match ended {
