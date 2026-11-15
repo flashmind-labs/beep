@@ -91,6 +91,9 @@ body.cbody.mb-home.mobile
         span#scope
         small#date "Thursday, January 15"
         span#tools.tools
+          button.dbtn.fab.pj-tool.small [aria-label="New assistant" type="button"] "New assistant"
+            span style(display)
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
         span#usage.us [hidden]
         span#bell.nt
           button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
@@ -196,6 +199,8 @@ body.cbody.mb-home.mobile
             span.tt "OpenCode"
           button.cc-si.sub [data-sub="agent:flsh"]
             span.tt "flsh"
+          button.cc-si [data-goto="assistant"]
+            span.tt "Assistant"
           button.cc-si [data-goto="creds"]
             span.tt "Credentials"
           button.cc-si [data-goto="instr"]
