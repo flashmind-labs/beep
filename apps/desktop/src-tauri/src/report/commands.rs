@@ -10,6 +10,8 @@ use crate::{
 };
 use anyhow::Context;
 use beep_mesh::{Device, DeviceKind, PeerClient};
+#[cfg(mobile)]
+use beep_report::{Answer, Share, local_log};
 use beep_report::{
     BundleError, Draft, Manifest, Period, Sender, Target, collect, draft, find_gh, gh_signed_in,
     issue, open_issue, redact, send, server_url, zip,
@@ -17,6 +19,8 @@ use beep_report::{
 use futures::future::join_all;
 use iroh::EndpointId;
 use serde::Serialize;
+#[cfg(mobile)]
+use std::io;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tauri::{State, async_runtime::spawn_blocking};
 use tokio::time::timeout;
@@ -49,8 +53,9 @@ pub async fn report_collect(
         .into_iter()
         .map(|status| status.device)
         .collect();
-    // Until the mesh opens it lists nobody, this Mac included.
-    if devices.is_empty() {
+    // Until the mesh opens it lists nobody, this Mac included. A phone has no
+    // node to ask: its own share is read here below.
+    if cfg!(desktop) && devices.is_empty() {
         devices.push(Device {
             id: me,
             name: machine.name().to_owned(),
@@ -70,7 +75,10 @@ pub async fn report_collect(
         }
     }))
     .await;
-    let shares = collect(targets, since).await;
+    #[cfg_attr(desktop, expect(unused_mut))]
+    let mut shares = collect(targets, since).await;
+    #[cfg(mobile)]
+    shares.insert(0, phone_share(me, machine.name().to_owned()).await);
     let sender = Sender {
         id: me,
         mesh: fleet.mesh().map(|mesh| mesh.id()),
@@ -80,6 +88,32 @@ pub async fn report_collect(
     // Redaction runs regexes over every share's log: off the async workers.
     let draft = spawn_blocking(move || draft("", period, since, sender, shares)).await?;
     Ok(draft.map_err(anyhow::Error::from)?)
+}
+
+/// The phone's own part of a report: its app log, so a phone that reaches no
+/// machine can still say why.
+#[cfg(mobile)]
+async fn phone_share(id: EndpointId, name: String) -> Share {
+    let log = match crate::platform::logfile::dir() {
+        Some(dir) => spawn_blocking(move || local_log(&dir))
+            .await
+            .map_err(io::Error::other)
+            .and_then(|read| read)
+            .unwrap_or_else(|e| format!("the log could not be read: {e}")),
+        None => "this phone keeps no log file".to_owned(),
+    };
+
+    Share {
+        id,
+        name,
+        kind: DeviceKind::Desktop,
+        answer: Answer::Answered,
+        log,
+        status: String::new(),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        os: std::env::consts::OS.to_owned(),
+        os_version: String::new(),
+    }
 }
 
 /// A client for `id` within `REACH_LIMIT`, or why there is none.

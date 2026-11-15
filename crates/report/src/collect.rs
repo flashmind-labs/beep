@@ -8,7 +8,9 @@ use beep_proto::node::report::{MAX_BYTES, PROTOCOL, Reply, Request};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::Duration;
+use std::{fs, io};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 
@@ -194,6 +196,28 @@ async fn ask(client: &PeerClient, since: u64, max_bytes: u32, share: &mut Share)
             reason: format!("{e:#}"),
         },
     }
+}
+
+/// The newest lines of the daily `beep.*.log` files in `dir`, as much as a
+/// share keeps: the log of an app with no node to ask, such as a phone's.
+pub fn local_log(dir: &Path) -> io::Result<String> {
+    let mut files: Vec<_> = fs::read_dir(dir)?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("beep.") && name.ends_with(".log"))
+        })
+        .collect();
+    // Dated names sort oldest first.
+    files.sort();
+    let mut log = String::new();
+
+    for file in files {
+        log.push_str(&String::from_utf8_lossy(&fs::read(file)?));
+    }
+
+    Ok(newest_lines(log, MAX_LOG))
 }
 
 /// The newest whole lines of `log` that fit in `max` bytes.
