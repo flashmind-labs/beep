@@ -5,7 +5,8 @@ use crate::agents::{Line, LineReader, acp::MAX_MESSAGE};
 use crate::run::process::command;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
-use std::{path::Path, process::Stdio};
+use std::{io::Write, path::Path, process::Stdio};
+use tempfile::NamedTempFile;
 use tokio::{
     io::{AsyncWriteExt, BufReader},
     process::Child,
@@ -34,7 +35,9 @@ pub(super) struct Launch<'a> {
 }
 
 impl Launch<'_> {
-    fn args(&self) -> Vec<String> {
+    /// Its arguments; the system prompt is read from `system`, a file, as it
+    /// can be longer than a Windows command line takes.
+    fn args(&self, system: Option<&Path>) -> Vec<String> {
         let mut args: Vec<String> = [
             "--print",
             "--input-format",
@@ -66,8 +69,11 @@ impl Launch<'_> {
             args.extend(["--mcp-config".to_owned(), mcp.clone()]);
         }
 
-        if let Some(system) = &self.system {
-            args.extend(["--append-system-prompt".to_owned(), system.clone()]);
+        if let Some(system) = system {
+            args.extend([
+                "--append-system-prompt-file".to_owned(),
+                system.display().to_string(),
+            ]);
         }
 
         if !self.asks {
@@ -86,14 +92,24 @@ pub(super) struct Cli {
     pub(super) frames: mpsc::Receiver<Value>,
     next: u64,
     _child: Child,
+    _system: Option<NamedTempFile>,
     _tasks: [AbortOnDropHandle<()>; 2],
 }
 
 impl Cli {
     pub(super) fn start(launch: &Launch) -> Result<Self> {
+        let system = match &launch.system {
+            Some(text) => {
+                let mut file = NamedTempFile::new().context("writing the system prompt")?;
+                file.write_all(text.as_bytes())
+                    .context("writing the system prompt")?;
+                Some(file)
+            }
+            None => None,
+        };
         let mut process = command(launch.program);
         process
-            .args(launch.args())
+            .args(launch.args(system.as_ref().map(NamedTempFile::path)))
             .current_dir(launch.cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -150,6 +166,7 @@ impl Cli {
             frames,
             next: 0,
             _child: child,
+            _system: system,
             _tasks: [AbortOnDropHandle::new(writer), AbortOnDropHandle::new(reader)],
         })
     }

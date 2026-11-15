@@ -21,7 +21,7 @@ use agent_client_protocol::{
         SessionMode, SessionModeState, SessionNotification, SessionResumeCapabilities,
         SessionSystemPromptCapabilities, SessionUpdate, SetSessionConfigOptionRequest,
         SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse,
-        SystemPrompt, UnstructuredCommandInput,
+        SystemPrompt, SystemPromptMode, UnstructuredCommandInput,
     },
 };
 use anyhow::{Context, Result};
@@ -333,6 +333,12 @@ impl Bridge {
     ) -> Result<()> {
         if self.session.is_some() {
             let refused = agent_client_protocol::Error::invalid_request().data("this process runs one session");
+            return start.refuse(refused);
+        }
+
+        if system.is_some_and(|system| system.mode != SystemPromptMode::Append) {
+            let refused = agent_client_protocol::Error::invalid_params()
+                .data("only an appended system prompt is supported");
             return start.refuse(refused);
         }
 

@@ -18,6 +18,10 @@ use tokio::{
 /// the result. It writes its arguments and what it reads to `$FAKE_DIR`.
 const FAKE_CLAUDE: &str = r#"#!/bin/sh
 printf '%s\n' "$@" > "$FAKE_DIR/args"
+while [ $# -gt 0 ]; do
+    [ "$1" = --append-system-prompt-file ] && cp "$2" "$FAKE_DIR/system"
+    shift
+done
 next() { read -r line; printf '%s\n' "$line" >> "$FAKE_DIR/stdin"; }
 ok() {
     id=$(printf '%s\n' "$line" | sed -nE 's/.*"request_id":"([^"]*)".*/\1/p')
@@ -144,7 +148,11 @@ async fn a_turn_with_a_permission_and_a_question_reaches_claude_code() {
     let (_, created) = client
         .call(
             "session/new",
-            json!({"cwd": dir.path(), "mcpServers": [beep]}),
+            json!({
+                "cwd": dir.path(),
+                "mcpServers": [beep],
+                "systemPrompt": {"mode": "append", "content": [{"type": "text", "text": "Work in small commits."}]},
+            }),
         )
         .await;
     let session = created["result"]["sessionId"].as_str().unwrap().to_owned();
@@ -239,6 +247,9 @@ async fn a_turn_with_a_permission_and_a_question_reaches_claude_code() {
         "the client takes forms"
     );
     assert_eq!(args[args.len() - 2..], ["--effort", "high"]);
+
+    let system = std::fs::read_to_string(dir.path().join("system")).unwrap();
+    assert_eq!(system, "Work in small commits.");
 
     let sent = lines(&dir.path().join("stdin"));
     assert_eq!(sent[0]["request"]["subtype"], "initialize");

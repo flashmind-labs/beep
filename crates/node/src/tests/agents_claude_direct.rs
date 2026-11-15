@@ -113,3 +113,4 @@ fn a_transcript_replays_what_was_said_and_done() {
     assert_eq!(call.title, "Edit /srv/project/a.rs");
     assert_eq!(call.content.len(), 1, "the edit carries its diff");
 }
+
