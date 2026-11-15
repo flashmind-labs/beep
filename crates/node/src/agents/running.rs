@@ -525,10 +525,12 @@ impl Agents {
             !recovering.iter().any(|root| recovery_cwd.starts_with(root)),
             "Git sync is preserving local edits in this checkout; try starting the session again shortly."
         );
-        // A new top-level session in the home folder is the assistant. A
-        // resumed one is what its caller saved.
+        // A new top-level session in the home folder is the assistant, but
+        // never a reviewer. A resumed one is what its caller saved.
         let assistant = begin.assistant
-            || begin.resume.is_none() && home_assistant(&cwd, begin.parent.is_some());
+            || begin.resume.is_none()
+                && !begin.review
+                && home_assistant(&cwd, begin.parent.is_some());
         // A reviewer changes nothing, so it needs no git rule.
         let rule = super::session::standing(
             crate::lock(&self.instructions)
