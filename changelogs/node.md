@@ -2,6 +2,14 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.7] - 2026-11-15
+
+### Changed
+
+- beep-node: the log says where a failed incoming connection came from:
+  its address, or its endpoint id when it came through a relay. Warnings
+  for an incoming connection name its protocol and machine.
+
 ## [0.7.6] - 2026-11-15
 
 ### Added

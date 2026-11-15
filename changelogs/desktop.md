@@ -7,6 +7,14 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.10] - 2026-11-15
+
+### Changed
+
+- Desktop: the log says where a failed incoming connection came from:
+  its address, or its endpoint id when it came through a relay. Warnings
+  for an incoming connection name its protocol and machine.
+
 ## [0.9.9] - 2026-11-15
 
 ### Added
