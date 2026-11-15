@@ -24,6 +24,8 @@ pub(super) enum Target {
     Unknown,
     /// It can take the session, so the source may end it.
     Taken,
+    /// It starts the session: past taking back, not yet running.
+    Starting,
     /// It gave up, and why.
     Failed(String),
     /// The session starts or runs there.
@@ -105,8 +107,8 @@ impl Moves {
         let taken = one.taken;
 
         watched::read_sent(&one.tracker, |progress| match progress.phase {
-            // Starting here is past taking back: a cancel leaves it be.
-            MovePhase::Resuming | MovePhase::Done => Target::Landed,
+            MovePhase::Resuming => Target::Starting,
+            MovePhase::Done => Target::Landed,
             MovePhase::Failed | MovePhase::Cancelled => Target::Failed(
                 progress
                     .reason

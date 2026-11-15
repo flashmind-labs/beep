@@ -140,6 +140,10 @@ pub(crate) enum Reply {
         failed: Option<String>,
         /// The session runs on the target.
         landed: bool,
+        /// The target starts the session: past taking back, `landed` not
+        /// yet. Added after `landed`.
+        #[serde(default)]
+        starting: bool,
     },
     /// Pieces of a Git bundle, answered only to `Worktree` (and, by nodes
     /// from before worktree moves were removed, `WorktreeBundle`).
@@ -355,8 +359,11 @@ pub(super) async fn serve(
                 return tx.send(&refuse("no move of that session to you")).await;
             }
 
+            // While the sessions come back from a restart, or the source
+            // ends this one again, the target asks again: no refusal, which
+            // would end the move.
             if !agents.reopened() || agents.runs(&id) {
-                return tx.send(&refuse("the session still runs here")).await;
+                return Ok(());
             }
 
             let Some(leaving) = (access.leaving)(&id) else {
@@ -393,16 +400,18 @@ pub(super) async fn serve(
                 return tx.send(&refuse("no move of that session from you")).await;
             }
 
-            let (taken, failed, landed) = match agents.moves.target(&id, at) {
-                Target::Unknown => (false, None, false),
-                Target::Taken => (true, None, false),
-                Target::Failed(reason) => (false, Some(reason), false),
-                Target::Landed => (true, None, true),
+            let (taken, failed, landed, starting) = match agents.moves.target(&id, at) {
+                Target::Unknown => (false, None, false, false),
+                Target::Taken => (true, None, false, false),
+                Target::Starting => (true, None, false, true),
+                Target::Failed(reason) => (false, Some(reason), false, false),
+                Target::Landed => (true, None, true, false),
             };
             tx.send(&Reply::State {
                 taken,
                 failed,
                 landed,
+                starting,
             })
             .await?;
             tx.finish().await

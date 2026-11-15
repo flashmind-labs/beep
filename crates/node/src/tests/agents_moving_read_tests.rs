@@ -594,9 +594,14 @@ impl ProtocolHandler for Project {
 }
 
 async fn project_server() -> (TempDir, std::path::PathBuf, Router) {
+    project_server_reopened(true).await
+}
+
+/// `project_server`, with the sessions from before a restart back or not.
+async fn project_server_reopened(reopened: bool) -> (TempDir, std::path::PathBuf, Router) {
     let (dir, main) = project();
     let agents = Agents::default();
-    agents.reopened.send_replace(true);
+    agents.reopened.send_replace(reopened);
     let endpoint = endpoint().await;
     let router = Router::builder(endpoint)
         .accept(ALPN, Project(Arc::new(agents), main.clone()))
@@ -666,4 +671,23 @@ async fn a_worktree_the_session_did_not_make_is_refused() {
         .await
         .expect_err("not the session's");
     assert!(format!("{refused:#}").contains("refused"), "{refused:#}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_worktree_asked_while_the_source_restarts_is_not_refused_for_good() {
+    let (_dir, _main, server) = project_server_reopened(false).await;
+    let (tx, rx) = stream(&server).await;
+    let ask = super::read::WorktreeAsk {
+        id: ID,
+        path: ".worktrees/feat",
+        base: "",
+        bundle: false,
+    };
+    let failed = super::read::worktree(tx, rx, &ask)
+        .await
+        .expect_err("no worktree while the sessions come back");
+    assert!(
+        !failed.is::<super::read::Refused>(),
+        "a refusal ends the move: {failed:#}"
+    );
 }

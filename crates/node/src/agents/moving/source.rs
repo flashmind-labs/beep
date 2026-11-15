@@ -108,7 +108,7 @@ async fn end(
 
         match now {
             Target::Failed(reason) => return Err(anyhow!(reason)),
-            Target::Taken | Target::Landed => break,
+            Target::Taken | Target::Starting | Target::Landed => break,
             Target::Unknown => {}
         }
 
@@ -159,7 +159,8 @@ async fn land(
                     .context("keeping that the session moved");
             }
             Target::Failed(reason) => return fail(env, record, open, &anyhow!(reason)).await,
-            Target::Taken | Target::Unknown => {}
+            // Starting there can still fail: the worktrees stay until it runs.
+            Target::Taken | Target::Starting | Target::Unknown => {}
         }
 
         target.changed().await.context("the move lost its target")?;
@@ -192,6 +193,8 @@ async fn fail(
 ) -> Result<()> {
     let reason = format!("{why:#}");
     env.agents.moves.refuse(&record.id, &reason);
+    // The worktrees stay here as they are.
+    env.agents.moves.take_sent(&record.id);
 
     match (live(env, &record.id), open) {
         (Some(session), _) => {
@@ -223,6 +226,8 @@ async fn fail(
 /// it was, and one this side ended starts again, unless the target already
 /// starts or runs it (`to` says, about the move made at `at`).
 pub(super) async fn cancel(env: &Env, id: &str, at: u64, to: EndpointId) {
+    // The worktrees stay here as they are.
+    env.agents.moves.take_sent(id);
     let open = env
         .state
         .load(id)
@@ -269,7 +274,7 @@ async fn target_has_it(env: &Env, id: &str, at: u64, to: EndpointId) -> bool {
 
     while Instant::now() < until {
         match ask(env, to, id, at).await {
-            Ok(Target::Landed) => return true,
+            Ok(Target::Starting | Target::Landed) => return true,
             Ok(Target::Failed(_)) | Err(_) => return false,
             // It has not heard of the cancel yet.
             Ok(Target::Taken | Target::Unknown) => sleep(ASK_AGAIN).await,

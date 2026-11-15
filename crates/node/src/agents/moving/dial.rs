@@ -59,6 +59,7 @@ pub(super) async fn ask(env: &Env, to: EndpointId, id: &str, at: u64) -> Result<
             ..
         }) => Ok(Target::Failed(reason)),
         Some(Reply::State { landed: true, .. }) => Ok(Target::Landed),
+        Some(Reply::State { starting: true, .. }) => Ok(Target::Starting),
         Some(Reply::State { taken: true, .. }) => Ok(Target::Taken),
         Some(Reply::State { .. }) => Ok(Target::Unknown),
         Some(Reply::Refused { message }) => bail!("the target refused: {message}"),

@@ -444,7 +444,32 @@ fn a_target_that_resumes_the_session_reads_as_landed() {
     show(&tracker, |progress| progress.phase = MovePhase::Files);
     assert_eq!(moves.target("held-1", 7), Target::Taken);
     show(&tracker, |progress| progress.phase = MovePhase::Resuming);
-    assert_eq!(moves.target("held-1", 7), Target::Landed, "past the point of no return");
+    assert_eq!(moves.target("held-1", 7), Target::Starting, "past taking back, not yet running");
+    show(&tracker, |progress| progress.phase = MovePhase::Done);
+    assert_eq!(moves.target("held-1", 7), Target::Landed);
+}
+
+#[tokio::test]
+async fn the_source_waits_for_a_starting_target_to_run_the_session() {
+    let source = source_env().await;
+    let session = asking(&source).await;
+    let record = record(&source.env, true);
+    let (said, mut target) = told(Target::Taken);
+    let moving = source::run(&source.env, &record, &mut target);
+    tokio::pin!(moving);
+    tokio::select! {
+        done = &mut moving => panic!("the move ended early: {done:?}"),
+        () = ended(&session) => {}
+    }
+    said.send(Target::Starting).expect("the source listens");
+    let early = timeout(Duration::from_millis(300), &mut moving).await;
+    assert!(early.is_err(), "the source is done before the session runs there");
+    said.send(Target::Landed).expect("the source listens");
+    timeout(Duration::from_secs(30), moving)
+        .await
+        .expect("it ends in time")
+        .expect("the move is over");
+    source.env.agents.shutdown().await;
 }
 
 #[test]

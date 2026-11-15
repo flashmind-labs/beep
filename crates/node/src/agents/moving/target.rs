@@ -385,7 +385,14 @@ async fn worktrees(
         })
         .await?
         .with_context(|| format!("making the worktree {name} here"))?;
-        keep_placed(env, record, placed)?;
+
+        if let Err(e) = keep_placed(env, record, placed.clone()) {
+            // Not noted, so taken back now: nothing else would.
+            let PlacedTree { main, path, placed, applied } = placed;
+            let _ = spawn_blocking(move || worktree::take_back(&main, &path, &placed, &applied)).await;
+            return Err(e);
+        }
+
         log::info!("session {}: the worktree {name} is here", record.id);
     }
 
