@@ -2,9 +2,9 @@
 // controls and the view of each tab) for dock-view.tsx, and handles the
 // clicks and the menu on its tabs.
 import type { SubagentRow } from "./subagents-view.tsx";
-import type { PaneTabItem } from "./tabs-view.tsx";
+import type { PaneTabItem, SingleTab } from "./tabs-view.tsx";
 import { hasPreview } from "./html-preview-state.ts";
-import { baseName, type Dock, DOCKS, moveTab } from "./media-state.ts";
+import { baseName, type Dock, DOCKS, moveTab, SIDE_BY_SIDE_MIN } from "./media-state.ts";
 import type { Artifact } from "./artifacts-state.ts";
 import { artifactCount, artifactsTab, setArtifacts } from "./artifacts.ts";
 import { changesTab } from "./changes.ts";
@@ -21,7 +21,7 @@ import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
 import { type TabKind, ARTS, CHANGES, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
-import { type DockModel, type DockView, docked, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
+import { type DockModel, type DockView, docked, dockWidth, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
 import { savedIn } from "../ui/platform.ts";
 
 // ----- Tabs -----
@@ -60,8 +60,8 @@ export function draw() {
 /// Shows the tab now in `P.on[d]` when nothing else changed: dock `d`'s views flip and
 /// it draws again alone, without laying the docks out. False when the docks need `draw`.
 export function flipTab(d: Dock) {
-  const { docks, phone } = paneModel.getState();
-  if (drag?.ghost || phone || !docks?.[d].shown || DOCKS.some(x => docks[x].zoomed !== (P.zoom === x))) return false;
+  const { docks, single } = paneModel.getState();
+  if (drag?.ghost || single || !docks?.[d].shown || DOCKS.some(x => docks[x].zoomed !== (P.zoom === x))) return false;
   const ids = docked()[d];
   if (ids.length !== docks[d].tabs.length || ids.some((id, i) => docks[d].tabs[i].id !== id)) return false;
   syncDock(d, ids);
@@ -78,24 +78,29 @@ export function touchTab(t: MediaTab) {
 
 /// Hands the docks' model to dock-view.tsx and lays them out.
 function publish(split: Record<Dock, string[]>) {
-  // The center window's phone layout, which center/mobile.ts marks on the body.
-  const phone = shell() && document.body.classList.contains("mobile") ? phoneTabs(split.bottom) : null;
-  // On a phone the session first shows the conversation.
-  if (phone && !P.phoneShown) { P.phoneShown = true; setPaneModel({ log: true }); }
+  // A phone, or a window too narrow for a right dock, shows one pane at a time.
+  const single = shell() && dockWidth() < SIDE_BY_SIDE_MIN ? singleTabs(split.bottom) : null;
+  // The session first shows the conversation.
+  if (single && !P.singleShown) { P.singleShown = true; setPaneModel({ log: true }); }
   const log = paneModel.getState().log;
-  place({ right: dockModel("right", split.right), bottom: dockModel("bottom", split.bottom) }, { phone: phone && { tabs: phone, selected: log ? "log" : P.on.bottom } });
+  place({ right: dockModel("right", split.right), bottom: dockModel("bottom", split.bottom) }, { single: single && { tabs: single, selected: log ? "log" : P.on.bottom } });
 }
 
-/// On a phone the session shows one pane at a time: Chat, the conversation, or one of the
-/// bottom dock's tabs filling the screen; mobile.css hides the dock's own strip.
-function phoneTabs(ids: string[]) {
-  return [{ id: "log", name: "Chat" }, ...ids.map(id => ({ id, name: paneTabItem(id).name }))];
+/// Shown one pane at a time, the session shows: Chat, the conversation, or one of the
+/// bottom dock's tabs filling the session; style.css hides the dock's own strip.
+function singleTabs(ids: string[]): SingleTab[] {
+  return [{ id: "log", name: "Chat", count: null }, ...ids.map(id => { const { name, count } = paneTabItem(id); return { id, name, count }; })];
 }
 
-/// A tab picked in the phone's strip.
-export function pickPhoneTab(id: string) {
+/// A tab picked in the one-pane strip: it shows, unfolded.
+export function pickSingleTab(id: string) {
   setPaneModel({ log: id === "log" });
-  if (id !== "log") P.on.bottom = id;
+  if (id !== "log") {
+    P.on.bottom = id;
+    P.layout.hidden.bottom = false;
+    saveLayout();
+  }
+
   draw();
 }
 

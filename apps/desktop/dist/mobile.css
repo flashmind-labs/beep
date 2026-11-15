@@ -185,7 +185,6 @@ body.mobile :is(#agstop, #agsend) { flex: none; width: 38px; min-height: 0; heig
 body.mobile #agstop { order: 8 }
 body.mobile #agstop .dstopico { width: 11px; height: 11px }
 body.mobile #agsend { display: inline-flex; order: 10; border-color: transparent; background: var(--accent); color: var(--ink) }
-body.mobile .agmain > .agdiv { display: none }
 /* Puts the keyboard away; there while the composer has it up. */
 body.mobile .mb-kbdhide { display: none; order: 7; flex: none; margin-left: auto; width: 38px; height: 38px; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted) }
 body.mobile .dinput:focus-within .mb-kbdhide { display: grid }
@@ -226,9 +225,7 @@ body.mobile .dfoldpics { padding-left: 0 }
 html:has(.pair.scanning), html:has(.pair.scanning) body, .pair.scanning { background: transparent !important }
 .pair.scanning .pair-body { visibility: hidden }
 
-/* A session: the head's second line is its meta (state, folder, branch, machine, usage), and
-   Log, Files, Changes... show one pane at a time. */
-body.mobile .agshell:not(.narrow) .agmnav { display: none }
+/* A session: the head's second line is its meta (state, folder, branch, machine, usage). */
 body.mobile .dhead { flex-wrap: wrap; row-gap: 5px; column-gap: 6px; padding: 8px 12px }
 body.mobile .dhead > .tt, body.mobile .dhead .aglocation, body.mobile .dhead .agfolder { display: contents }
 body.mobile .dhead #agtitle { order: 1; flex: 1 1 calc(100% - 56px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
@@ -237,13 +234,10 @@ body.mobile .dhead :is(#agstate, #agproj, #agbranch, #aghere, #aguse) { order: 2
 body.mobile .dhead #agstate { order: 2; padding: 0; border: 0 }
 body.mobile .dhead :is(#agbranch, #aguse):empty { display: none }
 body.mobile .dhead #aghere::before { content: "@" }
-body.mobile .agmnav { flex: none; display: flex; gap: 4px; padding: 3px 10px; overflow-x: auto; border-bottom: 1px solid var(--border); scrollbar-width: none }
+body.mobile .agmnav { gap: 4px; padding: 3px 10px; border-bottom: 1px solid var(--border) }
 body.mobile .agmnav button { flex: none; min-height: 30px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); background: none; font: inherit; font-size: 14px; color: var(--muted) }
 body.mobile .agmnav button[aria-selected="true"] { background: var(--elev); color: var(--fg) }
-body.mobile .agshell.mb-log .agpane, body.mobile .agshell.mb-log .agpstrip { display: none !important }
-body.mobile .agshell:not(.mb-log) .agconv { display: none }
-body.mobile .agshell:not(.mb-log) .agpane { flex: 1 1 0 !important; max-height: none }
-body.mobile .agpane .agphead :is(.agtabs, .agaddterm, [data-pact]) { display: none }
+body.mobile .agpane .agphead .agaddterm { display: none }
 
 body.mobile .bd-lanes { flex-direction: column; align-items: stretch }
 body.mobile .bd-lanes > .bd-lane { flex: none; max-width: none }

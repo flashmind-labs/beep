@@ -1,7 +1,7 @@
 // The session's shell and the pane's docks, drawn from the model in
 // media-layout.ts: each dock's divider, tab strip, controls and views, its
-// strip while folded, the drop zone and ghost of a tab drag, and the phone's
-// tab strip.
+// strip while folded, the drop zone and ghost of a tab drag, and the one-pane
+// strip of a phone or a narrow window.
 import { memo, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "zustand";
@@ -9,10 +9,10 @@ import { Icon } from "../ui/icons.tsx";
 import { dragHandle } from "../ui/drag.ts";
 import type { Dock } from "./media-state.ts";
 import { type DockModel, type DockView, dividerDrag, dividerKey, mainRef, paneModel, paneRefs, resetDivider, shellRef, stripRefs } from "./media-layout.ts";
-import { foldDock, moveDock, pickPhoneTab, pickTab, tabMenu } from "./media-draw.ts";
+import { foldDock, moveDock, pickSingleTab, pickTab, tabMenu } from "./media-draw.ts";
 import { closeTab, newTerminal, P, type MediaTab } from "./media.ts";
 import { ghostRef, tabDown } from "./drag.ts";
-import { PaneTab, PaneTabs, PhonePaneTabs, type PaneTabActions } from "./tabs-view.tsx";
+import { PaneTab, PaneTabs, SinglePaneTabs, type PaneTabActions } from "./tabs-view.tsx";
 import { WorktreeMenu } from "./worktree-view.tsx";
 import { FilesView } from "./files-tree.tsx";
 import { ArtifactsView } from "./artifacts-list.tsx";
@@ -27,15 +27,15 @@ import { TermView } from "./term-footer.tsx";
 
 /// The session's shell: the conversation with the bottom dock under it, and the right dock.
 export function PaneShell({ children }: { children: ReactNode }) {
-  const { narrow, zoomed, resizing, drag, phone, log } = useStore(paneModel);
-  const classes = ["agshell", narrow && "narrow", zoomed && "zoomed", resizing && `resizing resizing-${resizing}`, drag && "tabdrag", phone && log && "mb-log"];
+  const { narrow, zoomed, resizing, drag, single, log } = useStore(paneModel);
+  const classes = ["agshell", narrow && "narrow", zoomed && "zoomed", resizing && `resizing resizing-${resizing}`, drag && "tabdrag", single && log && "log-only"];
   return <div className={classes.filter(Boolean).join(" ")} id="agshell" ref={shellRef}>{children}</div>;
 }
 
-/// The conversation and the bottom dock under it, led on a phone by its tab strip.
+/// The conversation and the bottom dock under it, led by the one-pane strip when too narrow for both.
 export function PaneMain({ children }: { children: ReactNode }) {
-  const phone = useStore(paneModel, s => s.phone);
-  return <div className="agmain" id="agmain" ref={mainRef}>{phone && <nav id="agmnav" className="agmnav"><PhonePaneTabs tabs={phone.tabs} selected={phone.selected} select={pickPhoneTab} /></nav>}{children}</div>;
+  const single = useStore(paneModel, s => s.single);
+  return <div className="agmain" id="agmain" ref={mainRef}>{single && <nav id="agmnav" className="agmnav"><SinglePaneTabs tabs={single.tabs} selected={single.selected} select={pickSingleTab} /></nav>}{children}</div>;
 }
 
 const DOCK_RIGHT = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>;

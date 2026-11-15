@@ -7,15 +7,15 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document })
 const { createElement } = await import("react");
 const { flushSync } = await import("react-dom");
 const { createRoot } = await import("react-dom/client");
-const { PhonePaneTabs } = await import("../src/agentpane/tabs-view.tsx");
+const { SinglePaneTabs } = await import("../src/agentpane/tabs-view.tsx");
 
-test("phone navigation retains buttons and focus as the selected pane changes", () => {
+test("the one-pane strip retains buttons and focus as the selected pane changes", () => {
   const nav = document.querySelector("nav");
   assert.ok(nav);
   const root = createRoot(nav);
-  const tabs = [{ id: "log", name: "Chat" }, { id: "files", name: "Files" }];
+  const tabs = [{ id: "log", name: "Chat", count: null }, { id: "files", name: "Files", count: 3 }];
   let selected = "log";
-  const draw = () => flushSync(() => root.render(createElement(PhonePaneTabs, { tabs, selected, select: id => { selected = id; draw(); } })));
+  const draw = () => flushSync(() => root.render(createElement(SinglePaneTabs, { tabs, selected, select: id => { selected = id; draw(); } })));
   draw();
   const files = nav.querySelector<HTMLButtonElement>('[data-mnav="files"]');
   assert.ok(files);

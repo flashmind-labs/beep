@@ -3,8 +3,11 @@ import { Icon, type IconName } from "../ui/icons.tsx";
 
 export interface PaneTabItem { id: string; name: string; icon: IconName; count: number | null; closeIcon: IconName | null }
 
-export function PhonePaneTabs({ tabs, selected, select }: { tabs: readonly { id: string; name: string }[]; selected: string; select(id: string): void }) {
-  return <>{tabs.map(tab => <button key={tab.id} type="button" data-mnav={tab.id} aria-selected={tab.id === selected} onClick={() => select(tab.id)}>{tab.name}</button>)}</>;
+/// A tab of the strip that shows one pane at a time: Chat or a dock's tab.
+export type SingleTab = Pick<PaneTabItem, "id" | "name" | "count">;
+
+export function SinglePaneTabs({ tabs, selected, select }: { tabs: readonly SingleTab[]; selected: string; select(id: string): void }) {
+  return <>{tabs.map(tab => <button key={tab.id} type="button" data-mnav={tab.id} aria-selected={tab.id === selected} onClick={() => select(tab.id)}>{tab.name}{tab.count !== null && <small>{tab.count}</small>}</button>)}</>;
 }
 
 /// What a dock's tab strip does with its tabs.

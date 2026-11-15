@@ -176,15 +176,15 @@ body:not(.mobile) .dbtn.quiet.warn { color: var(--err) }
 /* Chosen. */
 body:not(.mobile) :is(.dchip, .dskin)[aria-pressed="true"], body:not(.mobile) .dbtn.on { border-color: transparent; background: var(--ctl-fill-hi); color: var(--fg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 30%, transparent) }
 body:not(.mobile) .dchip { border-radius: var(--radius-sm) }
-body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin, .agpbtn, .nt-bell, .mvb, .agtab):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin, .agpbtn, .nt-bell, .mvb, .agtab, .agmnav button):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
 
 /* Tabs: words in a row, the open one filled, wherever they are. */
 body:not(.mobile) .cc-tabs { gap: 2px; padding-block: 6px; border-bottom: 0 }
 body:not(.mobile) .cc-tabs button { height: var(--ctl-h); padding: 0 9px; border: 0; border-radius: var(--radius-sm); font-weight: 500 }
 body:not(.mobile) .cc-tabs button:hover { background: var(--ctl-fill) }
 body:not(.mobile) .cc-tabs button[aria-selected="true"] { background: var(--ctl-fill-hi); font-weight: 500 }
-body:not(.mobile) .agtab { height: var(--ctl-h); padding-block: 0; box-sizing: border-box }
-body:not(.mobile) .agtab.on { background: var(--ctl-fill-hi) }
+body:not(.mobile) :is(.agtab, .agmnav button) { height: var(--ctl-h); padding-block: 0; box-sizing: border-box }
+body:not(.mobile) :is(.agtab.on, .agmnav button[aria-selected="true"]) { background: var(--ctl-fill-hi) }
 body:not(.mobile) .hv-seg { padding: 0; gap: 0; border: 0; background: var(--ctl-fill) }
 body:not(.mobile) .hv-seg button { height: var(--ctl-h); line-height: var(--ctl-h) }
 body:not(.mobile) .hv-seg button:is([aria-pressed="true"], [data-selected]) { background: var(--ctl-fill-hi); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 30%, transparent) }
@@ -222,8 +222,8 @@ body:not(.mobile) .cwin::after { content: ""; position: absolute; z-index: -1; l
 
 /* Mono chrome. */
 body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-pal h5, .cc-set .dset-h, .agc-think h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
-body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .cc-tabs button, .agtab, .hv-seg button, .us-pill, .mvb, .agc-pill) { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0 }
-body:not(.mobile) :is(.cc-tabs button, .agtab) { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase }
+body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .cc-tabs button, .agtab, .agmnav button, .hv-seg button, .us-pill, .mvb, .agc-pill) { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0 }
+body:not(.mobile) :is(.cc-tabs button, .agtab, .agmnav button) { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) .agtab span { font: inherit }
 body:not(.mobile) :is(.cc-si .n, .pv-row .m, .pv-row .ago, .dcoderturn .hd, .dcoderturn .when, .aglocation, .cc-top small, .cc-pal .it .t small, .cc-pal .foot, .dhead .tt small, .dchat .t small, .dchat .w, .dchat .run, .dhints, .agkeys, .cc-foot, .bd-card small, .mac-state) { font-family: var(--mono); font-size: 11px }
 body:not(.mobile) .cc-brand b { font-family: var(--mono); font-weight: 600; font-size: 16px; letter-spacing: -.02em }
@@ -330,8 +330,8 @@ body.mobile .aguse > span + span { margin-left: 10px }
 .aguse .ctx[data-level="full"] i { background: linear-gradient(90deg, var(--err) var(--pct), color-mix(in srgb, var(--fg) 12%, transparent) 0) }
 
 /* Pane tabs, a step smaller. */
-body:not(.mobile) :is(.agphead, .agdevhead) { --ctl-h: 20px }
-body:not(.mobile) .agtab { gap: 4px; padding-inline: 6px 5px; font-size: 9.5px; letter-spacing: .05em }
+body:not(.mobile) :is(.agphead, .agdevhead, .agmnav) { --ctl-h: 20px }
+body:not(.mobile) :is(.agtab, .agmnav button) { gap: 4px; padding-inline: 6px 5px; font-size: 9.5px; letter-spacing: .05em }
 body:not(.mobile) .agtab > svg { width: 12px; height: 12px }
 
 /* ----- Boards, the projects page and lists: lit cards without rules, mono labels and details ----- */
