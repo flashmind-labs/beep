@@ -28,6 +28,8 @@ export interface MoveProgress {
   worktree: string | null;
   worktree_at: number;
   worktrees: number;
+  /// The source's checkout has uncommitted edits, which stay there.
+  edits_left: boolean;
 }
 
 /// A machine a session could move to, with what the desktop knows of it.
@@ -68,13 +70,19 @@ export function fmtBytes(n: number) {
 }
 
 export interface MoveRow {
-  state: "done" | "run" | "todo";
+  state: "done" | "run" | "todo" | "note";
   text: string;
 }
 
 /// The steps above the composer: the conversation, the checkouts and the
-/// session's worktrees, the resume, each done, running or still to come.
+/// session's worktrees, the resume, each done, running or still to come,
+/// and a note when uncommitted edits stay on the source.
 export function moveRows(p: MoveProgress, from: string, to: string, toOnline = true): MoveRow[] {
+  const steps = moveSteps(p, from, to, toOnline);
+  return p.edits_left ? [...steps, { state: "note", text: `Uncommitted edits in the project folder stay on ${from}` }] : steps;
+}
+
+function moveSteps(p: MoveProgress, from: string, to: string, toOnline: boolean): MoveRow[] {
   const resume = `Resuming on ${to}`;
   const checkouts = "Checkouts and worktrees";
 

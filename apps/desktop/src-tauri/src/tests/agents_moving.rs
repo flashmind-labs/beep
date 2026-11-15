@@ -18,6 +18,7 @@ fn a_known_move_carries_its_numbers_and_reason() {
         worktree: Some("feat".into()),
         worktree_at: 1,
         worktrees: 2,
+        edits_left: true,
     }));
     assert_eq!(
         (
@@ -30,4 +31,5 @@ fn a_known_move_carries_its_numbers_and_reason() {
         ("known", "failed", Some("feat"), 1, 2)
     );
     assert_eq!(view.reason.as_deref(), Some("no checkout here"));
+    assert!(view.edits_left);
 }

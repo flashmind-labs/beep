@@ -733,6 +733,8 @@ pub struct MoveProgress {
     pub worktree: Option<String>,
     pub worktree_at: u32,
     pub worktrees: u32,
+    /// The source's checkout has uncommitted edits, which stay there.
+    pub edits_left: bool,
 }
 
 /// A session of another machine that this node keeps a copy of

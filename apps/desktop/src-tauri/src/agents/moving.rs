@@ -64,6 +64,7 @@ pub struct MoveProgressView {
     pub worktree: Option<String>,
     pub worktree_at: u32,
     pub worktrees: u32,
+    pub edits_left: bool,
 }
 
 impl From<MoveState> for MoveProgressView {
@@ -83,6 +84,7 @@ impl From<MoveState> for MoveProgressView {
             worktree: progress.worktree,
             worktree_at: progress.worktree_at,
             worktrees: progress.worktrees,
+            edits_left: progress.edits_left,
         }
     }
 }

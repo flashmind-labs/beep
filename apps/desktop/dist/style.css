@@ -1102,6 +1102,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .mvs .t { color: var(--muted) }
 .mvs .r { display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums }
 .mvs .r.todo { color: var(--dim) }
+.mvs .r.note { color: var(--muted) }
 .mvs .mk { width: 14px; height: 14px; display: inline-grid; place-items: center; flex: none; color: var(--ok) }
 .mvs .r.todo .mk::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--dim) }
 .mvs .mk .dspin { width: 11px; height: 11px }

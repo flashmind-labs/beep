@@ -157,6 +157,9 @@ pub(crate) enum Reply {
     Checkout {
         head: Option<String>,
         worktrees: Vec<MovingWorktree>,
+        /// The checkout has uncommitted edits, which stay on the source.
+        #[serde(default)]
+        edits: bool,
     },
 }
 
@@ -175,6 +178,7 @@ pub(crate) struct MovingWorktree {
 pub(crate) struct Checkout {
     pub(crate) head: Option<String>,
     pub(crate) worktrees: Vec<MovingWorktree>,
+    pub(crate) edits: bool,
 }
 
 /// What a source keeps of a session that leaves, from its move record: the
@@ -339,6 +343,7 @@ pub(super) async fn serve(
                 Ok(Reply::Checkout {
                     head: worktree::head(&leaving.folder)?,
                     worktrees: worktree::moving(&leaving.folder, &leaving.worktrees),
+                    edits: worktree::has_edits(&leaving.folder),
                 })
             })
             .await?;
@@ -646,7 +651,15 @@ pub(crate) async fn checkout(mut tx: LinkTx, mut rx: LinkRx, id: &str) -> Result
     tx.send(&Request::Checkout { id: id.to_owned() }).await?;
 
     match next(&mut rx, QUIET_FOR).await? {
-        Some(Reply::Checkout { head, worktrees }) => Ok(Checkout { head, worktrees }),
+        Some(Reply::Checkout {
+            head,
+            worktrees,
+            edits,
+        }) => Ok(Checkout {
+            head,
+            worktrees,
+            edits,
+        }),
         Some(Reply::Refused { message }) => Err(Refused(message).into()),
         // A node from before worktrees moved again cannot read the request.
         _ => Err(Refused("its beep-node is too old to move this session: update it".into()).into()),

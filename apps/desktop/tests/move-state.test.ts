@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { type MoveProgress, type MoveRecord, type MoveTarget, bySession, canMove, dedupe, effective, fmtBytes, going, listLabel, moveRows, movedTo, targetNote } from "../src/agents/move-state.ts";
 
-const progress = (over: Partial<MoveProgress> = {}): MoveProgress => ({ answer: "known", phase: "waiting", copied: 0, total: 0, source_away: false, reason: null, worktree: null, worktree_at: 0, worktrees: 0, ...over });
+const progress = (over: Partial<MoveProgress> = {}): MoveProgress => ({ answer: "known", phase: "waiting", copied: 0, total: 0, source_away: false, reason: null, worktree: null, worktree_at: 0, worktrees: 0, edits_left: false, ...over });
 const record: MoveRecord = { session: "s1", agent: "codex", from: "laptop-id", to: "studio-id", project: "acme/app", at: 10 };
 const names = (id: string) => id.replace("-id", "");
 const target = (over: Partial<MoveTarget> = {}): MoveTarget => ({ id: "studio-id", name: "studio", online: true, harnesses: ["codex", "claude"], checkout: true, ...over });
@@ -38,6 +38,8 @@ test("the steps follow the phases", () => {
   assert.equal(tree[1].text, "Worktree beep-tools 1 of 2");
   const resuming = moveRows(progress({ phase: "resuming", total: 6_100_000 }), "laptop", "studio");
   assert.deepEqual(resuming.map(r => r.state), ["done", "done", "run"]);
+  const left = moveRows(progress({ phase: "resuming", total: 6_100_000, edits_left: true }), "laptop", "studio");
+  assert.deepEqual(left.at(-1), { state: "note", text: "Uncommitted edits in the project folder stay on laptop" });
 });
 
 test("a move waits for the source's turn, or for the source itself", () => {
