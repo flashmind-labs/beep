@@ -213,6 +213,11 @@ impl Agents {
         self.get(session).is_some_and(|session| session.reviewer)
     }
 
+    /// Whether `session` is the home assistant this node runs.
+    pub(crate) fn is_assistant(&self, session: &str) -> bool {
+        self.get(session).is_some_and(|session| session.assistant)
+    }
+
     /// Takes the review the reviewer `session` handed in; one handed in
     /// again replaces it while the reviewer runs.
     pub(crate) fn submit_review(

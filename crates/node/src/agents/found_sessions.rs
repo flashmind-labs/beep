@@ -48,6 +48,7 @@ pub(super) struct Held {
     pub(super) mode: Option<String>,
     pub(super) model: Option<ModelId>,
     pub(super) worktrees: Vec<String>,
+    pub(super) assistant: bool,
 }
 
 /// How many of a store's sessions one listing keeps.
@@ -531,6 +532,7 @@ impl Agents {
                 mode: info.mode,
                 model: info.model,
                 worktrees: info.worktrees,
+                assistant: session.assistant,
             }
         });
         let ended = ours
@@ -606,6 +608,7 @@ impl Agents {
             mode,
             model,
             worktrees,
+            assistant,
         } = before;
         let follows = parent.as_ref().and_then(|link| self.parent_live_of(link));
         Begin {
@@ -616,6 +619,7 @@ impl Agents {
             parent,
             follows,
             worktrees,
+            assistant,
             ..Begin::default()
         }
     }

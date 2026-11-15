@@ -119,6 +119,7 @@ pub async fn serve_session(
             effort,
             checkout,
             images,
+            assistant,
         } => match Prompt::with_images(prompt, images) {
             Ok(Prompt { text, images }) => {
                 let begin = Begin {
@@ -126,6 +127,7 @@ pub async fn serve_session(
                     images,
                     model: model.map(ModelId::new),
                     effort,
+                    assistant,
                     ..Begin::default()
                 };
                 agents

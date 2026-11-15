@@ -175,6 +175,8 @@ pub(super) struct Session {
     /// A temporary reviewer (`agents::reviews`): never listed, never kept
     /// over a restart, offered `submit_review`.
     pub(super) reviewer: bool,
+    /// The home assistant: offered the assistant's brief and tools.
+    pub(super) assistant: bool,
     pub(super) processes: Arc<Processes>,
     /// Dropping the session stops its task and with it the agent, at once.
     _task: AbortOnDropHandle<()>,
@@ -434,6 +436,7 @@ impl Session {
             live,
             moved_cwd: Mutex::new(None),
             reviewer: false,
+            assistant: false,
             processes,
             _task: AbortOnDropHandle::new(task),
             guards: Mutex::new(guard.into_iter().collect()),

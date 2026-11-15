@@ -103,6 +103,9 @@ pub(crate) struct OpenSession {
     /// The linked worktrees it created, kept as `SessionInfo::worktrees`.
     #[serde(default)]
     worktrees: Vec<String>,
+    /// Whether it is the home assistant.
+    #[serde(default)]
+    assistant: bool,
 }
 
 impl OpenSession {
@@ -282,6 +285,7 @@ impl Agents {
                 title: live.info.title.clone(),
                 device: live.info.device.clone(),
                 worktrees: live.info.worktrees.clone(),
+                assistant: session.assistant,
             })
         })
     }
@@ -371,6 +375,7 @@ impl Agents {
                 follows,
                 note: Some(RESUMED.to_owned()),
                 worktrees: open.worktrees,
+                assistant: open.assistant,
                 ..Begin::default()
             },
         )?;

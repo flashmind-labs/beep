@@ -464,6 +464,7 @@ pub(crate) async fn start(
         effort,
         checkout,
         images,
+        assistant: false,
     };
     let client = fleet.client(machine).await?;
     let opened = open_agent(&client, &agent, first).await.map_err(|e| {

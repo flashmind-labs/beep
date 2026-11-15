@@ -45,6 +45,7 @@ async fn a_start_waits_past_the_call_timeout_for_acps_id() {
             effort: None,
             checkout: None,
             images: Vec::new(),
+            assistant: false,
         },
     );
     tokio::pin!(opening);

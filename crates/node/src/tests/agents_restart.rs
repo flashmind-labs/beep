@@ -467,3 +467,69 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
     });
     after.shutdown().await;
 }
+
+#[tokio::test]
+async fn begin_assistant_lists_as_assistant() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let kind = adapter(&dir.path().join("log"));
+    let agents = Agents::new(vec![kind.clone()]);
+    let session = agents
+        .start(
+            &kind,
+            Some(&dir.path().to_string_lossy()),
+            Begin {
+                assistant: true,
+                ..begin("hello")
+            },
+        )
+        .expect("the session starts");
+    let mut live = session.live.clone();
+    until(&mut live, |live| live.info.turns == 1).await;
+
+    let listed = agents.list();
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].assistant);
+    assert!(agents.is_assistant(&listed[0].id));
+    agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn assistant_survives_restart() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let log = dir.path().join("log");
+    let kind = adapter(&log);
+    let before = Agents::new(vec![kind.clone()]);
+    let session = before
+        .start(
+            &kind,
+            Some(&dir.path().to_string_lossy()),
+            Begin {
+                assistant: true,
+                ..begin("hello")
+            },
+        )
+        .expect("the session starts");
+    let mut live = session.live.clone();
+    until(&mut live, |live| live.info.turns == 1).await;
+    before.shutdown().await;
+    let stopped = before.open_sessions();
+    assert!(stopped[0].assistant);
+
+    let after = Agents::new(vec![kind]);
+    after.settings_arrived();
+    after.reopen(stopped).await;
+    assert!(after.is_assistant("held-1"));
+    after.shutdown().await;
+}
+
+#[test]
+fn home_folder_is_assistant_without_parent() {
+    let home = dirs::home_dir().expect("a home folder");
+
+    assert!(crate::agents::running::home_assistant(&home, false));
+    assert!(!crate::agents::running::home_assistant(&home, true));
+    assert!(!crate::agents::running::home_assistant(
+        &home.join("x"),
+        false
+    ));
+}
