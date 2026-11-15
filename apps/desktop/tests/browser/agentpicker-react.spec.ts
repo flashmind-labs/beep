@@ -265,6 +265,33 @@ test("model rows are no Tab stops: Tab from the search leaves the list", async (
   await expect(picker.locator(".agc-models .hi")).toHaveCount(1);
 });
 
+test("a resting cursor highlights no model row; a moved one picks its row on Enter", async ({ page }) => {
+  await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  const pill = page.locator(".cc-pjc:visible").getByTitle("Harness, model and thinking");
+  await pill.click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  const beta = picker.locator('[data-agmo="beta"]');
+  const box = await beta.boundingBox();
+  if (!box) throw new Error("the Beta row has no box");
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+
+  // The picker opens from the keys, under a cursor already where Beta shows.
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await pill.focus();
+  await page.keyboard.press("Enter");
+  await expect(beta).toBeVisible();
+  await expect(beta).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(picker.locator(".agc-models .hi")).toHaveCount(0);
+
+  await page.mouse.move(box.x + box.width / 2 + 6, box.y + box.height / 2 + 2, { steps: 3 });
+  await expect(beta).toHaveClass(/hi/);
+  await page.keyboard.press("Enter");
+  await expect(picker).toHaveCount(0);
+  await expect(pill).toContainText("Beta");
+});
+
 test("⇧⌘M then `opus 5.5 h` and Enter picks the model and thinking across harnesses", async ({ page }, info) => {
   await openDesktop(page, false, { agent_hosts: hosts, agent_models: null });
   await page.evaluate(() => {

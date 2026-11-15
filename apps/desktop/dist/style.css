@@ -844,7 +844,6 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agc-search::placeholder { color: var(--dim) }
 .agc-search:focus { border-color: color-mix(in srgb, var(--accent) 70%, transparent) }
 .agc-list button { all: unset; cursor: default; display: flex; align-items: center; gap: 8px; min-height: 22px; margin: 0 6px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.agc-list button:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 :is(.agc-list, .agc-think) button.hi { background: color-mix(in srgb, var(--fg) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent) }
 .agc-list button.on { background: color-mix(in srgb, var(--accent) 14%, transparent) }
 .agc-list button small { color: var(--muted); font-size: 11.5px; margin-left: auto; overflow: hidden; text-overflow: ellipsis }
@@ -852,7 +851,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agc-think { border-left: 1px solid var(--border); padding: 14px 0 10px; display: grid; align-content: start; box-sizing: border-box; max-height: calc(var(--pick-h) - 2px); overflow-y: auto; scrollbar-width: thin }
 .agc-think h5 { margin: 0 16px 8px; font-size: 12px; font-weight: 500; color: var(--muted); display: flex; justify-content: space-between; gap: 6px }
 .agc-think button { all: unset; cursor: default; display: flex; justify-content: space-between; align-items: center; min-height: 22px; margin: 0 6px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 13px }
-.agc-think button:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
+:is(.agc-list [data-agretry], .agc-think button):hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 .agc-think button.on { background: color-mix(in srgb, var(--accent) 14%, transparent) }
 .agc-think button svg { color: var(--accent) }
 .agc-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 8; min-width: 240px; max-width: calc(100vw - 32px); max-height: 320px; overflow-y: auto; padding: 4px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); box-shadow: 0 14px 40px color-mix(in srgb, var(--shade) 45%, transparent) }

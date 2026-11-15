@@ -30,6 +30,12 @@ interface PickerProps {
 
 type Placement = ReturnType<typeof placePopover>;
 
+/// The highlighted row, the one Enter picks, and what put the highlight there.
+interface Lit {
+  key: string;
+  by: "keys" | "pointer";
+}
+
 /// Puts the picker above its pill, right edges lined up, whole and inside its
 /// bounds: below the pill when it does not fit above, else cut to the roomier
 /// side, where its columns scroll. It is measured unplaced first, then placed,
@@ -79,8 +85,8 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
   const name = agentKind(picked.agent).name, levels = effortsOf(picked.agent);
   // The highlighted row is kept by its model, so a list that streams in
   // keeps it where it still shows; another harness or machine starts over.
-  const [lit, setLit] = useState<string | null>(null);
-  const highlight = lit === null ? -1 : rows.findIndex(row => rowKey(row) === lit);
+  const [lit, setLit] = useState<Lit | null>(null);
+  const highlight = lit === null ? -1 : rows.findIndex(row => rowKey(row) === lit.key);
   useLayoutEffect(() => { setLit(null); }, [machineId, picked.agent]);
   // The search takes the keys as the picker opens, so ⇧⌘M and typing picks a model.
   // A phone keeps the message field focused: moving focus re-lays the page for the
@@ -88,7 +94,7 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
   useLayoutEffect(() => { if (!document.body.classList.contains("mobile")) search.current?.focus(); }, [search]);
   // The thinking level the search names, taken with the model picked.
   const effort = (rows[highlight] ?? rows[0])?.effort ?? null;
-  const move = (to: number) => { const row = rows[to]; if (!row) return; setLit(rowKey(row)); };
+  const move = (to: number) => { const row = rows[to]; if (!row) return; setLit({ key: rowKey(row), by: "keys" }); };
   // The rows have one height, so only their number changes the picker's
   // size, and only up to the most its unplaced height shows: past that,
   // typing a search places it again for nothing.
@@ -115,7 +121,7 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
           if (row) onModel(row);
         }
       }}/></div>
-      <div className="agc-models" ref={list}><ModelRows rows={rows} picked={picked} highlight={highlight} lit={lit} list={list} onModel={onModel} />
+      <div className="agc-models" ref={list}><ModelRows rows={rows} picked={picked} highlight={highlight} lit={lit} list={list} onHover={row => setLit({ key: rowKey(row), by: "pointer" })} onModel={onModel} />
         {note && <p className="none" role="status">{loading && <><Spinner /> </>}{note}</p>}
         {failed && <button type="button" data-agretry="" onClick={onRetry}>Retry</button>}
       </div>
@@ -138,13 +144,15 @@ const PICK_HEIGHT = 340;
 
 /// The model column's rows, drawing only those near the view: a harness can
 /// offer hundreds of models. The highlighted row scrolls into view as the
-/// arrow keys move it.
-function ModelRows({ rows, picked, highlight, lit, list, onModel }: {
+/// arrow keys move it. The cursor highlights a row only by moving over it:
+/// one resting where the picker opens is not a choice.
+function ModelRows({ rows, picked, highlight, lit, list, onHover, onModel }: {
   rows: readonly PickRow[];
   picked: Picked;
   highlight: number;
-  lit: string | null;
+  lit: Lit | null;
   list: RefObject<HTMLDivElement | null>;
+  onHover: (row: PickRow) => void;
   onModel: (row: PickRow) => void;
 }) {
   const getItemKey = useCallback((index: number) => { const row = rows[index]; return row ? rowKey(row) : index; }, [rows]);
@@ -157,7 +165,7 @@ function ModelRows({ rows, picked, highlight, lit, list, onModel }: {
     // measuring each as it mounts would lay the picker out once per row.
     measureElement: (node, entry, instance) => entry?.borderBoxSize?.[0]?.blockSize ?? instance.measurementsCache[instance.indexFromElement(node)]?.size ?? MODEL_ROW,
   });
-  useLayoutEffect(() => { if (highlight >= 0) virtual.scrollToIndex(highlight, { align: "auto" }); }, [lit]);
+  useLayoutEffect(() => { if (lit?.by === "keys" && highlight >= 0) virtual.scrollToIndex(highlight, { align: "auto" }); }, [lit]);
 
   return <div style={{ position: "relative", height: virtual.getTotalSize() }}>
     {virtual.getVirtualItems().map(item => {
@@ -166,6 +174,7 @@ function ModelRows({ rows, picked, highlight, lit, list, onModel }: {
       return <button key={item.key} ref={virtual.measureElement} data-index={item.index} type="button" tabIndex={-1} data-agmo={row.value}
         className={`${row.value === picked.model && row.agent === picked.agent ? "on" : ""}${row.value && row.agent === "flsh" ? " mono" : ""}${item.index === highlight ? " hi" : ""}`}
         style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${item.start}px)` }}
+        onMouseMove={event => { if (item.index !== highlight && (event.movementX || event.movementY)) onHover(row); }}
         onClick={() => onModel(row)}>{badged && <HarnessIcon agent={row.agent}/>}{row.label}{row.note && <small>{row.note}</small>}</button>;
     })}
   </div>;
