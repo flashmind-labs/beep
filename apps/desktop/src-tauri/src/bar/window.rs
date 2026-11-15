@@ -2,9 +2,9 @@
 //! the page, and handing focus back when it hides.
 
 use crate::{beep::state::Prefs, error::Result};
-use tauri::{
-    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, Runtime, State, WebviewWindow,
-};
+#[cfg(desktop)]
+use tauri::PhysicalPosition;
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, Runtime, State, WebviewWindow};
 
 pub(crate) const LABEL: &str = "bar";
 const WIDTH: f64 = 680.0;
