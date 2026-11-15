@@ -317,7 +317,8 @@ fn a_move_carries_commits_and_changes_between_independent_checkouts() {
     assert_eq!(git(&copy, &["rev-parse", "HEAD"]), old_head);
     assert!(run(&copy, &["rev-parse", "--verify", "refs/heads/feat"], None).is_err());
     let target = copy.join(".worktrees/feat");
-    attach(&copy, &target, "feat", &work).expect("the worktree moves");
+    let was = tip(&copy, "feat");
+    let placed = attach(&copy, &target, "feat", &work).expect("the worktree moves");
     assert_eq!(git(&target, &["rev-parse", "HEAD"]), work.head);
     assert_eq!(fs::read_to_string(target.join("a.txt")).unwrap(), "two\n");
     assert!(target.join("new.txt").exists());
@@ -329,6 +330,17 @@ fn a_move_carries_commits_and_changes_between_independent_checkouts() {
     );
     assert_eq!(PathBuf::from(common), copy.join(".git"));
     assert_eq!(git(&wt, &["symbolic-ref", "--short", "HEAD"]), "feat");
+
+    // Taken back, the branch the move made goes too.
+    let applied = fingerprint(&target).expect("a fingerprint");
+    let moved = Moved {
+        branch: "feat".into(),
+        was,
+        to: work.head.clone(),
+    };
+    take_back(&copy, &target, &placed, &applied, Some(&moved)).expect("taken back");
+    assert!(!target.exists());
+    assert_eq!(tip(&copy, "feat"), None);
 }
 
 #[test]
@@ -387,14 +399,14 @@ fn taking_back_removes_a_made_worktree_unchanged_since_and_leaves_one_with_edits
     let target = dir.path().join("target-wt");
     let placed = attach(&main, &target, "feat", &work).expect("made");
     let applied = fingerprint(&target).expect("a fingerprint");
-    take_back(&main, &target, &placed, &applied).expect("taken back");
+    take_back(&main, &target, &placed, &applied, None).expect("taken back");
     assert!(!target.exists());
     assert!(!git(&main, &["worktree", "list"]).contains("target-wt"));
 
     let placed = attach(&main, &target, "feat", &work).expect("made again");
     let applied = fingerprint(&target).expect("a fingerprint");
     fs::write(target.join("a.txt"), "edited since\n").expect("an edit");
-    assert!(take_back(&main, &target, &placed, &applied).is_err());
+    assert!(take_back(&main, &target, &placed, &applied, None).is_err());
     assert_eq!(fs::read_to_string(target.join("a.txt")).unwrap(), "edited since\n");
 }
 
@@ -408,7 +420,7 @@ fn taking_back_detaches_a_reused_worktree_at_its_old_commit() {
     let prior = git(&wt, &["rev-parse", "HEAD"]);
     let placed = attach(&main, &wt, "feat", &work).expect("reused");
     let applied = fingerprint(&wt).expect("a fingerprint");
-    take_back(&main, &wt, &placed, &applied).expect("taken back");
+    take_back(&main, &wt, &placed, &applied, None).expect("taken back");
     assert!(run(&wt, &["symbolic-ref", "-q", "HEAD"], None).is_err());
     assert_eq!(git(&wt, &["rev-parse", "HEAD"]), prior);
     assert_eq!(git(&wt, &["status", "--porcelain"]), "");

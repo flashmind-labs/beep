@@ -110,6 +110,35 @@ pub(super) enum Placed {
     Held,
 }
 
+/// A branch a move put at `to`, and where it was before (`None`: it did not
+/// exist), so a move taken back puts it back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct Moved {
+    pub(super) branch: String,
+    pub(super) was: Option<String>,
+    pub(super) to: String,
+}
+
+impl Moved {
+    /// Puts the branch back where it was, while it is still where the move
+    /// put it.
+    fn undo(&self, main: &Path) -> Result<()> {
+        let reference = format!("refs/heads/{}", self.branch);
+
+        match &self.was {
+            Some(was) => run(main, &["update-ref", &reference, was, &self.to], None)?,
+            None => run(main, &["update-ref", "-d", &reference, &self.to], None)?,
+        };
+
+        Ok(())
+    }
+}
+
+/// The commit `branch` is at in the checkout `main`, if it exists.
+pub(super) fn tip(main: &Path, branch: &str) -> Option<String> {
+    text(main, &["rev-parse", "--verify", "-q", &format!("refs/heads/{branch}")]).ok()
+}
+
 /// Git's diff options that do not depend on the user's configuration.
 const DIFF_OPTIONS: [&str; 6] = [
     "--binary",
@@ -442,37 +471,54 @@ pub(super) fn attach(main: &Path, path: &Path, branch: &str, work: &Work) -> Res
     }
 
     let reference = format!("refs/heads/{branch}");
+    let was = tip(main, branch);
+    let moved = (was.as_deref() != Some(head)).then(|| Moved {
+        branch: branch.to_owned(),
+        was: was.clone(),
+        to: head.to_owned(),
+    });
 
-    match text(main, &["rev-parse", "--verify", "-q", &reference]) {
-        Ok(tip) if tip == head => {}
-        Ok(tip) => {
-            // Behind the source: the source's commits are here already
-            // (that is what its files waited for).
-            if !contains(main, head, &tip) {
-                bail!("{branch} here has commits the source's {branch} does not");
-            }
-
-            run(main, &["update-ref", &reference, head, &tip], None)?;
-        }
-        Err(_) => {
-            run(main, &["update-ref", &reference, head], None)?;
-        }
+    if let Some(was) = &was
+        && was != head
+        && !contains(main, head, was)
+    {
+        // Behind the source is fine: its commits came with the bundle.
+        bail!("{branch} here has commits the source's {branch} does not");
     }
 
+    if moved.is_some() {
+        let mut args = vec!["update-ref", reference.as_str(), head];
+        args.extend(was.as_deref());
+        run(main, &args, None)?;
+    }
+
+    let undo = |e: anyhow::Error| {
+        if let Some(moved) = &moved
+            && let Err(back) = moved.undo(main)
+        {
+            log::warn!("{branch} stays where the move put it: {back:#}");
+        }
+
+        e
+    };
     let placed = match spot {
         Placed::Made => {
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).context("making the worktree's folder")?;
+                std::fs::create_dir_all(parent)
+                    .context("making the worktree's folder")
+                    .map_err(undo)?;
             }
 
             let made = path.to_string_lossy();
             run(main, &["worktree", "add", "--quiet", &made, branch], None)
-                .context("adding the worktree")?;
+                .context("adding the worktree")
+                .map_err(undo)?;
             Placed::Made
         }
         Placed::Reused { prior } => {
             run(path, &["checkout", "--quiet", branch], None)
-                .context("putting the worktree on the branch")?;
+                .context("putting the worktree on the branch")
+                .map_err(undo)?;
             Placed::Reused { prior }
         }
         Placed::Held => return Ok(Placed::Held),
@@ -499,7 +545,7 @@ pub(super) fn attach(main: &Path, path: &Path, branch: &str, work: &Work) -> Res
                 Placed::Held => {}
             }
 
-            return Err(e.context("the uncommitted changes do not apply here"));
+            return Err(undo(e.context("the uncommitted changes do not apply here")));
         }
     }
 
@@ -509,10 +555,17 @@ pub(super) fn attach(main: &Path, path: &Path, branch: &str, work: &Work) -> Res
 /// Takes back what `attach` placed at `path` for a move that did not
 /// happen, only while it holds exactly `applied` (a `fingerprint`): a
 /// worktree made for it goes, a reused one is detached at its old commit
-/// again. Anything else is the user's, and stays.
-pub(super) fn take_back(main: &Path, path: &Path, placed: &Placed, applied: &str) -> Result<()> {
+/// again, and the branch goes back to where it was (`moved`). Anything else
+/// is the user's, and stays.
+pub(super) fn take_back(
+    main: &Path,
+    path: &Path,
+    placed: &Placed,
+    applied: &str,
+    moved: Option<&Moved>,
+) -> Result<()> {
     if !path.exists() {
-        return Ok(());
+        return moved.map_or(Ok(()), |moved| moved.undo(main));
     }
 
     if fingerprint(path)? != applied {
@@ -533,7 +586,7 @@ pub(super) fn take_back(main: &Path, path: &Path, placed: &Placed, applied: &str
         Placed::Held => {}
     }
 
-    Ok(())
+    moved.map_or(Ok(()), |moved| moved.undo(main))
 }
 
 /// Takes away a worktree this machine just made, which holds nothing yet.

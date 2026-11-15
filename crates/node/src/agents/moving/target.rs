@@ -10,7 +10,7 @@ use super::{
     progress::{Tracker, show},
     read::{self, Checkout, Refused},
     resume::{Arrival, resume},
-    saved::{Phase, PlacedTree, Saved},
+    saved::{Folder, Phase, PlacedTree, Saved},
     worktree,
 };
 use crate::agents::found::Agent;
@@ -369,30 +369,43 @@ async fn worktrees(
             .await
             .with_context(|| format!("bringing the worktree {name}"))?;
         let (main, path) = (root.to_owned(), root.join(relative));
-        let placed = spawn_blocking(move || -> Result<PlacedTree> {
+        let (state, id, at) = (env.state.clone(), record.id.clone(), record.at);
+        // Held until the worktree is noted, even if this task is stopped
+        // meanwhile: taking the move back waits for it.
+        let placing = env.agents.moves.placing.clone().lock_owned().await;
+        spawn_blocking(move || {
+            let _placing = placing;
+
             if let Some(bytes) = &fetched.bundle {
                 worktree::import(&main, &fetched.work.head, bytes)?;
             }
 
+            let was = worktree::tip(&main, &tree.branch);
             let placed = worktree::attach(&main, &path, &tree.branch, &fetched.work)?;
-            let applied = worktree::fingerprint(&path)?;
-            Ok(PlacedTree {
+            let head = fetched.work.head;
+            let tree = PlacedTree {
+                applied: worktree::fingerprint(&path)?,
+                moved: (was.as_deref() != Some(head.as_str())).then_some(worktree::Moved {
+                    branch: tree.branch,
+                    was,
+                    to: head,
+                }),
                 main,
                 path,
                 placed,
-                applied,
-            })
+            };
+
+            if let Err(e) = keep_placed(&state, &id, at, tree.clone()) {
+                // Not noted, so taken back now: nothing else would.
+                let PlacedTree { main, path, placed, applied, moved } = &tree;
+                let _ = worktree::take_back(main, path, placed, applied, moved.as_ref());
+                return Err(e);
+            }
+
+            Ok(())
         })
         .await?
         .with_context(|| format!("making the worktree {name} here"))?;
-
-        if let Err(e) = keep_placed(env, record, placed.clone()) {
-            // Not noted, so taken back now: nothing else would.
-            let PlacedTree { main, path, placed, applied } = placed;
-            let _ = spawn_blocking(move || worktree::take_back(&main, &path, &placed, &applied)).await;
-            return Err(e);
-        }
-
         log::info!("session {}: the worktree {name} is here", record.id);
     }
 
@@ -400,28 +413,30 @@ async fn worktrees(
     Ok(())
 }
 
-/// Notes a worktree placed for the move in its state.
-fn keep_placed(env: &Env, record: &SessionMove, placed: PlacedTree) -> Result<()> {
-    let mut saved = env
-        .state
-        .load(&record.id)
-        .filter(|saved| saved.at == record.at)
-        .unwrap_or_else(|| Saved::over(record.at, Phase::Working, None));
+/// Notes a worktree placed for the move of session `id` made at `at`.
+fn keep_placed(state: &Folder, id: &str, at: u64, placed: PlacedTree) -> Result<()> {
+    let mut saved = state
+        .load(id)
+        .filter(|saved| saved.at == at)
+        .unwrap_or_else(|| Saved::over(at, Phase::Working, None));
     saved.placed.push(placed);
-    env.state
-        .save(&record.id, &saved)
+    state
+        .save(id, &saved)
         .context("keeping the worktrees placed for the move")
 }
 
 /// Takes back the worktrees placed for the move of session `id`, which did
 /// not happen. One that changed since stays, and is logged.
 pub(super) async fn take_back(env: &Env, id: &str) {
+    // A worktree being placed is noted first.
+    let _placing = env.agents.moves.placing.lock().await;
     let placed = env.state.load(id).map(|saved| saved.placed).unwrap_or_default();
 
     for tree in placed {
         let shown = tree.path.display().to_string();
         let done = spawn_blocking(move || {
-            worktree::take_back(&tree.main, &tree.path, &tree.placed, &tree.applied)
+            let moved = tree.moved.as_ref();
+            worktree::take_back(&tree.main, &tree.path, &tree.placed, &tree.applied, moved)
         })
         .await;
 

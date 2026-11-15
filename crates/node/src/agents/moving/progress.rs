@@ -1,17 +1,17 @@
 //! What the moves this node takes part in have done so far: for a target,
 //! how far it is (`MoveProgress`, and what its source asks); for a source,
-//! that a session it ended is still served as running until its files are
-//! scanned, and that it gave a move up.
+//! that a session it ended is still served as running until it is done
+//! with it, and that it gave a move up.
 
-use crate::lock;
+use super::saved::{Folder, SentTree};
+use crate::{AsyncMutex, lock};
 use beep_proto::node::agent::{MovePhase, MoveProgress};
 use beep_proto::watched;
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
-use tokio::sync::watch;
+use tokio::{sync::watch, task::spawn_blocking};
 
 /// One move's progress, written by its task.
 pub(super) type Tracker = Arc<watch::Sender<MoveProgress>>;
@@ -45,8 +45,13 @@ pub(crate) struct Moves {
     tracked: Mutex<HashMap<String, Tracked>>,
     held: Mutex<HashSet<String>>,
     refused: Mutex<HashMap<String, String>>,
-    /// The worktrees a source sent for a move, and what each held then.
-    sent: Mutex<HashMap<String, Vec<(PathBuf, String)>>>,
+    /// Where the moves are kept, once they are followed.
+    kept: OnceLock<Folder>,
+    /// Held while a worktree sent is noted, one at a time.
+    noting: Arc<Mutex<()>>,
+    /// Held while a target places a worktree and notes it, so taking the
+    /// move back waits for that to finish.
+    pub(super) placing: Arc<AsyncMutex<()>>,
 }
 
 /// A session the source ended is served as running while this lives, so a
@@ -149,18 +154,29 @@ impl Moves {
         lock(&self.refused).get(id).cloned()
     }
 
-    /// The source sent the worktree at `dir` for session `id`, holding what
-    /// `fingerprint` hashes.
-    pub(super) fn sent(&self, id: &str, dir: PathBuf, fingerprint: String) {
-        let mut sent = lock(&self.sent);
-        let trees = sent.entry(id.to_owned()).or_default();
-        trees.retain(|(there, _)| *there != dir);
-        trees.push((dir, fingerprint));
+    pub(super) fn keep_in(&self, folder: Folder) {
+        let _ = self.kept.set(folder);
     }
 
-    /// The worktrees sent for session `id`, forgotten here.
-    pub(super) fn take_sent(&self, id: &str) -> Vec<(PathBuf, String)> {
-        lock(&self.sent).remove(id).unwrap_or_default()
+    /// The source sent `tree` for session `id`: noted in what is kept, so
+    /// it is let go of once the session runs on the target, even after a
+    /// restart.
+    pub(super) async fn sent(&self, id: &str, tree: SentTree) {
+        let Some(folder) = self.kept.get().cloned() else {
+            return;
+        };
+        let (noting, id) = (self.noting.clone(), id.to_owned());
+        let noted = spawn_blocking(move || {
+            let _one = lock(&noting);
+            folder.keep_sent(&id, tree)
+        })
+        .await;
+
+        match noted {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => log::warn!("a worktree sent for a move is not noted: {e}"),
+            Err(e) => log::warn!("noting a worktree sent for a move failed: {e}"),
+        }
     }
 }
 

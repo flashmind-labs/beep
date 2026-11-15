@@ -92,6 +92,7 @@ pub(crate) async fn follow(
         log::warn!("not moving sessions: no home folder to find the agents' stores in");
         return;
     };
+    agents.moves.keep_in(Folder::new(&dir));
     let env = Arc::new(Env {
         agents,
         mesh,

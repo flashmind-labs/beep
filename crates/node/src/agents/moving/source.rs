@@ -9,7 +9,7 @@ use super::{
     Env,
     dial::ask,
     progress::Target,
-    saved::{Phase, Saved},
+    saved::{Phase, Saved, SentTree},
     worktree,
 };
 use crate::agents::live::Live;
@@ -133,6 +133,7 @@ async fn end(
                 reason: None,
                 open: open.clone(),
                 placed: Vec::new(),
+                sent: Vec::new(),
             },
         )
         .context("keeping that the session ended")?;
@@ -152,7 +153,7 @@ async fn land(
 
         match now {
             Target::Landed => {
-                let_go(env, &record.id).await;
+                let_go(env, record).await;
                 return env
                     .state
                     .save(&record.id, &Saved::over(record.at, Phase::Done, None))
@@ -167,13 +168,20 @@ async fn land(
     }
 }
 
-/// Lets go of the worktrees sent for session `id`, which runs elsewhere
+/// Lets go of the worktrees sent for the session, which runs elsewhere
 /// now: each is detached so its branch is the target's alone, and what was
 /// sent is taken out of it unless it changed since.
-async fn let_go(env: &Env, id: &str) {
-    for (dir, sent) in env.agents.moves.take_sent(id) {
+async fn let_go(env: &Env, record: &SessionMove) {
+    let sent = env
+        .state
+        .load(&record.id)
+        .filter(|saved| saved.at == record.at)
+        .map(|saved| saved.sent)
+        .unwrap_or_default();
+
+    for SentTree { dir, held } in sent {
         let shown = dir.display().to_string();
-        let done = spawn_blocking(move || worktree::detach_clean(&dir, Some(&sent))).await;
+        let done = spawn_blocking(move || worktree::detach_clean(&dir, Some(&held))).await;
 
         match done {
             Ok(Ok(_)) => {}
@@ -193,8 +201,6 @@ async fn fail(
 ) -> Result<()> {
     let reason = format!("{why:#}");
     env.agents.moves.refuse(&record.id, &reason);
-    // The worktrees stay here as they are.
-    env.agents.moves.take_sent(&record.id);
 
     match (live(env, &record.id), open) {
         (Some(session), _) => {
@@ -226,8 +232,6 @@ async fn fail(
 /// it was, and one this side ended starts again, unless the target already
 /// starts or runs it (`to` says, about the move made at `at`).
 pub(super) async fn cancel(env: &Env, id: &str, at: u64, to: EndpointId) {
-    // The worktrees stay here as they are.
-    env.agents.moves.take_sent(id);
     let open = env
         .state
         .load(id)

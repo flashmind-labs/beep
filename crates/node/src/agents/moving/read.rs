@@ -10,6 +10,7 @@
 use super::{
     Harness,
     progress::Target,
+    saved::SentTree,
     worktree::{self, Work},
 };
 use crate::agents::{Agents, found::Agent};
@@ -374,7 +375,8 @@ pub(super) async fn serve(
 
             match spawn_blocking(move || send_worktree(&leaving, &path, wanted.as_deref())).await? {
                 Ok((dir, work, bytes)) => {
-                    agents.moves.sent(&id, dir, work.fingerprint());
+                    let held = work.fingerprint();
+                    agents.moves.sent(&id, SentTree { dir, held }).await;
                     tx.send(&Reply::Work { head: work.head }).await?;
 
                     for piece in bytes.iter().flat_map(|bytes| bytes.chunks(CHUNK)) {
