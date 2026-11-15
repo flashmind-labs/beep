@@ -72,7 +72,7 @@ pub(in crate::agents) fn resume_method(initialized: &InitializeResponse) -> Opti
 }
 
 /// The most models kept from one agent's list.
-pub(in crate::agents) const MAX_MODELS: usize = 500;
+pub(in crate::agents) const MAX_MODELS: usize = 4000;
 
 /// The most session modes kept from one agent's list.
 const MAX_MODES: usize = 32;
