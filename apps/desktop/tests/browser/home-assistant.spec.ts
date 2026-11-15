@@ -42,3 +42,23 @@ test.describe("on a phone", () => {
     await expect(page.locator("#agfoldb")).toBeHidden();
   });
 });
+
+test("the first start's harness shows the assistant setting saved in Settings", async ({ page }) => {
+  const models = { pick: "listed", current: null, models: [{ id: "model-b", name: "Example Model B", description: null, provider: null }] };
+  await openDesktop(page, false, {
+    center_home: { machines: [], projects: [], running: [], needs_you: [] },
+    settings: { name: "build-box", version: "0.9.0", autostart: false, agent_notices: false },
+    agent_hosts: [host], agent_models: models, mac_control: { id: "build-box" },
+    assistant_settings_get: { agent: "flsh", model: null, effort: null },
+  });
+  await expect(page.locator(".painted-empty .pill .flsh")).toBeVisible();
+
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
+  await settings.locator("#assistantSetting").getByRole("button").click();
+  // Saved in Settings: Home reads the setting again.
+  await page.evaluate(() => window.__navigation.respond("assistant_settings_get", { agent: "codex", model: null, effort: null }));
+  await page.getByRole("dialog", { name: "Harness, model and thinking" }).getByText("Example Model B").click();
+  await expect(page.locator(".painted-empty .pill .codex")).toBeVisible();
+});

@@ -4,7 +4,7 @@ import { startAssistant } from "../agents/agentnew.tsx";
 import { AG, loadAgentHosts, type AgentHost } from "../agents/agents.ts";
 import { pillContent } from "../agents/agentpicker.tsx";
 import { assistantHost, resolveAssistant } from "../agents/assistant-state.ts";
-import { loadAssistant } from "../settings/assistant.ts";
+import { loadAssistant, onAssistantSaved } from "../settings/assistant.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { FoundSection } from "../project/outside-lists.tsx";
 import type { FoundRow } from "../project/projects-state.ts";
@@ -28,7 +28,11 @@ export function HomeAssistant({ found }: { found: FoundRow[] | null }) {
     return () => form.remove();
   }, []);
 
-  useEffect(() => { void showHarness(); }, []);
+  // Read again when Settings saves the setting.
+  useEffect(() => {
+    void showHarness();
+    return onAssistantSaved(() => void showHarness());
+  }, []);
 
   const suggest = () => {
     composer.setText(SUGGESTION);
