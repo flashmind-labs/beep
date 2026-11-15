@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::task::{AbortHandle, JoinSet};
 use tokio::time::{Instant, sleep, timeout};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 /// A member that stays away is tried about twice a minute. One that comes
@@ -216,8 +216,8 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
                     continue;
                 }
             }
-            Ok(Err(e)) => debug!("dial failed: {e}"),
-            Err(_) => debug!("dial timed out"),
+            Ok(Err(e)) => info!(peer = %peer.fmt_short(), elapsed_ms = started.elapsed().as_millis(), "dial failed: {e}"),
+            Err(_) => info!(peer = %peer.fmt_short(), "dial timed out"),
         }
         // A new address for this peer or for us ends the wait early.
         let pause = sleep(backoff.pause());
