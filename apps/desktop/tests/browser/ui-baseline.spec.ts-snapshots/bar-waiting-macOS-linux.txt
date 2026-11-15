@@ -31,9 +31,9 @@ body
           span.t
             span "Still running"
             small "project · build-box · now"
-          span.run [title="Running tests"]
+          span.run [title="cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"]
             span.drun style(animation-delay)
-            span.tx "Running tests"
+            span.tx "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
         button#wt-3.dchat [aria-selected="false" data-wti="3" role="option" tabindex="-1"]
           span style(display)
             span.codex.dapp.dcoderav.mark
