@@ -95,6 +95,7 @@ fn lists_a_real_folder() {
     let home = root.path();
     std::fs::create_dir_all(home.join("Documents/b dir")).expect("folders");
     std::fs::create_dir_all(home.join("Documents/a")).expect("folders");
+    std::fs::create_dir_all(home.join("Documents/clone/.git")).expect("folders");
     std::fs::create_dir_all(home.join("Documents/.hidden")).expect("folders");
     std::fs::write(home.join("Documents/notes.txt"), "x").expect("a file");
     let Some(Seen::Folder(seen)) = read(&run(&script(&FolderPath::Home("Documents".into())), home))
@@ -102,7 +103,8 @@ fn lists_a_real_folder() {
         panic!("a folder");
     };
     assert_eq!(seen.path, home.join("Documents").to_string_lossy());
-    assert_eq!(seen.folders, ["a", "b dir"]);
+    assert_eq!(seen.folders, ["a", "b dir", "clone"]);
+    assert_eq!(seen.repos, ["clone"]);
     assert!(!seen.empty && seen.origin.is_none());
 
     let Some(Seen::Folder(empty)) =

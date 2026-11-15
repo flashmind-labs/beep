@@ -1307,10 +1307,11 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
             dev
         }
     };
-    let (empty, full, kept) = (
+    let (empty, full, kept, files) = (
         joined("empty-box").await,
         joined("full-box").await,
         joined("kept-box").await,
+        joined("files-box").await,
     );
     let build = Arc::new(FakeNode::default());
     let lister = |prints: &'static str| {
@@ -1320,7 +1321,10 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
         })
     };
     let at_empty = lister("BEEP_FOLDER: missing /srv/it's new\n");
-    let at_full = lister("BEEP_FOLDER: path /srv/work\nBEEP_FOLDER: full\n");
+    let at_full = lister(
+        "BEEP_FOLDER: path /srv/work\nBEEP_FOLDER: git https://github.com/acme/other.git\nBEEP_FOLDER: full\n",
+    );
+    let at_files = lister("BEEP_FOLDER: path /srv/widget\nBEEP_FOLDER: full\n");
     let at_kept = Arc::new(FakeNode {
         prints: vec![("ls -A", "BEEP_FOLDER: path /sync/share/widget\n")],
         syncthing: vec![SyncthingFolder {
@@ -1337,6 +1341,7 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
             (&empty, &at_empty),
             (&full, &at_full),
             (&kept, &at_kept),
+            (&files, &at_files),
         ],
     )
     .await;
@@ -1368,13 +1373,14 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
         Ok(_) => panic!("it was not refused"),
     };
 
-    // A folder holding other files, or one Syncthing keeps, is refused: nothing made or written.
+    // Another repository's checkout, or a folder Syncthing keeps, is refused: nothing made or
+    // written.
     let said = studio
         .add_to_machine("acme/widget", &full.id.to_string(), "/srv/work")
         .await;
     assert_eq!(
         refused(said),
-        "/srv/work has other files. Choose another folder."
+        "/srv/work is a checkout of another repository. Choose an empty folder or a checkout of acme/widget."
     );
     assert!(made(&at_full).is_empty());
     let said = studio
@@ -1414,6 +1420,19 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
         .expect("its row");
     assert_eq!(row.folder.as_deref(), Some("/srv/it's new"));
 
+    // A folder that has the files and no `.git` joins as it is: the history comes to it.
+    let added = studio
+        .add_to_machine("acme/widget", &files.id.to_string(), "/srv/widget")
+        .await
+        .expect("it is added");
+    assert_eq!(added.folder, "/srv/widget");
+    assert!(made(&at_files).is_empty());
+    let written = spec(&f.studio.mesh).expect("the record is written");
+    assert_eq!(
+        written.folders.get(&files.id).map(String::as_str),
+        Some("/srv/widget")
+    );
+
     // On it already, a second Add changes nothing.
     let said = studio
         .add_to_machine("acme/widget", &empty.id.to_string(), "/srv/other")
@@ -1452,7 +1471,7 @@ async fn a_machine_points_at_an_empty_folder_or_a_checkout_and_the_old_one_stays
             ("/srv/empty", "BEEP_FOLDER: missing /srv/empty\n"),
             (
                 "/srv/other",
-                "BEEP_FOLDER: path /srv/other\nBEEP_FOLDER: full\n",
+                "BEEP_FOLDER: path /srv/other\nBEEP_FOLDER: git https://github.com/acme/other.git\nBEEP_FOLDER: full\n",
             ),
             (
                 "/srv/clone",
@@ -1500,13 +1519,13 @@ async fn a_machine_points_at_an_empty_folder_or_a_checkout_and_the_old_one_stays
     };
 
     let made = ran(&at_mac, "mkdir -p --");
-    // Another project's files are refused, and nothing is made or written.
+    // Another repository's checkout is refused, and nothing is made or written.
     let said = studio
         .change_folder("acme/widget", &mac.id.to_string(), "/srv/other")
         .await;
     assert_eq!(
         refused(said),
-        "/srv/other has other files. Choose an empty folder or a checkout of acme/widget."
+        "/srv/other is a checkout of another repository. Choose an empty folder or a checkout of acme/widget."
     );
     assert_eq!(ran(&at_mac, "mkdir -p --"), made);
 

@@ -1,6 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isOpen, menuKey, menuOf, splitTyped, suggest } from "../src/addproject/foldercomplete.ts";
+import { crumbs, isOpen, matching, menuKey, menuOf, splitTyped, suggest } from "../src/addproject/foldercomplete.ts";
+
+test("crumbs walk down from Home or the root", () => {
+  assert.deepEqual(crumbs("/home/me/code/app", "/home/me"), [
+    { label: "Home", path: "/home/me" }, { label: "code", path: "/home/me/code" }, { label: "app", path: "/home/me/code/app" },
+  ]);
+  assert.deepEqual(crumbs("/home/me", "/home/me"), [{ label: "Home", path: "/home/me" }]);
+  assert.deepEqual(crumbs("/home/meg", "/home/me"), [{ label: "/", path: "/" }, { label: "home", path: "/home" }, { label: "meg", path: "/home/meg" }]);
+  assert.deepEqual(crumbs("/", null), [{ label: "/", path: "/" }]);
+});
+
+test("matching keeps the folders that hold the filter, the ones starting with it first", () => {
+  const folders = ["api", "docs", "rapid", "Apps"];
+  assert.deepEqual(matching(folders, ""), folders);
+  assert.deepEqual(matching(folders, "ap"), ["api", "Apps", "rapid"]);
+  assert.deepEqual(matching(folders, "zz"), []);
+});
 
 test("splitTyped refuses what the machine cannot read", () => {
   assert.equal(splitTyped(""), null);

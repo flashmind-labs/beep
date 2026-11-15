@@ -318,6 +318,21 @@ test("project machines", async ({ page }) => {
   await baseline(page, "project-machines");
 });
 
+test("add to machine", async ({ page }) => {
+  const machines = [
+    { id: machineId, name: machineId, online: true, folder, checking: false, checked_at: 1 },
+    { id: "laptop", name: "laptop", online: true, folder: null, checking: false, checked_at: 1, mesh: true },
+  ];
+  const at = (path: string, folders: string[], repos: string[]) => ({ path, parent: path.slice(0, path.lastIndexOf("/")), exists: true, folders, more: 0, empty: false, origin: null, repos });
+  const machine_folders = { "~": at("/home/dev", ["projects"], []), "~/projects": at("/home/dev/projects", ["archive", "atlas", "harbor", "notes", "quill"], ["atlas", "quill"]) };
+  await openProject(page, { project_machines: machines, machine_search: "~/projects", machine_folders });
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
+  await page.getByRole("article", { name: "laptop", exact: true }).getByRole("button", { name: "Add", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: /Add widget to laptop/ });
+  await expect(sheet.getByRole("option", { name: "quill" })).toBeVisible();
+  await baseline(page, "add-to-machine");
+});
+
 test("terminals", async ({ page }) => {
   const terminal = (id: string, name: string, state: string) => ({ id, project: "", machine_id: machineId, machine_name: machineId, name, command: "shell", cwd: folder, state, code: state === "exited" ? 0 : null, started_at: NOW - 600_000 });
   await openDesktop(page, false, { terminals_all: [terminal("t1", "dev server", "running"), terminal("t2", "tests", "running"), terminal("t3", "build", "exited")] });

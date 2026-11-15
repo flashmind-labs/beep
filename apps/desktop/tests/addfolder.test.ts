@@ -5,7 +5,7 @@ import { emptyText, unreadText } from "../src/addproject/addproject-state.ts";
 import type { MachineFolder } from "../src/project/projects-state.ts";
 
 const folder = (origin: string | null): MachineFolder =>
-  ({ path: "/srv/acme/api", parent: "/srv/acme", exists: true, folders: [], more: 0, empty: false, origin });
+  ({ path: "/srv/acme/api", parent: "/srv/acme", exists: true, folders: [], more: 0, empty: false, origin, repos: [] });
 
 test("the sheet starts on this computer and a checkout with an origin is what Add project takes", () => {
   const start = startOn([{ id: "box", online: true }, { id: "mac", online: true }], "mac");

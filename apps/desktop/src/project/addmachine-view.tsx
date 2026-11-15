@@ -1,24 +1,14 @@
-import { useLayoutEffect, useRef } from "react";
+import { FolderPicker } from "../addproject/folderbrowser.tsx";
+import type { CopyLine, FolderOffer } from "./addmachine-state.ts";
 import type { MachineFolder } from "./projects-state.ts";
-import { FolderBrowser } from "../addproject/folderbrowser.tsx";
-import { destination, type CopyLine } from "./addmachine-state.ts";
-import { Button, SheetHead, Spinner } from "../ui/kit.tsx";
+import { Button, Spinner } from "../ui/kit.tsx";
 
 interface Props {
-  title: string; project: string; machine: string; from: string | null; folder: string; browsing: MachineFolder | null; reading: boolean; adding: boolean; error: string | null; copying: CopyLine | null;
-  edit(value: string): void; choose(): void; add(): void; close(): void; browse(path: string | null): void; cancelBrowse(): void; useFolder(listing: MachineFolder): void;
+  title: string; verb: string; project: string; machine: string; start: string | null; adding: boolean; error: string | null; copying: CopyLine | null;
+  offers(listing: MachineFolder, opened: string): FolderOffer[]; take(offer: FolderOffer): void; close(): void;
 }
 export function AddMachineView(p: Props) {
-  const input = useRef<HTMLInputElement>(null), wasBrowsing = useRef(false);
-  useLayoutEffect(() => { input.current?.focus(); }, []);
-  useLayoutEffect(() => {
-    if (wasBrowsing.current && !p.browsing) input.current?.focus();
-    wasBrowsing.current = !!p.browsing;
-  }, [p.browsing]);
-  const listing = p.browsing, change = p.from !== null;
-  return <><SheetHead title={p.title} />{p.copying ? <><div className="am-wait"><Spinner />{p.copying.text}</div>{p.copying.pct !== null && <div className="fs-bar am-bar"><i style={{ width: `${p.copying.pct}%` }} /></div>}{p.copying.note && <div className="am-sub">{p.copying.note}</div>}<div className="am-line ip-acts"><Button look="quiet" onClick={p.close}>Close</Button></div></> : <>
-    {change && <div className="am-sub">Now in <code>{p.from}</code></div>}<div className="am-label">Folder on {p.machine}</div><div className="am-line"><div className="ip-folder"><input ref={input} className="ip-path ip-dir" type="text" spellCheck={false} autoCapitalize="off" autoCorrect="off" aria-label={`Folder on ${p.machine}`} value={p.folder} title={p.folder} onChange={e => p.edit(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); p.add(); } }} /></div><Button look="quiet" disabled={p.reading || p.adding} onClick={p.choose}>{p.reading ? "Reading…" : "Choose…"}</Button></div>
-    {listing && <FolderBrowser listing={listing} reading={p.reading} note={`It goes in ${destination(listing, p.project, change)}.`} focusFirst={false} browse={p.browse} cancel={p.cancelBrowse} use={p.useFolder} />}
-    {p.error && <div className="am-msg bad">{p.error}</div>}{change && <div className="am-sub">Pick an empty folder, which the other machines fill, or a checkout of the same repository, which joins the sync. The folder it is in now stays on disk as it is.</div>}<div className="am-line ip-acts"><Button look="quiet" onClick={p.close}>Cancel</Button><Button look="primary" className="ip-go" disabled={p.adding || !p.folder.trim()} onClick={p.add}>{p.adding ? (change ? "Changing…" : "Adding…") : change ? "Change" : "Add"}</Button></div>
-  </>}</>;
+  if (p.copying) return <div className="fp-wait"><h5>{p.title}</h5><div className="am-wait"><Spinner />{p.copying.text}</div>{p.copying.pct !== null && <div className="fs-bar"><i style={{ width: `${p.copying.pct}%` }} /></div>}{p.copying.note && <div className="am-sub">{p.copying.note}</div>}<Button look="quiet" onClick={p.close}>Close</Button></div>;
+
+  return <FolderPicker machine={p.machine} start={p.start} heading={p.title} verb={p.verb} prefer={p.project} offers={p.offers} take={p.take} close={p.close} taking={p.adding} error={p.error} />;
 }
