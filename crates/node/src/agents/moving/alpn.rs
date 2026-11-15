@@ -1,7 +1,10 @@
 //! Serves `beep-sessions/1` to the mesh's devices.
 
 use tracing::Instrument;
-use super::read::{Access, Asked, serve};
+use super::{
+    folder::project_folder,
+    read::{Access, Asked, Leaving, serve},
+};
 use crate::{agents::Agents, link::Membership};
 use beep_mesh::{Key, Mesh};
 use beep_proto::node::mesh_state::{SessionMove, StateValue};
@@ -113,8 +116,16 @@ impl ProtocolHandler for SessionsAlpn {
                             mesh.is_member(peer)
                                 && permits(record_of(&mesh, id).as_ref(), mesh.me(), peer, ask, id)
                         };
+                        let leaving = |id: &str| {
+                            let record = record_of(&mesh, id)?;
+                            let folder = project_folder(&mesh, &record.project, &mesh.me())?;
+                            Some(Leaving {
+                                folder: Into::<std::path::PathBuf>::into(folder),
+                                worktrees: record.worktrees,
+                            })
+                        };
                         let me = name_of_me(&mesh);
-                        let access = Access { check: &allow, updates };
+                        let access = Access { check: &allow, updates, leaving: &leaving };
                         serve(tx, rx, &agents, &me, access).await
                     }.in_current_span());
                 }

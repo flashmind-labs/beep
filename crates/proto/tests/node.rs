@@ -1551,9 +1551,12 @@ mod agent {
                     phase: MovePhase::Files,
                     copied: 6,
                     total: 6,
-                    files_left: 12,
+                    files_left: 0,
                     source_away: false,
                     reason: None,
+                    worktree: Some("feat".into()),
+                    worktree_at: 1,
+                    worktrees: 2,
                 }),
             };
             let bytes = rmp_serde::to_vec(&reply).expect("encodes");

@@ -1,13 +1,16 @@
 //! The machine a session moves away from: lets the turn and the messages
 //! queued before the move finish, or stops them, waits until the target
-//! can take the session, then ends it and has its files scanned. The
-//! transcript stays, and `beep-sessions/1` keeps serving it. If the target
-//! gives up, the session starts again here.
+//! can take the session, then ends it. The transcript stays, and
+//! `beep-sessions/1` keeps serving it and the session's worktrees. Once the
+//! session runs on the target, the worktrees it took are let go here. If
+//! the target gives up, the session starts again here.
 
 use super::{
     Env,
+    dial::ask,
     progress::Target,
-    saved::{Phase, Saved},
+    saved::{Phase, Saved, SentTree},
+    worktree,
 };
 use crate::agents::live::Live;
 use crate::agents::{OpenSession, Session, session::Command};
@@ -15,7 +18,19 @@ use anyhow::{Context, Result, anyhow};
 use beep_proto::node::{agent::Status, mesh_state::SessionMove};
 use beep_proto::watched;
 use std::sync::Arc;
-use tokio::sync::watch;
+use iroh::EndpointId;
+use std::time::Duration;
+use tokio::{
+    sync::watch,
+    task::spawn_blocking,
+    time::{Instant, sleep, timeout},
+};
+
+/// How long a cancelled move waits for the session to end, and for the
+/// target to say whether it took the session anyway.
+const CLOSE_WITHIN: Duration = Duration::from_secs(30);
+const ASK_WITHIN: Duration = Duration::from_secs(20);
+const ASK_AGAIN: Duration = Duration::from_millis(500);
 
 pub(super) async fn run(
     env: &Env,
@@ -36,22 +51,18 @@ pub(super) async fn run(
     }
 
     env.agents.until_reopened().await;
-    // A target reads the session as running until its files are scanned.
+    // A target reads the session as running until it ended here.
     let held = env.agents.moves.hold(&record.id);
     // Set once the session ended here: a restart finds it in what is kept.
     let mut open = saved.and_then(|saved| saved.open);
 
-    if open.is_none()
-        && let Some(session) = live(env, &record.id)
-    {
+    // A session still live ends now, even if a restart kept how to start
+    // it again: that is saved before it is closed.
+    if let Some(session) = live(env, &record.id) {
         match end(env, record, &session, target).await {
             Ok(done) => open = done,
             Err(e) => return fail(env, record, None, &e).await,
         }
-    }
-
-    if let Err(e) = scan(env, record).await {
-        return fail(env, record, open, &e).await;
     }
 
     drop(held);
@@ -97,7 +108,7 @@ async fn end(
 
         match now {
             Target::Failed(reason) => return Err(anyhow!(reason)),
-            Target::Taken | Target::Landed => break,
+            Target::Taken | Target::Starting | Target::Landed => break,
             Target::Unknown => {}
         }
 
@@ -110,8 +121,17 @@ async fn end(
         }
     }
 
+    // Kept before the session closes, so a move taken back at any point
+    // after finds how to start it again.
     let open = env.agents.open_session(&record.id);
-    session.close().await;
+    // Worktrees sent before a restart stay noted: the target does not ask
+    // for them again.
+    let sent = env
+        .state
+        .load(&record.id)
+        .filter(|saved| saved.at == record.at)
+        .map(|saved| saved.sent)
+        .unwrap_or_default();
     env.state
         .save(
             &record.id,
@@ -120,30 +140,13 @@ async fn end(
                 phase: Phase::Closed,
                 reason: None,
                 open: open.clone(),
+                placed: Vec::new(),
+                sent,
             },
         )
         .context("keeping that the session ended")?;
+    session.close().await;
     Ok(open)
-}
-
-/// Has the project scanned now, so what the session wrote last is in the
-/// list the target pulls. A folder that is not scanned would let it resume
-/// on files from before. A project Beep does not sync with the target has
-/// no such list: Syncthing carries it.
-async fn scan(env: &Env, record: &SessionMove) -> Result<()> {
-    let Some(syncs) = &env.syncs else {
-        return Ok(());
-    };
-
-    if !syncs.syncs_with(&record.project, &record.to).await {
-        return Ok(());
-    }
-
-    syncs
-        .rescan(&record.project)
-        .await
-        .map(|_| ())
-        .with_context(|| format!("scanning {} before it moves", record.project))
 }
 
 /// Waits until the target runs the session, or gives up.
@@ -158,16 +161,41 @@ async fn land(
 
         match now {
             Target::Landed => {
+                let_go(env, record).await;
                 return env
                     .state
                     .save(&record.id, &Saved::over(record.at, Phase::Done, None))
                     .context("keeping that the session moved");
             }
             Target::Failed(reason) => return fail(env, record, open, &anyhow!(reason)).await,
-            Target::Taken | Target::Unknown => {}
+            // Starting there can still fail: the worktrees stay until it runs.
+            Target::Taken | Target::Starting | Target::Unknown => {}
         }
 
         target.changed().await.context("the move lost its target")?;
+    }
+}
+
+/// Lets go of the worktrees sent for the session, which runs elsewhere
+/// now: each is detached so its branch is the target's alone, and what was
+/// sent is taken out of it unless it changed since.
+async fn let_go(env: &Env, record: &SessionMove) {
+    let sent = env
+        .state
+        .load(&record.id)
+        .filter(|saved| saved.at == record.at)
+        .map(|saved| saved.sent)
+        .unwrap_or_default();
+
+    for SentTree { dir, held } in sent {
+        let shown = dir.display().to_string();
+        let done = spawn_blocking(move || worktree::detach_clean(&dir, Some(&held))).await;
+
+        match done {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => log::warn!("the worktree {shown} stays on its branch: {e:#}"),
+            Err(e) => log::warn!("letting go of the worktree {shown} failed: {e}"),
+        }
     }
 }
 
@@ -209,13 +237,63 @@ async fn fail(
 }
 
 /// The move is cancelled: a session still waiting for its turn goes on as
-/// it was.
-pub(super) async fn cancel(env: &Env, id: &str) {
-    let Some(session) = live(env, id) else {
+/// it was, and one this side ended starts again, unless the target already
+/// starts or runs it (`to` says, about the move made at `at`).
+pub(super) async fn cancel(env: &Env, id: &str, at: u64, to: EndpointId) {
+    let open = env
+        .state
+        .load(id)
+        .filter(|saved| saved.at == at && saved.phase == Phase::Closed)
+        .and_then(|saved| saved.open);
+
+    if let Some(session) = live(env, id) {
+        let Some(_) = &open else {
+            if let Err(e) = session.order(Command::NotMoving).await {
+                log::debug!("session {id} was not told the move is off: {e}");
+            }
+
+            return;
+        };
+        // Closing for the move: it starts again once it ended.
+        let mut live = session.live.clone();
+        let ended = watched::wait_for(&mut live, |live| live.status() == Status::Ended);
+
+        if timeout(CLOSE_WITHIN, ended).await.is_err() {
+            log::warn!("session {id} did not end in time, so it is not started again");
+            return;
+        }
+    }
+
+    let Some(open) = open else {
         return;
     };
 
-    if let Err(e) = session.order(Command::NotMoving).await {
-        log::debug!("session {id} was not told the move is off: {e}");
+    if target_has_it(env, id, at, to).await {
+        log::info!("session {id} is not started again here: the target may run it");
+        return;
     }
+
+    if let Err(e) = env.agents.reopen_one(open).await {
+        log::warn!("session {id} could not start again after its move was cancelled: {e:#}");
+    }
+}
+
+/// Whether the target of a cancelled move may start or run the session
+/// anyway, past taking back. Asked until it says, for `ASK_WITHIN` at most.
+/// A target that took the session and cannot be reached since may have
+/// started it, so the session is not started a second time here.
+async fn target_has_it(env: &Env, id: &str, at: u64, to: EndpointId) -> bool {
+    let until = Instant::now() + ASK_WITHIN;
+
+    while Instant::now() < until {
+        match ask(env, to, id, at).await {
+            Ok(Target::Starting | Target::Landed) => return true,
+            Ok(Target::Failed(_)) => return false,
+            // It has not heard of the cancel yet, or is out of reach.
+            Ok(Target::Taken | Target::Unknown) | Err(_) => sleep(ASK_AGAIN).await,
+        }
+    }
+
+    log::warn!("session {id}: the target did not say whether it started it, so it is not started here");
+    true
 }

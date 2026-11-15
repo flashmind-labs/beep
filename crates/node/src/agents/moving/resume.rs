@@ -17,7 +17,7 @@ pub(super) struct Arrival<'a> {
     pub(super) mode: Option<String>,
     /// The model it ran on.
     pub(super) model: Option<ModelId>,
-    /// The linked worktrees it created, as the source named them.
+    /// The linked worktrees it created that moved with it, as they are here.
     pub(super) worktrees: Vec<String>,
     /// The machine that ran it.
     pub(super) from: EndpointId,
@@ -82,11 +82,7 @@ pub(super) async fn resume(
             resume: Some(arrival.id.to_owned()),
             mode: arrival.mode.clone(),
             model: arrival.model.clone(),
-            worktrees: arrival
-                .worktrees
-                .iter()
-                .filter_map(|tree| folders.remap(tree))
-                .collect(),
+            worktrees: arrival.worktrees.clone(),
             note: Some(note),
             brief: Some(Cow::Owned(brief)),
             ..Begin::default()
