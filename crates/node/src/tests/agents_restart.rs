@@ -576,12 +576,7 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
     session.close().await;
     until(&mut live, |live| live.status() == Status::Ended).await;
     let title = session.info().title;
-    let note = Reopen {
-        sessions: before.open_sessions(),
-        terminals: Vec::new(),
-        saved: before.saved_sessions(),
-        ..Reopen::default()
-    };
+    let note = Reopen::new(before.open_sessions(), Vec::new(), before.saved_sessions());
     assert!(note.sessions.is_empty(), "closed, so not reopened");
     note.save(dir.path()).expect("the note writes");
     before.shutdown().await;
@@ -626,22 +621,89 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
 #[test]
 fn a_note_from_before_saved_sessions_reads() {
     let dir = tempfile::tempdir().expect("a temporary folder");
+    // `s1` was open; `s2` ended, so nothing but its model is known.
     let old = r#"{"sessions":[{"agent":"claude","session":"s1","cwd":"/srv/project","held":[]}],
-        "terminals":[],"models":[{"session":"s1","model":"deep"}],
-        "worktrees":[{"session":"s1","worktrees":["/srv/project/.worktrees/fix"]}]}"#;
+        "terminals":[],"models":[{"session":"s1","model":"deep"},{"session":"s2","model":"fast"}],
+        "worktrees":[{"session":"s1","worktrees":["/srv/project/.worktrees/fix"]},
+                     {"session":"s2","worktrees":["/srv/other/.worktrees/x"]}]}"#;
     std::fs::write(dir.path().join("reopen.json"), old).expect("an old note");
 
     let note = Reopen::read(dir.path());
     assert_eq!(note.sessions.len(), 1);
     assert!(!note.sessions[0].assistant);
-    // Its models and worktrees are kept as saved sessions.
+    // The open session's model and worktrees are kept with what it is.
     assert_eq!(note.saved.len(), 1);
-    assert_eq!(note.saved[0].info.id, "s1");
-    assert_eq!(note.saved[0].info.model, Some(ModelId::new("deep")));
+    let saved = &note.saved[0].info;
     assert_eq!(
-        note.saved[0].info.worktrees,
-        vec!["/srv/project/.worktrees/fix".to_owned()]
+        (saved.id.as_str(), saved.agent.as_str(), saved.cwd.as_str()),
+        ("s1", "claude", "/srv/project")
     );
+    assert_eq!(saved.model, Some(ModelId::new("deep")));
+    assert_eq!(saved.worktrees, vec!["/srv/project/.worktrees/fix".to_owned()]);
+    assert!(!saved.assistant);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_open_session_of_an_old_note_in_the_home_folder_is_the_assistant() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let home = dirs::home_dir().expect("a home folder");
+    let old = serde_json::json!({
+        "sessions": [{"agent": "claude", "session": "s1", "cwd": home, "held": []}],
+        "terminals": [],
+        "models": [{"session": "s1", "model": "deep"}],
+    });
+    std::fs::write(dir.path().join("reopen.json"), old.to_string()).expect("an old note");
+
+    let note = Reopen::read(dir.path());
+    assert!(note.saved[0].info.assistant);
+}
+
+#[test]
+fn a_new_note_reads_as_an_old_node_keeps_it() {
+    /// `Reopen` as beep-node 0.7.12 reads it.
+    #[derive(serde::Deserialize)]
+    struct OldReopen {
+        sessions: Vec<serde_json::Value>,
+        terminals: Vec<serde_json::Value>,
+        #[serde(default)]
+        models: Vec<OldModel>,
+        #[serde(default)]
+        worktrees: Vec<OldWorktrees>,
+    }
+    #[derive(serde::Deserialize)]
+    struct OldModel {
+        session: String,
+        model: ModelId,
+    }
+    #[derive(serde::Deserialize)]
+    struct OldWorktrees {
+        session: String,
+        worktrees: Vec<String>,
+    }
+
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let saved = SavedSession {
+        info: SessionInfo {
+            id: "s1".into(),
+            model: Some(ModelId::new("deep")),
+            worktrees: vec!["/srv/project/.worktrees/fix".into()],
+            ..SessionInfo::default()
+        },
+        effort: None,
+    };
+    Reopen::new(Vec::new(), Vec::new(), vec![saved])
+        .save(dir.path())
+        .expect("the note writes");
+
+    let text = std::fs::read_to_string(dir.path().join("reopen.json")).expect("the note");
+    let old: OldReopen = serde_json::from_str(&text).expect("an old node reads it");
+    assert!(old.sessions.is_empty() && old.terminals.is_empty());
+    assert_eq!(old.models.len(), 1);
+    assert_eq!((old.models[0].session.as_str(), &old.models[0].model), ("s1", &ModelId::new("deep")));
+    assert_eq!(old.worktrees.len(), 1);
+    assert_eq!(old.worktrees[0].session, "s1");
+    assert_eq!(old.worktrees[0].worktrees, vec!["/srv/project/.worktrees/fix".to_owned()]);
 }
 
 #[tokio::test]

@@ -279,12 +279,11 @@ pub async fn serve(
         log::warn!("the note of what is open was not kept: {e}");
     }
 
-    let reopen = Reopen {
-        sessions: offers.agents.open_sessions(),
+    let reopen = Reopen::new(
+        offers.agents.open_sessions(),
         terminals,
-        saved: offers.agents.saved_sessions(),
-        ..Reopen::default()
-    };
+        offers.agents.saved_sessions(),
+    );
 
     if let Err(e) = reopen.save(&state.dir) {
         log::warn!("what was open will not open again: {e:#}");

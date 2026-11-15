@@ -65,7 +65,7 @@ pub(crate) struct OpenSession {
     /// The agent, such as `claude`.
     agent: String,
     /// The agent's own id for the session.
-    session: String,
+    pub(crate) session: String,
     cwd: PathBuf,
     #[serde(default)]
     started_at: u64,
@@ -103,6 +103,33 @@ pub(crate) struct OpenSession {
     /// The thinking level it ran at.
     #[serde(default)]
     effort: Option<Effort>,
+}
+
+impl From<&OpenSession> for SavedSession {
+    /// What a note from before saved sessions knows of open session `open`.
+    /// It said nothing of the assistant: the home folder does.
+    fn from(open: &OpenSession) -> Self {
+        let cwd = open.cwd.to_string_lossy().into_owned();
+        let assistant = open.assistant
+            || super::running::home_assistant(&open.cwd, open.parent.is_some());
+
+        Self {
+            info: SessionInfo {
+                id: open.session.clone(),
+                agent: open.agent.clone(),
+                cwd,
+                title: open.title.clone(),
+                mode: open.mode.clone(),
+                parent: open.parent.clone(),
+                model: open.model.clone(),
+                device: open.device.clone(),
+                worktrees: open.worktrees.clone(),
+                assistant,
+                ..SessionInfo::default()
+            },
+            effort: open.effort,
+        }
+    }
 }
 
 impl OpenSession {
@@ -356,8 +383,10 @@ impl Agents {
         // A note from before the saved sessions says nothing of the
         // assistant: the home folder does.
         let assistant = open.assistant
-            || self.saved(&open.session).is_none()
-                && super::running::home_assistant(&open.cwd, open.parent.is_some());
+            || self.saved(&open.session).map_or_else(
+                || super::running::home_assistant(&open.cwd, open.parent.is_some()),
+                |saved| saved.info.assistant,
+            );
         let session = self.start(
             &kind,
             Some(&cwd),
