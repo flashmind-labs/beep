@@ -152,7 +152,9 @@ pub(super) const KNOWN: &[Known] = &[
             bin: "claude-agent-acp",
             package: "@agentclientprotocol/claude-agent-acp",
         },
-        env: &[],
+        // Claude Code leaves its task tools off on recent models; its
+        // adapter reports their calls as the session's plan.
+        env: &[("CLAUDE_CODE_ENABLE_TODO_TOOLS", "1")],
         // Its adapter streams thinking only as summaries: recent models
         // default to `omitted`, which sends empty thinking blocks.
         thinking_env: &[("CLAUDE_CODE_THINKING_DISPLAY", "summarized")],
