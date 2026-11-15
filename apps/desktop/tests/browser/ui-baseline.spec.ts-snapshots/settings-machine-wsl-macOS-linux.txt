@@ -203,6 +203,9 @@ body.cbody
             div#set-machines-host.dset-host
               div.dset-box
                 div.dset-kv
+                  span "Name"
+                  span "desk-pc"
+                    button.dbtn [type="button"] "Rename"
                   span "Status"
                   span
                     span.dtag.ok "Online"

@@ -109,6 +109,16 @@ impl Mesh {
         Ok(removed)
     }
 
+    /// Shows `id` as `name` on every member, or by the name it joined with when `name` is
+    /// `None`. Desktops only.
+    pub async fn rename(&self, id: EndpointId, name: Option<String>) -> Result<(), MeshError> {
+        self.set(
+            Key::MachineName(id.to_string()),
+            name.map(String::into_bytes),
+        )
+        .await
+    }
+
     /// Removes a device for good. A node cannot.
     pub async fn remove(&self, id: EndpointId) -> Result<(), MeshError> {
         self.inner.store.run(move |core| core.remove(id)).await
@@ -135,6 +145,7 @@ impl Mesh {
         self.inner.is_member(id)
     }
 
+    /// The members, each under the name the user gave it, if any.
     pub fn devices(&self) -> Vec<DeviceStatus> {
         let view = self.inner.view();
         let conns = self.inner.conns();
@@ -143,7 +154,16 @@ impl Mesh {
         view.devices
             .members()
             .into_iter()
-            .map(|device| {
+            .map(|mut device| {
+                if let Some(name) = view
+                    .values
+                    .get(&Key::MachineName(device.id.to_string()))
+                    .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                    .filter(|name| !name.trim().is_empty())
+                {
+                    device.name = name.to_owned();
+                }
+
                 let me = device.id == self.inner.me;
                 let online = me
                     || conns

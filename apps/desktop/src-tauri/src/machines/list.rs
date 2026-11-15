@@ -313,12 +313,21 @@ pub async fn machine_traffic(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<Traffic
 /// Removes a machine of the mesh by its id as text.
 #[tauri::command]
 pub async fn remove_machine(fleet: State<'_, Arc<Fleet>>, id: String) -> Result<()> {
-    let machine = id
-        .parse::<EndpointId>()
+    fleet.remove(member(&fleet, &id)?).await
+}
+
+/// Renames a machine of the mesh by its id as text; an empty name restores its own.
+#[tauri::command]
+pub async fn rename_machine(fleet: State<'_, Arc<Fleet>>, id: String, name: String) -> Result<()> {
+    fleet.rename(member(&fleet, &id)?, &name).await
+}
+
+/// The machine of the mesh whose id `id` spells.
+fn member(fleet: &Fleet, id: &str) -> Result<EndpointId> {
+    id.parse::<EndpointId>()
         .ok()
         .filter(|machine| fleet.machines().iter().any(|m| m.device.id == *machine))
-        .ok_or_else(|| DesktopError::BadRequest("that is not a machine".into()))?;
-    fleet.remove(machine).await
+        .ok_or_else(|| DesktopError::BadRequest("that is not a machine".into()))
 }
 
 /// The machines Update works on: those of the mesh that update over

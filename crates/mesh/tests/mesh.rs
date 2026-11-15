@@ -173,6 +173,50 @@ async fn a_third_device_joins_through_one_member_and_reaches_the_other() {
     assert_eq!(key, project("p"));
 }
 
+fn name_of(mesh: &Mesh, id: EndpointId) -> Option<String> {
+    mesh.devices()
+        .into_iter()
+        .find(|d| d.device.id == id)
+        .map(|d| d.device.name)
+}
+
+#[tokio::test]
+async fn a_rename_shows_on_every_member_and_clearing_it_restores_the_name() {
+    let a = create("a").await;
+    let node = join(&a, DeviceKind::Node, "host-123").await;
+    let id = node.id();
+    a.mesh
+        .rename(id, Some("build-box".into()))
+        .await
+        .expect("renamed");
+    assert_eq!(name_of(&a.mesh, id).as_deref(), Some("build-box"));
+    until(&node.mesh, |m| {
+        name_of(m, id).as_deref() == Some("build-box")
+    })
+    .await;
+
+    a.mesh.rename(id, None).await.expect("cleared");
+    until(&node.mesh, |m| {
+        name_of(m, id).as_deref() == Some("host-123")
+    })
+    .await;
+
+    // A removed machine leaves no name behind.
+    let box_ = join_temporary(&a, "box").await;
+    a.mesh
+        .rename(box_.id(), Some("scratch".into()))
+        .await
+        .expect("renamed");
+    assert!(a.mesh.remove_temporary(box_.id()).await.expect("removed"));
+    assert_eq!(a.mesh.get(&Key::MachineName(box_.id().to_string())), None);
+    a.mesh
+        .rename(id, Some("gone".into()))
+        .await
+        .expect("renamed");
+    a.mesh.remove(id).await.expect("removed");
+    assert_eq!(a.mesh.get(&Key::MachineName(id.to_string())), None);
+}
+
 async fn join_temporary(from: &Dev, name: &str) -> Dev {
     let ticket = from
         .mesh
