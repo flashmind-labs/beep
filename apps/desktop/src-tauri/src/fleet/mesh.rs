@@ -86,7 +86,7 @@ impl Serving {
     /// on `endpoint` at once. Connections for blobs and sync wait for
     /// `start_services`.
     pub(super) fn spawn(endpoint: &Endpoint, peers: &Peers) -> Self {
-        let router = Router::builder(endpoint.clone())
+        let router = beep_mesh::router(endpoint)
             .accept(PEER_ALPN, peers.peer_handler())
             .accept(JOIN_ALPN, peers.join_handler())
             .accept(SESSIONS_ALPN, peers.sessions_handler())

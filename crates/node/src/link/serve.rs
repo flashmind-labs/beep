@@ -31,7 +31,7 @@ use beep_proto::node::{
     LinkRx, LinkTx, Open, Opened, agent, desktop, setup, sign_in, tool_update, version,
 };
 use beep_proto::watched;
-use iroh::{Endpoint, EndpointId, endpoint::presets, protocol::Router};
+use iroh::{Endpoint, EndpointId, endpoint::presets};
 use std::{
     future::Future,
     path::Path,
@@ -188,7 +188,7 @@ pub async fn serve(
         log::info!("not in a mesh: waiting for `beep-node mesh join <ticket>`");
     }
 
-    let mut router = Router::builder(endpoint.clone())
+    let mut router = beep_mesh::router(&endpoint)
         .accept(PEER_ALPN, peers.peer_handler())
         .accept(JOIN_ALPN, peers.join_handler())
         .accept(SESSIONS_ALPN, peers.sessions_handler())

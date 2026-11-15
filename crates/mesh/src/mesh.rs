@@ -18,6 +18,7 @@ use crate::{Device, DeviceKind, Key, MeshError};
 use iroh::endpoint::{
     Connection, IdleTimeout, QuicTransportConfig, RecvStream, SendStream, VarInt,
 };
+use iroh::protocol::{IncomingFilterOutcome, Router, RouterBuilder};
 use iroh::{Endpoint, EndpointAddr, EndpointId};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -29,7 +30,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime};
 use tokio::sync::{Notify, Semaphore, broadcast, watch};
 use tokio::task::{AbortHandle, JoinHandle, spawn_blocking};
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 /// How long a ticket lives unless the caller says otherwise.
 pub const DEFAULT_TICKET_TTL: Duration = Duration::from_secs(60 * 60);
@@ -74,6 +75,21 @@ pub fn transport_config() -> QuicTransportConfig {
         .keep_alive_interval(KEEP_ALIVE)
         .max_idle_timeout(Some(IdleTimeout::from(VarInt::from_u32(IDLE_MS))))
         .build()
+}
+
+/// A router for a mesh endpoint. A connection whose first packet does not
+/// decrypt is dropped as iroh would drop it, but logged with where it came
+/// from: no endpoint id is proven before the handshake, and only a relay
+/// names one.
+pub fn router(endpoint: &Endpoint) -> RouterBuilder {
+    Router::builder(endpoint.clone()).incoming_filter(Arc::new(|incoming| {
+        if incoming.decrypt().is_some() {
+            return IncomingFilterOutcome::Accept;
+        }
+
+        warn!(remote = ?incoming.remote_addr(), "ignoring a connection whose first packet does not decrypt");
+        IncomingFilterOutcome::Ignore
+    }))
 }
 
 pub type StreamHandler =
