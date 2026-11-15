@@ -2947,7 +2947,7 @@ async fn project_syncthing_choice_reaches_a_machine_that_joins_later() {
         desk.project_syncthing_mode("example/repo", None)
             .await
             .unwrap(),
-        None
+        Some(false)
     );
     assert!(
         !desk
@@ -3615,30 +3615,45 @@ async fn repository_copies_rename_independently_and_retries_keep_successful_host
 }
 
 #[tokio::test]
-async fn beep_sync_over_syncthing_excludes_existing_projects() {
+async fn project_sync_keeps_unset_projects_out_of_syncthing() {
     use beep_proto::node::mesh_state::ProjectRecord;
     let studio = create("studio").await;
     let desk = desk(&studio, &[]).await;
-    let key = Key::Project("example/repo".to_owned());
-    let record = ProjectRecord {
-        url: "https://example.com/example/repo".into(),
-        syncthing_files: Some(true),
-        ..ProjectRecord::default()
-    };
-    studio
-        .mesh
-        .set(key.clone(), Some(record.to_bytes().unwrap()))
-        .await
-        .unwrap();
-    assert!(!desk.beep_sync_over_syncthing());
+    for (name, syncthing_files) in [("example/unset", None), ("example/kept", Some(true))] {
+        let record = ProjectRecord {
+            url: format!("https://example.com/{name}"),
+            syncthing_files,
+            ..ProjectRecord::default()
+        };
+        studio
+            .mesh
+            .set(
+                Key::Project(name.to_owned()),
+                Some(record.to_bytes().unwrap()),
+            )
+            .await
+            .unwrap();
+    }
 
-    desk.set_beep_sync_over_syncthing(true).await.unwrap();
-
-    assert!(desk.beep_sync_over_syncthing());
     assert_eq!(
-        desk.project_syncthing_mode("example/repo", None)
+        desk.project_syncthing_mode("example/unset", None)
             .await
             .unwrap(),
         Some(false)
+    );
+    assert_eq!(
+        desk.project_syncthing_mode("example/kept", None)
+            .await
+            .unwrap(),
+        Some(true)
+    );
+
+    desk.set_project_sync_enabled(false).await.unwrap();
+
+    assert_eq!(
+        desk.project_syncthing_mode("example/unset", None)
+            .await
+            .unwrap(),
+        None
     );
 }

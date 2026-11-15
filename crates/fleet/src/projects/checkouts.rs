@@ -20,7 +20,10 @@ use beep_projects::{
     is_windows,
     model::{plain_path, windows_path},
 };
-use beep_proto::{ImportedProject, MachineFolder, ProjectBranches, node::mesh_state::SyncSpec};
+use beep_proto::{
+    ImportedProject, MachineFolder, ProjectBranches,
+    node::mesh_state::{ProjectSyncSettings, SyncSpec},
+};
 use iroh::EndpointId;
 
 pub(super) const FALLBACK_DEFAULT: &str = "main";
@@ -45,29 +48,36 @@ async fn look_at(seen: &Seen, folder: &str) -> Result<(FolderPath, MachineFolder
 }
 
 /// The folder's path, refused when Syncthing keeps it in step there: Beep's sync would hold it,
-/// so nothing would ever arrive.
-async fn refuse_syncthing(desk: &Desk, seen: &Seen, there: MachineFolder) -> Result<String> {
-    if seen
+/// so nothing would ever arrive. A project that uses Beep sync first leaves that machine's share.
+async fn refuse_syncthing(
+    desk: &Desk,
+    seen: &Seen,
+    there: MachineFolder,
+    record: &ProjectRecord,
+) -> Result<String> {
+    if !seen
         .env
         .as_ref()
         .is_some_and(|env| env.syncthing_folder(&there.path).is_some())
     {
-        if there.exists
-            && desk
-                .syncthing_files(&seen.machine.id, &there.path, None)
-                .await
-                .is_ok_and(|files| files.available && !files.enabled)
-        {
-            return Ok(there.path);
-        }
-
-        return Err(FleetError::refused(format!(
-            "Syncthing keeps {} in step on {}. Choose another folder.",
-            there.path, seen.machine.name
-        )));
+        return Ok(there.path);
     }
 
-    Ok(there.path)
+    let sync = read::<ProjectSyncSettings>(&desk.mesh, &Key::ProjectSync).unwrap_or_default();
+    let leave = (record.syncthing_choice(&sync) == Some(false)).then_some(false);
+    if there.exists
+        && desk
+            .syncthing_files(&seen.machine.id, &there.path, leave)
+            .await
+            .is_ok_and(|files| files.available && !files.enabled)
+    {
+        return Ok(there.path);
+    }
+
+    Err(FleetError::refused(format!(
+        "Syncthing keeps {} in step on {}. Choose another folder.",
+        there.path, seen.machine.name
+    )))
 }
 
 impl Desk {
@@ -144,7 +154,7 @@ impl Desk {
             )));
         }
 
-        let path = refuse_syncthing(self, &seen, there).await?;
+        let path = refuse_syncthing(self, &seen, there, &stored.record).await?;
         folder::make(seen.machine.shell()?, name, &asked).await?;
 
         let _write = WRITES.lock().await;
@@ -214,7 +224,7 @@ impl Desk {
         }
 
         let exists = there.exists;
-        let path = refuse_syncthing(self, &seen, there).await?;
+        let path = refuse_syncthing(self, &seen, there, &stored.record).await?;
 
         if !exists {
             folder::make(seen.machine.shell()?, name, &asked).await?;

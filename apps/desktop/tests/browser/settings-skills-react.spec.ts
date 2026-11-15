@@ -9,7 +9,7 @@ const libraries = [
 const responses = {
   settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
   mac_control: { id: "one", name: "build-box", enabled: false, status: "off", error: null, permissions: { screen_recording: false, accessibility: false } },
-  list_machines: [], skill_sync_get: true, project_sync_get: true, beep_sync_over_syncthing_get: false,
+  list_machines: [], skill_sync_get: true, project_sync_get: true,
   skill_libraries_list: libraries,
   skill_libraries_problems: [{ machine: "win-box", library: "firecrawl", skill: "map", place: projectName, message: "a skill there has this name" }],
   skill_libraries_find: [{ url: "https://git.example.com/acme/ui-kit-skills", name: "ui-kit-skills", skills: ["a", "b"], places: [{ machine: "build-box", folder: "~/.claude/skills" }] }],
