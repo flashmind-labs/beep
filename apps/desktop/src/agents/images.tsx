@@ -11,6 +11,7 @@ import { redrawAgentHints } from "./session-head.tsx";
 import { gonePic, retryIn } from "./pic-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { fillInlineImages } from "./inline-images.ts";
+import type { Preview } from "./composer-ui.tsx";
 
 let pastedCount = 0;
 
@@ -45,6 +46,19 @@ export async function attachPreview(list: Attached[], file: File, original: stri
   } catch {
     // The file is still mentioned.
   }
+}
+
+/// The previews of `list` for its chips. Opening one shows the picture the
+/// user attached, not the small preview that goes inline.
+export function previewsOf(list: Attached[]): Preview[] {
+  return list.map(image => ({ url: image.url, name: image.name, full: () => fullOf(image) }));
+}
+
+async function fullOf({ original, url }: Attached) {
+  if (original instanceof File) return `data:${original.type};base64,${await fileBase64(original)}`;
+  const file = typeof original === "string" ? MN.files.get(original) : undefined;
+
+  return file ? `data:${file.mime};base64,${file.data}` : url;
 }
 
 /// The chips of waiting images above the field, as in the mock.
