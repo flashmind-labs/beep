@@ -32,7 +32,7 @@ pub async fn observe(mesh: &Mesh, endpoint: &Endpoint) -> Result<Router> {
     }
 
     let (peer, join) = mesh.protocols();
-    Ok(Router::builder(endpoint.clone())
+    Ok(beep_mesh::router(endpoint)
         .accept(PEER_ALPN, peer)
         .accept(JOIN_ALPN, join)
         .spawn())

@@ -1,5 +1,6 @@
 //! Authenticated command and subscription connections.
 
+use tracing::Instrument;
 use super::{Offers, Session, peers::Peers};
 use beep_proto::node::{LinkRx, LinkTx, link};
 use iroh::EndpointId;
@@ -54,7 +55,7 @@ pub(super) async fn serve_connection(
                     if let Err(error) = result {
                         log::debug!("peer channel stream ended: {error:#}");
                     }
-                });
+                }.in_current_span());
             },
             Some(ended) = tasks.join_next(), if !tasks.is_empty() => {
                 if let Err(error) = ended {

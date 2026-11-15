@@ -174,6 +174,7 @@ pub async fn each_machine(mesh: &Mesh, mut start: impl FnMut(EndpointId) -> Join
 }
 
 /// Follows `id`'s alerts and runs until the receiver goes.
+#[tracing::instrument(skip_all, fields(peer = %id.fmt_short()))]
 async fn machine(peers: Arc<dyn Peers>, mesh: Mesh, id: EndpointId, out: mpsc::Sender<Heard>) {
     tokio::join!(
         follow_one(&*peers, &mesh, id, &out, Follows::Alerts),

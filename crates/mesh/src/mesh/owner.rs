@@ -150,6 +150,7 @@ pub(super) async fn own(inner: Arc<Inner>) {
 }
 
 /// Keeps a connection to `peer` up while it is a member and so are we.
+#[tracing::instrument(skip_all, fields(peer = %peer.fmt_short()))]
 async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
     let mut backoff = Backoff(FIRST_RETRY);
     let mut waited = false;
@@ -216,8 +217,13 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
                     continue;
                 }
             }
-            Ok(Err(e)) => info!(peer = %peer.fmt_short(), elapsed_ms = started.elapsed().as_millis(), "dial failed: {e}"),
-            Err(_) => info!(peer = %peer.fmt_short(), "dial timed out"),
+            Ok(Err(e)) => {
+                info!(
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "dial failed: {e}"
+                )
+            }
+            Err(_) => info!("dial timed out"),
         }
         // A new address for this peer or for us ends the wait early.
         let pause = sleep(backoff.pause());

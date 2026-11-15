@@ -624,6 +624,7 @@ impl Fleet {
     /// at once, with no network and no waiting. For another member the mesh
     /// gets `OPENING` to be open, then the machine gets `DEADLINE` to be
     /// connected, then it is offline.
+    #[tracing::instrument(skip_all, fields(peer = %machine.fmt_short()))]
     pub async fn client(&self, machine: EndpointId) -> Result<PeerClient> {
         if machine == self.me {
             return match &self.session {

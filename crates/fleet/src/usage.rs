@@ -106,6 +106,7 @@ impl Desk {
         self
     }
 
+    #[tracing::instrument(skip_all, fields(peer = %machine.fmt_short()))]
     async fn listen(&self, machine: EndpointId, name: String, said: &mut Said) {
         let Ok(client) = self.peers.client(machine).await else {
             return;

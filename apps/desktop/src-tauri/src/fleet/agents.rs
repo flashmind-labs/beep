@@ -611,6 +611,7 @@ async fn ordered(fleet: &Fleet, machine: EndpointId, steer: SteerAgentSession) -
 
 /// Waits until a session `machine` took a close for has ended, on the stream
 /// the close went down: the node acknowledges it before the agent has stopped.
+#[tracing::instrument(skip_all, fields(peer = %machine.fmt_short()))]
 pub(crate) async fn until_ended(fleet: &Fleet, machine: EndpointId, mut opened: Attached) {
     if let Err(e) = ended(&mut opened, CLOSE_WAIT).await {
         log::warn!("closing a session on {}: {e:#}", fleet.name_of(machine));

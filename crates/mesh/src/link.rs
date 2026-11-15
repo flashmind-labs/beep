@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime};
 use tokio::sync::{Notify, Semaphore, watch};
 use tokio::task::JoinSet;
 use tokio::time::{Instant, sleep, sleep_until, timeout};
-use tracing::{debug, warn};
+use tracing::{Instrument, debug, warn};
 
 const OPS_PER_FRAME: usize = 128;
 const ENTRIES_PER_FRAME: usize = 256;
@@ -73,21 +73,23 @@ fn mark_known(known: &Known, entries: &[Entry]) {
 }
 
 /// Runs a connection until it ends, then unregisters it. The connection is
-/// not closed here: the streams on it end first (see `run`).
+/// not closed here: the streams on it end first (see `run`). Its span names
+/// the connection; the dial's or iroh's accept span above it names the peer.
+#[tracing::instrument(name = "link", skip_all, fields(connection = conn.stable_id()))]
 pub(crate) async fn serve(inner: Arc<Inner>, conn: Connection, dialer: EndpointId) {
     let peer = conn.remote_id();
     let started = Instant::now();
-    tracing::info!(peer = %peer.fmt_short(), connection = conn.stable_id(), "mesh link started");
+    tracing::info!("mesh link started");
     metrics::counter!("beep_mesh_links_started_total").increment(1);
-    let beat = tokio::spawn(heartbeat(conn.clone()));
+    let beat = tokio::spawn(heartbeat(conn.clone()).in_current_span());
     let ended = run(&inner, &conn, peer, dialer).await;
     beat.abort();
 
     if let Err(e) = ended {
         debug!("link ended: {e}");
-        tracing::info!(peer = %peer.fmt_short(), connection = conn.stable_id(), error = %e, "mesh link ended");
+        tracing::info!(error = %e, "mesh link ended");
     } else {
-        tracing::info!(peer = %peer.fmt_short(), connection = conn.stable_id(), "mesh link ended");
+        tracing::info!("mesh link ended");
     }
 
     metrics::histogram!("beep_mesh_link_seconds").record(started.elapsed().as_secs_f64());
@@ -103,7 +105,7 @@ async fn heartbeat(conn: Connection) {
         sleep(BEAT).await;
 
         if beat.quiet(conn.stats().udp_rx.datagrams) {
-            warn!(peer = %conn.remote_id().fmt_short(), connection = conn.stable_id(), "mesh link stopped answering; dialing again");
+            warn!("mesh link stopped answering; dialing again");
             conn.close(0u32.into(), b"no answer");
             return;
         }
@@ -249,13 +251,17 @@ async fn run(
     let retire = register(inner, conn, peer, dialer, session);
     let (over, over_rx) = watch::channel(false);
     let mut app = JoinSet::new();
-    app.spawn(streams(inner.clone(), conn.clone(), peer, over_rx));
+    app.spawn(streams(inner.clone(), conn.clone(), peer, over_rx).in_current_span());
     let result = match retire {
         Some(retire) => {
             let known: Known = Arc::new(Mutex::new(heads));
             let mut tasks: JoinSet<Result<(), MeshError>> = JoinSet::new();
-            tasks.spawn(read(inner.clone(), conn.clone(), peer, recv, known.clone()));
-            tasks.spawn(write(inner.clone(), conn.clone(), peer, send, known, first));
+            tasks.spawn(
+                read(inner.clone(), conn.clone(), peer, recv, known.clone()).in_current_span(),
+            );
+            tasks.spawn(
+                write(inner.clone(), conn.clone(), peer, send, known, first).in_current_span(),
+            );
             // The first to end ends the sync link; dropping the set stops the rest.
             tokio::select! {
                 ended = tasks.join_next() => match ended {
@@ -560,7 +566,7 @@ async fn streams(
                 running.spawn(async move {
                     let _permit = permit;
                     handler(PeerStream { peer, kind, send, recv }).await;
-                });
+                }.in_current_span());
             }
             Some(ended) = running.join_next() => {
                 if let Err(e) = ended

@@ -25,6 +25,7 @@ use thiserror::Error;
 use tokio::task::spawn;
 use tokio::time::error::Elapsed;
 use tokio::time::timeout;
+use tracing::Instrument;
 
 /// How long `with_deadline` waits for a member to come online.
 pub const DEADLINE: Duration = Duration::from_secs(3);
@@ -235,6 +236,7 @@ impl PeerClient {
     }
 
     /// Returns only after the node accepts this stream with Ready.
+    #[tracing::instrument(name = "node_call", skip_all, fields(peer = %self.label(), protocol = "commands"))]
     pub async fn open_commands(&self) -> Result<(LinkTx, LinkRx), MeshError> {
         use beep_proto::node::commands::{ALPN, Open, PROTOCOL, Reply};
 
@@ -249,6 +251,7 @@ impl PeerClient {
     }
 
     /// Returns only after the node accepts this stream with Ready.
+    #[tracing::instrument(name = "node_call", skip_all, fields(peer = %self.label(), protocol = "subscriptions"))]
     pub async fn open_subscriptions(&self) -> Result<(LinkTx, LinkRx), MeshError> {
         use beep_proto::node::subscriptions::{ALPN, Open, PROTOCOL, Reply};
 
@@ -281,7 +284,7 @@ impl PeerClient {
                         .map_err(MeshError::Link)?;
                     (tx, rx)
                 }
-                None => self.open_sending(protocol, first).await?,
+                None => self.sending(protocol, first).await?,
             };
             match rx.recv::<R>().await.map_err(MeshError::Link)? {
                 Some(reply) if is_ready(&reply) => Ok((tx, rx)),
@@ -352,6 +355,7 @@ impl PeerClient {
     /// Opens a stream for `protocol` and waits for the node to accept it.
     /// Over the network the whole exchange, from opening the stream to the
     /// node's answer, gets `OPEN_TIMEOUT`.
+    #[tracing::instrument(name = "node_call", skip_all, fields(peer = %self.label(), protocol = %protocol))]
     pub async fn open(&self, protocol: &str) -> Result<(LinkTx, LinkRx), MeshError> {
         let channel = self.channel_for(protocol).await?;
         let opened = timeout(OPEN_TIMEOUT, async {
@@ -370,7 +374,17 @@ impl PeerClient {
     /// answer is read: a stream whose first message decides everything
     /// (start a session, follow one) costs one round trip. A refusal is
     /// reported in place of a failure to send.
+    #[tracing::instrument(name = "node_call", skip_all, fields(peer = %self.label(), protocol = %protocol))]
     pub async fn open_sending<Q: Serialize>(
+        &self,
+        protocol: &str,
+        first: &Q,
+    ) -> Result<(LinkTx, LinkRx), MeshError> {
+        self.sending(protocol, first).await
+    }
+
+    /// `open_sending` without its span, for the calls that open their own.
+    async fn sending<Q: Serialize>(
         &self,
         protocol: &str,
         first: &Q,
@@ -465,6 +479,7 @@ impl PeerClient {
     }
 
     /// Like `call`, with the whole exchange limited to `limit`.
+    #[tracing::instrument(name = "node_call", skip_all, fields(peer = %self.label(), protocol = %protocol))]
     pub async fn call_within<Q: Serialize, R: DeserializeOwned>(
         &self,
         limit: Duration,
@@ -473,7 +488,7 @@ impl PeerClient {
     ) -> Result<R, MeshError> {
         let mut timing = CallTiming::new(protocol, self.peer);
         let result = timeout(limit, async {
-            let (_tx, mut rx) = self.open_sending(protocol, request).await?;
+            let (_tx, mut rx) = self.sending(protocol, request).await?;
             metrics::histogram!("beep_peer_phase_seconds", "protocol" => protocol.to_owned(), "phase" => "open", "outcome" => "ok")
                 .record(timing.phase_started.elapsed().as_secs_f64());
             tracing::debug!(call = timing.id, protocol, "peer request sent; waiting for reply");
@@ -506,6 +521,7 @@ impl PeerClient {
 
     /// Sends one transfer request with an inactivity limit on each stream read
     /// and write. Slow transfers can take longer than `idle` while bytes move.
+    #[tracing::instrument(name = "node_call", skip_all, fields(peer = %self.label(), protocol = %protocol))]
     pub async fn call_idle<Q: Serialize, R: DeserializeOwned>(
         &self,
         idle: Duration,
@@ -561,26 +577,38 @@ impl PeerClient {
 
     /// Sends one request and yields the replies until the node finishes the
     /// stream. A broken stream yields its error once, logged, and then ends.
+    #[tracing::instrument(name = "node_call", skip_all, fields(peer = %self.label(), protocol = %protocol))]
     pub async fn follow<Q: Serialize, R: DeserializeOwned + Send + 'static>(
         &self,
         protocol: &str,
         request: &Q,
     ) -> Result<impl Stream<Item = Result<R, MeshError>> + use<Q, R>, MeshError> {
-        let (tx, rx) = self.open_sending(protocol, request).await?;
+        let (tx, rx) = self.sending(protocol, request).await?;
         let protocol = protocol.to_owned();
         // `tx` rides along: finishing our half would read as a cancel.
-        Ok(unfold(Some((tx, rx, protocol)), |state| async move {
-            let (tx, mut rx, protocol) = state?;
+        let span = tracing::Span::current();
+        Ok(unfold(Some((tx, rx, protocol)), move |state| {
+            let span = span.clone();
+            async move {
+                let (tx, mut rx, protocol) = state?;
 
-            match rx.recv::<R>().await {
-                Ok(Some(item)) => Some((Ok(item), Some((tx, rx, protocol)))),
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::warn!("a {protocol} stream broke: {e:#}");
-                    Some((Err(MeshError::Link(e)), None))
+                match rx.recv::<R>().await {
+                    Ok(Some(item)) => Some((Ok(item), Some((tx, rx, protocol)))),
+                    Ok(None) => None,
+                    Err(e) => {
+                        tracing::warn!("a {protocol} stream broke: {e:#}");
+                        Some((Err(MeshError::Link(e)), None))
+                    }
                 }
             }
+            .instrument(span)
         }))
+    }
+
+    /// The peer for logs: its short id, or `local` for the node in this process.
+    fn label(&self) -> String {
+        self.peer
+            .map_or_else(|| "local".to_owned(), |peer| peer.fmt_short().to_string())
     }
 }
 

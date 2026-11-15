@@ -1,5 +1,6 @@
 //! Serves `beep-sessions/1` to the mesh's devices.
 
+use tracing::Instrument;
 use super::read::{Access, Asked, serve};
 use crate::{agents::Agents, link::Membership};
 use beep_mesh::{Key, Mesh};
@@ -115,7 +116,7 @@ impl ProtocolHandler for SessionsAlpn {
                         let me = name_of_me(&mesh);
                         let access = Access { check: &allow, updates };
                         serve(tx, rx, &agents, &me, access).await
-                    });
+                    }.in_current_span());
                 }
                 Some(ended) = streams.join_next() => {
                     match ended {
