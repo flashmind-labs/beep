@@ -97,9 +97,20 @@ body.cbody
           div.painted-empty
             canvas.painted-art.sunrise [aria-hidden="true" height="130" width="264"]
             div.cc-empty.cc-panel
-              b "Nothing running"
-              span "Start an agent on this computer, or add a machine to run it there."
-              button.dbtn.pri.small [type="button"] "Start an agent"
+              div.home-assistant
+                form.cc-pjc
+                  div.box
+                    textarea [aria-label="Task for a coding agent" autocomplete="off" placeholder="Ask the assistant." rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] value=""
+                    div.row
+                      span.choices
+                      span.sp
+                      button.pill [aria-expanded="false" title="Harness, model and thinking" type="button"]
+                      div.ag-att [hidden]
+                      button.dbtn.pri [type="submit"] "Start"
+                        kbd "⏎"
+                    div.pick
+                  span.cc-err.cc-progress [role="status"]
+              button.dbtn.dchip.small [type="button"] "Import my projects"
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box

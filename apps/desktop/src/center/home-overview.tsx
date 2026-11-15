@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dropdown } from "../ui/dropdown.tsx";
 import { PROJECT_SORTS, projectSortTime, type ProjectSort } from "../project/overview-state.ts";
 import { lastProjectVisit, readProjectSort, saveProjectSort } from "../project/project-preferences.ts";
@@ -19,7 +19,8 @@ import { type HomeView, needsLine } from "./home-state.ts";
 import { homeSessions, openAsking } from "./home.tsx";
 import { itemChips, newestFirst, projectsWithOpen, reviewStart, waitsOnYou } from "./openitems-state.ts";
 import { openUrl } from "./openitems.ts";
-import { projectRows } from "./sidebar.tsx";
+import { loadFound, projectRows } from "./sidebar.tsx";
+import { HomeAssistant } from "./home-assistant.tsx";
 import { state } from "./state.ts";
 import { go } from "./views.tsx";
 import { formatAgo } from "../ui/format.ts";
@@ -183,9 +184,13 @@ function Assistants({ running, ended }: { running: AgentSession[]; ended: AgentS
   </Section>;
 }
 
-/// Nothing to show: nothing runs, or no machine has answered yet.
+/// Nothing to show: nothing runs, or no machine has answered yet. Before any
+/// project, the assistant and the found projects.
 function Empty({ home }: { home: HomeView }) {
+  const first = home.projects?.length === 0;
+  useEffect(() => { if (first && !state.found) void loadFound(); }, [first]);
   const reach = machinesReach(home.machines ?? []);
   if (reach !== "reached") return <EmptyPanel text={reach === "connecting" ? "Connecting to your machines…" : "No machine is online."} />;
+  if (first) return <HomeAssistant found={state.found} />;
   return <PaintedEmpty><b>{state.home ? "Nothing running" : "Start an agent"}</b><span>{state.home ? "Start an agent on this computer, or add a machine to run it there." : "Your machines connect in the background."}</span><Button look="primary" small onClick={() => go("projects", { project: null })}>Start an agent</Button></PaintedEmpty>;
 }

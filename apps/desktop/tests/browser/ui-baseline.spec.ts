@@ -189,6 +189,33 @@ test("assistant composer", async ({ page }, info) => {
   await baseline(page, "assistant-composer");
 });
 
+test("home first start", async ({ page }) => {
+  const place = (dir: string) => ({ machine_id: machineId, machine_name: machineId, folder: dir });
+  const found = [
+    { name: "example/alpha", remote: "https://example.test/alpha", places: [place("/srv/example/alpha")], agents: [{ agent: "claude", sessions: 12 }], last_activity: NOW - 2 * 86_400_000 },
+    { name: "tools/echo", remote: "https://example.test/echo", places: [place("/srv/tools/echo")], agents: [], last_activity: NOW - 7 * 86_400_000 },
+  ];
+  await openDesktop(page, false, { center_home: { ...home, projects: [], running: [] }, found_projects: found, agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high" } });
+  const prompt = page.getByRole("textbox", { name: "Task for a coding agent" });
+  await expect(prompt).toBeVisible();
+  await expect(page.locator("#sec-found .pl-row")).toHaveCount(2);
+  await expect(page.locator("#sec-found").getByRole("button", { name: "Import" })).toHaveCount(2);
+  await expect(page.locator(".painted-empty .pill .flsh")).toBeVisible();
+  await baseline(page, "home-first-start");
+
+  await page.getByRole("button", { name: "Import my projects" }).click();
+  await expect(prompt).toHaveValue("Import my projects");
+
+  await page.evaluate(() => window.__navigation.hold("import_project"));
+  await page.locator("#sec-found").getByRole("button", { name: "Import" }).first().click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").length)).toBe(1);
+
+  await prompt.press("Enter");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").map(call => call.args))).toEqual([
+    { machineId, agent: "flsh", cwd: null, prompt: "Import my projects", images: [], model: null, effort: "high", checkout: null, assistant: true },
+  ]);
+});
+
 test("sidebar star prompt", async ({ page }) => {
   await page.addInitScript(() => localStorage.removeItem("beep.starPrompt.dismissed"));
   await openDesktop(page, false, { center_home: home });

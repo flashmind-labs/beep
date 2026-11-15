@@ -311,13 +311,19 @@ export const loadFound = single(async () => {
     state.found = state.found || [];
   }
 
-  if (!state.picked) redrawProjects();
+  drawFound();
   await rescanAll(() => {}, (_, after) => {
     if (!after.rows) return;
     state.found = after.rows;
-    if (!state.picked) redrawProjects();
+    drawFound();
   });
 });
+
+/// The Projects overview and a first start Home, which list the found checkouts.
+function drawFound() {
+  if (!state.picked) redrawProjects();
+  draw();
+}
 
 /// Imports a found row from the Projects page and opens it.
 export async function importFromPage(row: FoundRow) {
@@ -325,6 +331,7 @@ export async function importFromPage(row: FoundRow) {
   state.importing = row.name;
   state.foundError = null;
   drawProjects();
+  draw();
 
   try {
     const project = await importFound(row);
@@ -333,7 +340,7 @@ export async function importFromPage(row: FoundRow) {
   } catch (e) {
     state.importing = null;
     state.foundError = { name: row.name, message: reason(e) };
-    redrawProjects();
+    drawFound();
   }
 }
 

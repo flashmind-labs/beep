@@ -81,6 +81,9 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-empty b { color: var(--fg); font-size: 14px; font-weight: 500 }
 .cc-empty ol { margin: 0; padding-left: 18px; text-align: left; display: grid; gap: 3px; color: color-mix(in srgb, var(--fg) 86%, transparent) }
 .cc-empty code { font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
+/* Home's first start: the assistant's composer on the empty card. */
+.cc-empty > .home-assistant { justify-self: stretch; text-align: left }
+.home-assistant > .cc-pjc { margin: 0 }
 /* Home's input, docked under the view. */
 .cc-comp { flex: none; padding: 6px 10px 7px 16px; border-top: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 10px }
 .cc-comp .in { flex: 1; min-width: 0; font-size: 14px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }

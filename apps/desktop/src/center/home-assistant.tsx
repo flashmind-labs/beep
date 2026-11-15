@@ -1,0 +1,93 @@
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { makeStartComposer } from "../agents/start-composer.tsx";
+import { startAssistant } from "../agents/agentnew.tsx";
+import { AG, loadAgentHosts, type AgentHost } from "../agents/agents.ts";
+import { pillContent } from "../agents/agentpicker.tsx";
+import { assistantHost, resolveAssistant } from "../agents/assistant-state.ts";
+import { loadAssistant } from "../settings/assistant.ts";
+import { openSettings } from "../settings/sheet.ts";
+import { FoundSection } from "../project/outside-lists.tsx";
+import type { FoundRow } from "../project/projects-state.ts";
+import { PaintedEmpty } from "../ui/painted-art.tsx";
+import { Button } from "../ui/kit.tsx";
+import { reason } from "../ui/format.ts";
+import { addProject, importFromPage } from "./sidebar.tsx";
+import { state } from "./state.ts";
+import { go } from "./views.tsx";
+
+const SUGGESTION = "Import my projects";
+
+/// Home on first start, before any project: the assistant's composer with
+/// one suggestion, then the projects found on the machines.
+export function HomeAssistant({ found }: { found: FoundRow[] | null }) {
+  const slot = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const form = composer.form;
+    slot.current?.append(form);
+    return () => form.remove();
+  }, []);
+
+  useEffect(() => { void showHarness(); }, []);
+
+  const suggest = () => {
+    composer.setText(SUGGESTION);
+    composer.input.focus();
+  };
+
+  return <>
+    <PaintedEmpty>
+      <div className="home-assistant" ref={slot} />
+      <Button small className="dchip" onClick={suggest}>{SUGGESTION}</Button>
+    </PaintedEmpty>
+    {!!found?.length && <div id="sec-found"><FoundSection rows={found} importing={state.importing} error={state.foundError} importOne={importFromPage} add={addProject} /></div>}
+  </>;
+}
+
+/// One form for Home's life, so its draft stays across redraws. Made with the
+/// module: it draws itself at once, which it cannot do inside a React render.
+const composer = makeStartComposer({
+  presentation: "compact", externalChoices: true,
+  // The harness is the assistant setting's, changed in Settings.
+  actions: { submit: () => void send(), harness: () => openSettings("assistant"), input: () => composer.update({ invalid: false }) },
+  place: () => null,
+});
+composer.update({ placeholder: "Ask the assistant." });
+/// True while a send starts the assistant.
+let sending = false;
+
+/// The machines that run agents, read once.
+async function agentHosts(): Promise<readonly AgentHost[]> {
+  if (!AG.hosts) await loadAgentHosts();
+  return AG.hosts ?? [];
+}
+
+/// Shows the harness, model and thinking level the assistant starts with.
+async function showHarness() {
+  const [pick, hosts] = await Promise.all([loadAssistant(), agentHosts()]).catch((e: unknown) => { console.warn("assistant setting:", e); return [null, []] as const; });
+  const resolved = pick && resolveAssistant(pick, hosts);
+  if (!resolved?.agent) return;
+  const machine = assistantHost(hosts, null, resolved.agent)?.machine_id ?? null;
+  composer.setHarness(pillContent(resolved.agent, resolved.model ?? "", resolved.effort, machine));
+}
+
+/// Starts the assistant with the task and opens its session.
+async function send() {
+  const text = composer.input.value.trim();
+  if (!text) { composer.update({ invalid: true }); composer.input.focus(); return; }
+  if (sending) return;
+  sending = true;
+  composer.update({ busy: true, invalid: false, error: "" });
+
+  try {
+    const [pick, hosts] = await Promise.all([loadAssistant(), agentHosts()]);
+    const started = await startAssistant(text, pick, hosts, null);
+    composer.setText("");
+    go("pane", { agent: started.session, adopt: true });
+  } catch (e) {
+    composer.update({ error: reason(e) });
+  } finally {
+    sending = false;
+    composer.setBusy(false);
+  }
+}
