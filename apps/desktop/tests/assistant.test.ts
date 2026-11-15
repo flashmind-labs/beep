@@ -5,9 +5,9 @@ import { assistantHost, assistantRows, isAssistant, resolveAssistant } from "../
 
 const HOME = "/home/user";
 
-test("a session is the assistant by its flag, else when found outside Beep in the home folder off Windows", () => {
-  const found = { assistant: false, cwd: HOME, parent: null, external: true };
-  assert.equal(isAssistant({ assistant: true, cwd: "/srv/project", parent: null, external: false }, HOME, true), true);
+test("a session is the assistant by its flag, else when top-level in the home folder off Windows", () => {
+  const found = { assistant: false, cwd: HOME, parent: null };
+  assert.equal(isAssistant({ assistant: true, cwd: "/srv/project", parent: null }, HOME, true), true);
   assert.equal(isAssistant(found, HOME, false), true);
   assert.equal(isAssistant(found, HOME, true), false);
   assert.equal(isAssistant({ ...found, parent: { machine_id: "build-box", id: "a1", key: "a1" } }, HOME, false), false);
@@ -15,8 +15,10 @@ test("a session is the assistant by its flag, else when found outside Beep in th
   assert.equal(isAssistant(found, null, false), false);
 });
 
-test("a fresh start with no folder and no assistant flag is no assistant", () => {
-  assert.equal(isAssistant({ assistant: false, cwd: HOME, parent: null, external: false }, HOME, false), false);
+test("a fresh Beep start in the home folder is the assistant, its children are not", () => {
+  const fresh = { assistant: false, cwd: HOME, parent: null };
+  assert.equal(isAssistant(fresh, HOME, false), true);
+  assert.equal(isAssistant({ ...fresh, parent: { machine_id: "build-box", id: "a1", key: "a1" } }, HOME, false), false);
 });
 
 const session = (id: string, machine_id: string, cwd: string, status: string, last_activity: number, assistant = false, external = true): AgentSession => ({
@@ -37,7 +39,7 @@ test("the assistant list splits running from ended, the latest first", () => {
     session("unknown", "gone-box", HOME, "idle", 60),
     session("fresh", "build-box", HOME, "idle", 70, false, false),
   ], machines);
-  assert.deepEqual(rows.running.map(s => s.id), ["new", "old"]);
+  assert.deepEqual(rows.running.map(s => s.id), ["fresh", "new", "old"]);
   assert.deepEqual(rows.ended.map(s => s.id), ["done"]);
 });
 

@@ -534,19 +534,23 @@ fn home_folder_is_assistant_without_parent() {
     ));
 }
 
+#[cfg(unix)]
 #[tokio::test]
-async fn a_fresh_start_in_the_home_folder_is_no_assistant() {
+async fn a_fresh_start_in_the_home_folder_is_the_assistant() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
-    let agents = Agents::new(vec![kind.clone()]);
     // No folder is the home folder.
-    let session = agents
+    let at_home = Agents::new(vec![kind.clone()]);
+    let home = at_home
         .start(&kind, None, begin("hello"))
         .expect("the session starts");
-    let mut live = session.live.clone();
-    until(&mut live, |live| live.info.turns == 1).await;
+    assert!(at_home.is_assistant(&home.id));
+    at_home.shutdown().await;
 
-    assert!(!agents.list()[0].assistant);
-    assert!(!agents.is_assistant(&session.id));
-    agents.shutdown().await;
+    let in_project = Agents::new(vec![kind.clone()]);
+    let elsewhere = in_project
+        .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
+        .expect("the session starts");
+    assert!(!in_project.is_assistant(&elsewhere.id));
+    in_project.shutdown().await;
 }

@@ -8,12 +8,11 @@ import type { MachineEnv } from "../machines/machine-state.ts";
 export const TASK_LABEL = "Task for a coding agent";
 export const ASSISTANT_LABEL = "Message for the assistant";
 
-/// A session is the assistant when started as one, or, off Windows, when one
-/// found running outside Beep works in the machine's home folder. Beep's own
-/// starts say what they are.
-export function isAssistant(session: Pick<AgentSession, "assistant" | "cwd" | "parent" | "external">, home: string | null, windows: boolean): boolean {
+/// A session is the assistant when its node says so, or, off Windows, when no session
+/// started it and it works in the machine's home folder, as older nodes do not say.
+export function isAssistant(session: Pick<AgentSession, "assistant" | "cwd" | "parent">, home: string | null, windows: boolean): boolean {
   if (session.assistant) return true;
-  return session.external && !windows && !session.parent && home !== null && session.cwd === home;
+  return !windows && !session.parent && home !== null && session.cwd === home;
 }
 
 /// The assistant sessions Home lists, the latest first: those that run, and those that ended.

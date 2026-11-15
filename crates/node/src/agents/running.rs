@@ -525,7 +525,10 @@ impl Agents {
             !recovering.iter().any(|root| recovery_cwd.starts_with(root)),
             "Git sync is preserving local edits in this checkout; try starting the session again shortly."
         );
-        let assistant = begin.assistant;
+        // A new top-level session in the home folder is the assistant. A
+        // resumed one is what its caller saved.
+        let assistant = begin.assistant
+            || begin.resume.is_none() && home_assistant(&cwd, begin.parent.is_some());
         // A reviewer changes nothing, so it needs no git rule.
         let rule = super::session::standing(
             crate::lock(&self.instructions)
@@ -728,8 +731,8 @@ pub(super) struct Begin {
     pub(super) follows: Option<watch::Receiver<Live>>,
     /// A temporary reviewer (`agents::reviews`).
     pub(super) review: bool,
-    /// The home assistant: asked for, or a session found outside Beep in the
-    /// home folder and taken over (`home_assistant`).
+    /// The home assistant. A new session in the home folder is one without
+    /// asking (`home_assistant`).
     pub(super) assistant: bool,
 }
 
@@ -800,10 +803,13 @@ pub(super) fn folder(cwd: Option<&str>) -> Result<PathBuf> {
 }
 
 /// Whether a session in `cwd` is the home assistant without being asked to
-/// be: one on a Unix machine's home folder that no session started. Only a
-/// session with nothing saved of it is judged by it.
+/// be: one in the home folder of a Linux or macOS machine that no session
+/// started. Only a session with nothing saved of it is judged by it; on
+/// Windows and in WSL only the asked-for flag makes the assistant.
 pub(super) fn home_assistant(cwd: &Path, parent: bool) -> bool {
-    if !cfg!(unix) || parent {
+    let wsl = std::env::var_os("WSL_DISTRO_NAME").is_some_and(|distro| !distro.is_empty());
+
+    if !cfg!(unix) || wsl || parent {
         return false;
     }
 
