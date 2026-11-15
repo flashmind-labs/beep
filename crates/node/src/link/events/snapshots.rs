@@ -552,6 +552,11 @@ impl Snapshots {
                     }));
                 }
 
+                let topic = entry.topic.name().to_owned();
+                metrics::counter!("beep_snapshot_sent_bytes_total", "topic" => topic.clone())
+                    .increment(bytes as u64);
+                metrics::histogram!("beep_snapshot_bytes", "topic" => topic).record(bytes as f64);
+
                 entry.bytes = bytes;
                 entry.previous = Some(value.clone());
                 self.revision = self
