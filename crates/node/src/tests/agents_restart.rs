@@ -554,3 +554,84 @@ async fn a_fresh_start_in_the_home_folder_is_the_assistant() {
     assert!(!in_project.is_assistant(&elsewhere.id));
     in_project.shutdown().await;
 }
+
+#[tokio::test]
+async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let kind = adapter(&dir.path().join("log"));
+    // Not the home folder: only the flag makes it the assistant, as on Windows.
+    let before = Agents::new(vec![kind.clone()]);
+    let session = before
+        .start(
+            &kind,
+            Some(&dir.path().to_string_lossy()),
+            Begin {
+                assistant: true,
+                ..begin("hello")
+            },
+        )
+        .expect("the session starts");
+    let mut live = session.live.clone();
+    until(&mut live, |live| live.info.turns == 1).await;
+    session.close().await;
+    until(&mut live, |live| live.status() == Status::Ended).await;
+    let title = session.info().title;
+    let note = Reopen {
+        sessions: before.open_sessions(),
+        terminals: Vec::new(),
+        saved: before.saved_sessions(),
+    };
+    assert!(note.sessions.is_empty(), "closed, so not reopened");
+    note.save(dir.path()).expect("the note writes");
+    before.shutdown().await;
+
+    let after = Agents::new(vec![kind.clone()]);
+    after.keep_saved(Reopen::read(dir.path()).saved);
+    after.settings_arrived();
+    let resumed = after
+        .resume(&kind, "held-1", None)
+        .await
+        .expect("taken over");
+    assert!(after.is_assistant(&resumed.id));
+    assert_eq!(resumed.info().title, title);
+    after.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let kind = adapter(&dir.path().join("log"));
+    let home = dirs::home_dir().expect("a home folder");
+    let agents = Agents::new(vec![kind.clone()]);
+    agents.keep_saved(vec![SavedSession {
+        info: SessionInfo {
+            id: "held-1".into(),
+            agent: "fake".into(),
+            cwd: home.display().to_string(),
+            ..SessionInfo::default()
+        },
+        effort: None,
+    }]);
+    agents.settings_arrived();
+    let resumed = agents
+        .resume(&kind, "held-1", None)
+        .await
+        .expect("taken over");
+    assert!(!agents.is_assistant(&resumed.id));
+    agents.shutdown().await;
+}
+
+#[test]
+fn a_note_from_before_saved_sessions_reads() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let old = r#"{"sessions":[{"agent":"claude","session":"s1","cwd":"/srv/project","held":[]}],
+        "terminals":[],"models":[{"session":"s1","model":"deep"}],
+        "worktrees":[{"session":"s1","worktrees":["/srv/project/.worktrees/fix"]}]}"#;
+    std::fs::write(dir.path().join("reopen.json"), old).expect("an old note");
+
+    let note = Reopen::read(dir.path());
+    assert_eq!(note.sessions.len(), 1);
+    assert!(!note.sessions[0].assistant);
+    assert!(note.saved.is_empty());
+}

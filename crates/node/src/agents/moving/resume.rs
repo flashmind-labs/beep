@@ -78,27 +78,31 @@ pub(super) async fn resume(
         folders.old.display(),
         folders.new.display()
     );
-    // It goes on as the source saved it: its title, model, thinking level
-    // and whether it is the assistant.
-    let (info, effort) = arrival
-        .saved
-        .clone()
-        .map_or_else(Default::default, |saved| (saved.info, saved.effort));
-    env.agents.start(
-        kind,
-        Some(&cwd),
+    env.agents.start(kind, Some(&cwd), arrival.begin(note, brief))?;
+    Ok(())
+}
+
+impl Arrival<'_> {
+    /// How the session begins here: as the source saved it, with its title,
+    /// model, thinking level and whether it is the assistant, and with the
+    /// move record's model and mode from a source from before saved sessions.
+    pub(super) fn begin(&self, note: String, brief: String) -> Begin {
+        let (info, effort) = self
+            .saved
+            .clone()
+            .map_or_else(Default::default, |saved| (saved.info, saved.effort));
+
         Begin {
-            resume: Some(arrival.id.to_owned()),
+            resume: Some(self.id.to_owned()),
             title: info.title,
-            mode: info.mode.or_else(|| arrival.mode.clone()),
-            model: info.model.or_else(|| arrival.model.clone()),
+            mode: info.mode.or_else(|| self.mode.clone()),
+            model: info.model.or_else(|| self.model.clone()),
             effort,
-            worktrees: arrival.worktrees.clone(),
+            worktrees: self.worktrees.clone(),
             assistant: info.assistant,
             note: Some(note),
             brief: Some(Cow::Owned(brief)),
             ..Begin::default()
-        },
-    )?;
-    Ok(())
+        }
+    }
 }

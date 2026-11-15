@@ -170,3 +170,49 @@ fn paths_in_the_project_follow_the_destination_for_every_harness() {
         );
     }
 }
+
+#[test]
+fn a_moved_session_begins_as_its_source_saved_it() {
+    use super::resume::Arrival;
+    use crate::agents::SavedSession;
+    use beep_proto::{
+        ModelId,
+        node::agent::{Effort, SessionInfo},
+    };
+
+    let from = iroh::SecretKey::generate().public();
+    let saved = SavedSession {
+        info: SessionInfo {
+            id: "held-1".into(),
+            title: Some("Plan the week".into()),
+            model: Some(ModelId::new("deep")),
+            assistant: true,
+            ..SessionInfo::default()
+        },
+        effort: Some(Effort::High),
+    };
+    let arrival = Arrival {
+        id: "held-1",
+        mode: Some("plan".into()),
+        model: Some(ModelId::new("fast")),
+        worktrees: Vec::new(),
+        from,
+        saved: Some(saved),
+    };
+    let begin = arrival.begin("moved".into(), "brief".into());
+    assert_eq!(begin.title.as_deref(), Some("Plan the week"));
+    assert_eq!(begin.model, Some(ModelId::new("deep")));
+    assert_eq!(begin.mode.as_deref(), Some("plan"));
+    assert_eq!(begin.effort, Some(Effort::High));
+    assert!(begin.assistant);
+
+    // A source from before saved sessions sends only the move record's.
+    let older = Arrival {
+        saved: None,
+        ..arrival
+    };
+    let begin = older.begin("moved".into(), "brief".into());
+    assert_eq!(begin.model, Some(ModelId::new("fast")));
+    assert!(!begin.assistant);
+    assert_eq!(begin.title, None);
+}

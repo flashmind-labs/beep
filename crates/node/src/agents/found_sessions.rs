@@ -565,14 +565,14 @@ impl Agents {
 
             found.cwd
         } else {
-            let previous = ours.with_context(|| {
+            let previous = before.as_ref().with_context(|| {
                 format!(
                     "{} sessions started outside Beep cannot be taken over",
                     kind.name
                 )
             })?;
 
-            previous.info().cwd
+            previous.info.cwd.clone()
         };
 
         self.prepare(kind).await?;
