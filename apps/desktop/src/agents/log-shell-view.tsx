@@ -24,6 +24,8 @@ export interface LogShell {
   questionKey: string | null;
   answering: boolean;
   plan: readonly PlanRow[];
+  /// The plan is folded to its heading: how far it is and the step that runs.
+  planFolded: boolean;
   asking: boolean;
   error: string | null;
   external: boolean;
@@ -41,12 +43,21 @@ export function AgentLogShell({ value, log }: { value: LogShell; log: LogWindow 
     {value.log ? <div className="dcoderlog" ref={log.attach}><TranscriptLog log={log} /></div> : value.starting && <div className="dmuted" data-log-part="starting"><Spinner /> Starting the agent…</div>}
     {(question || value.plan.length > 0) && <div className="dcard dcoder" data-log-part="card">
       {question && <div className="q"><b>{question.text}</b>{question.detail && <code>{question.detail}</code>}<div className="dups" ref={questionRef({ key: value.questionKey ?? "", allows: question.options.map(option => option.allow), disabled: value.answering })}>{question.options.map((option, index) => <Button key={index} look={index === allow ? "primary" : "secondary"} danger={index === deny} data-agopt={index} data-agquestion={value.questionKey ?? ""} data-agallow={String(option.allow)} disabled={value.answering}>{option.name}{index === allow ? <kbd>⌘<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20 5v7a3 3 0 0 1-3 3H5m4-4l-4 4 4 4" /></svg></kbd> : index === deny ? <kbd>⌘D</kbd> : null}</Button>)}</div></div>}
-      {value.plan.length > 0 && <><div className="sec">Plan</div><div className="plan">{value.plan.map((item, index) => <PlanStepView key={index} item={item} index={index} asking={value.asking} />)}</div></>}
+      {value.plan.length > 0 && <PlanView plan={value.plan} folded={value.planFolded} asking={value.asking} />}
     </div>}
     {value.error && (value.external ? <div className="derr" data-log-part="error">{value.error}</div> : <div data-log-part="error"><AgentError message={value.error} /></div>)}
     {value.note && <div className={value.note.tone === "error" ? "derr" : value.note.tone === "connecting" ? "dmuted dlate" : "dmuted"} data-log-part="note">{value.note.text}</div>}
     {value.retry && <Button look="quiet" id="agresume" data-log-part="retry">Retry</Button>}
   </div><button className="dagjump" id="agjump" hidden>Jump to latest<Icon name="pull" /></button></>;
+}
+
+/// The plan under its heading, which folds it to how many steps are done and
+/// the one that runs.
+function PlanView({ plan, folded, asking }: { plan: readonly PlanRow[]; folded: boolean; asking: boolean }) {
+  const done = plan.filter(item => item.status === "completed").length;
+  const running = plan.find(item => item.status === "in_progress");
+  return <><button className="sec fold" data-planfold aria-expanded={!folded}><Icon name="chev" />Plan<small>{done}/{plan.length}</small>{folded && running && <span>{running.content}</span>}</button>
+    {!folded && <div className="plan">{plan.map((item, index) => <PlanStepView key={index} item={item} index={index} asking={asking} />)}</div>}</>;
 }
 
 /// A step of the plan. One that subagents ran under opens to their rows,

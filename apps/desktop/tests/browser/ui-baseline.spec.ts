@@ -506,6 +506,14 @@ test("agent plan with the subagents of a step", async ({ page }) => {
   await expect(page.locator(".dcoder .plan .subs .dsubrow")).toHaveText([/Build the flag/, /Review the flag/]);
   await page.mouse.move(0, 0);
   await baseline(page, "agent-plan-subagents");
+
+  await page.locator(".dcoder [data-planfold]").click();
+  await expect(page.locator(".dcoder .plan")).toHaveCount(0);
+  await expect(page.locator(".dcoder [data-planfold]")).toHaveText("Plan1/3Answer the projects tool");
+  await page.mouse.move(0, 0);
+  await baseline(page, "agent-plan-folded");
+  await page.locator(".dcoder [data-planfold]").click();
+  await expect(page.locator(".dcoder .plan .step")).toHaveCount(2);
 });
 
 test("agent with commands running and messages queued", async ({ page }) => {

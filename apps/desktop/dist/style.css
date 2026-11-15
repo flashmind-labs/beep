@@ -303,6 +303,11 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoder .row { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px }
 .dcoder .sec { font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim); padding: 8px 12px 2px }
 .dcoder .plan { display: grid; gap: 2px; padding: 0 12px }
+.dcoder .sec.fold { display: flex; align-items: center; gap: 6px; width: 100%; box-sizing: border-box; border: 0; background: none; font-family: inherit; text-align: left; cursor: default }
+.dcoder .sec.fold:hover { color: var(--fg) }
+.dcoder .sec.fold:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+.dcoder .sec.fold > svg { width: 12px; height: 12px } .dcoder .sec.fold[aria-expanded="true"] > svg { transform: rotate(90deg) }
+.dcoder .sec.fold span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--body); letter-spacing: 0; text-transform: none; color: var(--fg) }
 .dcoder .plan .step { padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font-family: inherit; text-align: left; cursor: default }
 .dcoder .plan .step:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .dcoder .plan .step:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }

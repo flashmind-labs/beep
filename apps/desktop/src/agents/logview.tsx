@@ -88,7 +88,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   const shell = { why, starting: s.status === "starting", log: !!units,
     question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
     questionKey: question ? questionKey(question, openOf(s)) : null,
-    answering: !!question && question.id === AG.answering, plan: planRows(p), asking: s.status === "asking",
+    answering: !!question && question.id === AG.answering, plan: planRows(p), planFolded: foldedPlans.has(AG.open?.session ?? ""), asking: s.status === "asking",
     error: p.error, external: s.external, note, retry };
   if (!showLog(b, shell, units, polled)) { AG.rest = ""; return; }
   // The pane follows the open conversation into its worktree.
@@ -306,6 +306,18 @@ function subData(at: number, inPane: boolean): SubagentRow {
       dismiss: inPane && st !== "working" && st !== "needs you", stoppable: !!kid && (st === "working" || st === "needs you"),
       result: !kid && !x.sub.session && AG.steps.get(at) ? x.sub.result || "The agent has not provided a readable conversation yet." : null,
       prompt: !inPane && x.prompt ? { text: x.prompt, open: AG.steps.get(at) ?? false } : null };
+}
+
+/// The sessions whose plan is folded to its heading.
+const foldedPlans = new Set<string>();
+
+/// Folds the open session's plan, or opens it again.
+export function togglePlan() {
+  const session = AG.open?.session;
+  if (!session) return;
+
+  if (!foldedPlans.delete(session)) foldedPlans.add(session);
+  drawAgentBody();
 }
 
 /// The plan's steps opened to their subagents, by session and the step's text.

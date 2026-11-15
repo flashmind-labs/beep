@@ -32,7 +32,7 @@ function sameNote(a: LogShell["note"], b: LogShell["note"]) {
 
 function sameShell(a: LogShell, b: LogShell) {
   return a.why === b.why && a.starting === b.starting && a.log === b.log && sameQuestion(a.question, b.question)
-    && a.questionKey === b.questionKey && a.answering === b.answering && samePlan(a.plan, b.plan) && a.asking === b.asking
+    && a.questionKey === b.questionKey && a.answering === b.answering && samePlan(a.plan, b.plan) && a.planFolded === b.planFolded && a.asking === b.asking
     && a.error === b.error && a.external === b.external && sameNote(a.note, b.note) && a.retry === b.retry;
 }
 
@@ -61,8 +61,8 @@ export function showLogShell(body: HTMLElement, value: LogShell, units: readonly
       && held.some(node => body.querySelector(`[data-log-part="${part}"]`)?.contains(node));
     if (heldPart("why", prior.why !== value.why)) { next.why = prior.why; deferred = true; }
     if (heldPart("starting", prior.starting !== value.starting || prior.log !== value.log)) { next.starting = prior.starting; next.log = prior.log; deferred = true; }
-    if (heldPart("card", !sameQuestion(prior.question, value.question) || prior.questionKey !== value.questionKey || prior.answering !== value.answering || !samePlan(prior.plan, value.plan) || prior.asking !== value.asking)) {
-      next.question = prior.question; next.questionKey = prior.questionKey; next.answering = prior.answering; next.plan = prior.plan; next.asking = prior.asking; deferred = true;
+    if (heldPart("card", !sameQuestion(prior.question, value.question) || prior.questionKey !== value.questionKey || prior.answering !== value.answering || !samePlan(prior.plan, value.plan) || prior.planFolded !== value.planFolded || prior.asking !== value.asking)) {
+      next.question = prior.question; next.questionKey = prior.questionKey; next.answering = prior.answering; next.plan = prior.plan; next.planFolded = prior.planFolded; next.asking = prior.asking; deferred = true;
     }
     if (heldPart("error", prior.error !== value.error || prior.external !== value.external)) { next.error = prior.error; next.external = prior.external; deferred = true; }
     if (heldPart("note", !sameNote(prior.note, value.note))) { next.note = prior.note; deferred = true; }
