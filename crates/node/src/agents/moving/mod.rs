@@ -18,6 +18,7 @@ mod saved;
 mod source;
 mod store;
 mod target;
+mod worktree;
 
 #[cfg(all(test, unix))]
 #[path = "../../tests/agents_moving_move_tests.rs"]
