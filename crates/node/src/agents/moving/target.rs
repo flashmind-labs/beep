@@ -113,7 +113,8 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         "session {}: the conversation is here, waiting for the checkouts",
         record.id
     );
-    let checkout = checkouts(env, record, tracker, &roots.new).await?;
+    let mut checkout = checkouts(env, record, tracker, &roots.new).await?;
+    let saved = checkout.session.take();
     let moved: Vec<String> = checkout
         .worktrees
         .iter()
@@ -128,6 +129,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         model: record.model.clone(),
         worktrees: moved,
         from: record.from,
+        saved,
     };
     resume(env, &arrival, &kind, &folders, copied.file_name, copy).await
 }

@@ -4,7 +4,7 @@
 //! it through its agent. A session moved here by its source.
 
 use super::{Env, Harness, rewrite, store};
-use crate::agents::{AgentKind, Begin, found::Agent};
+use crate::agents::{AgentKind, Begin, SavedSession, found::Agent};
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use iroh::EndpointId;
@@ -21,6 +21,9 @@ pub(super) struct Arrival<'a> {
     pub(super) worktrees: Vec<String>,
     /// The machine that ran it.
     pub(super) from: EndpointId,
+    /// What the source saved of it; `None` from a source from before saved
+    /// sessions.
+    pub(super) saved: Option<SavedSession>,
 }
 
 use super::folder::Folders;
@@ -75,14 +78,23 @@ pub(super) async fn resume(
         folders.old.display(),
         folders.new.display()
     );
+    // It goes on as the source saved it: its title, model, thinking level
+    // and whether it is the assistant.
+    let (info, effort) = arrival
+        .saved
+        .clone()
+        .map_or_else(Default::default, |saved| (saved.info, saved.effort));
     env.agents.start(
         kind,
         Some(&cwd),
         Begin {
             resume: Some(arrival.id.to_owned()),
-            mode: arrival.mode.clone(),
-            model: arrival.model.clone(),
+            title: info.title,
+            mode: info.mode.or_else(|| arrival.mode.clone()),
+            model: info.model.or_else(|| arrival.model.clone()),
+            effort,
             worktrees: arrival.worktrees.clone(),
+            assistant: info.assistant,
             note: Some(note),
             brief: Some(Cow::Owned(brief)),
             ..Begin::default()
