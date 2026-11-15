@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { type MoveProgress, type MoveRecord, type MoveTarget, bySession, canMove, dedupe, effective, fmtBytes, going, listLabel, moveRows, movedTo, targetNote } from "../src/agents/move-state.ts";
 
-const progress = (over: Partial<MoveProgress> = {}): MoveProgress => ({ answer: "known", phase: "waiting", copied: 0, total: 0, files_left: 0, source_away: false, reason: null, ...over });
+const progress = (over: Partial<MoveProgress> = {}): MoveProgress => ({ answer: "known", phase: "waiting", copied: 0, total: 0, source_away: false, reason: null, worktree: null, worktree_at: 0, worktrees: 0, ...over });
 const record: MoveRecord = { session: "s1", agent: "codex", from: "laptop-id", to: "studio-id", project: "acme/app", at: 10 };
 const names = (id: string) => id.replace("-id", "");
 const target = (over: Partial<MoveTarget> = {}): MoveTarget => ({ id: "studio-id", name: "studio", online: true, harnesses: ["codex", "claude"], checkout: true, ...over });
@@ -28,12 +28,14 @@ test("a machine with no checkout is named before one that is offline", () => {
 test("the steps follow the phases", () => {
   assert.deepEqual(moveRows(progress({ phase: "conversation", copied: 4_200_000, total: 6_100_000 }), "laptop", "studio"), [
     { state: "run", text: "Conversation 4.2 MB of 6.1 MB" },
-    { state: "todo", text: "Project files" },
+    { state: "todo", text: "Checkouts and worktrees" },
     { state: "todo", text: "Resuming on studio" },
   ]);
-  const files = moveRows(progress({ phase: "files", total: 6_100_000, files_left: 12 }), "laptop", "studio");
+  const files = moveRows(progress({ phase: "files", total: 6_100_000 }), "laptop", "studio");
   assert.deepEqual(files.map(r => r.state), ["done", "run", "todo"]);
-  assert.equal(files[1].text, "Project files 12 left");
+  assert.equal(files[1].text, "Checkouts");
+  const tree = moveRows(progress({ phase: "files", worktree: "beep-tools", worktree_at: 1, worktrees: 2 }), "laptop", "studio");
+  assert.equal(tree[1].text, "Worktree beep-tools 1 of 2");
   const resuming = moveRows(progress({ phase: "resuming", total: 6_100_000 }), "laptop", "studio");
   assert.deepEqual(resuming.map(r => r.state), ["done", "done", "run"]);
 });
@@ -105,9 +107,10 @@ test("a node from before moves shows the move as failed, with the session still 
   assert.ok(!going(old));
 });
 
-test("the files step says why they do not come", () => {
-  const rows = moveRows(progress({ phase: "files", total: 1_000_000, files_left: 3, reason: "this checkout is at abc and another machine's at def" }), "laptop", "studio");
-  assert.equal(rows[1].text, "Project files: this checkout is at abc and another machine's at def");
+test("the checkouts step says what it waits for", () => {
+  const reason = "Waiting for checkouts to match: laptop at abc1234, here def5678";
+  const rows = moveRows(progress({ phase: "files", total: 1_000_000, reason }), "laptop", "studio");
+  assert.equal(rows[1].text, reason);
 });
 
 test("an open session follows its move once the new machine lists it", () => {
