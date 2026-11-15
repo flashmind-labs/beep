@@ -69,3 +69,41 @@ async fn import_reports_imported_and_skipped() {
         })
     );
 }
+
+#[tokio::test]
+async fn import_reports_a_checkout_that_failed_next_to_one_that_landed() {
+    let mut app = found("org/app", "m1");
+    app.places.push(FoundPlace {
+        machine_id: "m2".to_owned(),
+        machine_name: "mac-box".to_owned(),
+        folder: "/srv/other/org/app".to_owned(),
+    });
+    let names = ["org/app".to_owned()];
+
+    let reply = import_found(&[app], &names, &[], |repo, place| async move {
+        if place.machine_id == "m2" {
+            return Err("offline".to_owned());
+        }
+
+        Ok(ImportedProject {
+            project: "org/app".to_owned(),
+            url: repo,
+            machine_id: place.machine_id,
+            machine_name: place.machine_name,
+            folder: place.folder,
+            cloned: false,
+            imported_at: SystemTime::UNIX_EPOCH,
+            display_name: None,
+        })
+    })
+    .await;
+
+    assert_eq!(
+        reply,
+        serde_json::json!({
+            "imported": [{"project": "org/app", "machine": "build-box", "folder": "/srv/org/app", "cloned": false}],
+            "skipped": [],
+            "failed": [{"project": "org/app", "machine": "mac-box", "why": "offline"}],
+        })
+    );
+}

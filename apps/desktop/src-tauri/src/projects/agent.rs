@@ -102,6 +102,15 @@ impl From<ImportedProject> for Landed {
     }
 }
 
+/// A checkout or clone that did not land, on the machine by its name; no
+/// machine when Beep was to pick one.
+#[derive(Serialize)]
+struct Failure {
+    project: String,
+    machine: Option<String>,
+    why: String,
+}
+
 /// The answer to one call, as JSON text of what happened.
 pub(crate) async fn answer(app: &AppHandle, args: &str) -> Reply {
     match run(app, args).await {
@@ -156,7 +165,15 @@ async fn run(app: &AppHandle, args: &str) -> Result<Value, String> {
             folder,
         } => {
             let ids = machine_ids(&fleet, &machines)?;
-            Ok(clone(&desk, &url, &ids, name.as_deref(), folder.as_deref()).await)
+            Ok(clone(
+                &fleet,
+                &desk,
+                &url,
+                &ids,
+                name.as_deref(),
+                folder.as_deref(),
+            )
+            .await)
         }
         Action::Found { machines } => {
             let machines = if machines.is_empty() {
@@ -229,6 +246,7 @@ fn folders(machine_ids: &[String], folder: Option<&str>) -> Vec<ProjectFolder> {
 /// Clones `url` onto each machine, or the one that fits best, under
 /// `folder`, then names the project `name`.
 async fn clone(
+    fleet: &Fleet,
     desk: &Desk,
     url: &str,
     machine_ids: &[String],
@@ -254,7 +272,13 @@ async fn clone(
     for (machine_id, done) in targets.iter().zip(join_all(jobs).await) {
         match done {
             Ok(project) => imported.push(Landed::from(project)),
-            Err(e) => failed.push(json!({ "machine": machine_id, "why": e.to_string() })),
+            Err(e) => failed.push(Failure {
+                project: url.to_owned(),
+                machine: machine_id
+                    .and_then(|id| fleet.member(id))
+                    .map(|machine| fleet.name_of(machine)),
+                why: e.to_string(),
+            }),
         }
     }
 
@@ -330,20 +354,24 @@ where
                 .places
                 .iter()
                 .filter(|place| machine_ids.is_empty() || machine_ids.contains(&place.machine_id));
-            let (mut landed, mut why) = (Vec::new(), None);
+            let (mut landed, mut failed) = (Vec::new(), Vec::new());
 
             // One checkout after another, as the sheet links them.
             for place in places {
                 match import(project.remote.clone(), place.clone()).await {
                     Ok(imported) => landed.push(Landed::from(imported)),
-                    Err(e) => why = why.or(Some(e)),
+                    Err(why) => failed.push(Failure {
+                        project: project.project.clone(),
+                        machine: Some(place.machine_name.clone()),
+                        why,
+                    }),
                 }
             }
 
-            match (landed.is_empty(), why) {
-                (false, _) => Outcome::Imported(landed),
-                (true, Some(why)) => Outcome::Failed(project.project.clone(), why),
-                (true, None) => Outcome::Skipped(project.project.clone(), NOT_THERE),
+            if landed.is_empty() && failed.is_empty() {
+                Outcome::Skipped(project.project.clone(), NOT_THERE)
+            } else {
+                Outcome::Linked { landed, failed }
             }
         })
         .buffered(IMPORTS_AT_ONCE)
@@ -354,11 +382,16 @@ where
 
     for outcome in outcomes {
         match outcome {
-            Outcome::Imported(landed) => imported.extend(landed),
+            Outcome::Linked {
+                landed,
+                failed: missed,
+            } => {
+                imported.extend(landed);
+                failed.extend(missed);
+            }
             Outcome::Skipped(project, why) => {
                 skipped.push(json!({ "project": project, "why": why }))
             }
-            Outcome::Failed(project, why) => failed.push(json!({ "project": project, "why": why })),
         }
     }
 
@@ -367,9 +400,12 @@ where
 
 /// What `import_found` did with one name.
 enum Outcome {
-    Imported(Vec<Landed>),
+    /// The checkouts it linked and those that failed.
+    Linked {
+        landed: Vec<Landed>,
+        failed: Vec<Failure>,
+    },
     Skipped(String, &'static str),
-    Failed(String, String),
 }
 
 #[cfg(test)]
