@@ -271,9 +271,10 @@ body:not(.mobile) .cc-side > .painted-art { display: block; position: absolute; 
 /* The start screen fills its card on any window: the old 960px box cut the picture on a large one.
    The doubled id outranks the pane's own rule in center.css. */
 body:not(.mobile) #pane-box#pane-box > .dbar:has(.cc-pjc.centered) { width: 100%; max-width: none; border: 0; border-radius: 0; background: none; box-shadow: none }
-/* The words stand on a soft patch of the card's own colour, so the strokes never run through them. */
+/* The words stand on a soft shade of the card's own colour, darkest at their middle and fading
+   out with no edge, so the strokes stay readable behind them without a dark blob. */
 .cc-pjc.centered .agc-intro { position: relative }
-.cc-pjc.centered .agc-intro::after { content: ""; position: absolute; z-index: -1; inset: -34px 2% -6px; pointer-events: none; background: radial-gradient(closest-side, color-mix(in srgb, var(--ink) 92%, transparent) 55%, transparent) }
+.cc-pjc.centered .agc-intro::after { content: ""; position: absolute; z-index: -1; inset: -70px -6% -30px; pointer-events: none; background: radial-gradient(closest-side, color-mix(in srgb, var(--ink) 70%, transparent), color-mix(in srgb, var(--ink) 35%, transparent) 60%, transparent) }
 
 /* The bar's words are not selectable. */
 body:not(.mobile) .cc-top { user-select: none; -webkit-user-select: none }
