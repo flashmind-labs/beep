@@ -402,6 +402,8 @@ pub fn beep_view(host: &Host, info: SessionInfo) -> AgentSessionView {
             .map(|step| AgentPlanStep {
                 content: step.content,
                 status: plan_status(step.status),
+                started_at: step.started_at,
+                ended_at: step.ended_at,
             })
             .collect(),
         files: state.files_touched,

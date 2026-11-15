@@ -1,4 +1,4 @@
-// A session body's log shell (the question and plan card, notes) and the
+// A session body's log shell (the question card, notes) and the
 // transcript inside it, drawn from the turns `logwindow.ts` picks.
 import { memo, useCallback, useSyncExternalStore } from "react";
 import { Button, Spinner } from "../ui/kit.tsx";
@@ -17,8 +17,6 @@ export interface LogShell {
   question: AgentQuestion | null;
   questionKey: string | null;
   answering: boolean;
-  plan: readonly { status: string; content: string }[];
-  asking: boolean;
   error: string | null;
   external: boolean;
   /// `connecting`: the log is what this device kept, and its machine has not answered yet.
@@ -33,9 +31,8 @@ export function AgentLogShell({ value, log }: { value: LogShell; log: LogWindow 
   return <><div className="dagmain">
     {value.why && <div className="dmuted" data-log-part="why">{value.why}</div>}
     {value.log ? <div className="dcoderlog" ref={log.attach}><TranscriptLog log={log} /></div> : value.starting && <div className="dmuted" data-log-part="starting"><Spinner /> Starting the agent…</div>}
-    {(question || value.plan.length > 0) && <div className="dcard dcoder" data-log-part="card">
-      {question && <div className="q"><b>{question.text}</b>{question.detail && <code>{question.detail}</code>}<div className="dups" ref={questionRef({ key: value.questionKey ?? "", allows: question.options.map(option => option.allow), disabled: value.answering })}>{question.options.map((option, index) => <Button key={index} look={index === allow ? "primary" : "secondary"} danger={index === deny} data-agopt={index} data-agquestion={value.questionKey ?? ""} data-agallow={String(option.allow)} disabled={value.answering}>{option.name}{index === allow ? <kbd>⌘<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20 5v7a3 3 0 0 1-3 3H5m4-4l-4 4 4 4" /></svg></kbd> : index === deny ? <kbd>⌘D</kbd> : null}</Button>)}</div></div>}
-      {value.plan.length > 0 && <><div className="sec">Plan</div><div className="plan">{value.plan.map((item, index) => <div className="row" key={index}><span className="dmark">{item.status === "completed" ? <span className="dok"><Icon name="check" /></span> : item.status === "in_progress" ? value.asking ? <span className="ddot hot" /> : <Spinner dot /> : <span className="ddot off" />}</span><span className={item.status === "pending" ? "dmut" : undefined}>{item.content}</span></div>)}</div></>}
+    {question && <div className="dcard dcoder" data-log-part="card">
+      <div className="q"><b>{question.text}</b>{question.detail && <code>{question.detail}</code>}<div className="dups" ref={questionRef({ key: value.questionKey ?? "", allows: question.options.map(option => option.allow), disabled: value.answering })}>{question.options.map((option, index) => <Button key={index} look={index === allow ? "primary" : "secondary"} danger={index === deny} data-agopt={index} data-agquestion={value.questionKey ?? ""} data-agallow={String(option.allow)} disabled={value.answering}>{option.name}{index === allow ? <kbd>⌘<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20 5v7a3 3 0 0 1-3 3H5m4-4l-4 4 4 4" /></svg></kbd> : index === deny ? <kbd>⌘D</kbd> : null}</Button>)}</div></div>
     </div>}
     {value.error && (value.external ? <div className="derr" data-log-part="error">{value.error}</div> : <div data-log-part="error"><AgentError message={value.error} /></div>)}
     {value.note && <div className={value.note.tone === "error" ? "derr" : value.note.tone === "connecting" ? "dmuted dlate" : "dmuted"} data-log-part="note">{value.note.text}</div>}

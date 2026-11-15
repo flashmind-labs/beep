@@ -16,7 +16,7 @@ import { openViewer } from "../chat/media.tsx";
 // the head's state. Session code sets it here; the session frame draws it.
 
 /// A control the session sets in its head or composer.
-type FieldSlot = "state" | "mode" | "model" | "plan" | "tasks" | "pick";
+type FieldSlot = "state" | "mode" | "model" | "plan" | "steps" | "tasks" | "pick";
 
 /// Queued steers fold into one line above the field on a phone; the line opens their
 /// list over the log.
