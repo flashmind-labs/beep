@@ -240,11 +240,6 @@ body.cbody
                               div.dlive.dthink.live
                                 span.lb [title="Working"] "Working"
                           div.agspace [hidden] style(height)
-                        div.dcard.dcoder [data-log-part="card"]
-                          button.fold.sec [aria-expanded="false" data-planfold="true"] (focused) "Plan"
-                            svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                            small "1 / 3"
-                            span "Answer the projects tool"
                       button#agjump.dagjump [hidden] "Jump to latest"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                     div.agrail.off
@@ -252,6 +247,11 @@ body.cbody
                   div#agplan
                   div.ag-work
                     div.ag-worklist
+                      button.ag-plan [aria-expanded="false" type="button"]
+                        span.drun style(animation-delay)
+                        span "Plan 1 / 3"
+                          b "Answer the projects tool"
+                        svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                       div#agtasks
                       div [data-agent-queue-slot="true"] style(display)
                     div [data-agent-work-line="true"] style(display)
@@ -262,7 +262,7 @@ body.cbody
                     input [hidden multiple type="file"] value=""
                     div [data-agent-attachment-slot="true"] style(display)
                     div.cx-layer [aria-hidden="true" hidden]
-                    textarea#agmsg.cx-field [aria-busy="false" autocomplete="off" data-prompt-stash placeholder="Message Codex" rows="1" spellcheck="false"] style(height) value=""
+                    textarea#agmsg.cx-field [aria-busy="false" autocomplete="off" data-prompt-stash placeholder="Message Codex" rows="1" spellcheck="false"] style(height) value="" (focused)
                     span#agmode
                     span#agmodel
                       button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"] "Model unknown"

@@ -18,7 +18,8 @@ import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive, trackLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { showLogShell } from "./log-shell.tsx";
-import type { LogShell, PlanRow } from "./log-shell-view.tsx";
+import type { LogShell } from "./log-shell-view.tsx";
+import { PlanTray, type PlanRow } from "./plan-view.tsx";
 import { stepAt } from "./plan-state.ts";
 import { connectingNote } from "./reconnect-state.ts";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.tsx";
@@ -42,7 +43,7 @@ import { waitLine, type BackgroundWork } from "./waiting-state.ts";
 import { drawQueue, questionKey } from "./messages.ts";
 import { olderNote } from "./older-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
-import { showAgentControl, showAgentStop } from "./composer-ui.tsx";
+import { showAgentControl, showAgentControlFor, showAgentStop } from "./composer-ui.tsx";
 import { AgentStatus } from "./mode-view.tsx";
 import type { BlockedRow, ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
 import { sessionBody } from "./session-frame.tsx";
@@ -88,7 +89,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   const shell = { why, starting: s.status === "starting", log: !!units,
     question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
     questionKey: question ? questionKey(question, openOf(s)) : null,
-    answering: !!question && question.id === AG.answering, plan: planRows(p), planFolded: foldedPlans.has(AG.open?.session ?? ""), asking: s.status === "asking",
+    answering: !!question && question.id === AG.answering,
     error: p.error, external: s.external, note, retry };
   if (!showLog(b, shell, units, polled)) { AG.rest = ""; return; }
   // The pane follows the open conversation into its worktree.
@@ -99,6 +100,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   drawPane(subs, arts);
   drawModelPill();
   drawModes();
+  drawPlan(p);
   drawTasks();
   drawQueue();
   showAgentControl("state", <AgentStatus status={s.status} stopping={stopping} />);
@@ -308,16 +310,17 @@ function subData(at: number, inPane: boolean): SubagentRow {
       prompt: !inPane && x.prompt ? { text: x.prompt, open: AG.steps.get(at) ?? false } : null };
 }
 
-/// The sessions whose plan is folded to its heading.
-const foldedPlans = new Set<string>();
+/// The sessions whose plan is opened to its steps.
+const openPlans = new Set<string>();
 
-/// Folds the open session's plan, or opens it again.
-export function togglePlan() {
-  const session = AG.open?.session;
-  if (!session) return;
+/// The open session's plan above the message field.
+function drawPlan(p: AgentPage) {
+  const session = AG.open?.session ?? "", plan = planRows(p);
+  if (!plan.length) return showAgentControl("steps", null);
 
-  if (!foldedPlans.delete(session)) foldedPlans.add(session);
-  drawAgentBody();
+  const open = openPlans.has(session), asking = p.session.status === "asking";
+  const togglePlan = () => { if (!openPlans.delete(session)) openPlans.add(session); drawAgentBody(); };
+  showAgentControlFor("steps", JSON.stringify([session, plan, open, asking]), () => <PlanTray plan={plan} open={open} asking={asking} toggle={togglePlan} toggleStep={toggleStep} />);
 }
 
 /// The plan's steps opened to their subagents, by session and the step's text.
@@ -325,7 +328,7 @@ const openSteps = new Set<string>();
 const stepKey = (content: string) => `${AG.open?.session}\n${content}`;
 
 /// Opens or folds the step at `index` of the open session's plan.
-export function toggleStep(index: number) {
+function toggleStep(index: number) {
   const step = AG.page?.plan[index];
   if (!step) return;
 

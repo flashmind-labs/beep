@@ -9,7 +9,7 @@ import { AG, openOf, where } from "./agents.ts";
 import { fullPic } from "./images.tsx";
 import { childRow } from "./nesting-state.ts";
 import { parentSession, keepNativeSession, loadSessions, sessions } from "./sessions.ts";
-import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub, togglePlan, toggleStep } from "./logview.tsx";
+import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub } from "./logview.tsx";
 import { toggleModelPicker, closeModelPicker } from "./modelpill.tsx";
 import { cycleMode } from "./modepill.tsx";
 import { answerAgentQuestion } from "./messages.ts";
@@ -40,7 +40,7 @@ export function agentClick(e: MouseEvent) {
   const target = e.target as HTMLElement, body = sessionBody();
   /// The element `selector` finds from the click when it is in the log, or also in the pane.
   const inLog = <T extends HTMLElement = HTMLElement>(selector: string) => { const el = target.closest<T>(selector); return el && body?.contains(el) ? el : null; };
-  const inLogOrPane = <T extends HTMLElement = HTMLElement>(selector: string) => { const el = target.closest<T>(selector); return el && (body?.contains(el) || el.closest(".agpane")) ? el : null; };
+  const inLogOrPane = <T extends HTMLElement = HTMLElement>(selector: string) => { const el = target.closest<T>(selector); return el && (body?.contains(el) || el.closest(".agpane, .ag-steps")) ? el : null; };
   const opt = target.closest<HTMLElement>("[data-agopt]");
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt), opt.dataset.agquestion ?? "");
   if (target.closest("#agmodelb")) return toggleModelPicker();
@@ -58,9 +58,6 @@ export function agentClick(e: MouseEvent) {
     return drawAgentBody(clickedRow(prompt));
   }
 
-  if (inLog("[data-planfold]")) return togglePlan();
-  const planStep = inLog<HTMLElement>("[data-planstep]");
-  if (planStep) return toggleStep(Number(planStep.dataset.planstep));
   const summary = target.closest<HTMLElement>("[data-subsummary]");
   if (summary) { const at = Number(summary.dataset.subsummary); AG.steps.set(at, !AG.steps.get(at)); drawAgentBody(); return; }
   const sub = inLogOrPane<HTMLElement>("[data-native]");

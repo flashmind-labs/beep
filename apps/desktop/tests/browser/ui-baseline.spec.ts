@@ -493,7 +493,7 @@ test("agent question", async ({ page }) => {
 });
 
 test("agent plan with the subagents of a step", async ({ page }) => {
-  const sub = (title: string, status: string, sent_at: number) => ({ kind: "tool", sent_at, text: `${title} [${status}]\n[steps] 4\n[agent] general-purpose\n[session] subagent:claude:${sent_at}\n[model] claude-sonnet-5-5\nDone` });
+  const sub = (title: string, status: string, sent_at: number) => ({ kind: "tool", sent_at, text: `${title} [${status}]\n[steps] 4\n[agent] general-purpose\n[session] subagent:codex:${sent_at}\n[model] claude-sonnet-5-5\nDone` });
   const plan = [
     { content: "Add the flag to sessions", status: "completed", started_at: 100, ended_at: 200 },
     { content: "Answer the projects tool", status: "in_progress", started_at: 200, ended_at: null },
@@ -501,19 +501,16 @@ test("agent plan with the subagents of a step", async ({ page }) => {
   ];
   const entries = [...transcript, sub("Build the flag", "completed", 110), sub("Review the flag", "completed", 150), sub("Build the tool", "in_progress", 210)];
   await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "working" }, plan, entries } });
-  await expect(page.locator(".dcoder .plan .step")).toHaveText([/2 agents/, /1 agent/]);
-  await page.locator(".dcoder .plan .step").first().click();
-  await expect(page.locator(".dcoder .plan .subs .dsubrow")).toHaveText([/Build the flag/, /Review the flag/]);
+  const line = page.locator(".ag-plan");
+  await expect(line).toHaveText("Plan 1/3Answer the projects tool");
+  await baseline(page, "agent-plan-folded");
+
+  await line.click();
+  await expect(page.locator(".ag-steps button.it")).toHaveText([/2 agents/, /1 agent/]);
+  await page.locator(".ag-steps button.it").first().click();
+  await expect(page.locator(".ag-steps .subs .dsubrow")).toHaveText([/Build the flag/, /Review the flag/]);
   await page.mouse.move(0, 0);
   await baseline(page, "agent-plan-subagents");
-
-  await page.locator(".dcoder [data-planfold]").click();
-  await expect(page.locator(".dcoder .plan")).toHaveCount(0);
-  await expect(page.locator(".dcoder [data-planfold]")).toHaveText("Plan1/3Answer the projects tool");
-  await page.mouse.move(0, 0);
-  await baseline(page, "agent-plan-folded");
-  await page.locator(".dcoder [data-planfold]").click();
-  await expect(page.locator(".dcoder .plan .step")).toHaveCount(2);
 });
 
 test("agent with commands running and messages queued", async ({ page }) => {
