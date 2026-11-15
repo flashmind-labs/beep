@@ -99,6 +99,8 @@ body.cbody
           button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
             span style(display)
               svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
+        button.mb-set [aria-label="Settings" type="button"]
+          svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div#home-box.cc-box [hidden]
         div#view.cc-view
           canvas.haze.painted-art [aria-hidden="true" height="15" width="272"]
@@ -187,7 +189,7 @@ body.cbody
                   p "A fresh idea. A tricky bug. A place to start."
                 div#agbox.box
                   div.cx-layer [aria-hidden="true" hidden]
-                  textarea#agprompt.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="Describe the task." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] style(height,overflow-y) value="" (focused)
+                  textarea#agprompt.cx-field [aria-label="Message for the assistant" autocomplete="off" data-prompt-stash placeholder="Describe the task." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] style(height,overflow-y) value="" (focused)
                   div.row
                     span.sp
                     button#agpillb.pill [aria-expanded="false" title="Harness, model and thinking" type="button"] "High Default"

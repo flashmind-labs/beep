@@ -14,6 +14,8 @@ export interface StartComposerState {
   centered: boolean; busy: boolean; welcome: string;
   /// The line under the field: an error, else the start's progress.
   error: string; progress: string; placeholder: string; invalid: boolean; dropping: boolean;
+  /// What the field is to a screen reader: a task for a coding agent, or a message for the assistant.
+  label: string;
   sendDisabled: boolean; sendTitle: string | null;
   /// A stash restore holds the send button until it is done.
   stashLocked: boolean;
@@ -78,7 +80,7 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
   const sendLabel = state.centered ? state.busy ? "Starting" : "Start" : undefined;
   return <>{state.centered && <section className="agc-intro"><SunriseArt /><h3 aria-label={state.welcome}><span aria-hidden="true">{state.welcome.split(" ").map((word, index) => <Fragment key={index}>{index > 0 && " "}<span className="agc-word" style={{ "--word": index } as CSSProperties}>{word}</span></Fragment>)}</span></h3><p>A fresh idea. A tricky bug. A place to start.</p></section>}
     <div className={`box${state.invalid ? " err" : ""}${state.dropping ? " dropping" : ""}`} id={id("agbox")} ref={refs.box}>
-      <textarea ref={refs.input} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label="Task for a coding agent" title={title} placeholder={state.placeholder}
+      <textarea ref={refs.input} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label={state.label} title={title} placeholder={state.placeholder}
         onInput={event => { grow(); actions.input?.(event.currentTarget.value); }}
         onPaste={paste}
         onKeyDown={event => { actions.keyDown?.(event.nativeEvent); if (event.currentTarget.readOnly || event.key !== "Enter" || event.shiftKey || isMobile() || event.nativeEvent.isComposing || event.defaultPrevented) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.form?.requestSubmit(); }} />

@@ -156,7 +156,7 @@ const linux = { os: "linux", os_version: "Ubuntu 26.04", arch: "x86_64", hostnam
 const assistantHome = { ...home, machines: [{ ...home.machines[0], env: linux }, home.machines[1]] };
 const assistantSessions = [
   { ...agentRow("helper-one", "Set up the widget project", "working", 60_000, "/srv"), agent: "flsh", assistant: true, parent: null },
-  { ...agentRow("helper-two", "Check the open pull requests", "idle", 900_000, "/srv"), agent: "claude", assistant: false, parent: null },
+  { ...agentRow("helper-two", "Check the open pull requests", "idle", 900_000, "/srv"), agent: "claude", assistant: false, parent: null, external: true },
   { ...agentRow("helper-old", "Import my projects", "ended", 7_200_000, "/srv"), agent: "flsh", assistant: true, parent: null },
 ];
 const assistantHost = { machine_id: machineId, machine_name: machineId, agents: ["claude", "codex", "flsh"], workspace: null, home: "/srv", capabilities: [], assistant: true };
@@ -173,8 +173,10 @@ test("home assistant list", async ({ page }) => {
   await openDesktop(page, false, { center_home: assistantHome, agent_sessions: assistantSessions });
   const list = page.locator("#sec-assistant");
   await expect(list.locator(".cc-line")).toHaveCount(2);
-  await list.getByRole("button", { name: /Ended/ }).click();
+  const ended = list.getByRole("button", { name: /Ended/ });
+  await ended.click();
   await expect(list.locator(".cc-line")).toHaveCount(3);
+  await ended.blur();
   await baseline(page, "home-assistant");
 });
 
@@ -196,7 +198,7 @@ test("home first start", async ({ page }) => {
     { name: "tools/echo", remote: "https://example.test/echo", places: [place("/srv/tools/echo")], agents: [], last_activity: NOW - 7 * 86_400_000 },
   ];
   await openDesktop(page, false, { center_home: { ...home, projects: [], running: [] }, found_projects: found, agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high" } });
-  const prompt = page.getByRole("textbox", { name: "Task for a coding agent" });
+  const prompt = page.getByRole("textbox", { name: "Message for the assistant" });
   await expect(prompt).toBeVisible();
   await expect(page.locator("#sec-found .pl-row")).toHaveCount(2);
   await expect(page.locator("#sec-found").getByRole("button", { name: "Import" })).toHaveCount(2);
@@ -212,7 +214,7 @@ test("home first start", async ({ page }) => {
 
   await prompt.press("Enter");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").map(call => call.args))).toEqual([
-    { machineId, agent: "flsh", cwd: null, prompt: "Import my projects", images: [], model: null, effort: "high", checkout: null, assistant: true },
+    { machineId: null, agent: "flsh", cwd: null, prompt: "Import my projects", images: [], model: null, effort: "high", checkout: null, assistant: true },
   ]);
 });
 

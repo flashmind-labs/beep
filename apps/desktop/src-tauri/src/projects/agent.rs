@@ -225,9 +225,13 @@ async fn run(app: &AppHandle, args: &str) -> Result<Value, String> {
     }
 }
 
-/// The machine ids `names` name, by name as `machines list` gives it or by id.
+/// The machine ids `names` name, by name as `list_machines` gives it or by
+/// id. Phones are no such machines: they hold no checkouts.
 fn machine_ids(fleet: &Fleet, names: &[String]) -> Result<Vec<String>, String> {
-    let machines = fleet.machines();
+    let machines = fleet
+        .mesh()
+        .map(|mesh| mesh.code_hosts())
+        .unwrap_or_default();
 
     names
         .iter()

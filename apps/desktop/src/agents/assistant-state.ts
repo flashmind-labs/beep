@@ -4,6 +4,9 @@ import { AGENT_ORDER, harnessFor, keepEffort } from "./agentpick.ts";
 import type { AssistantPick } from "../settings/assistant.ts";
 import type { MachineEnv } from "../machines/machine-state.ts";
 
+/// What the assistant's composer field is to a screen reader.
+export const ASSISTANT_LABEL = "Message for the assistant";
+
 /// A session is the assistant when started as one, or, off Windows, when one
 /// found running outside Beep works in the machine's home folder. Beep's own
 /// starts say what they are.

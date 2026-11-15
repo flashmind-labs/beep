@@ -32,7 +32,7 @@ export function makeStartComposer({ externalChoices = false, presentation = "cen
   const root = createDocumentView(form);
   let state: StartComposerState = {
     centered: presentation === "centered", busy: false, welcome: presentation === "centered" ? nextSessionIntro() : "",
-    error: "", progress: "", placeholder: "", invalid: false, dropping: false, sendDisabled: false, sendTitle: null, stashLocked: false,
+    error: "", progress: "", placeholder: "", label: "Task for a coding agent", invalid: false, dropping: false, sendDisabled: false, sendTitle: null, stashLocked: false,
     harness: null, harnessDisabled: false, open: null, folderHidden: false, folderTitle: null,
     choiceView: null, choiceContents: null, attachmentView: null, uploadPicker: null, notes: null, footer: null, under: null, extras: null, picker: null,
   };
