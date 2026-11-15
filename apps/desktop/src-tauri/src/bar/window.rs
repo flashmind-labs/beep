@@ -12,6 +12,7 @@ const MIN_HEIGHT: f64 = 64.0;
 /// Share of the screen's height the bar may grow to.
 const MAX_SHARE: f64 = 0.7;
 /// Where the bar's top sits, as a share of the screen's height.
+#[cfg(desktop)]
 const TOP: f64 = 0.22;
 
 fn window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
@@ -31,6 +32,7 @@ pub fn toggle<R: Runtime>(app: &AppHandle<R>) {
 }
 
 /// Shows the bar. `view` asks the page to open a view.
+#[cfg(desktop)]
 pub fn show<R: Runtime>(app: &AppHandle<R>, view: Option<&str>) {
     let Some(bar) = window(app) else { return };
 
@@ -60,7 +62,7 @@ fn activate() {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(desktop, not(target_os = "macos")))]
 fn activate() {}
 
 /// Whether the bar is on screen.
@@ -104,6 +106,7 @@ fn give_back_focus<R: Runtime>(app: &AppHandle<R>) {
 #[cfg(not(target_os = "macos"))]
 fn give_back_focus<R: Runtime>(_: &AppHandle<R>) {}
 
+#[cfg(desktop)]
 fn place<R: Runtime>(app: &AppHandle<R>, bar: &WebviewWindow<R>) -> tauri::Result<()> {
     let cursor = app.cursor_position()?;
     let monitor = match app.monitor_from_point(cursor.x, cursor.y)? {

@@ -8,6 +8,8 @@ pub(crate) mod pasted_image;
 pub(crate) mod window;
 pub(crate) mod zoom;
 
+#[cfg(desktop)]
+pub(crate) use window::show;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(crate) use window::toggle;
-pub(crate) use window::{LABEL, hide, is_open, show};
+pub(crate) use window::{LABEL, hide, is_open};
