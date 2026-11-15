@@ -2,6 +2,24 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.10] - 2026-11-15
+
+### Changed
+
+- Node: with Project sync on, adds the Syncthing ignore rule for each
+  project in one of its shares unless the project chose Syncthing.
+- Node: a node gives a problem report its whole log for the chosen period,
+  instead of the newest 1 MiB.
+- Node: a problem report can be up to 95 MiB, up from 5 MiB, and a large
+  one gets more time to upload.
+
+### Fixed
+
+- Node: the first Git copy of a project into a folder that already has
+  files no longer fails forever with "rebuilding the git index failed" when
+  a file differs from the commit. The differing file stays as a local
+  change.
+
 ## [0.7.9] - 2026-11-15
 
 ### Added

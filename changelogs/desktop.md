@@ -7,6 +7,75 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.12] - 2026-11-15
+
+### Added
+
+- Desktop: Settings under Agent accounts, Claude Code, has a new Harness
+  choice: "ACP adapter" (the default) or "Direct". The choice is saved for
+  every machine, and new sessions use it. The Binary path and Launch
+  arguments settings apply to the ACP adapter only; Direct runs the claude
+  CLI found on the machine.
+- Desktop: rename any machine from its menu in the sidebar, on Home or in
+  a project's machines, or with Rename on its settings page. Every desktop,
+  phone and node in the mesh shows the new name.
+- Desktop: a Markdown file in the right panel has a Preview button that shows it rendered, like HTML files, and Source returns to the text.
+- Desktop: in the Cmd+K search palette, the right arrow on a selected
+  project lists its recent coding agent sessions. Enter opens the
+  selected one, and the left arrow goes back to the search results.
+
+### Changed
+
+- Desktop: an agent reply's send time now sits at the top right of the
+  reply instead of on its own line above it.
+- Desktop: the board leaves out an empty lane instead of showing Nothing
+  here.
+- Desktop: with Project sync on, projects inside a Syncthing share leave
+  Syncthing on every machine, including projects imported before and
+  after, so only Beep sync writes them. The "Always use Beep sync over
+  Syncthing" setting is gone. A project's menu can still hand it back to
+  Syncthing.
+- Desktop: adding a project to a machine, and Change folder, now picks the
+  folder in a search palette of that machine's folders. The palette shows
+  the path as steps you can go back through. A field filters the folders
+  shown, or takes a typed path. Git checkouts have a branch icon. One row
+  says exactly where the project will go. Up and Down move, Enter takes the
+  highlighted row, Cmd+Enter (Ctrl+Enter on Windows) adds the project, and
+  Backspace goes up one folder.
+- Desktop: a problem report holds each machine's whole log for the chosen
+  period, instead of the newest 1 MiB of each. A machine on an older node
+  still gives its newest 1 MiB.
+- Desktop: a problem report can be up to 95 MiB, up from 5 MiB, and a large
+  one gets more time to upload.
+
+### Fixed
+
+- Desktop: a project window on macOS no longer puts the traffic-light
+  buttons over the project name.
+- Desktop: the project menu no longer offers "Use Beep sync instead of
+  Syncthing" for a project whose folder is not in a Syncthing share on
+  any machine.
+- Desktop: in the model picker, a row is highlighted only when the cursor
+  moves over it. A cursor resting on a row no longer highlights that row,
+  and Enter picks the highlighted row.
+- Desktop: an attached image opens in the viewer as the picture you
+  attached, not the small preview that goes inline.
+- Desktop: adding a project that uses Beep sync to a machine where the
+  folder is inside a Syncthing share adds the Syncthing ignore rule there
+  instead of refusing the folder.
+- Desktop: with Project sync on, the import and add folder sheets show
+  "Keep Syncthing file sync" off for a folder in a Syncthing share,
+  matching what happens when it is left alone.
+- Desktop: a project can be added to a folder that already holds its files
+  without `.git`, for example files copied there by another file sync. The
+  Git history arrives and the files stay as they are. Adding no longer
+  stops with "has other files" or makes a nested `project/project` folder.
+- Desktop: in the Import and Add a folder sheets, a long path in the folder
+  browser's note no longer runs under its buttons.
+- Desktop: on Linux, the AppImage no longer crashes at start. It now
+  includes the tray icon library (ayatana-appindicator) instead of
+  relying on the system copy. The .deb package depends on that library.
+
 ## [0.9.11] - 2026-11-15
 
 ### Added
