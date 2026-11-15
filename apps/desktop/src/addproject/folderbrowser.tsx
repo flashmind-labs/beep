@@ -1,8 +1,143 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { MachineFolder } from "../project/projects-state.ts";
+import type { FolderOffer } from "../project/addmachine-state.ts";
 import { invoke } from "../ui/tauri.ts";
-import { NO_MENU, completed, isOpen, menuKey, menuOf, splitTyped, suggest, type FolderMenu } from "./foldercomplete.ts";
-import { Button } from "../ui/kit.tsx";
+import { NO_MENU, completed, crumbs, isOpen, matching, menuKey, menuOf, splitTyped, suggest, type FolderMenu } from "./foldercomplete.ts";
+import { Button, SkeletonRows, Spinner } from "../ui/kit.tsx";
+import { Icon } from "../ui/icons.tsx";
+import { reason } from "../ui/format.ts";
+import { WINDOWS, commandKey } from "../ui/platform.ts";
+
+interface PickerProps {
+  /// The machine whose folders it shows.
+  machine: string;
+  /// Where it opens; null for where the machine starts.
+  start: string | null;
+  /// The line over the offers, such as "Add widget to laptop", and its verb for the key hints.
+  heading: string; verb: string;
+  /// The folder it points at where the one shown offers nothing.
+  prefer: string;
+  /// What to offer for the folder shown; `opened` is the first one it showed.
+  offers(listing: MachineFolder, opened: string): FolderOffer[];
+  take(offer: FolderOffer): void;
+  /// Esc in the empty field; with a filter it clears that first.
+  close(): void;
+  taking: boolean; error: string | null;
+}
+
+/// Keeps a path reading left to right in a cell that cuts its start, not its end.
+const LTR = "\u200e";
+
+/// A row of the picker: something to do with the folder shown, a path typed
+/// to go to, or a folder in it to open.
+type Row = { kind: "offer"; offer: FolderOffer } | { kind: "go"; path: string } | { kind: "folder"; name: string };
+
+/// A machine's folders as a palette: the path as steps back, a field that
+/// filters the folder shown (or takes a path to go to), what the sheet offers
+/// to do with it, then its folders to open. Up and Down move, Enter takes the
+/// row, Cmd+Enter the first offer, Backspace in an empty field goes up, and
+/// Esc clears the filter, then closes.
+export function FolderPicker(p: PickerProps) {
+  const [shown, setShown] = useState<{ listing: MachineFolder; opened: string } | null>(null);
+  const [home, setHome] = useState<string | null>(null);
+  const [filter, setFilter] = useState(""), [index, setIndex] = useState(0);
+  const [reading, setReading] = useState(true), [failed, setFailed] = useState<string | null>(null);
+  const id = useId(), field = useRef<HTMLInputElement>(null), active = useRef<HTMLButtonElement>(null), ask = useRef(0);
+
+  const go = (path: string | null) => {
+    const mine = ++ask.current;
+    setReading(true);
+    invoke<MachineFolder>("list_machine_folder", { machineId: p.machine, path }).then(listing => {
+      if (mine !== ask.current) return;
+      setShown(was => ({ listing, opened: was?.opened ?? listing.path }));
+      setFilter("");
+      setFailed(null);
+      setReading(false);
+    }, e => {
+      if (mine !== ask.current) return;
+      setFailed(reason(e));
+      setReading(false);
+    });
+    field.current?.focus();
+  };
+  useEffect(() => {
+    go(p.start);
+    invoke<MachineFolder>("list_machine_folder", { machineId: p.machine, path: "~" }).then(listing => setHome(listing.path), () => {});
+
+    return () => { ask.current++; };
+  }, []);
+
+  const listing = shown?.listing ?? null;
+  const offered = shown ? p.offers(shown.listing, shown.opened) : [];
+  const typed = filter === "~" || splitTyped(filter) ? filter : null;
+  const folders = listing && !typed ? matching(listing.folders, filter) : [];
+  const rows: Row[] = [
+    ...(filter ? [] : offered).map((offer): Row => ({ kind: "offer", offer })),
+    ...(typed ? [{ kind: "go", path: typed } satisfies Row] : []),
+    ...folders.map((name): Row => ({ kind: "folder", name })),
+  ];
+  const first = rows[0]?.kind === "folder" && !filter ? Math.max(0, folders.indexOf(p.prefer)) : 0;
+  useLayoutEffect(() => { setIndex(first); }, [listing, filter]);
+  useLayoutEffect(() => { active.current?.scrollIntoView({ block: "nearest" }); }, [listing, index]);
+  const at = rows[index] ?? null;
+
+  const act = (row: Row | null) => {
+    if (!row || !listing || p.taking) return;
+
+    if (row.kind === "offer") p.take(row.offer);
+    else go(row.kind === "go" ? row.path : `${listing.path.replace(/\/$/, "")}/${row.name}`);
+  };
+  const key = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (rows.length) setIndex((index + (e.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      act(commandKey(e) && offered.length ? { kind: "offer", offer: offered[0] } : at);
+    } else if (e.key === "Backspace" && !filter && listing?.parent) {
+      e.preventDefault();
+      go(listing.parent);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      if (filter) setFilter("");
+      else p.close();
+    }
+  };
+
+  const steps = listing ? crumbs(listing.path, home) : [];
+  const hints = [
+    at && ["↵", at.kind === "offer" ? p.verb : "Open"],
+    at?.kind === "folder" && offered.length && [WINDOWS ? "Ctrl ↵" : "⌘↵", p.verb],
+    rows.length > 1 && ["↑↓", "Navigate"],
+    listing?.parent && ["⌫", "Up"],
+    ["esc", filter ? "Clear" : "Close"],
+  ].filter(hint => !!hint);
+  return <><div className="q"><Icon name="find" />
+    {steps.length > 0 && <div className="fp-path">{steps.map((step, i) => i < steps.length - 1
+      ? <Button key={step.path} small tabIndex={-1} title={step.path} onClick={() => go(step.path)}>{step.label}</Button>
+      : <b key={step.path} title={step.path}>{step.label}</b>)}</div>}
+    <input ref={field} type="text" autoFocus placeholder="Filter, or type a path" autoComplete="off" spellCheck={false} autoCapitalize="off" autoCorrect="off" aria-label={p.heading} role="combobox" aria-controls={id} aria-expanded="true" aria-activedescendant={at ? `${id}-${index}` : undefined} value={filter} onChange={e => setFilter(e.currentTarget.value)} onKeyDown={key} />
+    {(reading || p.taking) && <Spinner />}</div>
+    <div className="res" role="listbox" id={id}>
+      {!listing && !failed && <SkeletonRows widths={[38, 52, 30]} />}
+      {rows.map((row, i) => {
+        const before = i ? rows[i - 1].kind : null;
+        return <Fragment key={row.kind === "folder" ? `in/${row.name}` : row.kind === "go" ? "go" : `to/${row.offer.path}`}>
+          {row.kind !== before && row.kind === "offer" && <h5>{p.heading}</h5>}
+          {row.kind !== before && row.kind === "folder" && <h5>Folders<span>{folders.length + (filter ? 0 : listing?.more ?? 0)}</span></h5>}
+          <button ref={i === index ? active : null} type="button" className="it" tabIndex={-1} role="option" id={`${id}-${i}`} aria-selected={i === index} disabled={p.taking} onMouseMove={e => { if (e.movementX || e.movementY) setIndex(i); }} onClick={() => act(row)}>
+            {row.kind === "offer" ? <><Icon name="plus" /><b>{row.offer.label}</b><span className="w" title={row.offer.path}>{LTR}{row.offer.path}</span></>
+              : row.kind === "go" ? <><Icon name="folder" size={14} /><span className="t"><span>Go to {row.path}</span></span><Icon name="chev" /></>
+              : <><Icon name={listing?.repos.includes(row.name) ? "branch" : "folder"} size={14} /><span className="t"><span>{row.name}</span></span><Icon name="chev" /></>}
+          </button>
+        </Fragment>;
+      })}
+      {listing && !rows.length && <div className="none">{filter ? `No folder matches “${filter}”.` : "No folders in here."}</div>}
+    </div>
+    {(failed ?? p.error) && <div className="am-msg bad">{failed ?? p.error}</div>}
+    <div className="foot">{hints.map(([keys, does]) => <span key={keys}><kbd>{keys}</kbd>{does}</span>)}</div>
+  </>;
+}
 
 interface Props {
   listing: MachineFolder; reading: boolean; note: string | null; focusFirst: boolean;

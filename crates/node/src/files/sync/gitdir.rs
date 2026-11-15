@@ -768,10 +768,19 @@ impl Repo {
         !self.root.join(GIT).join("index").exists()
     }
 
-    /// Creates the committed working tree after bootstrap, without overwriting files.
+    /// Creates the committed working tree after bootstrap, without overwriting files: one that
+    /// is there and differs stays, a local change.
     pub(super) fn materialize_checkout(&self) -> Result<()> {
-        self.run(&["checkout-index", "--all"])?;
-        Ok(())
+        // Git fails for each file it leaves alone; only a tracked file still missing is a failure.
+        let Err(left) = self.run(&["checkout-index", "--all"]) else {
+            return Ok(());
+        };
+
+        if self.run(&["ls-files", "--deleted"])?.stdout.is_empty() {
+            return Ok(());
+        }
+
+        Err(left)
     }
 
     /// Makes the index HEAD's tree, with this machine's stat data, and puts

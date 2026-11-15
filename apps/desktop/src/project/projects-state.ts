@@ -55,6 +55,8 @@ export interface MachineFolder {
   /// A git checkout's `origin` remote, empty when it has none; null when it
   /// is no checkout.
   origin: string | null;
+  /// Those of `folders` that are git checkouts.
+  repos: string[];
 }
 
 /// A git checkout the user's coding agents worked in (FoundRow).

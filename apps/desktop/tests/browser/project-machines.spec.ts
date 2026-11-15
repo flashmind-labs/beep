@@ -138,20 +138,57 @@ test("handoff retries errors and keeps its native request after closing", async 
   await page.evaluate(() => window.__navigation.release("project_handoff_work"));
 });
 
-test("adding a machine keeps a typed folder across the initial lookup", async ({ page }) => {
+test("adding a machine picks its folder in a palette of the machine's folders", async ({ page }) => {
+  const at = (path: string, over = {}) => ({ path, parent: path.slice(0, path.lastIndexOf("/")) || "/", exists: true, folders: [], more: 0, empty: false, origin: null, repos: [], ...over });
   await openMachines(page);
-  await page.evaluate(() => { window.__navigation.respond("list_machine_folder", { path: "/srv", parent: "/", exists: true, folders: ["projects"], more: 0, empty: true, origin: null }); window.__navigation.hold("list_machine_folder"); });
+  const code = at("/home/dev/code", { folders: ["apps", "widget", "zeta"], repos: ["zeta"] });
+  await page.evaluate(folders => { window.__navigation.respond("machine_search", "~/code"); window.__navigation.respond("machine_folders", folders); }, {
+    "~": at("/home/dev", { folders: ["code"] }),
+    "~/code": code,
+    "/home/dev/code": code,
+    "/home/dev/code/widget": at("/home/dev/code/widget", { folders: ["deploy"] }),
+    "/home/dev/code/apps": at("/home/dev/code/apps", { empty: true }),
+    "/srv/new": at("/srv/new", { exists: false, empty: true }),
+  });
   await page.getByRole("article", { name: "laptop", exact: true }).getByRole("button", { name: "Add", exact: true }).click();
-  const sheet = page.getByRole("dialog", { name: /Add widget to laptop/ });
-  const field = sheet.getByRole("textbox", { name: "Folder on laptop" });
-  await field.fill("/srv/custom");
-  await field.evaluate(el => { if (el instanceof HTMLInputElement) el.setSelectionRange(3, 6); Reflect.set(window, "folderField", el); });
-  await page.evaluate(() => window.__navigation.release("list_machine_folder"));
-  await expect(sheet.getByRole("button", { name: "Choose…" })).toBeEnabled();
-  expect(await field.evaluate(el => el === Reflect.get(window, "folderField") && document.activeElement === el && el instanceof HTMLInputElement && el.value === "/srv/custom" && el.selectionStart === 3 && el.selectionEnd === 6)).toBe(true);
+  const sheet = page.getByRole("dialog", { name: "Add widget to laptop" });
+  const field = sheet.getByRole("combobox");
+  const selected = sheet.locator('[role="option"][aria-selected="true"]');
+  const added = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_add_to_machine").map(call => call.args));
+
+  // A folder named for the project is the place: the picker points at it and offers nothing around it.
+  await expect(selected).toHaveText("widget");
+  await expect(sheet.getByRole("option")).toHaveText(["apps", "widget", "zeta"]);
+  await expect(sheet.locator(".fp-path")).toHaveText("Homecode");
+  await expect(field).toBeFocused();
+
+  // It has files and no `.git`: it takes the project as it is, not in `widget/widget`.
+  await field.fill("wid");
+  await expect(sheet.getByRole("option")).toHaveText(["widget"]);
+  await page.keyboard.press("Enter");
+  await expect(selected).toContainText("Add here, keeping its files");
+  await expect(selected).toContainText("/home/dev/code/widget");
+  await expect(sheet.getByRole("option", { name: "deploy" })).toBeVisible();
+
+  // Backspace in the empty field goes up, a step of the path goes back, and a typed path goes there.
+  await page.keyboard.press("Backspace");
+  await expect(sheet.getByRole("option", { name: "zeta" })).toBeVisible();
+  await sheet.getByRole("option", { name: "apps" }).click();
+  await expect(selected).toHaveText(/^Add here.*\/home\/dev\/code\/apps$/);
+  await sheet.locator(".fp-path").getByRole("button", { name: "code" }).click();
+  await expect(sheet.getByRole("option", { name: "zeta" })).toBeVisible();
+  await field.fill("/srv/new");
+  await expect(selected).toHaveText("Go to /srv/new");
+  await page.keyboard.press("Enter");
+  await expect(selected).toContainText("/srv/new");
+
+  // What the desk refuses shows in the sheet, which stays open; then the offer is taken.
+  await page.evaluate(() => window.__navigation.rejectOnce("project_add_to_machine"));
+  await page.keyboard.press("Enter");
+  await expect(sheet).toContainText("Requested test failure");
   await page.evaluate(() => window.__navigation.hold("project_add_to_machine"));
-  await sheet.getByRole("button", { name: "Add", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_add_to_machine").map(call => call.args))).toEqual([{ project: projectName, machineId: "laptop", folder: "/srv/custom" }]);
+  await page.keyboard.press("Enter");
+  await expect.poll(added).toEqual(Array(2).fill({ project: projectName, machineId: "laptop", folder: "/srv/new" }));
   await page.keyboard.press("Escape");
   await page.evaluate(() => window.__navigation.release("project_add_to_machine"));
   await expect(sheet).toHaveCount(0);

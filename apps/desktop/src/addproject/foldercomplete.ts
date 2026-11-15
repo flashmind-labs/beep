@@ -1,6 +1,38 @@
 // Folder completion for the Import a project sheet's Folder field: what to
 // list for the text typed, which of its folders to offer, and what the
 // menu's keys do. The sheet reads the folders with `list_machine_folder`.
+// The folder picker's path and filter are here too.
+
+/// One step of the picker's path: an ancestor to go back to.
+export interface Crumb {
+  label: string;
+  path: string;
+}
+
+/// The way down to `path` as steps, the folder itself last: from `Home` when
+/// it is under the machine's `home`, else from `/`.
+export function crumbs(path: string, home: string | null): Crumb[] {
+  const under = home && home !== "/" && (path === home || path.startsWith(`${home}/`));
+  const from: Crumb = under ? { label: "Home", path: home } : { label: "/", path: "/" };
+  const steps = [from];
+
+  for (const name of path.slice(from.path.length).split("/").filter(Boolean)) {
+    steps.push({ label: name, path: `${steps[steps.length - 1].path.replace(/\/$/, "")}/${name}` });
+  }
+
+  return steps;
+}
+
+/// The folders whose name holds `filter`, ignoring case, those starting with
+/// it first.
+export function matching(folders: readonly string[], filter: string): string[] {
+  const want = filter.trim().toLowerCase();
+  if (!want) return [...folders];
+  const found = folders.filter(name => name.toLowerCase().includes(want));
+  const starts = (name: string) => name.toLowerCase().startsWith(want);
+
+  return [...found.filter(starts), ...found.filter(name => !starts(name))];
+}
 
 /// The most folders the menu offers.
 const MAX_SUGGESTIONS = 12;

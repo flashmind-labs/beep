@@ -1,19 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { browseStart, copyLine, destination, shortName } from "../src/project/addmachine-state.ts";
+import { browseStart, copyLine, offers, shortName } from "../src/project/addmachine-state.ts";
 import { whereRows } from "../src/project/projects-state.ts";
 import type { MachineDetail, SyncDetail } from "../src/project/filesync.ts";
 
-const folder = (path: string, exists: boolean, empty: boolean) => ({ path, parent: "/srv", exists, folders: [], more: 0, empty, origin: null });
+const folder = (path: string, over = {}) => ({ path, parent: "/srv", exists: true, folders: [], more: 0, empty: false, origin: null, repos: [], ...over });
 
-test("an empty folder takes the project, any other holds it", () => {
-  assert.equal(destination(folder("/srv/new", false, true), "acme/widget"), "/srv/new/widget");
-  assert.equal(destination(folder("/srv/empty", true, true), "acme/widget"), "/srv/empty");
-  assert.equal(destination(folder("/srv/code/", true, false), "acme/widget"), "/srv/code/widget");
+test("the picker offers the folder itself, or one in it named for the project", () => {
+  const at = (path: string, over = {}, change = false) => offers(folder(path, over), "acme/widget", change, "/srv");
+  assert.deepEqual(at("/srv"), [{ label: "Add in a new folder", path: "/srv/acme/widget" }]);
+  assert.deepEqual(at("/srv/code"), [{ label: "Add in a new folder", path: "/srv/code/widget" }]);
+  assert.deepEqual(at("/srv/new", { exists: false, empty: true }), [{ label: "Add here", path: "/srv/new" }]);
+  assert.deepEqual(at("/srv/empty", { empty: true }, true), [{ label: "Use this folder", path: "/srv/empty" }]);
+  assert.deepEqual(at("/srv/clone", { origin: "https://example.test/acme/widget.git" }), [{ label: "Use this checkout", path: "/srv/clone" }]);
+  // Its files are there already, without `.git`: it goes over them, not in `widget/widget`.
+  assert.deepEqual(at("/srv/code/widget"), [{ label: "Add here, keeping its files", path: "/srv/code/widget" }]);
+  // The folder named for it is the place: nothing is offered around it.
+  assert.deepEqual(at("/srv/code", { folders: ["other", "widget"] }), []);
+  assert.deepEqual(at("/srv", { folders: ["widget"] }), []);
   assert.equal(shortName("local"), "local");
 });
 
-test("the browser opens where the path would go", () => {
+test("the picker opens where the folder is", () => {
   assert.equal(browseStart("/srv/code/widget"), "/srv/code");
   assert.equal(browseStart("/widget"), "/");
   assert.equal(browseStart("~/code/"), "~");
