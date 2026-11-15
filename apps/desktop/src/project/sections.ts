@@ -33,7 +33,9 @@ import { drawProjects } from "./page.tsx";
 
 /// The row of the project's list picked, null for the first, and a run to
 /// open on the Actions tile.
-export const pa = { tile: null as string | null, run: null as { project: string; id: number; host: string } | null };
+/// The tile picked, a run to open, and whether the project's board is blank,
+/// which centers the agent bar on the page under the sunrise.
+export const pa = { tile: null as string | null, run: null as { project: string; id: number; host: string } | null, blank: false };
 
 export const terms = makeTerminals({ invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => redrawProjects(), kept: keptSection("terminals") });
 export const fsync = makeFileSync({ invoke, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, fixGit: (project, machine, error) => void openSyncRepair(project, machine, error), kept: keptSection("filesync") });

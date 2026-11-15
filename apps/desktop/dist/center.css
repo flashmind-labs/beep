@@ -405,6 +405,8 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 /* The project page: everything going on in a list at the left, the picked
    row's detail at the right, each scrolling on its own. */
 .cc-view.split { padding: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr) }
+/* A blank board leaves the rest of the page to the centered agent bar. */
+.cc-view.blank { flex: none }
 .pj-strip { margin: 10px 16px; flex: none }
 .pj-list hr { border: 0; border-top: 1px solid var(--border); margin: 6px 14px }
 .pj-li.nav { grid-template-columns: minmax(0, 1fr) auto; padding: 7px 14px }
