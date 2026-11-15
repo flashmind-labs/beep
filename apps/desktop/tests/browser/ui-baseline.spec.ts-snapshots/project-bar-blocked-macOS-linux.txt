@@ -171,19 +171,6 @@ body.cbody
           div.pj-board
             div.bd-lanes
               div.bd-lane
-                h4 "Needs you"
-                  span
-                div.bd-empty "Nothing here"
-              div.bd-lane
-                h4
-                  button [type="button"] "Working"
-                  span
-                div.bd-empty "Nothing here"
-              div.bd-lane
-                h4 "Ready to review"
-                  span
-                div.bd-empty "Nothing here"
-              div.bd-lane
                 h4
                   button [type="button"] "Done today"
                   span "6"
