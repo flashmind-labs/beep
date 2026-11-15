@@ -100,7 +100,13 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
   }, e => insert("ignored", [{ label: `Ignored folders: ${reason(e)} (retry)`, on: reopen }]));
 
   // Unset keeps each folder's own Syncthing share, so it reads as Syncthing.
-  invoke<boolean | null>("project_syncthing_mode", { project: project.name }).then(enabled => {
+  // The line shows once set, or while some machine shares the folder.
+  const shared = Promise.any(project.machines.map(place =>
+    invoke<SyncthingFiles>("project_syncthing_files", { machineId: place.id, folder: place.folder })
+      .then(files => files.available || Promise.reject(new Error("not shared")))));
+  invoke<boolean | null>("project_syncthing_mode", { project: project.name }).then(async enabled => {
+    if (enabled === null && !await shared.catch(() => false)) return;
+
     const beep = enabled === false;
     const change = async () => {
       try {
