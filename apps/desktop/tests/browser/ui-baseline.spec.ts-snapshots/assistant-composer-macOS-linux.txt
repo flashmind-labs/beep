@@ -178,18 +178,18 @@ body.cbody
             div#agcomposer.agc-wrap
               form.cc-pjc.centered
                 section.agc-intro
-                  canvas.painted-art.sunrise [aria-hidden="true" height="160" width="375"]
-                  h3 [aria-label="What are we building today?"]
+                  canvas.painted-art.sunrise [aria-hidden="true" height="160" width="272"]
+                  h3 [aria-label="What can I help with?"]
                     span [aria-hidden="true"]
                       span.agc-word style(--word) "What"
-                      span.agc-word style(--word) "are"
-                      span.agc-word style(--word) "we"
-                      span.agc-word style(--word) "building"
-                      span.agc-word style(--word) "today?"
-                  p "A fresh idea. A tricky bug. A place to start."
+                      span.agc-word style(--word) "can"
+                      span.agc-word style(--word) "I"
+                      span.agc-word style(--word) "help"
+                      span.agc-word style(--word) "with?"
+                  p "Ask about your machines and projects."
                 div#agbox.box
                   div.cx-layer [aria-hidden="true" hidden]
-                  textarea#agprompt.cx-field [aria-label="Message for the assistant" autocomplete="off" data-prompt-stash placeholder="Describe the task." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] style(height,overflow-y) value="" (focused)
+                  textarea#agprompt.cx-field [aria-label="Message for the assistant" autocomplete="off" data-prompt-stash placeholder="Ask the assistant." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] style(height,overflow-y) value="" (focused)
                   div.row
                     span.sp
                     button#agpillb.pill [aria-expanded="false" title="Harness, model and thinking" type="button"] "High Default"

@@ -3,7 +3,7 @@ import { makeStartComposer } from "../agents/start-composer.tsx";
 import { startAssistant } from "../agents/agentnew.tsx";
 import { AG, loadAgentHosts, type AgentHost } from "../agents/agents.ts";
 import { pillContent } from "../agents/agentpicker.tsx";
-import { ASSISTANT_LABEL, assistantHost, resolveAssistant } from "../agents/assistant-state.ts";
+import { ASSISTANT_WORDS, assistantHost, resolveAssistant } from "../agents/assistant-state.ts";
 import { loadAssistant, onAssistantSaved } from "../settings/assistant.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { FoundSection } from "../project/outside-lists.tsx";
@@ -41,6 +41,8 @@ export function HomeAssistant({ found }: { found: FoundRow[] | null }) {
 
   return <>
     <PaintedEmpty>
+      <b>{ASSISTANT_WORDS.title}</b>
+      <span>{ASSISTANT_WORDS.line}</span>
       <div className="home-assistant" ref={slot} />
       <Button small className="dchip" onClick={suggest}>{SUGGESTION}</Button>
     </PaintedEmpty>
@@ -56,7 +58,7 @@ const composer = makeStartComposer({
   actions: { submit: () => void send(), harness: () => openSettings("assistant"), input: () => composer.update({ invalid: false }) },
   place: () => null,
 });
-composer.update({ placeholder: "Ask the assistant.", label: ASSISTANT_LABEL });
+composer.update({ placeholder: ASSISTANT_WORDS.placeholder, words: ASSISTANT_WORDS });
 /// True while a send starts the assistant.
 let sending = false;
 

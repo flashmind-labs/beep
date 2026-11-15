@@ -3,9 +3,14 @@ import type { AgentHost, AgentSession } from "./agents.ts";
 import { AGENT_ORDER, harnessFor, keepEffort } from "./agentpick.ts";
 import type { AssistantPick } from "../settings/assistant.ts";
 
-/// What a start composer's field is to a screen reader: a task, or a message for the assistant.
-export const TASK_LABEL = "Task for a coding agent";
-export const ASSISTANT_LABEL = "Message for the assistant";
+/// What a start composer says: its field to a screen reader, its heading (a new one drawn by
+/// lot each time when null), the line under it and the field's placeholder.
+export interface ComposerWords { label: string; title: string | null; line: string; placeholder: string }
+
+/// A coding agent's start composer.
+export const TASK_WORDS = { label: "Task for a coding agent", title: null, line: "A fresh idea. A tricky bug. A place to start.", placeholder: "Describe the task." } as const satisfies ComposerWords;
+/// The assistant's start composer, on Home and from Cmd+N.
+export const ASSISTANT_WORDS = { label: "Message for the assistant", title: "What can I help with?", line: "Ask about your machines and projects.", placeholder: "Ask the assistant." } as const satisfies ComposerWords;
 
 /// A session is the assistant when started as one (Cmd+N on Home), as its node keeps it. A
 /// reviewer never is.

@@ -99,6 +99,8 @@ body.cbody
           div.painted-empty
             canvas.painted-art.sunrise [aria-hidden="true" height="130" width="264"]
             div.cc-empty.cc-panel
+              b "What can I help with?"
+              span "Ask about your machines and projects."
               div.home-assistant
                 form.cc-pjc
                   div.box

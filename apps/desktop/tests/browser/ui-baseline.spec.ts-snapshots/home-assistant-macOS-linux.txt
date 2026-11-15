@@ -175,7 +175,7 @@ body.cbody
             div.cc-sec
               h4 "Assistant"
                 span.n "2"
-            div.cc-panel
+            div.bd-log
               div.cc-line.cc-row [data-key="agent:build-box:helper-one"]
                 span.cc-ag.flsh.mark
                   svg [aria-hidden="true" viewBox="0 0 28 28"]

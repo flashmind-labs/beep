@@ -26,7 +26,7 @@ import { go } from "./views.tsx";
 import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
 import { isMobile } from "../ui/platform.ts";
-import { Button, Section, EmptyPanel, EndedFold, LineRow } from "../ui/kit.tsx";
+import { Button, Section, SectionHead, EmptyPanel, EndedFold, LineRow } from "../ui/kit.tsx";
 import { sessions } from "../agents/sessions.ts";
 import { assistantRows } from "../agents/assistant-state.ts";
 import type { AgentSession } from "../agents/agents.ts";
@@ -177,11 +177,15 @@ function Assistants({ running, ended }: { running: AgentSession[]; ended: AgentS
     return <LineRow key={runningKey(session)} dataKey={runningKey(session)} lead={<HarnessIcon agent={session.agent} />} title={session.title || agentName(session.agent)} sub={session.machine_name} right={right} dim={session.status === "ended"} onOpen={() => go("pane", { agent: session })} />;
   };
 
-  return <Section id="sec-assistant" title="Assistant" count={running.length}>
-    {running.map(row)}
-    {!!ended.length && <EndedFold count={ended.length} open={endedOpen} onToggle={() => setEndedOpen(!endedOpen)} />}
-    {endedOpen && ended.map(row)}
-  </Section>;
+  // Plain rows, as the board's done log.
+  return <div id="sec-assistant">
+    <SectionHead title="Assistant" count={running.length} />
+    <div className="bd-log">
+      {running.map(row)}
+      {!!ended.length && <EndedFold count={ended.length} open={endedOpen} onToggle={() => setEndedOpen(!endedOpen)} />}
+      {endedOpen && ended.map(row)}
+    </div>
+  </div>;
 }
 
 /// Nothing to show: nothing runs, or no machine has answered yet. Before any
