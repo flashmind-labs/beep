@@ -107,6 +107,8 @@ body.cbody
                   span "build-box · 1 h"
                 button.dbtn.quiet [aria-label="Dismiss" title="Dismiss" type="button"]
                   svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+        button.mb-set [aria-label="Settings" type="button"]
+          svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div#home-box.cc-box
         div#view.cc-view
           canvas.haze.painted-art [aria-hidden="true" height="15" width="272"]

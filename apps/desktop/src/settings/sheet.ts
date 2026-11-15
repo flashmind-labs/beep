@@ -128,6 +128,7 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
 
 connectSettingsSheet({
   show: (_sheet, content) => { const open = settingsOpen; if (open) flushSync(() => open.render(content)); },
+  close: closeSettings,
 });
 export const instructionsView = instructionsPage({ invoke, ago: ms => formatAgo(ms, "short"), openSettings });
 export const providersView = providersPage({ invoke, openSettings, redrawTop: () => {

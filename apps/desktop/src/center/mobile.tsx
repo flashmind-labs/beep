@@ -3,7 +3,7 @@
 // mobile.css, scoped to `body.mobile`; this file sets the class and draws the bars.
 import { isMobile, onPhone } from "../ui/platform.ts";
 import { invoke } from "../ui/tauri.ts";
-import { MobileTabs, MobileBack, HideKeyboard } from "./mobile-view.tsx";
+import { MobileTabs, MobileBack, MobileSettings, HideKeyboard } from "./mobile-view.tsx";
 import { placeWindowParts, removeWindowPart, showWindowParts } from "./window-root.tsx";
 import { windowHost } from "./window-shell.tsx";
 import { allTerms } from "../terminals/view.tsx";
@@ -12,6 +12,7 @@ import { pa } from "../project/sections.ts";
 import { HOME_TAB_EVENT, homeTab, jump } from "./home.tsx";
 import { currentLocation, go, goHistory, asBack } from "./views.tsx";
 import { openProjects, paneOn } from "./sidebar.tsx";
+import { openSettings } from "../settings/sheet.ts";
 import { activeTab, backTo, fullScreen, type MobileAt, type MobileTab } from "./mobile-state.ts";
 import { state } from "./state.ts";
 import { atBottom } from "../agents/logscroll.ts";
@@ -63,6 +64,7 @@ function drawMobile(now: MobileAt) {
   placeWindowParts({
     "mobile-tabs": <MobileTabs active={activeTab(now)} needsReply={!!state.home?.needs_you.length} open={tab => OPEN[tab]()} />,
     "mobile-back": <MobileBack hidden={backTo(now) === null} back={back} />,
+    "mobile-settings": <MobileSettings hidden={backTo(now) !== null} open={() => openSettings()} />,
   });
 }
 

@@ -1,4 +1,5 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
+import { Button } from "../ui/kit.tsx";
 import { useLayoutEffect, type ReactNode, type Ref } from "react";
 import { navEntries, subKey, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
 
@@ -18,8 +19,8 @@ export function SettingsBreadcrumb({ path, page, sub, openPage }: { path: Settin
 }
 
 // The shell renders each page's content as its children; the sheet and bar share one owner each.
-export function SettingsShell({ navigation, breadcrumb, children }: { navigation: ReactNode; breadcrumb: ReactNode; children: ReactNode }) {
-  return <><nav className="dset-nav" aria-label="Settings pages">{navigation}</nav><div className="dset-body"><div className="dset-top"><span className="dset-crumbs">{breadcrumb}</span><kbd>esc</kbd></div><div className="dset-page dform">{children}</div></div></>;
+export function SettingsShell({ navigation, breadcrumb, close, children }: { navigation: ReactNode; breadcrumb: ReactNode; close(): void; children: ReactNode }) {
+  return <><nav className="dset-nav" aria-label="Settings pages">{navigation}</nav><div className="dset-body"><div className="dset-top"><span className="dset-crumbs">{breadcrumb}</span><kbd>esc</kbd><Button look="quiet" className="dset-close" onClick={close}>Close</Button></div><div className="dset-page dform">{children}</div></div></>;
 }
 
 export function SettingsBarShell({ version, sections, hints }: { version: string; sections: ReactNode; hints: HintViewModel }) {

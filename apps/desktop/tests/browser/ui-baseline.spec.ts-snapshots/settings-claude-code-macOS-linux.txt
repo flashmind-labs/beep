@@ -76,6 +76,8 @@ body.cbody
           button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
             span style(display)
               svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
+        button.mb-set [aria-label="Settings" type="button"]
+          svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div#home-box.cc-box
         div#view.cc-view
           canvas.haze.painted-art [aria-hidden="true" height="15" width="272"]
@@ -206,6 +208,7 @@ body.cbody
             svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
             b "Claude Code"
           kbd "esc"
+          button.dbtn.dset-close.quiet [type="button"] "Close"
         div.dform.dset-page
           section#set-agents-sec [data-sec="agents"]
             div#set-agents-host.dset-host
@@ -284,7 +287,7 @@ body.cbody
                     div.hv-f
                       span
                         b "Binary path"
-                        small "The command Beep starts for Claude Code on build-box."
+                        small "The command Beep starts for Claude Code on build-box. ACP adapter only: Direct runs the claude CLI found here."
                       input.hv-in [aria-label="Binary path" autocomplete="off" placeholder="claude" spellcheck="false" type="text" value] value=""
                     div.hv-f
                       span
@@ -294,7 +297,7 @@ body.cbody
                     div.hv-f
                       span
                         b "Launch arguments"
-                        small "Added to every session it starts."
+                        small "Added to every session it starts. ACP adapter only: Direct runs the claude CLI found here."
                       input.hv-in [aria-label="Launch arguments" autocomplete="off" placeholder="none" spellcheck="false" type="text" value] value=""
                     div.hv-f
                       span
