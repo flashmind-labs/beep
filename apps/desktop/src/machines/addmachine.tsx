@@ -8,6 +8,7 @@ import { type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { openSheet } from "../ui/parts.tsx";
 import { AddMachineBody } from "./addmachine-view.tsx";
+import { wslActions } from "./wsl.ts";
 import type { MacControl, MachineView } from "./machine-state.ts";
 
 /// A ticket as `mesh_invite` gives it (TokenView).
@@ -30,6 +31,8 @@ const creation = latest();
 let ticker: Timer, poller: (() => void) | undefined, close: (() => void) | null = null, onClose: (() => void) | null = null;
 // This Mac's mac_control view, and whether the sheet turned it on.
 let mac: MacSeen | null = null, macAsked = false, macPoller: (() => void) | undefined;
+/// The mesh's machines, for the WSL distributions of the Windows ones.
+let machines: MachineView[] = [], unfollowMachines: (() => void) | undefined;
 let render: ((content: ReactNode) => void) | null = null;
 let opening = 0;
 
@@ -54,7 +57,9 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
   ticker = setInterval(() => update({ type: "tick", now: Date.now() }), TICK_MS);
   mac = null;
   macAsked = false;
+  machines = [];
   loadMac();
+  followMachines();
   macPoller = subscribeChanges(topic("machines"), { deliver: "latest", receive: () => loadMac() });
   start();
 }
@@ -71,6 +76,8 @@ function closed() {
   clearInterval(ticker);
   poller?.();
   macPoller?.();
+  unfollowMachines?.();
+  unfollowMachines = undefined;
   ticker = undefined;
   poller = macPoller = undefined;
   root = sheet = close = null;
@@ -134,6 +141,19 @@ async function loadMac() {
   draw(false);
 }
 
+/// Follows the Machines page's list, so the WSL rows read as on a
+/// machine's page.
+function followMachines() {
+  const asked = opening;
+  void import("./machines.tsx").then(m => {
+    if (!root || asked !== opening) return;
+    unfollowMachines = m.followMachineList(list => {
+      machines = [...list];
+      if (root) draw(false);
+    });
+  }).catch((e: unknown) => console.warn("machines for the WSL distributions:", e));
+}
+
 /// Turns on Let Beep use this Mac.
 async function useThisMac() {
   const asked = opening;
@@ -162,7 +182,7 @@ function draw(focus = true) {
   if (!sheet || !render) return;
   const box = sheet, show = render;
   flushSync(() => show(<AddMachineBody
-    state={state} kind={kind} mac={mac} macAsked={macAsked} now={Date.now()}
+    state={state} kind={kind} mac={mac} macAsked={macAsked} now={Date.now()} machines={machines} wsl={wslActions}
     selectKind={(selected: TicketKind) => { if (kind !== selected) { kind = selected; void start(); } }}
     useThisMac={() => { void useThisMac(); }} start={() => { void start(); }} close={closeAddMachine}
   />));

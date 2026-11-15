@@ -28,6 +28,10 @@
 .am-msg.bad { color: var(--err) }
 .am-mac { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--border) }
 .am-mac .am-line, .am-mac .am-msg { margin-bottom: 0 }
+/* The WSL distributions of a Windows machine, each a row with its action. */
+.wsl-rows { display: grid; gap: 10px }
+.wsl-rows .am-line, .wsl-rows .am-msg { margin: 0 }
+.wsl-rows .am-msg { margin-top: 4px }
 .am-mac-text { flex: 1; min-width: 0; font-size: 13px }
 .am-other { font-weight: 500; color: var(--fg) }
 .am-os { font-size: 12px; color: var(--muted); margin-bottom: 4px }

@@ -761,6 +761,7 @@ fn machine_env(env: EnvReport) -> MachineEnv {
             .collect(),
         avds: env.avds,
         gpus: env.gpus.into_iter().map(machine_gpu).collect(),
+        wsl: env.wsl,
     }
 }
 

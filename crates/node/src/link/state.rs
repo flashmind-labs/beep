@@ -173,8 +173,13 @@ fn ensure_key(dir: &Path) -> Result<SecretKey> {
     }
 }
 
-/// Where `node.toml` in `dir` says to look for git checkouts.
+/// Where `node.toml` in `dir` says to look for git checkouts; home when
+/// `dir` has none, as the desktop app's own node, which searches home.
 pub fn saved_search(dir: &Path) -> Result<Search> {
+    if !dir.join(SETTINGS_FILE).exists() {
+        return Ok(Search::default());
+    }
+
     Ok(Search(read_settings(dir)?.search))
 }
 

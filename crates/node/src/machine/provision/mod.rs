@@ -9,7 +9,7 @@ mod teacli;
 mod tools;
 
 pub(crate) use skills::installed_by_beep;
-pub(crate) use tools::{curl, listed_sha256, remove_dir, verify};
+pub(crate) use tools::{curl, listed_sha256, remove_dir, unpack, verify};
 
 use crate::{AsyncMutex, lock};
 use anyhow::{Context, Result};

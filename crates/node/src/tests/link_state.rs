@@ -47,3 +47,9 @@ fn old_settings_load_and_saving_drops_them() {
     assert!(!saved.contains("webhook_listen"), "{saved}");
     assert!(!saved.contains("server"), "{saved}");
 }
+
+#[test]
+fn a_folder_without_settings_searches_home() {
+    let dir = tempfile::tempdir().expect("a folder");
+    assert_eq!(saved_search(dir.path()).expect("home"), Search::default());
+}

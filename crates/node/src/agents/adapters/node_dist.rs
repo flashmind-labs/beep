@@ -71,10 +71,6 @@ impl NodeDist {
         format!("{}/{version}/SHASUMS256.txt", self.base)
     }
 
-    pub(super) fn is_zip(&self) -> bool {
-        self.zip
-    }
-
     /// The newest LTS release in `index` (nodejs.org's `index.json`, newest
     /// first) that has this build.
     pub(super) fn newest_lts(&self, index: &str) -> Result<String> {

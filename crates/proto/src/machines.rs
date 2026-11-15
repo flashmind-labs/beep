@@ -258,7 +258,7 @@ wire_structs! {
 
     /// What a machine reported about itself.
     pub struct MachineEnv {
-        /// `linux` or `macos`.
+        /// `linux`, `macos` or `windows`.
         pub os: String,
         /// Such as "Ubuntu 24.04" or "macOS 26.3".
         pub os_version: String,
@@ -274,6 +274,9 @@ wire_structs! {
         pub avds: Vec<String>,
         #[serde(default)]
         pub gpus: Vec<MachineGpu>,
+        /// The WSL distributions of a Windows machine.
+        #[serde(default)]
+        pub wsl: Vec<node::WslDistro>,
     }
 
     /// A known tool found on a machine's `PATH`.

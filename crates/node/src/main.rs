@@ -36,8 +36,10 @@ struct Cli {
     /// Windows service uses it, having no console.
     #[arg(long, global = true, hide = true)]
     log_file: Option<PathBuf>,
-    /// Stops when the process that started this one exits. The Windows
-    /// service uses it, as ending a scheduled task ends only that process.
+    /// Stops when the process that started this one exits, or elsewhere
+    /// when its stdin closes. The Windows service uses it, as ending a
+    /// scheduled task ends only that process, and so does a Windows node for
+    /// the node it runs in WSL.
     #[arg(long, global = true, hide = true)]
     with_parent: bool,
     #[command(subcommand)]
@@ -68,6 +70,8 @@ enum Command {
     },
     /// Prints what this machine reports to Beep.
     Env,
+    /// Prints this machine's id in the mesh, once it made its key.
+    Id,
     /// Installs or removes the background service.
     ///
     /// Runs the node in the background as a service: a systemd user unit on
@@ -153,7 +157,11 @@ enum Command {
     /// waiting for Syncthing, missing its folder, or not syncing and why.
     /// Says so when no node is running.
     #[command(visible_aliases = ["s", "st"])]
-    Status,
+    Status {
+        /// Prints nothing, and fails when no node runs from `--dir`.
+        #[arg(short, long)]
+        quiet: bool,
+    },
     /// Sends a problem report with every machine's log to Beep.
     ///
     /// Collects the log, status, version and OS of every machine of the
@@ -189,6 +197,10 @@ enum MeshAction {
         /// The folder to look for git checkouts in, as for `setup`.
         #[arg(long)]
         search: Option<String>,
+        /// Waits for a node another process starts from this folder instead
+        /// of starting a service, as a Windows node does for its WSL machines.
+        #[arg(long, hide = true)]
+        no_service: bool,
     },
     /// Lists the mesh's devices and which are online.
     #[command(visible_alias = "peers")]
@@ -368,7 +380,11 @@ async fn run() -> Result<()> {
              Add a machine in the Beep desktop app."
         ),
         Command::Mesh { action } => match action {
-            MeshAction::Join { ticket, search } => {
+            MeshAction::Join {
+                ticket,
+                search,
+                no_service,
+            } => {
                 // Refused before the ticket is spent.
                 let search = search.as_deref().map(state::Search::from);
 
@@ -386,7 +402,7 @@ async fn run() -> Result<()> {
                 };
                 // A fresh machine has no node yet: start it in the background
                 // before the ticket is sent.
-                if !peers::is_running(&dir) {
+                if !no_service && !peers::is_running(&dir) {
                     // A service for another folder is not replaced.
                     let action = service::join_action(&dir)?;
                     // The service needs the folder and the key to exist.
@@ -533,7 +549,18 @@ async fn run() -> Result<()> {
             println!("{:#?}", env::probe().await);
             Ok(())
         }
-        Command::Status => {
+        Command::Id => {
+            println!("{}", state::State::load(&dir)?.key.public());
+            Ok(())
+        }
+        Command::Status { quiet: true } => {
+            if peers::is_running(&dir) {
+                Ok(())
+            } else {
+                process::exit(1)
+            }
+        }
+        Command::Status { quiet: false } => {
             let text = match peers::local_status(&dir).await? {
                 Some(status) => {
                     let now = SystemTime::now()

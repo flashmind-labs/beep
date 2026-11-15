@@ -25,8 +25,8 @@ pub use listing::{
     past_session, session_tasks,
 };
 pub use node::{
-    Exec, Tasks, Updated, exec, files, install_tool, log, rescan_search, search, set_search,
-    set_up, sign_in, tool_updates, update_node,
+    Exec, Tasks, Updated, add_wsl, exec, files, install_tool, log, probe_wsl, rescan_search,
+    search, set_search, set_up, sign_in, start_wsl, stop_wsl, tool_updates, update_node,
 };
 pub use sessions::{NodeFile, NodeImage, NodeShare, NodeWork, Sessions, WorkRead, WorkWrite};
 

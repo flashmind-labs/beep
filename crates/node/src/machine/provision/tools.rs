@@ -349,7 +349,7 @@ impl Download {
         tokio::task::spawn_blocking(move || verify(&file, &sha256)).await??;
         let program = match &self.member {
             Some(member) => {
-                extract(&download, member, work).await?;
+                unpack(&download, work).await?;
                 work.join(member)
             }
             None => download,
@@ -431,43 +431,30 @@ pub(crate) async fn curl(url: &str, to: Option<&Path>) -> Result<Vec<u8>> {
     Ok(out.stdout)
 }
 
-/// Unpacks `member` of the archive at `archive` into `into`.
-async fn extract(archive: &Path, member: &str, into: &Path) -> Result<()> {
-    let is_zip = archive.extension().is_some_and(|ext| ext == "zip");
-    let mut command = if is_zip {
-        let mut command = crate::run::process::command("unzip");
-        command
-            .arg("-q")
-            .arg("-o")
-            .arg(archive)
-            .arg(member)
-            .arg("-d")
-            .arg(into);
-        command
-    } else {
-        let mut command = crate::run::process::command("tar");
-        command
-            .arg("-xzf")
-            .arg(archive)
-            .arg("-C")
-            .arg(into)
-            .arg(member);
-        command
-    };
-    let out = command
-        .stdin(Stdio::null())
-        .kill_on_drop(true)
-        .output()
-        .await
-        .context("starting the unpacker")?;
-    if !out.status.success() {
-        bail!(
-            "unpacking {} failed: {}",
-            archive.display(),
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+/// Unpacks the whole archive at `archive`, a `.zip` or a gzipped tarball,
+/// into `into`, in this process: a system `tar` can fail where this works,
+/// as GNU tar does in WSL 1. Symlinks and executable bits are kept, and no
+/// entry lands outside `into`.
+pub(crate) async fn unpack(archive: &Path, into: &Path) -> Result<()> {
+    let (packed, folder) = (archive.to_owned(), into.to_owned());
+    tokio::task::spawn_blocking(move || unpack_now(&packed, &folder))
+        .await?
+        .with_context(|| format!("unpacking {}", archive.display()))
+}
+
+fn unpack_now(archive: &Path, into: &Path) -> Result<()> {
+    let file = io::BufReader::new(fs::File::open(archive)?);
+
+    if archive.extension().is_some_and(|ext| ext == "zip") {
+        zip::ZipArchive::new(file)?.extract(into)?;
+        return Ok(());
     }
 
+    let mut tarball = tar::Archive::new(flate2::read::GzDecoder::new(file));
+    // Times are not needed, and setting them is one more call that can fail.
+    tarball.set_preserve_mtime(false);
+    tarball.set_overwrite(true);
+    tarball.unpack(into)?;
     Ok(())
 }
 

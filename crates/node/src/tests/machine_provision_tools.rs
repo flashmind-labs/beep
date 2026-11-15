@@ -87,3 +87,88 @@ fn flsh_rejects_unsupported_platforms() {
         assert_eq!(error.to_string(), format!("no flsh release for {os} {arch}"));
     }
 }
+
+/// A gzipped tarball like Node.js's: an executable, a symlink to a file
+/// beside it, and an entry that tries to climb out.
+#[cfg(unix)]
+fn node_like_tarball(path: &Path) {
+    let mut tarball = tar::Builder::new(flate2::write::GzEncoder::new(
+        fs::File::create(path).expect("created"),
+        flate2::Compression::fast(),
+    ));
+    let mut file = |name: &str, mode: u32, body: &[u8]| {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(u64::try_from(body.len()).expect("small"));
+        header.set_mode(mode);
+        header.set_entry_type(tar::EntryType::Regular);
+        tarball
+            .append_data(&mut header, name, body)
+            .expect("appended");
+    };
+    file("node-v1/bin/node", 0o755, b"#!/bin/sh\n");
+    file("node-v1/lib/npm-cli.js", 0o644, b"// npm\n");
+    let mut link = tar::Header::new_gnu();
+    link.set_entry_type(tar::EntryType::Symlink);
+    link.set_size(0);
+    link.set_mode(0o777);
+    tarball
+        .append_link(&mut link, "node-v1/bin/npm", "../lib/npm-cli.js")
+        .expect("linked");
+    let mut climb = tar::Header::new_old();
+    climb.as_old_mut().name[..9].copy_from_slice(b"../escape");
+    climb.set_size(1);
+    climb.set_mode(0o644);
+    climb.set_entry_type(tar::EntryType::Regular);
+    climb.set_cksum();
+    tarball.append(&climb, &b"x"[..]).expect("appended");
+    tarball
+        .into_inner()
+        .expect("written")
+        .finish()
+        .expect("finished");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_tarball_unpacks_in_process_with_links_and_modes_kept_inside_its_folder() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("a folder");
+    let archive = dir.path().join("node-v1.tar.gz");
+    let into = dir.path().join("stage");
+    fs::create_dir_all(&into).expect("stage");
+    node_like_tarball(&archive);
+
+    unpack(&archive, &into).await.expect("unpacked");
+
+    let node = into.join("node-v1/bin/node");
+    let mode = fs::metadata(&node).expect("node").permissions().mode();
+    assert_eq!(mode & 0o111, 0o111, "node stays executable");
+    let npm = into.join("node-v1/bin/npm");
+    assert_eq!(
+        fs::read_link(&npm).expect("a symlink"),
+        Path::new("../lib/npm-cli.js")
+    );
+    assert_eq!(fs::read(&npm).expect("followed"), b"// npm\n");
+    assert!(!dir.path().join("escape").exists(), "nothing lands outside");
+}
+
+#[tokio::test]
+async fn a_zip_unpacks_in_process() {
+    use std::io::Write;
+
+    let dir = tempfile::tempdir().expect("a folder");
+    let archive = dir.path().join("node-v1.zip");
+    let mut zip = zip::ZipWriter::new(fs::File::create(&archive).expect("created"));
+    zip.start_file("node-v1/node.exe", zip::write::SimpleFileOptions::default())
+        .expect("started");
+    zip.write_all(b"MZ").expect("written");
+    zip.finish().expect("finished");
+
+    unpack(&archive, dir.path()).await.expect("unpacked");
+
+    assert_eq!(
+        fs::read(dir.path().join("node-v1/node.exe")).expect("read"),
+        b"MZ"
+    );
+}

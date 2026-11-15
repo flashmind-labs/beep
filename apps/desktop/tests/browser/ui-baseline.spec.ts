@@ -263,6 +263,14 @@ test("project page", async ({ page }) => {
   await baseline(page, "project-page");
 });
 
+test("project bar when its machine runs no coding agent yet", async ({ page }) => {
+  const wslBox = { ...machine("wsl-box", "Ubuntu on desk-pc", true, 0), env: { os: "linux", os_version: "Ubuntu 24.04", arch: "x86_64", hostname: "desk-pc", cpus: 8, memory_mb: 16384, home: "/home/user", tools: [{ name: "claude", version: "2.1.0" }], logins: [], avds: [], gpus: [], wsl: [] }, adapters: [{ agent: "claude", failed: "needs Node.js: unpacking failed" }] };
+  const hosts = [{ machine_id: machineId, machine_name: machineId, agents: ["codex"], workspace: null, home: null, capabilities: [] }];
+  await openProject(page, { center_home: { ...home, projects: [project(projectName, undefined, "wsl-box")] }, list_machines: [wslBox], agent_hosts: hosts });
+  await expect(page.getByText("No coding agent runs on Ubuntu on desk-pc yet")).toBeVisible();
+  await baseline(page, "project-bar-blocked");
+});
+
 test("project sessions", async ({ page }) => {
   await openProject(page);
   await page.locator(".pj-strip button").filter({ hasText: "Sessions" }).click();
@@ -305,6 +313,19 @@ test("settings machines", async ({ page }) => {
   await nav.getByRole("button", { name: /^Machines/ }).click();
   await expect(page.locator(".dmach").first()).toBeVisible();
   await baseline(page, "settings-machines");
+});
+
+test("settings machine with WSL", async ({ page }) => {
+  const wsl = (name: string, agents: string[], machineId: string | null) => ({ name, agents, node: machineId ? "0.9.0" : null, machine_id: machineId, kept: !!machineId, problem: null, probed: true });
+  const env = { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 16, memory_mb: 32768, home: "C:\\Users\\user", tools: [], logins: [], avds: [], gpus: [], wsl: [wsl("Ubuntu", ["claude", "codex"], "wsl-box"), wsl("Debian", ["gemini"], null)] };
+  const machines = [{ ...machine("desk-pc", "desk-pc", true, 0), env }, machine("wsl-box", "Ubuntu on desk-pc", true, 0)];
+  await openDesktop(page, false, { ...settingsResponses, list_machines: machines });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const nav = page.getByRole("dialog", { name: "Settings" }).getByRole("navigation", { name: "Settings pages" });
+  await nav.getByRole("button", { name: /^Machines/ }).click();
+  await page.locator("[data-machine='desk-pc']").click();
+  await expect(page.getByRole("button", { name: "Add Debian as a machine" })).toBeVisible();
+  await baseline(page, "settings-machine-wsl");
 });
 
 test("settings plugins", async ({ page }) => {

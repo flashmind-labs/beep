@@ -9,7 +9,7 @@ import { perfLayer, perfOpened } from "../ui/perf.ts";
 import { pane } from "../bar/pane.ts";
 import { instructionsPage } from "./instructions.tsx";
 import { providersPage } from "./providers.tsx";
-import { connectSettingsSheet, settingsClosed, showSettingsPage } from "./settings.tsx";
+import { connectSettingsSheet, settingsClosed, showSettingsMachine, showSettingsPage } from "./settings.tsx";
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import type { CenterView, ViewArg, ViewName } from "../center/state.ts";
@@ -48,6 +48,12 @@ export function openSettings(section?: string) {
   settingsOpen = { scrim, keys, back, render, dispose };
   sheet.focus();
   pane.settings(sheet, section).then(() => { refreshTopicSubscriptions(); afterMount(); }).catch(e => console.warn("settings:", e));
+}
+
+/// Opens Settings on machine `id`'s page.
+export function openMachineSettings(id: string) {
+  showSettingsMachine(id);
+  openSettings();
 }
 
 /// A window view temporarily mounted in the Settings sheet. Unmounting the
