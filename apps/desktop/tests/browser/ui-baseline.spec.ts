@@ -31,6 +31,7 @@ test.beforeEach(async ({ page, browserName }, info) => {
   test.skip(!process.env.WK && (browserName !== "chromium" || info.project.name !== "macOS"), "The baseline is recorded once, on Chromium");
   await page.clock.setFixedTime(NOW);
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" });
+  await page.addInitScript(() => localStorage.setItem("beep.starPrompt.dismissed", "1"));
 });
 
 // Fixtures
@@ -155,6 +156,13 @@ test("home overview", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
   await baseline(page, "home-overview");
+});
+
+test("sidebar star prompt", async ({ page }) => {
+  await page.addInitScript(() => localStorage.removeItem("beep.starPrompt.dismissed"));
+  await openDesktop(page, false, { center_home: home });
+  await expect(page.locator(".cc-star")).toBeVisible();
+  await baseline(page, "sidebar-star-prompt", ".cc-side-list");
 });
 
 test("search palette", async ({ page }) => {
