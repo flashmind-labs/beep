@@ -97,8 +97,8 @@ export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: Agen
   S.view = "agentnew";
   AG.back = from;
   AG.form = assistant
-    ? { prompt, assistant, machine: "", agent: null, cwd: "", project: null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false }
-    : { prompt, assistant, machine: at?.machine || lastMachine(at?.project), agent: null, cwd: at?.cwd || "", places: at?.places, project: at?.project ?? null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
+    ? { prompt, assistant, machine: "", machinePicked: false, agent: null, cwd: "", project: null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false }
+    : { prompt, assistant, machine: at?.machine || lastMachine(at?.project), machinePicked: false, agent: null, cwd: at?.cwd || "", places: at?.places, project: at?.project ?? null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
   if (assistant) presetAssistant(); else restoreProjectPick();
   AG.error = "";
   AG.busy = false;
@@ -373,6 +373,7 @@ function pickChoice(action: ChoiceAction, value: string) {
     case "agbtype": return typeBase();
     case "agm":
       f.machine = value;
+      f.machinePicked = true;
       keepMachine(f.project, f.machine);
       f.cwd = folderOn(f.cwd, f.machine, f.places);
       break;
@@ -519,6 +520,7 @@ function presetAssistant() {
     assistantPick = pick;
     // The machine is picked again for the harness.
     f.machine = "";
+    f.machinePicked = false;
     f.modelFor = "";
     if (S.view === "agentnew") drawParts();
   }, e => console.warn("assistant setting:", e));
@@ -575,7 +577,7 @@ export async function startAgent() {
     if (attachments.files.pending.length) composer?.update({ progress: "Starting the agent…" });
     const images = attachments.images.map(sentImage);
     const started = f.assistant
-      ? await startAssistant(prompt, { agent: f.agent, model, effort }, AG.hosts ?? [], f.machine, images)
+      ? await startAssistant(prompt, { agent: f.agent, model, effort }, AG.hosts ?? [], f.machinePicked ? f.machine : null, images)
       : await start({ machine: f.machine, agent: f.agent, cwd: cwd || null, prompt, images, model, effort, checkout, assistant: false });
     attachments.clear();
     AG.busy = false;
@@ -592,12 +594,11 @@ export async function startAgent() {
 }
 
 /// Starts the Home assistant in a machine's home folder with `pick`, the
-/// setting as `loadAssistant` reads it, resolved against `hosts`: on `machine`,
-/// else the first that offers the harness, else the one the mesh picks.
+/// setting as `loadAssistant` reads it, resolved against `hosts`: on `machine`
+/// when the user picked one, else on the one Auto picks, this computer first.
 export function startAssistant(prompt: string, pick: AssistantPick, hosts: readonly AgentHost[], machine: string | null, images: readonly SentImage[] = []): Promise<Started> {
   const resolved = resolveAssistant(pick, hosts);
-  const on = machine ?? (resolved.agent ? assistantHost(hosts, null, resolved.agent)?.machine_id ?? null : null);
-  return start({ machine: on, agent: resolved.agent, cwd: null, prompt, images, model: resolved.model, effort: resolved.effort, checkout: null, assistant: true });
+  return start({ machine, agent: resolved.agent, cwd: null, prompt, images, model: resolved.model, effort: resolved.effort, checkout: null, assistant: true });
 }
 
 /// What `agent_start` takes.

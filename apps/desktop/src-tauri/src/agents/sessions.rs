@@ -61,6 +61,8 @@ pub struct HostRow {
     workspace: Option<String>,
     home: Option<String>,
     capabilities: Vec<&'static str>,
+    /// Its node runs the home assistant.
+    assistant: bool,
 }
 
 impl From<AgentHost> for HostRow {
@@ -76,6 +78,7 @@ impl From<AgentHost> for HostRow {
                 .into_iter()
                 .map(<&'static str>::from)
                 .collect(),
+            assistant: false,
         }
     }
 }
@@ -264,7 +267,13 @@ pub async fn agent_hosts(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<HostRow>> {
             .is_some_and(|config| !config.enabled)
     };
     let hosts = fleet.status().agent_hosts(is_off);
-    Ok(hosts.into_iter().map(HostRow::from).collect())
+    Ok(hosts
+        .into_iter()
+        .map(|host| HostRow {
+            assistant: direct::runs_assistant(&fleet, &host),
+            ..HostRow::from(host)
+        })
+        .collect())
 }
 
 #[tauri::command]

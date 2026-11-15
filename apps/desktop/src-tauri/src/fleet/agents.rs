@@ -496,6 +496,13 @@ async fn pick(
         hosts(fleet)
     };
 
+    if start.assistant
+        && let Some(here) =
+            this_computer(&candidates, &fleet.id().to_string(), start.agent.as_deref())
+    {
+        return Ok((here, "It is this computer.".to_owned()));
+    }
+
     for host in candidates {
         let machine = fleet.member(&host.machine_id).ok_or_else(not_found)?;
         asking.push(AutoHost {
@@ -511,6 +518,18 @@ async fn pick(
         .ok_or(ApiError::Internal {})?
         .host;
     Ok((host, choice.why))
+}
+
+/// This computer among `hosts`, by its machine id `me`, when it offers
+/// `agent`: the assistant starts there before any other machine.
+fn this_computer(hosts: &[AgentHost], me: &str, agent: Option<&str>) -> Option<AgentHost> {
+    hosts
+        .iter()
+        .find(|host| {
+            host.machine_id == me
+                && agent.is_none_or(|agent| host.agents.iter().any(|offered| offered == agent))
+        })
+        .cloned()
 }
 
 /// The hosts whose node runs the home assistant, or, when none does, the
@@ -532,7 +551,7 @@ fn for_assistant(
 
 /// Whether `host` runs the home assistant: this computer's own node is this
 /// build, and another node must be newer than `BEFORE_ASSISTANT`.
-fn runs_assistant(fleet: &Fleet, host: &AgentHost) -> bool {
+pub(crate) fn runs_assistant(fleet: &Fleet, host: &AgentHost) -> bool {
     let Some(machine) = fleet.member(&host.machine_id) else {
         return false;
     };

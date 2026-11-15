@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-const host = { machine_id: "build-box", machine_name: "build-box", agents: ["codex", "flsh"], workspace: null, home: "/srv", capabilities: [] };
+const host = { machine_id: "build-box", machine_name: "build-box", agents: ["codex", "flsh"], workspace: null, home: "/srv", capabilities: [], assistant: true };
 const session = { machine_id: "build-box", machine_name: "build-box", id: "assistant-one", agent: "flsh", title: null, cwd: "/srv", status: "working", doing: null, started_at: 1, last_activity: 1, external: false, question: null, assistant: true };
 
 test("Cmd+N on Home starts the assistant with its harness in the home folder", async ({ page }, info) => {
@@ -25,7 +25,8 @@ test("Cmd+N on Home starts the assistant with its harness in the home folder", a
   await prompt.fill("How is the widget project doing?");
   await prompt.press("Enter");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").map(call => call.args))).toEqual([
-    { machineId: "build-box", agent: "flsh", cwd: null, prompt: "How is the widget project doing?", images: [], model: null, effort: "high", checkout: null, assistant: true },
+    // No machine picked: Auto picks one, this computer first.
+    { machineId: null, agent: "flsh", cwd: null, prompt: "How is the widget project doing?", images: [], model: null, effort: "high", checkout: null, assistant: true },
   ]);
 });
 

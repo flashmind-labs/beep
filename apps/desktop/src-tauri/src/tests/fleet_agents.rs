@@ -35,3 +35,17 @@ fn assistant_start_skips_old_nodes() {
         "Update Beep on old-box to use the assistant."
     );
 }
+
+#[test]
+fn the_assistant_prefers_this_computer_when_it_offers_the_harness() {
+    let hosts = [host("build-box"), host("this-box")];
+
+    let here = this_computer(&hosts, "this-box", Some("claude"));
+    assert_eq!(here, Some(host("this-box")));
+    assert_eq!(
+        this_computer(&hosts, "this-box", None),
+        Some(host("this-box"))
+    );
+    assert_eq!(this_computer(&hosts, "this-box", Some("codex")), None);
+    assert_eq!(this_computer(&hosts[..1], "this-box", Some("claude")), None);
+}

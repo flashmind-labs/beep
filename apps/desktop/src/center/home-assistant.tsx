@@ -74,7 +74,7 @@ async function showHarness() {
     return;
   }
 
-  const machine = assistantHost(hosts, null, agent)?.machine_id ?? null;
+  const machine = assistantHost(hosts, state.mac?.id ?? null, agent)?.machine_id ?? null;
   composer.setHarness(pillContent(agent, resolved.model ?? "", resolved.effort, machine));
 }
 

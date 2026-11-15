@@ -102,6 +102,8 @@ export interface AgentHost {
   workspace: string | null;
   home: string | null;
   capabilities: string[];
+  /// Its node runs the home assistant: this computer's, or one new enough.
+  assistant: boolean;
 }
 
 /// One line of a session's log. Only the agent's own and its thoughts
@@ -226,6 +228,8 @@ interface AgentForm {
   assistant: boolean;
   /// A machine id, or "" until one is picked.
   machine: string;
+  /// The user picked `machine` in the Machine menu, rather than the form.
+  machinePicked: boolean;
   agent: string | null;
   cwd: string;
   /// The project's checkout on each machine, when the form was opened
@@ -326,7 +330,7 @@ interface AgentState {
 export const AG: AgentState = {
   readError: "", link: LINKED,
   hosts: null, error: "", busy: false,
-  form: { prompt: "", assistant: false, machine: "", agent: null, cwd: "" },
+  form: { prompt: "", assistant: false, machine: "", machinePicked: false, agent: null, cwd: "" },
   open: null, draft: null, page: null, why: "", back: "hide", timer: undefined, inflight: null, note: "",
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined,

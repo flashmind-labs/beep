@@ -25,22 +25,22 @@ export function assistantRows(sessions: readonly AgentSession[], machines: reado
   return { running: listed.filter(s => s.status !== "ended"), ended: listed.filter(s => s.status === "ended") };
 }
 
-/// The harness the assistant starts with: the one picked when a machine offers it, else the
-/// first offered; null while none is.
-export function assistantHarness(agent: string | null, hosts: readonly Pick<AgentHost, "agents">[]): string | null {
-  return harnessFor(agent, [...new Set(hosts.flatMap(host => host.agents))], AGENT_ORDER);
+/// The harnesses the machines whose node runs the assistant offer.
+export function assistantAgents(hosts: readonly Pick<AgentHost, "agents" | "assistant">[]): string[] {
+  return [...new Set(hosts.filter(host => host.assistant).flatMap(host => host.agents))];
 }
 
-/// The assistant setting as a start uses it: its harness resolved to one a machine offers,
-/// the model kept only with the harness it was picked for, and a thinking level that harness takes.
-export function resolveAssistant(pick: AssistantPick, hosts: readonly Pick<AgentHost, "agents">[]): AssistantPick {
-  const agent = assistantHarness(pick.agent, hosts);
+/// The assistant setting as a start uses it: its harness resolved to one a machine that runs
+/// the assistant offers, else the first offered (null while none is), the model kept only with
+/// the harness it was picked for, and a thinking level that harness takes.
+export function resolveAssistant(pick: AssistantPick, hosts: readonly Pick<AgentHost, "agents" | "assistant">[]): AssistantPick {
+  const agent = harnessFor(pick.agent, assistantAgents(hosts), AGENT_ORDER);
   return { agent, model: agent === pick.agent ? pick.model : null, effort: keepEffort(agent, pick.effort) };
 }
 
-/// The machine to start `agent` on, or list its models from: `own` when it offers the harness,
-/// else the first that does.
-export function assistantHost<H extends Pick<AgentHost, "machine_id" | "agents">>(hosts: readonly H[], own: string | null, agent: string): H | null {
-  const offering = hosts.filter(host => host.agents.includes(agent));
+/// The machine to start `agent` on, or list its models from, among those that run the
+/// assistant: `own` when it offers the harness, else the first that does.
+export function assistantHost<H extends Pick<AgentHost, "machine_id" | "agents" | "assistant">>(hosts: readonly H[], own: string | null, agent: string): H | null {
+  const offering = hosts.filter(host => host.assistant && host.agents.includes(agent));
   return offering.find(host => host.machine_id === own) ?? offering[0] ?? null;
 }
