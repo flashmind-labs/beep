@@ -4,12 +4,12 @@ import { AGENT_ORDER, harnessFor, keepEffort } from "./agentpick.ts";
 import type { AssistantPick } from "../settings/assistant.ts";
 import type { MachineEnv } from "../machines/machine-state.ts";
 
-/// A session is the assistant when started as one, or, off Windows, when an
-/// agent no other started works in the machine's home folder, as one found
-/// running there does.
-export function isAssistant(session: Pick<AgentSession, "assistant" | "cwd" | "parent">, home: string | null, windows: boolean): boolean {
+/// A session is the assistant when started as one, or, off Windows, when one
+/// found running outside Beep works in the machine's home folder. Beep's own
+/// starts say what they are.
+export function isAssistant(session: Pick<AgentSession, "assistant" | "cwd" | "parent" | "external">, home: string | null, windows: boolean): boolean {
   if (session.assistant) return true;
-  return !windows && !session.parent && home !== null && session.cwd === home;
+  return session.external && !windows && !session.parent && home !== null && session.cwd === home;
 }
 
 /// The assistant sessions Home lists, the latest first: those that run, and those that ended.

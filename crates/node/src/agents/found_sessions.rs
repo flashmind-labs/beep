@@ -588,7 +588,11 @@ impl Agents {
         self.prepare(kind).await?;
         super::restart::to_project(kind, id, Path::new(&cwd)).await;
         // It goes on with the model it last ran on here, also after a restart.
-        let mut before = before.unwrap_or_default();
+        // One found outside Beep in the home folder is the assistant.
+        let mut before = before.unwrap_or_else(|| Held {
+            assistant: super::running::home_assistant(Path::new(&cwd), false),
+            ..Held::default()
+        });
         before.model = before.model.or_else(|| self.last_model(id));
         if before.worktrees.is_empty() {
             before.worktrees = self.created_worktrees(id);

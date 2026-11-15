@@ -580,7 +580,7 @@ impl Agents {
             },
         };
         let resumed = begin.resume.is_some();
-        let assistant = begin.assistant || home_assistant(&cwd, begin.parent.is_some());
+        let assistant = begin.assistant;
         // A reviewer tells the user nothing itself: the review does.
         let alerts = if begin.review {
             Arc::default()
@@ -711,7 +711,8 @@ pub(super) struct Begin {
     pub(super) follows: Option<watch::Receiver<Live>>,
     /// A temporary reviewer (`agents::reviews`).
     pub(super) review: bool,
-    /// The home assistant: asked for, or a session in the home folder.
+    /// The home assistant: asked for, or a session found outside Beep in the
+    /// home folder and taken over (`home_assistant`).
     pub(super) assistant: bool,
 }
 
@@ -782,7 +783,8 @@ pub(super) fn folder(cwd: Option<&str>) -> Result<PathBuf> {
 }
 
 /// Whether a session in `cwd` is the home assistant without being asked to
-/// be: one on a Unix machine's home folder that no session started.
+/// be: one on a Unix machine's home folder that no session started. Only a
+/// session found outside Beep is judged by it; Beep's own say what they are.
 pub(super) fn home_assistant(cwd: &Path, parent: bool) -> bool {
     if !cfg!(unix) || parent {
         return false;
