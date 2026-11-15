@@ -35,9 +35,15 @@ export function syncthingImportChoice() {
       if (!machine || !folder) return;
 
       try {
-        const files = await lookup.run(invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine, folder }));
-        if (files === STALE || value !== null) return;
-        state.setState({ checked: files.enabled, disabled: !files.available, indeterminate: false });
+        const found = await lookup.run(Promise.all([
+          invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine, folder }),
+          invoke<boolean>("project_sync_get").catch(() => false),
+        ]));
+        if (found === STALE || value !== null) return;
+
+        // With project sync on, an untouched import leaves Syncthing.
+        const [files, beep] = found;
+        state.setState({ checked: files.enabled && !beep, disabled: !files.available, indeterminate: false });
       } catch { /* Import keeps the current setting if the machine cannot answer. */ }
     },
   };
