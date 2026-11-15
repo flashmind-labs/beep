@@ -95,6 +95,33 @@ fn settings_change_the_launch_command() {
 }
 
 #[test]
+fn the_direct_driver_runs_claude_code_on_the_nodes_own_bridge() {
+    let config = HarnessConfig {
+        program: Some("/opt/claude/bin/claude".into()),
+        home: Some("/srv/claude-home".into()),
+        args: vec!["--effort".into(), "high".into()],
+        driver: HarnessDriver::Direct,
+        ..HarnessConfig::new("claude")
+    };
+    let settings = Settings::default();
+    settings.set(AgentSettings {
+        harnesses: vec![config.clone(), HarnessConfig { agent: "codex".into(), ..config }],
+        ..AgentSettings::default()
+    });
+
+    let started = settings.configured(&kind("claude")).unwrap();
+    let exe = std::env::current_exe().unwrap();
+    assert_eq!(started.program, exe.display().to_string());
+    // The program and arguments set for the adapter do not apply.
+    assert_eq!(started.args[..2], ["claude-acp", "--cli"]);
+    assert_ne!(started.args[2], "/opt/claude/bin/claude");
+    assert_eq!(started.args[3..], ["--"]);
+    assert_eq!(started.env["CLAUDE_CONFIG_DIR"], "/srv/claude-home");
+    // Only Claude Code has a direct driver.
+    assert_eq!(settings.configured(&kind("codex")).unwrap().program, "/opt/claude/bin/claude");
+}
+
+#[test]
 fn sign_ins_are_read_from_each_status() {
     let claude = r#"{"loggedIn":true,"email":"you@example.com","subscriptionType":"max"}"#;
     let read = read_sign_in("claude", true, claude);

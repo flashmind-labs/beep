@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
+    sync::LazyLock,
 };
 
 /// An agent this node can start: a program that speaks ACP on its stdio.
@@ -76,6 +77,37 @@ pub(super) struct Known {
     /// says it takes them (Claude Code's `asyncTasks`), and stops one on
     /// request. Saying so also makes its adapter treat the client as AIR.
     pub(super) async_tasks: bool,
+}
+
+/// The subcommand of `beep-node` that speaks ACP and drives Claude Code's
+/// CLI itself, in place of its npm adapter.
+pub const DIRECT_COMMAND: &str = "claude-acp";
+
+/// This executable, as it was when the node started: an update renames a
+/// new binary over it, after which the running one's path reads as deleted.
+static EXE: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
+    std::env::current_exe()
+        .and_then(std::path::absolute)
+        .inspect_err(|e| log::warn!("Claude Code runs on its ACP adapter: this binary is not found: {e}"))
+        .ok()
+});
+
+/// `kind`, Claude Code, run by this executable's `DIRECT_COMMAND` on the
+/// `claude` CLI found here; arguments added after it go to the CLI. `None`
+/// for another agent, or when this executable is not found.
+pub(super) fn direct(kind: &AgentKind) -> Option<AgentKind> {
+    if kind.name != "claude" {
+        return None;
+    }
+
+    let exe = EXE.as_ref()?;
+    let cli = locate::find("claude", dirs::home_dir().as_deref())
+        .map_or_else(|| "claude".to_owned(), |path| path.display().to_string());
+    Some(AgentKind {
+        program: exe.display().to_string(),
+        args: vec![DIRECT_COMMAND.to_owned(), "--cli".to_owned(), cli, "--".to_owned()],
+        ..kind.clone()
+    })
 }
 
 /// How the agent `name` is asked to compact: one the node does not know
@@ -246,6 +278,7 @@ pub(super) const KNOWN: &[Known] = &[
 /// where it was found. An ACP adapter the node installed in its folder
 /// `node_dir` is used when the machine has none of its own.
 pub fn detect(extra: &[AgentKind], node_dir: Option<&Path>) -> Vec<AgentKind> {
+    LazyLock::force(&EXE);
     let detection = detection(extra, node_dir);
     detection.log();
     detection.kinds
@@ -272,6 +305,10 @@ impl Detection {
             Some(Launch::OnOwnNode(kind)) => {
                 self.on_own_node.push(known.name);
                 self.kinds.push(beside_cli(kind, known, home));
+            }
+            Some(Launch::Direct(kind)) => {
+                self.lacking.push(known);
+                self.kinds.push(kind);
             }
             Some(Launch::LacksAdapter) => self.lacking.push(known),
             None => {}
@@ -368,6 +405,9 @@ pub(super) enum Launch {
     ViaNpx(AgentKind),
     /// With the adapter the node installed, on the node's own Node.
     OnOwnNode(AgentKind),
+    /// Claude Code's CLI is here without its adapter or npx: it runs on the
+    /// node's own bridge (`direct`) while the node installs the adapter.
+    Direct(AgentKind),
     /// Its CLI is here, but neither its ACP adapter nor npx to run it with:
     /// the node installs the adapter in its own folder.
     LacksAdapter,
@@ -386,6 +426,7 @@ pub(super) fn launch(
     }
 
     let mut on_own_node = false;
+    let mut bridged = false;
     let (program, args) = match (&known.adapter, own) {
         (Adapter::Npm { bin, .. }, _) if found(bin) => ((*bin).to_owned(), Vec::new()),
         (Adapter::Npm { .. }, Some(own)) => {
@@ -399,7 +440,13 @@ pub(super) fn launch(
             "npx".to_owned(),
             vec!["-y".to_owned(), (*package).to_owned()],
         ),
-        (Adapter::Npm { .. }, None) => return Some(Launch::LacksAdapter),
+        (Adapter::Npm { .. }, None) if known.name != "claude" => {
+            return Some(Launch::LacksAdapter);
+        }
+        (Adapter::Npm { .. }, None) => {
+            bridged = true;
+            (known.cli.to_owned(), Vec::new())
+        }
         (Adapter::Flags(flags), _) => (
             known.cli.to_owned(),
             flags.iter().map(|flag| (*flag).to_owned()).collect(),
@@ -424,7 +471,9 @@ pub(super) fn launch(
         compact_models: Vec::new(),
         default_model: None,
     };
-    Some(if on_own_node {
+    Some(if bridged {
+        direct(&kind).map_or(Launch::LacksAdapter, Launch::Direct)
+    } else if on_own_node {
         Launch::OnOwnNode(kind)
     } else if kind.program == "npx" {
         Launch::ViaNpx(kind)

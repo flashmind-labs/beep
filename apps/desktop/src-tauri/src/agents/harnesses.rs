@@ -14,7 +14,7 @@ use beep_proto::ModelId;
 use beep_proto::{
     AgentHarness, AgentHarnesses, HarnessEnv, HarnessSettings, HarnessSignIn,
     MachineHarnessSettings, SecretText,
-    node::harness::{AutoCompact, ModelCompact},
+    node::harness::{AutoCompact, HarnessDriver, ModelCompact},
 };
 use serde::{Deserialize, Serialize};
 
@@ -300,6 +300,24 @@ pub async fn harness_model_compacts_save(
         .save_harness_model_compacts(&agent, rules)
         .await?;
     Ok(())
+}
+
+/// How the nodes drive `agent`, on every machine.
+#[tauri::command]
+pub async fn harness_driver(fleet: FleetState<'_>, agent: String) -> Result<HarnessDriver> {
+    Ok(desk(&fleet).await?.harness_driver(&agent)?)
+}
+
+#[tauri::command]
+pub async fn harness_driver_save(
+    fleet: FleetState<'_>,
+    agent: String,
+    driver: HarnessDriver,
+) -> Result<()> {
+    Ok(desk(&fleet)
+        .await?
+        .save_harness_driver(&agent, driver)
+        .await?)
 }
 
 /// Default model for new sessions on every machine.

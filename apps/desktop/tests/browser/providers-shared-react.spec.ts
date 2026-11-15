@@ -13,7 +13,7 @@ test("shared compaction retains its draft on refresh and permits retry after fai
     settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
     list_machines: [{ id: "build", name: "build-box", online: true }],
     agent_harnesses: { machine_id: "build", machine_name: "build-box", checked_at: null, harnesses: [harness] },
-    harness_settings_all: [], harness_compact: null, harness_model_compacts: [], harness_default_model: null, agent_models: null,
+    harness_settings_all: [], harness_compact: null, harness_model_compacts: [], harness_default_model: null, harness_driver: "acp", agent_models: null,
   });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });

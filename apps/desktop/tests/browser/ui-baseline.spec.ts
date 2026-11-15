@@ -352,6 +352,27 @@ test("settings plugins", async ({ page }) => {
   await baseline(page, "settings-plugins");
 });
 
+test("settings claude code", async ({ page }) => {
+  const claude = {
+    agent: "claude", installed: true, runnable: true, version: "2.1.0", latest: null, program: "claude", home_var: "CLAUDE_CONFIG_DIR", home_default: "~/.claude",
+    sign_in: { state: "signed_in", account: null, plan: null, last4: null }, install: null,
+    settings: { enabled: true, program: "", home: "", args: [], env: [] },
+  };
+  await openDesktop(page, false, {
+    ...settingsResponses,
+    list_machines: [machine("build-box", "build-box", true, 0)],
+    agent_harnesses: { machine_id: "build-box", machine_name: "build-box", checked_at: null, harnesses: [claude] },
+    harness_settings_all: [], harness_compact: null, harness_model_compacts: [], harness_default_model: null, harness_driver: "direct", agent_models: null,
+  });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  const nav = settings.getByRole("navigation", { name: "Settings pages" });
+  await nav.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await nav.getByRole("button", { name: /^Claude/ }).click();
+  await expect(settings.getByRole("button", { name: "Direct", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await baseline(page, "settings-claude-code");
+});
+
 for (const section of [null, "Agent accounts", "Appearance"] as const) {
   const name = `settings-${section === null ? "first" : section.toLowerCase().replace(/\s+/g, "-")}`;
   test(name, async ({ page }) => {

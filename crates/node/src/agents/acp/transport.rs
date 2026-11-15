@@ -4,21 +4,20 @@ use agent_client_protocol::Lines;
 use futures::{Sink, Stream, sink, stream};
 use std::io;
 use tokio::{
-    io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
-    process::{ChildStdin, ChildStdout},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     sync::mpsc,
 };
 
 /// The longest message read from an agent; a longer one is dropped.
 pub(in crate::agents) const MAX_MESSAGE: usize = 16 * 1024 * 1024;
 
-/// The transport over an adapter's stdio. The crate writes from its own
-/// actor, apart from reading, so a full stdin never stops stdout from
-/// being read. Each oversized message dropped is reported on `oversized`
-/// with its length.
+/// The transport over an adapter's stdio, or the node's own when it is the
+/// agent. The crate writes from its own actor, apart from reading, so a full
+/// stdin never stops stdout from being read. Each oversized message dropped
+/// is reported on `oversized` with its length.
 pub(in crate::agents) fn transport(
-    stdin: ChildStdin,
-    stdout: ChildStdout,
+    stdin: impl AsyncWrite + Unpin + Send + 'static,
+    stdout: impl AsyncRead + Unpin + Send + 'static,
     oversized: mpsc::Sender<usize>,
 ) -> Lines<
     impl Sink<String, Error = io::Error> + Send + 'static,

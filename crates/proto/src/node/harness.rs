@@ -159,6 +159,23 @@ pub struct HarnessConfig {
     /// Model for new sessions when none is explicitly requested.
     #[serde(default)]
     pub default_model: Option<ModelId>,
+    /// How the node drives it. Only Claude Code offers `Direct`.
+    #[serde(default)]
+    pub driver: HarnessDriver,
+}
+
+/// How the node drives a harness.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HarnessDriver {
+    /// Through its ACP adapter, or the ACP the CLI speaks itself.
+    #[default]
+    Acp,
+    /// The node speaks to Claude Code's CLI itself (`beep-node claude-acp`).
+    Direct,
+    /// A way a newer desktop names; the node uses ACP.
+    #[serde(other)]
+    Other,
 }
 
 /// A compaction override for an exact harness model id.
@@ -211,6 +228,7 @@ impl HarnessConfig {
             compact: None,
             compact_models: Vec::new(),
             default_model: None,
+            driver: HarnessDriver::Acp,
         }
     }
 }
@@ -511,5 +529,38 @@ mod default_model_tests {
         let bytes = rmp_serde::to_vec(&config).unwrap();
         let decoded: HarnessConfig = crate::lenient::from_slice(&bytes).unwrap();
         assert_eq!(decoded, config);
+    }
+
+    #[test]
+    fn a_harness_config_from_before_drivers_runs_on_acp() {
+        let legacy = (
+            "claude",
+            true,
+            Option::<String>::None,
+            Option::<String>::None,
+            Vec::<String>::new(),
+            Vec::<EnvSecret>::new(),
+            Option::<AutoCompact>::None,
+            Vec::<ModelCompact>::new(),
+            Option::<ModelId>::None,
+        );
+        let bytes = rmp_serde::to_vec(&legacy).unwrap();
+        let config: HarnessConfig = crate::lenient::from_slice(&bytes).unwrap();
+        assert_eq!(config.driver, HarnessDriver::Acp);
+
+        let config = HarnessConfig {
+            driver: HarnessDriver::Direct,
+            ..HarnessConfig::new("claude")
+        };
+        let bytes = rmp_serde::to_vec(&config).unwrap();
+        let decoded: HarnessConfig = crate::lenient::from_slice(&bytes).unwrap();
+        assert_eq!(decoded, config);
+    }
+
+    #[test]
+    fn a_driver_a_newer_desktop_names_reads_as_other() {
+        let bytes = rmp_serde::to_vec("relay").unwrap();
+        let driver: HarnessDriver = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(driver, HarnessDriver::Other);
     }
 }

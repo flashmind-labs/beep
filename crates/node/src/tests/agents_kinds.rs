@@ -17,16 +17,21 @@ fn own() -> adapters::Installed {
 }
 
 #[test]
-fn a_native_cli_with_no_adapter_and_no_npx_lacks_its_adapter() {
+fn a_native_cli_with_no_adapter_and_no_npx_lacks_its_adapter_or_runs_direct() {
     let natives = has(&["claude", "codex", "pi", "gemini", "hermes"]);
 
-    for name in ["claude", "codex", "pi"] {
+    for name in ["codex", "pi"] {
         assert_eq!(
             launch(known(name), &natives, None),
             Some(Launch::LacksAdapter),
             "{name}"
         );
     }
+    // Claude Code runs on the node's own bridge meanwhile.
+    let Some(Launch::Direct(claude)) = launch(known("claude"), &natives, None) else {
+        panic!("Claude Code runs without its adapter");
+    };
+    assert_eq!(claude.args[0], "claude-acp");
     // Gemini CLI speaks ACP itself.
     assert!(matches!(
         launch(known("gemini"), &natives, None),

@@ -28,6 +28,7 @@ test("machine selection preserves shared drafts and each save writes only its sc
   answers.harness_compact = null;
   answers.harness_model_compacts = [];
   answers.harness_default_model = null;
+  answers.harness_driver = "acp";
   answers.agent_models = null;
   const root = document.createElement("div");
   document.body.append(root);
