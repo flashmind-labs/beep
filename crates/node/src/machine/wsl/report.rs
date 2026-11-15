@@ -1,6 +1,7 @@
 //! The machine's WSL distributions, for its report. The routine report
-//! looks into the running distributions only, as looking into a stopped one
-//! starts it; `probe_all` looks into every one when the user asks.
+//! looks into the running distributions, and the default one once, as
+//! looking into a stopped one starts it; `probe_all` looks into every one
+//! when the user asks.
 
 use super::{
     distro::{DistroName, Found, FoundAgent},
@@ -54,12 +55,15 @@ pub(crate) async fn report() -> Vec<WslDistro> {
             return Vec::new();
         }
     };
-    let running: Vec<&DistroName> = listed
+    // The default distribution is looked into once even when stopped, so
+    // the agents in it are found without the user starting it.
+    let unprobed = |name: &DistroName| !crate::lock(&FOUND).contains_key(name);
+    let probed: Vec<&DistroName> = listed
         .iter()
-        .filter(|listed| listed.running)
+        .filter(|listed| listed.running || (listed.default && unprobed(&listed.name)))
         .map(|listed| &listed.name)
         .collect();
-    probe(&running, PROBES_LIMIT).await;
+    probe(&probed, PROBES_LIMIT).await;
 
     let found = crate::lock(&FOUND).clone();
     let mut report: Vec<WslDistro> = listed

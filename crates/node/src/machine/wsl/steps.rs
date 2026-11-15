@@ -47,6 +47,7 @@ pub(crate) async fn list() -> Result<Vec<Listed>> {
         .into_iter()
         .map(|name| Listed {
             running: running.contains(&name),
+            default: false,
             name,
         })
         .collect())
@@ -108,10 +109,15 @@ pub(crate) fn agent_command(
     command
 }
 
-/// The home folder of `distro`'s default user, as a Linux path.
+/// The home folder of `distro`'s default user, as a Linux path, from its
+/// own line among what the login shell's profile may print.
 pub(crate) async fn home(distro: &DistroName) -> Result<String> {
-    let printed = wsl(in_distro(distro, "printf %s \"$HOME\""), None, RUNNING_LIMIT).await?;
-    Ok(printed.trim().to_owned())
+    let printed = wsl(in_distro(distro, "printf 'home %s\\n' \"$HOME\""), None, RUNNING_LIMIT).await?;
+    printed
+        .lines()
+        .find_map(|line| line.strip_prefix("home "))
+        .map(str::to_owned)
+        .context("the shell in WSL printed no home folder")
 }
 
 /// The variables set in this process that a coding agent reads: its

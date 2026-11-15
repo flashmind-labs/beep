@@ -85,6 +85,8 @@ pub(crate) fn distros(listed: &str) -> Vec<DistroName> {
 pub(crate) struct Listed {
     pub(crate) name: DistroName,
     pub(crate) running: bool,
+    /// The one `wsl.exe` starts by default, marked `*`.
+    pub(crate) default: bool,
 }
 
 /// The distributions in what `wsl.exe --list --verbose` printed: a header,
@@ -100,6 +102,7 @@ pub(crate) fn listed(verbose: &str) -> Option<Vec<Listed>> {
         .skip(1);
 
     for line in lines {
+        let default = line.starts_with('*');
         let words: Vec<&str> = line.trim_start_matches('*').split_whitespace().collect();
         let [name, state @ .., _version] = words.as_slice() else {
             return None;
@@ -113,7 +116,11 @@ pub(crate) fn listed(verbose: &str) -> Option<Vec<Listed>> {
         if let Ok(name) = name.parse::<DistroName>()
             && !for_an_app(&name)
         {
-            found.push(Listed { name, running });
+            found.push(Listed {
+                name,
+                running,
+                default,
+            });
         }
     }
 
@@ -149,9 +156,9 @@ pub(crate) fn linux_path(path: &str) -> Option<String> {
 }
 
 /// The Linux path `path` inside `distro` as Windows reaches it, through
-/// `\\wsl.localhost`.
+/// `\\wsl$`, which Windows 10 has too.
 pub(crate) fn windows_path(distro: &DistroName, path: &str) -> String {
-    format!(r"\\wsl.localhost\{distro}{}", path.replace('/', "\\"))
+    format!(r"\\wsl$\{distro}{}", path.replace('/', "\\"))
 }
 
 /// A coding agent CLI the probe found inside a distribution.

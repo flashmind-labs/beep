@@ -77,13 +77,16 @@ fn the_verbose_list_gives_names_and_whether_each_runs() {
                    \x20 Debian          Stopped         2\r\n\
                    \x20 docker-desktop  Running         2\r\n";
     let read = listed(verbose).expect("English states");
-    let names: Vec<(String, bool)> = read
+    let names: Vec<(String, bool, bool)> = read
         .iter()
-        .map(|listed| (listed.name.to_string(), listed.running))
+        .map(|listed| (listed.name.to_string(), listed.running, listed.default))
         .collect();
     assert_eq!(
         names,
-        [("Ubuntu-24.04".to_owned(), true), ("Debian".to_owned(), false)]
+        [
+            ("Ubuntu-24.04".to_owned(), true, true),
+            ("Debian".to_owned(), false, false)
+        ]
     );
     assert_eq!(listed(&decode(&utf16(verbose))), Some(read));
 }
@@ -111,10 +114,10 @@ fn a_windows_drive_path_is_under_mnt_in_wsl() {
 }
 
 #[test]
-fn a_linux_path_in_wsl_is_under_wsl_localhost() {
+fn a_linux_path_in_wsl_is_under_the_wsl_share() {
     let distro: DistroName = "Ubuntu".parse().expect("a name");
     assert_eq!(
         windows_path(&distro, "/home/sam/.claude"),
-        r"\\wsl.localhost\Ubuntu\home\sam\.claude"
+        r"\\wsl$\Ubuntu\home\sam\.claude"
     );
 }
