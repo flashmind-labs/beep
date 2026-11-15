@@ -124,6 +124,14 @@ async fn end(
     // Kept before the session closes, so a move taken back at any point
     // after finds how to start it again.
     let open = env.agents.open_session(&record.id);
+    // Worktrees sent before a restart stay noted: the target does not ask
+    // for them again.
+    let sent = env
+        .state
+        .load(&record.id)
+        .filter(|saved| saved.at == record.at)
+        .map(|saved| saved.sent)
+        .unwrap_or_default();
     env.state
         .save(
             &record.id,
@@ -133,7 +141,7 @@ async fn end(
                 reason: None,
                 open: open.clone(),
                 placed: Vec::new(),
-                sent: Vec::new(),
+                sent,
             },
         )
         .context("keeping that the session ended")?;
@@ -261,7 +269,7 @@ pub(super) async fn cancel(env: &Env, id: &str, at: u64, to: EndpointId) {
     };
 
     if target_has_it(env, id, at, to).await {
-        log::info!("session {id} stays on the machine it moved to: it started there");
+        log::info!("session {id} is not started again here: the target may run it");
         return;
     }
 
@@ -270,20 +278,22 @@ pub(super) async fn cancel(env: &Env, id: &str, at: u64, to: EndpointId) {
     }
 }
 
-/// Whether the target of a cancelled move starts or runs the session
-/// anyway, past taking back. Asked until it says, for `ASK_WITHIN` at most;
-/// a target out of reach has not.
+/// Whether the target of a cancelled move may start or run the session
+/// anyway, past taking back. Asked until it says, for `ASK_WITHIN` at most.
+/// A target that took the session and cannot be reached since may have
+/// started it, so the session is not started a second time here.
 async fn target_has_it(env: &Env, id: &str, at: u64, to: EndpointId) -> bool {
     let until = Instant::now() + ASK_WITHIN;
 
     while Instant::now() < until {
         match ask(env, to, id, at).await {
             Ok(Target::Starting | Target::Landed) => return true,
-            Ok(Target::Failed(_)) | Err(_) => return false,
-            // It has not heard of the cancel yet.
-            Ok(Target::Taken | Target::Unknown) => sleep(ASK_AGAIN).await,
+            Ok(Target::Failed(_)) => return false,
+            // It has not heard of the cancel yet, or is out of reach.
+            Ok(Target::Taken | Target::Unknown) | Err(_) => sleep(ASK_AGAIN).await,
         }
     }
 
-    false
+    log::warn!("session {id}: the target did not say whether it started it, so it is not started here");
+    true
 }

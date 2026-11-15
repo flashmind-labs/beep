@@ -361,7 +361,7 @@ async fn a_target_that_gives_up_after_the_session_ended_has_it_start_again_here(
 }
 
 #[tokio::test]
-async fn a_move_cancelled_after_the_session_ended_starts_it_again_here() {
+async fn a_move_cancelled_after_the_session_ended_does_not_start_it_while_the_target_is_away() {
     let source = source_env().await;
     let session = asking(&source).await;
     let record = record(&source.env, true);
@@ -374,10 +374,11 @@ async fn a_move_cancelled_after_the_session_ended_starts_it_again_here() {
             () = ended(&session) => {}
         }
     }
+    // The target took it and cannot be asked since: it may run it.
     source::cancel(&source.env, "held-1", record.at, record.to).await;
     assert!(
-        source.env.agents.runs("held-1"),
-        "the session runs again where it was"
+        !source.env.agents.runs("held-1"),
+        "the session does not run on two machines"
     );
     source.env.agents.shutdown().await;
 }
