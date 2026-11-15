@@ -34,9 +34,9 @@ const session = (id: string, machine_id: string, cwd: string, status: string, la
 
 test("the assistant list splits running from ended, the latest first", () => {
   const machines = [
-    { id: "build-box", version: "0.7.12", env: { os: "linux", home: HOME } },
-    { id: "win-box", version: "0.7.12", env: { os: "windows", home: "C:\\Users\\user" } },
-    { id: "wsl-box", version: "0.7.13", env: { os: "linux", home: HOME } },
+    { id: "build-box", marks_assistant: false, env: { os: "linux", home: HOME } },
+    { id: "win-box", marks_assistant: false, env: { os: "windows", home: "C:\\Users\\user" } },
+    { id: "wsl-box", marks_assistant: true, env: { os: "linux", home: HOME } },
   ];
   const rows = assistantRows([
     session("old", "build-box", HOME, "idle", 10),

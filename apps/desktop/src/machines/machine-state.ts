@@ -99,6 +99,8 @@ export interface MachineCard extends MachineView {
   /// Not reached yet: shown from what the app kept, or the mesh is still
   /// dialing it after opening or losing its link.
   connecting: boolean;
+  /// Its node marks every assistant session itself.
+  marks_assistant: boolean;
 }
 
 /// How a machine's dot reads: on (busy with agents or idle), connecting, or off.

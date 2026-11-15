@@ -549,18 +549,23 @@ fn for_assistant(
     }
 }
 
-/// Whether `host` runs the home assistant: this computer's own node is this
-/// build, and another node must be newer than `BEFORE_ASSISTANT`.
+/// Whether `host` runs the home assistant (`marks_assistant`).
 pub(crate) fn runs_assistant(fleet: &Fleet, host: &AgentHost) -> bool {
     let Some(machine) = fleet.member(&host.machine_id) else {
         return false;
     };
 
-    machine == fleet.id()
-        || newer_than(
-            fleet.status().version(machine).as_deref(),
-            &BEFORE_ASSISTANT,
-        )
+    marks_assistant(
+        machine == fleet.id(),
+        fleet.status().version(machine).as_deref(),
+    )
+}
+
+/// Whether a node of `version` runs the home assistant and marks every
+/// assistant session itself: this computer's own node (`own`) is this build,
+/// and another node must be newer than `BEFORE_ASSISTANT`.
+pub(crate) fn marks_assistant(own: bool, version: Option<&str>) -> bool {
+    own || newer_than(version, &BEFORE_ASSISTANT)
 }
 
 /// Takes over a session started outside Beep; the node refuses one still in

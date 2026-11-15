@@ -54,6 +54,7 @@ fn view(parts: HomeParts) -> HomeView {
 
 fn parts() -> HomeParts {
     HomeParts {
+        me: "this-box".into(),
         machines: Ok(Vec::new()),
         details: Ok(Vec::new()),
         stats: Ok(Vec::new()),
@@ -98,6 +99,38 @@ fn machines_count_their_agents() {
     let build = cards.iter().find(|c| c.id == "build-box").expect("card");
     let mac = cards.iter().find(|c| c.id == "mac-box").expect("card");
     assert_eq!((build.agents, mac.agents), (2, 0));
+}
+
+#[test]
+fn a_card_says_whether_its_node_marks_the_assistant() {
+    let newer = Machine {
+        version: "0.7.13".into(),
+        ..machine("new-box", true)
+    };
+    let older = Machine {
+        version: "0.7.12".into(),
+        ..machine("old-box", true)
+    };
+    // This computer's node is this build, whatever its version says.
+    let own = Machine {
+        version: "0.7.12".into(),
+        ..machine("this-box", true)
+    };
+    let view = view(HomeParts {
+        machines: Ok(vec![newer, older, own]),
+        ..parts()
+    });
+    let cards = view.machines.expect("machines were listed");
+    let marks = |id: &str| {
+        cards
+            .iter()
+            .find(|c| c.id == id)
+            .expect("card")
+            .marks_assistant
+    };
+    assert!(marks("new-box"));
+    assert!(!marks("old-box"));
+    assert!(marks("this-box"));
 }
 
 #[test]

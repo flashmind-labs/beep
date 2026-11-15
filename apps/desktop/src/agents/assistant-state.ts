@@ -3,15 +3,10 @@ import type { AgentHost, AgentSession } from "./agents.ts";
 import { AGENT_ORDER, harnessFor, keepEffort } from "./agentpick.ts";
 import type { AssistantPick } from "../settings/assistant.ts";
 import type { MachineEnv } from "../machines/machine-state.ts";
-import { isNewer } from "../ui/format.ts";
 
 /// What a start composer's field is to a screen reader: a task, or a message for the assistant.
 export const TASK_LABEL = "Task for a coding agent";
 export const ASSISTANT_LABEL = "Message for the assistant";
-
-/// The last released beep-node, which does not mark every assistant session itself
-/// (`BEFORE_ASSISTANT` in src-tauri/src/agents/steer.rs).
-const BEFORE_ASSISTANT = "0.7.12";
 
 /// What the assistant list needs of a session's machine.
 export interface AssistantMachine {
@@ -21,13 +16,8 @@ export interface AssistantMachine {
   marks: boolean;
 }
 
-/// Whether a node of `version` marks every assistant session itself.
-function marksAssistant(version: string): boolean {
-  return /^\d/.test(version) && isNewer(version, BEFORE_ASSISTANT);
-}
-
-/// A session is the assistant when its node says so. A reviewer never is. For an older node,
-/// off Windows, so is one that no session started in the machine's home folder.
+/// A session is the assistant when its node says so. A reviewer never is. For a node that does
+/// not mark them all, off Windows, so is one that no session started in the machine's home folder.
 export function isAssistant(session: Pick<AgentSession, "assistant" | "cwd" | "parent" | "reviewer">, machine: AssistantMachine): boolean {
   if (session.reviewer) return false;
   if (session.assistant) return true;
@@ -36,12 +26,12 @@ export function isAssistant(session: Pick<AgentSession, "assistant" | "cwd" | "p
 }
 
 /// The assistant sessions Home lists, the latest first: those that run, and those that ended.
-export function assistantRows(sessions: readonly AgentSession[], machines: readonly { id: string; version: string; env: Pick<MachineEnv, "os" | "home"> | null }[]): { running: AgentSession[]; ended: AgentSession[] } {
+export function assistantRows(sessions: readonly AgentSession[], machines: readonly { id: string; marks_assistant: boolean; env: Pick<MachineEnv, "os" | "home"> | null }[]): { running: AgentSession[]; ended: AgentSession[] } {
   const byId = new Map(machines.map(m => [m.id, m]));
   const listed = sessions
     .filter(s => {
       const m = byId.get(s.machine_id) ?? null;
-      return isAssistant(s, { home: m?.env?.home || null, windows: m?.env?.os === "windows", marks: !!m && marksAssistant(m.version) });
+      return isAssistant(s, { home: m?.env?.home || null, windows: m?.env?.os === "windows", marks: m?.marks_assistant ?? false });
     })
     .sort((a, b) => b.last_activity - a.last_activity);
 
