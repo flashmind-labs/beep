@@ -430,6 +430,12 @@ impl Core {
         self.desktop()?;
         self.devices.remove(&self.key, id)?;
         self.save_devices()?;
+        let name = Key::MachineName(id.to_string());
+
+        if self.state.get(&name).is_some() {
+            self.state.set(name, None)?;
+        }
+
         self.publish();
         Ok(())
     }

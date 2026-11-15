@@ -74,6 +74,9 @@ const CLOSE_WAIT: Duration = Duration::from_millis(300);
 /// How often a join looks again while it waits.
 const CLOSE_POLL: Duration = Duration::from_millis(25);
 
+/// The longest name a machine can be given, in characters.
+const MAX_MACHINE_NAME: usize = 64;
+
 /// Closes `mesh`, trying again while another handle is alive, for at most
 /// `wait`. Handed back, still running, when one stays.
 async fn close_within(mut mesh: Mesh, wait: Duration) -> Result<(), InUse> {
@@ -536,6 +539,29 @@ impl Fleet {
         }
 
         Ok(self.ready().await?.remove(machine).await?)
+    }
+
+    /// Shows `machine` as `name` on every member; an empty name brings back the one it joined
+    /// with. Agents address machines by name, so two cannot share one.
+    pub async fn rename(&self, machine: EndpointId, name: &str) -> Result<()> {
+        let name = name.trim();
+
+        if name.chars().count() > MAX_MACHINE_NAME {
+            return Err(DesktopError::BadRequest("that name is too long".into()));
+        }
+
+        let taken = self.machines().into_iter().any(|status| {
+            status.device.id != machine && status.device.name.trim().eq_ignore_ascii_case(name)
+        });
+
+        if taken {
+            return Err(DesktopError::BadRequest(format!(
+                "another machine is called {name}"
+            )));
+        }
+
+        let name = (!name.is_empty()).then(|| name.to_owned());
+        Ok(self.ready().await?.rename(machine, name).await?)
     }
 
     /// Opens a phone's mesh, if it has one, and serves it.
