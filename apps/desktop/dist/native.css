@@ -83,7 +83,7 @@ body:not(.mobile) .cc-pal .q { padding: 14px 16px }
 body:not(.mobile) .cc-pal .q input { font-size: 15px }
 body:not(.mobile) .cc-pal h5 { margin: 8px 10px 3px; font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--dim) }
 body:not(.mobile) .cc-pal .it { min-height: 32px; padding: 0 10px }
-body:not(.mobile) .cc-pal .it[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 10%, transparent) }
+body:not(.mobile) :is(.cc-pal .it, .dchat)[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 10%, transparent) }
 body:not(.mobile) .cc-pal .it { padding-block: 5px }
 body:not(.mobile) .cc-pal .it .t { grid-template-columns: minmax(0, max-content) minmax(0, 1fr); align-items: baseline; column-gap: 12px }
 body:not(.mobile) .cc-pal .it .t small { text-align: right; color: var(--dim) }
@@ -119,13 +119,15 @@ body:not(.mobile) .cc-main:has(#pw-back:not([hidden])) .dhead.ag-head { padding-
 body:not(.mobile) .nt-bell { border: 0 }
 /* The row keeps clear of the tools laid over its end, whatever their width (--top-w is kept by src/center/window-shell.tsx). */
 body:not(.mobile) .dhead.ag-head { height: 42px; padding: 0 calc(var(--top-w, 104px) + 8px) 0 6px; gap: 8px; border-bottom: 0 }
-body:not(.mobile) .ag-head .dcoderav { width: 18px; height: 18px; border: 0; background: none }
+/* The quick window has no tools over its row, only its round corner to clear. */
+.dbar:not([data-mode="window"]) { --top-w: 4px }
+body:not(.mobile) :is(.ag-head, .dchat) .dcoderav { width: 18px; height: 18px; border: 0; background: none }
 /* The title, with where the session runs on a line of its own under it, so neither is cut short. */
 body:not(.mobile) .ag-head .tt { display: grid; min-width: 10em; line-height: 16px }
 body:not(.mobile) .ag-head .tt b { font-size: 13px }
 body:not(.mobile) .ag-head .tt small { min-width: 0; line-height: 14px }
-body:not(.mobile) .ag-head .dstate { padding: 0; border: 0; background: none; font-size: 10.5px; font-weight: 500 }
-body:not(.mobile) .ag-head .dstate::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: 1px }
+body:not(.mobile) :is(.ag-head, .dchat) .dstate { padding: 0; border: 0; background: none; font-size: 10.5px; font-weight: 500 }
+body:not(.mobile) :is(.ag-head, .dchat) .dstate::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: 1px }
 
 /* ----- Session screen: no rules between the parts, a narrower column, one text size ----- */
 body:not(.mobile) .dcoderturn { padding-bottom: 0; border-bottom: 0 }
@@ -222,7 +224,7 @@ body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-pal h5, .cc-set .dset-h, .dco
 body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .cc-tabs button, .agtab, .hv-seg button, .us-pill, .mvb, .agc-pill) { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0 }
 body:not(.mobile) :is(.cc-tabs button, .agtab) { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) .agtab span { font: inherit }
-body:not(.mobile) :is(.cc-si .n, .pv-row .m, .pv-row .ago, .dcoderturn .hd, .dcoderturn .when, .aglocation, .cc-top small, .cc-pal .it .t small, .cc-pal .foot, .dhints, .agkeys, .cc-foot, .bd-card small, .mac-state) { font-family: var(--mono); font-size: 11px }
+body:not(.mobile) :is(.cc-si .n, .pv-row .m, .pv-row .ago, .dcoderturn .hd, .dcoderturn .when, .aglocation, .cc-top small, .cc-pal .it .t small, .cc-pal .foot, .dhead .tt small, .dchat .t small, .dchat .w, .dchat .run, .dhints, .agkeys, .cc-foot, .bd-card small, .mac-state) { font-family: var(--mono); font-size: 11px }
 body:not(.mobile) .cc-brand b { font-family: var(--mono); font-weight: 600; font-size: 16px; letter-spacing: -.02em }
 
 /* A status is a dot and a word; the running one glows. */

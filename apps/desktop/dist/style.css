@@ -295,7 +295,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dups { display: flex; flex-wrap: wrap; gap: 8px }
 .dstate { font-size: 11px; font-weight: 600; padding: 0 8px; line-height: 19px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); flex: none; white-space: nowrap }
 .dstate.run { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--accent) }
-.dstate.ask { border-color: color-mix(in srgb, var(--hot) 50%, transparent); color: var(--hot) }
+/* `.ask` is also the prompt bubble, which sits at its row's end. */
+.dstate.ask { align-self: auto; border-color: color-mix(in srgb, var(--hot) 50%, transparent); color: var(--hot) }
 .dapp.dcoderav { width: 28px; height: 28px; border-radius: var(--radius-sm); font-size: 10.5px; background: var(--elev) }
 .dapp.dcoderav.claude { color: #F2A27A } .dapp.dcoderav.codex { color: var(--fg) }
 .dcard.dcoder { flex: none }

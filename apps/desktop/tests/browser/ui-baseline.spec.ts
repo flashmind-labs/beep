@@ -58,6 +58,7 @@ const transcript = [
   { kind: "agent", text: "Done. The query string now survives the redirect." },
 ];
 const agentView = { session: { ...session, question: null }, plan: [], files: [], entries: transcript, earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 2 };
+const sessionUsage = { context: { used: 250_000, size: 1_000_000 }, tokens: 54_200_000, cost_usd: 34.9 };
 const listing = { folders: [{ path: "", entries: [{ name: "src", folder: true, size: 0, ignored: false, change: null }, { name: "README.md", folder: false, size: 1200, ignored: false, change: null }, { name: "package.json", folder: false, size: 640, ignored: false, change: "modified" }, { name: "sample.ts", folder: false, size: 300, ignored: false, change: "modified" }], more: 0, git: true }], truncated: false };
 
 const commits = [
@@ -139,7 +140,7 @@ async function baseline(page: Page, name: string, root = "body") {
 }
 
 async function openAgent(page: Page, responses: Record<string, unknown> = {}) {
-  await openDesktop(page, false, { agent_view: agentView, agent_tree: listing, agent_usage: { context: { used: 250_000, size: 1_000_000 }, tokens: 54_200_000, cost_usd: 34.9 }, ...responses });
+  await openDesktop(page, false, { agent_view: agentView, agent_tree: listing, agent_usage: sessionUsage, ...responses });
   await page.evaluate(target => window.__navigation.open({ agent: target }), session);
   await expect(page.getByText("The query string now survives the redirect.")).toBeVisible();
 }
@@ -528,7 +529,7 @@ const barRows = [
 
 async function openBar(page: Page) {
   const done = { id: "n1", kind: "finished", title: "Codex finished", text: "Done", source: machineId, at: NOW, read: false, done: false, target: { agent: barRows[1] } };
-  await openDesktop(page, false, { agent_sessions: barRows, notes_list: [done], session_moves: [], agent_tree: listing, agent_view: { ...agentView, session: barRows[0] } });
+  await openDesktop(page, false, { agent_sessions: barRows, notes_list: [done], session_moves: [], agent_tree: listing, agent_view: { ...agentView, session: barRows[0] }, agent_usage: sessionUsage });
   await page.goto("https://app.test/index.html");
   await expect(page.locator("#bar")).toBeAttached();
   await page.evaluate(() => window.__navigation.emit("bar-shown", null));
