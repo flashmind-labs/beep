@@ -7,10 +7,15 @@ fn report_request_reads_by_position() {
     let named = rmp_serde::to_vec(&Request {
         since: 7,
         max_bytes: 9,
+        whole: true,
     })
     .expect("encodes");
-    let positional = rmp_serde::to_vec(&(7u64, 9u32)).expect("encodes");
+    let positional = rmp_serde::to_vec(&(7u64, 9u32, true)).expect("encodes");
     assert_eq!(named, positional);
+    // A request from before `whole` asks for the newest `max_bytes`.
+    let older = rmp_serde::to_vec(&(7u64, 9u32)).expect("encodes");
+    let read: Request = lenient::from_slice(&older).expect("reads");
+    assert!(!read.whole);
 }
 
 #[test]

@@ -375,6 +375,7 @@ async fn ask_report_using(
         tx.send(&report::Request {
             since: 0,
             max_bytes: 1024,
+            whole: false,
         })
         .await
         .expect("the request is sent");

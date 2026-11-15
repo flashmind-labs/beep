@@ -21,6 +21,13 @@ async fn share(mut tx: LinkTx, mut rx: LinkRx, log: String) {
     let Ok(Some(Request { .. })) = rx.recv::<Request>().await else {
         return;
     };
+    // A long log goes in two messages, as a node sends one in parts.
+    let mut log = log;
+    let rest = log.split_off(if log.len() > 1024 {
+        log.len() / 2
+    } else {
+        log.len()
+    });
     let reply = Reply::Share {
         log,
         status: "running".into(),
@@ -29,6 +36,10 @@ async fn share(mut tx: LinkTx, mut rx: LinkRx, log: String) {
         os_version: "6.1".into(),
     };
     tx.send(&reply).await.ok();
+
+    if !rest.is_empty() {
+        tx.send(&Reply::Log { text: rest }).await.ok();
+    }
 }
 
 async fn silent(mut tx: LinkTx, mut rx: LinkRx) {
@@ -133,7 +144,7 @@ async fn an_unreachable_machine_is_listed_offline() {
 }
 
 #[tokio::test]
-async fn an_oversized_log_keeps_its_newest_lines() {
+async fn a_long_log_arrives_whole() {
     let mut log = String::new();
     let mut n = 0u32;
 
@@ -142,11 +153,30 @@ async fn an_oversized_log_keeps_its_newest_lines() {
         n += 1;
     }
 
-    let last = format!("line {} of the log\n", n - 1);
     let shares = collect(vec![target("build-box", local(sharing(&log)))], 0).await;
-    let cut = &shares[0].log;
-    assert!(cut.len() <= MAX_LOG, "{}", cut.len());
-    assert!(cut.len() > 1024 * 1024 - 64, "{}", cut.len());
-    assert!(cut.starts_with("line "), "{:?}", &cut[..20]);
-    assert!(cut.ends_with(&last));
+    assert_eq!(shares[0].answer, Answer::Answered);
+    assert!(
+        shares[0].log == log,
+        "{} of {}",
+        shares[0].log.len(),
+        log.len()
+    );
+}
+
+#[test]
+fn a_local_log_starts_at_the_period() {
+    let log = "2026-01-02T03:04:04.999999Z  INFO before\n  its second line\n\
+               2026-01-02T03:04:05.000001Z  INFO at\n  its second line\n\
+               2026-01-02T03:04:06.000000Z  WARN after\n";
+    let since = DateTime::parse_from_rfc3339("2026-01-02T03:04:05Z")
+        .expect("a valid time")
+        .timestamp();
+
+    let kept = from_time(log.to_owned(), since);
+    assert!(
+        kept.starts_with("2026-01-02T03:04:05.000001Z  INFO at\n"),
+        "{kept}"
+    );
+    assert!(kept.ends_with("WARN after\n"), "{kept}");
+    assert_eq!(from_time(log.to_owned(), since + 60), "");
 }

@@ -24,18 +24,6 @@ fn share(name: &str, log: String, status: &str) -> Share {
     }
 }
 
-fn big_log(n: usize) -> String {
-    let mut log = String::new();
-    let mut line = 0;
-
-    while log.len() < 1024 * 1024 {
-        log.push_str(&format!("log {n} line {line} with some words in it\n"));
-        line += 1;
-    }
-
-    log
-}
-
 #[test]
 fn a_draft_redacts_logs_status_and_text() {
     let shares = vec![share(
@@ -76,40 +64,6 @@ fn a_draft_leaves_out_empty_files() {
     .expect("an empty share drafts");
     assert!(d.files.is_empty());
     assert_eq!(d.manifest.machines.len(), 1);
-}
-
-#[test]
-fn a_draft_stays_under_the_bundle_cap() {
-    let shares = (0..6).map(|n| share("build-box", big_log(n), "")).collect();
-    let d = draft("", Period::Day, 0, sender(), shares).expect("six logs draft");
-    let total: usize = d.files.iter().map(|f| f.text.len()).sum();
-    assert!(total <= MAX_BODY - MANIFEST_RESERVE, "{total}");
-    assert!(total > MAX_BODY - MANIFEST_RESERVE - 6 * 64, "{total}");
-    assert_eq!(d.files.len(), 6);
-
-    for (n, file) in d.files.iter().enumerate() {
-        let original = big_log(n);
-        let last = original.lines().last().expect("the log has lines");
-        assert!(file.text.ends_with(&format!("{last}\n")));
-        assert!(file.text.starts_with(&format!("log {n} line ")));
-    }
-}
-
-#[test]
-fn a_small_file_keeps_all_of_itself_and_leaves_the_rest_to_others() {
-    let mut files = vec![
-        DraftFile {
-            path: "a".into(),
-            text: "x\n".repeat(400),
-        },
-        DraftFile {
-            path: "b".into(),
-            text: "y\n".repeat(10),
-        },
-    ];
-    fit(&mut files, 300);
-    assert_eq!(files[1].text.len(), 20);
-    assert_eq!(files[0].text.len(), 280);
 }
 
 #[test]

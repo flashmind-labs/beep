@@ -1,19 +1,22 @@
 //! `report/1`: what a node shares with a problem report. The desktop sends one
-//! `Request` per stream and the node answers with one `Reply`.
+//! `Request` per stream and the node answers with one `Reply`, followed, for a
+//! whole log, by a `Reply::Log` for each further part of it.
 
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL: &str = "report/1";
-/// The most log bytes a node gives.
-pub const MAX_BYTES: u32 = 1024 * 1024;
 
 /// What the desktop sends.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Request {
     /// Only log lines from this Unix time (seconds) on.
     pub since: u64,
-    /// The most log bytes wanted, up to `MAX_BYTES`.
+    /// The most log bytes wanted, the newest, when `whole` is off.
     pub max_bytes: u32,
+    /// The whole log from `since` on, in as many replies as it takes. A node
+    /// that predates this gives its newest `max_bytes` in one reply.
+    #[serde(default)]
+    pub whole: bool,
 }
 
 /// What the node answers.
@@ -30,6 +33,8 @@ pub enum Reply {
     },
     /// It cannot share, in words for the user.
     Failed { reason: String },
+    /// The next part of a whole log, after the `Share` that began it.
+    Log { text: String },
 }
 
 #[cfg(test)]

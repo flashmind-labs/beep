@@ -628,6 +628,18 @@ test("phone settings", async ({ page }) => {
   await expect(settings).toBeHidden();
 });
 
+test("phone report", async ({ page }) => {
+  await page.addInitScript(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
+  await page.setViewportSize(PHONE);
+  await openDesktop(page, false, { ...settingsResponses, center_home: home, mobile_paired: true });
+  await page.evaluate(() => window.__navigation.open("report"));
+  const sheet = page.getByRole("dialog", { name: "Report a problem" });
+  await expect(sheet.getByRole("button", { name: "Collect", exact: true })).toBeVisible();
+  // Nothing is cut off: the sheet and its buttons stay inside the screen.
+  expect(await sheet.evaluate(element => [element, ...element.querySelectorAll("button")].every(part => part.getBoundingClientRect().right <= document.documentElement.clientWidth))).toBe(true);
+  await baseline(page, "phone-report");
+});
+
 test("unfolded foldable home", async ({ page }) => {
   await page.addInitScript(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
   await page.setViewportSize({ width: 690, height: 830 });
