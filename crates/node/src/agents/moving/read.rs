@@ -7,7 +7,11 @@
 //! Sent as compact msgpack: a field is added only at the end with
 //! `#[serde(default)]`.
 
-use super::{Harness, progress::Target};
+use super::{
+    Harness,
+    progress::Target,
+    worktree::{self, Work},
+};
 use crate::agents::{Agents, found::Agent};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
@@ -25,6 +29,7 @@ use tokio::{
     fs::{self, File},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     sync::watch,
+    task::spawn_blocking,
     time::timeout,
 };
 
@@ -72,6 +77,18 @@ pub(crate) enum Request {
     State { id: String, at: u64 },
     /// Asked by nodes from before worktree moves were removed; refused.
     WorktreeBundle { id: String, head: String },
+    /// Asks for the commit of the project's checkout and the worktrees the
+    /// session made, which move with it. Answered with `Checkout`.
+    Checkout { id: String },
+    /// Asks for one of those worktrees, by its folder in the project, once
+    /// the session ended: `Work`, then the commits main lacks as `Bundle`
+    /// pieces when `bundle`, the uncommitted work as `Patch` pieces, and
+    /// `BundleEnd`.
+    Worktree {
+        id: String,
+        path: String,
+        bundle: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -121,6 +138,50 @@ pub(crate) enum Reply {
         /// The session runs on the target.
         landed: bool,
     },
+    /// Pieces of a Git bundle, answered only to `Worktree` (and, by nodes
+    /// from before worktree moves were removed, `WorktreeBundle`).
+    Bundle {
+        data: Vec<u8>,
+    },
+    BundleEnd {},
+    /// The answer to `Checkout`: the commit the project's checkout is at,
+    /// none outside Git.
+    Checkout {
+        head: Option<String>,
+        worktrees: Vec<MovingWorktree>,
+    },
+}
+
+/// A worktree that moves with its session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct MovingWorktree {
+    /// Its folder, relative to the project's checkout.
+    pub(crate) path: String,
+    pub(crate) branch: String,
+    /// The commit it is at.
+    pub(crate) head: String,
+}
+
+/// What `Checkout` answers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Checkout {
+    pub(crate) head: Option<String>,
+    pub(crate) worktrees: Vec<MovingWorktree>,
+}
+
+/// What a source keeps of a session that leaves, from its move record: the
+/// project's folder here and the worktrees the session made.
+pub(crate) struct Leaving {
+    pub(crate) folder: PathBuf,
+    pub(crate) worktrees: Vec<String>,
+}
+
+/// One worktree as `Worktree` brought it.
+#[derive(Debug)]
+pub(crate) struct Fetched {
+    pub(crate) work: Work,
+    /// The commits main lacks, when asked for.
+    pub(crate) bundle: Option<Vec<u8>>,
 }
 
 /// What a request is, for the check of who may make it.
@@ -153,6 +214,8 @@ pub(crate) struct Offer {
 pub(super) struct Access<'a> {
     pub(super) check: &'a (dyn Fn(Asked, &str) -> bool + Send + Sync),
     pub(super) updates: Option<watch::Receiver<u64>>,
+    /// The session's project and worktrees here, from its move record.
+    pub(super) leaving: &'a (dyn Fn(&str) -> Option<Leaving> + Send + Sync),
 }
 
 impl Access<'_> {
@@ -256,6 +319,61 @@ pub(super) async fn serve(
             tx.send(&refuse("this machine no longer moves worktrees"))
                 .await
         }
+        Some(Request::Checkout { id }) => {
+            if !access.allows(Asked::Read, &id).await {
+                return tx.send(&refuse("no move of that session to you")).await;
+            }
+
+            let Some(leaving) = (access.leaving)(&id) else {
+                return tx.send(&refuse("this machine does not keep the project")).await;
+            };
+            let reply = spawn_blocking(move || -> Result<Reply> {
+                Ok(Reply::Checkout {
+                    head: worktree::head(&leaving.folder)?,
+                    worktrees: worktree::moving(&leaving.folder, &leaving.worktrees),
+                })
+            })
+            .await?;
+
+            match reply {
+                Ok(reply) => tx.send(&reply).await?,
+                Err(e) => tx.send(&refuse(&format!("{e:#}"))).await?,
+            }
+
+            tx.finish().await
+        }
+        Some(Request::Worktree { id, path, bundle }) => {
+            if !access.allows(Asked::Read, &id).await {
+                return tx.send(&refuse("no move of that session to you")).await;
+            }
+
+            if !agents.reopened() || agents.runs(&id) {
+                return tx.send(&refuse("the session still runs here")).await;
+            }
+
+            let Some(leaving) = (access.leaving)(&id) else {
+                return tx.send(&refuse("this machine does not keep the project")).await;
+            };
+
+            match spawn_blocking(move || send_worktree(&leaving, &path, bundle)).await? {
+                Ok((dir, work, bytes)) => {
+                    agents.moves.sent(&id, dir, work.fingerprint());
+                    tx.send(&Reply::Work { head: work.head }).await?;
+
+                    for piece in bytes.iter().flat_map(|bytes| bytes.chunks(CHUNK)) {
+                        tx.send(&Reply::Bundle { data: piece.to_vec() }).await?;
+                    }
+
+                    for piece in work.patch.chunks(CHUNK) {
+                        tx.send(&Reply::Patch { data: piece.to_vec() }).await?;
+                    }
+
+                    tx.send(&Reply::BundleEnd {}).await?;
+                    tx.finish().await
+                }
+                Err(e) => tx.send(&refuse(&format!("{e:#}"))).await,
+            }
+        }
         Some(Request::List {} | Request::Copy { .. }) => {
             tx.send(&refuse("this machine no longer makes background copies"))
                 .await
@@ -281,6 +399,30 @@ pub(super) async fn serve(
         }
         None => Ok(()),
     }
+}
+
+/// The worktree at `path` in `leaving`'s project, if the session made it:
+/// its folder, what it holds and, when `bundle`, the commits the project's
+/// checkout lacks. Blocks.
+fn send_worktree(
+    leaving: &Leaving,
+    path: &str,
+    bundle: bool,
+) -> Result<(PathBuf, Work, Option<Vec<u8>>)> {
+    let Some(tree) = worktree::moving(&leaving.folder, &leaving.worktrees)
+        .into_iter()
+        .find(|tree| tree.path == path)
+    else {
+        bail!("{path} is not a worktree of the session");
+    };
+    let dir = leaving.folder.join(&tree.path);
+    let work = worktree::snapshot(&dir)?;
+    let bytes = match (bundle, worktree::head(&leaving.folder)?) {
+        (true, Some(base)) => Some(worktree::bundle(&dir, &work.head, &base)?),
+        (true, None) => bail!("the project's checkout has no commit"),
+        (false, _) => None,
+    };
+    Ok((dir, work, bytes))
 }
 
 /// A transcript to serve.
@@ -477,6 +619,68 @@ pub(super) async fn pull_within(
             _ => bail!("the source stopped before the end"),
         }
     }
+}
+
+/// Asks a source for the commit of the project's checkout and the worktrees
+/// that move with session `id`.
+pub(crate) async fn checkout(mut tx: LinkTx, mut rx: LinkRx, id: &str) -> Result<Checkout> {
+    tx.send(&Request::Checkout { id: id.to_owned() }).await?;
+
+    match next(&mut rx, QUIET_FOR).await? {
+        Some(Reply::Checkout { head, worktrees }) => Ok(Checkout { head, worktrees }),
+        Some(Reply::Refused { message }) => Err(Refused(message).into()),
+        // A node from before worktrees moved again cannot read the request.
+        _ => Err(Refused("its beep-node is too old to move this session: update it".into()).into()),
+    }
+}
+
+/// Asks a source for the worktree at `path` of session `id`, with the
+/// commits the project's checkout lacks when `bundle`.
+pub(crate) async fn worktree(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    id: &str,
+    path: &str,
+    bundle: bool,
+) -> Result<Fetched> {
+    tx.send(&Request::Worktree {
+        id: id.to_owned(),
+        path: path.to_owned(),
+        bundle,
+    })
+    .await?;
+    let head = match next(&mut rx, QUIET_FOR).await? {
+        Some(Reply::Work { head }) => head,
+        Some(Reply::Refused { message }) => return Err(Refused(message).into()),
+        _ => bail!("the source ended without sending the worktree"),
+    };
+    let mut bytes = Vec::new();
+    let mut patch = Vec::new();
+
+    loop {
+        match next(&mut rx, QUIET_FOR).await? {
+            Some(Reply::Bundle { data }) => grow(&mut bytes, &data, worktree::MAX_BUNDLE)?,
+            Some(Reply::Patch { data }) => grow(&mut patch, &data, worktree::MAX_PATCH)?,
+            Some(Reply::BundleEnd {}) => break,
+            Some(Reply::Refused { message }) => return Err(Refused(message).into()),
+            _ => bail!("the source stopped before the end of the worktree"),
+        }
+    }
+
+    Ok(Fetched {
+        work: Work { head, patch },
+        bundle: bundle.then_some(bytes),
+    })
+}
+
+/// Adds `data` to `into`, refusing more than `cap` bytes in all.
+fn grow(into: &mut Vec<u8>, data: &[u8], cap: usize) -> Result<()> {
+    if into.len() + data.len() > cap {
+        bail!("the worktree is too large to move");
+    }
+
+    into.extend_from_slice(data);
+    Ok(())
 }
 
 /// The source's next message, if it sends one within `quiet`.

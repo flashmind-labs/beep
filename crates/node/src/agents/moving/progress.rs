@@ -8,6 +8,7 @@ use beep_proto::node::agent::{MovePhase, MoveProgress};
 use beep_proto::watched;
 use std::{
     collections::{HashMap, HashSet},
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 use tokio::sync::watch;
@@ -42,6 +43,8 @@ pub(crate) struct Moves {
     tracked: Mutex<HashMap<String, Tracked>>,
     held: Mutex<HashSet<String>>,
     refused: Mutex<HashMap<String, String>>,
+    /// The worktrees a source sent for a move, and what each held then.
+    sent: Mutex<HashMap<String, Vec<(PathBuf, String)>>>,
 }
 
 /// A session the source ended is served as running while this lives, so a
@@ -141,6 +144,20 @@ impl Moves {
 
     pub(super) fn refusal(&self, id: &str) -> Option<String> {
         lock(&self.refused).get(id).cloned()
+    }
+
+    /// The source sent the worktree at `dir` for session `id`, holding what
+    /// `fingerprint` hashes.
+    pub(super) fn sent(&self, id: &str, dir: PathBuf, fingerprint: String) {
+        let mut sent = lock(&self.sent);
+        let trees = sent.entry(id.to_owned()).or_default();
+        trees.retain(|(there, _)| *there != dir);
+        trees.push((dir, fingerprint));
+    }
+
+    /// The worktrees sent for session `id`, forgotten here.
+    pub(super) fn take_sent(&self, id: &str) -> Vec<(PathBuf, String)> {
+        lock(&self.sent).remove(id).unwrap_or_default()
     }
 }
 

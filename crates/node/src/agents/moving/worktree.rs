@@ -3,6 +3,7 @@
 //! committed, the target makes a worktree on the same branch and applies it.
 //! Everything here blocks: call it from `spawn_blocking`.
 
+use super::read::MovingWorktree;
 use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use std::{
@@ -255,6 +256,34 @@ pub(super) fn snapshot(dir: &Path) -> Result<Work> {
     }
 
     Ok(Work { head, patch })
+}
+
+/// Of the worktrees a session made (`made`, as this machine names them),
+/// those that move with it: still here, inside the checkout `main`, and on
+/// a branch. The others stay. Blocks.
+pub(super) fn moving(main: &Path, made: &[String]) -> Vec<MovingWorktree> {
+    let Ok(listed) = listed(main) else {
+        return Vec::new();
+    };
+    let main = paths::canonicalize(main).unwrap_or_else(|_| main.to_owned());
+
+    made.iter()
+        .filter_map(|made| {
+            let dir = paths::canonicalize(Path::new(made)).ok()?;
+            let relative = dir.strip_prefix(&main).ok()?.to_str()?.to_owned();
+            let branch = listed
+                .iter()
+                .find(|(there, _)| same_folder(there, &dir))?
+                .1
+                .clone()?;
+            let head = text(&dir, &["rev-parse", "HEAD"]).ok()?;
+            (!relative.is_empty()).then_some(MovingWorktree {
+                path: relative,
+                branch,
+                head,
+            })
+        })
+        .collect()
 }
 
 /// The worktrees of the checkout `main` with the branch each has checked

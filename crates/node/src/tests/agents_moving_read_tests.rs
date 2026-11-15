@@ -1,4 +1,4 @@
-use super::read::{ALPN, Access, Pulled, pull};
+use super::read::{ALPN, Access, Leaving, MovingWorktree, Pulled, pull};
 use crate::{
     agents::{Agents, found::Stores},
     link::Membership,
@@ -34,6 +34,7 @@ impl ProtocolHandler for Open {
         let access = Access {
             check: &|_, _| true,
             updates: None,
+            leaving: &|_| None,
         };
         let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
         connection.closed().await;
@@ -217,6 +218,7 @@ impl ProtocolHandler for Strict {
         let access = Access {
             check: &|_, _| false,
             updates: None,
+            leaving: &|_| None,
         };
         let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
         connection.closed().await;
@@ -519,4 +521,138 @@ async fn a_flsh_session_file_is_read_and_one_in_an_old_database_is_refused() {
             .contains("Update flsh on laptop to 0.2.9 to move this session"),
         "{err:#}"
     );
+}
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git runs");
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// A project folder with a worktree the session made (`feat`, a commit
+/// and an untracked file ahead of main) and one it did not (`other`).
+fn project() -> (TempDir, std::path::PathBuf) {
+    let dir = TempDir::new().expect("a temp folder");
+    let main = dir.path().join("app");
+    fs::create_dir(&main).expect("a folder");
+    git(&main, &["init", "-q", "--initial-branch=main"]);
+    fs::write(main.join("a.txt"), "one\n").expect("a file");
+    git(&main, &["add", "."]);
+    git(&main, &["commit", "-q", "-m", "first"]);
+    git(&main, &["worktree", "add", "-q", "-b", "feat", ".worktrees/feat"]);
+    git(&main, &["worktree", "add", "-q", "-b", "other", ".worktrees/other"]);
+    let feat = main.join(".worktrees/feat");
+    fs::write(feat.join("b.txt"), "two\n").expect("a file");
+    git(&feat, &["add", "b.txt"]);
+    git(&feat, &["commit", "-q", "-m", "on feat"]);
+    fs::write(feat.join("new.txt"), "untracked\n").expect("a file");
+    (dir, main)
+}
+
+/// Serves a source whose session made `feat`, a worktree since removed and
+/// one outside the project.
+#[derive(Clone)]
+struct Project(Arc<Agents>, std::path::PathBuf);
+
+impl std::fmt::Debug for Project {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Project")
+    }
+}
+
+impl ProtocolHandler for Project {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        let Ok((send, recv)) = connection.accept_bi().await else {
+            return Ok(());
+        };
+        let (tx, rx) = link(send, recv);
+        let main = self.1.clone();
+        let leaving = move |_: &str| {
+            Some(Leaving {
+                folder: main.clone(),
+                worktrees: vec![
+                    main.join(".worktrees/feat").to_string_lossy().into_owned(),
+                    main.join(".worktrees/gone").to_string_lossy().into_owned(),
+                    "/elsewhere/wt".to_owned(),
+                ],
+            })
+        };
+        let access = Access {
+            check: &|_, _| true,
+            updates: None,
+            leaving: &leaving,
+        };
+        let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
+        connection.closed().await;
+        Ok(())
+    }
+}
+
+async fn project_server() -> (TempDir, std::path::PathBuf, Router) {
+    let (dir, main) = project();
+    let agents = Agents::default();
+    agents.reopened.send_replace(true);
+    let endpoint = endpoint().await;
+    let router = Router::builder(endpoint)
+        .accept(ALPN, Project(Arc::new(agents), main.clone()))
+        .spawn();
+    (dir, main, router)
+}
+
+async fn stream(server: &Router) -> (beep_proto::node::LinkTx, beep_proto::node::LinkRx) {
+    let client = endpoint().await;
+    let connection = client
+        .connect(server.endpoint().addr(), ALPN)
+        .await
+        .expect("connects");
+    let (send, recv) = connection.open_bi().await.expect("a stream");
+    // The connection lives as long as the client endpoint the stream holds.
+    std::mem::forget(client);
+    link(send, recv)
+}
+
+#[tokio::test]
+async fn the_checkout_lists_only_the_sessions_worktrees_that_are_still_there() {
+    let (_dir, main, server) = project_server().await;
+    let (tx, rx) = stream(&server).await;
+    let checkout = super::read::checkout(tx, rx, ID).await.expect("an answer");
+    assert_eq!(checkout.head, Some(git(&main, &["rev-parse", "HEAD"])));
+    assert_eq!(
+        checkout.worktrees,
+        vec![MovingWorktree {
+            path: ".worktrees/feat".into(),
+            branch: "feat".into(),
+            head: git(&main.join(".worktrees/feat"), &["rev-parse", "HEAD"]),
+        }]
+    );
+}
+
+#[tokio::test]
+async fn a_worktree_comes_with_its_new_commits_and_uncommitted_work() {
+    let (_dir, main, server) = project_server().await;
+    let (tx, rx) = stream(&server).await;
+    let fetched = super::read::worktree(tx, rx, ID, ".worktrees/feat", true)
+        .await
+        .expect("the worktree");
+    assert_eq!(
+        fetched.work.head,
+        git(&main.join(".worktrees/feat"), &["rev-parse", "HEAD"])
+    );
+    assert!(fetched.bundle.is_some_and(|bytes| !bytes.is_empty()));
+    assert!(String::from_utf8_lossy(&fetched.work.patch).contains("new.txt"));
+}
+
+#[tokio::test]
+async fn a_worktree_the_session_did_not_make_is_refused() {
+    let (_dir, _main, server) = project_server().await;
+    let (tx, rx) = stream(&server).await;
+    let refused = super::read::worktree(tx, rx, ID, ".worktrees/other", false)
+        .await
+        .expect_err("not the session's");
+    assert!(format!("{refused:#}").contains("refused"), "{refused:#}");
 }
