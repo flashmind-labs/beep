@@ -242,7 +242,6 @@ body.mobile .agshell:not(.mb-log) .agpane { flex: 1 1 0 !important; max-height: 
 body.mobile .agpane .agphead :is(.agtabs, .agaddterm, [data-pact]) { display: none }
 
 body.mobile .bd-lanes { grid-template-columns: minmax(0, 1fr) }
-body.mobile .bd-lane:has(> .bd-empty) { display: none }
 body.mobile .agrail { display: none }
 
 /* Landscape on a phone: the tabs are a rail on the left, the top bar and a session's head are

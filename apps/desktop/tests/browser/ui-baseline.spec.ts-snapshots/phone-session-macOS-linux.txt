@@ -98,10 +98,6 @@ body.cbody.mb-full.mobile
           div#sec-needs
             div.bd-lanes
               div.bd-lane
-                h4 "Needs you"
-                  span
-                div.bd-empty "Nothing here"
-              div.bd-lane
                 h4
                   button [type="button"] "Working"
                   span "2"
@@ -125,15 +121,6 @@ body.cbody.mb-full.mobile
                     span.cc-running "now"
                       span.drun [aria-label="Working" role="img"]
                     span.sp
-              div.bd-lane
-                h4 "Ready to review"
-                  span
-                div.bd-empty "Nothing here"
-              div.bd-lane
-                h4
-                  button [type="button"] "Done today"
-                  span
-                div.bd-empty "Nothing here"
       div#pane-box.cc-box
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="agent"]
           div [data-bar-page] style(display)
@@ -278,7 +265,7 @@ body.cbody.mb-full.mobile
                             kbd "⌘."
                           span "Close session"
                             kbd "⇧⌘W"
-                          span "Pick the model, on the start form"
+                          span "Pick the model, on the start form and in a conversation"
                             kbd "⇧⌘M"
                           span "Move through models, in the model search"
                             kbd "↑ ↓"
@@ -397,11 +384,7 @@ body.cbody.mb-full.mobile
                             span.r
                               button.dbtn [data-agtask="task-2" type="button"] "Stop"
                         div.agrunningerror.derr [hidden role="status"]
-                button#agpstrip-bottom.agpstrip [data-dock="bottom" hidden title="Show the pane"]
-                  span style(display)
-                    svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                  span "Files"
-                  small "3"
+                div#agpstrip-bottom.agpstrip.tabs [data-dock="bottom" hidden role="tablist"]
               div#agdiv-right.agdiv [data-dock="right" hidden role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
               aside#agpane-right.agpane [data-dock="right" hidden tabindex="-1"]
                 div.agpane-content
