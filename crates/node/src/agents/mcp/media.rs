@@ -58,7 +58,7 @@ const GROUPS: [Group; 4] = [
     Group {
         name: "model_3d",
         what: "3D models",
-        actions: &[("generate", "generate_3d")],
+        actions: &[("generate", "generate_3d"), ("rig", "rig_3d")],
         categories: &[ModelCategory::ThreeD],
     },
 ];
