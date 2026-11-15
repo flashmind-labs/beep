@@ -160,7 +160,7 @@ test("route changes and history preserve retained scroll", async ({ page }, info
 });
 
 test("collapsed sidebar retains project colors and folder navigation", async ({ page }) => {
-  const project = page.locator("#side .projects").getByRole("button", { name: projectName, exact: true });
+  const project = page.locator("#side .projects").getByRole("button", { name: new RegExp(`^${projectName}\\b`) });
   const folder = page.locator("#side .projects .cc-org").first();
   await expect(folder).toBeVisible();
   if (await folder.getAttribute("aria-expanded") === "false") await folder.click();

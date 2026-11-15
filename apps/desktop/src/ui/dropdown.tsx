@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Button, Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
 import { useDialogRef } from "./parts.tsx";
 import { Icon } from "./icons.tsx";
+import { spoken } from "./format.ts";
 
 /// A single choice, opened from a compact button in a toolbar.
 export function Dropdown<K extends string>({ label, options, value, onChange, icon = null }: {
@@ -19,7 +20,7 @@ export function Dropdown<K extends string>({ label, options, value, onChange, ic
   };
 
   return <MenuTrigger>
-    <Button className="dbtn quiet small dropdown-trigger" aria-label={label}>{icon}<span>{selected?.label ?? label}</span><Icon name="caretDown"/></Button>
+    <Button className="dbtn quiet small dropdown-trigger" aria-label={spoken(label, selected?.label)}>{icon}<span>{selected?.label ?? label}</span><Icon name="caretDown"/></Button>
     <Popover ref={dialog} className="dropdown-popover" placement="bottom end" offset={6}>
       <Menu className="dropdown-menu" aria-label={label} selectionMode="single" disallowEmptySelection selectedKeys={[value]} onAction={choose}>
         {options.map(option => <MenuItem className="dropdown-option" id={option.id} key={option.id} textValue={option.label}><span className="dropdown-check"><Icon name="check"/></span><span>{option.label}</span></MenuItem>)}

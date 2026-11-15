@@ -14,12 +14,12 @@ body.cbody
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Search"
-            kbd "⌘K"
+            kbd [data-key="⌘K"]
           button.cc-si [aria-label="Home" title="Home" type="button"]
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Home"
-          button.cc-si [aria-current="true" aria-label="Terminals" title="Terminals" type="button"]
+          button.cc-si [aria-current="true" aria-label="Terminals 3" title="Terminals" type="button"]
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Terminals"
@@ -35,7 +35,7 @@ body.cbody
                 svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               span.tt "example/"
             div.cc-chat.cc-si.pj-repo
-              button.open [aria-label="example/widget" title="example/widget build-box: /srv/project" type="button"]
+              button.open [aria-label="example/widget 2" title="example/widget build-box: /srv/project" type="button"]
                 span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                 span.tt "widget"
                 span.n "2"
@@ -47,7 +47,7 @@ body.cbody
             button [aria-label="Add a machine" title="Add a machine" type="button"]
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
           div style(display)
-            button.cc-si [aria-label="This computer" title="This computer: Joining your machines" type="button"]
+            button.cc-si [aria-label="This computer Connecting" title="This computer: Joining your machines" type="button"]
               span.ddot.off
               span.tt "This computer"
               span.mac-state.n "Connecting"
@@ -58,7 +58,7 @@ body.cbody
               span.sidebar-icon style(display)
                 svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
               span.tt "Settings"
-              kbd "⌘,"
+              kbd [data-key="⌘,"]
         div.cc-foot
           span "No machines linked"
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
@@ -95,7 +95,7 @@ body.cbody
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
           div.home-sort
-            button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+            button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects Default" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
               span "Default"
               svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]

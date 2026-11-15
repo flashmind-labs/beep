@@ -20,13 +20,14 @@
 
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, openStartForm, projectName } from "./harness.ts";
+import { audit, auditing } from "./ui-audit.ts";
 
 /// The frozen wall clock every state renders at.
 const NOW = Date.UTC(2026, 0, 15, 12, 0, 0);
 const PHONE = { width: 375, height: 812 };
 
 test.describe.configure({ mode: "parallel" });
-test.use({ timezoneId: "UTC", locale: "en-US" });
+test.use({ timezoneId: "UTC", locale: "en-US", deviceScaleFactor: auditing ? 2 : 1 });
 test.beforeEach(async ({ page, browserName }, info) => {
   test.skip(!process.env.WK && (browserName !== "chromium" || info.project.name !== "macOS"), "The baseline is recorded once, on Chromium");
   await page.clock.setFixedTime(NOW);
@@ -134,6 +135,8 @@ async function baseline(page: Page, name: string, root = "body") {
     previous = current;
     return same;
   }, { intervals: [100, 150, 200, 250], timeout: 10_000 }).toBe(true);
+
+  if (auditing) return audit(page, name);
 
   expect(previous).toMatchSnapshot(`${name}.txt`);
   await expect(page).toHaveScreenshot(`${name}.png`, { maxDiffPixelRatio: 0.002, animations: "disabled", caret: "hide" });

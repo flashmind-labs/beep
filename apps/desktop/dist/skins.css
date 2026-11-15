@@ -7,7 +7,7 @@
   --body: Inter, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   --radius: 6px; --label-case: none; --label-track: 0; --label-size: 12px;
   /* Derived; a skin may set them itself. */
-  --dim: color-mix(in srgb, var(--muted) 62%, var(--ink));
+  --dim: color-mix(in srgb, var(--muted) 90%, var(--ink));
   --deep: color-mix(in srgb, var(--ink) 80%, #000);
   --border-hi: color-mix(in srgb, var(--border) 75%, var(--fg));
   --radius-sm: calc(var(--radius) * .75);
@@ -19,7 +19,7 @@
 }
 :root[data-skin="flashmind"] {
   --ink: #080e14; --surface: #0d161e; --elev: #16242d; --border: #26323b;
-  --fg: #f1f4f2; --muted: #9baab1; --dim: #60747d; --accent: #82e7e0; --on-accent: #080e14; --hot: #f09b83;
+  --fg: #f1f4f2; --muted: #9baab1; --accent: #82e7e0; --on-accent: #080e14; --hot: #f09b83;
   --ok: #82e7a8; --err: #f07878; --warn: #e8c57a; --link: #82e7e0; --deep: #060b10; --border-hi: #526873;
   --body: Inter, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   --radius: 8px;
@@ -27,7 +27,7 @@
 /* Beep's look before skins: green-tinted, rounded, Rubik and Bricolage. */
 :root[data-skin="classic"] {
   --ink: #0A0E0C; --surface: #121916; --elev: #1A231E; --border: #243028;
-  --fg: #E4EEE8; --muted: #92A59A; --dim: #5E6F66; --accent: #3B9B7A; --on-accent: #0A0E0C; --hot: #F07A6A;
+  --fg: #E4EEE8; --muted: #92A59A; --accent: #3B9B7A; --on-accent: #0A0E0C; --hot: #F07A6A;
   --ok: #6FCF97; --err: #E8685A; --warn: #E9B949; --link: #9DC3F0; --deep: #0B100E; --border-hi: #3A4A41;
   --body: "Rubik", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   --display: "Bricolage Grotesque", ui-rounded, -apple-system, sans-serif;
