@@ -10,7 +10,7 @@ import { FolderChoice, NewAgentNotes } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
 import { AG, agentKind, type AgentHost, hostChanges, loadAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
-import { ASSISTANT_LABEL, assistantHost, resolveAssistant } from "./assistant-state.ts";
+import { ASSISTANT_LABEL, TASK_LABEL, assistantHost, resolveAssistant } from "./assistant-state.ts";
 import { loadAssistant, type AssistantPick } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks } from "./session.tsx";
@@ -198,7 +198,7 @@ function drawParts() {
   const missing = AG.error === "prompt";
   const host = formHost();
   c.update({
-    invalid: missing, placeholder: missing ? PROMPT_MISSING : "Describe the task.", label: f.assistant ? ASSISTANT_LABEL : "Task for a coding agent", error: missing ? PROMPT_MISSING : AG.error,
+    invalid: missing, placeholder: missing ? PROMPT_MISSING : "Describe the task.", label: f.assistant ? ASSISTANT_LABEL : TASK_LABEL, error: missing ? PROMPT_MISSING : AG.error,
     sendDisabled: AG.busy || attachments.reading || !hosts.length || !f.machine,
     sendTitle: !f.machine ? "Pick a machine first" : "Start (⌘↩)",
     busy: AG.busy, open: f.open ?? null,

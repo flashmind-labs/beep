@@ -4,7 +4,8 @@ import { AGENT_ORDER, harnessFor, keepEffort } from "./agentpick.ts";
 import type { AssistantPick } from "../settings/assistant.ts";
 import type { MachineEnv } from "../machines/machine-state.ts";
 
-/// What the assistant's composer field is to a screen reader.
+/// What a start composer's field is to a screen reader: a task, or a message for the assistant.
+export const TASK_LABEL = "Task for a coding agent";
 export const ASSISTANT_LABEL = "Message for the assistant";
 
 /// A session is the assistant when started as one, or, off Windows, when one

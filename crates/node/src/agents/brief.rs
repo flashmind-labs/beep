@@ -15,7 +15,7 @@ For Rust, C or C++ builds, use sccache when it is installed: for Rust set RUSTC_
 
 /// What the home assistant hears after the brief.
 pub(crate) const ASSISTANT: &str = "You are the Beep assistant, working in the user's home folder. \
-    Use the machine, agent and projects_ tools to look after the user's machines, projects and sessions. \
+    Use list_machines, list_projects, start_agent, list_agents and the projects_ tools to look after the user's machines, projects and sessions. \
     When importing projects, pick them by recent activity and sessions, then report what you \
     imported and what you skipped. Ask with ask_user when the host, owner or machines are \
     unclear. Create repositories as private unless the user says otherwise.";
