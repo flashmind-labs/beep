@@ -1,9 +1,10 @@
 // Scenes painted in short brush strokes, after Monet: a sunrise over a
-// harbour ("Impression, Sunrise"), the dawn haze of its sky alone, and after Friedrich a
+// harbour ("Impression, Sunrise"), the dawn haze of its sky alone, haystacks at dusk, the lily
+// pond under its footbridge and Parliament in the evening fog, and after Friedrich a
 // wanderer on a rock above a sea of fog. A scene paints
 // itself once after the app opens and is still from then on; with Reduce motion on it is drawn
 // finished.
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 /// The sunrise: it rises once after the app opens, wherever it shows first.
 export function SunriseArt() {
@@ -20,12 +21,20 @@ export function WandererArt() {
   return <PaintedArt scene="wanderer" />;
 }
 
-/// An empty screen: the sunrise, with what to do next on a card beside the sun.
-export function PaintedEmpty({ children }: { children: ReactNode }) {
-  return <div className="painted-empty"><SunriseArt /><div className="cc-panel cc-empty">{children}</div></div>;
+/// The day's painting: the sunrise, the haystacks, the lily pond and Parliament take a day each.
+/// The day is read when the screen opens, so a painting on show never changes.
+export function DailyArt() {
+  const [scene] = useState(() => DAILY[Math.floor((Date.now() - new Date().getTimezoneOffset() * 60_000) / 86_400_000) % DAILY.length]);
+  return <PaintedArt scene={scene} />;
 }
 
-type Scene = "sunrise" | "haze" | "wanderer";
+/// An empty screen: the day's painting, with what to do next on a card over its quiet side.
+export function PaintedEmpty({ children }: { children: ReactNode }) {
+  return <div className="painted-empty"><DailyArt /><div className="cc-panel cc-empty">{children}</div></div>;
+}
+
+type Scene = "sunrise" | "haze" | "wanderer" | "haystacks" | "lilies" | "parliament";
+const DAILY: readonly Scene[] = ["sunrise", "haystacks", "lilies", "parliament"];
 /// When each scene began to paint itself. A scene drawn again, on another
 /// screen or after a resize, goes on from there instead of starting over.
 const began = new Map<Scene, number>();
@@ -60,7 +69,9 @@ function PaintedArt({ scene }: { scene: Scene }) {
 }
 
 /// How long each scene takes to paint itself, and the time between two painted frames.
-const PLAY_MS: Record<Scene, number> = { sunrise: 9000, haze: 2600, wanderer: 4200 }, FRAME_MS = 33;
+const PLAY_MS: Record<Scene, number> = { sunrise: 9000, haze: 2600, wanderer: 4200, haystacks: 4200, lilies: 4200, parliament: 4200 }, FRAME_MS = 33;
+/// The brush of each scene. The haze is a narrow picture and the others have small shapes: they take a finer one.
+const BRUSH: Record<Scene, number> = { sunrise: 1, haze: 0.55, wanderer: 0.7, haystacks: 0.65, lilies: 0.7, parliament: 0.65 };
 /// The side of one painted pixel in CSS pixels: the scenes are painted in blocks.
 const PIXEL = 4;
 /// Where the water meets the sky, and where the sun stands across the width.
@@ -79,6 +90,25 @@ const ROCK: Rgb = [34, 28, 28], ROCK_LIT: Rgb = [84, 66, 56], COAT: Rgb = [14, 2
 /// Where the wanderer stands: across the width, and the top of the rock under his feet.
 const WANDERER_X = 0.5, ROCK_TOP = 0.74;
 
+const DUSK_HIGH: Rgb = [56, 62, 100], DUSK_LOW: Rgb = [150, 98, 100], AFTERGLOW: Rgb = [236, 150, 84], HILLS: Rgb = [70, 66, 100], HEDGE: Rgb = [44, 50, 66];
+const FIELD_FAR: Rgb = [150, 104, 84], FIELD_NEAR: Rgb = [60, 54, 66], STACK: Rgb = [62, 32, 48], THATCH: Rgb = [146, 76, 50], STACK_LIT: Rgb = [222, 124, 62], STACK_SHADOW: Rgb = [44, 42, 74];
+/// Where the field meets the hills, and the two stacks: each one's place across the width, its
+/// foot, and its half width and height in the picture's height.
+const FIELD = 0.4, STACKS = [[0.64, 0.465, 0.155, 0.27], [0.515, 0.44, 0.09, 0.15]] as const;
+
+const LEAVES: Rgb = [26, 50, 44], LEAVES_LIT: Rgb = [92, 126, 80], WILLOW: Rgb = [142, 150, 88], BRIDGE: Rgb = [128, 170, 154], BRIDGE_SHADE: Rgb = [58, 98, 98];
+const POND_DARK: Rgb = [22, 44, 56], POND_GREEN: Rgb = [50, 88, 70], POND_SKY: Rgb = [92, 108, 142], PAD: Rgb = [118, 154, 104], PAD_SHADE: Rgb = [62, 104, 84], BLOOM: Rgb = [232, 150, 172], BLOOM_PALE: Rgb = [238, 228, 214];
+/// Where the pond begins under the trees, and how far the footbridge reaches to each side of the middle.
+const POND = 0.43, BRIDGE_SPAN = 0.4;
+
+const EVENING: Rgb = [70, 62, 108], EMBER: Rgb = [170, 96, 88], GOLD: Rgb = [240, 166, 84], LOW_SUN: Rgb = [252, 206, 112], TOWERS: Rgb = [52, 54, 102];
+const THAMES_FAR: Rgb = [150, 96, 96], THAMES_NEAR: Rgb = [40, 40, 82];
+/// Where the river meets the far bank, where the evening sun stands, and the skyline: each
+/// tower's place across the width, its half width in the picture's height, its top and how
+/// far its sides fall away from the point. One with no point has a flat roof between turrets.
+const THAMES = 0.57, LOW_SUN_X = 0.46, LOW_SUN_V = 0.28;
+const SKYLINE = [[0.68, 0.085, 0.15, 0], [0.59, 0.014, 0.26, 0.13], [0.83, 0.03, 0.21, 0.08], [0.535, 0.02, 0.36, 0.06]] as const;
+
 const mix = (a: Rgb, b: Rgb, k: number): Rgb => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 
 /// A repeatable sequence of numbers from 0 to 1, so the painting is the same each time.
@@ -93,12 +123,9 @@ function sequence(seed: number) {
 
 /// The strokes for a canvas of this size: broad ones that cover it, then finer ones over them.
 function layStrokes(width: number, height: number, scene: Scene): Stroke[] {
-  const next = sequence(7), strokes: Stroke[] = [];
-  // The haze is a narrow picture and the wanderer's has small shapes: both take a finer brush.
-  const brush = scene === "sunrise" ? 1 : scene === "haze" ? 0.55 : 0.7;
+  const next = sequence(7), strokes: Stroke[] = [], brush = BRUSH[scene];
   const add = (x: number, y: number, length: number, thick: number) => {
-    const water = scene === "sunrise" ? y / height > HORIZON : scene === "wanderer" && y / height > 0.44 && y / height < ROCK_TOP;
-    strokes.push({ x, y, length: length * brush * (0.7 + next() * 0.6), width: thick * brush * (0.7 + next() * 0.6), tilt: (next() - 0.5) * (water ? 0.12 : 0.5), tint: next(), glint: next() });
+    strokes.push({ x, y, length: length * brush * (0.7 + next() * 0.6), width: thick * brush * (0.7 + next() * 0.6), tilt: (next() - 0.5) * (level(scene, y / height) ? 0.12 : 0.5), tint: next(), glint: next() });
   };
 
   for (let y = 0; y < height + 10; y += 10 * brush) {
@@ -107,6 +134,18 @@ function layStrokes(width: number, height: number, scene: Scene): Stroke[] {
   for (let i = Math.round(width * height / (260 * brush * brush)); i > 0; i--) add(next() * width, next() * height, 18, 5);
 
   return strokes;
+}
+
+/// Whether the strokes at this height (from 0 to 1) lie level, as on water and open ground.
+function level(scene: Scene, v: number): boolean {
+  switch (scene) {
+    case "sunrise": return v > HORIZON;
+    case "haze": return false;
+    case "wanderer": return v > 0.44 && v < ROCK_TOP;
+    case "haystacks": return v > FIELD;
+    case "lilies": return v > POND;
+    case "parliament": return v > THAMES;
+  }
 }
 
 /// The colour of the haze at a point (both from 0 to 1): the sunrise's sky, warm in its top corner.
@@ -160,6 +199,93 @@ function sunrise(u: number, v: number, aspect: number, rise: number, glint: numb
   return lit ? mix(water, SUN, 0.35 + 0.65 * rise) : water;
 }
 
+/// The colour of the haystacks at a point (both from 0 to 1): two stacks dark against the
+/// afterglow, their shadows long on the field, under a dusk sky over far hills.
+function haystacks(u: number, v: number, aspect: number, glint: number): Rgb {
+  // The sun has set behind the stacks: the sky still burns there and their rims catch it.
+  const glow = Math.exp(-(((u - 0.57) * aspect) ** 2 / 0.5 + (v - 0.36) ** 2 / 0.02));
+
+  for (const [at, foot, wide, tall] of STACKS) {
+    // Walls that lean out as they rise, under a cone of thatch with its eaves past them.
+    const across = (u - at) * aspect / wide, up = (foot - v) / tall;
+    const edge = up < 0.5 ? 0.86 + 0.28 * up : 1.08 * (1 - (up - 0.5) / 0.5) ** 0.8;
+    if (up > 0 && up < 1 && Math.abs(across) < edge) return mix(up < 0.5 ? STACK : THATCH, STACK_LIT, Math.max(0, Math.abs(across) / edge - 0.72) * 2.6 * (0.5 + 0.5 * glint) + glint * 0.1);
+  }
+
+  const hills = FIELD - 0.065 - 0.022 * Math.sin(u * 5.3 + 1) - 0.01 * Math.sin(u * 17);
+  if (v < hills) {
+    const sky = mix(mix(DUSK_HIGH, DUSK_LOW, (v / hills) ** 1.6), DUSK_HIGH, 0.22 * Math.max(0, Math.sin(v * 34 + u * 5)));
+    return mix(sky, AFTERGLOW, glow * 0.85);
+  }
+  if (v < FIELD) return v > FIELD - 0.022 - 0.012 * Math.sin(u * 29) - 0.008 * Math.sin(u * 67) ? HEDGE : mix(mix(HILLS, DUSK_LOW, 0.2 + glint * 0.1), AFTERGLOW, glow * 0.45);
+
+  const near = (v - FIELD) / (1 - FIELD), field = mix(mix(FIELD_FAR, FIELD_NEAR, near ** 0.7), AFTERGLOW, glint > 0.7 ? 0.22 * (1 - near) : 0);
+  for (const [at, foot, wide, tall] of STACKS) {
+    // The shadow falls toward us and to the left, longest for the taller stack.
+    const down = (v - foot) / tall, across = ((u - at) * aspect + down * tall * 0.9) / wide;
+    if (down > -0.12 && down < 0.5 && Math.abs(across) < 0.95 - down * 0.5) return mix(STACK_SHADOW, field, 0.15 + down);
+  }
+
+  return field;
+}
+
+/// The lily pads: across the width, down the pond (both from 0 to 1) and a lot that puts some
+/// in flower. They lie in drifts, each a place and a number of pads.
+const PADS = [[0.22, 0.52, 6], [0.84, 0.5, 7], [0.6, 0.63, 9], [0.3, 0.78, 9], [0.86, 0.85, 8], [0.5, 0.93, 6]].flatMap(([u, v, count], drift) => {
+  const next = sequence(23 + drift);
+  return Array.from({ length: count }, () => ({ u: u + (next() - 0.5) * 0.26, v: v + (next() - 0.5) * 0.09, bloom: next() }));
+});
+
+/// The colour of the lily pond at a point (both from 0 to 1): trees and willow behind the
+/// bridge, and below them the water with the trees standing in it and drifts of pads on top.
+function lilies(u: number, v: number, aspect: number, glint: number): Rgb {
+  if (v < POND) {
+    const clump = Math.sin(u * 23 + v * 9) + Math.sin(u * 61 - v * 17) + glint, leaves = mix(LEAVES, LEAVES_LIT, Math.max(0, Math.min(1, clump * 0.35)));
+    return Math.sin(u * 140) > 0.7 && glint > 0.4 ? mix(leaves, WILLOW, 0.6) : leaves;
+  }
+
+  // Pads grow as they come nearer, and the far ones sink into the colour of the water.
+  const near = (v - POND) / (1 - POND), size = 0.028 + 0.062 * near;
+  for (const pad of PADS) {
+    if (((u - pad.u) * aspect / size) ** 2 + ((v - pad.v) / (size * 0.32)) ** 2 < 1) return mix(mix(PAD_SHADE, PAD, glint), POND_GREEN, 0.3 * (1 - near));
+  }
+
+  const trees = 0.5 + 0.5 * Math.sin(u * 47 + near * 5) * glint, sky = Math.max(0, Math.sin(u * 7 + 0.6) * 0.6 + 0.4 * Math.sin(u * 19 + near * 3));
+  return mix(mix(POND_DARK, POND_GREEN, trees), POND_SKY, sky * (0.25 + 0.4 * near));
+}
+
+/// The top of Parliament's skyline at `u`: its towers over the long roof with its pinnacles,
+/// which runs down into the fog at its left end.
+function skyline(u: number, aspect: number): number {
+  let top = (Math.sin(u * 150) > 0.6 ? 0.4 : 0.425) + Math.max(0, 0.56 - u) * 2.4;
+  for (const [at, wide, tip, fall] of SKYLINE) {
+    const across = Math.abs(u - at) * aspect / wide;
+    if (across < 1) top = Math.min(top, fall ? tip + fall * across : across > 0.78 ? tip - 0.035 : tip);
+  }
+
+  return top;
+}
+
+/// The colour of Parliament at a point (both from 0 to 1): towers in the fog against an evening
+/// sky, the low sun beside them, and the river that carries both.
+function parliament(u: number, v: number, aspect: number, glint: number): Rgb {
+  const across = (u - LOW_SUN_X) * aspect;
+  if (v < THAMES) {
+    const top = skyline(u, aspect), distance = Math.hypot(across, v - LOW_SUN_V);
+    // The fog is thickest at the water, where the walls fade into the sky's colour.
+    if (v > top) return mix(TOWERS, EMBER, 0.1 + 0.32 * ((v - top) / (THAMES - top)) ** 2 + glint * 0.06);
+    if (distance < 0.034) return LOW_SUN;
+
+    const sky = mix(mix(EVENING, EMBER, (v / THAMES) ** 1.3), EVENING, 0.2 * Math.max(0, Math.sin(v * 30 + u * 4)));
+    return mix(sky, GOLD, Math.exp(-distance * distance / 0.022) * 0.75);
+  }
+
+  const near = (v - THAMES) / (1 - THAMES), water = mix(mix(THAMES_FAR, THAMES_NEAR, near ** 0.7), GOLD, Math.exp(-across * across / 0.05) * 0.3 * (1 - near));
+  if (near < 0.85 && glint > 0.45 && Math.abs(across) < (0.012 + 0.05 * near) * (0.5 + glint)) return mix(water, LOW_SUN, 0.85);
+
+  return 2 * THAMES - v > skyline(u, aspect) ? mix(water, TOWERS, 0.6 * (1 - near)) : water;
+}
+
 function draw(target: HTMLCanvasElement, strokes: Stroke[], done: number, scene: Scene) {
   const context = target.getContext("2d");
   const width = target.clientWidth, height = target.clientHeight;
@@ -180,6 +306,9 @@ function draw(target: HTMLCanvasElement, strokes: Stroke[], done: number, scene:
       case "sunrise": return sunrise(u, v, aspect, rise, glint);
       case "haze": return haze(u, v, glint);
       case "wanderer": return wanderer(u, v, aspect, glint);
+      case "haystacks": return haystacks(u, v, aspect, glint);
+      case "lilies": return lilies(u, v, aspect, glint);
+      case "parliament": return parliament(u, v, aspect, glint);
     }
   };
   const stroke = (x: number, y: number, length: number, thick: number, tilt: number, colour: Rgb, shade: number) => {
@@ -199,14 +328,42 @@ function draw(target: HTMLCanvasElement, strokes: Stroke[], done: number, scene:
     context.fillRect(0, y, width, 6);
   }
 
-  // The sunrise is repainted whole as the sun moves; the haze fills in stroke by stroke.
+  // The sunrise is repainted whole as the sun moves; the others fill in stroke by stroke.
   const shown = scene === "sunrise" ? strokes.length : Math.round(strokes.length * done);
   for (let i = 0; i < shown; i++) {
     const s = strokes[i];
     stroke(s.x, s.y, s.length, s.width, s.tilt, colourAt(s.x / width, s.y / height, s.glint), light * (0.86 + s.tint * 0.28));
   }
 
-  if (scene === "haze") return;
+  if (scene === "haze" || scene === "haystacks") return;
+
+  if (scene === "parliament") {
+    // The towers once more in upright strokes, so their edges hold in the fog.
+    context.globalAlpha = 0.6;
+    for (let x = width * 0.5; x < width * (0.5 + 0.5 * done); x += 5) {
+      const top = height * skyline(x / width, aspect), bank = height * THAMES;
+      if (top < bank) stroke(x, (top + bank) / 2, bank - top, 6, Math.PI / 2, TOWERS, light);
+    }
+    context.globalAlpha = 1;
+    return;
+  }
+
+  if (scene === "lilies") {
+    // The footbridge, built from one bank to the other as the painting fills in: a deck and a
+    // handrail in one arc, on posts. Then the flowers on their pads.
+    const arc = (u: number) => height * (POND - 0.025 - 0.135 * (1 - ((u - 0.5) / BRIDGE_SPAN) ** 2)), step = BRIDGE_SPAN / 32;
+    for (let i = 0; i < 64 * done; i++) {
+      const u = 0.5 - BRIDGE_SPAN + i * step, x = width * u, tilt = Math.atan2(arc(u + step) - arc(u), width * step);
+      stroke(x, arc(u), width * step * 1.3, 7, tilt, BRIDGE_SHADE, light);
+      stroke(x, arc(u) - height * 0.07, width * step * 1.3, 4, tilt, BRIDGE, light);
+      if (i % 4 === 0) stroke(x, arc(u) - height * 0.035, height * 0.07, 3, Math.PI / 2, BRIDGE, light);
+    }
+    for (const pad of PADS) {
+      const size = 8 + 14 * (pad.v - POND) / (1 - POND);
+      if (pad.bloom > 1 - 0.45 * done) stroke(width * pad.u, height * pad.v - size * 0.3, size, size * 0.6, 0, pad.bloom > 0.82 ? BLOOM_PALE : BLOOM, light);
+    }
+    return;
+  }
 
   if (scene === "wanderer") {
     // The wanderer, his back to us: one foot up on the rock, a long coat, wind in his hair

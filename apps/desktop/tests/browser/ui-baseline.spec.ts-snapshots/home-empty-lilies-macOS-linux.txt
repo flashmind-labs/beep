@@ -1,0 +1,146 @@
+body.cbody
+  div.cwin [aria-label="Beep" role="main"] style(--side-w)
+    aside#side.cc-side
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="46"]
+      div.cc-head
+      div.cc-brand
+        b "Beep"
+        button.cc-side-toggle [aria-controls="side-content" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar" type="button"]
+          span
+            svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
+      div#side-content.cc-side-list
+        div.cc-grp.cc-nav
+          button.cc-search.cc-si [aria-label="Search" title="Search" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Search"
+            kbd [data-key="⌘K"]
+          button.cc-si [aria-current="true" aria-label="Home" title="Home" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Home"
+          button.cc-si [aria-label="Terminals" title="Terminals" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Terminals"
+        div.cc-grp.projects
+          h3
+            button.cc-gt [type="button"] "Projects"
+            button [aria-label="Add a project" title="Add a project" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          div style(display)
+            button.cc-org [aria-expanded="true" aria-label="example/" title="example/" type="button"]
+              span.open.twist
+                svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+              span.tt "example/"
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="example/gadget" title="example/gadget build-box: /srv/example/gadget" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "gadget"
+              button.pa [aria-label="Pin to top" data-id="example/gadget" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="example/widget" title="example/widget build-box: /srv/example/widget" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "widget"
+              button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            button.cc-org [aria-expanded="true" aria-label="tools/" title="tools/" type="button"]
+              span.open.twist
+                svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+              span.tt "tools/"
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="tools/delta" title="tools/delta build-box: /srv/tools/delta" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "delta"
+              button.pa [aria-label="Pin to top" data-id="tools/delta" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+        div.cc-grp.machines
+          h3
+            button.cc-gt [type="button"] "Machines"
+            button [aria-label="Add a machine" title="Add a machine" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          div style(display)
+            button.cc-si [aria-label="build-box 2" title="build-box: 2 agents running" type="button"]
+              span.busy.ddot [title="Online · 2 agents running"]
+              span.tt "build-box"
+              span.n "2"
+            button.cc-si [aria-label="test-box" title="test-box: offline" type="button"]
+              span.ddot.off [title="Offline"]
+              span.tt "test-box"
+        div.cc-grp.cc-nav.views
+          h3 "Beep"
+          div style(display)
+            button.cc-si [aria-label="Settings" title="Settings" type="button"]
+              span.sidebar-icon style(display)
+                svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              span.tt "Settings"
+              kbd [data-key="⌘,"]
+        div.cc-foot
+          span "of 2 machines online"
+            span.ddot
+            b "1"
+          button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
+            svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+    div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
+    div#main.cc-main style(--top-w)
+      div.cc-top
+        button.mb-back [aria-label="Back" hidden type="button"]
+          svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
+        h2#title "Home"
+        span#scope
+        small#date "Saturday, January 17"
+        span#tools.tools
+        span#usage.us [hidden]
+        span#bell.nt
+          button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
+            span style(display)
+              svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
+        button.mb-set [aria-label="Settings" type="button"]
+          svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+      div#home-box.cc-box
+        div#view.cc-view
+          canvas.haze.painted-art [aria-hidden="true" height="15" width="272"]
+          div.cc-mstrip
+            button.m [type="button"]
+              span.busy.ddot [title="Online · 2 agents running"]
+              b "build-box"
+              span "2 agents"
+            button.m.off [type="button"]
+              span.ddot.off [title="Offline"]
+              b "test-box"
+              span "offline"
+            button.dbtn.quiet.small [type="button"] "Add a machine"
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          div.cc-tabs [role="tablist"]
+            button [aria-selected="true" role="tab" type="button"] "Board"
+            button [aria-selected="false" role="tab" type="button"] "PRs and issues"
+            button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.painted-empty
+            canvas.lilies.painted-art [aria-hidden="true" height="130" width="264"]
+            div.cc-empty.cc-panel
+              b "Nothing running"
+              span "Start an agent on this computer, or add a machine to run it there."
+              button.dbtn.pri.small [type="button"] "Start an agent"
+      div#pane-box.cc-box [hidden]
+        div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+    nav#mb-tabs.mb-tabs [aria-label="Sections"]
+      button [type="button"] "Home"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+      button [type="button"] "Projects"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+      button [type="button"] "Agents"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+      button [type="button"] "Terminals"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+      button [type="button"] "Machines"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]

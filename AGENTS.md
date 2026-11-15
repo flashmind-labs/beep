@@ -135,8 +135,10 @@ same look, sized for touch, in `mobile.css`.
   becomes what its fixed descendants are placed against, so put it on a
   `::before` layer behind.
 - **Paintings.** `src/ui/painted-art.tsx` paints scenes in blocks of short
-  strokes: a sunrise for the first run, the start screen and empty pages
-  (`PaintedEmpty`), the dawn haze down the sidebar and as a faint band along
+  strokes: a sunrise for the first run, the day's painting on the start screen
+  and empty pages (`DailyArt`, `PaintedEmpty`: the sunrise, haystacks, the
+  lily pond and Parliament take a day each, with the subject in the upper
+  half, clear of the headline), the dawn haze down the sidebar and as a faint band along
   the top of Home and Projects, gone before the first cards, and a wanderer
   above a sea of fog beside the lanes of a project board in a wide window. A
   scene paints itself once after the app opens and is still from then on. Words sit on a
