@@ -13,6 +13,7 @@
 use super::text::cut;
 
 /// Claude Code stores interruption notices as synthetic user messages.
+#[cfg(feature = "host")]
 pub(crate) fn after_interruption(text: &str) -> Option<&str> {
     let text = text.trim_start();
     [

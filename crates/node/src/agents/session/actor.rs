@@ -19,7 +19,8 @@ use agent_client_protocol::{
     Agent, Builder, Client, ConnectionTo, Dispatch, Handled, JsonRpcMessage, JsonRpcRequest,
     JsonRpcResponse, Responder, UntypedMessage, on_receive_dispatch,
     v1::schema::{
-        ContentBlock, McpServer, PromptResponse, RequestPermissionRequest,
+        ContentBlock, CreateElicitationRequest, CreateElicitationResponse, McpServer,
+        PromptResponse, RequestPermissionRequest,
         RequestPermissionResponse, SessionConfigId, SessionId, SessionNotification, SessionUpdate,
         ToolCallId,
     },
@@ -52,6 +53,8 @@ pub(super) enum Event {
     Update(Box<SessionUpdate>),
     Notification(UntypedMessage),
     PermissionRequest(UntypedMessage, Box<Responder<RequestPermissionResponse>>),
+    /// An `elicitation/create`: a form for the user to fill in.
+    Elicitation(UntypedMessage, Box<Responder<CreateElicitationResponse>>),
     /// A command the agent runs in the background started, moved or ended.
     Task(AsyncTask),
 }
@@ -153,6 +156,8 @@ pub(super) enum Waiting {
     Agent(Box<Responder<RequestPermissionResponse>>),
     /// The node, for a question of its own (`Command::Ask`).
     Node(oneshot::Sender<Answered>),
+    /// The agent, on its `elicitation/create`, for this field of the form.
+    Form(Box<acp::Form>),
 }
 
 impl Waiting {
@@ -162,6 +167,7 @@ impl Waiting {
         match self {
             Self::Agent(responder) => responder.respond(acp::cancelled()),
             Self::Node(_) => Ok(()),
+            Self::Form(form) => form.cancel(),
         }
     }
 }
@@ -442,6 +448,11 @@ impl Actor {
                         {
                             Event::PermissionRequest(message, Box::new(responder.cast()))
                         }
+                        Dispatch::Request(message, responder)
+                            if message.method() == "elicitation/create" =>
+                        {
+                            Event::Elicitation(message, Box::new(responder.cast()))
+                        }
                         dispatch => {
                             return Ok(Handled::No {
                                 message: dispatch,
@@ -638,6 +649,15 @@ impl Actor {
                 };
                 if let Some(responder) = self.allow(&permission.question, responder)? {
                     self.ask(permission.question, responder);
+                }
+            }
+            Event::Elicitation(message, responder) => {
+                let fields =
+                    CreateElicitationRequest::parse_message(message.method(), message.params())
+                        .and_then(acp::Fields::try_from);
+                match fields {
+                    Ok(fields) => self.ask_form(acp::Form::new(fields, *responder)),
+                    Err(error) => responder.respond_with_error(error)?,
                 }
             }
             Event::Update(update) => {

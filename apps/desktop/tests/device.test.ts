@@ -115,8 +115,10 @@ test("device lists are checked, and only Android has Back and Recent apps", () =
   const read = readMachines([{ machine_id: "a", machine_name: "x", devices: [{ id: "p", name: "Pixel", platform: "Android", state: "On", os: "Android 16" }, { id: "q" }], error: null }, 7]);
   assert.equal(read.length, 1);
   assert.equal(read[0].devices.length, 1);
-  assert.ok(buttonsFor("Android").includes("Back"));
-  assert.ok(!buttonsFor("Ios").includes("AppSwitch"));
+  const device = (platform: "Android" | "Ios", phone: boolean) => ({ id: "d", name: "d", platform, state: "On" as const, os: null, phone });
+  assert.ok(buttonsFor(device("Android", false)).includes("Back"));
+  assert.ok(!buttonsFor(device("Ios", false)).includes("AppSwitch"));
+  assert.deepEqual(buttonsFor(device("Ios", true)), []);
 });
 
 const tool = (text: string) => ({ kind: "tool", text });

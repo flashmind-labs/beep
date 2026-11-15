@@ -61,7 +61,7 @@ crc32fast = "1"
 dirs = "7"
 dunce = "1"
 fastrand = "2"
-flashmind-tools = { version = "0.3.6", default-features = false }
+flashmind-tools = { version = "0.3.7", default-features = false }
 flashmind-types = "0.3.2"
 flate2 = "1"
 futures = "0.3"
@@ -175,7 +175,9 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
-# netdev 0.46.3 builds macOS-only IPv6 flag code on iOS (fixed in 0.47.0, which
-# netwatch does not allow yet). Drop this once netwatch accepts netdev 0.47.
+# iOS build fixes not released yet. Drop each once iroh pulls a release with it:
+# netdev 0.47.0 (macOS-only IPv6 flag code) and netwatch with n0-computer/net-tools#267
+# (route constants libc 0.2.190 removed on iOS).
 [patch.crates-io]
 netdev = { path = "patches/netdev" }
+netwatch = { path = "patches/netwatch" }

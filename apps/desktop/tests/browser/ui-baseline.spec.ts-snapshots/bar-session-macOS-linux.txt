@@ -13,6 +13,15 @@ body
             span "@"
             span#aghere "build-box"
         small#aguse.aguse [title="Context used / capacity · session tokens · session spend / remaining credits"]
+          span.ctx
+            i style(--pct)
+            b "25 %"
+            em "of 1M"
+          span
+            b "54.2M"
+            em "tokens"
+          span
+            b "$34.90"
         span#agstate
           span.ask.dstate "Waiting for you"
         span#agedit.agedit
@@ -123,7 +132,7 @@ body
                       kbd "⌘."
                     span "Close session"
                       kbd "⇧⌘W"
-                    span "Pick the model, on the start form"
+                    span "Pick the model, on the start form and in a conversation"
                       kbd "⇧⌘M"
                     span "Move through models, in the model search"
                       kbd "↑ ↓"
@@ -195,11 +204,7 @@ body
                   span style(display)
                     svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
               div.agpviews
-          button#agpstrip-bottom.agpstrip [data-dock="bottom" hidden title="Show the pane"]
-            span style(display)
-              svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-            span "Files"
-            small "0"
+          div#agpstrip-bottom.agpstrip.tabs [data-dock="bottom" hidden role="tablist"]
         div#agdiv-right.agdiv [data-dock="right" hidden role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
         aside#agpane-right.agpane [data-dock="right" hidden tabindex="-1"]
           div.agpane-content
