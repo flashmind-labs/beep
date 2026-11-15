@@ -175,6 +175,8 @@ body.cbody
             span.tt "Machines"
           button.cc-si [data-goto="agents"]
             span.tt "Agent accounts"
+          button.cc-si [data-goto="assistant"]
+            span.tt "Assistant"
           button.cc-si [data-goto="creds"]
             span.tt "Credentials"
           button.cc-si [data-goto="instr"]

@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import { AgentsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview, SkillsOverview } from "./overview-view.tsx";
 import { SkillsView } from "./skills-view.tsx";
 import { GeneralView } from "./general-view.tsx";
+import { AssistantView } from "./assistant-view.tsx";
 import { PluginsView } from "./plugins-settings-view.tsx";
 import { pluginsSettings } from "./plugins-settings.ts";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
@@ -258,6 +259,7 @@ function settingsSections(mac: MacControl | null, sheet: boolean): [SettingsPage
     ...(mac && !onPhone() ? [["mac", sec("mac", "This computer")] as [SettingsPage, ReactElement]] : []),
     ["machines", sheet ? host("machines") : sec("machines", "Machines")],
     ["agents", agents],
+    ["assistant", sec("assistant", "Assistant")],
     ["creds", sec("creds", "Credentials")],
     ["instr", sheet ? host("instr") : sec("instr", "Instructions")],
     ["skills", sheet ? sec("skills", "Skill libraries") : <SettingsSection key="skills" page="skills" title="Skills">{localView("skills-bar")}</SettingsSection>],
@@ -308,7 +310,7 @@ const generalPending = new Set<string>();
 const macPending = new Set<string>();
 
 /// What a Settings section shows, drawn fresh from the module state on each render.
-type LocalView = "general" | "appearance" | "mac" | "machines" | "instr" | "creds" | "plugins" | "skills" | "skills-bar" | "agent-overview" | "agent-bar";
+type LocalView = "general" | "appearance" | "assistant" | "mac" | "machines" | "instr" | "creds" | "plugins" | "skills" | "skills-bar" | "agent-overview" | "agent-bar";
 function localView(kind: LocalView): ReactNode {
   const local = SET.local;
   switch (kind) {
@@ -321,6 +323,7 @@ function localView(kind: LocalView): ReactNode {
       shortcuts={() => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts()}
       report={() => windowHooks ? windowHooks.openReport() : toWindow("report")} /> : null;
     case "appearance": return <AppearanceView />;
+    case "assistant": return <AssistantView />;
     case "mac": return local?.mac ? <ComputerView
       mac={local.mac} busy={macPending.size > 0}
       setEnabled={(enabled: boolean) => void change(macPending, "mac", "set_mac_control", { enabled })}

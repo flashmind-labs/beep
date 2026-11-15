@@ -444,6 +444,8 @@ pub fn run() {
             settings::skill_libraries::project_skills_set,
             settings::skill_libraries::skill_libraries_find,
             settings::skill_libraries::skill_libraries_problems,
+            settings::assistant::assistant_settings_get,
+            settings::assistant::assistant_settings_save,
             settings::skill_sync::skill_sync_get,
             settings::skill_sync::skill_sync_set,
             settings::skill_sync::project_sync_get,

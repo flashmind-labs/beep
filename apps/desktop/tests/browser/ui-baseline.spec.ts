@@ -352,6 +352,15 @@ test("settings plugins", async ({ page }) => {
   await baseline(page, "settings-plugins");
 });
 
+test("settings assistant", async ({ page }) => {
+  await openDesktop(page, false, { ...settingsResponses, assistant_settings_get: { agent: null, model: null, effort: null } });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
+  await expect(dialog.locator("#assistantSetting").getByRole("button")).toBeEnabled();
+  await baseline(page, "settings-assistant");
+});
+
 for (const section of [null, "Agent accounts", "Appearance"] as const) {
   const name = `settings-${section === null ? "first" : section.toLowerCase().replace(/\s+/g, "-")}`;
   test(name, async ({ page }) => {

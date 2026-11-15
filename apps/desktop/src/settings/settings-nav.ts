@@ -8,6 +8,7 @@ const SETTINGS_PAGES = [
   ["mac", "This computer"],
   ["machines", "Machines"],
   ["agents", "Agent accounts"],
+  ["assistant", "Assistant"],
   ["creds", "Credentials"],
   ["instr", "Instructions"],
   ["skills", "Skills"],

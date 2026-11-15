@@ -188,6 +188,8 @@ body.cbody
             span.tt "OpenCode"
           button.cc-si.sub [data-sub="agent:flsh"]
             span.tt "flsh"
+          button.cc-si [data-goto="assistant"]
+            span.tt "Assistant"
           button.cc-si [data-goto="creds"]
             span.tt "Credentials"
           button.cc-si [data-goto="instr"]
