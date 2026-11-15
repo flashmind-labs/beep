@@ -7,7 +7,7 @@ import { Icon } from "../ui/icons.tsx";
 import { Button, LineRow, onRowKey } from "../ui/kit.tsx";
 import { openMenu, type MenuAction } from "../ui/menu.tsx";
 import { heroCard, motionAllowed, movePlaying, setHeroCard, withMove } from "../ui/motion.ts";
-import { LANES, byLane, byProject, keepOrder, travelled, withoutProject, type Lane } from "./lanes-state.ts";
+import { LANES, byLane, byProject, travelled, withoutProject, type Lane } from "./lanes-state.ts";
 
 export interface BoardCard {
   key: string;
@@ -55,11 +55,10 @@ export function CardRow({ card }: { card: BoardCard }) {
 /// `more` makes a lane's title open the full list behind it. `rows` gives
 /// each project a row of its own under the lanes' titles. Without rows, ended
 /// sessions are a short list, and `beside` fills the room beside the lanes in
-/// a wide window. Lanes and rows stay put; only the cards move.
+/// a wide window. Lanes stay put; only the cards move.
 export function Board({ cards, more, rows, recency = null, beside = null }: { recency?: ReadonlyMap<string, number> | null; cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; rows: ProjectRows | null; beside?: ReactNode }) {
   const lanes = byLane(cards);
   const box = useTravel(cards);
-  const order = useRef<(string | null)[]>([]);
   const [, redraw] = useState(0);
 
   const open = (card: BoardCard) => {
@@ -73,11 +72,9 @@ export function Board({ cards, more, rows, recency = null, beside = null }: { re
   const heading = (lane: Lane, title: string) => <h4>{more[lane] ? <button type="button" onClick={more[lane]}>{title}</button> : title}<span>{lanes[lane].length || ""}</span></h4>;
 
   if (rows) {
-    const projects = keepOrder(byProject(cards, recency), order.current);
-    order.current = projects.map(row => row.project);
     return <div className="bd-rows" ref={box}>
       {LANES.map(({ lane, title }) => <div className="bd-lane hd" key={lane}>{heading(lane, title)}</div>)}
-      {projects.map(row => { const own = byLane(row.cards), name = row.project ?? "Other", head = row.project === null ? { color: null, open: null } : rows(row.project); return <Fragment key={row.project ?? ""}>
+      {byProject(cards, recency).map(row => { const own = byLane(row.cards), name = row.project ?? "Other", head = row.project === null ? { color: null, open: null } : rows(row.project); return <Fragment key={row.project ?? ""}>
         <h3 className="pj" title={name}>{head.color && <span className="cc-pdot" style={{ background: head.color }}/>}{head.open ? <button type="button" onClick={head.open}>{name}</button> : <span>{name}</span>}</h3>
         {LANES.map(({ lane }) => <div className="bd-lane" key={lane}>{own[lane].map(card => <Card key={card.key} card={typeof card.sub === "string" ? { ...card, sub: withoutProject(card.sub, row.project) } : card} open={() => open(card)}/>)}</div>)}
       </Fragment>; })}
