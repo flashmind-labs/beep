@@ -28,7 +28,11 @@ interface TauriGlobal {
   };
   webviewWindow: {
     /// Its `listen` hears only events sent to this window; `event.listen` hears them for every window.
-    getCurrentWebviewWindow(): { listen<T = unknown>(event: string, handler: (event: TauriEvent<T>) => void): Promise<() => void> };
+    getCurrentWebviewWindow(): {
+      listen<T = unknown>(event: string, handler: (event: TauriEvent<T>) => void): Promise<() => void>;
+      /// The title bar's theme on Windows and Linux. Absent from the tests' stand-ins.
+      setTheme?(theme: "light" | "dark"): Promise<void>;
+    };
   };
 }
 

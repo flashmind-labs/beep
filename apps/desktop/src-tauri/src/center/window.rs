@@ -134,6 +134,12 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
             )
             .initialization_script("document.documentElement.dataset.material = 'vibrant';");
     }
+    // Windows and Linux draw their own title bar, light when the system is: it
+    // starts dark like the default skin, and the page sets it for a light one.
+    #[cfg(all(desktop, not(target_os = "macos")))]
+    {
+        builder = builder.theme(Some(tauri::Theme::Dark));
+    }
     #[cfg(desktop)]
     {
         builder = match frame(app, SHARE, LogicalSize::new(MIN_WIDTH, MIN_HEIGHT)) {
