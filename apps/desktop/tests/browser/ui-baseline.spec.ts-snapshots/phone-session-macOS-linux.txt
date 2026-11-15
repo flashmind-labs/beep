@@ -123,6 +123,14 @@ body.cbody.mb-full.mobile
                     span.cc-running "now"
                       span.drun [aria-label="Working" role="img"]
                     span.sp
+              div.bd-lane
+                h4 "Ready to review"
+                  span
+              div.bd-lane.log
+                h4
+                  button [type="button"] "Done today"
+                  span
+                div.bd-log
       div#pane-box.cc-box
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="agent"]
           div [data-bar-page] style(display)

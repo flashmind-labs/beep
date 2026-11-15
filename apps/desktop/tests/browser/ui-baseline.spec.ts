@@ -41,7 +41,7 @@ const folder = "/srv/project";
 
 const machine = (id: string, name: string, online: boolean, agents: number) => ({ id, name, online, can_host: true, seen_at: NOW - 3_600_000, version: "0.9.0", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents, stats: null });
 const project = (name: string, url = `https://example.test/${name}`, box = machineId) => ({ name, url, machine_id: box, machine_name: box, folder: `/srv/${name}`, cloned: true, imported_at: NOW - 86_400_000 });
-const agentRow = (id: string, title: string, status: string, ago: number, cwd = folder) => ({ kind: "agent", machine_id: machineId, machine_name: machineId, id, agent: "codex", title, cwd, status, doing: status === "working" ? "Running tests" : null, started_at: NOW - 7_200_000, last_activity: NOW - ago, external: false, question: null });
+const agentRow = (id: string, title: string, status: string, ago: number, cwd = folder) => ({ kind: "agent", machine_id: machineId, machine_name: machineId, id, agent: "codex", title, cwd, status, doing: status === "working" ? "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40" : null, started_at: NOW - 7_200_000, last_activity: NOW - ago, external: false, question: null });
 
 const projects = [project(projectName), project("example/gadget"), project("tools/delta", "https://forge.test/team/delta")];
 const running = [agentRow("notice-one", "Fix the login redirect", "working", 30_000, "/srv/example/widget"), agentRow("notice-two", "Update the changelog", "idle", 600_000, "/srv/example/gadget")];

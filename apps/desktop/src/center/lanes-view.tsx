@@ -80,7 +80,9 @@ export function Board({ cards, more, rows, recency = null, beside = null }: { re
     </div>;
   }
 
-  const shown = LANES.filter(({ lane }) => lanes[lane].length);
+  // Needs you shows only while something waits; the other lanes always show.
+  const shown = LANES.filter(({ lane }) => lane !== "needs" || lanes.needs.length);
+  const quiet = LANES.filter(({ lane }) => lanes[lane].length).length <= QUIET_LANES;
 
   return <div className="bd-lanes" ref={box}>{shown.map(({ lane, title }) => lane === "done"
     ? <div className="bd-lane log" key={lane}>
@@ -91,10 +93,10 @@ export function Board({ cards, more, rows, recency = null, beside = null }: { re
     : <div className={lanes[lane].length > WIDE_FROM ? "bd-lane many" : "bd-lane"} key={lane}>
       {heading(lane, title)}
       {lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}
-    </div>)}{beside !== null && shown.length <= QUIET_LANES && <div className="bd-art">{beside}</div>}</div>;
+    </div>)}{beside !== null && quiet && <div className="bd-art">{beside}</div>}</div>;
 }
 
-/// A board of this many lanes or fewer is quiet: it has room beside them.
+/// A board with cards in this many lanes or fewer is quiet: it has room beside them.
 const QUIET_LANES = 2;
 /// How many ended sessions the done log lists before its "All" button.
 const DONE_SHOWN = 10;
