@@ -181,6 +181,21 @@ test("search palette", async ({ page }) => {
   await baseline(page, "palette");
 });
 
+test("palette project sessions", async ({ page }) => {
+  const session = (id: string, title: string) => ({ kind: "agent_session", id, title, detail: "Claude Code · example/widget · build-box", keys: [title.toLowerCase()], project: "example/widget" });
+  const index = {
+    actions: [], settings: [], code: [], machines: [],
+    projects: [{ kind: "project", id: "example/widget", title: "example/widget", detail: "build-box", keys: ["example/widget"] }],
+    sessions: [session("s1", "Fix the example redirect"), session("s2", "Tidy the example docs"), session("s3", "Measure the widget's start")],
+  };
+  await openDesktop(page, false, { center_home: home, center_palette_index: index, center_find_prompts: [] });
+  await page.getByRole("button", { name: /^Search/ }).click();
+  await page.getByRole("dialog", { name: "Search" }).getByRole("combobox").fill("widget");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".cc-pal .it")).toHaveCount(3);
+  await baseline(page, "palette-sessions");
+});
+
 test("start screen", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   // The headline is drawn by lot when the screen opens; the screenshot needs the same one each run.

@@ -15,6 +15,8 @@ export interface Entry<S = unknown> {
   keys: string[];
   /// The session an agent_session entry opens.
   session?: S;
+  /// The project or folder an agent_session entry runs in, by that entry's id.
+  project?: string;
 }
 
 /// An entry that was found.
