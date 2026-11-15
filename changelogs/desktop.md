@@ -7,6 +7,24 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.13] - 2026-11-15
+
+### Added
+
+- Desktop: a step of a session's plan shows how many subagents ran under it
+  and opens to their rows; a row opens the subagent.
+
+### Changed
+
+- Desktop: a session's plan is one line above the message field, with how
+  many steps are done and the one that runs. It opens to the steps.
+
+### Fixed
+
+- Desktop: on Windows and Linux the window's title bar is dark with the
+  dark skins and light with the light ones, instead of always following
+  the system theme.
+
 ## [0.9.12] - 2026-11-15
 
 ### Added
