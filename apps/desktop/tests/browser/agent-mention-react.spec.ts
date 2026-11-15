@@ -79,3 +79,21 @@ test("the project start field offers the commands of the harness picked", async 
   await expect(input).toHaveValue("/simplify ");
   await expect(input).toBeFocused();
 });
+
+test("the project start field asks a running session of the harness on another machine", async ({ page }) => {
+  const row = (id: string, machine: string, status: string, last_activity: number) => ({ kind: "agent", machine_id: machine, machine_name: machine, id, agent: "codex", title: id, cwd: "/srv/project", status, doing: null, started_at: 1, last_activity, external: false, question: null });
+  const rows = [row("ended-here", "build-box", "ended", 9), row("running-there", "gpu-box", "idle", 2)];
+  await openDesktop(page, false, {
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
+    agent_sessions: rows, project_sessions: rows, projects_sessions: rows,
+    agent_commands: [{ name: "simplify", description: "Simplify the code", hint: "" }],
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  const form = page.locator(".cc-pjc:visible");
+  const input = form.getByRole("textbox", { name: "Task for a coding agent" });
+  await expect(form.locator('[data-composer="machine"]')).toBeEnabled();
+  await input.fill("/simp");
+  await expect(form.locator(".cm-menu").getByRole("option")).toHaveCount(1);
+  const asked = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_commands").map(call => call.args));
+  expect(asked).toContainEqual({ machineId: "gpu-box", session: "running-there" });
+});
