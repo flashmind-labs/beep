@@ -544,6 +544,12 @@ fn setup(
     #[cfg(desktop)] recorder: std::thread::JoinHandle<anyhow::Result<PrometheusHandle>>,
 ) -> anyhow::Result<()> {
     platform::startup::stage("setup");
+    // Kept as state so it lives as long as the app.
+    #[cfg(target_os = "android")]
+    if let Some(guard) = platform::logfile::start_android(&beep::identity::data_dir(app.handle())?)
+    {
+        app.manage(std::sync::Mutex::new(guard));
+    }
     #[cfg(target_os = "macos")]
     notices::notify::init(app.handle());
     #[cfg(all(unix, desktop))]
