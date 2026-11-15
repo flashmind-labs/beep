@@ -297,10 +297,9 @@ impl Session {
         } = start;
         let protocol = super::acp::Protocol::from_env(&kind.env)?;
 
-        // Only a new session takes the default model and a thinking level. A
-        // resumed one takes the model it ran on, when the caller kept it.
+        // Only a new session takes the default model. A resumed one takes the
+        // model and thinking level it ran on, when the caller kept them.
         let model = model.or_else(|| kind.default_model.clone().filter(|_| resume.is_none()));
-        let effort = effort.filter(|_| resume.is_none());
         // An agent whose command line picks the model starts on it; the
         // others switch once the session exists.
         let known = known(&kind.name);

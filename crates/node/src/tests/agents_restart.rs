@@ -409,11 +409,10 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
     let stopped = before.open_sessions();
     assert_eq!(stopped[0].model, Some(ModelId::new("deep")));
     // Kept for a take-over after it ended, across the restart note.
-    let kept = before.last_models();
     let noted = Agents::new(Vec::new());
-    noted.keep_models(kept);
-    noted.keep_worktrees(before.last_worktrees());
-    assert_eq!(noted.last_model("held-1"), Some(ModelId::new("deep")));
+    noted.keep_saved(before.saved_sessions());
+    let saved = noted.saved("held-1").expect("saved across the note");
+    assert_eq!(saved.info.model, Some(ModelId::new("deep")));
     assert_eq!(
         noted.created_worktrees("held-1"),
         vec!["/srv/app/.worktrees/fix".to_owned()]

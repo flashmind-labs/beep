@@ -380,7 +380,7 @@ impl Actor {
             };
             let request = acp::switch_model(&session, switch, model.as_ref())
                 .map_err(|e| format!("{title} could not switch to {model}: {e}"))?;
-            requests.push((request, model.to_string(), Some(model)));
+            requests.push((request, model.to_string(), Some(model), None));
         }
 
         if let Some(effort) = effort {
@@ -389,17 +389,18 @@ impl Actor {
             };
             let request = acp::set_effort(&session, id, effort)
                 .map_err(|e| format!("{title} could not think at {}: {e}", effort.as_ref()))?;
-            requests.push((request, format!("thinking {}", effort.as_ref()), None));
+            requests.push((request, format!("thinking {}", effort.as_ref()), None, Some(effort)));
         }
 
         if requests.is_empty() {
             return Err("nothing to switch".into());
         }
 
-        for (request, what, model) in requests {
+        for (request, what, model, effort) in requests {
             self.send(cx, request, move |result| Reply::Reconfigured {
                 what,
                 model,
+                effort,
                 result: result.map(drop),
             });
         }

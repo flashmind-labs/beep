@@ -525,6 +525,7 @@ impl Agents {
             !recovering.iter().any(|root| recovery_cwd.starts_with(root)),
             "Git sync is preserving local edits in this checkout; try starting the session again shortly."
         );
+        let assistant = begin.assistant;
         // A reviewer changes nothing, so it needs no git rule.
         let rule = super::session::standing(
             crate::lock(&self.instructions)
@@ -580,7 +581,6 @@ impl Agents {
             },
         };
         let resumed = begin.resume.is_some();
-        let assistant = begin.assistant;
         // A reviewer tells the user nothing itself: the review does.
         let alerts = if begin.review {
             Arc::default()
@@ -623,9 +623,26 @@ impl Agents {
         let mut updates = session.live.clone();
         session.keep(tokio::spawn(async move {
             let mut previous = None;
+            let mut saved = None;
 
             loop {
-                let info = watched::read_and_update(&mut updates, |live| live.info.clone());
+                let (info, effort) =
+                    watched::read_and_update(&mut updates, |live| (live.info.clone(), live.effort));
+                // What the saved session keeps, noted as it changes.
+                let keeps = (
+                    info.id.clone(),
+                    info.title.clone(),
+                    info.model.clone(),
+                    effort,
+                    info.mode.clone(),
+                    info.device.clone(),
+                    info.worktrees.clone(),
+                );
+
+                if saved.as_ref() != Some(&keeps) {
+                    crate::link::restart::changed();
+                    saved = Some(keeps);
+                }
                 events.changed(beep_proto::node::events::Topic::keyed("agent", &info.id));
                 let summary = (
                     info.id.clone(),
@@ -784,7 +801,7 @@ pub(super) fn folder(cwd: Option<&str>) -> Result<PathBuf> {
 
 /// Whether a session in `cwd` is the home assistant without being asked to
 /// be: one on a Unix machine's home folder that no session started. Only a
-/// session found outside Beep is judged by it; Beep's own say what they are.
+/// session with nothing saved of it is judged by it.
 pub(super) fn home_assistant(cwd: &Path, parent: bool) -> bool {
     if !cfg!(unix) || parent {
         return false;

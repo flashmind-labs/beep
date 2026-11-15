@@ -1,7 +1,7 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
 use super::{
-    AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
+    AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, SavedSession, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
     MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, Session, Sighted,
     holders::{self, Holding},
 };
@@ -12,12 +12,12 @@ use crate::{
 use anyhow::{Context, Result};
 use beep_proto::node::{
     agent::{
-        ExternalAsk, ExternalSession, MAX_EXTERNAL_NAMED, ParentLink, Presence, SessionFolder,
+        ExternalAsk, ExternalSession, MAX_EXTERNAL_NAMED, Presence, SessionFolder, SessionInfo,
         Status,
     },
     events::Topic,
 };
-use beep_proto::{ModelId, watched};
+use beep_proto::watched;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
@@ -39,16 +39,6 @@ pub(super) struct Listed {
     at: Instant,
     limit: usize,
     folders: Arc<Vec<SessionFolder>>,
-}
-
-/// What a session of this node that ended was held to.
-#[derive(Default)]
-pub(super) struct Held {
-    pub(super) parent: Option<ParentLink>,
-    pub(super) mode: Option<String>,
-    pub(super) model: Option<ModelId>,
-    pub(super) worktrees: Vec<String>,
-    pub(super) assistant: bool,
 }
 
 /// How many of a store's sessions one listing keeps.
@@ -532,17 +522,9 @@ impl Agents {
             anyhow::bail!("session {id} runs {}", session.agent);
         }
         // It goes on as it was: under its parent, and in the mode it was held
-        // to, so a resume is no way round the limits or the mode.
-        let before = ours.as_ref().map(|session| {
-            let info = session.info();
-            Held {
-                parent: info.parent,
-                mode: info.mode,
-                model: info.model,
-                worktrees: info.worktrees,
-                assistant: session.assistant,
-            }
-        });
+        // to, so a resume is no way round the limits or the mode. One that
+        // ended before the node restarted goes on as saved.
+        let before = self.saved(id);
         let ended = ours
             .as_ref()
             .map(|session| watched::read(&session.live, |live| live.agent_session.clone()));
@@ -595,43 +577,45 @@ impl Agents {
 
         self.prepare(kind).await?;
         super::restart::to_project(kind, id, Path::new(&cwd)).await;
-        // It goes on with the model it last ran on here, also after a restart.
-        // One found outside Beep in the home folder is the assistant.
-        let mut before = before.unwrap_or_else(|| Held {
-            assistant: super::running::home_assistant(Path::new(&cwd), false),
-            ..Held::default()
+        // Never seen here: in the home folder it is the assistant.
+        let before = before.unwrap_or_else(|| SavedSession {
+            info: SessionInfo {
+                assistant: super::running::home_assistant(Path::new(&cwd), false),
+                ..SessionInfo::default()
+            },
+            effort: None,
         });
-        before.model = before.model.or_else(|| self.last_model(id));
-        if before.worktrees.is_empty() {
-            before.worktrees = self.created_worktrees(id);
-        }
         let begin = self.resumed_begin(prompt, id, before);
         let session = self.start(kind, Some(&cwd), begin)?;
         self.watch_parent(&session);
         Ok(session)
     }
 
-    /// How a session of this node that ended begins again: with the link to
-    /// its parent and the mode it was in, and following the parent when that
-    /// runs here.
-    pub(super) fn resumed_begin(&self, prompt: Option<String>, id: &str, before: Held) -> Begin {
-        let Held {
-            parent,
-            mode,
-            model,
-            worktrees,
-            assistant,
-        } = before;
-        let follows = parent.as_ref().and_then(|link| self.parent_live_of(link));
+    /// How a session of this node that ended begins again, as `before` it
+    /// was: with the link to its parent and the mode it was in, and
+    /// following the parent when that runs here.
+    pub(super) fn resumed_begin(
+        &self,
+        prompt: Option<String>,
+        id: &str,
+        before: SavedSession,
+    ) -> Begin {
+        let SavedSession { info, effort } = before;
+        let follows = info
+            .parent
+            .as_ref()
+            .and_then(|link| self.parent_live_of(link));
         Begin {
             prompt,
             resume: Some(id.to_owned()),
-            mode,
-            model,
-            parent,
+            title: info.title,
+            mode: info.mode,
+            model: info.model,
+            effort,
+            parent: info.parent,
             follows,
-            worktrees,
-            assistant,
+            worktrees: info.worktrees,
+            assistant: info.assistant,
             ..Begin::default()
         }
     }

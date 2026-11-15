@@ -85,6 +85,7 @@ pub(super) enum Reply {
     Reconfigured {
         what: String,
         model: Option<ModelId>,
+        effort: Option<Effort>,
         result: Result<(), agent_client_protocol::Error>,
     },
     /// The answer to setting how hard the new session thinks.
@@ -826,6 +827,7 @@ impl Actor {
             Reply::Reconfigured {
                 what,
                 model,
+                effort,
                 result,
             } => match result {
                 Ok(()) => {
@@ -833,11 +835,19 @@ impl Actor {
                         self.model_is(Some(model.as_ref()));
                     }
 
+                    if let Some(effort) = effort {
+                        self.thinks_at(effort);
+                    }
+
                     self.note(&format!("Switched to {what} from the next turn"));
                 }
                 Err(e) => self.note(&format!("Could not switch to {what}: {e}")),
             },
             Reply::EffortSet { effort, result } => {
+                if result.is_ok() {
+                    self.thinks_at(effort);
+                }
+
                 if let Err(e) = result {
                     self.note(&format!(
                         "{} could not be set to think at {}, so it thinks at its own level: {e}",
@@ -1075,22 +1085,24 @@ impl Actor {
         }
     }
 
+    /// The agent took thinking level `effort`, which the saved session keeps.
+    fn thinks_at(&mut self, effort: Effort) {
+        self.live.send_modify(|live| live.effort = Some(effort));
+    }
+
     /// A model switch while idle can make the existing context due for compaction.
     pub(super) fn model_is(&mut self, model: Option<&str>) {
         if let Some(model) = model {
             let model = ModelId::new(model);
-            let changed = self.live.send_if_modified(|live| {
+            // The session's watch notes the change, so a crash after a
+            // switch resumes on the new model.
+            self.live.send_if_modified(|live| {
                 if live.info.model.as_ref() == Some(&model) {
                     return false;
                 }
                 live.info.model = Some(model);
                 true
             });
-
-            // Noted, so a crash after a switch resumes on the new model.
-            if changed {
-                crate::link::restart::changed();
-            }
         }
 
         if self.compactor.set_model(model) {
