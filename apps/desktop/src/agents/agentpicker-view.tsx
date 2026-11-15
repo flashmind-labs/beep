@@ -80,7 +80,9 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
   const highlight = lit === null ? -1 : rows.findIndex(row => rowKey(row) === lit);
   useLayoutEffect(() => { setLit(null); }, [machineId, picked.agent]);
   // The search takes the keys as the picker opens, so ⇧⌘M and typing picks a model.
-  useLayoutEffect(() => { search.current?.focus(); }, [search]);
+  // A phone keeps the message field focused: moving focus re-lays the page for the
+  // keyboard under the placed picker.
+  useLayoutEffect(() => { if (!document.body.classList.contains("mobile")) search.current?.focus(); }, [search]);
   // The thinking level the search names, taken with the model picked.
   const effort = (rows[highlight] ?? rows[0])?.effort ?? null;
   const move = (to: number) => { const row = rows[to]; if (!row) return; setLit(rowKey(row)); };
