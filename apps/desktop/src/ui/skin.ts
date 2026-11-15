@@ -2,6 +2,7 @@
 // tokens (dist/skins.css). The pick is kept in localStorage, which all of
 // the app's windows share, so a change in one shows in the others at once.
 // Also the layout picked for Home and a project's front page.
+import { APPLE, onPhone } from "./platform.ts";
 
 interface Skin {
   id: string;
@@ -45,6 +46,11 @@ function apply() {
   const id = skinId();
   if (id === DEFAULT_SKIN) delete document.documentElement.dataset.skin;
   else document.documentElement.dataset.skin = id;
+
+  // Windows and Linux draw the title bar: it takes the skin's light or dark.
+  if (APPLE || onPhone()) return;
+  const light = SKINS.find(s => s.id === id)?.light ?? false;
+  window.__TAURI__.webviewWindow.getCurrentWebviewWindow().setTheme?.(light ? "light" : "dark").catch(() => {});
 }
 
 /// Picks skin `id` for every window.
