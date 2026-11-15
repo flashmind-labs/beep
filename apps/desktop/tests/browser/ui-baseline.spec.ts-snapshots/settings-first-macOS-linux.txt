@@ -211,13 +211,8 @@ body.cbody
               div#projectSyncSetting.dtoggle
                 span
                   b "Project sync"
-                  small "Sync projects across all your machines. Turning off keeps existing files in place."
+                  small "Sync projects across all your machines, in place of Syncthing. Turning off keeps existing files in place."
                 button.dswitch [aria-checked="true" aria-label="Project sync" role="switch" type="button"]
-              div#beepSyncOverSyncthingSetting.dtoggle
-                span
-                  b "Always use Beep sync over Syncthing"
-                  small "Each project keeps its own Syncthing setting."
-                button.dswitch [aria-checked="false" aria-label="Always use Beep sync over Syncthing" role="switch" type="button"]
               div.dtoggle
                 span
                   b "Save files to"

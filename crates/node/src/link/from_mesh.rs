@@ -142,9 +142,13 @@ async fn apply_syncthing(mesh: &Mesh, me: EndpointId, offers: &Offers) {
         return;
     };
     let syncs = transfers.syncs();
+    let sync = mesh
+        .get(&Key::ProjectSync)
+        .and_then(|bytes| ProjectSyncSettings::from_bytes(&bytes).ok())
+        .unwrap_or_default();
 
     for (_, record, place) in placed_projects(mesh, me) {
-        let Some(enabled) = record.syncthing_files else {
+        let Some(enabled) = record.syncthing_choice(&sync) else {
             continue;
         };
 
