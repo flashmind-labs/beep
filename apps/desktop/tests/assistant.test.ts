@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentSession } from "../src/agents/agents.ts";
-import { assistantHarness, assistantHost, assistantRows, isAssistant } from "../src/agents/assistant-state.ts";
+import { assistantHarness, assistantHost, assistantRows, isAssistant, resolveAssistant } from "../src/agents/assistant-state.ts";
 
 const HOME = "/home/user";
 
@@ -44,4 +44,12 @@ test("the assistant's harness is the one picked when offered, else the first off
   assert.equal(assistantHost(hosts, "mac", "pi")?.machine_id, "mac");
   assert.equal(assistantHost(hosts, "mac", "codex")?.machine_id, "build-box");
   assert.equal(assistantHost(hosts, null, "gemini"), null);
+});
+
+test("the assistant setting resolves to a harness a machine offers, keeping a model only with its harness", () => {
+  const codex = [{ agents: ["codex"] }];
+  assert.deepEqual(resolveAssistant({ agent: null, model: "model-a", effort: "max" }, codex), { agent: "codex", model: null, effort: null });
+  assert.deepEqual(resolveAssistant({ agent: "flsh", model: "deepseek", effort: "high" }, codex), { agent: "codex", model: null, effort: "high" });
+  assert.deepEqual(resolveAssistant({ agent: "codex", model: "gpt-x", effort: "low" }, codex), { agent: "codex", model: "gpt-x", effort: "low" });
+  assert.deepEqual(resolveAssistant({ agent: null, model: null, effort: null }, []), { agent: null, model: null, effort: null });
 });

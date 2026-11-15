@@ -1,6 +1,7 @@
 // The Home assistant: which sessions are it, and which harness and machine it starts on.
 import type { AgentHost, AgentSession } from "./agents.ts";
-import { AGENT_ORDER, harnessFor } from "./agentpick.ts";
+import { AGENT_ORDER, harnessFor, keepEffort } from "./agentpick.ts";
+import type { AssistantPick } from "../settings/assistant.ts";
 import type { MachineEnv } from "../machines/machine-state.ts";
 
 /// A session is the assistant when started as one, or, off Windows, when an
@@ -28,6 +29,13 @@ export function assistantRows(sessions: readonly AgentSession[], machines: reado
 /// first offered; null while none is.
 export function assistantHarness(agent: string | null, hosts: readonly Pick<AgentHost, "agents">[]): string | null {
   return harnessFor(agent, [...new Set(hosts.flatMap(host => host.agents))], AGENT_ORDER);
+}
+
+/// The assistant setting as a start uses it: its harness resolved to one a machine offers,
+/// the model kept only with the harness it was picked for, and a thinking level that harness takes.
+export function resolveAssistant(pick: AssistantPick, hosts: readonly Pick<AgentHost, "agents">[]): AssistantPick {
+  const agent = assistantHarness(pick.agent, hosts);
+  return { agent, model: agent === pick.agent ? pick.model : null, effort: keepEffort(agent, pick.effort) };
 }
 
 /// The machine to start `agent` on, or list its models from: `own` when it offers the harness,

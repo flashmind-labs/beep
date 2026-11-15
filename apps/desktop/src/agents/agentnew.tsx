@@ -9,8 +9,8 @@ import { menuPlaceFor } from "./mentionmenu.ts";
 import { FolderChoice, NewAgentNotes } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
-import { AG, agentKind, hostChanges, loadAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
-import { assistantHarness, assistantHost } from "./assistant-state.ts";
+import { AG, agentKind, type AgentHost, hostChanges, loadAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
+import { assistantHost, resolveAssistant } from "./assistant-state.ts";
 import { loadAssistant, type AssistantPick } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks } from "./session.tsx";
@@ -530,8 +530,8 @@ function formPick(): { agent: string | null; model: string; effort: string | nul
   const f = AG.form;
   if (!f.assistant) return lastProjectPick(f.project ?? null);
   if (!assistantPick || !AG.hosts) return null;
-  const agent = assistantHarness(assistantPick.agent, AG.hosts);
-  return { agent, model: agent === assistantPick.agent ? assistantPick.model ?? "" : "", effort: keepEffort(agent, assistantPick.effort) };
+  const pick = resolveAssistant(assistantPick, AG.hosts);
+  return { ...pick, model: pick.model ?? "" };
 }
 
 /// Keeps the model with the machine and harness it was picked for, and
@@ -562,8 +562,7 @@ export async function startAgent() {
   drawParts();
 
   try {
-    const models = knownModels(f.machine, f.agent);
-    const model = f.model?.trim() && f.modelFor ? modelId(models, f.model) : null;
+    const model = f.model?.trim() && f.modelFor ? modelId(knownModels(f.machine, f.agent), f.model) : null;
     const effort = f.effort || null;
     if (!f.assistant) keepMachine(f.project, f.machine);
     // In a project's checkout, an existing worktree is a folder to start
@@ -576,7 +575,7 @@ export async function startAgent() {
     if (attachments.files.pending.length) composer?.update({ progress: "Starting the agent…" });
     const images = attachments.images.map(sentImage);
     const started = f.assistant
-      ? await startAssistant(prompt, { agent: f.agent, model, effort }, f.machine, images)
+      ? await startAssistant(prompt, { agent: f.agent, model, effort }, AG.hosts ?? [], f.machine, images)
       : await start({ machine: f.machine, agent: f.agent, cwd: cwd || null, prompt, images, model, effort, checkout, assistant: false });
     attachments.clear();
     AG.busy = false;
@@ -592,11 +591,13 @@ export async function startAgent() {
   }
 }
 
-/// Starts the Home assistant with `pick`'s harness, model and thinking level
-/// on `machine`, or the one the mesh picks, in the machine's home folder.
-export function startAssistant(prompt: string, pick: AssistantPick, machine: string | null, images: readonly SentImage[] = []): Promise<Started> {
-  const model = pick.model ? modelId(knownModels(machine, pick.agent), pick.model) || null : null;
-  return start({ machine, agent: pick.agent, cwd: null, prompt, images, model, effort: pick.effort, checkout: null, assistant: true });
+/// Starts the Home assistant in a machine's home folder with `pick`, the
+/// setting as `loadAssistant` reads it, resolved against `hosts`: on `machine`,
+/// else the first that offers the harness, else the one the mesh picks.
+export function startAssistant(prompt: string, pick: AssistantPick, hosts: readonly AgentHost[], machine: string | null, images: readonly SentImage[] = []): Promise<Started> {
+  const resolved = resolveAssistant(pick, hosts);
+  const on = machine ?? (resolved.agent ? assistantHost(hosts, null, resolved.agent)?.machine_id ?? null : null);
+  return start({ machine: on, agent: resolved.agent, cwd: null, prompt, images, model: resolved.model, effort: resolved.effort, checkout: null, assistant: true });
 }
 
 /// What `agent_start` takes.
