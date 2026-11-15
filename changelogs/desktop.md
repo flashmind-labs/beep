@@ -7,6 +7,45 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.14] - 2026-11-15
+
+### Changed
+
+- Desktop: adding a project to a machine where the chosen folder sits
+  inside a Syncthing shared folder no longer fails. Beep adds the folder
+  to Syncthing's ignore list on that machine and syncs it itself. The
+  folder picker says so before you add. Projects set to use Syncthing are
+  still refused.
+- Desktop: on a project's board, sessions that ended today are a short list
+  of one-line rows with an All button, instead of full-size cards.
+- Desktop: the board's lanes sit together with no blank slot for an empty
+  lane. In a wide window cards keep their size and a full lane takes a
+  second column.
+- Desktop: cards on a project's board leave out the project's name, and a
+  working card says what the agent is doing.
+- Desktop: a project board with little on it shows a painting of a wanderer
+  above a sea of fog beside its lanes.
+- Desktop: below 1100px wide, the window folds the sidebar to its icon rail
+  and opens it again when the window is wider. The toggle still works.
+- Desktop: when a session is too narrow to show its pane beside the
+  conversation, a strip of Chat, Files, Changes and the other tabs shows one
+  at a time, full width, instead of squeezing the pane under the chat.
+- Desktop: a project with nothing on its board (no running agents,
+  nothing done today, no sync conflicts) now shows the agent bar centered
+  under the painted sunrise, with a welcome line like the new agent screen.
+  It used to sit at the bottom of an empty page.
+
+### Fixed
+
+- Desktop: the sunrise behind the new task headline fades out softly
+  inside the screen instead of being cut off at its left and right
+  edges.
+- Desktop: the dark oval behind the headline on the new task screen
+  is now a soft shade that fades into the sunrise.
+- Desktop: an agent that offers more than 500 models, such as flsh with several
+  providers set up, shows all of them in the model picker instead of
+  dropping the providers listed last.
+
 ## [0.9.13] - 2026-11-15
 
 ### Added

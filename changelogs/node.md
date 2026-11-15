@@ -2,6 +2,27 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.11] - 2026-11-15
+
+### Added
+
+- Node: a session's plan steps carry when they started and ended, so the
+  apps can show each step's subagents.
+
+### Changed
+
+- Node: a Claude Code session shows its task list as the session's plan
+  again. Claude Code had its task tools off on recent models.
+
+### Fixed
+
+- Node: a temporary code reviewer, started by the review tool or by
+  Review with agent, no longer appears in the Sessions list or in
+  Home's Done today lane. Its session is removed when the review ends.
+- Node: an agent that offers more than 500 models, such as flsh with several
+  providers set up, shows all of them in the model picker instead of
+  dropping the providers listed last.
+
 ## [0.7.10] - 2026-11-15
 
 ### Changed
