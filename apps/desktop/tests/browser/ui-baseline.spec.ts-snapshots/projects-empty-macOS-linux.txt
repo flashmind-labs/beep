@@ -104,7 +104,7 @@ body.cbody
                     div.row
                       span.choices
                       span.sp
-                      button.pill [aria-expanded="false" title="Harness, model and thinking" type="button"]
+                      button.pill [aria-expanded="false" disabled title="Harness, model and thinking" type="button"] "No agent"
                       div.ag-att [hidden]
                       button.dbtn.pri [type="submit"] "Start"
                         kbd "⏎"

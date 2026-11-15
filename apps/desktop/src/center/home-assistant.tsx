@@ -66,9 +66,16 @@ async function agentHosts(): Promise<readonly AgentHost[]> {
 async function showHarness() {
   const [pick, hosts] = await Promise.all([loadAssistant(), agentHosts()]).catch((e: unknown) => { console.warn("assistant setting:", e); return [null, []] as const; });
   const resolved = pick && resolveAssistant(pick, hosts);
-  if (!resolved?.agent) return;
-  const machine = assistantHost(hosts, null, resolved.agent)?.machine_id ?? null;
-  composer.setHarness(pillContent(resolved.agent, resolved.model ?? "", resolved.effort, machine));
+  const agent = resolved?.agent ?? null;
+  composer.update({ harnessDisabled: !agent });
+
+  if (!resolved || !agent) {
+    composer.setHarness("No agent");
+    return;
+  }
+
+  const machine = assistantHost(hosts, null, agent)?.machine_id ?? null;
+  composer.setHarness(pillContent(agent, resolved.model ?? "", resolved.effort, machine));
 }
 
 /// Starts the assistant with the task and opens its session.
