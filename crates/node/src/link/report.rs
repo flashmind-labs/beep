@@ -9,7 +9,7 @@ use crate::{
 use anyhow::Result;
 use beep_proto::node::{
     LinkRx, LinkTx,
-    report::{MAX_BYTES, Reply, Request},
+    report::{Reply, Request},
 };
 use std::{
     env::consts::OS,
@@ -28,12 +28,22 @@ pub(crate) async fn serve_report(
     log: Logs,
     metrics: PathBuf,
 ) -> Result<()> {
-    let Some(Request { since, max_bytes }) = rx.recv().await? else {
+    let Some(Request {
+        since,
+        max_bytes,
+        whole,
+    }) = rx.recv().await?
+    else {
         return Ok(());
     };
+    let mut rest = String::new();
     let reply = match i64::try_from(since) {
         Ok(since) => {
-            let max_bytes = usize::try_from(max_bytes.min(MAX_BYTES))?;
+            let max_bytes = if whole {
+                usize::MAX
+            } else {
+                usize::try_from(max_bytes)?
+            };
             // A log that cannot be read still leaves the rest worth sending.
             let (log, metrics) = spawn_blocking(move || {
                 (
@@ -42,7 +52,12 @@ pub(crate) async fn serve_report(
                 )
             })
             .await?;
-            let log = log.unwrap_or_else(|e| format!("the log could not be read: {e:#}"));
+            let mut log = log.unwrap_or_else(|e| format!("the log could not be read: {e:#}"));
+            // Only one who asked for the whole log reads more than one reply.
+            if whole {
+                rest = log.split_off(part_end(&log));
+            }
+
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_or(0, |now| now.as_secs());
@@ -64,7 +79,21 @@ pub(crate) async fn serve_report(
         },
     };
     tx.send(&reply).await?;
+
+    while !rest.is_empty() {
+        let later = rest.split_off(part_end(&rest));
+        tx.send(&Reply::Log { text: rest }).await?;
+        rest = later;
+    }
+
     tx.finish().await
+}
+
+/// Where the first part of `log` ends: a message holds `PART` bytes of it,
+/// cut between characters, so a log of any size goes in several.
+fn part_end(log: &str) -> usize {
+    const PART: usize = 1024 * 1024;
+    log.floor_char_boundary(PART.min(log.len()))
 }
 
 /// Includes recent complete snapshots without reading an entire day's file.

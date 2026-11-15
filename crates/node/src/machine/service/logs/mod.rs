@@ -24,6 +24,8 @@ mod serve;
 
 pub use serve::Logs;
 
+/// The most text one page of a log query holds.
+const PAGE_BYTES: usize = 1024 * 1024;
 /// How far back `recent` looks.
 const RECENT: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
@@ -163,7 +165,7 @@ fn query(files: &[PathBuf], query: &Query) -> Result<String> {
     let bytes: usize = sink.tail.lines.iter().map(|line| line.len() + 1).sum();
 
     anyhow::ensure!(
-        bytes <= beep_proto::node::report::MAX_BYTES as usize,
+        bytes <= PAGE_BYTES,
         "Page exceeds 1 MiB; request fewer lines"
     );
     Ok(sink

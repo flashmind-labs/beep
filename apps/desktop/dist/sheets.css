@@ -1,5 +1,5 @@
 /* Sheets over the window: Add a machine, Add and Import a project, New project, groups, confirmations, Report a problem. */
-.am-scrim { position: fixed; inset: 0; z-index: 35; overflow-y: auto; background: color-mix(in srgb, var(--shade) 45%, transparent); display: grid; justify-items: center; align-content: start; padding: 90px 0 24px; animation: dover .15s var(--ease) }
+.am-scrim { position: fixed; inset: 0; z-index: 35; overflow-y: auto; background: color-mix(in srgb, var(--shade) 45%, transparent); display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-content: start; padding: 90px 0 24px; animation: dover .15s var(--ease) }
 .am-sheet { width: 560px; max-width: calc(100% - 40px); padding: 18px 20px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); box-shadow: 0 20px 60px color-mix(in srgb, var(--shade) 50%, transparent); color: var(--fg) }
 .am-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px }
 .am-head b { font-size: 15px; font-weight: 600 }
@@ -195,7 +195,7 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .rp-total { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 12.5px; color: var(--muted) }
 .rp-ref { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; margin-bottom: 14px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); font-size: 15px; letter-spacing: .04em }
 .rp-issue { margin: 0 0 14px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere }
-.rp-foot { display: flex; gap: 8px; align-items: center; justify-content: flex-end }
+.rp-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end }
 .rp-err { font-size: 13px; line-height: 19px; margin-bottom: 14px; color: var(--err) }
 .rp-hint { font-size: 12px; line-height: 17px; margin: -8px 0 14px; color: var(--muted) }
 /* Keyboard shortcuts: a filter, then sections of a description and its key caps. */
