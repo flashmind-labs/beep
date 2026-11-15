@@ -124,6 +124,7 @@ struct Listed {
 }
 
 /// Asks one machine for the lists `rows` need, on one client, within `MACHINE_LIMIT`.
+#[tracing::instrument(skip_all, fields(peer = %machine.fmt_short()))]
 async fn ask_machine(fleet: &Fleet, machine: EndpointId, want: &Want) -> Listed {
     let asked = async {
         let Ok(client) = fleet.client(machine).await else {

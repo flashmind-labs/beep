@@ -112,6 +112,7 @@ fn direct(told: Told) -> Direct {
 
 /// Follows `id`'s native CLI sessions, again after each break, until the
 /// receiver goes.
+#[tracing::instrument(skip_all, fields(peer = %id.fmt_short()))]
 async fn presence(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
     let mut retry = Retry::new("session presence");
 
@@ -128,6 +129,7 @@ async fn presence(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) 
 /// Follows `id`'s phones, again after each break, until the receiver goes,
 /// telling the app of each new one. The phones of the first list were
 /// there before, so they tell nothing.
+#[tracing::instrument(skip_all, fields(peer = %id.fmt_short()))]
 async fn phones(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
     let mut retry = Retry::new("phones");
     let mut known = None;
@@ -203,6 +205,7 @@ impl Retry {
 /// Waits until `id` is online, at once if it is, so an offline machine is
 /// not asked again until it comes back.
 /// Returns once `id` is online, or the mesh closed.
+#[tracing::instrument(skip_all, fields(peer = %id.fmt_short()))]
 pub(crate) async fn until_online(fleet: &Fleet, id: EndpointId) {
     let mut changes = fleet.changes();
 

@@ -689,6 +689,7 @@ async fn node_version(client: &PeerClient) -> Option<(String, Option<i64>)> {
 }
 
 /// Takes the reports of one machine until it closes the stream or fails.
+#[tracing::instrument(skip_all, fields(peer = %id.fmt_short()))]
 async fn follow(client: PeerClient, id: EndpointId, shared: Arc<Shared>) {
     let mut startup = JoinSet::new();
     startup.spawn({
