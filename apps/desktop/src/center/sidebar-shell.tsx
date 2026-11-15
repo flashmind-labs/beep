@@ -1,5 +1,6 @@
 import { useState, Fragment, type ReactNode } from "react";
 import { IC, Icon } from "../ui/icons.tsx";
+import { spoken } from "../ui/format.ts";
 import type { GroupSlot } from "./state.ts";
 import { Button, useLazyCount } from "../ui/kit.tsx";
 import { invoke } from "../ui/tauri.ts";
@@ -7,7 +8,7 @@ import { invoke } from "../ui/tauri.ts";
 export type SideLink = Parameters<typeof SidebarItem>[0] & { count: number };
 export type SideFooter = { text: string; dot: "off" | "bad" | "on" | "dial" | null; count?: number; title?: string; action: "add" | null };
 export function SidebarItem({ label, svg, current, shortcut, open, count, hot, className }: { label: string; svg: string; current?: boolean; shortcut?: string; open(): void; count?: number; hot?: boolean; className?: string }) {
-  return <button type="button" className={`cc-si${className ? ` ${className}` : ""}`} title={label} aria-label={label} aria-current={current ? "true" : undefined} onClick={open}><span className="sidebar-icon" style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: svg }} /><span className="tt">{label}</span>{!!count && <span className={`n${hot ? " hot" : ""}`}>{count}</span>}{shortcut && <kbd>{shortcut}</kbd>}</button>;
+  return <button type="button" className={`cc-si${className ? ` ${className}` : ""}`} title={label} aria-label={spoken(label, count)} aria-current={current ? "true" : undefined} onClick={open}><span className="sidebar-icon" style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: svg }} /><span className="tt">{label}</span>{!!count && <>{" "}<span className={`n${hot ? " hot" : ""}`}>{count}</span></>}{shortcut && <kbd data-key={shortcut} />}</button>;
 }
 export function SidebarGroup({ name, group }: { name: string; group: GroupSlot<unknown> }) {
   const items = group.items ?? [], { count, height, end, first } = useLazyCount<HTMLDivElement>(items.length, 40, 40, row => {

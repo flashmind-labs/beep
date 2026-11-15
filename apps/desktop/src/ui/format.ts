@@ -83,6 +83,9 @@ function dayDiff(from: Date, to: Date) {
 }
 
 /// "1 file", "3 files".
+/// An accessible name holding every word a control shows: its label, then
+/// its counts and shortcut. Zero counts are left out, as on screen.
+export function spoken(...parts: (string | number | null | undefined)[]) { return parts.filter(part => part !== null && part !== undefined && part !== "" && part !== 0).join(" "); }
 export function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
 
 /// A refusal as the desktop said it, without what the bridge puts before it.
