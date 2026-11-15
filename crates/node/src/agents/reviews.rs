@@ -214,6 +214,7 @@ impl Agents {
     }
 
     /// Whether `session` is the home assistant this node runs.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the assistant brief uses it next"))]
     pub(crate) fn is_assistant(&self, session: &str) -> bool {
         self.get(session).is_some_and(|session| session.assistant)
     }

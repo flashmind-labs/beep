@@ -1372,6 +1372,43 @@ mod agent {
         }
 
         #[test]
+        fn a_start_with_assistant_reads_on_a_node_from_before_it() {
+            // The node reads frames with `lenient::from_slice` (mesh wire `recv`).
+            #[derive(Debug, PartialEq, Deserialize)]
+            enum Older {
+                Start {
+                    cwd: Option<String>,
+                    prompt: String,
+                    model: Option<String>,
+                    effort: Option<Effort>,
+                    checkout: Option<CheckoutPlan>,
+                    images: Vec<Upload>,
+                },
+            }
+            let body = rmp_serde::to_vec(&Request::Start {
+                cwd: Some("/srv/project".into()),
+                prompt: "go".into(),
+                model: None,
+                effort: None,
+                checkout: None,
+                images: Vec::new(),
+                assistant: true,
+            })
+            .unwrap();
+            assert_eq!(
+                beep_proto::lenient::from_slice::<Older>(&body).unwrap(),
+                Older::Start {
+                    cwd: Some("/srv/project".into()),
+                    prompt: "go".into(),
+                    model: None,
+                    effort: None,
+                    checkout: None,
+                    images: Vec::new(),
+                }
+            );
+        }
+
+        #[test]
         fn session_info_without_assistant_reads_false() {
             let mut value = rmp_serde::to_vec(&SessionInfo::default()).unwrap();
             // Drop the last field, as a node from before it sends the row.

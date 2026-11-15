@@ -522,6 +522,7 @@ async fn assistant_survives_restart() {
     after.shutdown().await;
 }
 
+#[cfg(unix)]
 #[test]
 fn home_folder_is_assistant_without_parent() {
     let home = dirs::home_dir().expect("a home folder");
