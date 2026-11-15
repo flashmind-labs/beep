@@ -95,6 +95,10 @@ pub(crate) struct Entry {
     /// The session an `AgentSession` entry opens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) session: Option<SessionRow>,
+    /// The project or folder an `AgentSession` entry runs in, by that
+    /// entry's id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) project: Option<String>,
 }
 
 impl Entry {
@@ -113,6 +117,7 @@ impl Entry {
             snippet: None,
             keys: keys.iter().map(|key| key.to_lowercase()).collect(),
             session: None,
+            project: None,
         }
     }
 }

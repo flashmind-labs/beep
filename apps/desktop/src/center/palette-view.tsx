@@ -16,9 +16,11 @@ function Marked({ text, query }: { text: string; query: string }) {
   return <>{parts}</>;
 }
 
-export function PaletteView({ input, hits, selected, query, searchIcon, group, icon, search, choose, hover }: {
+export function PaletteView({ input, hits, selected, query, searchIcon, keys, group, icon, search, choose, hover }: {
   input: RefObject<HTMLInputElement | null>; hits: Hit[]; selected: number; query: string;
   searchIcon: string;
+  /// The footer's keys, each with what it does.
+  keys: string[][];
   group(hit: Hit): string; icon(hit: Hit): string | null;
   search(value: string): void; choose(hit: Hit): void; hover(index: number): void;
 }) {
@@ -36,6 +38,6 @@ export function PaletteView({ input, hits, selected, query, searchIcon, group, i
         <span className="t"><span><Marked text={hit.title} query={query} /></span>{detail && <small style={multi ? { whiteSpace: "normal" } : undefined}><Marked text={detail} query={query} /></small>}{hit.snippet && <small className="s" style={multi ? { whiteSpace: "normal" } : undefined}><Marked text={hit.snippet} query={query} /></small>}</span>{side && <span className="w">{side}</span>}
       </button></Fragment>;
     })}{!hits.length && <div className="none">Nothing matches “{query}”.</div>}</div>
-    <div className="foot">{[["↑↓", "move"], ["↵", "open"], ["esc", "close"]].map(([key, label]) => <span key={key}><kbd>{key}</kbd>{label}</span>)}</div>
+    <div className="foot">{keys.map(([key, label]) => <span key={key}><kbd>{key}</kbd>{label}</span>)}</div>
   </div>;
 }

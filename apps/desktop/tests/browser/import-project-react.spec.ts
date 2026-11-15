@@ -127,6 +127,20 @@ test("add folder keeps the selected checkout and submits its sync preference", a
 });
 
 
+test("with project sync on, a shared folder starts off Syncthing and an untouched add follows the setting", async ({ page }) => {
+  await openDesktop(page, false, { center_home: home, list_machine_folder: { ...folder, origin: "https://example.test/example/project.git" }, folder_branch: "main", project_sync_get: true, project_syncthing_files: { available: true, enabled: true, label: "Projects" } });
+  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Choose folder" }).click();
+  const sheet = page.getByRole("dialog", { name: "Add a folder" });
+  await sheet.getByRole("button", { name: "Choose…" }).click();
+  await sheet.getByRole("button", { name: "Use this folder" }).click();
+  await expect(sheet.getByText(/Branch main/)).toBeVisible();
+  await expect(sheet.getByRole("checkbox", { name: "Keep Syncthing file sync" })).not.toBeChecked();
+  await page.evaluate(() => window.__navigation.hold("import_project"));
+  await sheet.getByRole("button", { name: "Add project" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").map(call => call.args.syncthingFiles))).toEqual([null]);
+});
+
 test("add folder restores focus and ignores an older branch read", async ({ page }) => {
   await openDesktop(page, false, { center_home: home, list_machine_folder: { ...folder, origin: "https://example.test/example/project.git" }, folder_branch: "old" });
   await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();

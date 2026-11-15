@@ -181,6 +181,21 @@ test("search palette", async ({ page }) => {
   await baseline(page, "palette");
 });
 
+test("palette project sessions", async ({ page }) => {
+  const session = (id: string, title: string) => ({ kind: "agent_session", id, title, detail: "Claude Code · example/widget · build-box", keys: [title.toLowerCase()], project: "example/widget" });
+  const index = {
+    actions: [], settings: [], code: [], machines: [],
+    projects: [{ kind: "project", id: "example/widget", title: "example/widget", detail: "build-box", keys: ["example/widget"] }],
+    sessions: [session("s1", "Fix the example redirect"), session("s2", "Tidy the example docs"), session("s3", "Measure the widget's start")],
+  };
+  await openDesktop(page, false, { center_home: home, center_palette_index: index, center_find_prompts: [] });
+  await page.getByRole("button", { name: /^Search/ }).click();
+  await page.getByRole("dialog", { name: "Search" }).getByRole("combobox").fill("widget");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".cc-pal .it")).toHaveCount(3);
+  await baseline(page, "palette-sessions");
+});
+
 test("start screen", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   // The headline is drawn by lot when the screen opens; the screenshot needs the same one each run.
@@ -326,7 +341,7 @@ test("terminals", async ({ page }) => {
   await baseline(page, "terminals");
 });
 
-const settingsResponses = { settings: { name: machineId, version: "0.9.0", autostart: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [], skill_sync_get: true, project_sync_get: true, beep_sync_over_syncthing_get: false };
+const settingsResponses = { settings: { name: machineId, version: "0.9.0", autostart: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [], skill_sync_get: true, project_sync_get: true };
 test("settings machines", async ({ page }) => {
   const tool = (name: string, version: string) => ({ name, version, path: `/usr/bin/${name}` });
   const env = (os_version: string, tools: string[]) => ({ os: "linux", os_version, arch: "x86_64", cpus: 16, memory_mb: 65536, tools: [tool("claude", "2.1.0"), tool("codex", "0.60.0"), ...tools.map(name => tool(name, "1.0.0"))], logins: [{ tool: "claude", signed_in: true, account: null }, { tool: "codex", signed_in: false, account: null }] });
