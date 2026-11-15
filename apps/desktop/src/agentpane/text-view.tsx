@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { addMention } from "../agents/workdrop.ts";
 import { invoke } from "../ui/tauri.ts";
 import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
-import { isHtmlFile } from "./html-preview-state.ts";
+import { hasPreview } from "./html-preview-state.ts";
 import { type MediaTab, type TreeText, P, saveWorkFile } from "./media.ts";
 import { noteTab, touchTab } from "./media-draw.ts";
 import { fileError } from "./read.ts";
@@ -10,19 +10,20 @@ import { readView, viewKey, writeView } from "./view-memory.ts";
 import { mentioned } from "./worktree-state.ts";
 import { Button } from "../ui/kit.tsx";
 
-/// Shows an HTML file's preview in its tab, reading it the first time, or its source again.
+/// Shows an HTML or Markdown file's preview in its tab, reading it the first time, or its source again.
 export async function togglePreview(tab: MediaTab) {
   const session = P.session;
   if (!session || !tab.rel) return;
-  const preview = tab.preview ??= { active: false, loading: false, src: "", error: "" };
+  const preview = tab.preview ??= { active: false, loading: false, src: "", html: "", error: "" };
   preview.active = !preview.active;
-  if (!preview.active || preview.src || preview.loading) { touchTab(tab); return; }
+  if (!preview.active || preview.src || preview.html || preview.loading) { touchTab(tab); return; }
   preview.loading = true; preview.error = ""; touchTab(tab);
 
   try {
-    const result = await invoke<{ kind: string; src: string }>("agent_artifact", { machineId: session.machine_id, root: tab.root ?? session.cwd, path: tab.rel, preview: true });
-    if (result.kind !== "html") throw new Error("This file cannot be previewed as HTML.");
-    preview.src = result.src;
+    const result = await invoke<{ kind: string; src?: string; html?: string }>("agent_artifact", { machineId: session.machine_id, root: tab.root ?? session.cwd, path: tab.rel, preview: true });
+    if (result.kind === "html" && result.src) preview.src = result.src;
+    else if (result.kind === "md" && result.html !== undefined) preview.html = result.html;
+    else throw new Error("This file cannot be previewed.");
   } catch (error) {
     preview.error = fileError(error, tab.rel);
   } finally {
@@ -73,11 +74,12 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
   const scrolled = () => { if (scrollKey && code.current) writeView(scrollKey, { top: code.current.scrollTop, left: code.current.scrollLeft }); };
   return <>{preview?.active ? preview.loading ? <div className="agpmsg">Loading preview…</div>
     : preview.error ? <div className="agpmsg derr">{preview.error}</div>
+    : preview.html ? <div className="agartmd" dangerouslySetInnerHTML={{ __html: preview.html }} />
     : <div className="agartframe-box"><iframe className="agartframe" sandbox="allow-scripts" referrerPolicy="no-referrer" title={`Preview of ${tab.name}`} src={preview.src || undefined} /></div>
     : text.binary ? <div className="agpmsg">{tab.name} is not text ({shortSize(text.size)}). Save it to open it on this computer.</div>
     : <div className="agcode" style={style} ref={code} onScroll={scrolled}><pre dangerouslySetInnerHTML={{ __html: html }} /></div>}
     <div className="agpacts"><span className="meta mono" title={rel}>{tab.note ?? about}</span><span className="sp" />
-      {!text.binary && isHtmlFile(rel) && <Button data-preview="1" onClick={() => void togglePreview(tab)}>{preview?.active ? "Source" : "Preview"}</Button>}
+      {!text.binary && hasPreview(rel) && <Button data-preview="1" onClick={() => void togglePreview(tab)}>{preview?.active ? "Source" : "Preview"}</Button>}
       <Button data-tment="1" onClick={() => addMention(mentioned(tab.root ?? P.session?.cwd ?? "", P.session?.cwd ?? "", rel))}>Mention</Button>
       <Button data-tsave="1" onClick={() => saveWorkFile(rel, text => noteTab(tab, text), tab.root)}>Save</Button>
     </div></>;

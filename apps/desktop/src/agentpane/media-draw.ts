@@ -3,7 +3,7 @@
 // clicks and the menu on its tabs.
 import type { SubagentRow } from "./subagents-view.tsx";
 import type { PaneTabItem } from "./tabs-view.tsx";
-import { isHtmlFile } from "./html-preview-state.ts";
+import { hasPreview } from "./html-preview-state.ts";
 import { baseName, type Dock, DOCKS, moveTab } from "./media-state.ts";
 import type { Artifact } from "./artifacts-state.ts";
 import { artifactCount, artifactsTab, setArtifacts } from "./artifacts.ts";
@@ -223,7 +223,7 @@ export function tabMenu(e: MouseEvent, id: string) {
   const items: MenuItem[] = [];
   const note = (text: string) => noteTab(t, text);
   const path = t.kind === "text" ? t.rel : t.path;
-  if (t.kind === "text" && t.rel && isHtmlFile(t.rel) && !t.text?.binary) items.push({ label: t.preview?.active ? "Source" : "Preview", on: () => { focusTab(t.id); if (t.preview?.active) void togglePreview(t); else previewTab(t); } });
+  if (t.kind === "text" && t.rel && hasPreview(t.rel) && !t.text?.binary) items.push({ label: t.preview?.active ? "Source" : "Preview", on: () => { focusTab(t.id); if (t.preview?.active) void togglePreview(t); else previewTab(t); } });
   if (path) items.push({ label: "Copy path", on: () => void writeClipboard(path) });
 
   if (t.kind === "text" && t.rel) {

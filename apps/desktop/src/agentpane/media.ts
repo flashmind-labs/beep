@@ -7,7 +7,7 @@
 import { shownMessage } from "../agents/session-frame.tsx";
 import { type SubagentRow } from "./subagents-view.tsx";
 import { readView, writeView, viewKey } from "./view-memory.ts";
-import { isHtmlFile } from "./html-preview-state.ts";
+import { hasPreview } from "./html-preview-state.ts";
 import { baseName, type Dock, type FileRef, DOCKS, type ImageView, type MediaKind, mediaKind, moveTab, type PaneLayout, readLayout, resolvePath, SIDE_BY_SIDE_MIN, tabDock } from "./media-state.ts";
 import { terminalName } from "./files-state.ts";
 import type { ModelView } from "./model3d.ts";
@@ -88,7 +88,7 @@ export interface MediaTab {
   elsewhere?: string | null;
   /// Its HTML preview opens as soon as its text is read.
   previewQueued?: boolean;
-  preview?: { active: boolean; loading: boolean; src: string; error: string };
+  preview?: { active: boolean; loading: boolean; src: string; html: string; error: string };
   /// A terminal tab's terminal, once it started.
   term?: PaneTerm;
   /// Where a new terminal tab starts its shell (its machine and folder stay
@@ -320,7 +320,7 @@ export function openWorkFile(rel: string) {
   openIn(paneRoot(), rel);
 }
 
-/// Opens an HTML file directly in its preview.
+/// Opens an HTML or Markdown file directly in its preview.
 export function previewWorkFile(rel: string) {
   const tab = openIn(paneRoot(), rel);
   if (tab) previewTab(tab);
@@ -366,8 +366,8 @@ export function openLinked(ref: FileRef) {
   const root = [shown, cwd].find(root => full.startsWith(`${root}/`)) ?? cwd;
   const tab = openIn(root, full.startsWith(`${root}/`) ? full.slice(root.length + 1) : full, elsewhere);
 
-  // An HTML page shows rendered; Source switches to its code.
-  if (tab?.kind === "text" && tab.rel && isHtmlFile(tab.rel) && !tab.preview) previewTab(tab);
+  // An HTML page or Markdown file shows rendered; Source switches to its code.
+  if (tab?.kind === "text" && tab.rel && hasPreview(tab.rel) && !tab.preview) previewTab(tab);
 
   if (tab && tab.line !== ref.line) {
     tab.line = ref.line;
