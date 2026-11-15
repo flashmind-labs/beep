@@ -36,7 +36,7 @@ export async function useThisMac() {
   reloadGroup("machines");
 }
 
-/// A machine the window can offer to remove: any but this Mac, which
+/// A machine the menu can rename, or remove unless it is this Mac, which
 /// unlinks from Settings.
 interface Removable {
   id: string;

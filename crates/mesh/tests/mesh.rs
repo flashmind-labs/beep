@@ -200,6 +200,21 @@ async fn a_rename_shows_on_every_member_and_clearing_it_restores_the_name() {
         name_of(m, id).as_deref() == Some("host-123")
     })
     .await;
+
+    // A removed machine leaves no name behind.
+    let box_ = join_temporary(&a, "box").await;
+    a.mesh
+        .rename(box_.id(), Some("scratch".into()))
+        .await
+        .expect("renamed");
+    assert!(a.mesh.remove_temporary(box_.id()).await.expect("removed"));
+    assert_eq!(a.mesh.get(&Key::MachineName(box_.id().to_string())), None);
+    a.mesh
+        .rename(id, Some("gone".into()))
+        .await
+        .expect("renamed");
+    a.mesh.remove(id).await.expect("removed");
+    assert_eq!(a.mesh.get(&Key::MachineName(id.to_string())), None);
 }
 
 async fn join_temporary(from: &Dev, name: &str) -> Dev {
