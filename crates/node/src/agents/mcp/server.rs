@@ -262,12 +262,10 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
         return Called::failed(error);
     }
 
-    let (name, args) = match catalog::ungroup(name, args) {
-        Ok(call) => call,
-        Err(text) => return Called::failed(text),
-    };
+    let name = catalog::wire(name);
     let operation = match name {
-        ASK_USER | READ_TRANSCRIPT | REMOTE_RUN | DEVICE => name,
+        ASK_USER | READ_TRANSCRIPT | REMOTE_RUN => name,
+        _ if name.starts_with(DEVICE) => name,
         _ => name
             .parse::<Tool>()
             .map(<&'static str>::from)
@@ -288,36 +286,30 @@ async fn call_tool<B: Backend>(backend: &B, session: &str, name: &str, args: Val
                 Err(e) => Called::failed(format!("Could not read the transcript: {e:#}")),
             };
         }
-        DEVICE => return backend.device(session, args).await,
         _ => {}
     }
 
-    // `remote_run` goes as `run_on`, its name in `tools/1`, which is no MCP name.
+    if let Some(action) = name.strip_prefix(DEVICE) {
+        let mut args = args;
+        if let Some(args) = args.as_object_mut() {
+            args.insert("action".to_owned(), action.into());
+        }
+
+        return backend.device(session, args).await;
+    }
+
+    // `remote_run` goes as `run_on`, its name in `tools/1`.
     let parsed = match name {
         REMOTE_RUN => Ok(Tool::RunOn),
-        "run_on" => Err(()),
         _ => name.parse::<Tool>().map_err(drop),
     };
     let tool = match parsed {
-        // Coding agents get no memories, which are the assistant's, and read no machine logs.
-        Ok(
-            Tool::Unknown
-            | Tool::MachineLog
-            | Tool::StandingRules
-            | Tool::AgentNote
-            | Tool::Remember
-            | Tool::Recall
-            | Tool::UpdateMemory
-            | Tool::Forget,
-        )
-        | Err(_) => {
-            return Called::failed(format!("There is no tool {name}."));
-        }
         // Only a reviewer hands a review in.
         Ok(Tool::SubmitReview) if !backend.reviewer(session) => {
             return Called::failed(format!("There is no tool {name}."));
         }
         Ok(tool) => tool,
+        Err(()) => return Called::failed(format!("There is no tool {name}.")),
     };
     let request = Request {
         session: session.to_owned(),

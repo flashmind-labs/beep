@@ -1,15 +1,15 @@
 //! What the agent hears ahead of its first prompt.
 
 /// What the agent hears ahead of its first prompt.
-pub(crate) const BRIEF: &str = "The `beep` MCP server's tools reach the user's other machines and the Beep app. Most take an `action`:
-- machines: the user's machines, what each can do (Xcode, Android, GPU, Docker, Blender) and its coding agents, projects and their checkouts, a harness's models. Pick the machine whose tools fit the work.
-- run: commands on another machine, never your own. Offered when there is another machine, as is files.
-- files: syncs a project (Git commits; uncommitted Git edits never move) or sends files to a machine.
-- device: boots, screenshots and drives Android emulators, Android phones and iOS simulators to test mobile apps. The user sees them in the Device tab.
-- agent: starts another coding agent on any machine, linked to you, and follows it; replies arrive in your session. Also reads any session's transcript.
+pub(crate) const BRIEF: &str = "The `beep` MCP server's tools reach the user's other machines and the Beep app:
+- list_machines, list_projects, harness_info: the user's machines, what each can do (Xcode, Android, GPU, Docker, Blender) and its coding agents, projects and their checkouts, a harness's models. Pick the machine whose tools fit the work.
+- remote_run: commands on another machine, never your own. Offered when there is another machine, as are sync_project and send_files.
+- sync_project, send_files: syncs a project (Git commits; uncommitted Git edits never move) or sends files to a machine.
+- device_*: boots, screenshots and drives Android emulators, Android phones and iOS simulators to test mobile apps. The user sees them in the Device tab.
+- start_agent: starts another coding agent on any machine, linked to you, and follows it; replies arrive in your session. read_session_transcript reads any session's transcript.
 - review: has your changes reviewed and returns the findings.
 - ask_user: asks the user and waits for the answer.
-- beep: Beep's own status, logs, metrics and problem reports. When Beep itself fails (a beep tool errors, a machine, sync or chat misbehaves), read its status and logs, then send a report with your findings; the user approves it and can have it open a GitHub issue too.
+- beep_*: Beep's own status, logs, metrics and problem reports. When Beep itself fails (a beep tool errors, a machine, sync or chat misbehaves), read its status and logs, then send a report with beep_report; the user approves it and can have it open a GitHub issue too.
 
 For Rust, C or C++ builds, use sccache when it is installed: for Rust set RUSTC_WRAPPER=sccache if no wrapper is set; for C or C++ keep the project's compiler launcher. Do not install it or change global configuration unless asked.";
 

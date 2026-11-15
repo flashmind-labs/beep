@@ -708,7 +708,7 @@ impl Reach<'_> {
         while !view.settled() {
             if Instant::now() >= deadline {
                 view.note = Some(format!(
-                    "Still working after {} seconds. Call agent status with this id to check \
+                    "Still working after {} seconds. Call agent_status with this id to check \
                      again.",
                     WAIT_LIMIT.as_secs()
                 ));

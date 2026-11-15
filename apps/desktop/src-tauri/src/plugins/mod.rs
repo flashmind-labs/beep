@@ -4,8 +4,6 @@
 //! updates, control events and window visibility in. It also installs, updates, allows,
 //! turns off and removes plugins for the Settings page. A phone runs none.
 
-#[cfg(desktop)]
-pub(crate) mod agent;
 pub(crate) mod command;
 #[cfg(desktop)]
 mod git;

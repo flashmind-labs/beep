@@ -35,7 +35,6 @@ mod devices;
 pub(crate) mod harness;
 mod machines;
 mod media;
-mod plugins;
 mod projects;
 mod reply;
 mod review;
@@ -44,8 +43,6 @@ mod socket;
 mod transcripts;
 
 pub(crate) use machines::over_the_mesh;
-pub use plugins::PluginTools;
-pub(crate) use plugins::answer as answer_plugins;
 pub(crate) use server::Backend;
 use server::Called;
 
@@ -210,7 +207,6 @@ impl Backend for Node {
                 ));
             }
             Tool::HarnessInfo => return Ok(harness::call(&self.offers, request).await),
-            Tool::Plugins => return Ok(plugins::call(&self.offers, request).await),
             Tool::Review => return Ok(review::review(&self.offers, request).await),
             Tool::SubmitReview => return Ok(review::submit(&self.offers, request)),
             Tool::StartAgent

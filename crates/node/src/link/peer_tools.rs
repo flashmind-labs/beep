@@ -6,7 +6,7 @@
 use crate::{
     agents::{
         Agents,
-        mcp::{PluginTools, answer_plugins, children, harness},
+        mcp::{children, harness},
     },
     files::transfer::{Incoming, Transfers},
     link::Offers,
@@ -48,8 +48,6 @@ pub(crate) struct Caller {
     /// This node's coding agents, which another node's agents may start
     /// agents among.
     pub agents: Option<Arc<Agents>>,
-    /// This machine's plugins, when it is a desktop that runs them.
-    pub plugins: Option<Arc<dyn PluginTools>>,
 }
 
 impl Caller {
@@ -61,7 +59,6 @@ impl Caller {
             commands_off: None,
             transfers: offers.transfers.get(),
             agents: Some(offers.agents.clone()),
-            plugins: offers.plugins.clone(),
         }
     }
 }
@@ -88,10 +85,6 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
                 failed: true,
             },
         };
-    }
-
-    if request.tool == Tool::Plugins {
-        return answer_plugins(caller.plugins.as_ref(), &request).await;
     }
 
     if matches!(
@@ -183,7 +176,7 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
     // An older node sends `prompt` (and `agent`) to start an agent. That would
     // skip the parent link and every limit `start_agent` keeps, so it is refused.
     if args.prompt.is_some() || args.agent.is_some() {
-        return Err("run starts commands only. Start an agent with agent start.".into());
+        return Err("remote_run starts commands only. Start an agent with start_agent.".into());
     }
 
     let command = match args.command {
@@ -200,8 +193,8 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
     if args.background {
         return match tasks::start_for(table, command, args.cwd, limit) {
             TaskReply::Started { id } => Ok(format!(
-                "Started it in the background. Job id: {id}. Check it with run status, \
-                 stop it with run cancel."
+                "Started it in the background. Job id: {id}. Check it with remote_run_status, \
+                 stop it with remote_run_cancel."
             )),
             other => Err(task_error(other)),
         };

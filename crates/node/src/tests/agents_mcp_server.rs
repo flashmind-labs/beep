@@ -117,6 +117,44 @@ fn request(id: i64, method: &str, params: Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
 }
 
+/// Every tool a session gets without API keys, in order.
+const ALL: [&str; 34] = [
+    "list_machines",
+    "list_projects",
+    "harness_info",
+    "remote_run",
+    "remote_run_status",
+    "remote_run_cancel",
+    "sync_project",
+    "send_files",
+    "device_list",
+    "device_boot",
+    "device_shutdown",
+    "device_show",
+    "device_screenshot",
+    "device_tap",
+    "device_swipe",
+    "device_type",
+    "device_press",
+    "device_logs",
+    "device_ui",
+    "device_install",
+    "device_launch",
+    "device_reset",
+    "start_agent",
+    "agent_status",
+    "send_to_agent",
+    "stop_agent",
+    "list_agents",
+    "read_session_transcript",
+    "review",
+    "ask_user",
+    "beep_status",
+    "beep_logs",
+    "beep_metrics",
+    "beep_report",
+];
+
 fn text(answer: &Value) -> &str {
     answer["result"]["content"][0]["text"].as_str().unwrap()
 }
@@ -133,12 +171,12 @@ async fn it_lists_the_tools_and_answers_a_call() {
             request(
                 3,
                 "tools/call",
-                json!({ "name": "machines", "arguments": { "action": "list" } }),
+                json!({ "name": "list_machines", "arguments": {} }),
             ),
             request(
                 4,
                 "tools/call",
-                json!({ "name": "run", "arguments": { "action": "status", "id": "task:1@build-box" } }),
+                json!({ "name": "remote_run_status", "arguments": { "id": "task:1@build-box" } }),
             ),
             request(5, "nothing/here", json!({})),
         ],
@@ -153,22 +191,16 @@ async fn it_lists_the_tools_and_answers_a_call() {
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();
-    assert_eq!(
-        names,
-        [
-            "machines", "run", "files", "device", "agent", "review", "ask_user", "beep",
-            "plugins"
-        ]
-    );
+    assert_eq!(names, ALL);
     let hints = |name: &str| {
         let tools = out[1]["result"]["tools"].as_array().unwrap();
         let tool = tools.iter().find(|tool| tool["name"] == name).unwrap();
         tool["annotations"].clone()
     };
     // Codex asks unless a tool reads only, or is neither destructive nor open world.
-    assert_eq!(hints("machines")["readOnlyHint"], true);
-    assert_eq!(hints("run")["destructiveHint"], false);
-    assert_eq!(hints("run")["openWorldHint"], false);
+    assert_eq!(hints("list_machines")["readOnlyHint"], true);
+    assert_eq!(hints("remote_run")["destructiveHint"], false);
+    assert_eq!(hints("remote_run")["openWorldHint"], false);
     assert_eq!(text(&out[2]), "- build-box: online");
     assert_eq!(out[2]["result"]["isError"], false);
     assert_eq!(text(&out[3]), "build-box is offline.");
@@ -177,10 +209,7 @@ async fn it_lists_the_tools_and_answers_a_call() {
     assert_eq!(calls[0].tool, Tool::ListMachines);
     assert_eq!(calls[0].session, "a3f9c1");
     assert_eq!(calls[1].tool, Tool::JobStatus);
-    assert_eq!(
-        calls[1].args, r#"{"id":"task:1@build-box"}"#,
-        "action is taken out"
-    );
+    assert_eq!(calls[1].args, r#"{"id":"task:1@build-box"}"#);
     assert!(fake.asked.lock().unwrap().is_empty(), "nothing acted");
 }
 
@@ -193,7 +222,7 @@ async fn transcript_calls_use_the_sessions_backend_without_acting_approval() {
         &[request(
             1,
             "tools/call",
-            json!({"name": "agent", "arguments": {"action": "transcript", "machine": "build-box", "session": "session-a", "before": 20}}),
+            json!({"name": "read_session_transcript", "arguments": args}),
         )],
     )
     .await;
@@ -298,7 +327,7 @@ async fn a_device_screenshot_comes_as_image_content() {
         &[request(
             1,
             "tools/call",
-            json!({ "name": "device", "arguments": { "action": "screenshot", "machine": "build-box", "device": "Pixel" } }),
+            json!({ "name": "device_screenshot", "arguments": { "machine": "build-box", "device": "Pixel" } }),
         )],
     )
     .await;
@@ -346,10 +375,10 @@ async fn a_saved_key_offers_its_media_tools_and_the_node_runs_them() {
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();
-    for tool in ["run", "image", "video", "speech", "decision"] {
+    for tool in ["remote_run", "generate_image", "generate_video", "tts", "decision", "list_models"] {
         assert!(names.contains(&tool), "{tool} missing from {names:?}");
     }
-    for hidden in ["model_3d", "generate_image", "list_models"] {
+    for hidden in ["image", "model_3d", "generate_3d"] {
         assert!(!names.contains(&hidden), "{names:?}");
     }
     assert_eq!(out[1]["result"]["isError"], true, "{out:?}");
@@ -374,23 +403,14 @@ async fn without_keys_there_are_no_media_tools() {
 }
 
 #[tokio::test]
-async fn a_grouped_tool_needs_a_known_action() {
+async fn grouped_and_internal_names_are_no_tools() {
     let fake = Fake::new("allow");
-    let out = exchange(
-        &fake,
-        &[
-            request(1, "tools/call", json!({ "name": "agent", "arguments": {} })),
-            request(
-                2,
-                "tools/call",
-                json!({ "name": "beep", "arguments": { "action": "reboot" } }),
-            ),
-        ],
-    )
-    .await;
-    assert_eq!(out[0]["result"]["isError"], true);
-    assert!(text(&out[0]).contains("action"));
-    assert_eq!(out[1]["result"]["isError"], true);
+
+    for name in ["machines", "agent", "device", "beep", "plugins", "job_status", "run_on", "machine_log"] {
+        let result = call(&fake, "a3f9c1", name, json!({ "action": "list" })).await;
+        assert!(result.failed && result.text == format!("There is no tool {name}."), "{result:?}");
+    }
+
     assert!(fake.calls.lock().unwrap().is_empty(), "nothing was sent");
 }
 
@@ -407,53 +427,15 @@ async fn without_other_machines_run_and_files_are_left_out() {
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();
-    assert_eq!(
-        names,
-        ["machines", "device", "agent", "review", "ask_user", "beep", "plugins"]
-    );
-}
-
-#[tokio::test]
-async fn the_plugins_tool_lists_its_actions_and_reaches_the_backend_whole() {
-    let fake = Fake::new("allow");
-    let out = exchange(
-        &fake,
-        &[
-            request(1, "tools/list", json!({})),
-            request(
-                2,
-                "tools/call",
-                json!({ "name": "plugins", "arguments": {
-                    "action": "call", "plugin": "session-notes", "tool": "get_note",
-                    "arguments": { "session": "s1" } } }),
-            ),
-            request(
-                3,
-                "tools/call",
-                json!({ "name": "plugins", "arguments": { "action": "delete" } }),
-            ),
-        ],
-    )
-    .await;
-
-    let plugins = out[0]["result"]["tools"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|tool| tool["name"] == "plugins")
-        .unwrap();
-    assert_eq!(
-        plugins["inputSchema"]["properties"]["action"]["enum"],
-        json!(["list", "status", "create", "call"])
-    );
-
-    let calls = fake.calls.lock().unwrap();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].tool, Tool::Plugins);
-    let args: Value = serde_json::from_str(&calls[0].args).unwrap();
-    assert_eq!(args["action"], "call");
-    assert_eq!(args["arguments"]["session"], "s1");
-    assert_eq!(out[2]["result"]["isError"], true);
+    let remote = [
+        "remote_run",
+        "remote_run_status",
+        "remote_run_cancel",
+        "sync_project",
+        "send_files",
+    ];
+    let expected: Vec<&str> = ALL.into_iter().filter(|name| !remote.contains(name)).collect();
+    assert_eq!(names, expected);
 }
 
 /// The tools agents get without API keys stay within a context budget, at
@@ -461,7 +443,7 @@ async fn the_plugins_tool_lists_its_actions_and_reaches_the_backend_whole() {
 #[test]
 fn the_tool_definitions_fit_the_budget() {
     // Includes the constraints that reject fields belonging to other actions.
-    const TOKENS: usize = 3_750;
+    const TOKENS: usize = 4_250;
 
     let listed = catalog::tools(false, false).to_string();
     let tokens = listed.len() / 4;
@@ -471,7 +453,7 @@ fn the_tool_definitions_fit_the_budget() {
 }
 
 #[tokio::test]
-async fn a_media_group_runs_its_actions_and_lists_its_models() {
+async fn a_meshy_key_offers_the_3d_tools_and_their_models() {
     use crate::machine::provision::spawn_env::{self, TEST_LOCK};
     use beep_proto::{SecretText, node::EnvSecret};
 
@@ -483,202 +465,60 @@ async fn a_media_group_runs_its_actions_and_lists_its_models() {
         name: "MESHY_API_KEY".into(),
         value: SecretText::new("msy-test"),
     }]);
-    let call = |id, args: Value| {
-        request(
-            id,
-            "tools/call",
-            json!({ "name": "model_3d", "arguments": args }),
-        )
+    let call = |id, name: &str, args: Value| {
+        request(id, "tools/call", json!({ "name": name, "arguments": args }))
     };
     let out = exchange(
         &fake,
         &[
             request(1, "tools/list", json!({})),
-            call(2, json!({ "action": "models" })),
-            call(3, json!({ "action": "models", "query": "lite" })),
-            call(4, json!({ "action": "fly" })),
-            call(5, json!({ "action": "models", "prompt": "a chair" })),
-            call(6, json!({ "action": "models", "query": 5 })),
-            call(7, json!({ "action": "generate", "query": "lite" })),
-            call(8, json!({ "action": "generate", "glb": "hero.glb" })),
-            call(9, json!({ "action": "rig", "prompt": "a chair" })),
+            call(2, "list_models", json!({ "category": "3d" })),
+            call(3, "rig_3d", json!({ "glb": "hero.glb", "prompt": "a chair" })),
         ],
     )
     .await;
     spawn_env::set_vars(Vec::new());
 
-    let tool = out[0]["result"]["tools"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|tool| tool["name"] == "model_3d")
-        .expect("model_3d is offered");
-    assert_eq!(
-        tool["inputSchema"]["properties"]["action"]["enum"],
-        json!(["generate", "rig", "models"])
-    );
-    assert!(text(&out[1]).contains("meshy:latest"), "{}", text(&out[1]));
-    assert!(!text(&out[1]).contains("tripo:"), "{}", text(&out[1]));
-    assert_eq!(text(&out[2]).lines().count(), 1, "{}", text(&out[2]));
-    assert_eq!(text(&out[4]), "`prompt` does not apply to models.");
-    assert_eq!(text(&out[5]), "`query` must be a string.");
-    assert_eq!(text(&out[6]), "`query` does not apply to generate.");
-    assert_eq!(text(&out[7]), "`glb` does not apply to generate.");
-    assert_eq!(text(&out[8]), "`prompt` does not apply to rig.");
+    let tools = out[0]["result"]["tools"].as_array().unwrap();
+    let names: Vec<&str> = tools.iter().map(|tool| tool["name"].as_str().unwrap()).collect();
+    for name in ["generate_3d", "rig_3d", "list_models"] {
+        assert!(names.contains(&name), "{name} missing from {names:?}");
+    }
+    assert!(!names.contains(&"generate_image"), "{names:?}");
+    let rig = tools.iter().find(|tool| tool["name"] == "rig_3d").unwrap();
+    assert_eq!(rig["inputSchema"]["required"], json!(["glb"]));
+    assert!(text(&out[1]).contains("meshy"), "{}", text(&out[1]));
+    assert_eq!(out[2]["result"]["isError"], true, "{}", text(&out[2]));
     assert!(fake.calls.lock().unwrap().is_empty());
 }
 
-// Each action gets an independent regression test at the agent JSON boundary.
-// All unrelated declared fields, unknown fields and mistyped accepted fields
-// must fail before routing or starting any work.
-macro_rules! strict_action_test {
-    ($test:ident, $group:literal, $args:expr) => {
-        #[tokio::test]
-        async fn $test() {
-            let fake = Fake::new("allow");
-            let valid = $args;
-            let catalog = catalog::tools(false, false);
-            let schema = &catalog.as_array().unwrap().iter()
-                .find(|tool| tool["name"] == $group).unwrap()["inputSchema"];
-            assert!(catalog::validate($group, &valid).is_ok());
+/// Every tool takes only its own arguments, checked before routing.
+#[tokio::test]
+async fn every_tool_rejects_unknown_arguments() {
+    let fake = Fake::new("allow");
+    let listed = catalog::tools(false, false);
 
-            for key in schema["properties"].as_object().unwrap().keys()
-                .filter(|key| *key != "action" && !valid.as_object().unwrap().contains_key(*key))
-                .chain(std::iter::once(&"unknown_argument".to_owned()))
-            {
-                let mut args = valid.clone();
-                args[key] = match schema["properties"][key]["type"].as_str() {
-                    Some("string") => json!("unused"),
-                    Some("array") => json!(["unused"]),
-                    Some("integer" | "number") => json!(1),
-                    _ => json!(true),
-                };
-                let result = call(&fake, "a3f9c1", $group, args).await;
-                assert!(result.failed && result.text.contains(key), "{key}: {result:?}");
-            }
-
-            for key in valid.as_object().unwrap().keys() {
-                let mut args = valid.clone();
-                args[key] = json!({"wrong": "type"});
-                let result = call(&fake, "a3f9c1", $group, args).await;
-                assert!(result.failed && result.text.contains(key), "{key}: {result:?}");
-            }
-
-            assert!(fake.calls.lock().unwrap().is_empty(), "invalid calls never reach a peer");
+    for tool in listed.as_array().unwrap() {
+        let name = tool["name"].as_str().unwrap();
+        let schema = &tool["inputSchema"];
+        assert_eq!(schema["additionalProperties"], false, "{name}");
+        let mut args = json!({ "unknown_argument": true });
+        for key in schema["required"].as_array().unwrap() {
+            let key = key.as_str().unwrap();
+            args[key] = match schema["properties"][key]["type"].as_str() {
+                Some("array") => json!(["value"]),
+                Some("integer" | "number") => json!(1),
+                _ => json!("value"),
+            };
         }
-    };
-}
+        let result = call(&fake, "a3f9c1", name, args).await;
+        assert!(result.failed && result.text.contains("unknown_argument"), "{name}: {result:?}");
+    }
 
-strict_action_test!(
-    machines_list_rejects_arguments,
-    "machines",
-    json!({"action":"list"})
-);
-strict_action_test!(
-    run_start_rejects_unused_arguments,
-    "run",
-    json!({"action":"start", "machine":"build-box", "command":"echo ok", "cwd":"/", "timeout_secs":1, "background":true})
-);
-strict_action_test!(
-    run_status_rejects_unused_arguments,
-    "run",
-    json!({"action":"status", "id":"task:1@build-box"})
-);
-strict_action_test!(
-    run_cancel_rejects_unused_arguments,
-    "run",
-    json!({"action":"cancel", "id":"task:1@build-box"})
-);
-strict_action_test!(
-    files_sync_rejects_paths_and_dest,
-    "files",
-    json!({"action":"sync", "project":"example", "machine":"build-box"})
-);
-strict_action_test!(
-    files_send_rejects_project,
-    "files",
-    json!({"action":"send", "machine":"build-box", "paths":["/path/to/file"], "dest":"/path/to/dest"})
-);
-strict_action_test!(
-    agent_list_rejects_unused_arguments,
-    "agent",
-    json!({"action":"list", "project":"beep", "all":true})
-);
-strict_action_test!(
-    beep_status_rejects_arguments,
-    "beep",
-    json!({"action":"status"})
-);
-strict_action_test!(
-    device_list_rejects_arguments,
-    "device",
-    json!({"action":"list"})
-);
-strict_action_test!(
-    device_boot_rejects_unused_arguments,
-    "device",
-    json!({"action":"boot", "machine":"build-box", "device":"phone"})
-);
-strict_action_test!(
-    device_shutdown_rejects_unused_arguments,
-    "device",
-    json!({"action":"shutdown", "machine":"build-box", "device":"phone"})
-);
-strict_action_test!(
-    device_show_rejects_unused_arguments,
-    "device",
-    json!({"action":"show", "machine":"build-box", "device":"phone"})
-);
-strict_action_test!(
-    device_screenshot_rejects_unused_arguments,
-    "device",
-    json!({"action":"screenshot", "machine":"build-box", "device":"phone"})
-);
-strict_action_test!(
-    device_tap_rejects_unused_arguments,
-    "device",
-    json!({"action":"tap", "machine":"build-box", "device":"phone", "x":1, "y":2})
-);
-strict_action_test!(
-    device_swipe_rejects_unused_arguments,
-    "device",
-    json!({"action":"swipe", "machine":"build-box", "device":"phone", "x":1, "y":2, "x2":3, "y2":4, "duration_ms":300})
-);
-strict_action_test!(
-    device_ui_rejects_unused_arguments,
-    "device",
-    json!({"action":"ui", "machine":"build-box", "device":"phone"})
-);
-strict_action_test!(
-    device_install_rejects_unused_arguments,
-    "device",
-    json!({"action":"install", "machine":"build-box", "device":"phone", "text":"/srv/app.apk"})
-);
-strict_action_test!(
-    device_launch_rejects_unused_arguments,
-    "device",
-    json!({"action":"launch", "machine":"build-box", "device":"phone", "text":"com.example.app"})
-);
-strict_action_test!(
-    device_reset_rejects_unused_arguments,
-    "device",
-    json!({"action":"reset", "machine":"build-box", "device":"phone", "text":"com.example.app"})
-);
-strict_action_test!(
-    device_logs_rejects_unused_arguments,
-    "device",
-    json!({"action":"logs", "machine":"build-box", "device":"phone", "filter":"beep", "lines":50})
-);
-strict_action_test!(
-    device_type_rejects_unused_arguments,
-    "device",
-    json!({"action":"type", "machine":"build-box", "device":"phone", "text":"hello"})
-);
-strict_action_test!(
-    device_press_rejects_unused_arguments,
-    "device",
-    json!({"action":"press", "machine":"build-box", "device":"phone", "key":"return"})
-);
+    let result = call(&fake, "a3f9c1", "device_tap", json!({ "machine": "build-box", "device": "phone", "x": "1", "y": 2 })).await;
+    assert!(result.failed && result.text.contains('x'), "{result:?}");
+    assert!(fake.calls.lock().unwrap().is_empty(), "invalid calls never reach a peer");
+}
 
 #[tokio::test]
 async fn review_status_rejects_start_options() {
@@ -729,27 +569,6 @@ async fn submit_review_rejects_unknown_and_mistyped_fields_including_findings() 
 }
 
 #[tokio::test]
-async fn legacy_mcp_names_also_validate_before_routing() {
-    let fake = Fake::new("allow");
-
-    for name in [
-        "list_machines",
-        "remote_run",
-        "job_status",
-        "cancel",
-        "sync_project",
-        "send_files",
-        "list_agents",
-        "beep_status",
-    ] {
-        let result = call(&fake, "a3f9c1", name, json!({"unknown_argument":true})).await;
-        assert!(result.failed, "{name}: {result:?}");
-    }
-
-    assert!(fake.calls.lock().unwrap().is_empty());
-}
-
-#[tokio::test]
 async fn a_saved_key_tells_the_agent_its_tools_changed() {
     use crate::machine::provision::spawn_env::{self, TEST_LOCK};
     use beep_proto::{SecretText, node::EnvSecret};
@@ -781,7 +600,7 @@ async fn a_saved_key_tells_the_agent_its_tools_changed() {
     let client = async {
         client_write.write_all(list(1).as_bytes()).await.unwrap();
         let before = next().await;
-        assert!(!names(&before).contains(&"image".to_owned()));
+        assert!(!names(&before).contains(&"generate_image".to_owned()));
 
         spawn_env::set_vars(vec![EnvSecret {
             name: "OPENROUTER_API_KEY".into(),
@@ -791,7 +610,7 @@ async fn a_saved_key_tells_the_agent_its_tools_changed() {
 
         client_write.write_all(list(2).as_bytes()).await.unwrap();
         let after = next().await;
-        assert!(names(&after).contains(&"image".to_owned()), "{after}");
+        assert!(names(&after).contains(&"generate_image".to_owned()), "{after}");
         client_write.shutdown().await.unwrap();
     };
     tokio::join!(served, client);

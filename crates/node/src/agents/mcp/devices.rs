@@ -319,7 +319,7 @@ async fn run(offers: &Offers, mesh: &Mesh, screens: &Screens, action: Action) ->
             let (machine, device) = find(offers, mesh, &at).await?;
 
             if device.state == DeviceState::Off {
-                bail!("{} on {} is off: boot it.", device.name, machine.name);
+                bail!("{} on {} is off: device_boot it.", device.name, machine.name);
             }
 
             let called = Called::ok(format!(
@@ -720,7 +720,7 @@ impl Screens {
         }
 
         if device.state == DeviceState::Off {
-            bail!("{} on {} is off: boot it.", device.name, machine.name);
+            bail!("{} on {} is off: device_boot it.", device.name, machine.name);
         }
 
         let mut link = open(offers, mesh, &machine).await?;

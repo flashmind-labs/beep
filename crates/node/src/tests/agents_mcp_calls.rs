@@ -35,26 +35,37 @@ fn calls_are_found_however_the_agent_names_them() {
 
 #[test]
 fn device_calls_name_the_device_and_its_machine() {
-    let title = |args: Value| Tool::Device.title(Some(&args));
-    assert_eq!(Tool::of_name("mcp__beep__device"), Some(Tool::Device));
-    assert_eq!(title(json!({"action": "list"})), "Beep: List devices");
+    let title = |name: &str, args: Value| {
+        Tool::of_name(&format!("mcp__beep__{name}"))
+            .unwrap()
+            .title(Some(&args))
+    };
+    assert_eq!(title("device_list", json!({})), "Beep: List devices");
     assert_eq!(
-        title(json!({"action": "boot", "machine": "Mac Box", "device": "iPhone 17"})),
+        title("device_boot", json!({"machine": "Mac Box", "device": "iPhone 17"})),
         "Beep: Boot iPhone 17 on mac-box"
     );
     assert_eq!(
-        title(json!({"action": "tap", "machine": "mac-box", "device": "iPhone 17", "x": 120, "y": 40.5})),
+        title("device_tap", json!({"machine": "mac-box", "device": "iPhone 17", "x": 120, "y": 40.5})),
         "Beep: Tap iPhone 17 on mac-box: 120, 40.5"
     );
     assert_eq!(
-        title(json!({"action": "type", "machine": "mac-box", "device": "iPhone 17", "text": "hi"})),
+        title("device_type", json!({"machine": "mac-box", "device": "iPhone 17", "text": "hi"})),
         "Beep: Type into iPhone 17 on mac-box: hi"
     );
     assert_eq!(
-        title(json!({"action": "press", "machine": "mac-box", "device": "Pixel 9", "key": "home"})),
+        title("device_press", json!({"machine": "mac-box", "device": "Pixel 9", "key": "home"})),
         "Beep: Press home on Pixel 9 on mac-box"
     );
-    assert_eq!(title(json!({})), "Beep: Use a device on a machine");
+    assert_eq!(title("device_ui", json!({})), "Beep: Use a device on a machine");
+}
+
+#[test]
+fn renamed_tools_read_by_either_name() {
+    assert_eq!(Tool::of_name("mcp__beep__remote_run_status"), Some(Tool::JobStatus));
+    assert_eq!(Tool::of_name("mcp__beep__job_status"), Some(Tool::JobStatus));
+    assert_eq!(Tool::of_name("mcp__beep__remote_run_cancel"), Some(Tool::Cancel));
+    assert_eq!(Tool::of_name("mcp__beep__beep_report"), Some(Tool::FileReport));
 }
 
 #[test]
@@ -82,4 +93,8 @@ fn grouped_calls_take_the_words_of_their_action() {
         "Beep: Read logs on build-box"
     );
     assert_eq!(title("agent", json!({"action": "dance"})), "Beep: Use agent");
+    assert_eq!(
+        title("device", json!({"action": "boot", "machine": "mac-box", "device": "Pixel 9"})),
+        "Beep: Boot Pixel 9 on mac-box"
+    );
 }

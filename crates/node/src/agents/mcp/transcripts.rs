@@ -73,7 +73,7 @@ async fn read(offers: &Offers, args: &Args) -> Result<SessionsReply> {
             .get()
             .context("This machine has not joined a mesh. Omit machine to read here.")?;
         let target = machines::find_or_id(&mesh, name)
-            .with_context(|| format!("Unknown machine {name}; use machines list."))?;
+            .with_context(|| format!("Unknown machine {name}; use list_machines."))?;
         if target.id != mesh.me() {
             let (mut tx, mut rx) =
                 machines::handshake(&mesh, target.id, TRANSCRIPT_PROTOCOL).await?;

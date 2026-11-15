@@ -61,7 +61,7 @@ impl ChildNote {
         let (head, tail) = match self.state {
             NoteState::Finished => (
                 format!("[child {id} finished] {}", self.text),
-                "Reply with agent send to continue it.",
+                "Reply with send_to_agent to continue it.",
             ),
             NoteState::Asking => (
                 format!("[child {id} is waiting on the user] {}", self.text),
@@ -69,7 +69,7 @@ impl ChildNote {
             ),
             NoteState::Stopped => (
                 format!("[child {id} was stopped by the user] {}", self.text),
-                "Reply with agent send to continue it.",
+                "Reply with send_to_agent to continue it.",
             ),
             NoteState::Closed => (
                 format!("[child {id} was stopped by the user] {}", self.text),

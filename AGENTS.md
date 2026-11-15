@@ -46,7 +46,7 @@ server features, and nodes do not connect to it.
 - The phone app is `apps/desktop` built for iOS and Android: `just ios-run`
   (connected iPhone), `just ios-sim-run`, `just android-run`. On a phone it is
   a mesh observer (`cfg(mobile)`): no node, no agents, no terminals hosted.
-- Debug with the Beep MCP `beep` tool (status, logs); its report action asks
+- Debug with the Beep MCP `beep_status` and `beep_logs` tools; `beep_report` asks
   the user before sending. Reports hold private logs: an issue carries only
   the report reference. `just reports`, `just report <reference>` and
   `just report-solved <reference>` manage stored reports.

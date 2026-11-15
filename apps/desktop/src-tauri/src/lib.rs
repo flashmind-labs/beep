@@ -655,8 +655,7 @@ fn setup(
     }
     // This Mac's node, and the mesh it is in, which opens in the background.
     #[cfg(desktop)]
-    let machine =
-        machines::this_mac::Machine::new(&dir.join("node"), Some(plugins::agent::tools(&handle)));
+    let machine = machines::this_mac::Machine::new(&dir.join("node"));
     #[cfg(desktop)]
     let fleet = Arc::new(Fleet::new(
         endpoint,
