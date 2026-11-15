@@ -26,3 +26,26 @@ test("file link menu supports keyboard navigation and late local actions", async
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0); await expect(link).toBeFocused();
 });
+
+test("a menu stays open while the page scrolls itself and closes on a wheel", async ({ page }) => {
+  await openDesktop(page, true, { local_file: { apps: [] } });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await expect(page.locator("#agbody")).toBeVisible();
+  await page.evaluate(() => {
+    const box = document.createElement("div"); box.id = "test-scroller"; box.style.cssText = "height:40px;overflow:auto";
+    box.innerHTML = '<a href="notes.txt" id="test-file-link">Notes</a><div style="height:400px"></div>';
+    document.querySelector("#agbody")?.append(box);
+  });
+  await page.locator("#test-file-link").click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "notes.txt" });
+  await expect(menu).toBeVisible();
+
+  await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+  await page.locator("#test-scroller").evaluate(box => { box.scrollTop = 100; });
+  await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+  await expect(menu).toBeVisible();
+
+  await page.locator("#test-scroller").hover();
+  await page.mouse.wheel(0, -50);
+  await expect(menu).toHaveCount(0);
+});
