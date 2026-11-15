@@ -4,7 +4,8 @@ import type { ConfirmOptions, RenameOptions } from "./menu.tsx";
 import { Button, Checkbox, SheetHead } from "./kit.tsx";
 
 /// The box of a right-click menu at `at`, kept inside the window. A click
-/// outside it, leaving the window or a scroll closes it; Esc also gives focus back.
+/// outside it, leaving the window or the user scrolling closes it; Esc also
+/// gives focus back.
 export function MenuBox({ at, close, escape, children }: { at: { x: number; y: number }; close(): void; escape(): void; children?: ReactNode }) {
   const menuBox = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<CSSProperties>({});
@@ -25,7 +26,7 @@ export function MenuBox({ at, close, escape, children }: { at: { x: number; y: n
     return () => resized.disconnect();
   }, [at, children]);
   useEffect(() => {
-    const away = (event: MouseEvent) => { if (!(event.target instanceof Node) || !menuBox.current?.contains(event.target)) close(); };
+    const away = (event: Event) => { if (!(event.target instanceof Node) || !menuBox.current?.contains(event.target)) close(); };
     const keys = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       escape();
@@ -35,15 +36,16 @@ export function MenuBox({ at, close, escape, children }: { at: { x: number; y: n
     window.addEventListener("mousedown", away, true);
     window.addEventListener("keydown", keys, true);
     window.addEventListener("blur", close);
-    // Scrolling closes the menu, but not the scroll that brought the tapped
-    // button into view, which lands in the next frame (the phone header).
-    const frame = requestAnimationFrame(() => window.addEventListener("scroll", close, true));
+    // Only the user's scroll closes it: views that draw again restore their
+    // own scroll, and the tapped button may scroll into view.
+    window.addEventListener("wheel", away, { capture: true, passive: true });
+    window.addEventListener("touchmove", away, { capture: true, passive: true });
     return () => {
-      cancelAnimationFrame(frame);
       window.removeEventListener("mousedown", away, true);
       window.removeEventListener("keydown", keys, true);
       window.removeEventListener("blur", close);
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("wheel", away, true);
+      window.removeEventListener("touchmove", away, true);
     };
   }, [close, escape]);
 
