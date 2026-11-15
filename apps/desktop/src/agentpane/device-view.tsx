@@ -6,7 +6,7 @@ import { Icon, type IconName } from "../ui/icons.tsx";
 import { deviceModel, pickDevice, power, sendInput, setDeviceShown, setPainter, showAgain } from "./device.ts";
 import {
   BUTTON_NAMES, type Device, type DeviceButton, type DeviceMachine, type Rect, type ScreenState, type Size, type TouchPhase,
-  buttonsFor, fitRect, keyInput, maxSide, missingLine, pickedDevice, pickValue, powerChip, readPickValue, touchPoint,
+  buttonsFor, fitRect, keyInput, takesInput, maxSide, missingLine, pickedDevice, pickValue, powerChip, readPickValue, touchPoint,
 } from "./device-state.ts";
 import { Button, Spinner } from "../ui/kit.tsx";
 
@@ -36,7 +36,7 @@ export const DevicePane = memo(function DevicePane({ hidden }: { hidden: boolean
     <div className="derr" role="status" hidden={!model.error}>{model.error}</div>
     <Screen device={device} />
     <div className="agpacts agdevkeys">
-      {device && buttonsFor(device.platform).map(button => <Button key={button} className="ibtn" title={BUTTON_NAMES[button]} aria-label={BUTTON_NAMES[button]} disabled={!live}
+      {device && buttonsFor(device).map(button => <Button key={button} className="ibtn" title={BUTTON_NAMES[button]} aria-label={BUTTON_NAMES[button]} disabled={!live}
         onClick={() => sendInput({ Button: { button } })}><Icon name={BUTTON_ICONS[button]} /></Button>)}
       <span className="sp" />
       {device && machine && <span className="meta">{[device.os, machine.machine_name].filter(Boolean).join(" · ")}</span>}
@@ -119,6 +119,7 @@ function Screen({ device }: { device: Device | null }) {
   useEffect(() => () => { if (tick.current !== null) cancelAnimationFrame(tick.current); }, []);
 
   const live = screen.kind === "live";
+  const driven = live && device !== null && takesInput(device);
 
   /// Where the frame sits in the canvas, in CSS pixels.
   const drawn = (): Rect | null => {
@@ -136,7 +137,7 @@ function Screen({ device }: { device: Device | null }) {
 
   const down = (event: PointerEvent<HTMLCanvasElement>) => {
     keys.current?.focus({ preventScroll: true });
-    if (!live || event.button !== 0) return;
+    if (!driven || event.button !== 0) return;
     const point = at(event, false);
     if (!point) return;
     event.preventDefault();
@@ -179,9 +180,9 @@ function Screen({ device }: { device: Device | null }) {
   };
 
   return <div className="agdevstage" ref={stage}>
-    <canvas ref={canvas} className="agdevscreen" hidden={!live} title="Click to tap, drag to swipe; type while it is focused"
+    <canvas ref={canvas} className="agdevscreen" hidden={!live} title={driven ? "Click to tap, drag to swipe; type while it is focused" : "Use the phone itself to tap and type"}
       onPointerDown={down} onPointerMove={moved} onPointerUp={up} onPointerCancel={up} onContextMenu={event => event.preventDefault()} />
-    <textarea ref={keys} className="agdevtype" aria-label="Type into the device" autoCapitalize="off" autoCorrect="off" spellCheck={false} tabIndex={live ? 0 : -1}
+    <textarea ref={keys} className="agdevtype" aria-label="Type into the device" autoCapitalize="off" autoCorrect="off" spellCheck={false} tabIndex={driven ? 0 : -1}
       onKeyDown={key} onInput={typed} onCompositionEnd={typed} onPaste={event => {
         event.preventDefault();
         const text = event.clipboardData.getData("text/plain");

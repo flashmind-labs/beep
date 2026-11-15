@@ -534,6 +534,12 @@ fn lines(devices: &[Device]) -> String {
         .join("\n")
 }
 
+/// Whether `device` takes taps, typing and keys: an iPhone does not, as
+/// `devicectl` has no input.
+fn takes_input(device: &Device) -> bool {
+    !(device.phone && device.platform == Platform::Ios)
+}
+
 /// The machine and device `at` names.
 async fn find(offers: &Offers, mesh: &Mesh, at: &Target) -> Result<(Machine, Device)> {
     let machine = machine(mesh, &at.machine)?;
@@ -673,11 +679,13 @@ struct Attached {
     viewer: Viewer,
 }
 
-/// One attached device: where its calls go, and the task that holds its
-/// stream, which ends when it idles or this is dropped.
+/// One attached device: where its calls go, whether it takes input, and
+/// the task that holds its stream, which ends when it idles or this is
+/// dropped.
 #[derive(Clone)]
 struct Viewer {
     asks: mpsc::Sender<Ask>,
+    takes_input: bool,
     _task: std::sync::Arc<AbortOnDropHandle<()>>,
 }
 
@@ -722,7 +730,7 @@ impl Screens {
                 max_side: SHOT_SIDE,
             })
             .await?;
-        let viewer = Viewer::start(link, IDLE);
+        let viewer = Viewer::start(link, IDLE, takes_input(&device));
         let used = used(&machine, &device);
         self.attach(Attached {
             machine: machine.id,
@@ -779,11 +787,12 @@ impl Screens {
 impl Viewer {
     /// Follows the attached stream of `link` until no call came for
     /// `idle`, the device's view ends, or every copy of the viewer is gone.
-    fn start(link: Link, idle: Duration) -> Self {
+    fn start(link: Link, idle: Duration, takes_input: bool) -> Self {
         let (asks, taken) = mpsc::channel(8);
         let task = tokio::spawn(view(link, taken, idle));
         Self {
             asks,
+            takes_input,
             _task: std::sync::Arc::new(AbortOnDropHandle::new(task)),
         }
     }
@@ -804,6 +813,10 @@ impl Viewer {
     }
 
     async fn input(&self, inputs: Vec<(Input, Duration)>) -> Result<()> {
+        if !self.takes_input {
+            bail!("Beep cannot tap or type on an iPhone yet: ask the user to.");
+        }
+
         let (sent, answer) = oneshot::channel();
         self.asks
             .send(Ask::Input(inputs, sent))

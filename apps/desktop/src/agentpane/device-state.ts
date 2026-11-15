@@ -14,7 +14,7 @@ export interface Device {
   platform: DevicePlatform;
   state: DevicePower;
   os: string | null;
-  /// A phone over adb: always on, with no Boot or Shut down.
+  /// A phone plugged in: always on, with no Boot or Shut down.
   phone: boolean;
 }
 
@@ -226,11 +226,18 @@ export function targetPick(machines: readonly DeviceMachine[], target: DeviceTar
 }
 
 /// The hardware buttons a device has, in the row's order.
-export function buttonsFor(platform: DevicePlatform): DeviceButton[] {
-  switch (platform) {
+export function buttonsFor(device: Device): DeviceButton[] {
+  if (!takesInput(device)) return [];
+  switch (device.platform) {
     case "Android": return ["Home", "Back", "AppSwitch", "Rotate", "Power", "VolumeDown", "VolumeUp"];
     case "Ios": return ["Home", "Rotate", "Power", "VolumeDown", "VolumeUp"];
   }
+}
+
+/// Whether `device` takes taps, keys and buttons: an iPhone only shows
+/// its screen, as `devicectl` has no input.
+export function takesInput(device: Device): boolean {
+  return !(device.phone && device.platform === "Ios");
 }
 
 export const BUTTON_NAMES: Record<DeviceButton, string> = {

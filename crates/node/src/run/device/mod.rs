@@ -1,5 +1,5 @@
-//! `device/1`: the machine's Android emulators (`android`), phones (`phone`) and iOS
-//! simulators (`ios`, on macOS), listed, started and stopped, and shown live
+//! `device/1`: the machine's Android emulators (`android`), Android phones
+//! (`phone`), iOS simulators (`ios`) and iPhones (`iphone`, both on macOS), listed, started and stopped, and shown live
 //! to a desktop that taps and types on them; their logs, screen contents,
 //! installs, launches and resets for agents (`adb` for Android); and which
 //! of those platforms a checkout builds for (`platforms`).
@@ -8,6 +8,8 @@ mod adb;
 mod android;
 #[cfg(target_os = "macos")]
 mod ios;
+#[cfg(target_os = "macos")]
+mod iphone;
 mod phone;
 mod platforms;
 
@@ -97,13 +99,14 @@ async fn platforms_in(agents: &Agents, root: &str) -> Result<Vec<Platform>> {
 /// Every emulator, phone and simulator here, Android first.
 async fn list() -> Vec<Device> {
     #[cfg(target_os = "macos")]
-    let (mut devices, phones, simulators) =
-        tokio::join!(android::list(), phone::list(), ios::list());
+    let (mut devices, phones, iphones, simulators) =
+        tokio::join!(android::list(), phone::list(), iphone::list(), ios::list());
     #[cfg(not(target_os = "macos"))]
-    let ((mut devices, phones), simulators) =
-        (tokio::join!(android::list(), phone::list()), Vec::new());
+    let ((mut devices, phones), iphones, simulators) =
+        (tokio::join!(android::list(), phone::list()), Vec::new(), Vec::new());
 
     devices.extend(phones);
+    devices.extend(iphones);
     devices.extend(simulators);
     devices
 }
@@ -144,6 +147,8 @@ async fn logs(id: &DeviceId, lines: u32, filter: &str) -> Result<String> {
         Reached::Adb(serial) => adb::logcat(&serial).await?,
         #[cfg(target_os = "macos")]
         Reached::Simulator(udid) => ios::logs(&udid).await?,
+        #[cfg(target_os = "macos")]
+        Reached::Iphone(_) => anyhow::bail!("Beep cannot read an iPhone's log yet."),
     };
 
     Ok(newest_lines(&text, filter, lines.min(MAX_LOG_LINES)))
@@ -155,6 +160,10 @@ async fn ui(id: &DeviceId) -> Result<Vec<Element>> {
         Reached::Adb(serial) => adb::ui(&serial).await,
         #[cfg(target_os = "macos")]
         Reached::Simulator(udid) => ios::ui(&udid).await,
+        #[cfg(target_os = "macos")]
+        Reached::Iphone(_) => {
+            anyhow::bail!("Beep cannot read an iPhone's screen contents: take a screenshot.")
+        }
     }
 }
 
@@ -166,6 +175,8 @@ async fn install(agents: &Agents, id: &DeviceId, path: &str) -> Result<()> {
         Reached::Adb(serial) => adb::install(&serial, &real).await,
         #[cfg(target_os = "macos")]
         Reached::Simulator(udid) => ios::install(&udid, &real).await,
+        #[cfg(target_os = "macos")]
+        Reached::Iphone(udid) => iphone::install(&udid, &real).await,
     }
 }
 
@@ -174,6 +185,8 @@ async fn launch(id: &DeviceId, target: &str) -> Result<()> {
         Reached::Adb(serial) => adb::launch(&serial, target).await,
         #[cfg(target_os = "macos")]
         Reached::Simulator(udid) => ios::launch(&udid, target).await,
+        #[cfg(target_os = "macos")]
+        Reached::Iphone(udid) => iphone::launch(&udid, target).await,
     }
 }
 
@@ -181,8 +194,8 @@ async fn reset(id: &DeviceId, app: &str) -> Result<()> {
     match reach(id).await? {
         Reached::Adb(serial) => adb::reset(&serial, app).await,
         #[cfg(target_os = "macos")]
-        Reached::Simulator(_) => {
-            anyhow::bail!("An iOS simulator cannot clear an app: install it again instead.")
+        Reached::Simulator(_) | Reached::Iphone(_) => {
+            anyhow::bail!("iOS cannot clear an app: install it again instead.")
         }
     }
 }
@@ -194,6 +207,9 @@ enum Reached {
     /// A simulator, by its UDID.
     #[cfg(target_os = "macos")]
     Simulator(DeviceId),
+    /// An iPhone or iPad, by its UDID.
+    #[cfg(target_os = "macos")]
+    Iphone(DeviceId),
 }
 
 /// How device `id` takes commands, once it is on.
@@ -207,6 +223,8 @@ async fn reach(id: &DeviceId) -> Result<Reached> {
     match device.platform {
         Platform::Android if device.phone => Ok(Reached::Adb(device.id)),
         Platform::Android => Ok(Reached::Adb(android::serial(id).await?)),
+        #[cfg(target_os = "macos")]
+        Platform::Ios if device.phone => Ok(Reached::Iphone(device.id)),
         #[cfg(target_os = "macos")]
         Platform::Ios => Ok(Reached::Simulator(device.id)),
         #[cfg(not(target_os = "macos"))]
@@ -269,6 +287,9 @@ enum Controls {
     Phone(Box<phone::Controls>),
     #[cfg(target_os = "macos")]
     Ios(Box<ios::Controls>),
+    /// An iPhone, which takes no input.
+    #[cfg(target_os = "macos")]
+    Iphone,
 }
 
 impl Controls {
@@ -278,6 +299,8 @@ impl Controls {
             Self::Phone(controls) => controls.send(input).await,
             #[cfg(target_os = "macos")]
             Self::Ios(controls) => controls.send(input).await,
+            #[cfg(target_os = "macos")]
+            Self::Iphone => anyhow::bail!(iphone::NO_INPUT),
         }
     }
 }
@@ -336,12 +359,11 @@ async fn open(id: &DeviceId, max_side: u32) -> Result<Live> {
         anyhow::bail!("{} is off.", device.name);
     }
 
-    if device.phone {
-        return phone::attach(id, max_side).await;
-    }
-
     match device.platform {
+        Platform::Android if device.phone => phone::attach(id, max_side).await,
         Platform::Android => android::attach(id, max_side).await,
+        #[cfg(target_os = "macos")]
+        Platform::Ios if device.phone => iphone::attach(id, max_side).await,
         #[cfg(target_os = "macos")]
         Platform::Ios => ios::attach(id, max_side).await,
         #[cfg(not(target_os = "macos"))]
