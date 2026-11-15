@@ -199,12 +199,21 @@ export function AttachmentBatch({ count, children }: { count: number; children: 
     </AttachmentSheet></Suspense>}</>;
 }
 
+/// An image's chip: its small preview, and how to read the picture it stands
+/// for, or null when the preview is the picture.
+export interface Preview { url: string; name: string; full: (() => Promise<string>) | null }
+
 /// The chip of an image: its name and a preview that opens `images` at `index`.
 /// `listed` marks one of an indexed batch (expandable, drawn at once); a lone
 /// file's preview is drawn lazily.
-export function ImagePreview({ images, index, listed }: { images: { url: string; name: string }[]; index: number; listed: boolean }) {
+export function ImagePreview({ images, index, listed }: { images: Preview[]; index: number; listed: boolean }) {
   const { url, name } = images[index];
-  const open = (event: MouseEvent<HTMLButtonElement>) => openViewer(images.map(a => ({ url: a.url, name: a.name, saves: true })), index, event.currentTarget.closest<HTMLElement>(".attachment-window") ?? undefined);
+  const open = async (event: MouseEvent<HTMLButtonElement>) => {
+    const host = event.currentTarget.closest<HTMLElement>(".attachment-window") ?? undefined;
+    const urls = await Promise.all(images.map(a => a.full ? a.full() : a.url));
+
+    openViewer(images.map((a, i) => ({ url: urls[i], name: a.name, saves: true })), index, host);
+  };
 
   return listed
     ? <button type="button" className="preview" data-att-preview={index} aria-label={`Preview ${name}`} title="Expand image" onClick={open}><img src={url} alt="" /><span className="nm">{name}</span></button>
