@@ -8,7 +8,7 @@ import { runningLineAt } from "../agents/place.ts";
 import { byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { Board, CardRow, type BoardCard } from "./lanes-view.tsx";
-import { byProject, endedToday, laneOf } from "./lanes-state.ts";
+import { byProject, endedToday, keepOrder, laneOf } from "./lanes-state.ts";
 import { frontLayout } from "../ui/skin.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { conflictList, conflictSub } from "../project/filesync.ts";
@@ -120,6 +120,10 @@ function boardCards(home: HomeView, needs: BoardCard[], running: BoardCard[]): B
 /// The Done today lane keeps to its latest sessions; the Sessions list has the rest.
 const DONE_SHOWN = 8;
 
+/// Home's project order, sorted once after the app starts and kept from then
+/// on, so a project's rows stay put while its sessions work. A new sort sorts again.
+let kept: { sort: ProjectSort; projects: (string | null)[] } | null = null;
+
 export function HomeOverview({ home }: { home: HomeView }) {
   const [sort, setSort] = useState(() => readProjectSort("home"));
   const changeSort = (value: ProjectSort) => {
@@ -147,7 +151,10 @@ export function HomeOverview({ home }: { home: HomeView }) {
 
   const names = new Set(cards.flatMap(card => card.project === null ? [] : [card.project]));
   const recency = sort === "default" ? null : new Map([...names].map(name => [name, projectSortTime(sort, { last: activity.get(name) ?? null }, null, lastProjectVisit(name))]));
-  const ordered = (rows: BoardCard[]) => recency === null ? rows : byProject(rows, recency).flatMap(row => row.cards);
+  if (kept?.sort !== sort) kept = { sort, projects: [] };
+  const projects = kept.projects = keepOrder(byProject(cards, recency), kept.projects).map(row => row.project);
+  const order = new Map(projects.flatMap((project, at) => project === null ? [] : [[project, projects.length - at]]));
+  const ordered = (rows: BoardCard[]) => recency === null ? rows : byProject(rows, order).flatMap(row => row.cards);
   const rows = (project: string) => {
     const at = listed.findIndex(row => row.name === project);
     return { color: at < 0 ? null : PROJECT_COLORS[at % PROJECT_COLORS.length], open: listed[at]?.imported ? () => { go("projects", { project }); } : null };
@@ -156,7 +163,7 @@ export function HomeOverview({ home }: { home: HomeView }) {
   return <>
     {!empty && <div className="home-sort"><Dropdown label="Sort projects" options={PROJECT_SORTS} value={sort} onChange={changeSort} icon={<Icon name="sort"/>}/></div>}
     {list ? !!needs.length && <Section id="sec-needs" title="Needs you" count={needs.length}>{ordered(needs).map(card => <CardRow key={card.key} card={card}/>)}</Section>
-      : !!cards.length && <div id="sec-needs"><Board cards={ordered(cards)} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={isMobile() ? null : rows} recency={recency}/></div>}
+      : !!cards.length && <div id="sec-needs"><Board cards={ordered(cards)} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={isMobile() ? null : rows} recency={order}/></div>}
     {list && !!running.length && <Section id="sec-running" title={<Button className="lk" onClick={() => go("pane", "agents")}>Running</Button>} count={running.length}>{ordered(running).map(card => <CardRow key={card.key} card={card}/>)}</Section>}
     {empty && <Empty home={home} />}
   </>;

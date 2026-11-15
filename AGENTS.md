@@ -136,8 +136,8 @@ same look, sized for touch, in `mobile.css`.
   strokes: a sunrise for the first run, the start screen and empty pages
   (`PaintedEmpty`), the dawn haze down the sidebar and as a faint band along
   the top of Home and Projects, gone before the first cards, and a wanderer
-  above a sea of fog beside the lanes of a quiet project board. A scene paints
-  itself once after the app opens and is still from then on. Words sit on a
+  above a sea of fog beside the lanes of a project board in a wide window. A
+  scene paints itself once after the app opens and is still from then on. Words sit on a
   glass card or a clear patch, not on the strokes. A painting belongs on an
   empty screen, above the content or in the room beside it, never behind cards
   or reading text.

@@ -199,6 +199,9 @@ body.cbody
           div.pj-board
             div.bd-lanes
               div.bd-lane
+                h4 "Needs you"
+                  span
+              div.bd-lane
                 h4
                   button [type="button"] "Working"
                   span "1"
@@ -264,7 +267,7 @@ body.cbody
                       span
                     span.r "6 h ago"
               div.bd-art
-                canvas.painted-art.wanderer [aria-hidden="true" height="140" width="62"]
+                canvas.painted-art.wanderer [aria-hidden="true"]
         form.cc-pjc
           div.box
             div.cx-layer [aria-hidden="true" hidden]
