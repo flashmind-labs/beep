@@ -72,7 +72,7 @@ hyper-util = "0.1"
 ignore = "0.4"
 image = { version = "0.25", default-features = false }
 # Lean for the phone; a node turns on the defaults.
-iroh = { version = "1.4.1", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
+iroh = { version = "1.4.1", default-features = false, features = ["tls-ring", "fast-apple-datapath", "metrics", "unstable-net-report"] }
 iroh-base = { version = "1.4.1", default-features = false }
 iroh-blobs = { version = "0.105", default-features = false, features = ["fs-store"] }
 iroh-metrics = "1"

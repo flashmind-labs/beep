@@ -482,6 +482,8 @@ fn todo(item: &Value) -> Option<PlanEntry> {
     Some(PlanEntry {
         content: cut(item["content"].as_str()?.trim(), MAX_DETAIL),
         status,
+        started_at: None,
+        ended_at: None,
     })
 }
 

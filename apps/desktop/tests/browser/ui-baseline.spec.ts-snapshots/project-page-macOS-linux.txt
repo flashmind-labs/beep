@@ -207,63 +207,64 @@ body.cbody
                   span.sub
                     span.cc-ag.codex.mark
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "example/widget · build-box"
+                    span "build-box"
                   span.ft
-                    span.cc-running "now"
+                    span.cc-running
                       span.drun [aria-label="Working" role="img"]
+                      span.doing "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
                     span.sp
               div.bd-lane
+                h4 "Ready to review"
+                  span
+              div.bd-lane.log
                 h4
                   button [type="button"] "Done today"
                   span "6"
-                div.bd-card [data-card="agent:build-box:past-0" role="button" tabindex="0"]
-                  b "Past session 1"
-                  span.sub
+                div.bd-log
+                  div.cc-line.cc-row
                     span.cc-ag.codex.mark
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "project · build-box"
-                  span.ft "1 h ago"
-                    span.sp
-                div.bd-card [data-card="agent:build-box:past-1" role="button" tabindex="0"]
-                  b "Past session 2"
-                  span.sub
+                    button.t [title="Past session 1" type="button"]
+                      b "Past session 1"
+                      span
+                    span.r "1 h ago"
+                  div.cc-line.cc-row
                     span.cc-ag.codex.mark
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "project · build-box"
-                  span.ft "2 h ago"
-                    span.sp
-                div.bd-card [data-card="agent:build-box:past-2" role="button" tabindex="0"]
-                  b "Past session 3"
-                  span.sub
+                    button.t [title="Past session 2" type="button"]
+                      b "Past session 2"
+                      span
+                    span.r "2 h ago"
+                  div.cc-line.cc-row
                     span.cc-ag.codex.mark
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "project · build-box"
-                  span.ft "3 h ago"
-                    span.sp
-                div.bd-card [data-card="agent:build-box:past-3" role="button" tabindex="0"]
-                  b "Past session 4"
-                  span.sub
+                    button.t [title="Past session 3" type="button"]
+                      b "Past session 3"
+                      span
+                    span.r "3 h ago"
+                  div.cc-line.cc-row
                     span.cc-ag.codex.mark
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "project · build-box"
-                  span.ft "4 h ago"
-                    span.sp
-                div.bd-card [data-card="agent:build-box:past-4" role="button" tabindex="0"]
-                  b "Past session 5"
-                  span.sub
+                    button.t [title="Past session 4" type="button"]
+                      b "Past session 4"
+                      span
+                    span.r "4 h ago"
+                  div.cc-line.cc-row
                     span.cc-ag.codex.mark
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "project · build-box"
-                  span.ft "5 h ago"
-                    span.sp
-                div.bd-card [data-card="agent:build-box:past-5" role="button" tabindex="0"]
-                  b "Past session 6"
-                  span.sub
+                    button.t [title="Past session 5" type="button"]
+                      b "Past session 5"
+                      span
+                    span.r "5 h ago"
+                  div.cc-line.cc-row
                     span.cc-ag.codex.mark
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "project · build-box"
-                  span.ft "6 h ago"
-                    span.sp
+                    button.t [title="Past session 6" type="button"]
+                      b "Past session 6"
+                      span
+                    span.r "6 h ago"
+              div.bd-art
+                canvas.painted-art.wanderer [aria-hidden="true" height="140" width="62"]
         form.cc-pjc
           div.box
             div.cx-layer [aria-hidden="true" hidden]

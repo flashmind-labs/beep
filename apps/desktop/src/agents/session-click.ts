@@ -40,7 +40,7 @@ export function agentClick(e: MouseEvent) {
   const target = e.target as HTMLElement, body = sessionBody();
   /// The element `selector` finds from the click when it is in the log, or also in the pane.
   const inLog = <T extends HTMLElement = HTMLElement>(selector: string) => { const el = target.closest<T>(selector); return el && body?.contains(el) ? el : null; };
-  const inLogOrPane = <T extends HTMLElement = HTMLElement>(selector: string) => { const el = target.closest<T>(selector); return el && (body?.contains(el) || el.closest(".agpane")) ? el : null; };
+  const inLogOrPane = <T extends HTMLElement = HTMLElement>(selector: string) => { const el = target.closest<T>(selector); return el && (body?.contains(el) || el.closest(".agpane, .ag-steps")) ? el : null; };
   const opt = target.closest<HTMLElement>("[data-agopt]");
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt), opt.dataset.agquestion ?? "");
   if (target.closest("#agmodelb")) return toggleModelPicker();

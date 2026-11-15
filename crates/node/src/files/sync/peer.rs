@@ -737,31 +737,6 @@ async fn receive_objects(connection: &Connection, shared: &Shared, want: ObjectW
     .context("The Git object transfer timed out")?
 }
 
-/// A session move is also an explicit request to bring its uncommitted work.
-pub(super) async fn handoff_snapshot(
-    endpoint: &Endpoint,
-    peer: EndpointAddr,
-    project: &str,
-) -> Result<beep_proto::node::sync::HandoffSnapshot> {
-    timeout(Duration::from_secs(60), async {
-        let connection = endpoint.connect(peer, ALPN).await?;
-        let (send, recv) = connection.open_bi().await?;
-        let (mut tx, mut rx) = link(send, recv);
-        tx.send(&Request::Handoff {
-            project: project.to_owned(),
-        })
-        .await?;
-
-        match rx.recv::<Reply>().await? {
-            Some(Reply::Handoff { snapshot }) => Ok(snapshot),
-            Some(Reply::Refused { message }) => bail!("{message}"),
-            _ => bail!("The source did not provide its uncommitted work."),
-        }
-    })
-    .await
-    .context("The source handoff timed out.")?
-}
-
 #[cfg(test)]
 #[path = "../../tests/files_sync_peer.rs"]
 mod tests;

@@ -151,6 +151,11 @@ body.cbody.mb-home.mobile
                     span "example/gadget · build-box"
                   span.ft "10m ago"
                     span.sp
+              div.bd-lane.log
+                h4
+                  button [type="button"] "Done today"
+                  span
+                div.bd-log
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box [hidden]

@@ -139,6 +139,8 @@ impl From<MachineSession> for SessionRow {
 struct StepRow {
     content: String,
     status: &'static str,
+    started_at: Option<u64>,
+    ended_at: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -235,6 +237,8 @@ impl From<AgentSessionView> for SessionPage {
                 .map(|step| StepRow {
                     content: step.content,
                     status: step.status.into(),
+                    started_at: step.started_at,
+                    ended_at: step.ended_at,
                 })
                 .collect(),
             files: view.files,

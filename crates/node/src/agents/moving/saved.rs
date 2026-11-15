@@ -1,6 +1,7 @@
 //! What a node keeps of a move across a restart: how it ended, and the
 //! copy of the conversation while it waits (`<state>/moves/`).
 
+use super::worktree::{Moved, Placed};
 use crate::agents::OpenSession;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -31,6 +32,36 @@ pub(super) struct Saved {
     /// What starts the session again at the source, once it ended there.
     #[serde(default)]
     pub(super) open: Option<OpenSession>,
+    /// The worktrees a target placed for the move so far, taken back if it
+    /// does not happen.
+    #[serde(default)]
+    pub(super) placed: Vec<PlacedTree>,
+    /// For a source: the worktrees it sent, let go of once the session
+    /// runs on the target.
+    #[serde(default)]
+    pub(super) sent: Vec<SentTree>,
+}
+
+/// A worktree a source sent for a move, and what it held then
+/// (`worktree::fingerprint`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(super) struct SentTree {
+    pub(super) dir: PathBuf,
+    pub(super) held: String,
+}
+
+/// A worktree a target placed for a move.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(super) struct PlacedTree {
+    /// The project's checkout, and the worktree's folder in it.
+    pub(super) main: PathBuf,
+    pub(super) path: PathBuf,
+    pub(super) placed: Placed,
+    /// `worktree::fingerprint` once placed.
+    pub(super) applied: String,
+    /// The branch the move put at the source's commit.
+    #[serde(default)]
+    pub(super) moved: Option<Moved>,
 }
 
 impl Saved {
@@ -41,6 +72,8 @@ impl Saved {
             phase,
             reason,
             open: None,
+            placed: Vec::new(),
+            sent: Vec::new(),
         }
     }
 
@@ -90,6 +123,17 @@ impl Folder {
         let partial = self.dir.join(format!("{id}.json.partial"));
         fs::write(&partial, serde_json::to_vec(saved)?)?;
         fs::rename(partial, self.file(id))
+    }
+
+    /// Notes that the source sent `tree` for session `id`, whose session
+    /// it ended for the move.
+    pub(super) fn keep_sent(&self, id: &str, tree: SentTree) -> io::Result<()> {
+        let Some(mut saved) = self.load(id).filter(|saved| saved.phase == Phase::Closed) else {
+            return Ok(());
+        };
+        saved.sent.retain(|sent| sent.dir != tree.dir);
+        saved.sent.push(tree);
+        self.save(id, &saved)
     }
 
     /// Takes the copy away, and the saved state with `state`.

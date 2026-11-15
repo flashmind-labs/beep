@@ -41,7 +41,7 @@ const folder = "/srv/project";
 
 const machine = (id: string, name: string, online: boolean, agents: number) => ({ id, name, online, can_host: true, seen_at: NOW - 3_600_000, version: "0.9.0", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents, stats: null });
 const project = (name: string, url = `https://example.test/${name}`, box = machineId) => ({ name, url, machine_id: box, machine_name: box, folder: `/srv/${name}`, cloned: true, imported_at: NOW - 86_400_000 });
-const agentRow = (id: string, title: string, status: string, ago: number, cwd = folder) => ({ kind: "agent", machine_id: machineId, machine_name: machineId, id, agent: "codex", title, cwd, status, doing: status === "working" ? "Running tests" : null, started_at: NOW - 7_200_000, last_activity: NOW - ago, external: false, question: null });
+const agentRow = (id: string, title: string, status: string, ago: number, cwd = folder) => ({ kind: "agent", machine_id: machineId, machine_name: machineId, id, agent: "codex", title, cwd, status, doing: status === "working" ? "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40" : null, started_at: NOW - 7_200_000, last_activity: NOW - ago, external: false, question: null });
 
 const projects = [project(projectName), project("example/gadget"), project("tools/delta", "https://forge.test/team/delta")];
 const running = [agentRow("notice-one", "Fix the login redirect", "working", 30_000, "/srv/example/widget"), agentRow("notice-two", "Update the changelog", "idle", 600_000, "/srv/example/gadget")];
@@ -346,6 +346,16 @@ test("project page", async ({ page }) => {
   await baseline(page, "project-page");
 });
 
+test("project with nothing on its board", async ({ page }) => {
+  const hosts = [{ machine_id: machineId, machine_name: machineId, agents: ["codex"], workspace: null, home: null, capabilities: [] }];
+  await openDesktop(page, false, { center_home: { ...home, running: [] }, ...projectPage, project_sessions: [], agent_hosts: hosts });
+  // The headline is drawn by lot, as on the start screen.
+  await page.evaluate(() => { Math.random = () => 0; });
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
+  await expect(page.locator(".cc-pjc.centered .agc-intro h3")).toBeVisible();
+  await baseline(page, "project-blank");
+});
+
 test("project bar when its machine runs no coding agent yet", async ({ page }) => {
   const wslBox = { ...machine("wsl-box", "Ubuntu on desk-pc", true, 0), env: { os: "linux", os_version: "Ubuntu 24.04", arch: "x86_64", hostname: "desk-pc", cpus: 8, memory_mb: 16384, home: "/home/user", tools: [{ name: "claude", version: "2.1.0" }], logins: [], avds: [], gpus: [], wsl: [] }, adapters: [{ agent: "claude", failed: "needs Node.js: unpacking failed" }] };
   const hosts = [{ machine_id: machineId, machine_name: machineId, agents: ["codex"], workspace: null, home: null, capabilities: [] }];
@@ -502,24 +512,30 @@ for (const section of [null, "Agent accounts", "Appearance"] as const) {
 
 // Agent session
 
-test("unfolded foldable session with the sidebar collapsed", async ({ page }) => {
-  await page.addInitScript(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
-  await page.setViewportSize({ width: 750, height: 832 });
-  await openAgent(page, { mobile_paired: true });
-  await page.getByRole("button", { name: "Collapse sidebar" }).click();
-  // A phone docks Files under the conversation, never beside it.
+test("narrow window: the sidebar folds and the session shows chat or a pane", async ({ page }) => {
+  await page.setViewportSize({ width: 740, height: 832 });
+  await openAgent(page);
+  await expect(page.locator(".cwin")).toHaveClass(/side-collapsed/);
   await expect(page.locator("#agshell")).toHaveClass(/narrow/);
+  const strip = page.locator("#agmnav");
+  await expect(strip.locator("[aria-selected=true]")).toHaveText("Chat");
+  await expect(page.locator("#agpane-bottom")).toBeHidden();
   expect((await page.locator("#agtitle").boundingBox())?.width ?? 0).toBeGreaterThan(150);
-  await baseline(page, "foldable-session");
+  await baseline(page, "narrow-session");
 
-  // Folded, the dock keeps its tabs in a row; a tab opens it again.
-  await page.locator("#agpane-bottom").getByTitle("Hide the pane").click();
-  const strip = page.locator("#agpstrip-bottom");
-  await expect(strip.getByRole("tab", { name: "Changes" })).toBeVisible();
-  await baseline(page, "foldable-session-folded");
-  await strip.getByRole("tab", { name: "Changes" }).click();
-  await expect(page.locator("#agpane-bottom")).toBeVisible();
-  await expect(page.locator("#agpane-bottom .agtab.on")).toHaveAttribute("data-mtab", /changes/i);
+  await strip.getByRole("button", { name: /^Changes/ }).click();
+  await expect(page.locator('.dv-file[data-path="sample.ts"]')).toBeVisible();
+  await expect(page.locator(".agconv")).toBeHidden();
+  await baseline(page, "narrow-session-changes");
+
+  await strip.getByRole("button", { name: "Chat" }).click();
+  await expect(page.locator(".agconv")).toBeVisible();
+
+  // Wide again, the sidebar opens and the pane sits beside the conversation.
+  await page.setViewportSize({ width: 1280, height: 832 });
+  await expect(page.locator(".cwin")).not.toHaveClass(/side-collapsed/);
+  await expect(strip).toHaveCount(0);
+  await expect(page.locator("#agpane-right")).toBeVisible();
 });
 
 test("agent session transcript", async ({ page }) => {
@@ -560,6 +576,27 @@ test("agent question", async ({ page }) => {
   await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "asking", question } } });
   await expect(page.locator(".dcoder .q")).toBeVisible();
   await baseline(page, "agent-question");
+});
+
+test("agent plan with the subagents of a step", async ({ page }) => {
+  const sub = (title: string, status: string, sent_at: number) => ({ kind: "tool", sent_at, text: `${title} [${status}]\n[steps] 4\n[agent] general-purpose\n[session] subagent:codex:${sent_at}\n[model] claude-sonnet-5-5\nDone` });
+  const plan = [
+    { content: "Add the flag to sessions", status: "completed", started_at: 100, ended_at: 200 },
+    { content: "Answer the projects tool", status: "in_progress", started_at: 200, ended_at: null },
+    { content: "Write the changelog", status: "pending", started_at: null, ended_at: null },
+  ];
+  const entries = [...transcript, sub("Build the flag", "completed", 110), sub("Review the flag", "completed", 150), sub("Build the tool", "in_progress", 210)];
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "working" }, plan, entries } });
+  const line = page.locator(".ag-plan");
+  await expect(line).toHaveText("Plan 1/3Answer the projects tool");
+  await baseline(page, "agent-plan-folded");
+
+  await line.click();
+  await expect(page.locator(".ag-steps button.it")).toHaveText([/2 agents/, /1 agent/]);
+  await page.locator(".ag-steps button.it").first().click();
+  await expect(page.locator(".ag-steps .subs .dsubrow")).toHaveText([/Build the flag/, /Review the flag/]);
+  await page.mouse.move(0, 0);
+  await baseline(page, "agent-plan-subagents");
 });
 
 test("agent with commands running and messages queued", async ({ page }) => {

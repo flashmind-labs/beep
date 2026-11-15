@@ -1,11 +1,11 @@
 body.cbody
-  div.cwin [aria-label="Beep" role="main"] style(--side-w)
+  div.cwin.side-collapsed [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
-      canvas.haze.painted-art [aria-hidden="true" height="208" width="46"]
+      canvas.haze.painted-art [aria-hidden="true" height="208" width="8"]
       div.cc-head
       div.cc-brand
         b "Beep"
-        button.cc-side-toggle [aria-controls="side-content" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar" type="button"]
+        button.cc-side-toggle [aria-controls="side-content" aria-expanded="false" aria-label="Expand sidebar" title="Expand sidebar" type="button"]
           span
             svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
       div#side-content.cc-side-list
@@ -100,7 +100,7 @@ body.cbody
           svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div#home-box.cc-box
         div#view.cc-view
-          canvas.haze.painted-art [aria-hidden="true" height="15" width="124"]
+          canvas.haze.painted-art [aria-hidden="true" height="15" width="162"]
           div.cc-mstrip
             button.m [type="button"]
               span.busy.ddot [title="Online · 2 agents running"]

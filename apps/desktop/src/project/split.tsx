@@ -3,7 +3,9 @@ import { type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import { ProjectNavigation, ProjectOverview, ProjectStatus, RunningStatus, SessionTabs } from "./split-view.tsx";
-import { ProjectBoard } from "./lanes.tsx";
+import { projectCards } from "./lanes.tsx";
+import { isMobile } from "../ui/platform.ts";
+import { Board } from "../center/lanes-view.tsx";
 import { frontLayout } from "../ui/skin.ts";
 import { ProjectIssues } from "./issues-view.tsx";
 import { OpenListControls, OpenListStart } from "./openlist-view.tsx";
@@ -31,6 +33,7 @@ import { byRecent, type RunningAgent, runningKey } from "../agents/running-state
 import { runningLineAt } from "../agents/place.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { Button, Chip, EmptyPanel } from "../ui/kit.tsx";
+import { WandererArt } from "../ui/painted-art.tsx";
 
 /// The project's navigation and Overview stay mounted in their own elements while
 /// other tiles show, so their rows, focus and scroll survive a visit to Git or Running.
@@ -240,8 +243,12 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const strip = <div className="cc-mstrip pj-strip"><ProjectStatus cells={cells} openTile={openTile} /></div>;
   // A picked row a filter hides keeps the list on screen, so the filter can be cleared.
   if (board && (!pa.tile || pa.tile === "overview")) {
+    const cards = projectCards({ project: p.name, running, past, openTile });
+    // A phone has no bar to give the page to.
+    pa.blank = !cards.length && !isMobile();
+    if (pa.blank) return [viewPart("strip", strip)];
     return [viewPart("strip", strip), viewPart("board", <Parts className="pj-board" parts={[
-      viewPart("lanes", <ProjectBoard project={p.name} running={running} past={past} openTile={openTile} />),
+      viewPart("lanes", <Board cards={cards} more={{ working: () => openTile("running"), done: () => openTile("agents") }} rows={null} beside={<WandererArt/>}/>),
     ]} />)];
   }
 

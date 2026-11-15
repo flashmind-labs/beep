@@ -629,7 +629,6 @@ impl Peers {
             self.inner.endpoint.clone(),
             self.inner.dir.clone(),
             offers.agents.clone(),
-            offers.transfers.get().map(|transfers| transfers.syncs()),
         );
         *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(async move {
             tokio::join!(follow, moves, runs, skills, libraries);

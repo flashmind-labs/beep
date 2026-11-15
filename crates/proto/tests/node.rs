@@ -1635,9 +1635,13 @@ mod agent {
                     phase: MovePhase::Files,
                     copied: 6,
                     total: 6,
-                    files_left: 12,
+                    files_left: 0,
                     source_away: false,
                     reason: None,
+                    worktree: Some("feat".into()),
+                    worktree_at: 1,
+                    worktrees: 2,
+                    edits_left: true,
                 }),
             };
             let bytes = rmp_serde::to_vec(&reply).expect("encodes");
@@ -2298,4 +2302,35 @@ fn dated_entries_read_older_positional_entries() {
         beep_proto::lenient::from_slice::<Entry>(&bytes).unwrap(),
         dated
     );
+}
+
+mod plan {
+    use beep_proto::node::agent::{PlanEntry, PlanStatus};
+    use serde::{Deserialize, Serialize};
+
+    /// A plan step as nodes sent it before steps were dated.
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Older {
+        content: String,
+        #[serde(default)]
+        status: PlanStatus,
+    }
+
+    #[test]
+    fn a_dated_step_reads_on_both_sides_of_the_change() {
+        let dated = vec![PlanEntry {
+            content: "Build".to_owned(),
+            status: PlanStatus::InProgress,
+            started_at: Some(5),
+            ended_at: None,
+        }];
+        let bytes = rmp_serde::to_vec(&dated).expect("encodes");
+        let read: Vec<Older> = beep_proto::lenient::from_slice(&bytes).expect("decodes");
+        assert_eq!(read[0].content, "Build");
+        assert_eq!(read[0].status, PlanStatus::InProgress);
+
+        let bytes = rmp_serde::to_vec(&read).expect("encodes");
+        let read: Vec<PlanEntry> = beep_proto::lenient::from_slice(&bytes).expect("decodes");
+        assert_eq!((read[0].started_at, read[0].ended_at), (None, None));
+    }
 }

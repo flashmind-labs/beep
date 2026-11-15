@@ -5,8 +5,8 @@ use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path, time::Duration};
 use tokio::time::{sleep, timeout};
 
-/// An ACP adapter in shell: it logs what it reads to `$1` and answers each
-/// prompt at once, except one that holds `HOLD`, which ends when the turn is
+/// An ACP adapter in shell: it logs what it reads to `$1`, names its session
+/// `$2` when given and answers each prompt at once, except one that holds `HOLD`, which ends when the turn is
 /// cancelled.
 const ADAPTER: &str = r#"
 id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
@@ -16,7 +16,7 @@ reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}'
 while read -r line; do
   printf '%s\n' "$line" >> "$1"
   case "$line" in
-    *'"session/new"'*) reply '{"sessionId":"s-'$$'"}' ;;
+    *'"session/new"'*) reply '{"sessionId":"'"${2:-s-$$}"'"}' ;;
     *'"session/prompt"'*HOLD*) prompt=$(id) ;;
     *'"session/cancel"'*) [ -n "$prompt" ] && printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"cancelled"}}\n' "$prompt" ;;
     *'"session/prompt"'*) reply '{"stopReason":"end_turn"}' ;;
@@ -26,6 +26,11 @@ done
 "#;
 
 fn kind(name: &str, log: &Path) -> AgentKind {
+    named_kind(name, log, "")
+}
+
+/// `kind`, its sessions named `session`.
+fn named_kind(name: &str, log: &Path, session: &str) -> AgentKind {
     AgentKind {
         name: name.into(),
         program: "sh".into(),
@@ -34,6 +39,7 @@ fn kind(name: &str, log: &Path) -> AgentKind {
             ADAPTER.into(),
             "fake-adapter".into(),
             log.display().to_string(),
+            session.into(),
         ],
         env: BTreeMap::new(),
         compact: None,
@@ -224,6 +230,49 @@ async fn a_reviewer_that_ends_without_a_review_is_nudged_once() {
         rig.agents.listed(true).is_empty(),
         "a reviewer without a parent is never listed"
     );
+}
+
+#[tokio::test]
+async fn a_finished_reviewer_leaves_no_session_on_disk() {
+    const ID: &str = "0f3c2a9e-1111-4222-8333-944455556666";
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let transcript = dir
+        .path()
+        .join(format!("claude/projects/-srv-project/{ID}.jsonl"));
+    std::fs::create_dir_all(transcript.parent().expect("a parent")).expect("folders");
+    std::fs::write(
+        &transcript,
+        r#"{"type":"user","timestamp":"2026-10-29T08:00:00.000Z","message":{"role":"user","content":"Review these changes."}}"#,
+    )
+    .expect("a transcript");
+    let claude = named_kind("claude", &dir.path().join("claude.log"), ID);
+    let rig = Rig {
+        agents: Arc::new(Agents {
+            external: crate::agents::claude::External::at(&dir.path().join("claude")),
+            ..Agents::new(vec![claude])
+        }),
+        dir,
+    };
+    let run = rig
+        .agents
+        .start_review(ReviewOrder {
+            agent: "claude".into(),
+            ..rig.order("HOLD", None)
+        })
+        .await
+        .expect("the review starts");
+    rig.agents
+        .submit_review(&run.id, found())
+        .expect("the reviewer hands in");
+    let reviewer = rig.agents.get(&run.id).expect("the reviewer runs");
+    reviewer
+        .order(Command::Cancel { by_user: false })
+        .await
+        .expect("cancelled");
+    let done = rig.finished(&run.id).await;
+    assert_eq!(done.review, Some(found()));
+    assert!(!transcript.exists(), "the reviewer's transcript is deleted");
+    rig.agents.shutdown().await;
 }
 
 #[test]

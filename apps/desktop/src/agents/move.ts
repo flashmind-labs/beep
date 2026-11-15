@@ -154,7 +154,7 @@ async function start(s: AgentRow, to: MoveTarget, stop: boolean) {
     const { records, progress } = moveStore.getState();
     moveStore.setState({
       records: new Map(records).set(r.session, r),
-      progress: new Map(progress).set(r.session, { answer: "known", phase: "waiting", copied: 0, total: 0, files_left: 0, source_away: !to.online, reason: null }),
+      progress: new Map(progress).set(r.session, { answer: "known", phase: "waiting", copied: 0, total: 0, source_away: !to.online, reason: null, worktree: null, worktree_at: 0, worktrees: 0, edits_left: false }),
     });
   } catch (e) {
     warn(s, e);

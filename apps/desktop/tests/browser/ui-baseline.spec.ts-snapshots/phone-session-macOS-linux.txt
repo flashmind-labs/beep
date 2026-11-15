@@ -123,6 +123,14 @@ body.cbody.mb-full.mobile
                     span.cc-running "now"
                       span.drun [aria-label="Working" role="img"]
                     span.sp
+              div.bd-lane
+                h4 "Ready to review"
+                  span
+              div.bd-lane.log
+                h4
+                  button [type="button"] "Done today"
+                  span
+                div.bd-log
       div#pane-box.cc-box
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="agent"]
           div [data-bar-page] style(display)
@@ -143,13 +151,14 @@ body.cbody.mb-full.mobile
               span#agstate
                 span.dstate.run "Working"
               span#agedit.agedit
-            div#agshell.agshell.mb-log.narrow
+            div#agshell.agshell.log-only.narrow
               div#agmain.agmain
                 nav#agmnav.agmnav
                   button [aria-selected="true" data-mnav="log" type="button"] "Chat"
                   button [aria-selected="false" data-mnav="files" type="button"] "Files"
                   button [aria-selected="false" data-mnav="changes" type="button"] "Changes"
                   button [aria-selected="false" data-mnav="running" type="button"] "Running"
+                    small "3"
                 div#agconv.agconv
                   div.agbodyw
                     div#agbody.dbody
@@ -235,7 +244,7 @@ body.cbody.mb-full.mobile
                         span.cc-ag.codex.mark
                           svg [aria-hidden="true" viewBox="0 0 24 24"]
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                    button#agstop.dbtn [aria-label="Stop the turn" title="Stop main turn (subagents keep running)" type="button"] "Stop"
+                    button#agstop.dbtn [aria-label="Stop the turn" title="Stop main turn (subagents keep running)" type="button"]
                       span.dstopico
                     button#agsend.dbtn [aria-label="Send" type="button"]
                       svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="16"]

@@ -18,6 +18,7 @@ mod saved;
 mod source;
 mod store;
 mod target;
+mod worktree;
 
 #[cfg(all(test, unix))]
 #[path = "../../tests/agents_moving_move_tests.rs"]
@@ -36,7 +37,6 @@ pub(crate) use progress::Moves;
 pub use read::ALPN as SESSIONS_ALPN;
 
 use super::{Agents, found::Agent};
-use crate::files::sync::Syncs;
 use iroh::{Endpoint, EndpointId};
 use saved::Folder;
 use anyhow::{Context, Result};
@@ -54,9 +54,6 @@ struct Env {
     agents: Arc<Agents>,
     mesh: beep_mesh::Mesh,
     endpoint: Endpoint,
-    /// The projects Beep syncs; `None` only when the node's transfers did
-    /// not start.
-    syncs: Option<Syncs>,
     state: Folder,
     roots: StoreRoots,
 }

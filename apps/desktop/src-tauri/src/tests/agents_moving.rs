@@ -12,13 +12,24 @@ fn a_known_move_carries_its_numbers_and_reason() {
         phase: MovePhase::Failed,
         copied: 4,
         total: 6,
-        files_left: 12,
+        files_left: 0,
         source_away: false,
         reason: Some("no checkout here".into()),
+        worktree: Some("feat".into()),
+        worktree_at: 1,
+        worktrees: 2,
+        edits_left: true,
     }));
     assert_eq!(
-        (view.answer, view.phase, view.files_left),
-        ("known", "failed", 12)
+        (
+            view.answer,
+            view.phase,
+            view.worktree.as_deref(),
+            view.worktree_at,
+            view.worktrees
+        ),
+        ("known", "failed", Some("feat"), 1, 2)
     );
     assert_eq!(view.reason.as_deref(), Some("no checkout here"));
+    assert!(view.edits_left);
 }

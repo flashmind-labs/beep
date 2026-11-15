@@ -178,7 +178,7 @@ body.cbody
             div#agcomposer.agc-wrap
               form.cc-pjc.centered
                 section.agc-intro
-                  canvas.painted-art.sunrise [aria-hidden="true" height="160" width="375"]
+                  canvas.painted-art.sunrise [aria-hidden="true" height="160" width="272"]
                   h3 [aria-label="What are we building today?"]
                     span [aria-hidden="true"]
                       span.agc-word style(--word) "What"

@@ -2,13 +2,13 @@
 //! the session actor; presentation snapshots reuse the existing tool renderer.
 
 use super::{
-    Live, MAX_ENTRIES, MAX_ENTRY, MAX_LAST_MESSAGE, MAX_LINE, MAX_PLAN,
+    Live, MAX_ENTRIES, MAX_ENTRY, MAX_LAST_MESSAGE, MAX_PLAN,
     content::{cut, push_cut},
 };
 use agent_client_protocol::{schema::MaybeUndefined, v1::schema as v1, v2::schema as v2};
 use beep_proto::{
     AgentContext,
-    node::agent::{EntryKind, PlanEntry, PlanStatus},
+    node::agent::{EntryKind, PlanStatus},
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -165,19 +165,14 @@ impl Live {
             }
             v2::SessionUpdate::PlanUpdate(update) => {
                 if let v2::PlanUpdateContent::Items(items) = &update.plan {
-                    self.info.state.plan = items
-                        .entries
-                        .iter()
-                        .take(MAX_PLAN)
-                        .map(|entry| PlanEntry {
-                            content: cut(&entry.content, MAX_LINE),
-                            status: match entry.status {
-                                v2::PlanEntryStatus::InProgress => PlanStatus::InProgress,
-                                v2::PlanEntryStatus::Completed => PlanStatus::Completed,
-                                _ => PlanStatus::Pending,
-                            },
-                        })
-                        .collect();
+                    self.set_plan(items.entries.iter().map(|entry| {
+                        let status = match entry.status {
+                            v2::PlanEntryStatus::InProgress => PlanStatus::InProgress,
+                            v2::PlanEntryStatus::Completed => PlanStatus::Completed,
+                            _ => PlanStatus::Pending,
+                        };
+                        (entry.content.as_str(), status)
+                    }));
                 }
             }
             v2::SessionUpdate::SessionInfoUpdate(update) => match &update.title {

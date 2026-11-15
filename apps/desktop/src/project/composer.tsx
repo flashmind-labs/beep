@@ -32,7 +32,7 @@ import { conflictPrompt, type Conflict } from "./filesync.ts";
 import { type Started, state } from "../center/state.ts";
 import { currentLocation, go } from "../center/views.tsx";
 import { projectRows } from "../center/sidebar.tsx";
-import { redrawProjects, pc } from "./sections.ts";
+import { redrawProjects, pa, pc } from "./sections.ts";
 import { loadWhere, projectPlaces } from "./loads.tsx";
 import { copyLine, shortName } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
@@ -231,7 +231,8 @@ export function drawProjectComp(name: string) {
   const c = projectComp, inDraft = currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name;
   // The empty agent view shows the stash with its key hints.
   c.setFooter(inDraft ? null : <StashBar project={name} />);
-  c.setPresentation(inDraft ? "centered" : "compact");
+  // A project with nothing on its board shows the bar as the empty agent view does.
+  c.setPresentation(inDraft || pa.blank ? "centered" : "compact");
 
   if (pc.project !== name) {
     finishCopy?.();

@@ -175,6 +175,11 @@ wire_structs! {
     pub struct AgentPlanStep {
         pub content: String,
         pub status: AgentPlanStatus,
+        /// Unix seconds when the step first ran, and when it stopped.
+        #[serde(default)]
+        pub started_at: Option<u64>,
+        #[serde(default)]
+        pub ended_at: Option<u64>,
     }
 }
 

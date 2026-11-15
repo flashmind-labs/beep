@@ -21,9 +21,15 @@ export interface MoveProgress {
   phase: MovePhase;
   copied: number;
   total: number;
-  files_left: number;
   source_away: boolean;
+  /// Why it failed, or what it waits for, such as checkouts at two commits.
   reason: string | null;
+  /// The worktree coming over, and which of how many.
+  worktree: string | null;
+  worktree_at: number;
+  worktrees: number;
+  /// The source's checkout has uncommitted edits, which stay there.
+  edits_left: boolean;
 }
 
 /// A machine a session could move to, with what the desktop knows of it.
@@ -64,15 +70,21 @@ export function fmtBytes(n: number) {
 }
 
 export interface MoveRow {
-  state: "done" | "run" | "todo";
+  state: "done" | "run" | "todo" | "note";
   text: string;
 }
 
-/// The steps above the composer: the conversation, the project files, the
-/// resume, each done, running or still to come.
+/// The steps above the composer: the conversation, the checkouts and the
+/// session's worktrees, the resume, each done, running or still to come,
+/// and a note when uncommitted edits stay on the source.
 export function moveRows(p: MoveProgress, from: string, to: string, toOnline = true): MoveRow[] {
+  const steps = moveSteps(p, from, to, toOnline);
+  return p.edits_left ? [...steps, { state: "note", text: `Uncommitted edits in the project folder stay on ${from}` }] : steps;
+}
+
+function moveSteps(p: MoveProgress, from: string, to: string, toOnline: boolean): MoveRow[] {
   const resume = `Resuming on ${to}`;
-  const left = p.files_left > 0 ? ` ${p.files_left} left` : "";
+  const checkouts = "Checkouts and worktrees";
 
   switch (p.phase) {
     case "waiting":
@@ -81,27 +93,27 @@ export function moveRows(p: MoveProgress, from: string, to: string, toOnline = t
         // over and the target has not taken the session yet.
         { state: "run", text: p.source_away ? `Waiting for ${from}` : toOnline ? `Waiting for ${to}` : `${to} is offline; the move goes on when it is back` },
         { state: "todo", text: "Conversation" },
-        { state: "todo", text: "Project files" },
+        { state: "todo", text: checkouts },
         { state: "todo", text: resume },
       ];
     case "conversation":
       return [
         { state: "run", text: p.total > 0 ? `Conversation ${fmtBytes(p.copied)} of ${fmtBytes(p.total)}` : "Conversation" },
-        { state: "todo", text: "Project files" },
+        { state: "todo", text: checkouts },
         { state: "todo", text: resume },
       ];
     case "files":
       return [
         { state: "done", text: `Conversation ${fmtBytes(p.total)}` },
-        // Why the files do not come, such as checkouts at two commits, is
-        // better than a count that does not move.
-        { state: "run", text: p.reason ? `Project files: ${p.reason}` : `Project files${left}` },
+        // What it waits for, such as checkouts at two commits, else the
+        // worktree coming over.
+        { state: "run", text: p.reason ?? (p.worktree ? `Worktree ${p.worktree} ${p.worktree_at} of ${p.worktrees}` : "Checkouts") },
         { state: "todo", text: resume },
       ];
     default:
       return [
         { state: "done", text: `Conversation ${fmtBytes(p.total)}` },
-        { state: "done", text: "Project files" },
+        { state: "done", text: checkouts },
         { state: "run", text: resume },
       ];
   }

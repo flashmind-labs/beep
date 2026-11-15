@@ -8,45 +8,30 @@ use super::{
     flsh,
     folder::{Folders, project_folder},
     progress::{Tracker, show},
-    read::{self, Refused},
+    read::{self, Checkout, Refused},
     resume::{Arrival, resume},
-    saved::{Phase, Saved},
+    saved::{Folder, Phase, PlacedTree, Saved},
+    worktree,
 };
-use crate::{
-    agents::found::Agent,
-    files::{
-        sync::Syncs,
-        syncthing::{Managed, Syncthing},
-    },
-};
+use crate::agents::found::Agent;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{agent::MovePhase, link, mesh_state::SessionMove};
 use std::{
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
     time::Duration,
 };
-use tokio::time::{Instant, sleep};
+use tokio::{task::spawn_blocking, time::sleep};
 
 /// The waits between tries to reach the source, doubling up to the last.
 const FIRST_WAIT: Duration = Duration::from_secs(1);
 const LAST_WAIT: Duration = Duration::from_secs(10);
-/// How often this machine's Syncthing is asked whether a folder is complete.
-const SYNCTHING_LOOK: Duration = Duration::from_secs(1);
-/// How long a move waits for it before it goes on anyway.
-const SYNCTHING_WAIT: Duration = Duration::from_secs(120);
+/// How often the checkouts are compared while they differ.
+const CHECKOUT_LOOK: Duration = Duration::from_secs(2);
 
-/// The conversation is all here: when the source was heard to have ended
-/// the session, and the name it keeps the transcript under.
+/// The conversation is all here, and the name the source keeps the
+/// transcript under.
 struct Copied {
-    since: Instant,
     file_name: String,
-}
-
-/// What brings the project's files to this machine.
-enum Arriving<'a> {
-    Beep(&'a Syncs),
-    /// Trusted: nothing here compares the folder with the source's.
-    Syncthing(Managed),
 }
 
 pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result<()> {
@@ -62,7 +47,10 @@ pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> R
     let result = move_here(env, record, tracker).await;
     let (phase, reason) = match &result {
         Ok(()) => (Phase::Done, None),
-        Err(e) => (Phase::Failed, Some(format!("{e:#}"))),
+        Err(e) => {
+            take_back(env, &record.id).await;
+            (Phase::Failed, Some(format!("{e:#}")))
+        }
     };
     show_end(tracker, &phase, reason.clone());
     env.state.clear(&record.id, false);
@@ -94,7 +82,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         bail!("{} sessions cannot move yet", record.agent);
     }
 
-    let folders = folders(env, record)?;
+    let (folders, roots) = folders(env, record)?;
 
     if !folders.new.is_dir() {
         bail!(
@@ -115,8 +103,6 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         // A restart between starting and noting it.
         return Ok(());
     }
-    // Decided before the source ends anything.
-    let arriving = arriving(env, record, &folders.new).await?;
     log::info!(
         "session {}: it can move here, reading it from its source",
         record.id
@@ -124,26 +110,33 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     let copy = env.state.copy(&record.id);
     let copied = conversation(env, record, tracker, &copy).await?;
     log::info!(
-        "session {}: the conversation is here, waiting for the files",
+        "session {}: the conversation is here, waiting for the checkouts",
         record.id
     );
-    files(record, &arriving, tracker, copied.since).await?;
-    log::info!("session {}: the files are here, resuming", record.id);
+    let checkout = checkouts(env, record, tracker, &roots.new).await?;
+    let moved: Vec<String> = checkout
+        .worktrees
+        .iter()
+        .map(|tree| roots.new.join(&tree.path).to_string_lossy().into_owned())
+        .collect();
+    worktrees(env, record, tracker, &roots.new, checkout).await?;
+    log::info!("session {}: the worktrees are here, resuming", record.id);
     show(tracker, |progress| progress.phase = MovePhase::Resuming);
     let arrival = Arrival {
         id: &record.id,
         mode: record.mode.clone(),
         model: record.model.clone(),
-        worktrees: record.worktrees.clone(),
+        worktrees: moved,
         from: record.from,
     };
     resume(env, &arrival, &kind, &folders, copied.file_name, copy).await
 }
 
-/// The session's folder in the source's checkout and in this machine's. A
-/// session works in its project folder, never in a worktree: a record from
-/// an app that still sent a worktree move resumes in the project folder.
-fn folders(env: &Env, record: &SessionMove) -> Result<Folders> {
+/// The session's folder in the source's checkout and in this machine's, and
+/// the two checkouts themselves. A session works in its project folder,
+/// never in a worktree: a record from an app that still sent a worktree
+/// move resumes in the project folder.
+fn folders(env: &Env, record: &SessionMove) -> Result<(Folders, Folders)> {
     let theirs = project_folder(&env.mesh, &record.project, &record.from)
         .context("the source does not keep the project")?;
     let mine = project_folder(&env.mesh, &record.project, &env.mesh.me())
@@ -160,10 +153,15 @@ fn folders(env: &Env, record: &SessionMove) -> Result<Folders> {
         bail!("the session's folder is not inside the project");
     }
 
-    Ok(Folders {
-        old: Path::new(&theirs).join(relative),
-        new: Path::new(&mine).join(relative),
-    })
+    let roots = Folders {
+        old: PathBuf::from(&theirs),
+        new: PathBuf::from(&mine),
+    };
+    let folders = Folders {
+        old: roots.old.join(relative),
+        new: roots.new.join(relative),
+    };
+    Ok((folders, roots))
 }
 
 /// Copies the conversation until the source says the session ended, and
@@ -220,7 +218,6 @@ async fn conversation(
 
                 if !pulled.live {
                     return Ok(Copied {
-                        since: Instant::now(),
                         file_name: pulled.file_name,
                     });
                 }
@@ -262,94 +259,229 @@ async fn pull_once(env: &Env, record: &SessionMove, copy: &Path) -> Result<read:
     pulled
 }
 
-/// How the project's files will come here: by Beep's sync with the source,
-/// else by the Syncthing that keeps this machine's folder. Neither refuses.
-async fn arriving<'a>(
-    env: &'a Env,
+/// Waits until this machine's checkout of the project is at the source's
+/// commit, saying both while they differ, and answers what the source said.
+async fn checkouts(
+    env: &Env,
     record: &SessionMove,
-    folder: &Path,
-) -> Result<Arriving<'a>> {
-    if let Some(syncs) = &env.syncs
-        && syncs.syncs_with(&record.project, &record.from).await
-    {
-        return Ok(Arriving::Beep(syncs));
-    }
-
-    match Syncthing::local().check(folder).await {
-        Some(managed) => Ok(Arriving::Syncthing(managed)),
-        None => bail!(
-            "{} is not synced between machines: turn on sync on its page",
-            record.project
-        ),
-    }
-}
-
-/// Waits until this machine's Syncthing says the folder is complete, for
-/// `SYNCTHING_WAIT` at most. A folder known only by its marker has no ID to
-/// ask about, and goes on at once.
-async fn syncthing_done(record: &SessionMove, managed: &Managed, tracker: &Tracker) {
-    let Some(id) = &managed.id else {
-        return;
-    };
-    let syncthing = Syncthing::local();
-    let until = Instant::now() + SYNCTHING_WAIT;
+    tracker: &Tracker,
+    root: &Path,
+) -> Result<Checkout> {
+    show(tracker, |progress| progress.phase = MovePhase::Files);
+    let from = env.name_of(&record.from);
+    let mut wait = FIRST_WAIT;
 
     loop {
-        match syncthing.folder_status(id).await {
-            Ok(status) => {
-                show(tracker, |progress| {
-                    progress.files_left = status.need_total_items;
-                });
-
-                if status.is_complete() {
-                    return;
-                }
+        let theirs = match ask_checkout(env, record).await {
+            Ok(theirs) => theirs,
+            Err(e) if e.is::<Refused>() => return Err(e),
+            Err(e) => {
+                log::debug!("session {}: the source's checkout not read: {e:#}", record.id);
+                show(tracker, |progress| progress.source_away = true);
+                sleep(wait).await;
+                wait = (wait * 2).min(LAST_WAIT);
+                continue;
             }
-            Err(e) => log::debug!("Syncthing did not say how {id} stands: {e:#}"),
+        };
+        let dir = root.to_owned();
+        let ours = spawn_blocking(move || worktree::head(&dir)).await??;
+
+        if theirs.head == ours {
+            show(tracker, |progress| {
+                progress.source_away = false;
+                progress.reason = None;
+                progress.edits_left = theirs.edits;
+            });
+            return Ok(theirs);
         }
 
-        if Instant::now() >= until {
-            log::warn!(
-                "session {}: Syncthing has not finished {} in {}s, resuming anyway",
-                record.id,
-                managed.label,
-                SYNCTHING_WAIT.as_secs()
-            );
-            return;
-        }
-
-        sleep(SYNCTHING_LOOK).await;
+        let reason = format!(
+            "Waiting for checkouts to match: {from} at {}, here {}",
+            short(theirs.head.as_deref()),
+            short(ours.as_deref())
+        );
+        show(tracker, |progress| {
+            progress.source_away = false;
+            progress.reason = Some(reason);
+        });
+        wait = FIRST_WAIT;
+        sleep(CHECKOUT_LOOK).await;
     }
 }
 
-/// Waits for the project's files to be here.
-async fn files(
+/// A commit as people read it, or that there is none.
+fn short(head: Option<&str>) -> String {
+    head.map_or_else(
+        || "no commit".to_owned(),
+        |head| head.chars().take(7).collect(),
+    )
+}
+
+async fn ask_checkout(env: &Env, record: &SessionMove) -> Result<Checkout> {
+    let connection = dial(env, record.from).await?;
+    let (send, recv) = connection.open_bi().await?;
+    let (tx, rx) = link(send, recv);
+    let checkout = read::checkout(tx, rx, &record.id).await;
+    connection.close(0u32.into(), b"done");
+    checkout
+}
+
+/// Brings each of the session's worktrees from the source and makes it
+/// here, at the same folder in the project's checkout `root`. Each one
+/// placed is kept in the move's state, to take back if the move does not
+/// happen.
+async fn worktrees(
+    env: &Env,
     record: &SessionMove,
-    arriving: &Arriving<'_>,
     tracker: &Tracker,
-    since: Instant,
+    root: &Path,
+    checkout: Checkout,
 ) -> Result<()> {
-    show(tracker, |progress| progress.phase = MovePhase::Files);
-    let syncs = match arriving {
-        Arriving::Beep(syncs) => syncs,
-        Arriving::Syncthing(managed) => {
-            syncthing_done(record, managed, tracker).await;
-            return Ok(());
+    let total = u32::try_from(checkout.worktrees.len()).unwrap_or(u32::MAX);
+    let base = checkout.head.unwrap_or_default();
+
+    for (at, tree) in (1..).zip(checkout.worktrees) {
+        let relative = Path::new(&tree.path);
+        let inside = relative
+            .components()
+            .all(|part| matches!(part, Component::Normal(name) if name != ".git"));
+
+        if !inside {
+            bail!("the worktree {} is not inside the project", tree.path);
         }
-    };
-    syncs
-        .have_all_from(&record.project, &record.from, since, |status| {
-            let left = status.pending.max(status.waiting.len() as u64);
-            // Why the files do not come, such as two checkouts at different
-            // commits, rather than a count that does not move.
-            let reason = status.error.clone();
-            show(tracker, |progress| {
-                progress.files_left = left;
-                progress.reason = reason;
-            });
+
+        let name = relative
+            .file_name()
+            .map_or_else(|| tree.path.clone(), |name| name.to_string_lossy().into_owned());
+        show(tracker, |progress| {
+            progress.worktree = Some(name.clone());
+            progress.worktree_at = at;
+            progress.worktrees = total;
+        });
+        let (main, head) = (root.to_owned(), tree.head.clone());
+        let bundle = !spawn_blocking(move || worktree::has_commit(&main, &head)).await?;
+        let ask = read::WorktreeAsk {
+            id: &record.id,
+            path: &tree.path,
+            base: &base,
+            bundle,
+        };
+        let fetched = fetch_worktree(env, record, tracker, ask)
+            .await
+            .with_context(|| format!("bringing the worktree {name}"))?;
+        let (main, path) = (root.to_owned(), root.join(relative));
+        let (state, id, at) = (env.state.clone(), record.id.clone(), record.at);
+        // Held until the worktree is noted, even if this task is stopped
+        // meanwhile: taking the move back waits for it.
+        let placing = env.agents.moves.placing.clone().lock_owned().await;
+        spawn_blocking(move || {
+            let _placing = placing;
+
+            if let Some(bytes) = &fetched.bundle {
+                worktree::import(&main, &fetched.work.head, bytes)?;
+            }
+
+            let was = worktree::tip(&main, &tree.branch);
+            let placed = worktree::attach(&main, &path, &tree.branch, &fetched.work)?;
+            let head = fetched.work.head;
+            let tree = PlacedTree {
+                applied: worktree::fingerprint(&path)?,
+                moved: (was.as_deref() != Some(head.as_str())).then_some(worktree::Moved {
+                    branch: tree.branch,
+                    was,
+                    to: head,
+                }),
+                main,
+                path,
+                placed,
+            };
+
+            if let Err(e) = keep_placed(&state, &id, at, tree.clone()) {
+                // Not noted, so taken back now: nothing else would.
+                let PlacedTree { main, path, placed, applied, moved } = &tree;
+                let _ = worktree::take_back(main, path, placed, applied, moved.as_ref());
+                return Err(e);
+            }
+
+            Ok(())
         })
-        .await?;
-    syncs
-        .handoff_for_move(&record.project, &record.from)
-        .await
+        .await?
+        .with_context(|| format!("making the worktree {name} here"))?;
+        log::info!("session {}: the worktree {name} is here", record.id);
+    }
+
+    show(tracker, |progress| progress.worktree = None);
+    Ok(())
+}
+
+/// Notes a worktree placed for the move of session `id` made at `at`.
+fn keep_placed(state: &Folder, id: &str, at: u64, placed: PlacedTree) -> Result<()> {
+    let mut saved = state
+        .load(id)
+        .filter(|saved| saved.at == at)
+        .unwrap_or_else(|| Saved::over(at, Phase::Working, None));
+    saved.placed.push(placed);
+    state
+        .save(id, &saved)
+        .context("keeping the worktrees placed for the move")
+}
+
+/// Takes back the worktrees placed for the move of session `id`, which did
+/// not happen. One that changed since stays, and is logged.
+pub(super) async fn take_back(env: &Env, id: &str) {
+    // A worktree being placed is noted first.
+    let _placing = env.agents.moves.placing.lock().await;
+    let placed = env.state.load(id).map(|saved| saved.placed).unwrap_or_default();
+
+    for tree in placed {
+        let shown = tree.path.display().to_string();
+        let done = spawn_blocking(move || {
+            let moved = tree.moved.as_ref();
+            worktree::take_back(&tree.main, &tree.path, &tree.placed, &tree.applied, moved)
+        })
+        .await;
+
+        match done {
+            Ok(Ok(())) => log::info!("took back the worktree {shown} made for a move"),
+            Ok(Err(e)) => log::warn!("the worktree {shown} made for a move stays: {e:#}"),
+            Err(e) => log::warn!("taking back the worktree {shown} failed: {e}"),
+        }
+    }
+}
+
+/// One worktree from the source, asked again while the source cannot be
+/// reached; a refusal ends it.
+async fn fetch_worktree(
+    env: &Env,
+    record: &SessionMove,
+    tracker: &Tracker,
+    ask: read::WorktreeAsk<'_>,
+) -> Result<read::Fetched> {
+    let mut wait = FIRST_WAIT;
+
+    loop {
+        let fetched = async {
+            let connection = dial(env, record.from).await?;
+            let (send, recv) = connection.open_bi().await?;
+            let (tx, rx) = link(send, recv);
+            let fetched = read::worktree(tx, rx, &ask).await;
+            connection.close(0u32.into(), b"done");
+            fetched
+        }
+        .await;
+
+        match fetched {
+            Ok(fetched) => {
+                show(tracker, |progress| progress.source_away = false);
+                return Ok(fetched);
+            }
+            Err(e) if e.is::<Refused>() => return Err(e),
+            Err(e) => {
+                log::debug!("session {}: a worktree not read yet: {e:#}", record.id);
+                show(tracker, |progress| progress.source_away = true);
+                sleep(wait).await;
+                wait = (wait * 2).min(LAST_WAIT);
+            }
+        }
+    }
 }

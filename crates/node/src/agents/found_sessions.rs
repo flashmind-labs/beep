@@ -294,6 +294,14 @@ impl Agents {
             }
         }
 
+        // A running reviewer is never listed (`Session::reviewer`).
+        sessions.retain(|session| {
+            !session
+                .taken_over
+                .as_deref()
+                .is_some_and(|id| self.is_reviewer(id))
+        });
+
         sessions.sort_by_key(|session| Reverse(session.last_activity));
         sessions.truncate(limit);
         Ok(sessions)

@@ -281,13 +281,17 @@ fn every_known_agent_starts_without_permission_prompts() {
         (kind.args, env)
     };
     let pair = |name: &str, value: &str| (name.to_owned(), value.to_owned());
-    // Claude Code is switched to bypassPermissions by the session, and
-    // shows its thinking as summaries, unless the node's own environment
-    // already chose how.
+    // Claude Code is switched to bypassPermissions by the session, keeps
+    // its task tools, and shows its thinking as summaries, unless the
+    // node's own environment already chose how.
     let thinking = std::env::var_os("CLAUDE_CODE_THINKING_DISPLAY")
         .is_none()
         .then(|| pair("CLAUDE_CODE_THINKING_DISPLAY", "summarized"));
-    assert_eq!(launched("claude"), (vec![], thinking.into_iter().collect()));
+    let tasks = pair("CLAUDE_CODE_ENABLE_TODO_TOOLS", "1");
+    assert_eq!(
+        launched("claude"),
+        (vec![], std::iter::once(tasks).chain(thinking).collect())
+    );
     assert_eq!(
         launched("codex"),
         (

@@ -58,9 +58,13 @@ pub struct MoveProgressView {
     pub phase: &'static str,
     pub copied: u64,
     pub total: u64,
-    pub files_left: u64,
     pub source_away: bool,
     pub reason: Option<String>,
+    /// The worktree coming over, and which of how many.
+    pub worktree: Option<String>,
+    pub worktree_at: u32,
+    pub worktrees: u32,
+    pub edits_left: bool,
 }
 
 impl From<MoveState> for MoveProgressView {
@@ -75,9 +79,12 @@ impl From<MoveState> for MoveProgressView {
             phase: phase_name(progress.phase),
             copied: progress.copied,
             total: progress.total,
-            files_left: progress.files_left,
             source_away: progress.source_away,
             reason: progress.reason,
+            worktree: progress.worktree,
+            worktree_at: progress.worktree_at,
+            worktrees: progress.worktrees,
+            edits_left: progress.edits_left,
         }
     }
 }

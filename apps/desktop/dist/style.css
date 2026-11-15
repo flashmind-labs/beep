@@ -68,7 +68,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .cc-running .dspin, .cc-running .drun { width: 10px; height: 10px; flex: none }
 .chip .dspin, .chip .drun { width: 9px; height: 9px }
 .rr-st .dspin, .rr-st .drun { width: 11px; height: 11px }
-.ag-tasks :is(.dspin, .drun) { flex: none; width: 10px; height: 10px }
+:is(.ag-tasks, .ag-plan, .ag-steps) :is(.dspin, .drun) { flex: none; width: 10px; height: 10px }
 @keyframes spin { to { transform: rotate(360deg) } }
 /* A hidden window keeps nothing moving (ui/active.ts sets data-hidden). */
 :root[data-hidden] :is(.dspin, .drun, .dthink.live .lb) { animation-play-state: paused }
@@ -301,8 +301,6 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dapp.dcoderav.claude { color: #F2A27A } .dapp.dcoderav.codex { color: var(--fg) }
 .dcard.dcoder { flex: none }
 .dcoder .row { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px }
-.dcoder .sec { font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim); padding: 8px 12px 2px }
-.dcoder .plan { display: grid; gap: 2px; padding: 0 12px }
 .dcoder .files { display: grid; gap: 1px; padding: 0 12px; font-family: var(--mono); font-size: 12px }
 .dcoder .files span { display: flex; gap: 10px } .dcoder .files b { flex: 1; font-weight: 400; overflow-wrap: anywhere }
 .dcoder .q { margin: 10px 12px 0; padding: 10px; border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--warn) 6%, transparent); display: grid; gap: 6px; font-size: 13px; line-height: 19px }
@@ -327,16 +325,26 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agphead { flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 8px; border-bottom: 1px solid var(--border) }
 .agtabs { flex: 1; min-width: 0; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none }
 .agtabs::-webkit-scrollbar { display: none }
-.agtab { all: unset; cursor: default; flex: 0 1 auto; min-width: 54px; max-width: 200px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 8px; border-radius: var(--radius-sm); font-size: 12px; color: var(--muted) }
+.agtab, .agmnav button { all: unset; cursor: default; flex: 0 1 auto; min-width: 54px; max-width: 200px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 8px; border-radius: var(--radius-sm); font-size: 12px; color: var(--muted) }
 .agtab svg { flex: none }
 .agtab span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono) }
-.agtab small { color: var(--dim) }
+.agtab small, .agmnav small { color: var(--dim) }
 .agtab em { display: grid; opacity: 0; padding: 2px; border-radius: 4px } .agtab em svg { width: 10px; height: 10px }
 .agtab:hover em, .agtab.on em { opacity: .7 } .agtab em:hover { opacity: 1; background: color-mix(in srgb, var(--fg) 8%, transparent) }
-.agtab:hover { color: var(--fg) } .agtab.on { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg) }
+.agtab:hover, .agmnav button:hover { color: var(--fg) } .agtab.on, .agmnav button[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg) }
 .agpbtn { all: unset; cursor: default; flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--radius-sm); color: var(--muted) }
 .agpbtn:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); color: var(--fg) }
 .agshell.narrow [data-pact="dock"] { display: none }
+/* Too narrow for the conversation beside a pane (a phone, a narrow window): a strip of Chat
+   and the pane's tabs shows one at a time, filling the session. */
+.agshell:not(.narrow) .agmnav { display: none }
+.agmnav { flex: none; display: flex; gap: 2px; padding: 4px 6px; overflow-x: auto; scrollbar-width: none }
+.agmnav button { flex: none }
+.agshell.log-only :is(.agpane, .agpstrip) { display: none !important }
+.agshell.narrow:not(.log-only) .agconv, .agshell.narrow .agmain > .agdiv { display: none }
+.agshell.narrow:not(.log-only) .agpane { flex: 1 1 0 !important; max-height: none }
+.agshell.narrow .agphead { justify-content: flex-end }
+.agshell.narrow .agphead :is(.agtabs, [data-pact="fold"]) { display: none }
 /* A tab dragged to the right or bottom edge docks there; the zone shows where. */
 .agshell.tabdrag { user-select: none; cursor: grabbing }
 .agtab.dragging { opacity: .4 }
@@ -1042,8 +1050,18 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .ag-worklist { max-height: 30vh; overflow-y: auto; overscroll-behavior: contain }
 .ag-workline { display: none }
 /* Background commands are one line; their rows and Stop buttons are in the Running tab. */
-.ag-tasks { display: inline-flex; align-items: center; gap: 8px; margin: 6px 16px 0; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font: inherit; font-size: 12px; color: var(--muted); cursor: default }
-.ag-tasks:hover { color: var(--fg) }
+.ag-tasks, .ag-plan { display: inline-flex; align-items: center; gap: 8px; margin: 6px 16px 0; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font: inherit; font-size: 12px; color: var(--muted); cursor: default }
+.ag-tasks:hover, .ag-plan:hover, .ag-steps button.it:hover { color: var(--fg) }
+/* The plan is one line above the field, which opens to its steps; a step opens to its subagents. */
+.ag-plan > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left }
+.ag-plan b { margin-left: 8px; font-weight: 400; color: var(--fg) }
+.ag-plan > svg, .ag-steps .it > svg { flex: none; width: 12px; height: 12px; color: var(--dim) }
+:is(.ag-plan, .ag-steps .it)[aria-expanded="true"] > svg { transform: rotate(90deg) }
+.ag-steps { display: grid; grid-template-columns: minmax(0, 1fr); max-height: 40vh; overflow-y: auto }
+.ag-steps .it { display: flex; align-items: center; gap: 8px; box-sizing: border-box; width: 100%; min-width: 0; padding: 7px 16px; border: 0; background: none; font: inherit; font-size: 12.5px; color: var(--muted); text-align: left; cursor: default }
+.ag-steps .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ag-steps small { flex: none; font: 11px var(--mono); color: var(--dim) }
+.ag-steps .subs { display: grid; gap: 2px; padding: 0 8px 4px 26px }
 /* The worktree dropdown in a dock's header. */
 .agwtw { position: relative; margin-left: auto; flex: none }
 .agwtw[hidden] { display: none }
@@ -1084,6 +1102,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .mvs .t { color: var(--muted) }
 .mvs .r { display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums }
 .mvs .r.todo { color: var(--dim) }
+.mvs .r.note { color: var(--muted) }
 .mvs .mk { width: 14px; height: 14px; display: inline-grid; place-items: center; flex: none; color: var(--ok) }
 .mvs .r.todo .mk::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--dim) }
 .mvs .mk .dspin { width: 11px; height: 11px }

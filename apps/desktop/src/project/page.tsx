@@ -31,11 +31,11 @@ import { Button, EmptyPanel } from "../ui/kit.tsx";
 
 /// What the page last drew. It stays rendered while another page shows, so
 /// coming back keeps its place.
-let shown: { project: string; split: boolean; parts: PagePart[] } | null = null;
+let shown: { project: string; split: boolean; blank: boolean; parts: PagePart[] } | null = null;
 
 /// A new project gets a new view, so nothing of the last one carries over.
 export function ProjectsPage() {
-  return shown && <Parts key={shown.project} className={shown.split ? "cc-view split" : "cc-view"} project={shown.project} parts={shown.parts} />;
+  return shown && <Parts key={shown.project} className={`cc-view${shown.split ? " split" : ""}${shown.blank ? " blank" : ""}`} project={shown.project} parts={shown.parts} />;
 }
 
 export function drawProjects() {
@@ -45,6 +45,7 @@ export function drawProjects() {
   if (!state.picked) disposeSessionPanel();
   const parts: PagePart[] = [];
   let one: Project | null = null;
+  pa.blank = false;
 
   if (!state.home) {
     parts.push(viewPart("loading", <EmptyPanel title="Loading projects…" />));
@@ -64,7 +65,7 @@ export function drawProjects() {
 
   const project = state.picked ?? "";
   watchScroll(el, project);
-  shown = { project, split: !!one && splitOn(one), parts };
+  shown = { project, split: !!one && splitOn(one), blank: pa.blank, parts };
   drawPage("projects");
   restoreScroll(el);
 

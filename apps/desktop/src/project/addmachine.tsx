@@ -13,6 +13,7 @@ import { projectsIn } from "../addproject/importproject.tsx";
 import { browseStart, copyLine, offers, shortName, type CopyLine, type FolderOffer } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
 import { plainPath } from "./projects-state.ts";
+import type { SyncthingFiles } from "./syncthing.ts";
 
 /// What the page hands the sheet.
 interface AddToMachine {
@@ -42,8 +43,16 @@ export function openAddToMachine(o: AddToMachine) {
     if (!open || at === undefined) return;
     flushSync(() => render(<AddMachineView
       title={title} verb={change ? "Change" : "Add"} project={name} machine={machine.id} start={at} adding={adding} error={error} copying={copying}
-      offers={(listing, opened) => offers(listing, project, change, change ? null : opened)} take={offer => void add(offer)} close={close}
+      offers={(listing, opened) => offers(listing, project, change, change ? null : opened)} noteFor={noteFor} take={offer => void add(offer)} close={close}
     />));
+  };
+
+  /// Beep takes a folder Syncthing keeps out of its share; the picker says so before it does.
+  const noteFor = async (offer: FolderOffer) => {
+    const files = await invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine.id, folder: offer.path });
+    if (!files.available || !files.enabled) return null;
+    const share = files.label ? `Syncthing's "${files.label}" folder` : "a Syncthing folder";
+    return `This is in ${share}. Beep adds it to Syncthing's ignore list on ${machine.name} and syncs it itself.`;
   };
 
   const add = async (offer: FolderOffer) => {

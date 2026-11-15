@@ -2,6 +2,69 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.12] - 2026-11-15
+
+### Added
+
+- Node: moving a session reports to the desktop when the project folder on
+  the source machine has uncommitted edits. Those edits stay on the source
+  machine. Only the session and the worktrees it made move.
+
+### Changed
+
+- Node: moving a session no longer waits for every file of the project.
+  The target waits until its checkout is at the same commit as the
+  source's.
+- Node: the worktrees a session created move with it, including their
+  branch, commits and uncommitted changes. Other worktrees stay where
+  they are. The source keeps its copy of a moved worktree, detached from
+  the branch.
+
+### Fixed
+
+- Node: cancelling a session move after the source machine had already
+  stopped the session now starts it again there, instead of leaving it
+  ended.
+
+## [0.7.11] - 2026-11-15
+
+### Added
+
+- Node: a session's plan steps carry when they started and ended, so the
+  apps can show each step's subagents.
+
+### Changed
+
+- Node: a Claude Code session shows its task list as the session's plan
+  again. Claude Code had its task tools off on recent models.
+
+### Fixed
+
+- Node: a temporary code reviewer, started by the review tool or by
+  Review with agent, no longer appears in the Sessions list or in
+  Home's Done today lane. Its session is removed when the review ends.
+- Node: an agent that offers more than 500 models, such as flsh with several
+  providers set up, shows all of them in the model picker instead of
+  dropping the providers listed last.
+
+## [0.7.10] - 2026-11-15
+
+### Changed
+
+- Node: with Project sync on, adds the Syncthing ignore rule for each
+  project in one of its shares unless the project chose Syncthing.
+- Node: a node gives a problem report its whole log for the chosen period,
+  instead of the newest 1 MiB.
+- Node: a problem report can be up to 95 MiB, up from 5 MiB, and a large
+  one gets more time to upload.
+
+### Fixed
+
+- Node: the first Git copy of a project into a folder that already has
+  files no longer fails forever with "rebuilding the git index failed" when
+  a file differs from the commit. The differing file stays as a local
+  change.
+
 ## [0.7.9] - 2026-11-15
 
 ### Added

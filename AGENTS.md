@@ -135,10 +135,12 @@ same look, sized for touch, in `mobile.css`.
 - **Paintings.** `src/ui/painted-art.tsx` paints scenes in blocks of short
   strokes: a sunrise for the first run, the start screen and empty pages
   (`PaintedEmpty`), the dawn haze down the sidebar and as a faint band along
-  the top of Home and Projects, gone before the first cards. A scene paints
+  the top of Home and Projects, gone before the first cards, and a wanderer
+  above a sea of fog beside the lanes of a quiet project board. A scene paints
   itself once after the app opens and is still from then on. Words sit on a
   glass card or a clear patch, not on the strokes. A painting belongs on an
-  empty screen or above the content, never behind cards or reading text.
+  empty screen, above the content or in the room beside it, never behind cards
+  or reading text.
 - **Motion.** A spinner turns for work in progress and pauses when the window
   is hidden. Short transitions on navigation. Nothing else moves: no ambient
   animation, and nothing takes over the user's desktop.
