@@ -362,6 +362,28 @@ async fn a_target_that_gives_up_after_the_session_ended_has_it_start_again_here(
 }
 
 #[tokio::test]
+async fn a_move_cancelled_after_the_session_ended_starts_it_again_here() {
+    let source = source_env().await;
+    let session = asking(&source).await;
+    let record = record(&source.env, true);
+    let (_said, mut target) = told(Target::Taken);
+    {
+        let moving = source::run(&source.env, &record, &mut target);
+        tokio::pin!(moving);
+        tokio::select! {
+            done = &mut moving => panic!("the move ended early: {done:?}"),
+            () = ended(&session) => {}
+        }
+    }
+    source::cancel(&source.env, "held-1").await;
+    assert!(
+        source.env.agents.runs("held-1"),
+        "the session runs again where it was"
+    );
+    source.env.agents.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_move_taken_back_after_an_earlier_one_ended_here_still_frees_the_session() {
     // The session came here as a target once (its tracker says done), and
     // now moves away again.

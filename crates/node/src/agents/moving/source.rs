@@ -209,13 +209,21 @@ async fn fail(
 }
 
 /// The move is cancelled: a session still waiting for its turn goes on as
-/// it was.
+/// it was, and one this side already ended starts again.
 pub(super) async fn cancel(env: &Env, id: &str) {
-    let Some(session) = live(env, id) else {
+    if let Some(session) = live(env, id) {
+        if let Err(e) = session.order(Command::NotMoving).await {
+            log::debug!("session {id} was not told the move is off: {e}");
+        }
+
+        return;
+    }
+
+    let Some(open) = env.state.load(id).and_then(|saved| saved.open) else {
         return;
     };
 
-    if let Err(e) = session.order(Command::NotMoving).await {
-        log::debug!("session {id} was not told the move is off: {e}");
+    if let Err(e) = env.agents.reopen_one(open).await {
+        log::warn!("session {id} could not start again after its move was cancelled: {e:#}");
     }
 }
