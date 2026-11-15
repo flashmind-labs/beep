@@ -1,11 +1,11 @@
 body.cbody
-  div.cwin.side-collapsed [aria-label="Beep" role="main"] style(--side-w)
+  div.cwin [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
-      canvas.haze.painted-art [aria-hidden="true" height="208" width="13"]
+      canvas.haze.painted-art [aria-hidden="true" height="208" width="46"]
       div.cc-head
       div.cc-brand
         b "Beep"
-        button.cc-side-toggle [aria-controls="side-content" aria-expanded="false" aria-label="Expand sidebar" title="Expand sidebar" type="button"]
+        button.cc-side-toggle [aria-controls="side-content" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar" type="button"]
           span
             svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
       div#side-content.cc-side-list
@@ -80,7 +80,7 @@ body.cbody
           svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div#home-box.cc-box [hidden]
         div#view.cc-view
-          canvas.haze.painted-art [aria-hidden="true" height="15" width="170"]
+          canvas.haze.painted-art [aria-hidden="true" height="15" width="202"]
           div.cc-mstrip
             div.m.off [title="This computer: Joining your machines"]
               span.ddot.off
@@ -169,12 +169,8 @@ body.cbody
               span#agstate
                 span.dstate.run "Working"
               span#agedit.agedit
-            div#agshell.agshell.log-only.narrow
+            div#agshell.agshell.narrow
               div#agmain.agmain
-                nav#agmnav.agmnav
-                  button [aria-selected="true" data-mnav="log" type="button"] "Chat"
-                  button [aria-selected="false" data-mnav="files" type="button"] "Files"
-                  button [aria-selected="false" data-mnav="changes" type="button"] "Changes"
                 div#agconv.agconv
                   div.agbodyw
                     div#agbody.dbody
@@ -326,19 +322,11 @@ body.cbody
                             kbd "Ctrl S"
                           button [data-stash-action="pop" type="button"] "Pop latest"
                             kbd "Ctrl P"
-                div#agdiv-bottom.agdiv [aria-orientation="horizontal" data-dock="bottom" role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
-                aside#agpane-bottom.agpane [data-dock="bottom" tabindex="-1"] style(flex-basis)
+                div#agdiv-bottom.agdiv [data-dock="bottom" hidden role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
+                aside#agpane-bottom.agpane [data-dock="bottom" hidden tabindex="-1"]
                   div.agpane-content
                     div.agphead
                       div.agtabs [role="tablist"]
-                        button.agtab.on [aria-selected="true" data-mtab="files" role="tab" title="Files" type="button"]
-                          i style(display)
-                            svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                          span "Files"
-                        button.agtab [aria-selected="false" data-mtab="changes" role="tab" title="Changes" type="button"]
-                          i style(display)
-                            svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                          span "Changes"
                       span.agwtw [hidden]
                       button.agaddterm.agpbtn [data-pact="term" title="New terminal in this folder (⌃`)"] "+ Terminal"
                       button.agpbtn [data-pact="dock" title="Dock these tabs on the right"]
@@ -348,44 +336,20 @@ body.cbody
                         span style(display)
                           svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                     div.agpviews
-                      div.agpview.files
-                        div.agfbar
-                          input.agffind [aria-label="Filter files" placeholder="Filter files" spellcheck="false" value] value=""
-                          label.agfign "Show ignored"
-                            input.dcheck [type="checkbox"] value="on" unchecked
-                          button.agpbtn [data-frefresh="1" title="Read the folders again"] "↻"
-                        div.agtree [aria-busy="false" aria-label="Working files" aria-multiselectable="true" role="tree" tabindex="0"]
-                          div.agtrows style(height)
-                            div#agfile-src.agtr [aria-expanded="false" aria-selected="false" data-ffolder="1" data-fpath="src" data-index="0" draggable="true" role="treeitem" title="src"] style(--d,transform)
-                              span.tw
-                                svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
-                              svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                              span.nm "src"
-                            div#agfile-README.md.agtr [aria-selected="false" data-fpath="README.md" data-index="1" draggable="true" role="treeitem" title="README.md"] style(--d,transform)
-                              span.tw
-                              svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                              span.nm "README.md"
-                            div#agfile-package.json.agtr [aria-selected="false" data-fpath="package.json" data-index="2" draggable="true" role="treeitem" title="package.json"] style(--d,transform)
-                              span.tw
-                              svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                              span.nm "package.json"
-                              span.gm.modified [title="Changed"] "M"
-                            div#agfile-sample.ts.agtr [aria-selected="false" data-fpath="sample.ts" data-index="3" draggable="true" role="treeitem" title="sample.ts"] style(--d,transform)
-                              span.tw
-                              svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                              span.nm "sample.ts"
-                              span.gm.modified [title="Changed"] "M"
-                        div.agpacts
-                          span.meta.mono [title="/srv/project"] "/srv/project"
-                          span [data-fstatus="true" role="status"]
-                          span.sp
-                          span.hint "Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting."
-                div#agpstrip-bottom.agpstrip.tabs [data-dock="bottom" hidden role="tablist"]
+                div#agpstrip-bottom.agpstrip.tabs [aria-orientation="horizontal" data-dock="bottom" hidden role="tablist"]
               div#agdiv-right.agdiv [data-dock="right" hidden role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
               aside#agpane-right.agpane [data-dock="right" hidden tabindex="-1"]
                 div.agpane-content
                   div.agphead
                     div.agtabs [role="tablist"]
+                      button.agtab.on [aria-selected="true" data-mtab="files" role="tab" title="Files" type="button"]
+                        i style(display)
+                          svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                        span "Files"
+                      button.agtab [aria-selected="false" data-mtab="changes" role="tab" title="Changes" type="button"]
+                        i style(display)
+                          svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                        span "Changes"
                     span.agwtw [hidden]
                     button.agaddterm.agpbtn [data-pact="term" title="New terminal in this folder (⌃`)"] "+ Terminal"
                     button.agpbtn [data-pact="dock" title="Dock these tabs at the bottom"]
@@ -395,11 +359,47 @@ body.cbody
                       span style(display)
                         svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                   div.agpviews
-              button#agpstrip-right.agpstrip [data-dock="right" hidden title="Show the pane"]
-                span style(display)
-                  svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                span "Files"
-                small "0"
+                    div.agpview.files
+                      div.agfbar
+                        input.agffind [aria-label="Filter files" placeholder="Filter files" spellcheck="false" value] value=""
+                        label.agfign "Show ignored"
+                          input.dcheck [type="checkbox"] value="on" unchecked
+                        button.agpbtn [data-frefresh="1" title="Read the folders again"] "↻"
+                      div.agtree [aria-busy="false" aria-label="Working files" aria-multiselectable="true" role="tree" tabindex="0"]
+                        div.agtrows style(height)
+                          div#agfile-src.agtr [aria-expanded="false" aria-selected="false" data-ffolder="1" data-fpath="src" data-index="0" draggable="true" role="treeitem" title="src"] style(--d,transform)
+                            span.tw
+                              svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                            svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                            span.nm "src"
+                          div#agfile-README.md.agtr [aria-selected="false" data-fpath="README.md" data-index="1" draggable="true" role="treeitem" title="README.md"] style(--d,transform)
+                            span.tw
+                            svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                            span.nm "README.md"
+                          div#agfile-package.json.agtr [aria-selected="false" data-fpath="package.json" data-index="2" draggable="true" role="treeitem" title="package.json"] style(--d,transform)
+                            span.tw
+                            svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                            span.nm "package.json"
+                            span.gm.modified [title="Changed"] "M"
+                          div#agfile-sample.ts.agtr [aria-selected="false" data-fpath="sample.ts" data-index="3" draggable="true" role="treeitem" title="sample.ts"] style(--d,transform)
+                            span.tw
+                            svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                            span.nm "sample.ts"
+                            span.gm.modified [title="Changed"] "M"
+                      div.agpacts
+                        span.meta.mono [title="/srv/project"] "/srv/project"
+                        span [data-fstatus="true" role="status"]
+                        span.sp
+                        span.hint "Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting."
+              div#agpstrip-right.agpstrip.tabs [aria-orientation="vertical" data-dock="right" role="tablist"]
+                button.agtab.on [aria-selected="true" data-mtab="files" role="tab" title="Files" type="button"]
+                  i style(display)
+                    svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                  span "Files"
+                button.agtab [aria-selected="false" data-mtab="changes" role="tab" title="Changes" type="button"]
+                  i style(display)
+                    svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                  span "Changes"
               div#agdropzone.agdropzone [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

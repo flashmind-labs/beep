@@ -443,30 +443,28 @@ for (const section of [null, "Agent accounts", "Appearance"] as const) {
 
 // Agent session
 
-test("narrow window: the sidebar folds and the session shows chat or a pane", async ({ page }) => {
-  await page.setViewportSize({ width: 740, height: 832 });
+test("narrow window folds the right pane to its tabs, which open it over the conversation", async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 832 });
   await openAgent(page);
-  await expect(page.locator(".cwin")).toHaveClass(/side-collapsed/);
-  await expect(page.locator("#agshell")).toHaveClass(/narrow/);
-  const strip = page.locator("#agmnav");
-  await expect(strip.locator("[aria-selected=true]")).toHaveText("Chat");
-  await expect(page.locator("#agpane-bottom")).toBeHidden();
-  expect((await page.locator("#agtitle").boundingBox())?.width ?? 0).toBeGreaterThan(150);
+  const strip = page.locator("#agpstrip-right"), pane = page.locator("#agpane-right");
+  await expect(strip.getByRole("tab", { name: "Changes" })).toBeVisible();
+  await expect(strip.getByRole("tab", { name: "Files" })).toBeVisible();
+  await expect(pane).toBeHidden();
   await baseline(page, "narrow-session");
 
-  await strip.getByRole("button", { name: /^Changes/ }).click();
+  await strip.getByRole("tab", { name: "Changes" }).click();
   await expect(page.locator('.dv-file[data-path="sample.ts"]')).toBeVisible();
-  await expect(page.locator(".agconv")).toBeHidden();
+  await expect(page.locator("#agshell")).toHaveClass(/zoomed/);
   await baseline(page, "narrow-session-changes");
 
-  await strip.getByRole("button", { name: "Chat" }).click();
-  await expect(page.locator(".agconv")).toBeVisible();
+  await pane.getByTitle("Hide the pane").click();
+  await expect(pane).toBeHidden();
+  await expect(strip).toBeVisible();
 
-  // Wide again, the sidebar opens and the pane sits beside the conversation.
-  await page.setViewportSize({ width: 1280, height: 832 });
-  await expect(page.locator(".cwin")).not.toHaveClass(/side-collapsed/);
-  await expect(strip).toHaveCount(0);
-  await expect(page.locator("#agpane-right")).toBeVisible();
+  // Wide again, the pane is back beside the conversation as it was.
+  await page.setViewportSize({ width: 1600, height: 832 });
+  await expect(pane).toBeVisible();
+  await expect(page.locator("#agshell")).not.toHaveClass(/zoomed/);
 });
 
 test("agent session transcript", async ({ page }) => {

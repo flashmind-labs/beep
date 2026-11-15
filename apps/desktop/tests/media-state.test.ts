@@ -34,11 +34,12 @@ test("a tab dragged to a dock stays there", () => {
   // The dock it went to unfolds.
   assert.equal(moved.hidden.bottom, false);
   assert.deepEqual(readLayout(JSON.stringify(moved)), moved);
-  // Both docks show their tabs; a window too narrow for the right dock
-  // shows them all at the bottom.
+  // Both docks show their tabs, on a narrow window too, where the right pane folds to its
+  // strip; a phone, laid out at width 0, shows them all at the bottom.
   const ids = ["files", "term:fix-login", "/srv/a.png"];
   assert.deepEqual(splitTabs(moved, ids, 1200), { right: ["files", "/srv/a.png"], bottom: ["term:fix-login"] });
-  assert.deepEqual(splitTabs(moved, ids, SIDE_BY_SIDE_MIN - 1), { right: [], bottom: ids });
+  assert.deepEqual(splitTabs(moved, ids, SIDE_BY_SIDE_MIN - 1), { right: ["files", "/srv/a.png"], bottom: ["term:fix-login"] });
+  assert.deepEqual(splitTabs(moved, ids, 0), { right: [], bottom: ids });
   // Back to the right: the bottom dock has no tabs, so it goes.
   const back = moveTab(moved, "term:fix-login", "right");
   assert.deepEqual(splitTabs(back, ids, 1200), { right: ids, bottom: [] });
