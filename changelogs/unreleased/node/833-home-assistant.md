@@ -7,5 +7,5 @@
   `projects_import` imports them.
 - Node: the project tools need a desktop to be online. Agents that the
   assistant starts do not get them.
-- Node: an assistant chat stays one after beep-node restarts or the chat
-  moves to another machine, with its title, model and thinking level.
+- Node: an assistant chat stays one after beep-node restarts. A chat moved
+  to another machine keeps its title, model and thinking level.
