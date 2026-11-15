@@ -1,13 +1,15 @@
 //! The machine a session moves away from: lets the turn and the messages
 //! queued before the move finish, or stops them, waits until the target
-//! can take the session, then ends it and has its files scanned. The
-//! transcript stays, and `beep-sessions/1` keeps serving it. If the target
-//! gives up, the session starts again here.
+//! can take the session, then ends it. The transcript stays, and
+//! `beep-sessions/1` keeps serving it and the session's worktrees. Once the
+//! session runs on the target, the worktrees it took are let go here. If
+//! the target gives up, the session starts again here.
 
 use super::{
     Env,
     progress::Target,
     saved::{Phase, Saved},
+    worktree,
 };
 use crate::agents::live::Live;
 use crate::agents::{OpenSession, Session, session::Command};
@@ -15,7 +17,7 @@ use anyhow::{Context, Result, anyhow};
 use beep_proto::node::{agent::Status, mesh_state::SessionMove};
 use beep_proto::watched;
 use std::sync::Arc;
-use tokio::sync::watch;
+use tokio::{sync::watch, task::spawn_blocking};
 
 pub(super) async fn run(
     env: &Env,
@@ -36,22 +38,18 @@ pub(super) async fn run(
     }
 
     env.agents.until_reopened().await;
-    // A target reads the session as running until its files are scanned.
+    // A target reads the session as running until it ended here.
     let held = env.agents.moves.hold(&record.id);
     // Set once the session ended here: a restart finds it in what is kept.
     let mut open = saved.and_then(|saved| saved.open);
 
-    if open.is_none()
-        && let Some(session) = live(env, &record.id)
-    {
+    // A session still live ends now, even if a restart kept how to start
+    // it again: that is saved before it is closed.
+    if let Some(session) = live(env, &record.id) {
         match end(env, record, &session, target).await {
             Ok(done) => open = done,
             Err(e) => return fail(env, record, None, &e).await,
         }
-    }
-
-    if let Err(e) = scan(env, record).await {
-        return fail(env, record, open, &e).await;
     }
 
     drop(held);
@@ -110,8 +108,9 @@ async fn end(
         }
     }
 
+    // Kept before the session closes, so a move taken back at any point
+    // after finds how to start it again.
     let open = env.agents.open_session(&record.id);
-    session.close().await;
     env.state
         .save(
             &record.id,
@@ -123,27 +122,8 @@ async fn end(
             },
         )
         .context("keeping that the session ended")?;
+    session.close().await;
     Ok(open)
-}
-
-/// Has the project scanned now, so what the session wrote last is in the
-/// list the target pulls. A folder that is not scanned would let it resume
-/// on files from before. A project Beep does not sync with the target has
-/// no such list: Syncthing carries it.
-async fn scan(env: &Env, record: &SessionMove) -> Result<()> {
-    let Some(syncs) = &env.syncs else {
-        return Ok(());
-    };
-
-    if !syncs.syncs_with(&record.project, &record.to).await {
-        return Ok(());
-    }
-
-    syncs
-        .rescan(&record.project)
-        .await
-        .map(|_| ())
-        .with_context(|| format!("scanning {} before it moves", record.project))
 }
 
 /// Waits until the target runs the session, or gives up.
@@ -158,6 +138,7 @@ async fn land(
 
         match now {
             Target::Landed => {
+                let_go(env, &record.id).await;
                 return env
                     .state
                     .save(&record.id, &Saved::over(record.at, Phase::Done, None))
@@ -168,6 +149,22 @@ async fn land(
         }
 
         target.changed().await.context("the move lost its target")?;
+    }
+}
+
+/// Lets go of the worktrees sent for session `id`, which runs elsewhere
+/// now: each is detached so its branch is the target's alone, and what was
+/// sent is taken out of it unless it changed since.
+async fn let_go(env: &Env, id: &str) {
+    for (dir, sent) in env.agents.moves.take_sent(id) {
+        let shown = dir.display().to_string();
+        let done = spawn_blocking(move || worktree::detach_clean(&dir, Some(&sent))).await;
+
+        match done {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => log::warn!("the worktree {shown} stays on its branch: {e:#}"),
+            Err(e) => log::warn!("letting go of the worktree {shown} failed: {e}"),
+        }
     }
 }
 

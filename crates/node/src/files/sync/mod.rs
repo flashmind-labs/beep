@@ -1016,14 +1016,6 @@ impl Syncs {
         Serving(self.inner.serving.clone())
     }
 
-    /// Whether Beep syncs `project` here with `peer`, once a change to the
-    /// list that is going on is done.
-    pub(crate) async fn syncs_with(&self, project: &str, peer: &EndpointId) -> bool {
-        let _settled = self.inner.configuring.lock().await;
-        self.project(project)
-            .is_some_and(|shared| shared.has_peer(peer))
-    }
-
     fn project(&self, name: &str) -> Option<Arc<Shared>> {
         lock(&self.inner.projects)
             .get(name)

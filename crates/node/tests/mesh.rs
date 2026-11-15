@@ -2837,16 +2837,18 @@ fn rollout_on(node: &Node, folder: &Path) -> PathBuf {
 
 /// What the desktop writes to move session `s` from `a` to `b`.
 async fn ask_to_move(desktop: &Member, from: EndpointId, to: EndpointId, stop: bool) {
-    ask_to_move_in(desktop, from, to, stop, "").await;
+    ask_to_move_in(desktop, from, to, stop, "", Vec::new()).await;
 }
 
-/// As `ask_to_move`, for a session in `path` below the project's folder.
+/// As `ask_to_move`, for a session in `path` below the project's folder
+/// that made the linked `worktrees`.
 async fn ask_to_move_in(
     desktop: &Member,
     from: EndpointId,
     to: EndpointId,
     stop: bool,
     path: &str,
+    worktrees: Vec<String>,
 ) {
     let record = SessionMove {
         agent: "codex".into(),
@@ -2860,7 +2862,7 @@ async fn ask_to_move_in(
         stop,
         at: 1_793_696_400_000,
         worktree: None,
-        worktrees: Vec::new(),
+        worktrees,
     };
     desktop
         .mesh
@@ -2933,10 +2935,9 @@ async fn until_progress(
 
 #[cfg(unix)]
 #[tokio::test]
-async fn a_running_session_moves_to_the_other_machine_with_its_conversation_and_files() {
+async fn a_running_session_moves_to_the_other_machine_with_its_conversation() {
     use std::os::unix::fs::PermissionsExt;
     let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
-    fs::write(pair.a_folder.join("main.rs"), "fn main() {}\n").expect("a file");
     let conn_a = pair.desktop.reach(pair.a.id).await;
     let conn_b = pair.desktop.reach(pair.b.id).await;
     // The session runs on `a`, in its checkout.
@@ -3005,11 +3006,6 @@ async fn a_running_session_moves_to_the_other_machine_with_its_conversation_and_
             .mode()
             & 0o777,
         0o600
-    );
-    // The files had arrived before the session resumed.
-    assert_eq!(
-        fs::read_to_string(pair.b_folder.join("main.rs")).expect("synced"),
-        "fn main() {}\n"
     );
     // It resumed the session in its own checkout.
     let load = line_sent(&pair.work.path().join("sent-b.jsonl"), "session/load").await;
@@ -3169,7 +3165,15 @@ async fn a_machine_that_cannot_take_the_session_leaves_it_running_where_it_was()
     .expect("the turn finished in time");
     rollout_on(&pair.a, &pair.a_folder);
 
-    ask_to_move_in(&pair.desktop, pair.a.id, pair.b.id, false, "missing").await;
+    ask_to_move_in(
+        &pair.desktop,
+        pair.a.id,
+        pair.b.id,
+        false,
+        "missing",
+        Vec::new(),
+    )
+    .await;
     pair.a.logged("the move of session s did not finish").await;
     // `a` still runs the session, and takes a message again.
     let mut follow = ready(&conn_a, "codex/1").await;
@@ -3327,144 +3331,98 @@ async fn placed_pair() -> Pair {
     }
 }
 
-/// A fake Syncthing GUI on `node`'s machine that keeps `folder` and has `need`
-/// items still to get. Its events never come.
-async fn fake_syncthing_status(
-    node: &Node,
-    folder: &Path,
-    need: watch::Receiver<u64>,
-) -> AbortOnDropHandle<()> {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
-    let addr = listener.local_addr().expect("an address");
-    let home = if cfg!(target_os = "macos") {
-        node.home
-            .path()
-            .join("Library/Application Support/Syncthing")
-    } else {
-        node.home.path().join("config/syncthing")
-    };
-    fs::create_dir_all(&home).expect("Syncthing's folder");
-    fs::write(
-        home.join("config.xml"),
-        format!(
-            r#"<configuration><gui tls="false"><address>{addr}</address><apikey>fake-key</apikey></gui></configuration>"#
-        ),
-    )
-    .expect("the config");
-    let listed = json!([{"id": "kept", "label": "Kept", "path": folder, "paused": false}]);
-    AbortOnDropHandle::new(tokio::spawn(async move {
-        let mut answering = JoinSet::new();
-
-        while let Ok((stream, _)) = listener.accept().await {
-            answering.spawn(fake_syncthing_answer(stream, need.clone(), listed.clone()));
-        }
-    }))
-}
-
-async fn fake_syncthing_answer(
-    mut stream: TcpStream,
-    need: watch::Receiver<u64>,
-    listed: serde_json::Value,
-) {
-    let mut request = Vec::new();
-    let mut buf = [0; 1024];
-
-    while !request.windows(4).any(|w| w == b"\r\n\r\n") {
-        match stream.read(&mut buf).await {
-            Ok(0) | Err(_) => return,
-            Ok(n) => request.extend_from_slice(&buf[..n]),
-        }
-    }
-
-    let text = String::from_utf8_lossy(&request);
-    let body = if text.starts_with("GET /rest/events") {
-        std::future::pending::<()>().await;
-        return;
-    } else if text.starts_with("GET /rest/db/status?folder=kept ") {
-        let need = watched::read(&need, |need| *need);
-        let state = if need == 0 { "idle" } else { "syncing" };
-        json!({"needTotalItems": need, "state": state})
-    } else {
-        listed
-    };
-    let body = body.to_string();
-    let reply = format!(
-        "HTTP/1.0 200 OK\r\ncontent-length: {}\r\n\r\n{body}",
-        body.len()
-    );
-    stream.write_all(reply.as_bytes()).await.expect("the reply");
-}
-
 #[cfg(unix)]
 #[tokio::test]
-async fn a_session_moves_on_a_project_syncthing_keeps_with_no_sync_record_and_no_files() {
+async fn a_session_moves_with_its_worktree_once_the_checkouts_match() {
     let mut pair = placed_pair().await;
-    let (need, told) = watch::channel(3);
-    let _syncthing = fake_syncthing_status(&pair.b, &pair.b_folder, told).await;
     let conn_a = pair.desktop.reach(pair.a.id).await;
     let conn_b = pair.desktop.reach(pair.b.id).await;
+    // `b` is a clone of `a`; `a` has a commit more, and a worktree the
+    // session made, with a commit of its own and an untracked file.
+    git(&pair.a_folder, &["init", "-q", "--initial-branch=main"]);
+    fs::write(pair.a_folder.join("a.txt"), "one\n").expect("a file");
+    git(&pair.a_folder, &["add", "."]);
+    git(&pair.a_folder, &["commit", "-q", "-m", "first"]);
+    fs::remove_dir(&pair.b_folder).expect("the empty folder goes");
+    git(
+        pair.roots[1].path(),
+        &["clone", "-q", &pair.a_folder.display().to_string(), "proj"],
+    );
+    fs::write(pair.a_folder.join("a.txt"), "two\n").expect("a change");
+    git(&pair.a_folder, &["commit", "-q", "-am", "second"]);
+    git(
+        &pair.a_folder,
+        &["worktree", "add", "-q", "-b", "feat", ".worktrees/feat"],
+    );
+    let feat = pair.a_folder.join(".worktrees/feat");
+    fs::write(feat.join("b.txt"), "branch\n").expect("a file");
+    git(&feat, &["add", "b.txt"]);
+    git(&feat, &["commit", "-q", "-m", "on feat"]);
+    fs::write(feat.join("new.txt"), "untracked\n").expect("a file");
     run_session_in(&conn_a, &pair.a_folder).await;
     rollout_on(&pair.a, &pair.a_folder);
-    let b_rollout = pair
-        .b
-        .home
-        .path()
-        .join(".codex/sessions/2026/11/04")
-        .join(ROLLOUT);
 
-    ask_to_move(&pair.desktop, pair.a.id, pair.b.id, false).await;
-    // `b` waits for its Syncthing and shows what is left.
-    until_progress(&conn_b, "the wait for Syncthing", |p| {
-        p.phase == MovePhase::Files && p.files_left == 3
+    ask_to_move_in(
+        &pair.desktop,
+        pair.a.id,
+        pair.b.id,
+        false,
+        "",
+        vec![feat.display().to_string()],
+    )
+    .await;
+    until_progress(&conn_b, "the wait for the checkouts", |p| {
+        p.phase == MovePhase::Files
+            && p.reason
+                .as_deref()
+                .is_some_and(|why| why.starts_with("Waiting for checkouts to match: box-a at "))
     })
     .await;
-    assert!(!b_rollout.exists(), "resumed before Syncthing finished");
+    git(
+        &pair.b_folder,
+        &["pull", "-q", "--ff-only", "origin", "main"],
+    );
 
-    need.send_replace(0);
     pair.b.logged("took over codex session s").await;
+    let moved = pair.b_folder.join(".worktrees/feat");
+    assert_eq!(git(&moved, &["symbolic-ref", "--short", "HEAD"]), "feat");
+    assert_eq!(
+        fs::read_to_string(moved.join("b.txt")).expect("committed"),
+        "branch\n"
+    );
+    assert_eq!(
+        fs::read_to_string(moved.join("new.txt")).expect("uncommitted"),
+        "untracked\n"
+    );
     pair.a
         .logged("the move of session s is done on this side")
         .await;
-    let moved = fs::read_to_string(&b_rollout).expect("the transcript is in the store");
-    assert!(moved.contains(&pair.b_folder.display().to_string()));
+    // `a` let its worktree go: the branch is `b`'s now.
+    let detached = std::process::Command::new("git")
+        .args(["symbolic-ref", "-q", "HEAD"])
+        .current_dir(&feat)
+        .status()
+        .expect("git runs");
+    assert!(
+        !detached.success(),
+        "the source's worktree is still on feat"
+    );
 }
 
-#[cfg(unix)]
-#[tokio::test]
-async fn a_project_neither_beep_nor_syncthing_syncs_is_refused_before_the_source_stops() {
-    let mut pair = placed_pair().await;
-    let conn_a = pair.desktop.reach(pair.a.id).await;
-    let conn_b = pair.desktop.reach(pair.b.id).await;
-    run_session_in(&conn_a, &pair.a_folder).await;
-    rollout_on(&pair.a, &pair.a_folder);
-
-    ask_to_move(&pair.desktop, pair.a.id, pair.b.id, false).await;
-    until_progress(&conn_b, "refused", |p| {
-        p.phase == MovePhase::Failed
-            && p.reason.as_deref()
-                == Some("proj is not synced between machines: turn on sync on its page")
-    })
-    .await;
-    pair.a.logged("the move of session s did not finish").await;
-    // A session that had stopped would have been loaded again.
-    let sent = fs::read_to_string(pair.work.path().join("sent.jsonl")).expect("the agent's log");
-    assert!(!sent.contains("session/load"), "{sent}");
-    let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
-    list.tx.send(&SessionsRequest::List {}).await.expect("sent");
-
-    match timeout(LIMIT, list.rx.recv::<SessionsReply>())
-        .await
-        .expect("answered")
-        .expect("reads")
-    {
-        Some(SessionsReply::Sessions { sessions }) => {
-            assert!(
-                sessions.iter().any(|s| s.state.status != Status::Ended),
-                "{sessions:?}"
-            );
-        }
-        other => panic!("not a list: {other:?}"),
-    }
+/// Runs git in `dir` with a fixed author, and what it printed.
+fn git(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git runs");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
 
 /// `beep-node status` for the node running from `dir`.

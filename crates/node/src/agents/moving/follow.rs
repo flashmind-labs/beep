@@ -12,7 +12,7 @@ use super::{
     store::StoreRoots,
     target,
 };
-use crate::{agents::Agents, files::sync::Syncs};
+use crate::agents::Agents;
 use beep_mesh::{Key, Mesh};
 use beep_proto::node::{
     agent::MovePhase,
@@ -83,7 +83,6 @@ pub(crate) async fn follow(
     endpoint: Endpoint,
     dir: PathBuf,
     agents: Arc<Agents>,
-    syncs: Option<Syncs>,
 ) {
     let old = dir.clone();
     let _ = tokio::task::spawn_blocking(move || drop_copies(&old)).await;
@@ -95,7 +94,6 @@ pub(crate) async fn follow(
         agents,
         mesh,
         endpoint,
-        syncs,
         state: Folder::new(&dir),
         roots,
     });

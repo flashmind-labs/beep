@@ -700,7 +700,8 @@ pub enum MovePhase {
     Waiting,
     /// The conversation is being copied.
     Conversation,
-    /// The project's files are being brought in line.
+    /// The checkouts are brought to one commit and the session's worktrees
+    /// come over.
     Files,
     /// The session is starting here.
     Resuming,
@@ -720,12 +721,18 @@ pub struct MoveProgress {
     /// Bytes of the conversation copied, and the source's size when known.
     pub copied: u64,
     pub total: u64,
-    /// Files of the project not here yet.
+    /// Files of the project not here yet; no longer sent (0).
     pub files_left: u64,
     /// The source cannot be reached now.
     pub source_away: bool,
-    /// Why it failed, when it did.
+    /// Why it failed when it did, or what it waits for, such as checkouts
+    /// at two commits.
     pub reason: Option<String>,
+    /// The worktree being brought, by its folder name, and which of how
+    /// many. Added after `reason`.
+    pub worktree: Option<String>,
+    pub worktree_at: u32,
+    pub worktrees: u32,
 }
 
 /// A session of another machine that this node keeps a copy of

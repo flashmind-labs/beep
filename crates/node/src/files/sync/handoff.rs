@@ -6,7 +6,6 @@ use super::{
 };
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::sync::HandoffSnapshot;
-use beep_proto::watched;
 use std::{fs, path::Path, process::Stdio};
 use tokio::task::spawn_blocking;
 
@@ -188,37 +187,6 @@ impl Syncs {
             "Syncthing still manages this checkout."
         );
         Ok(root)
-    }
-
-    pub(crate) async fn handoff_for_move(
-        &self,
-        project: &str,
-        from: &iroh::EndpointId,
-    ) -> Result<()> {
-        let shared = self
-            .project(project)
-            .context("This project is not available for handoff.")?;
-        if !shared.status().git_only {
-            return Ok(());
-        }
-
-        let peer = watched::read(&shared.watch_peers(), |peers| {
-            peers.iter().find(|peer| peer.id == *from).cloned()
-        })
-        .context("The source no longer shares this project.")?;
-        let incoming =
-            super::peer::handoff_snapshot(&self.inner.parts.endpoint, peer, project).await?;
-        let _one = self.inner.configuring.lock().await;
-        let root = self.handoff_root(project).await?;
-        // A retried move may already have applied this exact snapshot.
-        spawn_blocking(move || {
-            if snapshot(&root)? == incoming {
-                return Ok(());
-            }
-
-            apply(&root, incoming)
-        })
-        .await?
     }
 
     /// Captures an explicit handoff without changing the source checkout.

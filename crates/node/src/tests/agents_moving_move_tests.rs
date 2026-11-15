@@ -89,7 +89,6 @@ async fn source_env() -> Source {
         agents,
         mesh,
         endpoint,
-        syncs: None,
         state: Folder::new(dir.path()),
         roots: StoreRoots {
             claude: dir.path().join("claude"),
