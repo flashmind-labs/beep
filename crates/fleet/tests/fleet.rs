@@ -20,7 +20,7 @@ use beep_proto::{
         mesh_state::{Credential, SkillSync, StateValue, SyncSpec},
         shell::{self, Event, Request},
         status::Report,
-        sync::{self, FOLDER_MISSING, ProjectStatus, State as SyncState},
+        sync::{self, FOLDER_MISSING, ProjectStatus, State as SyncState, SyncthingFiles},
         usage::{HourSpend, PlanUsage, SessionSpend},
     },
 };
@@ -232,14 +232,28 @@ impl FakeNode {
                     }
                 }
             }
-            "sync/1" => {
-                if let Ok(Some(sync::Request::Status {})) = rx.recv::<sync::Request>().await {
+            "sync/1" => match rx.recv::<sync::Request>().await {
+                Ok(Some(sync::Request::Status {})) => {
                     let reply = sync::Reply::Status {
                         projects: self.synced.clone(),
                     };
                     tx.send(&reply).await.ok();
                 }
-            }
+                // Logged with the commands, so a test sees it came before the folder was made.
+                Ok(Some(sync::Request::SyncthingFiles { folder, enabled })) => {
+                    self.ran
+                        .lock()
+                        .expect("log")
+                        .push(format!("syncthing files {folder} {enabled:?}"));
+                    let files = SyncthingFiles {
+                        available: true,
+                        enabled: enabled.unwrap_or(true),
+                        label: Some("share".into()),
+                    };
+                    tx.send(&sync::Reply::SyncthingFiles { files }).await.ok();
+                }
+                _ => {}
+            },
             "agents/1" => {
                 let first = rx.recv::<SessionsRequest>().await;
 
@@ -1326,7 +1340,7 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
     );
     let at_files = lister("BEEP_FOLDER: path /srv/widget\nBEEP_FOLDER: full\n");
     let at_kept = Arc::new(FakeNode {
-        prints: vec![("ls -A", "BEEP_FOLDER: path /sync/share/widget\n")],
+        prints: vec![("ls -A", "BEEP_FOLDER: missing /sync/share/widget\n")],
         syncthing: vec![SyncthingFolder {
             id: "share".into(),
             label: String::new(),
@@ -1373,8 +1387,8 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
         Ok(_) => panic!("it was not refused"),
     };
 
-    // Another repository's checkout, or a folder Syncthing keeps, is refused: nothing made or
-    // written.
+    // Another repository's checkout, or a folder Syncthing keeps for a project that uses
+    // Syncthing, is refused: nothing made or written.
     let said = studio
         .add_to_machine("acme/widget", &full.id.to_string(), "/srv/work")
         .await;
@@ -1383,12 +1397,16 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
         "/srv/work is a checkout of another repository. Choose an empty folder or a checkout of acme/widget."
     );
     assert!(made(&at_full).is_empty());
+    studio
+        .project_syncthing_mode("acme/widget", Some(true))
+        .await
+        .expect("the project uses Syncthing");
     let said = studio
         .add_to_machine("acme/widget", &kept.id.to_string(), "/sync/share/widget")
         .await;
     assert_eq!(
         refused(said),
-        "Syncthing keeps /sync/share/widget in step on kept-box. Choose another folder."
+        "Syncthing keeps /sync/share/widget in step on kept-box, and this project uses Syncthing. Choose another folder."
     );
     assert!(made(&at_kept).is_empty());
     assert_eq!(spec(&f.studio.mesh), None);
@@ -1432,6 +1450,25 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
         written.folders.get(&files.id).map(String::as_str),
         Some("/srv/widget")
     );
+
+    // In a Syncthing share, the folder leaves the share before it is made.
+    studio
+        .project_syncthing_mode("acme/widget", Some(false))
+        .await
+        .expect("the project uses Beep sync");
+    let added = studio
+        .add_to_machine("acme/widget", &kept.id.to_string(), "/sync/share/widget")
+        .await
+        .expect("it is added");
+    assert_eq!(added.folder, "/sync/share/widget");
+    let ran = at_kept.ran.lock().expect("log").clone();
+    let asked = |line: &str| ran.iter().position(|ran| ran == line);
+    let left = asked("syncthing files /sync/share/widget Some(false)").expect("it left the share");
+    let made_at = ran
+        .iter()
+        .position(|ran| ran.contains("mkdir"))
+        .expect("the folder is made");
+    assert!(left < made_at);
 
     // On it already, a second Add changes nothing.
     let said = studio

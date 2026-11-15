@@ -19,6 +19,8 @@ interface PickerProps {
   prefer: string;
   /// What to offer for the folder shown; `opened` is the first one it showed.
   offers(listing: MachineFolder, opened: string): FolderOffer[];
+  /// What to say before taking `offer`, such as how Syncthing lets go of it; null for nothing.
+  noteFor(offer: FolderOffer): Promise<string | null>;
   take(offer: FolderOffer): void;
   /// Esc in the empty field; with a filter it clears that first.
   close(): void;
@@ -42,6 +44,7 @@ export function FolderPicker(p: PickerProps) {
   const [home, setHome] = useState<string | null>(null);
   const [filter, setFilter] = useState(""), [index, setIndex] = useState(0);
   const [reading, setReading] = useState(true), [failed, setFailed] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const id = useId(), field = useRef<HTMLInputElement>(null), active = useRef<HTMLButtonElement>(null), ask = useRef(0);
 
   const go = (path: string | null) => {
@@ -69,6 +72,15 @@ export function FolderPicker(p: PickerProps) {
 
   const listing = shown?.listing ?? null;
   const offered = shown ? p.offers(shown.listing, shown.opened) : [];
+  const offeredPath = offered[0]?.path ?? null;
+  useEffect(() => {
+    setNote(null);
+    if (!offeredPath) return;
+
+    let current = true;
+    p.noteFor(offered[0]).then(said => { if (current) setNote(said); }, () => {});
+    return () => { current = false; };
+  }, [offeredPath]);
   const typed = filter === "~" || splitTyped(filter) ? filter : null;
   const folders = listing && !typed ? matching(listing.folders, filter) : [];
   const rows: Row[] = [
@@ -134,7 +146,7 @@ export function FolderPicker(p: PickerProps) {
       })}
       {listing && !rows.length && <div className="none">{filter ? `No folder matches “${filter}”.` : "No folders in here."}</div>}
     </div>
-    {(failed ?? p.error) && <div className="am-msg bad">{failed ?? p.error}</div>}
+    {(failed ?? p.error) ? <div className="am-msg bad">{failed ?? p.error}</div> : note && <div className="am-msg">{note}</div>}
     <div className="foot">{hints.map(([keys, does]) => <span key={keys}><kbd>{keys}</kbd>{does}</span>)}</div>
   </>;
 }

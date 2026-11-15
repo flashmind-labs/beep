@@ -8,7 +8,7 @@ import { reason } from "../ui/format.ts";
 import { latest, STALE } from "../ui/active.ts";
 import type { Project } from "./projects-state.ts";
 
-interface SyncthingFiles {
+export interface SyncthingFiles {
   available: boolean;
   enabled: boolean;
   label: string | null;

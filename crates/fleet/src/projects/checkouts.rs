@@ -47,9 +47,10 @@ async fn look_at(seen: &Seen, folder: &str) -> Result<(FolderPath, MachineFolder
     Ok((asked, there))
 }
 
-/// The folder's path, refused when Syncthing keeps it in step there: Beep's sync would hold it,
-/// so nothing would ever arrive. A project that uses Beep sync first leaves that machine's share.
-async fn refuse_syncthing(
+/// The folder's path, out of the Syncthing share that holds it there: Beep's sync would wait on
+/// Syncthing, so nothing would ever arrive. The machine's ignore rules gain the project's folder
+/// before it is made. A project set to use Syncthing is refused instead.
+async fn leave_syncthing(
     desk: &Desk,
     seen: &Seen,
     there: MachineFolder,
@@ -64,20 +65,19 @@ async fn refuse_syncthing(
     }
 
     let sync = read::<ProjectSyncSettings>(&desk.mesh, &Key::ProjectSync).unwrap_or_default();
-    let leave = (record.syncthing_choice(&sync) == Some(false)).then_some(false);
-    if there.exists
-        && desk
-            .syncthing_files(&seen.machine.id, &there.path, leave)
-            .await
-            .is_ok_and(|files| files.available && !files.enabled)
-    {
-        return Ok(there.path);
+    let leave = (record.syncthing_choice(&sync) != Some(true)).then_some(false);
+    let files = desk
+        .syncthing_files(&seen.machine.id, &there.path, leave)
+        .await?;
+
+    if files.available && files.enabled {
+        return Err(FleetError::refused(format!(
+            "Syncthing keeps {} in step on {}, and this project uses Syncthing. Choose another folder.",
+            there.path, seen.machine.name
+        )));
     }
 
-    Err(FleetError::refused(format!(
-        "Syncthing keeps {} in step on {}. Choose another folder.",
-        there.path, seen.machine.name
-    )))
+    Ok(there.path)
 }
 
 /// Refuses a folder the project cannot take. It takes one that is missing or empty, which the
@@ -175,7 +175,7 @@ impl Desk {
         let (asked, there) = look_at(&seen, folder).await?;
         takes(self, &stored, &there)?;
         let exists = there.exists;
-        let path = refuse_syncthing(self, &seen, there, &stored.record).await?;
+        let path = leave_syncthing(self, &seen, there, &stored.record).await?;
 
         if !exists {
             folder::make(seen.machine.shell()?, name, &asked).await?;
@@ -237,7 +237,7 @@ impl Desk {
         }
 
         let exists = there.exists;
-        let path = refuse_syncthing(self, &seen, there, &stored.record).await?;
+        let path = leave_syncthing(self, &seen, there, &stored.record).await?;
 
         if !exists {
             folder::make(seen.machine.shell()?, name, &asked).await?;
