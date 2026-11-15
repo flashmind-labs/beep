@@ -8,7 +8,7 @@ const openMenu = async (page: import("@playwright/test").Page) => {
 };
 
 test("the project menu groups sync toggles under a label with Remove last", async ({ page }) => {
-  await openDesktop(page, false, { project_ignored_sync: { enabled: true, folders: ["assets"] }, project_git_auto_recovery: false, project_syncthing_mode: null });
+  await openDesktop(page, false, { project_ignored_sync: { enabled: true, folders: ["assets"] }, project_git_auto_recovery: false, project_syncthing_mode: null , project_syncthing_files: { available: true, enabled: true, label: "work" } });
   const menu = await openMenu(page);
   const sync = menu.getByRole("group", { name: "Sync on all machines" }).first();
   await expect(sync).toBeVisible();
@@ -44,6 +44,13 @@ test("the project menu hides the folder choice while ignored sync is off and off
   ]);
 });
 
+test("the project menu leaves out the Syncthing switch when no machine shares the folder", async ({ page }) => {
+  await openDesktop(page, false, { project_ignored_sync: { enabled: false, folders: [] }, project_git_auto_recovery: false, project_syncthing_mode: null, project_syncthing_files: { available: false, enabled: false, label: null } });
+  const menu = await openMenu(page);
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Sync ignored folders" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: /instead of/ })).toHaveCount(0);
+});
+
 test("in the phone layout the project menu stays open after More scrolls the header", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openDesktop(page, false, { project_ignored_sync: { enabled: false, folders: [] }, project_git_auto_recovery: false, project_syncthing_mode: null });
@@ -53,7 +60,7 @@ test("in the phone layout the project menu stays open after More scrolls the hea
 });
 
 test("the project menu moves by keyboard across its sections and a toggle asks before turning on", async ({ page }) => {
-  await openDesktop(page, false, { project_ignored_sync: { enabled: true, folders: ["assets"] }, project_git_auto_recovery: false, project_syncthing_mode: null });
+  await openDesktop(page, false, { project_ignored_sync: { enabled: true, folders: ["assets"] }, project_git_auto_recovery: false, project_syncthing_mode: null , project_syncthing_files: { available: true, enabled: true, label: "work" } });
   const menu = await openMenu(page);
   const remove = menu.getByRole("menuitem", { name: "Remove project…" });
   await expect(remove).toBeVisible();
