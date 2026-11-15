@@ -26,6 +26,14 @@ for (const width of [1280, 390]) {
       await expect(time).toHaveAttribute("title", /2026/);
       await expect(time).toHaveText(/^\d{2}:\d{2}$/);
     }
+    const reply = await page.locator(".dcoderen.agent").boundingBox();
+    const stamp = await page.locator(".dcoderen.agent time").boundingBox();
+    const text = await page.locator(".dcoderen.agent p").boundingBox();
+    expect(reply && stamp && text).toBeTruthy();
+    if (reply && stamp && text) {
+      expect(Math.abs(reply.x + reply.width - (stamp.x + stamp.width))).toBeLessThan(2);
+      expect(stamp.y).toBeLessThan(text.y + text.height);
+    }
     await page.screenshot({ path: `test-results/send-times-${width}.png` });
     expect(errors).toEqual([]);
   });

@@ -1300,7 +1300,7 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 :is(button, [role="button"], summary, select), :is(button, [role="button"], summary, select) * { -webkit-user-select: none !important; user-select: none !important }
 
 .entry-time { color: var(--dim); font-size: 10px; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; margin-inline-start: 6px; }
-.dcoderen.agent > .entry-time { display: block; margin: 0 0 4px; }
+.dcoderen.agent > .entry-time { float: right; margin: 0 0 0 12px; line-height: inherit; }
 .dcoderen.tool.row { grid-template-columns: 16px auto minmax(0, 1fr) auto 16px auto; }
 .dcoderen.tool.beep { grid-template-columns: 16px minmax(0, 1fr) auto auto; }
 .dcoderen.tool.beep > .entry-time { grid-column: 4; grid-row: 1; }
