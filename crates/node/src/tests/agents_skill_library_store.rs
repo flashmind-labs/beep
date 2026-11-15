@@ -41,11 +41,16 @@ fn skills_are_folders_with_a_skill_md_outside_hidden_folders_and_other_skills() 
         "deep/pdf/SKILL.md",
         ".github/hidden/SKILL.md",
         "a/b/c/d/e/f/g/SKILL.md",
+        ".claude/skills/blend/SKILL.md",
+        ".cursor/skills/blend/SKILL.md",
+        ".claude/skills/SKILL.md",
+        ".claude/skills/.hidden/SKILL.md",
     ];
     let found = skill_dirs(paths.iter().map(|p| p.to_string()));
     assert_eq!(
         found.into_iter().collect::<Vec<_>>(),
         [
+            ("blend".to_owned(), ".claude/skills/blend".to_owned()),
             ("docx".to_owned(), "group/docx".to_owned()),
             ("pdf".to_owned(), "pdf".to_owned()),
         ]
@@ -61,6 +66,7 @@ fn a_git_library_is_inspected_and_checked_out_at_a_revision() {
     run_git(&repo, &["init", "--quiet"]);
     put(&repo, "skills/pdf", "Reads PDFs.", "Body");
     put(&repo, "notes", "", "# Takes notes\nMore");
+    put(&repo, ".claude/skills/blend", "Renders scenes.", "Body");
     run_git(&repo, &["add", "."]);
     run_git(&repo, &["commit", "--quiet", "-m", "one"]);
     let first = run_git(&repo, &["rev-parse", "HEAD"]);
@@ -71,6 +77,10 @@ fn a_git_library_is_inspected_and_checked_out_at_a_revision() {
     assert_eq!(
         skills,
         [
+            LibrarySkill {
+                name: "blend".into(),
+                description: "Renders scenes.".into()
+            },
             LibrarySkill {
                 name: "notes".into(),
                 description: "Takes notes".into()
@@ -91,7 +101,7 @@ fn a_git_library_is_inspected_and_checked_out_at_a_revision() {
     assert!(text.contains("Reads PDFs."), "{text}");
     assert_eq!(
         skills_in(&root).into_keys().collect::<Vec<_>>(),
-        ["notes", "pdf"]
+        ["blend", "notes", "pdf"]
     );
 
     // A revision the clone has not fetched yet.

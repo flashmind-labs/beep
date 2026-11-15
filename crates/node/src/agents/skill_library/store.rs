@@ -127,15 +127,25 @@ pub(super) fn git(dir: &Path, args: &[&str]) -> Result<String> {
 }
 
 /// The skills among `paths` (files under a library's root, `/` between parts): each folder with
-/// a `SKILL.md`, by folder name, to its path from the root. Hidden folders, skills inside other
-/// skills and names taken by a skill nearer the root are left out.
+/// a `SKILL.md`, by folder name, to its path from the root. Hidden folders other than an agent's
+/// skills folder at the root (such as `.claude/skills`), skills inside other skills and names
+/// taken by a skill nearer the root are left out.
 pub(super) fn skill_dirs(paths: impl IntoIterator<Item = String>) -> BTreeMap<String, String> {
     let mut dirs: Vec<String> = paths
         .into_iter()
         .filter_map(|path| path.strip_suffix(&format!("/{SKILL_MD}")).map(str::to_owned))
         .filter(|dir| {
             let parts: Vec<&str> = dir.split('/').collect();
-            parts.len() <= MAX_DEPTH && parts.iter().all(|part| disk::valid_part(part))
+            let plain = match parts.as_slice() {
+                [agent, "skills", rest @ ..]
+                    if agent.strip_prefix('.').is_some_and(disk::valid_part) =>
+                {
+                    rest
+                }
+                all => all,
+            };
+
+            parts.len() <= MAX_DEPTH && !plain.is_empty() && plain.iter().all(|part| disk::valid_part(part))
         })
         .collect();
     dirs.sort_by(|a, b| (a.matches('/').count(), a).cmp(&(b.matches('/').count(), b)));
@@ -179,8 +189,13 @@ fn skill_files(root: &Path) -> Vec<String> {
 
             if name == SKILL_MD && path.is_file() {
                 out.push(rel);
-            } else if disk::valid_part(&name) && depth < MAX_DEPTH && path.is_dir() {
-                stack.push((path, rel, depth + 1));
+            } else if depth < MAX_DEPTH && path.is_dir() {
+                if disk::valid_part(&name) {
+                    stack.push((path, rel, depth + 1));
+                } else if depth == 0 && path.join("skills").is_dir() {
+                    // An agent's skills folder, such as `.claude/skills`.
+                    stack.push((path.join("skills"), format!("{rel}/skills"), 2));
+                }
             }
         }
     }
