@@ -408,6 +408,11 @@ body:not(.mobile) .ap-sheet .ap-remote summary:hover, body:not(.mobile) .ap-sync
 
 /* ----- Home and Projects with cards: a band of dawn haze along the top (src/ui/painted-art.tsx),
    gone before the first cards; project rows and groups labelled in quiet mono ----- */
+/* A quiet board: the wanderer above the sea of fog in the room beside its lanes, never behind a card. */
+@container (min-width: 1000px) {
+  body:not(.mobile) .bd-art { display: block; flex: 1 1 0; min-width: 0; height: min(820px, 62vh); margin-left: 24px }
+  body:not(.mobile) .bd-art > .painted-art { display: block; width: 100%; height: 100%; opacity: .8; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(transparent, #000 14%, #000 84%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(transparent, #000 14%, #000 84%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect }
+}
 body:not(.mobile) .cc-view:has(.painted-art.haze) { position: relative; isolation: isolate }
 body:not(.mobile) .cc-view .painted-art.haze { display: block; position: absolute; z-index: -1; top: 0; left: 0; width: 100%; height: 130px; opacity: .4; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent); mask-image: linear-gradient(#000, transparent) }
 body:not(.mobile) #view > .painted-art.haze { height: 58px }

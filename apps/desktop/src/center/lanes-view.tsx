@@ -1,5 +1,6 @@
 // The board: Needs you, Working, Ready to review and Done today. Home shows
-// every project's cards, a row for each project, and a project page its own.
+// every project's cards, a row for each project, and a project page its own,
+// with the sessions that ended as a list.
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Icon } from "../ui/icons.tsx";
@@ -52,8 +53,9 @@ export function CardRow({ card }: { card: BoardCard }) {
 }
 
 /// `more` makes a lane's title open the full list behind it. `rows` gives
-/// each project a row of its own under the lanes' titles.
-export function Board({ cards, more, rows, recency = null }: { recency?: ReadonlyMap<string, number> | null; cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; rows: ProjectRows | null }) {
+/// each project a row of its own under the lanes' titles. Without rows, ended
+/// sessions are a short list, and `beside` fills the room next to a quiet board.
+export function Board({ cards, more, rows, recency = null, beside = null }: { recency?: ReadonlyMap<string, number> | null; cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; rows: ProjectRows | null; beside?: ReactNode }) {
   const lanes = byLane(cards);
   const box = useTravel(cards);
   const [, redraw] = useState(0);
@@ -78,11 +80,26 @@ export function Board({ cards, more, rows, recency = null }: { recency?: Readonl
     </div>;
   }
 
-  return <div className="bd-lanes" ref={box}>{LANES.filter(({ lane }) => lanes[lane].length).map(({ lane, title }) => <div className="bd-lane" key={lane}>
-    {heading(lane, title)}
-    {lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}
-  </div>)}</div>;
+  const shown = LANES.filter(({ lane }) => lanes[lane].length);
+
+  return <div className="bd-lanes" ref={box}>{shown.map(({ lane, title }) => lane === "done"
+    ? <div className="bd-lane log" key={lane}>
+      {heading(lane, title)}
+      <div className="bd-log">{lanes.done.slice(0, DONE_SHOWN).map(card => <CardRow key={card.key} card={{ ...card, sub: "" }}/>)}</div>
+      {lanes.done.length > DONE_SHOWN && more.done && <Button look="quiet" small onClick={more.done}>All {lanes.done.length}</Button>}
+    </div>
+    : <div className={lanes[lane].length > WIDE_FROM ? "bd-lane many" : "bd-lane"} key={lane}>
+      {heading(lane, title)}
+      {lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}
+    </div>)}{beside !== null && shown.length <= QUIET_LANES && <div className="bd-art">{beside}</div>}</div>;
 }
+
+/// A board of this many lanes or fewer is quiet: it has room beside them.
+const QUIET_LANES = 2;
+/// How many ended sessions the done log lists before its "All" button.
+const DONE_SHOWN = 10;
+/// A lane with more cards than this takes two columns in a wide window.
+const WIDE_FROM = 4;
 
 function Card({ card, open }: { card: BoardCard; open(): void }) {
   const style = { opacity: card.dim ? .55 : undefined, viewTransitionName: heroCard() === card.key ? "board-hero" : undefined };

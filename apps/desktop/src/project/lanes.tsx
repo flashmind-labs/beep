@@ -4,7 +4,7 @@ import { byRecent, runningKey, runningLine, type RunningAgent } from "../agents/
 import { runningLineAt } from "../agents/place.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import type { BoardCard } from "../center/lanes-view.tsx";
-import { endedToday, laneOf } from "../center/lanes-state.ts";
+import { endedToday, laneOf, withoutProject } from "../center/lanes-state.ts";
 import { state } from "../center/state.ts";
 import { go } from "../center/views.tsx";
 import { formatAgo } from "../ui/format.ts";
@@ -22,8 +22,9 @@ export function projectCards({ project, running, past, openTile }: {
   const cards: BoardCard[] = [];
 
   for (const row of byRecent(running)) {
-    const lane = laneOf(row.status), open = () => go("pane", { agent: row });
-    cards.push({ key: runningKey(row), lane, project, session: true, lead: <HarnessIcon agent={row.agent}/>, ...runningLineAt(row, projects), foot: <RunningStatus row={row}/>,
+    const lane = laneOf(row.status), open = () => go("pane", { agent: row }), line = runningLineAt(row, projects);
+    cards.push({ key: runningKey(row), lane, project, session: true, lead: <HarnessIcon agent={row.agent}/>, title: line.title, sub: withoutProject(line.sub, project),
+      foot: <RunningStatus row={row} doing/>,
       action: lane === "needs" ? { kind: "run", label: "Answer", primary: true, run: open } : null, dim: false, hint: null, open,
       menu: event => { void sessionMenu(event, row, session => go("pane", { agent: session })); } });
   }

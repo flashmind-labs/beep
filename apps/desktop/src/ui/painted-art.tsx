@@ -1,5 +1,6 @@
 // Scenes painted in short brush strokes, after Monet: a sunrise over a
-// harbour ("Impression, Sunrise") and the dawn haze of its sky alone. A scene paints
+// harbour ("Impression, Sunrise"), the dawn haze of its sky alone, and after Friedrich a
+// wanderer on a rock above a sea of fog. A scene paints
 // itself once after the app opens and is still from then on; with Reduce motion on it is drawn
 // finished.
 import { useLayoutEffect, useRef, type ReactNode } from "react";
@@ -14,12 +15,17 @@ export function HazeArt() {
   return <PaintedArt scene="haze" />;
 }
 
+/// The wanderer above the sea of fog, which fills in stroke by stroke the first time it shows.
+export function WandererArt() {
+  return <PaintedArt scene="wanderer" />;
+}
+
 /// An empty screen: the sunrise, with what to do next on a card beside the sun.
 export function PaintedEmpty({ children }: { children: ReactNode }) {
   return <div className="painted-empty"><SunriseArt /><div className="cc-panel cc-empty">{children}</div></div>;
 }
 
-type Scene = "sunrise" | "haze";
+type Scene = "sunrise" | "haze" | "wanderer";
 /// When each scene began to paint itself. A scene drawn again, on another
 /// screen or after a resize, goes on from there instead of starting over.
 const began = new Map<Scene, number>();
@@ -54,7 +60,7 @@ function PaintedArt({ scene }: { scene: Scene }) {
 }
 
 /// How long each scene takes to paint itself, and the time between two painted frames.
-const PLAY_MS: Record<Scene, number> = { sunrise: 9000, haze: 2600 }, FRAME_MS = 33;
+const PLAY_MS: Record<Scene, number> = { sunrise: 9000, haze: 2600, wanderer: 4200 }, FRAME_MS = 33;
 /// The side of one painted pixel in CSS pixels: the scenes are painted in blocks.
 const PIXEL = 4;
 /// Where the water meets the sky, and where the sun stands across the width.
@@ -67,6 +73,11 @@ interface Stroke { x: number; y: number; length: number; width: number; tilt: nu
 
 const SKY_HIGH: Rgb = [50, 64, 92], SKY_LOW: Rgb = [124, 120, 134], HAZE: Rgb = [186, 124, 110], GLOW: Rgb = [222, 132, 92];
 const SUN: Rgb = [244, 100, 46], WATER_FAR: Rgb = [88, 102, 120], WATER_NEAR: Rgb = [38, 56, 78], BOAT: Rgb = [20, 32, 46], MAST: Rgb = [66, 80, 102];
+
+const FOG_SKY: Rgb = [200, 190, 172], FOG_HIGH: Rgb = [112, 130, 154], FOG: Rgb = [192, 190, 186], PEAK: Rgb = [66, 82, 108], RIDGE: Rgb = [52, 50, 56];
+const ROCK: Rgb = [34, 28, 28], ROCK_LIT: Rgb = [84, 66, 56], COAT: Rgb = [14, 26, 24], COAT_LIT: Rgb = [28, 46, 40], LEGS: Rgb = [24, 34, 32], CANE: Rgb = [96, 70, 48], SKIN: Rgb = [150, 112, 92], HAIR: Rgb = [176, 112, 58];
+/// Where the wanderer stands: across the width, and the top of the rock under his feet.
+const WANDERER_X = 0.5, ROCK_TOP = 0.74;
 
 const mix = (a: Rgb, b: Rgb, k: number): Rgb => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 
@@ -83,10 +94,10 @@ function sequence(seed: number) {
 /// The strokes for a canvas of this size: broad ones that cover it, then finer ones over them.
 function layStrokes(width: number, height: number, scene: Scene): Stroke[] {
   const next = sequence(7), strokes: Stroke[] = [];
-  // The haze is a narrow picture, painted with a finer brush.
-  const brush = scene === "haze" ? 0.55 : 1;
+  // The haze is a narrow picture and the wanderer's has small shapes: both take a finer brush.
+  const brush = scene === "sunrise" ? 1 : scene === "haze" ? 0.55 : 0.7;
   const add = (x: number, y: number, length: number, thick: number) => {
-    const water = scene === "sunrise" && y / height > HORIZON;
+    const water = scene === "sunrise" ? y / height > HORIZON : scene === "wanderer" && y / height > 0.44 && y / height < ROCK_TOP;
     strokes.push({ x, y, length: length * brush * (0.7 + next() * 0.6), width: thick * brush * (0.7 + next() * 0.6), tilt: (next() - 0.5) * (water ? 0.12 : 0.5), tint: next(), glint: next() });
   };
 
@@ -102,6 +113,33 @@ function layStrokes(width: number, height: number, scene: Scene): Stroke[] {
 function haze(u: number, v: number, glint: number): Rgb {
   const corner = Math.hypot(u * 0.5, v * 1.6);
   return mix(mix(SKY_LOW, SKY_HIGH, Math.min(1, v * 1.2 + glint * 0.2)), GLOW, Math.exp(-corner * corner / 0.12) * 0.8);
+}
+
+/// A hill's top at `u`: a point `tall` above `foot`, `wide` to each side, with a rough edge.
+const hill = (u: number, at: number, foot: number, tall: number, wide: number) => foot - tall * Math.max(0, 1 - Math.abs(u - at) / wide) - 0.007 * Math.sin(u * 61 + at * 9) - 0.005 * Math.sin(u * 173);
+
+/// The colour of the wanderer's view at a point (both from 0 to 1): sky, far mountains, the fog
+/// with ridges running down to the middle of it, and the dark crag he stands on.
+function wanderer(u: number, v: number, aspect: number, glint: number): Rgb {
+  // The crag climbs slowly from the left and drops steeply to the right, where a lower one stands.
+  const across = (u - WANDERER_X) * aspect, rough = 0.014 * Math.sin(u * 53) + 0.009 * Math.sin(u * 131 + 1);
+  const crag = Math.min(ROCK_TOP + (across < 0 ? -across * 0.3 : across * 0.62), 0.92 - 0.11 * Math.max(0, 1 - Math.abs(across - 0.44) / 0.17)) + rough;
+  if (v > crag) return mix(ROCK, ROCK_LIT, v < crag + 0.03 && glint > 0.55 ? 0.7 : glint * 0.25);
+
+  for (const [at, foot, tall, wide] of [[0, 0.66, 0.13, 0.56], [1, 0.64, 0.15, 0.5], [0.64, 0.585, 0.032, 0.07], [0.31, 0.6, 0.026, 0.06]] as const) {
+    const top = hill(u, at, foot, tall, wide), under = (v - top) / 0.06;
+    if (under > 0 && under < 1 && top < foot - 0.012) return mix(RIDGE, FOG, under ** 1.5);
+  }
+
+  // A broad dome on the left and a table rock on the right, before a taller, fainter mountain.
+  const fogLine = 0.47, sunk = (top: number) => Math.max(0, (v - top) / (fogLine - top)) ** 3;
+  const near = 0.45 - Math.max(0.11 * Math.max(0, Math.cos((u - 0.2) / 0.25 * Math.PI / 2)) * (Math.abs(u - 0.2) < 0.25 ? 1 : 0), 0.075 * Math.min(1, Math.max(0, 2.4 * (1 - Math.abs(u - 0.83) / 0.075)))) - 0.004 * Math.sin(u * 97);
+  const far = 0.45 - 0.2 * Math.max(0, 1 - Math.abs(u - 0.61) / 0.21) ** 1.3;
+  if (v < fogLine && v > near) return mix(PEAK, FOG, sunk(near));
+  if (v < fogLine && v > far) return mix(mix(PEAK, FOG_SKY, 0.5), FOG, sunk(far));
+  if (v < fogLine) return mix(FOG_HIGH, FOG_SKY, Math.min(1, (v / 0.42) ** 1.4 + glint * 0.08 + 0.12 * Math.sin(v * 38 + u * 7)));
+
+  return mix(FOG, FOG_HIGH, 0.14 + 0.1 * Math.sin(v * 46 + u * 5) + glint * 0.08);
 }
 
 /// The colour of the sunrise at a point (both from 0 to 1), with the sun `rise` of its way up.
@@ -137,7 +175,13 @@ function draw(target: HTMLCanvasElement, strokes: Stroke[], done: number, scene:
 
   // The sun slows as it climbs and the light comes up with it; the haze is lit evenly.
   const rise = 1 - (1 - done) ** 3, light = scene === "sunrise" ? 0.5 + 0.5 * rise : 0.95, aspect = width / height;
-  const colourAt = (u: number, v: number, glint: number) => scene === "sunrise" ? sunrise(u, v, aspect, rise, glint) : haze(u, v, glint);
+  const colourAt = (u: number, v: number, glint: number) => {
+    switch (scene) {
+      case "sunrise": return sunrise(u, v, aspect, rise, glint);
+      case "haze": return haze(u, v, glint);
+      case "wanderer": return wanderer(u, v, aspect, glint);
+    }
+  };
   const stroke = (x: number, y: number, length: number, thick: number, tilt: number, colour: Rgb, shade: number) => {
     const dx = Math.cos(tilt) * length / 2, dy = Math.sin(tilt) * length / 2;
     context.strokeStyle = `rgb(${Math.round(colour[0] * shade)},${Math.round(colour[1] * shade)},${Math.round(colour[2] * shade)})`;
@@ -163,6 +207,32 @@ function draw(target: HTMLCanvasElement, strokes: Stroke[], done: number, scene:
   }
 
   if (scene === "haze") return;
+
+  if (scene === "wanderer") {
+    // The wanderer, his back to us: one foot up on the rock, a long coat, wind in his hair
+    // and a cane. Each shape is a list of points, across and up from his feet, in his height.
+    const tall = height * 0.36, x = width * WANDERER_X, feet = height * ROCK_TOP + tall * 0.03;
+    const shape = (colour: Rgb, points: readonly (readonly [number, number])[]) => {
+      context.fillStyle = `rgb(${colour.map(part => Math.round(part * light)).join(",")})`;
+      context.beginPath();
+      for (const [across, up] of points) context.lineTo(x + across * tall, feet - up * tall);
+      context.fill();
+    };
+
+    shape(ROCK, [[-0.36, -0.05], [-0.2, 0.012], [-0.04, 0.012], [0.01, 0.07], [0.16, 0.07], [0.19, 0.035], [0.25, 0.03], [0.33, -0.06], [0.42, -0.22], [-0.5, -0.22]]);
+    shape(LEGS, [[-0.07, 0.5], [-0.115, 0.03], [-0.15, 0], [-0.055, 0], [-0.045, 0.03], [-0.005, 0.5]]);
+    shape(LEGS, [[0.005, 0.5], [0.045, 0.3], [0.04, 0.1], [0.025, 0.06], [0.14, 0.06], [0.105, 0.1], [0.11, 0.31], [0.08, 0.5]]);
+    shape(COAT, [[-0.04, 0.865], [-0.115, 0.83], [-0.125, 0.7], [-0.085, 0.61], [-0.125, 0.4], [-0.03, 0.385], [0, 0.46], [0.03, 0.385], [0.125, 0.41], [0.085, 0.61], [0.115, 0.7], [0.115, 0.83], [0.04, 0.865]]);
+    shape(COAT_LIT, [[0.04, 0.865], [0.115, 0.83], [0.115, 0.7], [0.085, 0.61], [0.125, 0.41], [0.085, 0.4], [0.055, 0.61], [0.08, 0.72], [0.07, 0.82]]);
+    shape(COAT, [[-0.115, 0.83], [-0.15, 0.67], [-0.15, 0.51], [-0.115, 0.5], [-0.105, 0.67]]);
+    shape(COAT, [[0.115, 0.83], [0.165, 0.68], [0.17, 0.51], [0.135, 0.5], [0.125, 0.66], [0.09, 0.73]]);
+    shape(SKIN, [[-0.15, 0.51], [-0.15, 0.475], [-0.118, 0.47], [-0.115, 0.5]]);
+    shape(SKIN, [[0.135, 0.5], [0.137, 0.465], [0.172, 0.47], [0.17, 0.51]]);
+    shape(CANE, [[0.148, 0.5], [0.164, 0.5], [0.215, 0.03], [0.203, 0.03]]);
+    shape(SKIN, [[-0.028, 0.905], [-0.028, 0.855], [0.028, 0.855], [0.028, 0.905]]);
+    shape(HAIR, [[-0.052, 0.93], [-0.05, 0.985], [-0.01, 1.005], [0.045, 0.995], [0.08, 0.965], [0.052, 0.955], [0.05, 0.9], [-0.042, 0.89]]);
+    return;
+  }
 
   // Masts in the haze along the horizon, then two boats and their shadows on the water.
   const horizon = height * HORIZON;

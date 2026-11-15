@@ -1004,9 +1004,19 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .side-collapsed .cc-side > .cc-brand { justify-content: center; padding: 0 }
 
 /* The board: Home's first tab and a project's front page. */
-.bd-lanes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start }
-.bd-lane { display: grid; gap: 8px; min-width: 0 }
-.bd-lane > h4 { margin: 0; display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--dim) }
+.bd-lanes { display: flex; gap: 12px; align-items: start }
+.bd-lane { display: grid; gap: 8px; min-width: 0; align-content: start }
+/* Lanes share the width up to a card's widest; the done log is a narrower list of one-line rows. */
+.bd-lanes > .bd-lane { flex: 1 1 0; max-width: 420px }
+.bd-lanes > .bd-lane.log { max-width: 340px }
+.bd-log { display: grid; min-width: 0 }
+.bd-log .cc-row { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; padding: 5px 8px; border: 0; border-radius: var(--radius-sm) }
+.bd-log .cc-row .t > span:empty { display: none }
+.bd-lane.log > .dbtn { justify-self: start }
+.bd-art { display: none }
+.bd-card .ft .cc-running { min-width: 0 }
+.cc-running .doing { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.bd-lane > h4 { grid-column: 1 / -1; margin: 0; display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--dim) }
 .bd-lane > h4 span { font-weight: 500; color: var(--muted) }
 .bd-lane > h4 button { all: unset; cursor: default }
 .bd-lane > h4 button:hover, .bd-lane > h4 button:focus-visible { color: var(--fg) }
@@ -1015,8 +1025,8 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .bd-card > b { font-weight: 500; font-size: 13px; line-height: 18px; overflow-wrap: anywhere }
 .bd-card .sub { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); min-width: 0 }
 .bd-card .sub > span:last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.bd-card .sub .cc-ag { width: 18px; height: 18px; border-radius: 5px; flex: none }
-.bd-card .sub .cc-ag svg { width: 11px; height: 11px }
+.bd-card .sub .cc-ag, .bd-log .cc-ag { width: 18px; height: 18px; border-radius: 5px; flex: none }
+:is(.bd-card .sub, .bd-log) .cc-ag svg { width: 11px; height: 11px }
 .bd-card .ft { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 22px }
 .bd-card .ft .sp { flex: 1 }
 .pj-board { overflow: auto; min-height: 0; padding: 0 16px 130px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
@@ -1034,7 +1044,12 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .bd-rows > .bd-lane:not(.hd) { max-height: 236px; overflow-y: auto; scrollbar-width: thin; padding-bottom: 12px }
 
 @container (max-width: 760px) {
-  .bd-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .bd-lanes { flex-wrap: wrap }
+  .bd-lanes > .bd-lane { flex-basis: calc(50% - 6px); max-width: none }
+}
+/* A wide window shows more cards, not wider ones: a full lane takes a second column. */
+@container (min-width: 1500px) {
+  .bd-lanes > .bd-lane.many { flex-grow: 2; max-width: 852px; grid-template-columns: repeat(2, minmax(0, 1fr)) }
 }
 
 /* Moves: one short transition per navigation, never ambient. A board card grows into the

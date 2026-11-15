@@ -43,12 +43,13 @@ function Label({ label, filter, button = false }: { label: string; filter: Label
   return button ? <button type="button" className={cls} onClick={pick}>{label}</button> : <i className={cls} onClick={pick}>{label}</i>;
 }
 
-export function RunningStatus({ row }: { row: RunningAgent }) {
+/// `doing` names what a working agent is doing, when it says, in place of the time.
+export function RunningStatus({ row, doing = false }: { row: RunningAgent; doing?: boolean }) {
   const moving = moveLabel(row), closing = closingNote(row);
   if (moving) return <span className={`chip ${moving.chip === "Moving" ? "run" : "bad"}`}>{moving.chip}</span>;
   if (closing) return closing;
   if (row.status === "asking") return <span className="chip wait">needs you</span>;
-  if (["working", "running", "starting"].includes(row.status)) return <span className="cc-running"><span className="drun" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"}/>{runningWhen(row)}</span>;
+  if (["working", "running", "starting"].includes(row.status)) return <span className="cc-running"><span className="drun" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"}/>{doing && row.doing ? <span className="doing">{row.doing}</span> : runningWhen(row)}</span>;
   return runningWhen(row);
 }
 
