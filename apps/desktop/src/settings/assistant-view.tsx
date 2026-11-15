@@ -6,12 +6,14 @@ import { SettingRow } from "./overview-view.tsx";
 import { Button } from "../ui/kit.tsx";
 import { closedPicker, drawPicker, focusSearch, pillContent, type Picked } from "../agents/agentpicker.tsx";
 import { loadAssistant, saveAssistant, type AssistantPick } from "./assistant.ts";
+import { assistantHarness, assistantHost } from "../agents/assistant-state.ts";
 
-/// The machine whose models the picker lists for `agent`: this one when it offers the harness,
-/// else the first online machine that does.
+/// The harness the setting names, or, when it names none, the one the assistant starts with.
+const shownHarness = (pick: AssistantPick, hosts: readonly AgentHost[]) => pick.agent ?? assistantHarness(null, hosts);
+
+/// The machine whose models the picker lists for `agent`.
 function machineFor(hosts: readonly AgentHost[], own: string | null, agent: string) {
-  const offering = hosts.filter(host => host.agents.includes(agent));
-  const host = offering.find(h => h.machine_id === own) ?? offering[0];
+  const host = assistantHost(hosts, own, agent);
   return host ? { id: host.machine_id, name: host.machine_name } : null;
 }
 
@@ -37,9 +39,10 @@ export function AssistantView() {
   useEffect(() => {
     const el = host.current;
     if (!el) return;
-    if (!open || !pick) { closedPicker(el); return; }
+    const agent = pick && shownHarness(pick, hosts);
+    if (!open || !pick || !agent) { closedPicker(el); return; }
     const offered = hosts.length ? [...new Set(hosts.flatMap(host => host.agents))] : CODING_AGENTS;
-    const picked: Picked = { agent: pick.agent ?? CODING_AGENTS[0], model: pick.model ?? "", effort: pick.effort, query: "" };
+    const picked: Picked = { agent, model: pick.model ?? "", effort: pick.effort, query: "" };
     drawPicker(el, {
       render: setPicker,
       picked,
@@ -62,11 +65,11 @@ export function AssistantView() {
     return () => closedPicker(el);
   }, [open, pick, hosts, own]);
 
-  const agent = pick?.agent ?? CODING_AGENTS[0];
+  const agent = pick && shownHarness(pick, hosts);
   const note = error ? <span className="derr" role="alert">{error}</span> : null;
   return <SettingRow id="assistantSetting" title="Harness" note="The coding agent, model and thinking level the Home assistant starts with" extra={note}>
     <div ref={host}>
-      <Button look="quiet" ref={pill} className="agc-pill" aria-expanded={open} disabled={!pick} onClick={() => setOpen(!open)}>{pillContent(agent, pick?.model ?? "", pick?.effort ?? null, machineFor(hosts, own, agent)?.id ?? null)}</Button>
+      <Button look="quiet" ref={pill} className="agc-pill" aria-expanded={open} disabled={!agent} onClick={() => setOpen(!open)}>{agent ? pillContent(agent, pick?.model ?? "", pick?.effort ?? null, machineFor(hosts, own, agent)?.id ?? null) : "No agent"}</Button>
       {picker}
     </div>
   </SettingRow>;

@@ -10,7 +10,7 @@ export function navigationContracts(navigate: typeof go, open: typeof goTo) {
   navigate("home");
   navigate("projects", { project: "acme/widget" });
   navigate("instructions", { tab: "history" });
-  open({ view: "pane", arg: { agentnew: { prompt: "" } } });
+  open({ view: "pane", arg: { agentnew: { prompt: "", assistant: false } } });
   // @ts-expect-error A project selection cannot be passed to Home.
   navigate("home", { project: "acme/widget" });
   // @ts-expect-error Pane page names are a fixed set.

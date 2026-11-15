@@ -18,16 +18,15 @@ import { loadDraft, saveDraft } from "./draftstore.ts";
 import type { DiffFile, ReviewComment } from "./diff-state.ts";
 import type { AgentHost } from "../agents/agents.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
-import { keepEffort } from "../agents/agentpick.ts";
+import { byPreference, keepEffort } from "../agents/agentpick.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import { reason } from "../ui/format.ts";
 /// Calls a Rust command; the Tauri binding loads on first use, so a diff view can be made where there is none.
 const invoke = async <T = unknown>(cmd: string, args?: Record<string, unknown>) => (await import("../ui/tauri.ts")).invoke<T>(cmd, args);
 
 
-// The sessions and picker modules pull in the whole session view, so they load
-// the first time a review is asked for, not with every diff.
-const agents = () => import("../agents/agents.ts");
+// The picker module pulls in the whole session view, so it loads the first
+// time a review is asked for, not with every diff.
 const picker = () => import("../agents/agentpicker.tsx");
 
 /// How often a running review is read.
@@ -374,9 +373,9 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     if (run) return openReviewer(run, o.machine?.name ?? "");
     if (open) { closePicker(); return drawButton(); }
     readHosts(redraw);
-    const [a, p] = await Promise.all([agents(), picker()]);
+    const p = await picker();
     if (disposed || runs.has(o.key) || open || !connected()) return;
-    pickDefaults(a.byPreference);
+    pickDefaults(byPreference);
     open = true;
     document.addEventListener("pointerdown", outside, true);
     document.addEventListener("keydown", onEsc, true);

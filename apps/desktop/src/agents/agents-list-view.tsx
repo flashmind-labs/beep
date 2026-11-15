@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { useStore } from "zustand";
-import { Button, Spinner } from "../ui/kit.tsx";
+import { Button, EndedFold, Spinner } from "../ui/kit.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { newChat } from "../bar/core.ts";
 import { AGENT_ICON, agentsList, listedMenu, openListed, toggleEnded, type ListedSession } from "./agents.ts";
@@ -25,7 +25,7 @@ export function AgentsList({ hints }: { hints: HintViewModel }) {
     <div className="dagscroll">
       {any && <div className="dlist top" role="listbox" aria-label="Coding agents">
         {list.live.length ? list.live.map((entry, index) => row(entry, index, false)) : <div className="dagquiet">Nothing running. Start one with New.</div>}
-        {list.ended.length > 0 && <button className="dagfold" aria-expanded={list.endedOpen} onClick={toggleEnded}><span className="chev" aria-hidden>{list.endedOpen ? "▾" : "▸"}</span>Ended<span className="n">{list.ended.length}</span></button>}
+        {list.ended.length > 0 && <EndedFold count={list.ended.length} open={list.endedOpen} onToggle={toggleEnded} />}
         {list.endedOpen && list.ended.map((entry, index) => row(entry, list.live.length + index, true))}
       </div>}
     </div>

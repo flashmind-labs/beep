@@ -3,6 +3,7 @@
 import { invoke, listen } from "../ui/tauri.ts";
 import { bar, type View } from "../bar/core.ts";
 import { pane } from "../bar/pane.ts";
+import { AG } from "../agents/agents.ts";
 import type { CenterTarget } from "../project/projectwindow.ts";
 import { type CenterView, type ViewHead, state } from "./state.ts";
 import { currentLocation, go } from "./views.tsx";
@@ -23,9 +24,12 @@ const PANE_TITLES: Record<View, [string, string]> = {
   agent: ["Coding agents", "Follow it and answer it here"],
 };
 
+/// The start form's title when it starts the Home assistant.
+const ASSISTANT_TITLE: [string, string] = ["Assistant", "It works across your machines and projects"];
+
 function paneTitle(): ViewHead {
   const on = paneOn();
-  const [title, sub] = on.view ? PANE_TITLES[on.view] : ["Beep", ""];
+  const [title, sub] = on.view === "agentnew" && AG.form.assistant ? ASSISTANT_TITLE : on.view ? PANE_TITLES[on.view] : ["Beep", ""];
   // The phone hides the list's own header, so New sits in the page header there.
   if (on.view === "agents") return { title, sub, reactTools: <button type="button" className="dbtn small ag-new-top" onClick={() => go("projects", { project: null })}>New</button> };
   if (on.view === "agentnew") return { title, sub, reactTools: <button type="button" className="dbtn small" onClick={() => go("pane", "agents")}>All sessions</button> };
@@ -56,7 +60,7 @@ pane.onChange(now => {
 /// Mac, when Beep may use it, with a prompt to look into Beep and file a report.
 export async function debugWithAgent(text: string) {
   const mac = state.mac ?? await invoke<MacControl>("mac_control").catch(() => null);
-  go("pane", { agentnew: { prompt: debugPrompt(text), at: mac?.enabled ? { machine: mac.id } : null } });
+  go("pane", { agentnew: { prompt: debugPrompt(text), at: mac?.enabled ? { machine: mac.id } : null, assistant: false } });
 }
 
 /// What the bar or tray asked the window to show, taken once.

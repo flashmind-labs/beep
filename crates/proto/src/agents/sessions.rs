@@ -370,6 +370,9 @@ wire_structs! {
         /// The model it runs on, when its node says.
         #[serde(default)]
         pub model: Option<ModelId>,
+        /// The home assistant; false from an older node.
+        #[serde(default)]
+        pub assistant: bool,
     }
 }
 

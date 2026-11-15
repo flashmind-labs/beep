@@ -1,0 +1,30 @@
+import { expect, test } from "@playwright/test";
+import { openDesktop } from "./harness.ts";
+
+const host = { machine_id: "build-box", machine_name: "build-box", agents: ["codex", "flsh"], workspace: null, home: "/srv", capabilities: [] };
+const session = { machine_id: "build-box", machine_name: "build-box", id: "assistant-one", agent: "flsh", title: null, cwd: "/srv", status: "working", doing: null, started_at: 1, last_activity: 1, external: false, question: null, assistant: true };
+
+test("Cmd+N on Home starts the assistant with its harness in the home folder", async ({ page }, info) => {
+  await openDesktop(page, false, {
+    agent_hosts: [host],
+    assistant_settings_get: { agent: "flsh", model: null, effort: "high" },
+    agent_start: { session, why: "" },
+    agent_view: { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+  });
+  await expect(page.locator("#sec-needs")).toBeVisible();
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+
+  const prompt = page.locator("#agprompt");
+  await expect(prompt).toBeFocused();
+  await expect(page.locator("#title")).toContainText("Assistant");
+  await expect(page.locator("#agpillb .flsh")).toBeVisible();
+  await expect(page.locator("#agpillb")).toContainText("High");
+  await expect(page.locator("#aghostb")).toHaveText("build-box");
+  await expect(page.locator("#agfoldb")).toBeHidden();
+
+  await prompt.fill("How is the widget project doing?");
+  await prompt.press("Enter");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").map(call => call.args))).toEqual([
+    { machineId: "build-box", agent: "flsh", cwd: null, prompt: "How is the widget project doing?", images: [], model: null, effort: "high", checkout: null, assistant: true },
+  ]);
+});

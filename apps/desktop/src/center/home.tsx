@@ -1,5 +1,8 @@
 // Home: its tabs and the board.
 import { invoke } from "../ui/tauri.ts";
+import { isMobile } from "../ui/platform.ts";
+import { Button } from "../ui/kit.tsx";
+import { Icon } from "../ui/icons.tsx";
 import { homeForDisplay, type HomeView, type NeedsYou } from "./home-state.ts";
 import { type CenterView, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
 import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.ts";
@@ -12,7 +15,7 @@ import { UNWATCHED_MS } from "../ui/pagecache.ts";
 import { ensureAllTerms } from "../terminals/view.tsx";
 import { thisMacRow } from "../machines/machine-state.ts";
 import { onPlaces } from "../agents/place.ts";
-import { sessionsChanged } from "../agents/sessions.ts";
+import { ensureSessions, sessionsChanged, sessionsRead } from "../agents/sessions.ts";
 import type { SessionRow } from "../project/projects-state.ts";
 import { ambient } from "../ui/active.ts";
 import { frontLayout, layoutChanged } from "../ui/skin.ts";
@@ -100,16 +103,19 @@ export function draw() {
 }
 
 // The Done today lane: the sessions of every project, ended ones included, which the
-// running list drops. Read when they changed, while Home shows, seldom: it is not live.
+// running list drops; and every session, for the Assistant list. Read when they changed,
+// while Home shows, seldom: they are not live.
 const DONE_REREAD_MS = 5000;
 let projectSessions: SessionRow[] = [];
 let sessionsStale = true;
 export const homeSessions = () => projectSessions;
 const readSessions = ambient(() => {
   sessionsStale = false;
+  ensureSessions().catch(e => console.warn("sessions:", e));
   return invoke<SessionRow[]>("projects_sessions").then(rows => { projectSessions = rows; draw(); }, e => { sessionsStale = true; console.warn("sessions:", e); });
 }, DONE_REREAD_MS, () => currentLocation()?.view === "home");
 sessionsChanged.add(() => { sessionsStale = true; readSessions(); });
+sessionsRead.add(() => draw());
 layoutChanged.add(() => draw());
 onPlaces(() => draw());
 onMoves(() => draw());
@@ -119,7 +125,9 @@ onClosing(() => draw());
 let gitReadAt: number | null = null;
 
 export const homeView: CenterView<"home"> = {
-  title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
+  title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }),
+    // A phone has no ⌘N: the assistant starts from here.
+    reactTools: isMobile() ? <Button small className="pj-tool fab" aria-label="New assistant" onClick={() => go("pane", { agentnew: { at: null, assistant: true } })}><span style={{ display: "contents" }}><Icon name="plus" /></span> New assistant</Button> : null }),
   mount() {
     draw();
     ensureHome();

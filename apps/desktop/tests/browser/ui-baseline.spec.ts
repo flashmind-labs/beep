@@ -151,12 +151,42 @@ async function openProject(page: Page, responses: Record<string, unknown> = {}) 
   await expect(page.locator(".pj-strip")).toBeVisible();
 }
 
+/// Assistant sessions: one started as the assistant, one found in build-box's home folder, one ended.
+const linux = { os: "linux", os_version: "Ubuntu 26.04", arch: "x86_64", hostname: "build-box", cpus: 32, memory_mb: 124_000, home: "/srv", tools: [], logins: [], avds: [], gpus: [] };
+const assistantHome = { ...home, machines: [{ ...home.machines[0], env: linux }, home.machines[1]] };
+const assistantSessions = [
+  { ...agentRow("helper-one", "Set up the widget project", "working", 60_000, "/srv"), agent: "flsh", assistant: true, parent: null },
+  { ...agentRow("helper-two", "Check the open pull requests", "idle", 900_000, "/srv"), agent: "claude", assistant: false, parent: null },
+  { ...agentRow("helper-old", "Import my projects", "ended", 7_200_000, "/srv"), agent: "flsh", assistant: true, parent: null },
+];
+const assistantHost = { machine_id: machineId, machine_name: machineId, agents: ["claude", "codex", "flsh"], workspace: null, home: "/srv", capabilities: [] };
+
 // Desktop window
 
 test("home overview", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
   await baseline(page, "home-overview");
+});
+
+test("home assistant list", async ({ page }) => {
+  await openDesktop(page, false, { center_home: assistantHome, agent_sessions: assistantSessions });
+  const list = page.locator("#sec-assistant");
+  await expect(list.locator(".cc-line")).toHaveCount(2);
+  await list.getByRole("button", { name: /Ended/ }).click();
+  await expect(list.locator(".cc-line")).toHaveCount(3);
+  await baseline(page, "home-assistant");
+});
+
+test("assistant composer", async ({ page }, info) => {
+  await openDesktop(page, false, { center_home: home, agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high" } });
+  // The headline is drawn by lot when the form opens; the screenshot needs the same one each run.
+  await page.evaluate(() => { Math.random = () => 0; });
+  await expect(page.locator("#sec-needs")).toBeVisible();
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await expect(page.locator("#agpillb .flsh")).toBeVisible();
+  await expect(page.locator("#aghostb")).toHaveText(machineId);
+  await baseline(page, "assistant-composer");
 });
 
 test("sidebar star prompt", async ({ page }) => {
@@ -568,6 +598,15 @@ test("phone home", async ({ page }) => {
   await expect(page.locator("body")).toHaveClass(/mobile/);
   await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
   await baseline(page, "phone-home");
+});
+
+test("phone home assistant", async ({ page }) => {
+  await page.setViewportSize(PHONE);
+  await openDesktop(page, false, { center_home: assistantHome, agent_sessions: assistantSessions });
+  await expect(page.locator("body")).toHaveClass(/mobile/);
+  await expect(page.locator("#sec-assistant .cc-line")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "New assistant" })).toBeVisible();
+  await baseline(page, "phone-home-assistant");
 });
 
 test("unfolded foldable home", async ({ page }) => {

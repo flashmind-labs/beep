@@ -38,6 +38,7 @@ fn agent_session(
         question: None,
         subagents: 0,
         model: None,
+        assistant: false,
     }
 }
 

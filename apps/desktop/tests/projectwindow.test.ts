@@ -12,7 +12,7 @@ test("a project window keeps its project and what opens from it", () => {
   assert.equal(route(scope, { view: "projects", arg: { project: "org/site" } }), "here");
   assert.equal(route(scope, { view: "pane", arg: { agent: agent("build-box", "/srv/site") } }), "here");
   assert.equal(route(scope, { view: "pane", arg: { agent: agent("build-box", "/srv/site/.worktrees/fix") } }), "here");
-  assert.equal(route(scope, { view: "pane", arg: { agentnew: { prompt: "" } } }), "here");
+  assert.equal(route(scope, { view: "pane", arg: { agentnew: { prompt: "", assistant: false } } }), "here");
   assert.equal(route(scope, { view: "pane", arg: { draft: { project: "org/site", machine: null } } }), "here");
   assert.equal(route(scope, { view: "pane", arg: { draft: { project: "org/other", machine: null } } }), "main");
 });

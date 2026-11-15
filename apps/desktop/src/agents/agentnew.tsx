@@ -9,11 +9,13 @@ import { menuPlaceFor } from "./mentionmenu.ts";
 import { FolderChoice, NewAgentNotes } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
-import { AG, AGENT_ORDER, agentKind, byPreference, hostChanges, loadAgentHosts, renderAgents, sentImage, type Started } from "./agents.ts";
+import { AG, agentKind, hostChanges, loadAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
+import { assistantHarness, assistantHost } from "./assistant-state.ts";
+import { loadAssistant, type AssistantPick } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks } from "./session.tsx";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.tsx";
-import { type BaseBranches, baseFor, baseRows, type CheckoutPick, DEFAULT_CHECKOUT, folderPill, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, startPlace, tildePath } from "./agentpick.ts";
+import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, baseRows, type CheckoutPick, type CheckoutPlan, DEFAULT_CHECKOUT, folderPill, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, startPlace, tildePath } from "./agentpick.ts";
 import { type AgentReturn, bar, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
 import { folderOn, type MachineFolder } from "../project/projects-state.ts";
@@ -90,11 +92,14 @@ const formBranches = () => AG.form.project ? BRANCHES.get(AG.form.project) : nul
 
 /// The start form with `prompt`; `from` is where Esc goes back to.
 /// `at` presets the machine and folder, as a project's "Start an agent here" does.
-export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: AgentPlace | null = null) {
+/// `assistant` starts the Home assistant: no project, the machine's home folder.
+export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: AgentPlace | null = null, assistant = false) {
   S.view = "agentnew";
   AG.back = from;
-  AG.form = { prompt, machine: at?.machine || lastMachine(at?.project), agent: null, cwd: at?.cwd || "", places: at?.places, project: at?.project ?? null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
-  restoreProjectPick();
+  AG.form = assistant
+    ? { prompt, assistant, machine: "", agent: null, cwd: "", project: null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false }
+    : { prompt, assistant, machine: at?.machine || lastMachine(at?.project), agent: null, cwd: at?.cwd || "", places: at?.places, project: at?.project ?? null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
+  if (assistant) presetAssistant(); else restoreProjectPick();
   AG.error = "";
   AG.busy = false;
   drawFrame();
@@ -177,12 +182,15 @@ function drawParts() {
 
   // With no machine picked, or one that no longer runs agents: the project's
   // first machine with a checkout and an agent, else the first with an agent.
+  // The assistant's is the first that offers its harness.
   if (AG.hosts && !formHost()) {
-    f.machine = (f.places && barPlace(f.places, AG.hosts, "")?.machine_id) || addHosts(AG.hosts)[0]?.machine_id || "";
+    const harness = f.assistant ? formPick()?.agent ?? null : null;
+    const offering = harness ? assistantHost(addHosts(AG.hosts), null, harness) : null;
+    f.machine = offering?.machine_id || (f.places && barPlace(f.places, AG.hosts, "")?.machine_id) || addHosts(AG.hosts)[0]?.machine_id || "";
     if (f.machine) f.cwd = folderOn(f.cwd, f.machine, f.places);
   }
 
-  const preferred = !f.modelFor ? lastProjectPick(f.project ?? null)?.agent : null;
+  const preferred = !f.modelFor ? formPick()?.agent : null;
   f.agent = harnessFor(preferred ?? f.agent, formAgents(), AGENT_ORDER);
   f.effort = keepEffort(f.agent, f.effort);
   syncModel();
@@ -194,7 +202,7 @@ function drawParts() {
     sendDisabled: AG.busy || attachments.reading || !hosts.length || !f.machine,
     sendTitle: !f.machine ? "Pick a machine first" : "Start (⌘↩)",
     busy: AG.busy, open: f.open ?? null,
-    folderHidden: !!f.typing, folderTitle: f.cwd.trim() || host?.workspace || "The machine's workspace",
+    folderHidden: f.assistant || !!f.typing, folderTitle: f.cwd.trim() || host?.workspace || "The machine's workspace",
   });
   attachments.setBusy(AG.busy);
   if (!AG.busy) attachments.files.moveTo(f.machine, f.cwd.trim());
@@ -238,11 +246,11 @@ function drawPicker(c: StartComposer) {
       Object.assign(f, { agent: picked.agent, model: picked.model, effort: picked.effort, query: picked.query });
       // A model found under another harness keeps with it.
       if (what === "model" && f.modelFor && machine) f.modelFor = `${machine}/${picked.agent}`;
-      if (what !== "agent") keepProjectPick(f.project ?? null, picked);
+      if (what !== "agent" && !f.assistant) keepProjectPick(f.project ?? null, picked);
       if (what === "model") { f.open = null; drawParts(); return c.input.focus(); }
       drawParts();
       if (what === "agent") {
-        if (f.agent) keepProjectPick(f.project ?? null, { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null });
+        if (f.agent && !f.assistant) keepProjectPick(f.project ?? null, { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null });
         focusSearch(el);
       }
     },
@@ -497,13 +505,42 @@ function restoreProjectPick() {
   f.modelFor = "";
 }
 
+/// The assistant setting, once read for the form open now; null until then.
+let assistantPick: AssistantPick | null = null;
+
+/// Presets the form to the assistant setting once it is read.
+function presetAssistant() {
+  const f = AG.form;
+  assistantPick = null;
+  f.model = "";
+  f.modelFor = "";
+  loadAssistant().then(pick => {
+    if (AG.form !== f) return;
+    assistantPick = pick;
+    // The machine is picked again for the harness.
+    f.machine = "";
+    f.modelFor = "";
+    if (S.view === "agentnew") drawParts();
+  }, e => console.warn("assistant setting:", e));
+}
+
+/// The harness, model and thinking level the form starts on: the assistant
+/// setting, or the ones last picked in the project.
+function formPick(): { agent: string | null; model: string; effort: string | null } | null {
+  const f = AG.form;
+  if (!f.assistant) return lastProjectPick(f.project ?? null);
+  if (!assistantPick || !AG.hosts) return null;
+  const agent = assistantHarness(assistantPick.agent, AG.hosts);
+  return { agent, model: agent === assistantPick.agent ? assistantPick.model ?? "" : "", effort: keepEffort(agent, assistantPick.effort) };
+}
+
 /// Keeps the model with the machine and harness it was picked for, and
 /// asks for their models when not known lately.
 function syncModel() {
   const f = AG.form, machine = f.machine || null, agent = f.agent;
   const key = machine && agent ? `${machine}/${agent}` : "";
   if (f.modelFor !== key) {
-    const saved = !f.modelFor ? lastProjectPick(f.project ?? null) : null;
+    const saved = !f.modelFor ? formPick() : null;
     f.model = saved?.agent === agent ? saved.model : "";
     if (saved?.agent === agent) f.effort = keepEffort(agent, saved.effort);
     f.modelFor = key;
@@ -528,7 +565,7 @@ export async function startAgent() {
     const models = knownModels(f.machine, f.agent);
     const model = f.model?.trim() && f.modelFor ? modelId(models, f.model) : null;
     const effort = f.effort || null;
-    keepMachine(f.project, f.machine);
+    if (!f.assistant) keepMachine(f.project, f.machine);
     // In a project's checkout, an existing worktree is a folder to start
     // in, and the node makes a new branch or worktree before it starts
     // only when one is picked.
@@ -538,19 +575,10 @@ export async function startAgent() {
     const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, f.cwd.trim());
     if (attachments.files.pending.length) composer?.update({ progress: "Starting the agent…" });
     const images = attachments.images.map(sentImage);
-    const started = await invoke<Started>("agent_start", {
-      machineId: f.machine,
-      agent: f.agent,
-      cwd: cwd || null,
-      prompt,
-      images,
-      model,
-      effort,
-      checkout,
-    });
+    const started = f.assistant
+      ? await startAssistant(prompt, { agent: f.agent, model, effort }, f.machine, images)
+      : await start({ machine: f.machine, agent: f.agent, cwd: cwd || null, prompt, images, model, effort, checkout, assistant: false });
     attachments.clear();
-    const resolved = model ?? models?.current ?? "";
-    sessionPicks.set(started.session.id, { model: resolved.toLowerCase() === "default" ? "" : resolved, effort });
     AG.busy = false;
     composer?.update({ progress: "" });
     if (S.view !== "agentnew") return;
@@ -562,4 +590,33 @@ export async function startAgent() {
     AG.error = String(e).replace(/^bad request: /, "");
     if (S.view === "agentnew") drawParts();
   }
+}
+
+/// Starts the Home assistant with `pick`'s harness, model and thinking level
+/// on `machine`, or the one the mesh picks, in the machine's home folder.
+export function startAssistant(prompt: string, pick: AssistantPick, machine: string | null, images: readonly SentImage[] = []): Promise<Started> {
+  const model = pick.model ? modelId(knownModels(machine, pick.agent), pick.model) || null : null;
+  return start({ machine, agent: pick.agent, cwd: null, prompt, images, model, effort: pick.effort, checkout: null, assistant: true });
+}
+
+/// What `agent_start` takes.
+interface Start {
+  machine: string | null;
+  agent: string | null;
+  cwd: string | null;
+  prompt: string;
+  images: readonly SentImage[];
+  model: string | null;
+  effort: string | null;
+  checkout: CheckoutPlan | null;
+  assistant: boolean;
+}
+
+/// Starts a session and keeps the model and thinking level it started on for its pill.
+async function start(s: Start): Promise<Started> {
+  const started = await invoke<Started>("agent_start", { machineId: s.machine, agent: s.agent, cwd: s.cwd, prompt: s.prompt, images: s.images, model: s.model, effort: s.effort, checkout: s.checkout, assistant: s.assistant });
+  const resolved = s.model ?? knownModels(s.machine, s.agent)?.current ?? "";
+  sessionPicks.set(started.session.id, { model: resolved.toLowerCase() === "default" ? "" : resolved, effort: s.effort });
+
+  return started;
 }

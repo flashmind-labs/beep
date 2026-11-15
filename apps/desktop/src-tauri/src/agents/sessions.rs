@@ -104,6 +104,8 @@ pub struct SessionRow {
     subagents: u32,
     /// The model it runs on, when its node says.
     model: Option<ModelId>,
+    /// The home assistant.
+    assistant: bool,
 }
 
 impl From<MachineSession> for SessionRow {
@@ -125,6 +127,7 @@ impl From<MachineSession> for SessionRow {
             reviewer: false,
             subagents: session.subagents,
             model: session.model,
+            assistant: session.assistant,
         }
     }
 }

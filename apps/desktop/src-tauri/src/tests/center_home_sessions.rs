@@ -17,6 +17,7 @@ fn external(id: &str, status: AgentStatus) -> MachineSession {
         question: None,
         subagents: 0,
         model: None,
+        assistant: false,
     }
 }
 

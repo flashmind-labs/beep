@@ -23,7 +23,7 @@ export type PaneTarget =
   | null
   | { agent: AgentRow & { kind?: string }; from?: BackTo; adopt?: boolean }
   | { draft: { project: string; machine: string | null; terminal?: true | TerminalRow } }
-  | { agentnew: { prompt?: string; at?: AgentPlace | null }; from?: BackTo };
+  | { agentnew: { prompt?: string; at?: AgentPlace | null; assistant: boolean }; from?: BackTo };
 
 export const pane = {
   /// Hands the pane what the window does for it.
@@ -62,7 +62,7 @@ export const pane = {
         });
       }
 
-      return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null);
+      return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null, target.agentnew.assistant);
     }
 
     if (target === "settings") return renderSettings();

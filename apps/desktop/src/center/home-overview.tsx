@@ -5,7 +5,7 @@ import { lastProjectVisit, readProjectSort, saveProjectSort } from "../project/p
 import { visibleRunning } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
-import { byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
+import { agentName, byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { Board, CardRow, type BoardCard } from "./lanes-view.tsx";
 import { byProject, endedToday, laneOf } from "./lanes-state.ts";
@@ -25,7 +25,10 @@ import { go } from "./views.tsx";
 import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
 import { isMobile } from "../ui/platform.ts";
-import { Button, Section, EmptyPanel } from "../ui/kit.tsx";
+import { Button, Section, EmptyPanel, EndedFold, LineRow } from "../ui/kit.tsx";
+import { sessions } from "../agents/sessions.ts";
+import { assistantRows } from "../agents/assistant-state.ts";
+import type { AgentSession } from "../agents/agents.ts";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
 import { RunningStatus } from "../project/split-view.tsx";
 
@@ -62,7 +65,7 @@ function needsCards(home: HomeView): BoardCard[] {
     const open = () => openUrl(item.url);
     const project = repos.get(`${item.host} ${item.repo}`)?.project ?? null;
     // A review can be read on the host, or in a project handed to an agent.
-    const review = project && (() => { go("pane", { agentnew: reviewStart(item, project, home.machines?.filter(m => m.can_host !== false)) }); });
+    const review = project && (() => { go("pane", { agentnew: { ...reviewStart(item, project, home.machines?.filter(m => m.can_host !== false)), assistant: false } }); });
     cards.push({ key: item.url, lane: "needs", project: project?.name ?? item.repo, session: false, lead: <span style={{ display: "contents" }}><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>,
       title: `#${item.number} ${item.title}`, sub: [item.repo, itemChips(item).map(c => c.text).join(", ")].filter(Boolean).join(" · "), foot: null,
       action: item.review_requested && review ? { kind: "menu", label: "Review", items: [{ label: "Open", on: open }, { label: "Review with agent", on: review }] } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
@@ -81,10 +84,10 @@ function needsCards(home: HomeView): BoardCard[] {
   return cards;
 }
 
-/// Everything that runs, the latest first.
-function runningCards(home: HomeView): BoardCard[] {
+/// Everything that runs but the assistants, the latest first.
+function runningCards(home: HomeView, assistants: ReadonlySet<string>): BoardCard[] {
   const projects = home.projects || [];
-  return byRecent(visibleRunning(home.running)).map(row => {
+  return byRecent(visibleRunning(home.running).filter(row => !assistants.has(runningKey(row)))).map(row => {
     const { title, sub } = runningLineAt(row, projects);
     const status = runningStatus(row, home);
     return { key: runningKey(row), lane: laneOf(row.status), project: sessionProject(row, home), session: true, lead: <HarnessIcon agent={row.agent} />,
@@ -128,9 +131,10 @@ export function HomeOverview({ home }: { home: HomeView }) {
   };
 
   const list = frontLayout("home") === "list";
-  const needs = needsCards(home), running = runningCards(home);
+  const assistants = assistantRows(sessions.filter(sessionVisible), home.machines ?? []);
+  const needs = needsCards(home), running = runningCards(home, new Set(assistants.running.map(runningKey)));
   const cards = list ? [...needs, ...running] : boardCards(home, needs, running);
-  const empty = !cards.length;
+  const empty = !cards.length && !assistants.running.length;
   // A row's dot matches the project's in the sidebar.
   const listed = projectRows() || [];
   const activity = new Map<string, number>();
@@ -158,8 +162,25 @@ export function HomeOverview({ home }: { home: HomeView }) {
     {list ? !!needs.length && <Section id="sec-needs" title="Needs you" count={needs.length}>{ordered(needs).map(card => <CardRow key={card.key} card={card}/>)}</Section>
       : !!cards.length && <div id="sec-needs"><Board cards={ordered(cards)} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={isMobile() ? null : rows} recency={recency}/></div>}
     {list && !!running.length && <Section id="sec-running" title={<Button className="lk" onClick={() => go("pane", "agents")}>Running</Button>} count={running.length}>{ordered(running).map(card => <CardRow key={card.key} card={card}/>)}</Section>}
+    <Assistants running={assistants.running} ended={assistants.ended} />
     {empty && <Empty home={home} />}
   </>;
+}
+
+/// The Home assistant's sessions: those that run, then the ended ones under their fold.
+function Assistants({ running, ended }: { running: AgentSession[]; ended: AgentSession[] }) {
+  const [endedOpen, setEndedOpen] = useState(false);
+  if (!running.length && !ended.length) return null;
+  const row = (session: AgentSession) => {
+    const right = session.status === "ended" ? formatAgo(session.last_activity, "since") : <RunningStatus row={{ kind: "agent", ...session }} />;
+    return <LineRow key={runningKey(session)} dataKey={runningKey(session)} lead={<HarnessIcon agent={session.agent} />} title={session.title || agentName(session.agent)} sub={session.machine_name} right={right} dim={session.status === "ended"} onOpen={() => go("pane", { agent: session })} />;
+  };
+
+  return <Section id="sec-assistant" title="Assistant" count={running.length}>
+    {running.map(row)}
+    {!!ended.length && <EndedFold count={ended.length} open={endedOpen} onToggle={() => setEndedOpen(!endedOpen)} />}
+    {endedOpen && ended.map(row)}
+  </Section>;
 }
 
 /// Nothing to show: nothing runs, or no machine has answered yet.

@@ -9,7 +9,7 @@ import type { AgentSession } from "../src/agents/agents.ts";
 let at = 0;
 const row = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({
   machine_id: "m1", machine_name: "Build Box", id, agent: "claude", title: id, cwd: "/srv/project",
-  status: "working", doing: null, started_at: ++at, last_activity: at, external: false, question: null, parent: null, ...over,
+  status: "working", doing: null, started_at: ++at, last_activity: at, external: false, question: null, parent: null, assistant: false, ...over,
 });
 const under = (machine_id: string, id: string, key = "") => ({ machine_id, id, key });
 

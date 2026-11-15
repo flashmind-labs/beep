@@ -30,7 +30,6 @@ import { openAgent, closeOpenSession, submitAgentMessage } from "./session.tsx";
 import { openEditorKey } from "./session-head.tsx";
 import { sessionMenu } from "./sessionmenu.ts";
 import type { AgentQuestion } from "./running-state.ts";
-import { byOrder } from "./agentpick.ts";
 import { AGENT_ACTIVE, TAKEOVER } from "./sessionmenu-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { jumpToStart, loadOlder, logJumpKey, nearTop } from "./older.ts";
@@ -79,6 +78,8 @@ export interface AgentSession {
   reviewer?: boolean;
   /// The model it runs on, when its node says.
   model?: string | null;
+  /// The Home assistant.
+  assistant: boolean;
 }
 
 /// Where the session that started another runs and the ids it is listed
@@ -221,6 +222,8 @@ export interface OpenAgent {
 /// The start form.
 interface AgentForm {
   prompt: string;
+  /// Starts the Home assistant: no project and no folder.
+  assistant: boolean;
   /// A machine id, or "" until one is picked.
   machine: string;
   agent: string | null;
@@ -323,7 +326,7 @@ interface AgentState {
 export const AG: AgentState = {
   readError: "", link: LINKED,
   hosts: null, error: "", busy: false,
-  form: { prompt: "", machine: "", agent: null, cwd: "" },
+  form: { prompt: "", assistant: false, machine: "", agent: null, cwd: "" },
   open: null, draft: null, page: null, why: "", back: "hide", timer: undefined, inflight: null, note: "",
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined,
@@ -375,12 +378,10 @@ const AGENT_KINDS: Record<string, AgentKind> = {
 };
 /// Agents whose outside sessions a node can take over (the ones it reads sessions of).
 export const canTakeOver = (a: string) => TAKEOVER.has(a);
-export const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh", "hermes"];
 export const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
 
 export const agentKind = (a: string): AgentKind => AGENT_KINDS[a] ?? { ini: String(a || "?").slice(0, 2).toUpperCase(), name: a || "Agent", cls: "" };
 export const folderName = (p: string) => String(p || "").split("/").filter(Boolean).pop() || p || "";
-export const byPreference = byOrder(AGENT_ORDER);
 /// The open session `row` is.
 export const openOf = (row: Pick<AgentRow, "machine_id" | "agent" | "id">): OpenAgent => ({ machine_id: row.machine_id, agent: row.agent, session: row.id });
 /// The session `o` names, as the node's commands take it.

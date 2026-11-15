@@ -49,6 +49,21 @@ fn an_idle_session_with_running_subagents_lists_as_working() {
     assert_eq!(beep_session(&host, info).status, AgentStatus::Idle {});
 }
 
+#[test]
+fn a_listed_session_keeps_the_assistant_flag() {
+    let host = Host {
+        id: "machine-a".into(),
+        name: "build-box".into(),
+    };
+    let info = SessionInfo {
+        id: "a3f9c1".into(),
+        agent: "codex".into(),
+        assistant: true,
+        ..SessionInfo::default()
+    };
+    assert!(beep_session(&host, info).assistant);
+}
+
 #[tokio::test]
 async fn project_history_hides_background_children_only() {
     use crate::MeshError;

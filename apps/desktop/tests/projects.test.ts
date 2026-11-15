@@ -100,7 +100,7 @@ test("live project sessions move to Running before Home catches up", () => {
   const session = (id: string, status: string, more = {}): SessionRow => ({
     machine_id: "m1", machine_name: "build-box", id, agent: "codex", title: id,
     cwd: "/srv/project", status, doing: null, started_at: 1, last_activity: 2,
-    external: false, question: null, ...more,
+    external: false, question: null, assistant: false, ...more,
   });
   const sessions = ["starting", "working", "running", "asking", "waiting", "idle", "ended"].map(status => session(status, status));
   assert.deepEqual(pastSessions(sessions, []).map(s => s.id), ["ended"], "live statuses stay out of history before Running loads");
@@ -121,9 +121,9 @@ test("project Running keeps Home's live state and includes sessions in other wor
     started_at: 1, last_activity: 5, external: false,
   };
   const history: SessionRow[] = [
-    { ...live, status: "running", title: "Old", question: null },
-    { ...live, id: "s2", cwd: "/srv/other-worktree", question: null },
-    { ...live, id: "ended", status: "ended", question: null },
+    { ...live, status: "running", title: "Old", question: null, assistant: false },
+    { ...live, id: "s2", cwd: "/srv/other-worktree", question: null, assistant: false },
+    { ...live, id: "ended", status: "ended", question: null, assistant: false },
   ];
   const other = { ...live, machine_id: "m2" };
   const running = projectRunning(project, [live, other, { ...live, id: "outside", cwd: "/srv/project-other" }], history);
@@ -311,7 +311,7 @@ test("project lists a moved conversation once with its target title and state", 
   const source: SessionRow = {
     machine_id: "m1", machine_name: "build-box", id: "conversation", agent: "codex",
     title: "Continue", cwd: "/srv/project", status: "idle", doing: null,
-    question: null, started_at: 1, last_activity: 2, external: false,
+    question: null, started_at: 1, last_activity: 2, external: false, assistant: false,
   };
   const target = { ...source, machine_id: "m2", title: "Diff improvements", status: "working", last_activity: 100 };
   const moves = [{ session: source.id, agent: source.agent, from: "m1", to: "m2", project: "org/app", at: 3 }];
