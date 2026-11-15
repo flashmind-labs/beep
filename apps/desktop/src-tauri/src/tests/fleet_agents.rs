@@ -13,11 +13,11 @@ fn host(name: &str) -> AgentHost {
 
 #[test]
 fn assistant_start_skips_old_nodes() {
-    // This computer's own node runs it at any version; other nodes after 0.7.10.
+    // This computer's own node runs it at any version; other nodes after 0.7.12.
     let runs = |host: &AgentHost| match host.machine_name.as_str() {
         "this-box" => true,
-        "old-box" => newer_than(Some("0.7.10"), &BEFORE_ASSISTANT),
-        _ => newer_than(Some("0.7.11"), &BEFORE_ASSISTANT),
+        "old-box" => newer_than(Some("0.7.12"), &BEFORE_ASSISTANT),
+        _ => newer_than(Some("0.7.13"), &BEFORE_ASSISTANT),
     };
 
     let ready = for_assistant(
