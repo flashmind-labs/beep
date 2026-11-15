@@ -243,7 +243,7 @@ pub async fn claude_sign_in(
     sign_in: State<'_, ClaudeSignIn>,
 ) -> Result<TokenView> {
     let claude = find_tool("claude").ok_or_else(|| {
-        refused("Claude Code is not installed on this Mac. Paste a token instead.")
+        refused("Claude Code is not installed on this computer. Install it in Coding agents, or paste a token.")
     })?;
     let cancelled = sign_in.start()?;
     let token = setup_token(&claude, cancelled).await;

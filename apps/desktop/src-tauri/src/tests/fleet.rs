@@ -326,7 +326,7 @@ async fn a_node_runs_commands_on_this_mac_only_while_it_is_lent() {
     assert!(failed, "{text}");
     assert_eq!(
         text,
-        "Studio doesn't run commands: Let Beep use this Mac is off in its Settings."
+        "Studio doesn't run commands: Let Beep use this computer is off in its Settings."
     );
 }
 
@@ -379,7 +379,7 @@ async fn this_mac_cannot_remove_itself() {
         .remove(mac.fleet.id())
         .await
         .expect_err("it stays");
-    assert_eq!(error.to_string(), "this Mac cannot remove itself");
+    assert_eq!(error.to_string(), "this computer cannot remove itself");
     assert_eq!(mac.fleet.machines().len(), 1);
 }
 
@@ -400,7 +400,7 @@ async fn a_mac_with_other_devices_does_not_leave_its_mesh() {
         .expect_err("it has company");
     assert_eq!(
         error.to_string(),
-        "this Mac is in a mesh with other devices"
+        "this computer is in a mesh with other devices"
     );
     assert_eq!(laptop.fleet.machines().len(), 2);
 }

@@ -15,9 +15,10 @@ import { commandKey, isMobile } from "../ui/platform.ts";
 import { filterProjects } from "./projects-state.ts";
 import { openMenu } from "../ui/menu.tsx";
 import { localProjectId } from "./localid.ts";
-import { addHosts, type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, nextBarMachine, reviewPrompt, reviewSession, type ReviewSession, reviewTitle, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
-import { keepMachine, lastMachine } from "../agents/agentnew.tsx";
+import { addHosts, type BarTarget, barCheckout, barPlace, barPrompt, barReadiness, forgeOf, nextBarMachine, reviewPrompt, reviewSession, type ReviewSession, reviewTitle, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
+import { keepMachine, lastMachine, openAgents, openMachines } from "../agents/agentnew.tsx";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
+import { NoAgentHelp } from "../agents/start-composer-view.tsx";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent, preloadModels } from "../agents/agentpicker.tsx";
 import { AG, AGENT_ORDER, type AgentHost, byPreference } from "../agents/agents.ts";
 import { draftPlace } from "../agents/draft.tsx";
@@ -111,6 +112,7 @@ function toggleBarPicker() {
 function openMachineMenu(e: MouseEvent) {
   const p = barProject(), hosts = pc.hosts ?? [];
   if (!p || pc.adding) return;
+  if (!addHosts(hosts).length) return openAgents();
   if (!barPlace(p.places, hosts, pc.machine)) {
     openMenu(e, "Add to a machine", addHosts(hosts).map(m => ({ label: m.machine_name, on: () => addToMachine(p.name, m) })));
     return;
@@ -248,12 +250,13 @@ export function drawProjectComp(name: string) {
   // The machine last picked, while it still has a checkout and an agent,
   // else the first such machine.
   const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  const readiness = p ? barReadiness(p.places, pc.hosts, pc.machine) : "ready";
   // Text set or cleared from code (Work on it, a start) fits once the page places the form.
   requestAnimationFrame(fitField);
   const t = pc.target;
   const co = t ? targetCheckout(t) : barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
   c.renderChoices({
-    machine: pc.adding?.machine_name ?? (place ? place.machine_name : pc.hosts ? "Add to a machine" : "Machine"),
+    machine: pc.adding?.machine_name ?? (place ? place.machine_name : readiness === "no agent" ? "Install a coding agent" : pc.hosts ? "Add to a machine" : "Machine"),
     adding: !!pc.adding, machineDisabled: !!pc.adding || pc.starting,
     folder: co.label, folderSub: co.sub, folderDisabled: !place || pc.starting,
     branch: t?.kind === "issue" ? t.branch : "", showBranch: t?.kind === "issue" && !t.review?.earlier,
@@ -270,9 +273,10 @@ export function drawProjectComp(name: string) {
 
   if (!agent) pc.open = false;
   c.update({
-    placeholder: c.centered() ? "Describe the task." : barPrompt(name, (!!place && !pc.adding) || pc.hosts === null),
+    placeholder: c.centered() && readiness === "ready" ? "Describe the task." : barPrompt(name, pc.adding ? "no checkout" : readiness),
     harnessDisabled: !agent || pc.starting, open: pc.open ? "pick" : null,
     sendDisabled: pc.starting || barAttachments.reading || !place || !!pc.adding, busy: pc.starting,
+    notes: readiness === "no agent" ? <NoAgentHelp openAgents={openAgents} openMachines={openMachines} /> : null,
   });
   drawBarPicker(host, offered);
   barAttachments.setBusy(pc.starting);
@@ -438,6 +442,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
 async function startFromBar() {
   const c = projectComp, p = barProject(), text = composeMessage(c.input.value);
   const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  if (p && !place && !pc.adding && pc.hosts) { c.update({ error: barPrompt(p.name, barReadiness(p.places, pc.hosts, pc.machine)) + "." }); return; }
   if (!p || !place || (!text && !barAttachments.count) || barAttachments.reading || pc.starting || pc.adding) return;
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.update({ error: "Name the branch first." }); return; }

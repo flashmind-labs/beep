@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addHosts, barPlace, barPrompt, nextBarMachine, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt, fixedTitle, reviewSession, reviewTitle } from "../src/project/projectbar.ts";
+import { addHosts, barPlace, barPrompt, barReadiness, nextBarMachine, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt, fixedTitle, reviewSession, reviewTitle } from "../src/project/projectbar.ts";
 
 const HOSTS = [
   { machine_id: "m", machine_name: "mac-box", agents: ["claude"] },
@@ -31,8 +31,16 @@ test("the bar starts on the machine picked, else the first by name with a checko
 
 test("with no checkout an agent can run in, the bar offers the machines with an agent", () => {
   assert.deepEqual(addHosts(HOSTS).map(h => h.machine_name), ["build-box", "mac-box"]);
-  assert.equal(barPrompt("acme/widget", false), "Add acme/widget to a machine to start an agent");
-  assert.equal(barPrompt("acme/widget", true), "Describe a task for a coding agent in acme/widget");
+  assert.equal(barReadiness(PLACES.slice(2), HOSTS, ""), "no checkout");
+  assert.equal(barPrompt("acme/widget", "no checkout"), "Add acme/widget to a machine to start an agent");
+  assert.equal(barPrompt("acme/widget", "ready"), "Describe a task for a coding agent in acme/widget");
+});
+
+test("with no coding agent on any machine, the bar says so instead of doing nothing", () => {
+  const bare = HOSTS.map(h => ({ ...h, agents: [] }));
+  assert.equal(barReadiness(PLACES, bare, ""), "no agent");
+  assert.equal(barReadiness(PLACES, null, ""), "ready", "machines not read yet");
+  assert.equal(barPrompt("acme/widget", "no agent"), "No machine has a coding agent. Install one in Coding agents");
 });
 
 test("a target starts on its named or existing branch", () => {

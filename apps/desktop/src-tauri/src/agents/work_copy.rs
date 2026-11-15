@@ -75,7 +75,7 @@ struct LocalCopy {
 enum Miss {
     #[error("no project holds it on that machine (removing a machine deletes its imports)")]
     NoProject,
-    #[error("{project} has no folder on this Mac; its folders elsewhere: {tried:?}")]
+    #[error("{project} has no folder on this computer; its folders elsewhere: {tried:?}")]
     NotHere { project: String, tried: Vec<String> },
 }
 

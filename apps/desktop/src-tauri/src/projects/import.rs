@@ -182,7 +182,7 @@ pub async fn host_repos(fleet: FleetState<'_>) -> Result<Vec<HostReposRow>> {
 pub fn open_folder(path: PathBuf) -> Result<()> {
     if !openable(&path) {
         return Err(DesktopError::BadRequest(
-            "That folder is not on this Mac.".into(),
+            "That folder is not on this computer.".into(),
         ));
     }
 

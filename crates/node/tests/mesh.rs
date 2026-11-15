@@ -2017,7 +2017,7 @@ async fn an_agent_runs_a_command_on_a_desktop_that_lends_itself() {
     assert!(failed, "{text}");
     assert_eq!(
         text,
-        "desktop doesn't run commands: Let Beep use this Mac is off in its Settings."
+        "desktop doesn't run commands: Let Beep use this computer is off in its Settings."
     );
 }
 
