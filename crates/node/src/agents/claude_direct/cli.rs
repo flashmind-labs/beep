@@ -26,7 +26,8 @@ pub(super) struct Launch<'a> {
     /// The session it starts as, or resumes.
     pub(super) session: &'a str,
     pub(super) resume: bool,
-    /// The MCP servers, as `--mcp-config` takes them.
+    /// The MCP servers, as `--mcp-config` takes them. It holds their
+    /// secrets, so it goes in a file only the user reads, not in argv.
     pub(super) mcp: Option<String>,
     /// Appended to its system prompt.
     pub(super) system: Option<String>,
@@ -35,9 +36,10 @@ pub(super) struct Launch<'a> {
 }
 
 impl Launch<'_> {
-    /// Its arguments; the system prompt is read from `system`, a file, as it
+    /// Its arguments. The MCP servers are read from `files.mcp` and the
+    /// system prompt from `files.system`: the one holds secrets, the other
     /// can be longer than a Windows command line takes.
-    fn args(&self, system: Option<&Path>) -> Vec<String> {
+    fn args(&self, files: &Files) -> Vec<String> {
         let mut args: Vec<String> = [
             "--print",
             "--input-format",
@@ -65,14 +67,14 @@ impl Launch<'_> {
         };
         args.extend([session.to_owned(), self.session.to_owned()]);
 
-        if let Some(mcp) = &self.mcp {
-            args.extend(["--mcp-config".to_owned(), mcp.clone()]);
+        if let Some(mcp) = &files.mcp {
+            args.extend(["--mcp-config".to_owned(), mcp.path().display().to_string()]);
         }
 
-        if let Some(system) = system {
+        if let Some(system) = &files.system {
             args.extend([
                 "--append-system-prompt-file".to_owned(),
-                system.display().to_string(),
+                system.path().display().to_string(),
             ]);
         }
 
@@ -85,6 +87,20 @@ impl Launch<'_> {
     }
 }
 
+/// The files a CLI reads its settings from, removed when it is dropped.
+struct Files {
+    mcp: Option<NamedTempFile>,
+    system: Option<NamedTempFile>,
+}
+
+/// `text` in a new file only the user can read (`tempfile` makes it 0600).
+fn file(text: &str) -> Result<NamedTempFile> {
+    let mut file = NamedTempFile::new().context("writing Claude Code's settings")?;
+    file.write_all(text.as_bytes())
+        .context("writing Claude Code's settings")?;
+    Ok(file)
+}
+
 /// A running CLI. Dropping it kills it.
 pub(super) struct Cli {
     lines: mpsc::UnboundedSender<String>,
@@ -92,24 +108,19 @@ pub(super) struct Cli {
     pub(super) frames: mpsc::Receiver<Value>,
     next: u64,
     _child: Child,
-    _system: Option<NamedTempFile>,
+    _files: Files,
     _tasks: [AbortOnDropHandle<()>; 2],
 }
 
 impl Cli {
     pub(super) fn start(launch: &Launch) -> Result<Self> {
-        let system = match &launch.system {
-            Some(text) => {
-                let mut file = NamedTempFile::new().context("writing the system prompt")?;
-                file.write_all(text.as_bytes())
-                    .context("writing the system prompt")?;
-                Some(file)
-            }
-            None => None,
+        let files = Files {
+            mcp: launch.mcp.as_deref().map(file).transpose()?,
+            system: launch.system.as_deref().map(file).transpose()?,
         };
         let mut process = command(launch.program);
         process
-            .args(launch.args(system.as_ref().map(NamedTempFile::path)))
+            .args(launch.args(&files))
             .current_dir(launch.cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -166,7 +177,7 @@ impl Cli {
             frames,
             next: 0,
             _child: child,
-            _system: system,
+            _files: files,
             _tasks: [AbortOnDropHandle::new(writer), AbortOnDropHandle::new(reader)],
         })
     }

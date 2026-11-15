@@ -128,26 +128,25 @@ impl Settings {
 }
 
 /// `kind` with `config` applied: its program swapped, its home variable
-/// and env vars set, and its arguments added after the node's own.
-/// With the `Direct` driver the program is Claude Code's CLI, which the
-/// node's own bridge starts, and the arguments go to it.
+/// and env vars set, and its arguments added after the node's own. With the
+/// `Direct` driver the node's own bridge runs Claude Code's CLI; the program
+/// and arguments set for its adapter do not apply.
 fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
-    let program = config
-        .program
-        .as_deref()
-        .map(str::trim)
-        .filter(|program| !program.is_empty());
     let direct = match config.driver {
-        HarnessDriver::Direct => direct(kind, program),
+        HarnessDriver::Direct => direct(kind),
         HarnessDriver::Acp | HarnessDriver::Other => None,
     };
-    let mut kind = direct.unwrap_or_else(|| {
-        let mut kind = kind.clone();
-        if let Some(program) = program {
+    let adapter = direct.is_none();
+    let mut kind = direct.unwrap_or_else(|| kind.clone());
+
+    if adapter {
+        let program = config.program.as_deref().map(str::trim);
+        if let Some(program) = program.filter(|program| !program.is_empty()) {
             kind.program = program.to_owned();
         }
-        kind
-    });
+        kind.args.extend(config.args.iter().cloned());
+    }
+
     if let (Some(home), Some(known)) = (
         config.home.as_deref().filter(|h| !h.trim().is_empty()),
         harness(&kind.name),
@@ -155,7 +154,6 @@ fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
         kind.env
             .insert(known.home_var.to_owned(), expand_home(home.trim()));
     }
-    kind.args.extend(config.args.iter().cloned());
     kind.default_model.clone_from(&config.default_model);
     kind.compact = config.compact;
     kind.compact_models.clone_from(&config.compact_models);

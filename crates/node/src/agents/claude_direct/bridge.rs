@@ -27,7 +27,7 @@ use agent_client_protocol::{
 use anyhow::{Context, Result};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use serde_json::{Map, Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tokio::{sync::mpsc, task::spawn_blocking};
 
 /// How many messages from the client wait to be handled.
@@ -170,6 +170,19 @@ struct Session {
     cancelled: bool,
     /// How much of the window the main agent's context fills.
     context: u64,
+    /// The messages of this turn whose text came as stream deltas.
+    streamed: HashSet<String>,
+}
+
+impl Session {
+    /// Takes `mode` as the one the CLI runs in, remembering the one before
+    /// plan mode, which approving the plan returns to.
+    fn moved_to(&mut self, mode: &str) {
+        if mode == "plan" && self.mode != "plan" {
+            self.before_plan = std::mem::take(&mut self.mode);
+        }
+        self.mode = mode.to_owned();
+    }
 }
 
 struct Bridge {
@@ -201,7 +214,7 @@ impl Bridge {
                         session.cli.respond(&answer.request, answer.decision);
 
                         if let Some(mode) = answer.mode {
-                            session.mode = mode.to_owned();
+                            session.moved_to(mode);
                             notify(&self.cx, &session.id, SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(mode)))?;
                         }
                     }
@@ -282,9 +295,10 @@ impl Bridge {
                 let Some(session) = self.session.as_mut().filter(|session| session.id == request.session_id) else {
                     return Ok(responder.respond_with_error(unknown_session())?);
                 };
-                let model = serde_json::to_value(&request.value)?
-                    .as_str()
-                    .map(str::to_owned)
+                let model = request
+                    .value
+                    .as_value_id()
+                    .map(|id| id.0.to_string())
                     .filter(|_| request.config_id.0.as_ref() == MODEL);
                 let Some(model) = model else {
                     return Ok(responder.respond_with_error(
@@ -365,6 +379,7 @@ impl Bridge {
             prompt: None,
             cancelled: false,
             context: 0,
+            streamed: HashSet::new(),
         });
         session.controls.insert(request, Control::Initialize(start));
         log::info!("Claude Code started on session {id} in {}", cwd.display());
@@ -391,6 +406,10 @@ impl Bridge {
             }
             Some("control_request") => self.can_use_tool(&frame)?,
             Some("stream_event") => {
+                if let Some(id) = frame["event"]["message"]["id"].as_str() {
+                    session.streamed.insert(id.to_owned());
+                }
+
                 if let Some(update) = updates::delta(&frame) {
                     notify(cx, &session.id, update)?;
                 }
@@ -402,17 +421,24 @@ impl Bridge {
                     session.context = used;
                 }
 
-                for update in updates::message(&frame, false) {
+                // Text that never streamed, such as a local command's output,
+                // shows from the message itself.
+                let unstreamed = frame["type"] == "assistant"
+                    && frame["message"]["id"]
+                        .as_str()
+                        .is_none_or(|id| !session.streamed.contains(id));
+                for update in updates::message(&frame, unstreamed) {
                     notify(cx, &session.id, update)?;
                 }
             }
-            Some("system") if frame["subtype"] == "init" => {
-                // The mode the CLI runs in, which the model can change.
+            // The mode the CLI runs in, which the model can change mid-turn
+            // (EnterPlanMode): `init` starts a turn, `status` reports a change.
+            Some("system") if matches!(frame["subtype"].as_str(), Some("init" | "status")) => {
                 if let Some(mode) = frame["permissionMode"].as_str()
                     && mode != session.mode
                     && MODES.iter().any(|(id, _)| *id == mode)
                 {
-                    session.mode = mode.to_owned();
+                    session.moved_to(mode);
                     notify(cx, &session.id, SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(mode.to_owned())))?;
                 }
             }
@@ -421,6 +447,7 @@ impl Bridge {
                     notify(cx, &session.id, SessionUpdate::UsageUpdate(usage))?;
                 }
 
+                session.streamed.clear();
                 let cancelled = std::mem::take(&mut session.cancelled);
                 if let Some(responder) = session.prompt.take() {
                     match updates::stop(&frame, cancelled) {
@@ -570,10 +597,7 @@ fn controlled(
         }
         Control::Mode { mode, responder } => match answer {
             Ok(_) => {
-                if mode == "plan" && session.mode != "plan" {
-                    session.before_plan = session.mode.clone();
-                }
-                session.mode = mode;
+                session.moved_to(&mode);
                 responder.respond(SetSessionModeResponse::new())?;
             }
             Err(error) => responder.respond_with_error(refused(error))?,

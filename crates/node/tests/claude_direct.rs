@@ -1,8 +1,8 @@
 //! `beep-node claude-acp`, Claude Code's Direct driver, against a fake
 //! `claude` that speaks stream-json: a client drives it as the node's
 //! session does (initialize, `session/new`, the switch to bypassing
-//! permissions, a prompt) and answers a tool permission and an
-//! `AskUserQuestion` form, which reach the CLI as its control responses.
+//! permissions, a model switch, a prompt) and answers a tool permission and
+//! an `AskUserQuestion` form, which reach the CLI as its control responses.
 #![cfg(unix)]
 
 use serde_json::{Value, json};
@@ -13,13 +13,16 @@ use tokio::{
     time::timeout,
 };
 
-/// A `claude` that answers `initialize` and the mode switch, then plays one
-/// turn: text, a Bash call it asks permission for, a question it asks, and
-/// the result. It writes its arguments and what it reads to `$FAKE_DIR`.
+/// A `claude` that answers `initialize`, the mode and model switches, then
+/// plays one turn: streamed text, a Bash call it asks permission for, a
+/// question it asks, a switch to plan mode, text it never streamed (as a
+/// local command's output comes), and the result. It writes its arguments,
+/// its settings files and what it reads to `$FAKE_DIR`.
 const FAKE_CLAUDE: &str = r#"#!/bin/sh
 printf '%s\n' "$@" > "$FAKE_DIR/args"
 while [ $# -gt 0 ]; do
     [ "$1" = --append-system-prompt-file ] && cp "$2" "$FAKE_DIR/system"
+    [ "$1" = --mcp-config ] && cp "$2" "$FAKE_DIR/mcp"
     shift
 done
 next() { read -r line; printf '%s\n' "$line" >> "$FAKE_DIR/stdin"; }
@@ -33,17 +36,24 @@ ok '{"models":[{"value":"default","displayName":"Default","description":"The usu
 next
 ok '{"mode":"bypassPermissions"}'
 next
+ok '{}'
+next
 echo '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Fix the tests"}]},"parent_tool_use_id":null,"isReplay":true}'
+echo '{"type":"stream_event","event":{"type":"message_start","message":{"id":"m1"}},"parent_tool_use_id":null}'
 echo '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Looking."}},"parent_tool_use_id":null}'
-echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Looking."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cargo test"}}],"usage":{"input_tokens":10,"cache_read_input_tokens":90,"output_tokens":5}},"parent_tool_use_id":null}'
+echo '{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Looking."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cargo test"}}],"usage":{"input_tokens":10,"cache_read_input_tokens":90,"output_tokens":5}},"parent_tool_use_id":null}'
 echo '{"type":"control_request","request_id":"c1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"cargo test"},"tool_use_id":"t1"}}'
 next
 echo '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"test result: ok","is_error":false}]},"parent_tool_use_id":null}'
-echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"AskUserQuestion","input":'"$ask"'}]},"parent_tool_use_id":null}'
+echo '{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t2","name":"AskUserQuestion","input":'"$ask"'}]},"parent_tool_use_id":null}'
 echo '{"type":"control_request","request_id":"c2","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":'"$ask"',"tool_use_id":"t2"}}'
 next
 echo '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"Tea"}]},"parent_tool_use_id":null}'
+echo '{"type":"system","subtype":"status","status":null,"permissionMode":"plan"}'
+echo '{"type":"stream_event","event":{"type":"message_start","message":{"id":"m2"}},"parent_tool_use_id":null}'
 echo '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Tea it is."}},"parent_tool_use_id":null}'
+echo '{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"Tea it is."}]},"parent_tool_use_id":null}'
+echo '{"type":"assistant","message":{"id":"local","role":"assistant","content":[{"type":"text","text":"Usage: fine."}]},"parent_tool_use_id":null}'
 echo '{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"Tea it is.","total_cost_usd":0.01,"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":90},"modelUsage":{"model-a":{"contextWindow":200000}}}'
 cat > /dev/null
 "#;
@@ -169,6 +179,12 @@ async fn a_turn_with_a_permission_and_a_question_reaches_claude_code() {
         )
         .await;
     assert_eq!(mode["result"], json!({}));
+    let fast = json!({"sessionId": session, "configId": "model", "value": "model-fast"});
+    let (_, model) = client.call("session/set_config_option", fast).await;
+    assert_eq!(
+        model["result"]["configOptions"][0]["currentValue"],
+        "model-fast"
+    );
 
     let prompt =
         json!({"sessionId": session, "prompt": [{"type": "text", "text": "Fix the tests"}]});
@@ -208,7 +224,11 @@ async fn a_turn_with_a_permission_and_a_question_reaches_claude_code() {
     let text: Vec<&str> = updates(&seen, "agent_message_chunk")
         .filter_map(|update| update["content"]["text"].as_str())
         .collect();
-    assert_eq!(text, ["Looking.", "Tea it is."]);
+    assert_eq!(text, ["Looking.", "Tea it is.", "Usage: fine."]);
+    let modes: Vec<&Value> = updates(&seen, "current_mode_update")
+        .map(|update| &update["currentModeId"])
+        .collect();
+    assert_eq!(modes, [&json!("plan")], "a mode change mid-turn shows");
     let call = updates(&seen, "tool_call")
         .next()
         .expect("the Bash call shows");
@@ -240,7 +260,10 @@ async fn a_turn_with_a_permission_and_a_question_reaches_claude_code() {
     };
     assert_eq!(after("--session-id"), Some(session.as_str()));
     assert_eq!(after("--permission-prompt-tool"), Some("stdio"));
-    let mcp: Value = serde_json::from_str(after("--mcp-config").unwrap()).unwrap();
+    // The servers' secrets stay out of the command line.
+    assert!(!after("--mcp-config").unwrap().contains("beep-node"));
+    let mcp = std::fs::read_to_string(dir.path().join("mcp")).unwrap();
+    let mcp: Value = serde_json::from_str(&mcp).unwrap();
     assert_eq!(mcp["mcpServers"]["beep"]["command"], "/srv/bin/beep-node");
     assert!(
         !args.contains(&"--disallowedTools"),
@@ -254,12 +277,13 @@ async fn a_turn_with_a_permission_and_a_question_reaches_claude_code() {
     let sent = lines(&dir.path().join("stdin"));
     assert_eq!(sent[0]["request"]["subtype"], "initialize");
     assert_eq!(sent[1]["request"]["mode"], "bypassPermissions");
-    assert_eq!(sent[2]["message"]["content"][0]["text"], "Fix the tests");
-    let allowed = &sent[3]["response"];
+    assert_eq!(sent[2]["request"]["model"], "model-fast");
+    assert_eq!(sent[3]["message"]["content"][0]["text"], "Fix the tests");
+    let allowed = &sent[4]["response"];
     assert_eq!(allowed["request_id"], "c1");
     assert_eq!(allowed["response"]["behavior"], "allow");
     assert_eq!(allowed["response"]["updatedInput"]["command"], "cargo test");
-    let answered = &sent[4]["response"];
+    let answered = &sent[5]["response"];
     assert_eq!(answered["request_id"], "c2");
     assert_eq!(answered["response"]["behavior"], "allow");
     let input = &answered["response"]["updatedInput"];
