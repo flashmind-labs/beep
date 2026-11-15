@@ -199,7 +199,7 @@ async fn a_report_with_a_wrong_signature_is_refused() {
 }
 
 #[tokio::test]
-async fn a_body_over_five_megabytes_is_refused() {
+async fn a_body_over_the_limit_is_refused() {
     let server = serve(ReportsConfig::default()).await;
     let key = SecretKey::generate();
     let (status, _) = Post::by(&key)

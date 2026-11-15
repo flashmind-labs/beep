@@ -25,8 +25,11 @@ pub enum SendError {
     Url(String),
 }
 
-/// How long a report may take to post, the server's answer included.
+/// How long a report may take to post, the server's answer included: this
+/// long, and as long again for each `SLOWEST` bytes of it.
 const SEND_LIMIT: Duration = Duration::from_secs(60);
+/// The bytes a second of the slowest upload worth waiting for carries.
+const SLOWEST: usize = 64 * 1024;
 
 /// Where reports go: `BEEP_REPORT_URL` when set, else the server the build
 /// names in `BEEP_SERVER_URL`, else the Beep server.
@@ -55,7 +58,7 @@ pub async fn send(base: &Url, body: Vec<u8>, key: &SecretKey) -> Result<Receipt,
     let signature = key.sign(&signed_message(&body, at_ms));
     let url = format!("{}{PATH}", base.as_str().trim_end_matches('/'));
     let reply = beep_proto::https::client()
-        .timeout(SEND_LIMIT)
+        .timeout(SEND_LIMIT + Duration::from_secs((body.len() / SLOWEST) as u64))
         .build()?
         .post(url)
         .header(CONTENT_TYPE, "application/zip")

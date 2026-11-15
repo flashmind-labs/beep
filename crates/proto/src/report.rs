@@ -15,7 +15,9 @@ pub const KEY_HEADER: &str = "beep-key";
 pub const TIME_HEADER: &str = "beep-time";
 /// Hex of the 64 signature bytes over `signed_message`.
 pub const SIGNATURE_HEADER: &str = "beep-signature";
-pub const MAX_BODY: usize = 5 * 1024 * 1024;
+/// The largest report zip: what one upload through the proxy in front of the
+/// server can carry, which stops at 100 MB.
+pub const MAX_BODY: usize = 95 * 1024 * 1024;
 /// How far the signing time may be from the server's clock.
 pub const MAX_AGE: Duration = Duration::from_secs(5 * 60);
 
