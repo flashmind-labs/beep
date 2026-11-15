@@ -442,7 +442,7 @@ pub(crate) async fn start(
                 ))
             })?;
             let host = if start.assistant {
-                for_assistant(vec![host], |host| node_version(fleet, host))?
+                for_assistant(vec![host], |host| runs_assistant(fleet, host))?
                     .pop()
                     .ok_or(ApiError::Internal {})?
             } else {
@@ -491,7 +491,7 @@ async fn pick(
 ) -> Result<(AgentHost, String)> {
     let mut asking = Vec::new();
     let candidates = if start.assistant {
-        for_assistant(hosts(fleet), |host| node_version(fleet, host))?
+        for_assistant(hosts(fleet), |host| runs_assistant(fleet, host))?
     } else {
         hosts(fleet)
     };
@@ -517,11 +517,9 @@ async fn pick(
 /// update one of them needs.
 fn for_assistant(
     hosts: Vec<AgentHost>,
-    version: impl Fn(&AgentHost) -> Option<String>,
+    runs: impl Fn(&AgentHost) -> bool,
 ) -> Result<Vec<AgentHost>> {
-    let (ready, old): (Vec<AgentHost>, Vec<AgentHost>) = hosts
-        .into_iter()
-        .partition(|host| newer_than(version(host).as_deref(), &BEFORE_ASSISTANT));
+    let (ready, old): (Vec<AgentHost>, Vec<AgentHost>) = hosts.into_iter().partition(runs);
 
     match (ready.is_empty(), old.first()) {
         (true, Some(old)) => Err(DesktopError::BadRequest(format!(
@@ -532,11 +530,18 @@ fn for_assistant(
     }
 }
 
-/// The beep-node `host` runs, once it said.
-fn node_version(fleet: &Fleet, host: &AgentHost) -> Option<String> {
-    fleet
-        .member(&host.machine_id)
-        .and_then(|machine| fleet.status().version(machine))
+/// Whether `host` runs the home assistant: this computer's own node is this
+/// build, and another node must be newer than `BEFORE_ASSISTANT`.
+fn runs_assistant(fleet: &Fleet, host: &AgentHost) -> bool {
+    let Some(machine) = fleet.member(&host.machine_id) else {
+        return false;
+    };
+
+    machine == fleet.id()
+        || newer_than(
+            fleet.status().version(machine).as_deref(),
+            &BEFORE_ASSISTANT,
+        )
 }
 
 /// Takes over a session started outside Beep; the node refuses one still in

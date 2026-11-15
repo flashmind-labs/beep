@@ -13,15 +13,23 @@ fn host(name: &str) -> AgentHost {
 
 #[test]
 fn assistant_start_skips_old_nodes() {
-    let version = |host: &AgentHost| match host.machine_name.as_str() {
-        "old-box" => Some("0.7.7".to_owned()),
-        _ => Some("0.7.8".to_owned()),
+    // This computer's own node runs it at any version; other nodes after 0.7.9.
+    let runs = |host: &AgentHost| match host.machine_name.as_str() {
+        "this-box" => true,
+        name => newer_than(
+            Some(if name == "old-box" { "0.7.9" } else { "0.7.10" }),
+            &BEFORE_ASSISTANT,
+        ),
     };
 
-    let ready = for_assistant(vec![host("old-box"), host("new-box")], version).unwrap();
-    assert_eq!(ready, vec![host("new-box")]);
+    let ready = for_assistant(
+        vec![host("old-box"), host("new-box"), host("this-box")],
+        runs,
+    )
+    .unwrap();
+    assert_eq!(ready, vec![host("new-box"), host("this-box")]);
 
-    let refused = for_assistant(vec![host("old-box")], version).unwrap_err();
+    let refused = for_assistant(vec![host("old-box")], runs).unwrap_err();
     assert_eq!(
         refused.to_string(),
         "Update Beep on old-box to use the assistant."
