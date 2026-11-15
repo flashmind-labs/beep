@@ -71,7 +71,8 @@ impl FolderPath {
     }
 }
 
-/// Reads one folder: prints `path`, then `git <origin>`, `full` and `dir <name>` lines as they apply.
+/// Reads one folder: prints `path`, then `git <origin>`, `full`, and `dir <name>` or `repo <name>`
+/// (a folder that is a checkout) lines as they apply.
 pub fn script(folder: &FolderPath) -> String {
     format!(
         "d={word}\n\
@@ -85,7 +86,8 @@ pub fn script(folder: &FolderPath) -> String {
          \x20   [ -d \"$f\" ] || continue\n\
          \x20   case $f in *'\n'*) continue;; esac\n\
          \x20   n=$((n+1))\n\
-         \x20   if [ $n -le {MAX_FOLDERS} ]; then printf '{MARK} dir %s\\n' \"$f\"; fi\n\
+         \x20   if [ -e \"$f/.git\" ]; then k=repo; else k=dir; fi\n\
+         \x20   if [ $n -le {MAX_FOLDERS} ]; then printf '{MARK} %s %s\\n' $k \"$f\"; fi\n\
          \x20 done\n\
          \x20 if [ $n -gt {MAX_FOLDERS} ]; then printf '{MARK} more %s\\n' $((n-{MAX_FOLDERS})); fi\n\
          elif [ -e \"$d\" ]; then\n\
@@ -114,6 +116,7 @@ pub fn read(output: &str) -> Option<Seen> {
     let mut origin = None;
     let mut full = false;
     let mut folders = Vec::new();
+    let mut repos = Vec::new();
     let mut more = 0;
 
     for line in output.lines() {
@@ -134,6 +137,10 @@ pub fn read(output: &str) -> Option<Seen> {
             "git" => origin = Some(rest.trim().to_owned()),
             "full" => full = true,
             "dir" => folders.push(rest.to_owned()),
+            "repo" => {
+                folders.push(rest.to_owned());
+                repos.push(rest.to_owned());
+            }
             "more" => more = rest.trim().parse().unwrap_or(0),
             _ => {}
         }
@@ -145,6 +152,7 @@ pub fn read(output: &str) -> Option<Seen> {
         trimmed => trimmed.to_owned(),
     };
     folders.sort();
+    repos.sort();
     Some(Seen::Folder(MachineFolder {
         parent: parent(&path),
         path,
@@ -153,6 +161,7 @@ pub fn read(output: &str) -> Option<Seen> {
         more,
         empty: !full,
         origin,
+        repos,
     }))
 }
 

@@ -159,8 +159,10 @@ fn projects_are_listed_once_across_lists() {
         ]),
         ..PaletteLists::default()
     };
-    let projects = build_index(&lists).projects;
-    assert_eq!(titles(&projects), ["acme/relay", "acme/widget"]);
+    let index = build_index(&lists);
+    assert_eq!(titles(&index.projects), ["acme/relay", "acme/widget"]);
+    // The newest session, in the checkout, names the project it lists under.
+    assert_eq!(index.sessions[0].project.as_deref(), Some("acme/widget"));
 }
 
 #[test]

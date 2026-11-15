@@ -18,7 +18,7 @@ interface DetailProps {
   age: (ms: number) => string;
   searchEdit: () => void; searchSave: (value: string) => void; searchCancel: () => void;
   signIn: (tool: string) => void; updateNode: () => void; updateTool: (tool: string) => void;
-  logRead: () => void; logSave: () => void; askRemove: () => void; remove: () => void; cancelRemove: () => void;
+  logRead: () => void; logSave: () => void; rename: () => void; askRemove: () => void; remove: () => void; cancelRemove: () => void;
 }
 
 export function MachineDetail(p: DetailProps) {
@@ -37,6 +37,7 @@ export function MachineDetail(p: DetailProps) {
   return <>
     {p.error && <div className="derr dpadx">{p.error}</div>}
     <div className="dset-box"><div className="dset-kv">
+      <span>Name</span><span>{m.name} <Button onClick={p.rename}>Rename</Button></span>
       <span>Status</span><span>{m.online ? <span className="dtag ok">Online</span> : <span className="dtag">Seen {p.age(Date.now() - m.seen_at)} ago</span>}{tag && <> <span className="dtag" title="Removed after a day offline">{tag}</span></>}</span>
       {m.can_host === false ? <><span>Device</span><span>Phone</span><span>Role</span><span>Controller</span></> : <><span>beep-node</span><span>{version}{behind && <> <span className="dtag ask">{p.newest} is out</span></>}{up?.step === "updating" ? <> <span className="dtag ask">Updating…</span></> : up?.step === "restarting" ? <> <span className="dtag ask">Restarting on {up.to}…</span></> : m.online && nodeBehind(m.version, p.newest) ? p.updatable ? <> <Button onClick={p.updateNode}>{up?.step === "failed" ? "Try again" : "Update"}</Button></> : m.id !== p.mac ? <> <span className="dmuted">Run <span className="dmono">beep-node update</span> on the machine</span></> : null : null}</span></>}
       {env ? <><span>System</span><span>{env.os_version}, {env.arch}</span><span>Hardware</span><span>{env.cpus} CPUs, {Math.round(env.memory_mb / 1024)} GB</span>{!!env.gpus.length && <><span>Graphics</span><span>{gpuLine(env.gpus)}</span></>}<span>Host name</span><span><span className="dmono">{env.hostname}</span></span><span>Home</span><span><span className="dmono">{env.home}</span></span>

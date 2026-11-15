@@ -409,6 +409,7 @@ impl Core {
         if self.devices.is_removed(id) {
             if temporary {
                 self.state.set(key, None)?;
+                self.forget_name(id)?;
                 self.publish();
             }
 
@@ -422,6 +423,7 @@ impl Core {
         self.devices.remove(&self.key, id)?;
         self.save_devices()?;
         self.state.set(key, None)?;
+        self.forget_name(id)?;
         self.publish();
         Ok(true)
     }
@@ -430,7 +432,19 @@ impl Core {
         self.desktop()?;
         self.devices.remove(&self.key, id)?;
         self.save_devices()?;
+        self.forget_name(id)?;
         self.publish();
+        Ok(())
+    }
+
+    /// Drops the name the user gave removed device `id`, if any.
+    fn forget_name(&mut self, id: EndpointId) -> Result<(), MeshError> {
+        let name = Key::MachineName(id.to_string());
+
+        if self.state.get(&name).is_some() {
+            self.state.set(name, None)?;
+        }
+
         Ok(())
     }
 

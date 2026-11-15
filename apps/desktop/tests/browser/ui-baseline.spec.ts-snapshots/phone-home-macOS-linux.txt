@@ -101,6 +101,8 @@ body.cbody.mb-home.mobile
           button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
             span style(display)
               svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
+        button.mb-set [aria-label="Settings" type="button"]
+          svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div#home-box.cc-box
         div#view.cc-view
           canvas.haze.painted-art [aria-hidden="true" height="33" width="94"]
@@ -127,10 +129,6 @@ body.cbody.mb-home.mobile
           div#sec-needs
             div.bd-lanes
               div.bd-lane
-                h4 "Needs you"
-                  span
-                div.bd-empty "Nothing here"
-              div.bd-lane
                 h4
                   button [type="button"] "Working"
                   span "1"
@@ -155,11 +153,6 @@ body.cbody.mb-home.mobile
                     span "example/gadget · build-box"
                   span.ft "10m ago"
                     span.sp
-              div.bd-lane
-                h4
-                  button [type="button"] "Done today"
-                  span
-                div.bd-empty "Nothing here"
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box [hidden]

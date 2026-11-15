@@ -1,5 +1,5 @@
-//! The `projects` tool of the Beep MCP server, as this desktop answers it for
-//! the home assistant: the Git hosts, making and cloning projects, and making
+//! The project tools of the Beep MCP server (`projects_hosts`,
+//! `projects_create`...), as this desktop answers them for the home assistant: the Git hosts, making and cloning projects, and making
 //! projects of the checkouts the machines have. Each action does what the
 //! Add a project and New project sheets do.
 
@@ -12,12 +12,16 @@ use crate::{
     machines::list::MachineLists,
 };
 use beep_fleet::{Desk, ImportJob, Session};
-use beep_node::agents::mcp::command_name;
+use beep_node::agents::mcp::{ProjectTools, command_name};
 use beep_proto::{
     CreateProject, FoundPlace, FoundProject, ImportedProject, NewRepository, ProjectFolder,
     node::tools::Reply,
 };
-use futures::{StreamExt, future::join_all, stream};
+use futures::{
+    StreamExt,
+    future::{BoxFuture, join_all},
+    stream,
+};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -33,8 +37,8 @@ const NOT_FOUND: &str = "No checkout found has that name; call found first.";
 /// Why a project with no checkout on the machines named is not imported.
 const NOT_THERE: &str = "It has no checkout on the machines named.";
 
-/// What the assistant asks, as the tool's arguments name it. The schema
-/// lets any field come with any action, so others are ignored.
+/// What the assistant asks: the tool's action, which its node adds, and the
+/// tool's arguments.
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 enum Action {
@@ -111,8 +115,21 @@ struct Failure {
     why: String,
 }
 
+/// The desktop's answer to the assistant's project tools, for its node.
+pub(crate) fn tools(app: &AppHandle) -> Arc<dyn ProjectTools> {
+    Arc::new(Tools(app.clone()))
+}
+
+struct Tools(AppHandle);
+
+impl ProjectTools for Tools {
+    fn call(&self, args: String) -> BoxFuture<'_, Reply> {
+        Box::pin(async move { answer(&self.0, &args).await })
+    }
+}
+
 /// The answer to one call, as JSON text of what happened.
-pub(crate) async fn answer(app: &AppHandle, args: &str) -> Reply {
+async fn answer(app: &AppHandle, args: &str) -> Reply {
     match run(app, args).await {
         Ok(reply) => Reply::Done {
             text: reply.to_string(),

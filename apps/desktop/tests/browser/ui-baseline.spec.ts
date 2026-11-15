@@ -238,6 +238,21 @@ test("search palette", async ({ page }) => {
   await baseline(page, "palette");
 });
 
+test("palette project sessions", async ({ page }) => {
+  const session = (id: string, title: string) => ({ kind: "agent_session", id, title, detail: "Claude Code · example/widget · build-box", keys: [title.toLowerCase()], project: "example/widget" });
+  const index = {
+    actions: [], settings: [], code: [], machines: [],
+    projects: [{ kind: "project", id: "example/widget", title: "example/widget", detail: "build-box", keys: ["example/widget"] }],
+    sessions: [session("s1", "Fix the example redirect"), session("s2", "Tidy the example docs"), session("s3", "Measure the widget's start")],
+  };
+  await openDesktop(page, false, { center_home: home, center_palette_index: index, center_find_prompts: [] });
+  await page.getByRole("button", { name: /^Search/ }).click();
+  await page.getByRole("dialog", { name: "Search" }).getByRole("combobox").fill("widget");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".cc-pal .it")).toHaveCount(3);
+  await baseline(page, "palette-sessions");
+});
+
 test("start screen", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   // The headline is drawn by lot when the screen opens; the screenshot needs the same one each run.
@@ -360,6 +375,21 @@ test("project machines", async ({ page }) => {
   await baseline(page, "project-machines");
 });
 
+test("add to machine", async ({ page }) => {
+  const machines = [
+    { id: machineId, name: machineId, online: true, folder, checking: false, checked_at: 1 },
+    { id: "laptop", name: "laptop", online: true, folder: null, checking: false, checked_at: 1, mesh: true },
+  ];
+  const at = (path: string, folders: string[], repos: string[]) => ({ path, parent: path.slice(0, path.lastIndexOf("/")), exists: true, folders, more: 0, empty: false, origin: null, repos });
+  const machine_folders = { "~": at("/home/dev", ["projects"], []), "~/projects": at("/home/dev/projects", ["archive", "atlas", "harbor", "notes", "quill"], ["atlas", "quill"]) };
+  await openProject(page, { project_machines: machines, machine_search: "~/projects", machine_folders });
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
+  await page.getByRole("article", { name: "laptop", exact: true }).getByRole("button", { name: "Add", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: /Add widget to laptop/ });
+  await expect(sheet.getByRole("option", { name: "quill" })).toBeVisible();
+  await baseline(page, "add-to-machine");
+});
+
 test("terminals", async ({ page }) => {
   const terminal = (id: string, name: string, state: string) => ({ id, project: "", machine_id: machineId, machine_name: machineId, name, command: "shell", cwd: folder, state, code: state === "exited" ? 0 : null, started_at: NOW - 600_000 });
   await openDesktop(page, false, { terminals_all: [terminal("t1", "dev server", "running"), terminal("t2", "tests", "running"), terminal("t3", "build", "exited")] });
@@ -368,7 +398,7 @@ test("terminals", async ({ page }) => {
   await baseline(page, "terminals");
 });
 
-const settingsResponses = { settings: { name: machineId, version: "0.9.0", autostart: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [], skill_sync_get: true, project_sync_get: true, beep_sync_over_syncthing_get: false };
+const settingsResponses = { settings: { name: machineId, version: "0.9.0", autostart: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [], skill_sync_get: true, project_sync_get: true };
 test("settings machines", async ({ page }) => {
   const tool = (name: string, version: string) => ({ name, version, path: `/usr/bin/${name}` });
   const env = (os_version: string, tools: string[]) => ({ os: "linux", os_version, arch: "x86_64", cpus: 16, memory_mb: 65536, tools: [tool("claude", "2.1.0"), tool("codex", "0.60.0"), ...tools.map(name => tool(name, "1.0.0"))], logins: [{ tool: "claude", signed_in: true, account: null }, { tool: "codex", signed_in: false, account: null }] });
@@ -419,21 +449,43 @@ test("settings assistant", async ({ page }) => {
   await baseline(page, "settings-assistant");
 });
 
+test("settings claude code", async ({ page }) => {
+  const claude = {
+    agent: "claude", installed: true, runnable: true, version: "2.1.0", latest: null, program: "claude", home_var: "CLAUDE_CONFIG_DIR", home_default: "~/.claude",
+    sign_in: { state: "signed_in", account: null, plan: null, last4: null }, install: null,
+    settings: { enabled: true, program: "", home: "", args: [], env: [] },
+  };
+  await openDesktop(page, false, {
+    ...settingsResponses,
+    list_machines: [machine("build-box", "build-box", true, 0)],
+    agent_harnesses: { machine_id: "build-box", machine_name: "build-box", checked_at: null, harnesses: [claude] },
+    harness_settings_all: [], harness_compact: null, harness_model_compacts: [], harness_default_model: null, harness_driver: "direct", agent_models: null,
+  });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  const nav = settings.getByRole("navigation", { name: "Settings pages" });
+  await nav.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await nav.getByRole("button", { name: /^Claude/ }).click();
+  await expect(settings.getByRole("button", { name: "Direct", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await baseline(page, "settings-claude-code");
+});
+
+const agentAccountResponses = {
+  ...settingsResponses,
+  agent_accounts: { claude: null, codex_key: null, machines: [
+    { id: "build-box", name: "build-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+    { id: "test-box", name: "test-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+    { id: "offline-box", name: "offline-box", online: false, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+  ] },
+  list_machines: [
+    { ...machine("build-box", "build-box", true, 0), env: { logins: [{ tool: "claude", signed_in: true, account: "you@example.com" }] } },
+    { ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }] } },
+  ],
+};
 for (const section of [null, "Agent accounts", "Appearance"] as const) {
   const name = `settings-${section === null ? "first" : section.toLowerCase().replace(/\s+/g, "-")}`;
   test(name, async ({ page }) => {
-    await openDesktop(page, false, section === "Agent accounts" ? {
-      ...settingsResponses,
-      agent_accounts: { claude: null, codex_key: null, machines: [
-        { id: "build-box", name: "build-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
-        { id: "test-box", name: "test-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
-        { id: "offline-box", name: "offline-box", online: false, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
-      ] },
-      list_machines: [
-        { ...machine("build-box", "build-box", true, 0), env: { logins: [{ tool: "claude", signed_in: true, account: "you@example.com" }] } },
-        { ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }] } },
-      ],
-    } : settingsResponses);
+    await openDesktop(page, false, section === "Agent accounts" ? agentAccountResponses : settingsResponses);
     await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
     const nav = page.getByRole("dialog", { name: "Settings" }).getByRole("navigation", { name: "Settings pages" });
     await expect(nav).toBeVisible();
@@ -634,6 +686,34 @@ test("phone home assistant", async ({ page }) => {
   await expect(page.locator("#sec-assistant .cc-line")).toHaveCount(2);
   await expect(page.getByRole("button", { name: "New assistant" })).toBeVisible();
   await baseline(page, "phone-home-assistant");
+});
+
+test("phone settings", async ({ page }) => {
+  await page.addInitScript(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
+  await page.setViewportSize(PHONE);
+  await openDesktop(page, false, { ...agentAccountResponses, center_home: home, mobile_paired: true });
+  await page.locator("#main").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await expect(settings.getByRole("button", { name: "Report…" })).toBeVisible();
+  await baseline(page, "phone-settings");
+  await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await expect(settings.getByRole("button", { name: "Agent accounts", exact: true })).toHaveAttribute("aria-current", "true");
+  await baseline(page, "phone-settings-agent-accounts");
+  // A phone has no Esc: the sheet closes with its own button.
+  await settings.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(settings).toBeHidden();
+});
+
+test("phone report", async ({ page }) => {
+  await page.addInitScript(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
+  await page.setViewportSize(PHONE);
+  await openDesktop(page, false, { ...settingsResponses, center_home: home, mobile_paired: true });
+  await page.evaluate(() => window.__navigation.open("report"));
+  const sheet = page.getByRole("dialog", { name: "Report a problem" });
+  await expect(sheet.getByRole("button", { name: "Collect", exact: true })).toBeVisible();
+  // Nothing is cut off: the sheet and its buttons stay inside the screen.
+  expect(await sheet.evaluate(element => [element, ...element.querySelectorAll("button")].every(part => part.getBoundingClientRect().right <= document.documentElement.clientWidth))).toBe(true);
+  await baseline(page, "phone-report");
 });
 
 test("unfolded foldable home", async ({ page }) => {

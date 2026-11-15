@@ -189,6 +189,13 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
           return Uint8Array.from(atob(text), char => char.charCodeAt(0)).buffer;
         }
 
+        if (command === "list_machine_folder") {
+          // A folder by the path asked for, as `machine_folders` maps them; any other gets `list_machine_folder`.
+          const table = answers.machine_folders;
+          const listing = table !== null && typeof table === "object" && typeof args.path === "string" ? Reflect.get(table, args.path) : null;
+          if (listing) return structuredClone(listing);
+        }
+
         if (command === "agent_processes") { return { processes: structuredClone(processes), local: false }; }
 
         if (command === "work_diff") {

@@ -1319,6 +1319,12 @@ async fn run(
         });
 
         for (machine, topics) in wanted {
+            // A phone has no node to ask for its own events: a worker for it
+            // would fail and retry for as long as the app runs.
+            if machine == fleet.me && fleet.session.is_none() {
+                continue;
+            }
+
             command_workers.entry(machine).or_insert_with(|| {
                 app.state::<Events>().clear_node(machine);
                 workers.spawn(

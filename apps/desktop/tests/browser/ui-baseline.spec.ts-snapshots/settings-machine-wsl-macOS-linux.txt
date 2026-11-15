@@ -76,6 +76,8 @@ body.cbody
           button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
             span style(display)
               svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
+        button.mb-set [aria-label="Settings" type="button"]
+          svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div#home-box.cc-box
         div#view.cc-view
           canvas.haze.painted-art [aria-hidden="true" height="15" width="272"]
@@ -200,11 +202,15 @@ body.cbody
             svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
             b "desk-pc"
           kbd "esc"
+          button.dbtn.dset-close.quiet [type="button"] "Close"
         div.dform.dset-page
           section#set-machines-sec [data-sec="machines"]
             div#set-machines-host.dset-host
               div.dset-box
                 div.dset-kv
+                  span "Name"
+                  span "desk-pc"
+                    button.dbtn [type="button"] "Rename"
                   span "Status"
                   span
                     span.dtag.ok "Online"

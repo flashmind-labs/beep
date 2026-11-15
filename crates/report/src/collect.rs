@@ -4,7 +4,8 @@
 use beep_mesh::machine::log;
 use beep_mesh::{DeviceKind, MeshError, PeerClient};
 use beep_proto::node::logs::MAX_LINES;
-use beep_proto::node::report::{MAX_BYTES, PROTOCOL, Reply, Request};
+use beep_proto::node::report::{PROTOCOL, Reply, Request};
+use chrono::DateTime;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -14,7 +15,8 @@ use std::{fs, io};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 
-/// How long one machine has to give its share, the `logs/1` fallback included.
+/// How long a machine has to give each answer: its share, each further part
+/// of its log, and the `logs/1` fallback.
 pub const ASK_LIMIT: Duration = Duration::from_secs(8);
 
 /// A machine to ask.
@@ -35,7 +37,7 @@ pub enum Answer {
     Offline {
         reason: String,
     },
-    /// It did not answer within `ASK_LIMIT`.
+    /// Its first answer did not come within `ASK_LIMIT`.
     Silent,
     Failed {
         reason: String,
@@ -93,19 +95,20 @@ impl Share {
     }
 }
 
-/// The most log bytes a share keeps (`u32` to `usize` is lossless here).
-const MAX_LOG: usize = MAX_BYTES as usize;
-
-/// Every target's share, in `targets` order, from log lines at or after
-/// `since` (Unix seconds).
+/// Every target's share, in `targets` order, with its whole log from
+/// `since` (Unix seconds) on.
 pub async fn collect(targets: Vec<Target>, since: i64) -> Vec<Share> {
-    collect_within(targets, since, MAX_BYTES).await
+    gather(targets, since, None).await
 }
 
-/// `collect` with at most `max_bytes` of each log (up to `MAX_BYTES`); 0
-/// asks for the status alone.
+/// `collect` with only the newest `max_bytes` of each log; 0 asks for the
+/// status alone.
 pub async fn collect_within(targets: Vec<Target>, since: i64, max_bytes: u32) -> Vec<Share> {
-    let max_bytes = max_bytes.min(MAX_BYTES);
+    gather(targets, since, Some(max_bytes)).await
+}
+
+/// Asks every target; `max_bytes` is `None` for the whole log.
+async fn gather(targets: Vec<Target>, since: i64, max_bytes: Option<u32>) -> Vec<Share> {
     // A time before 1970 asks for the whole log.
     let since = u64::try_from(since).unwrap_or(0);
     let mut shares = Vec::with_capacity(targets.len());
@@ -125,11 +128,7 @@ pub async fn collect_within(targets: Vec<Target>, since: i64, max_bytes: u32) ->
                 let mut share = Share::empty(id, name, kind, Answer::Silent);
                 shares.push(share.clone());
                 let task = tasks.spawn(async move {
-                    let asked = ask(&client, since, max_bytes, &mut share);
-                    if let Ok(answer) = timeout(ASK_LIMIT, asked).await {
-                        share.answer = answer;
-                    }
-                    share.log = newest_lines(share.log, MAX_LOG);
+                    share.answer = ask(&client, since, max_bytes, &mut share).await;
                     share
                 });
                 slots.insert(task.id(), slot);
@@ -159,48 +158,97 @@ pub async fn collect_within(targets: Vec<Target>, since: i64, max_bytes: u32) ->
 }
 
 /// Asks `report/1`, or `logs/1` from a node that predates it, filling
-/// `share` as answers come in.
-async fn ask(client: &PeerClient, since: u64, max_bytes: u32, share: &mut Share) -> Answer {
-    let request = Request { since, max_bytes };
-
-    match client.call::<_, Reply>(PROTOCOL, &request).await {
-        Ok(Reply::Share {
-            log,
-            status,
-            version,
-            os,
-            os_version,
-        }) => {
+/// `share` as answers come in. Each answer has `ASK_LIMIT` to arrive, so a
+/// long log takes as long as it needs while it keeps coming.
+async fn ask(client: &PeerClient, since: u64, max_bytes: Option<u32>, share: &mut Share) -> Answer {
+    let request = Request {
+        since,
+        max_bytes: max_bytes.unwrap_or(u32::MAX),
+        whole: max_bytes.is_none(),
+    };
+    let first = timeout(ASK_LIMIT, async {
+        let (tx, mut rx) = client.open_sending(PROTOCOL, &request).await?;
+        let reply = rx.recv::<Reply>().await.map_err(MeshError::Link)?;
+        Ok::<_, MeshError>((tx, rx, reply))
+    });
+    // The sending half stays open until the last part is read.
+    let (_tx, mut rx) = match first.await {
+        Ok(Ok((
+            tx,
+            rx,
+            Some(Reply::Share {
+                log,
+                status,
+                version,
+                os,
+                os_version,
+            }),
+        ))) => {
             share.log = log;
             share.status = status;
             share.version = version;
             share.os = os;
             share.os_version = os_version;
-            Answer::Answered
+            (tx, rx)
         }
-        Ok(Reply::Failed { reason }) => Answer::Failed { reason },
-        Ok(other) => Answer::Failed {
-            reason: format!("an answer this version cannot read: {other:?}"),
-        },
-        Err(MeshError::Declined { .. }) => match log(client, MAX_LINES).await {
-            Ok(text) => {
-                share.log = text;
-                Answer::OlderNode
-            }
-            Err(MeshError::Declined { .. }) => Answer::OlderNode,
-            Err(e) => Answer::Failed {
+        Ok(Ok((_, _, Some(Reply::Failed { reason })))) => return Answer::Failed { reason },
+        Ok(Ok((_, _, other))) => {
+            return Answer::Failed {
+                reason: format!("an answer this version cannot read: {other:?}"),
+            };
+        }
+        Ok(Err(MeshError::Declined { .. })) => return older(client, share).await,
+        Ok(Err(e)) => {
+            return Answer::Failed {
                 reason: format!("{e:#}"),
-            },
-        },
-        Err(e) => Answer::Failed {
-            reason: format!("{e:#}"),
-        },
+            };
+        }
+        Err(_) => return Answer::Silent,
+    };
+
+    loop {
+        match timeout(ASK_LIMIT, rx.recv::<Reply>()).await {
+            Ok(Ok(Some(Reply::Log { text }))) => share.log.push_str(&text),
+            Ok(Ok(None)) => return Answer::Answered,
+            Ok(Ok(Some(other))) => {
+                return Answer::Failed {
+                    reason: format!("an answer this version cannot read: {other:?}"),
+                };
+            }
+            Ok(Err(e)) => {
+                return Answer::Failed {
+                    reason: format!("its log stopped arriving: {e:#}"),
+                };
+            }
+            Err(_) => {
+                return Answer::Failed {
+                    reason: "its log stopped arriving".into(),
+                };
+            }
+        }
     }
 }
 
-/// The newest lines of the daily `beep.*.log` files in `dir`, as much as a
-/// share keeps: the log of an app with no node to ask, such as a phone's.
-pub fn local_log(dir: &Path) -> io::Result<String> {
+/// The latest lines of a node that predates `report/1`, read over `logs/1`.
+async fn older(client: &PeerClient, share: &mut Share) -> Answer {
+    match timeout(ASK_LIMIT, log(client, MAX_LINES)).await {
+        Ok(Ok(text)) => {
+            share.log = text;
+            Answer::OlderNode
+        }
+        Ok(Err(MeshError::Declined { .. })) => Answer::OlderNode,
+        Ok(Err(e)) => Answer::Failed {
+            reason: format!("{e:#}"),
+        },
+        Err(_) => Answer::Silent,
+    }
+}
+
+/// The lines of the daily `beep.*.log` files in `dir` from Unix second
+/// `since` on: the log of an app with no node to ask, such as a phone's. It
+/// is whole, as no message carries it; the draft cuts it to what a report
+/// holds.
+pub fn local_log(dir: &Path, since: i64) -> io::Result<String> {
     let mut files: Vec<_> = fs::read_dir(dir)?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
         .filter(|path| {
@@ -217,21 +265,29 @@ pub fn local_log(dir: &Path) -> io::Result<String> {
         log.push_str(&String::from_utf8_lossy(&fs::read(file)?));
     }
 
-    Ok(newest_lines(log, MAX_LOG))
+    Ok(from_time(log, since))
 }
 
-/// The newest whole lines of `log` that fit in `max` bytes.
-pub(crate) fn newest_lines(log: String, max: usize) -> String {
-    if log.len() <= max {
+/// `log` from its first line stamped at or after Unix second `since`. Lines
+/// start with a UTC time such as `2026-01-02T03:04:05.678Z`, which sorts as
+/// text; a line with none belongs to the one above it.
+fn from_time(log: String, since: i64) -> String {
+    let Some(since) = DateTime::from_timestamp(since, 0) else {
         return log;
+    };
+    let since = since.format("%Y-%m-%dT%H:%M:%S").to_string();
+    let stamped = |line: &str| line.as_bytes().first().is_some_and(u8::is_ascii_digit);
+    let mut at = 0;
+
+    for line in log.split_inclusive('\n') {
+        if stamped(line) && line >= since.as_str() {
+            return log[at..].to_owned();
+        }
+
+        at += line.len();
     }
 
-    let from = log.len() - max;
-    // A line starts right after a newline; one longer than `max` is dropped.
-    match log.as_bytes()[from - 1..].iter().position(|&b| b == b'\n') {
-        Some(newline) => log[from + newline..].to_owned(),
-        None => String::new(),
-    }
+    String::new()
 }
 
 #[cfg(test)]

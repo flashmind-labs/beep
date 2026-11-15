@@ -6,7 +6,7 @@
 use crate::{
     agents::{
         Agents,
-        mcp::{DesktopTools, answer_desktop, children, harness},
+        mcp::{ProjectTools, answer_projects, children, harness},
     },
     files::transfer::{Incoming, Transfers},
     link::Offers,
@@ -48,9 +48,9 @@ pub(crate) struct Caller {
     /// This node's coding agents, which another node's agents may start
     /// agents among.
     pub agents: Option<Arc<Agents>>,
-    /// This machine's answers to `plugins` and `projects`, when it is a
+    /// This machine's answer to the assistant's project tools, when it is a
     /// desktop.
-    pub desktop: Option<Arc<dyn DesktopTools>>,
+    pub project_tools: Option<Arc<dyn ProjectTools>>,
 }
 
 impl Caller {
@@ -62,7 +62,7 @@ impl Caller {
             commands_off: None,
             transfers: offers.transfers.get(),
             agents: Some(offers.agents.clone()),
-            desktop: offers.desktop.clone(),
+            project_tools: offers.project_tools.clone(),
         }
     }
 }
@@ -91,8 +91,8 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
         };
     }
 
-    if matches!(request.tool, Tool::Plugins | Tool::Projects) {
-        return answer_desktop(caller.desktop.as_ref(), &request).await;
+    if request.tool == Tool::Projects {
+        return answer_projects(caller.project_tools.as_ref(), &request).await;
     }
 
     if matches!(
@@ -184,7 +184,7 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
     // An older node sends `prompt` (and `agent`) to start an agent. That would
     // skip the parent link and every limit `start_agent` keeps, so it is refused.
     if args.prompt.is_some() || args.agent.is_some() {
-        return Err("run starts commands only. Start an agent with agent start.".into());
+        return Err("remote_run starts commands only. Start an agent with start_agent.".into());
     }
 
     let command = match args.command {
@@ -201,8 +201,8 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
     if args.background {
         return match tasks::start_for(table, command, args.cwd, limit) {
             TaskReply::Started { id } => Ok(format!(
-                "Started it in the background. Job id: {id}. Check it with run status, \
-                 stop it with run cancel."
+                "Started it in the background. Job id: {id}. Check it with remote_run_status, \
+                 stop it with remote_run_cancel."
             )),
             other => Err(task_error(other)),
         };

@@ -15,7 +15,6 @@ use beep_proto::node::{
     agent::{AnswerOption, OptionKind},
     logs::Query as LogQuery,
     metrics::Query as MetricsQuery,
-    report::MAX_BYTES,
     tools::{Reply, Request, Tool},
 };
 use beep_report::{
@@ -330,7 +329,7 @@ async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
     }
 
     let since = now() - i64::from(minutes) * 60;
-    let Some(share) = collect_within(targets, since, MAX_BYTES).await.pop() else {
+    let Some(share) = collect(targets, since).await.pop() else {
         return Err("The machine gave nothing.".to_owned());
     };
     let note = match &share.answer {

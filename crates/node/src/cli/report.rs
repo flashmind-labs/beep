@@ -10,7 +10,6 @@ use beep_node::{
     },
     machine::{env::os_version, service::logs::Logs},
 };
-use beep_proto::node::report::MAX_BYTES;
 use beep_report::{
     Answer, Draft, Issue, Period, SendError, Sender, Share, draft, find_gh, gh_signed_in, issue,
     open_issue, send, server_url, zip,
@@ -139,8 +138,7 @@ fn fallback_answer(e: &anyhow::Error) -> Answer {
 /// `status` says why.
 async fn own_share(id: EndpointId, name: &str, since: i64, answer: Answer, status: &str) -> Share {
     // A log that cannot be read still leaves the rest worth sending.
-    let max = usize::try_from(MAX_BYTES).unwrap_or(usize::MAX);
-    let log = spawn_blocking(move || Logs::default().window(since, max))
+    let log = spawn_blocking(move || Logs::default().window(since, usize::MAX))
         .await
         .map_err(anyhow::Error::from)
         .and_then(|read| read)

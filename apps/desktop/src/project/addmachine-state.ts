@@ -1,24 +1,42 @@
 // What the "Add a project to a machine" sheet shows, as pure functions.
-// addmachine.ts draws it.
+// addmachine.tsx draws it.
 import { rateText, syncPct, syncedBySyncthing, timeLeft, type SyncDetail } from "./filesync.ts";
 import { bytes } from "../ui/format.ts";
 import type { MachineFolder } from "./projects-state.ts";
+import { projectUnder } from "../addproject/importproject-state.ts";
 
 /// A project's name without its org: `widget` for `acme/widget`.
 export function shortName(project: string) {
   return project.slice(project.lastIndexOf("/") + 1);
 }
 
-/// The folder a project goes in when `listing` is picked: that folder when it
-/// is there and empty, or a checkout and `checkout` takes one, else one in
-/// it, named for the project.
-export function destination(listing: MachineFolder, project: string, checkout = false) {
-  if (listing.exists && (listing.empty || (checkout && listing.origin))) return listing.path;
-
-  return `${listing.path.replace(/\/+$/, "")}/${shortName(project)}`;
+/// One thing the picker offers to do with the folder it shows: the folder the
+/// project would be in, and what the row says.
+export interface FolderOffer {
+  label: string;
+  path: string;
 }
 
-/// The folder the browser opens for the field's `path`: the one it would go under.
+/// What the picker offers for `listing`. A checkout joins as it is, and so
+/// does a folder named for the project, with the files it has; an empty one
+/// takes the project; any other gets a folder in it, named for the project.
+/// A folder that already has one named for it offers nothing: that one is
+/// the place. `root` is the machine's projects folder, which holds projects
+/// and is never one: there it goes under its org. `change` points a project
+/// the machine has at another folder, and moves nothing.
+export function offers(listing: MachineFolder, project: string, change: boolean, root: string | null): FolderOffer[] {
+  const here = listing.path, name = shortName(project);
+  const [fresh, take] = change ? ["Use a new folder", "Use this folder"] : ["Add in a new folder", "Add here"];
+  if (listing.origin != null) return [{ label: "Use this checkout", path: here }];
+  if (listing.folders.includes(name)) return [];
+  if (here === root) return [{ label: fresh, path: projectUnder(here, project) }];
+  if (!listing.exists || listing.empty) return [{ label: take, path: here }];
+  if (here.slice(here.lastIndexOf("/") + 1) === name) return [{ label: `${take}, keeping its files`, path: here }];
+
+  return [{ label: fresh, path: `${here.replace(/\/+$/, "")}/${name}` }];
+}
+
+/// The folder the picker opens for a project in `path`: the one it is in.
 export function browseStart(path: string) {
   const clean = path.trim().replace(/\/+$/, "");
   const at = clean.lastIndexOf("/");

@@ -7,6 +7,36 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.11] - 2026-11-15
+
+### Added
+
+- Desktop: the sidebar shows a "Star on GitHub" row above the footer.
+  Clicking it opens the repository in your browser. The cross on the row
+  hides it for good. Nothing is starred automatically.
+- Desktop: coding agents can rig a textured humanoid 3D model so it can be animated, optionally remeshing it and setting its height. The `model_3d` tool's new `rig` action needs a saved Meshy API key, takes a GLB from the session folder or an HTTP(S) URL, and saves the rigged GLB in the session's working folder.
+- Desktop: an iPhone or iPad plugged into a Mac shows in the Device tab
+  next to the simulators, once it is paired and Developer Mode is on. Its
+  screen updates about every two seconds. Taps, typing and buttons are not
+  available yet.
+- Desktop: agents see plugged-in iPhones and iPads in the device tool and
+  can take screenshots, install and launch apps, and open a URL in Safari.
+
+### Changed
+
+- Desktop: the quick window takes the main window's look: monospaced details,
+  a status as a dot and a word, and the same messages and message field.
+- Desktop: the Beep tools for coding agents now have one tool per action, such as `list_machines`, `remote_run`, `remote_run_status`, `send_files`, `start_agent`, `device_tap`, `beep_logs`, `generate_image`, `generate_3d`, `rig_3d` and `list_models`. Each tool takes only its own arguments, so agents mix up arguments less often.
+- Desktop: the `plugins` tool is removed, so coding agents can no longer list, create or call Beep plugins.
+
+### Fixed
+
+- Desktop: a session's usage in the quick window's header shows its context
+  meter, tokens and cost apart instead of as one run of text.
+- Desktop: in an agent session, Cmd+Shift+M opens the model picker with
+  its search focused, so typing a model name picks it instead of going
+  to the message field.
+
 ## [0.9.10] - 2026-11-15
 
 ### Changed

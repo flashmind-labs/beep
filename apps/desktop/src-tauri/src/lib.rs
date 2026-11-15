@@ -203,6 +203,8 @@ pub fn run() {
             agents::harnesses::harness_compact,
             agents::harnesses::harness_compact_save,
             agents::harnesses::harness_default_model,
+            agents::harnesses::harness_driver,
+            agents::harnesses::harness_driver_save,
             agents::harnesses::harness_default_model_save,
             agents::harnesses::harness_model_compacts,
             agents::harnesses::harness_model_compacts_save,
@@ -298,6 +300,7 @@ pub fn run() {
             machines::list::machine_clocks,
             machines::list::node_release,
             machines::list::remove_machine,
+            machines::list::rename_machine,
             machines::list::save_machine_log,
             machines::list::updatable_machines,
             machines::list::update_machine,
@@ -450,8 +453,6 @@ pub fn run() {
             settings::skill_sync::skill_sync_set,
             settings::skill_sync::project_sync_get,
             settings::skill_sync::project_sync_set,
-            settings::skill_sync::beep_sync_over_syncthing_get,
-            settings::skill_sync::beep_sync_over_syncthing_set,
         ]))
         .build(context)
         .expect("the app failed to start")
@@ -658,7 +659,7 @@ fn setup(
     // This Mac's node, and the mesh it is in, which opens in the background.
     #[cfg(desktop)]
     let machine =
-        machines::this_mac::Machine::new(&dir.join("node"), Some(plugins::agent::tools(&handle)));
+        machines::this_mac::Machine::new(&dir.join("node"), Some(projects::agent::tools(&handle)));
     #[cfg(desktop)]
     let fleet = Arc::new(Fleet::new(
         endpoint,

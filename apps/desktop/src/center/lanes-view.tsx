@@ -78,9 +78,9 @@ export function Board({ cards, more, rows, recency = null }: { recency?: Readonl
     </div>;
   }
 
-  return <div className="bd-lanes" ref={box}>{LANES.map(({ lane, title }) => <div className="bd-lane" key={lane}>
+  return <div className="bd-lanes" ref={box}>{LANES.filter(({ lane }) => lanes[lane].length).map(({ lane, title }) => <div className="bd-lane" key={lane}>
     {heading(lane, title)}
-    {lanes[lane].length ? lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>) : <div className="bd-empty">Nothing here</div>}
+    {lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}
   </div>)}</div>;
 }
 

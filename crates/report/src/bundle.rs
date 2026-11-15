@@ -1,7 +1,7 @@
 //! The report draft (the manifest and each machine's redacted files) and
 //! the zip that is sent.
 
-use crate::collect::{Answer, Share, newest_lines};
+use crate::collect::{Answer, Share};
 use crate::period::Period;
 use crate::redact::{RedactError, redact};
 use beep_mesh::DeviceKind;
@@ -17,8 +17,6 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 const MANIFEST: &str = "manifest.json";
 /// The files a machine's folder holds.
 const NAMES: [&str; 2] = ["log.txt", "status.txt"];
-/// Room left in `MAX_BODY` for the manifest.
-const MANIFEST_RESERVE: usize = 64 * 1024;
 
 /// What the report holds, written first in the zip as `manifest.json`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -95,8 +93,8 @@ pub enum BundleError {
     BadPath(String),
 }
 
-/// The redacted draft of a report from each machine's share, cut to fit
-/// under `MAX_BODY`.
+/// The redacted draft of a report from each machine's share, whole: `zip`
+/// says when it is more than the server takes.
 pub fn draft(
     text: &str,
     period: Period,
@@ -132,8 +130,6 @@ pub fn draft(
         });
     }
 
-    fit(&mut files, MAX_BODY - MANIFEST_RESERVE);
-    files.retain(|f| !f.text.is_empty());
     let manifest = Manifest {
         version: 1,
         sender: sender.id,
@@ -235,21 +231,6 @@ fn clean(name: &str) -> String {
     let dots = clean.len() - clean.trim_start_matches('.').len();
     clean.replace_range(..dots, &"-".repeat(dots));
     clean
-}
-
-/// Cuts `files` to `budget` bytes in all, smallest first: each takes at
-/// most an even share of what is left, and a cut keeps its newest lines.
-fn fit(files: &mut [DraftFile], budget: usize) {
-    let mut order: Vec<usize> = (0..files.len()).collect();
-    order.sort_by_key(|&i| files[i].text.len());
-    let mut left = budget;
-
-    for (done, &i) in order.iter().enumerate() {
-        let share = left / (order.len() - done);
-        let text = std::mem::take(&mut files[i].text);
-        files[i].text = newest_lines(text, share);
-        left -= files[i].text.len();
-    }
 }
 
 fn entries(files: &[DraftFile]) -> Vec<FileEntry> {

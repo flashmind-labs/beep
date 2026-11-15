@@ -2,7 +2,7 @@
 //! title it by the tool's name alone, so the node words it from its arguments,
 //! such as `Beep: Run on build-box: cargo test`; the apps read it back.
 
-use super::{SERVER_NAME, catalog::ungrouped, machines::command_name};
+use super::{SERVER_NAME, machines::command_name};
 use serde_json::{Map, Value};
 
 /// What every title of a `beep` call starts with.
@@ -28,13 +28,11 @@ pub(crate) const PREFIX: &str = "Beep: ";
 ///   <machine>`
 /// - `Read status`, `Read logs on <machine>`, `Read metrics`, `File a
 ///   report: <description>`
-/// - `List plugins`, `Read plugin: <id>`, `Create plugin: <id>`, `Call plugin
-///   <id>: <tool>`
 /// - `List Git hosts`, `Create project: <name>`, `Clone project: <url>`,
 ///   `Find projects`, `Import projects`
 ///
-/// A grouped tool (`machines`, `run`, `files`, `agent`, `beep`) takes the
-/// words of the tool its action calls.
+/// A grouped tool of older sessions (`machines`, `run`, `files`, `agent`,
+/// `beep`, `device`) takes the words of the tool its action calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub(crate) enum Tool {
@@ -47,7 +45,9 @@ pub(crate) enum Tool {
     RunOn,
     SyncProject,
     SendFiles,
+    #[strum(to_string = "remote_run_status", serialize = "job_status")]
     JobStatus,
+    #[strum(to_string = "remote_run_cancel", serialize = "cancel")]
     Cancel,
     StartAgent,
     AgentStatus,
@@ -57,19 +57,82 @@ pub(crate) enum Tool {
     AskUser,
     Review,
     SubmitReview,
-    Device,
+    DeviceList,
+    DeviceBoot,
+    DeviceShutdown,
+    DeviceShow,
+    DeviceScreenshot,
+    DeviceTap,
+    DeviceSwipe,
+    DeviceType,
+    DevicePress,
+    DeviceLogs,
+    DeviceUi,
+    DeviceInstall,
+    DeviceLaunch,
+    DeviceReset,
     BeepStatus,
     BeepLogs,
     BeepMetrics,
+    #[strum(to_string = "beep_report", serialize = "file_report")]
     FileReport,
+    ProjectsHosts,
+    ProjectsCreate,
+    ProjectsClone,
+    ProjectsFound,
+    ProjectsImport,
     Machines,
     Run,
     Files,
     Agent,
     Beep,
+    Device,
     Plugins,
-    Projects,
 }
+
+/// The tools the grouped tools of older sessions called, by their action.
+const GROUPS: [(Tool, &[(&str, Tool)]); 5] = [
+    (
+        Tool::Machines,
+        &[
+            ("list", Tool::ListMachines),
+            ("projects", Tool::ListProjects),
+            ("harness", Tool::HarnessInfo),
+        ],
+    ),
+    (
+        Tool::Run,
+        &[
+            ("start", Tool::RunOn),
+            ("status", Tool::JobStatus),
+            ("cancel", Tool::Cancel),
+        ],
+    ),
+    (
+        Tool::Files,
+        &[("sync", Tool::SyncProject), ("send", Tool::SendFiles)],
+    ),
+    (
+        Tool::Agent,
+        &[
+            ("start", Tool::StartAgent),
+            ("status", Tool::AgentStatus),
+            ("send", Tool::SendToAgent),
+            ("stop", Tool::StopAgent),
+            ("list", Tool::ListAgents),
+            ("transcript", Tool::ReadTranscript),
+        ],
+    ),
+    (
+        Tool::Beep,
+        &[
+            ("status", Tool::BeepStatus),
+            ("logs", Tool::BeepLogs),
+            ("metrics", Tool::BeepMetrics),
+            ("report", Tool::FileReport),
+        ],
+    ),
+];
 
 impl Tool {
     /// The tool a Claude Code tool name calls: `mcp__beep__remote_run`.
@@ -119,14 +182,23 @@ impl Tool {
     /// The tool a grouped tool's `action` calls, from its arguments as far
     /// as they have come; itself when it is not grouped or names no action.
     pub(crate) fn resolved(self, input: Option<&Value>) -> Self {
-        let action = input
+        let Some(action) = input
             .map(arguments)
             .and_then(|args| args.get("action")?.as_str())
-            .map(str::trim);
-        ungrouped(self.into(), action)
-            .and_then(Result::ok)
-            .and_then(|name| name.parse().ok())
-            .unwrap_or(self)
+            .map(str::trim)
+        else {
+            return self;
+        };
+
+        if self == Self::Device {
+            return format!("device_{action}").parse().unwrap_or(self);
+        }
+
+        GROUPS
+            .iter()
+            .find(|(group, _)| *group == self)
+            .and_then(|(_, actions)| actions.iter().find(|(name, _)| *name == action))
+            .map_or(self, |(_, tool)| *tool)
     }
 
     /// The call's title, from its arguments as far as they have come.
@@ -213,54 +285,62 @@ impl Tool {
                 None => format!("{PREFIX}Read metrics"),
             },
             Self::FileReport => with("File a report".to_owned(), text("description")),
-            Self::Machines | Self::Run | Self::Files | Self::Agent | Self::Beep => {
-                match self.resolved(input) {
-                    tool if tool != self => return tool.title(input),
-                    _ => format!("{PREFIX}Use {}", Into::<&'static str>::into(self)),
-                }
-            }
-            Self::Plugins => match (text("action").unwrap_or_default(), text("plugin")) {
-                ("list", _) => format!("{PREFIX}List plugins"),
-                ("status", plugin) => with("Read plugin".to_owned(), plugin),
-                ("create", plugin) => with("Create plugin".to_owned(), plugin),
-                ("call", Some(plugin)) => {
-                    with(format!("Call plugin {plugin}"), text("tool"))
-                }
-                _ => format!("{PREFIX}Use plugins"),
+            Self::ProjectsHosts => format!("{PREFIX}List Git hosts"),
+            Self::ProjectsCreate => with("Create project".to_owned(), text("name")),
+            Self::ProjectsClone => with("Clone project".to_owned(), text("url")),
+            Self::ProjectsFound => format!("{PREFIX}Find projects"),
+            Self::ProjectsImport => format!("{PREFIX}Import projects"),
+            Self::Machines
+            | Self::Run
+            | Self::Files
+            | Self::Agent
+            | Self::Beep
+            | Self::Device => match self.resolved(input) {
+                tool if tool != self => return tool.title(input),
+                _ => format!("{PREFIX}Use {}", Into::<&'static str>::into(self)),
             },
-            Self::Projects => match text("action").unwrap_or_default() {
-                "hosts" => format!("{PREFIX}List Git hosts"),
-                "create" => with("Create project".to_owned(), text("name")),
-                "clone" => with("Clone project".to_owned(), text("url")),
-                "found" => format!("{PREFIX}Find projects"),
-                "import" => format!("{PREFIX}Import projects"),
-                _ => format!("{PREFIX}Use projects"),
-            },
-            Self::Device => {
+            Self::Plugins => format!("{PREFIX}Use plugins"),
+            Self::DeviceList => format!("{PREFIX}List devices"),
+            device @ (Self::DeviceBoot
+            | Self::DeviceShutdown
+            | Self::DeviceShow
+            | Self::DeviceScreenshot
+            | Self::DeviceTap
+            | Self::DeviceSwipe
+            | Self::DeviceType
+            | Self::DevicePress
+            | Self::DeviceLogs
+            | Self::DeviceUi
+            | Self::DeviceInstall
+            | Self::DeviceLaunch
+            | Self::DeviceReset) => {
                 let number = |key: &str| {
                     args.and_then(|args| args.get(key)?.as_number())
                         .map_or_else(|| "?".to_owned(), ToString::to_string)
                 };
-                let device = text("device").unwrap_or("a device");
+                let name = text("device").unwrap_or("a device");
                 let machine = machine.map_or_else(|| "a machine".to_owned(), command_name);
-                let at = format!("{device} on {machine}");
+                let at = format!("{name} on {machine}");
 
-                match text("action").unwrap_or_default() {
-                    "list" => format!("{PREFIX}List devices"),
-                    "boot" => format!("{PREFIX}Boot {at}"),
-                    "shutdown" => format!("{PREFIX}Shut down {at}"),
-                    "show" => format!("{PREFIX}Show {at}"),
-                    "screenshot" => format!("{PREFIX}Capture {at}"),
-                    "tap" => format!("{PREFIX}Tap {at}: {}, {}", number("x"), number("y")),
-                    "swipe" => format!(
+                match device {
+                    Self::DeviceBoot => format!("{PREFIX}Boot {at}"),
+                    Self::DeviceShutdown => format!("{PREFIX}Shut down {at}"),
+                    Self::DeviceShow => format!("{PREFIX}Show {at}"),
+                    Self::DeviceScreenshot => format!("{PREFIX}Capture {at}"),
+                    Self::DeviceTap => {
+                        format!("{PREFIX}Tap {at}: {}, {}", number("x"), number("y"))
+                    }
+                    Self::DeviceSwipe => format!(
                         "{PREFIX}Swipe {at}: {}, {} to {}, {}",
                         number("x"),
                         number("y"),
                         number("x2"),
                         number("y2")
                     ),
-                    "type" => with(format!("Type into {at}"), text("text")),
-                    "press" => format!("{PREFIX}Press {} on {at}", text("key").unwrap_or("a key")),
+                    Self::DeviceType => with(format!("Type into {at}"), text("text")),
+                    Self::DevicePress => {
+                        format!("{PREFIX}Press {} on {at}", text("key").unwrap_or("a key"))
+                    }
                     _ => format!("{PREFIX}Use {at}"),
                 }
             }

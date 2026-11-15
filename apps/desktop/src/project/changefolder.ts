@@ -1,8 +1,6 @@
 // "Change folder…" on a machine of a project: points the project there at
-// another folder, empty or missing (the others fill it) or a checkout of the
-// same repository (it joins the sync). Nothing is moved, and the folder it
-// had stays on disk as it is.
-import { state } from "../center/state.ts";
+// another folder. Nothing is moved, and the folder it had stays on disk as
+// it is.
 import { refresh } from "../center/refresh.ts";
 import type { MenuItem } from "../ui/menu.tsx";
 import { openAddToMachine } from "./addmachine.tsx";
@@ -14,7 +12,6 @@ export function changeFolder(project: string, machine: { id: string; name: strin
     project,
     machine,
     from,
-    macId: state.mac?.id || null,
     added: () => { refresh(); loadWhere(project); },
   });
 }

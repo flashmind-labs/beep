@@ -63,7 +63,7 @@ test("a refusal goes back to the form with the server's sentence", () => {
   assert.equal(cleanError(""), "The import failed.");
 });
 
-const listing = (over = {}) => ({ path: "/w/code", parent: "/w", exists: true, folders: [], more: 0, empty: false, origin: null, ...over });
+const listing = (over = {}) => ({ path: "/w/code", parent: "/w", exists: true, folders: [], more: 0, empty: false, origin: null, repos: [], ...over });
 
 test("choosing a checkout fills the field; another machine drops the choice", () => {
   let s = next(START, { type: "choose", listing: listing() });

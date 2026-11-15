@@ -1,52 +1,46 @@
-//! The tools a Beep desktop answers: `plugins`, which run in the desktop, and
-//! the assistant's `projects`. A desktop answers them itself through the hook
-//! its host gives `Offers`, and any other node sends the call to a desktop of
-//! its mesh over `tools/1`.
+//! The home assistant's project tools, which a Beep desktop answers. A
+//! desktop answers them itself through the hook its host gives `Offers`, and
+//! any other node sends the call to a desktop of its mesh over `tools/1` as
+//! `Tool::Projects`, with the tool's action in its arguments.
 
 use super::reply::fail;
 use crate::link::Offers;
 use anyhow::Result;
 use beep_mesh::{DeviceKind, Mesh};
-use beep_proto::node::tools::{Reply, Request, Tool};
+use beep_proto::node::tools::{Reply, Request};
 use futures::future::BoxFuture;
 use std::sync::Arc;
 
-/// What the desktop app gives its node to answer the tools only a desktop
-/// answers: `Tool::Plugins` and `Tool::Projects`.
-pub trait DesktopTools: Send + Sync {
-    /// The reply to one call of `tool`, from the tool's arguments as JSON text.
-    fn call(&self, tool: Tool, args: String) -> BoxFuture<'_, Reply>;
+/// What the desktop app gives its node to answer `Tool::Projects`.
+pub trait ProjectTools: Send + Sync {
+    /// The reply to one call, from its arguments as JSON text with the
+    /// action under `action`.
+    fn call(&self, args: String) -> BoxFuture<'_, Reply>;
 }
 
 /// The reply for a call from a session on this node.
 pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
-    if let Some(desktop) = &offers.desktop {
-        return desktop.call(request.tool, request.args.clone()).await;
+    if let Some(projects) = &offers.project_tools {
+        return projects.call(request.args.clone()).await;
     }
 
     let Some(mesh) = offers.mesh.get() else {
-        return fail(format!(
-            "{} It is not in a mesh.",
-            elsewhere(request.tool, "this machine")
-        ));
+        return fail(format!("{} It is not in a mesh.", elsewhere("this machine")));
     };
 
     forward(&mesh, request).await
 }
 
 /// This machine's own answer to a node's request, which only a desktop has.
-pub(crate) async fn answer(desktop: Option<&Arc<dyn DesktopTools>>, request: &Request) -> Reply {
-    match desktop {
-        Some(desktop) => desktop.call(request.tool, request.args.clone()).await,
-        None => fail(format!(
-            "This machine does not answer {}, only the Beep desktop does.",
-            request.tool
-        )),
+pub(crate) async fn answer(projects: Option<&Arc<dyn ProjectTools>>, request: &Request) -> Reply {
+    match projects {
+        Some(projects) => projects.call(request.args.clone()).await,
+        None => fail("This machine does not answer the project tools, only the Beep desktop does."),
     }
 }
 
-fn elsewhere(tool: Tool, machine: &str) -> String {
-    format!("The {tool} tool runs in the Beep desktop; this session runs on {machine}.")
+fn elsewhere(machine: &str) -> String {
+    format!("The project tools run in the Beep desktop; this session runs on {machine}.")
 }
 
 /// Sends the call to the first online desktop of the mesh. A phone is a
@@ -71,22 +65,22 @@ async fn forward(mesh: &Mesh, request: &Request) -> Reply {
     let Some(desktop) = desktops.first() else {
         return fail(format!(
             "{} No desktop of the mesh is online.",
-            elsewhere(request.tool, here)
+            elsewhere(here)
         ));
     };
     let name = &desktop.device.name;
     let replied = super::over_the_mesh(mesh, desktop.device.id, request).await;
 
-    from_desktop(name, request.tool, replied)
+    from_desktop(name, replied)
 }
 
-/// The reply of the desktop `name` to a call of `tool`.
-fn from_desktop(name: &str, tool: Tool, replied: Result<Reply>) -> Reply {
+/// The reply of the desktop `name`.
+fn from_desktop(name: &str, replied: Result<Reply>) -> Reply {
     match replied {
         // A desktop from before the tool answers that it serves no such tool.
         Ok(Reply::Done { text, failed: true }) if text.contains("does not serve Unknown") => {
             fail(format!(
-                "{name}: That desktop's Beep is too old for the {tool} tool. Update it."
+                "{name}: That desktop's Beep is too old for the project tools. Update it."
             ))
         }
         Ok(reply) => reply,

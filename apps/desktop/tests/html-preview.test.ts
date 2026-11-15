@@ -101,3 +101,15 @@ test("returning to source while the preview loads keeps the source visible", asy
   assert.ok(t.el.querySelector(".agcode"));
   assert.equal(t.el.querySelector("iframe"), null);
 });
+
+test("Markdown previews as rendered text and returns to source", async () => {
+  answer = async () => ({ kind: "md", html: "<h1>Hello</h1>" });
+  const t = tab("README.md");
+  t.el.querySelector("[data-preview]").click();
+  await tick();
+  assert.equal(t.el.querySelector(".agartmd h1").textContent, "Hello");
+  assert.equal(t.el.querySelector("iframe"), null);
+  t.el.querySelector("[data-preview]").click();
+  await tick();
+  assert.ok(t.el.querySelector(".agcode"));
+});

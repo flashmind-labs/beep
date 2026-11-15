@@ -35,9 +35,15 @@ export function syncthingImportChoice() {
       if (!machine || !folder) return;
 
       try {
-        const files = await lookup.run(invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine, folder }));
-        if (files === STALE || value !== null) return;
-        state.setState({ checked: files.enabled, disabled: !files.available, indeterminate: false });
+        const found = await lookup.run(Promise.all([
+          invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine, folder }),
+          invoke<boolean>("project_sync_get").catch(() => false),
+        ]));
+        if (found === STALE || value !== null) return;
+
+        // With project sync on, an untouched import leaves Syncthing.
+        const [files, beep] = found;
+        state.setState({ checked: files.enabled && !beep, disabled: !files.available, indeterminate: false });
       } catch { /* Import keeps the current setting if the machine cannot answer. */ }
     },
   };
@@ -100,7 +106,13 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
   }, e => insert("ignored", [{ label: `Ignored folders: ${reason(e)} (retry)`, on: reopen }]));
 
   // Unset keeps each folder's own Syncthing share, so it reads as Syncthing.
-  invoke<boolean | null>("project_syncthing_mode", { project: project.name }).then(enabled => {
+  // The line shows once set, or while some machine shares the folder.
+  const shared = Promise.any(project.machines.map(place =>
+    invoke<SyncthingFiles>("project_syncthing_files", { machineId: place.id, folder: place.folder })
+      .then(files => files.available || Promise.reject(new Error("not shared")))));
+  invoke<boolean | null>("project_syncthing_mode", { project: project.name }).then(async enabled => {
+    if (enabled === null && !await shared.catch(() => false)) return;
+
     const beep = enabled === false;
     const change = async () => {
       try {

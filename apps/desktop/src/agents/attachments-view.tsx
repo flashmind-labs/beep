@@ -7,7 +7,7 @@ import { shortSize } from "../agentpane/files-state.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { Icon } from "../ui/icons.tsx";
 import { AG, folderName } from "./agents.ts";
-import { drawAgentAttached } from "./images.tsx";
+import { drawAgentAttached, previewsOf } from "./images.tsx";
 import { answerUpload, MN, removeMention } from "./workdrop.ts";
 
 /// Takes image `i` off the message, with the file it is a preview of.
@@ -34,7 +34,7 @@ export function AgentAttachments() {
   const size = uploading.reduce((n, u) => n + u.size, 0), done = uploading.reduce((n, u) => n + u.done, 0);
   const uploaded = size ? Math.round(done / size * 100) : 0;
   return <>{uploading.length > 0 && <div className="agupbar" role="progressbar" aria-label={`Uploading to ${machine}`} aria-valuenow={uploaded} title={`Uploading to ${machine}: ${uploaded}%`}><span style={{ width: `${uploaded}%` }} /></div>}
-    <AttachmentBatch count={AG.att.length + loose.length + MN.uploads.length}>{AG.att.map((image, i) => <span className="att" key={identity(image)}><ImagePreview images={AG.att} index={i} listed /><RemoveChip name={image.name} data="data-agatt" index={i} remove={() => removeImage(i)} /></span>)}
+    <AttachmentBatch count={AG.att.length + loose.length + MN.uploads.length}>{AG.att.map((image, i) => <span className="att" key={identity(image)}><ImagePreview images={previewsOf(AG.att)} index={i} listed /><RemoveChip name={image.name} data="data-agatt" index={i} remove={() => removeImage(i)} /></span>)}
     {MN.paths.map((path, i) => {
       if (AG.att.some(image => image.original === path)) return null;
       const file = MN.files.get(path);
@@ -42,7 +42,7 @@ export function AgentAttachments() {
       const name = file?.name ?? folderName(path);
 
       return <span className={url ? "att" : "agment"} key={path} title={path}>
-        {url ? <ImagePreview images={[{ url, name }]} index={0} listed={false} /> : <><Icon name="doc" /><span className="nm">{name}</span></>}
+        {url ? <ImagePreview images={[{ url, name, full: null }]} index={0} listed={false} /> : <><Icon name="doc" /><span className="nm">{name}</span></>}
         <RemoveChip name={name} data="data-agment" index={i} remove={() => removeMention(i)} />
       </span>;
     })}

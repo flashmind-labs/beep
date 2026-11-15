@@ -3,7 +3,10 @@ use crate::Peers;
 use async_trait::async_trait;
 use beep_mesh::{Mesh, PeerClient, transport_config};
 use beep_proto::node::mesh_state::StateValue;
-use beep_proto::{ModelId, node::harness::AutoCompact};
+use beep_proto::{
+    ModelId,
+    node::harness::{AutoCompact, HarnessDriver},
+};
 use iroh::{Endpoint, endpoint::presets};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -162,5 +165,21 @@ async fn two_harness_saves_at_once_keep_both_fields() {
     b.unwrap();
 
     assert_eq!(desk.harness_default_model("codex").unwrap(), Some(model));
+    assert_eq!(desk.harness_compact("codex").unwrap(), Some(compact));
+
+    // Only Claude Code runs directly; the choice keeps the other settings.
+    assert!(
+        desk.save_harness_driver("codex", HarnessDriver::Direct)
+            .await
+            .is_err()
+    );
+    desk.save_harness_driver("claude", HarnessDriver::Direct)
+        .await
+        .unwrap();
+    assert_eq!(
+        desk.harness_driver("claude").unwrap(),
+        HarnessDriver::Direct
+    );
+    assert_eq!(desk.harness_driver("codex").unwrap(), HarnessDriver::Acp);
     assert_eq!(desk.harness_compact("codex").unwrap(), Some(compact));
 }

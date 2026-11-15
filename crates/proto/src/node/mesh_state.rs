@@ -112,7 +112,8 @@ pub struct ProjectSyncSettings {
     /// Projects individually paused before the master switch was turned off.
     #[serde(default)]
     pub paused_projects: BTreeSet<String>,
-    /// Every project, and each one imported later, is excluded from Syncthing.
+    /// No longer read: project sync itself now keeps projects out of Syncthing.
+    /// Kept for the positional wire format.
     #[serde(default)]
     pub beep_sync_over_syncthing: bool,
 }
@@ -145,6 +146,15 @@ pub struct ProjectRecord {
     /// Repository URL changes, replayed on machines that were offline.
     #[serde(default)]
     pub remote_renames: Vec<RemoteRename>,
+}
+
+impl ProjectRecord {
+    /// Whether Syncthing writes the project's folder. With project sync on, an
+    /// unset project leaves Syncthing so only Beep sync writes it; with it off,
+    /// unset keeps each folder's Syncthing settings as they are.
+    pub fn syncthing_choice(&self, sync: &ProjectSyncSettings) -> Option<bool> {
+        self.syncthing_files.or((sync.enabled).then_some(false))
+    }
 }
 
 /// A hosted repository rename; matching fetch and push URLs keep their transport.

@@ -254,7 +254,7 @@ impl Agents {
             .into_iter()
             .find(|session| session.id == id || Self::name_of(session) == id)
             .filter(|session| Self::name_of(session) != from)
-            .ok_or_else(|| format!("No agent {id} runs there. Use agent list to find one."))?;
+            .ok_or_else(|| format!("No agent {id} runs there. Use list_agents to find one."))?;
 
         session.take_peer_message()?;
         session.order(Command::Prompt(text.into())).await

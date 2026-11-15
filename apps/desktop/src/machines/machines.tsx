@@ -20,6 +20,7 @@ import { loadClocks } from "./clock.ts";
 import { openSignIn } from "./signin.tsx";
 import { type AdapterInstall } from "./adapters-state.ts";
 import { savedIn } from "../ui/platform.ts";
+import { renameSheet } from "../ui/menu.tsx";
 import type { MachineView } from "./machine-state.ts";
 
 // ---------- Machines ----------
@@ -313,6 +314,14 @@ async function retryAdapters(id: string) {
   if (shown()) drawMachines();
 }
 
+/// Saves machine `id`'s new name, shown on every machine.
+async function renameMachine(id: string, name: string) {
+  await invoke("rename_machine", { id, name });
+  MC.list = (MC.list || []).map(m => (m.id === id ? { ...m, name } : m));
+  hosted()?.changed();
+  if (shown()) drawMachines();
+}
+
 /// Unlinks the machine Remove asked about, online or not.
 async function removeMachine() {
   const asking = MC.asking;
@@ -458,6 +467,7 @@ function drawDetail(at: MachinesHost | null, machine: Machine) {
     signIn: (tool: string) => openSignIn(machine, tool, () => { if (shown()) void renderMachines(machine.id).then(() => hosted()?.changed()); }),
     updateNode: () => { void runUpdate(machine.id); }, updateTool: (tool: string) => { void updateTool(machine.id, tool); },
     logRead: () => { void readLog(machine.id); }, logSave: () => { void saveLog(machine); },
+    rename: () => renameSheet({ title: `Rename ${machine.name}`, value: machine.name, run: name => renameMachine(machine.id, name) }),
     askRemove: () => { MC.asking = { id: machine.id, busy: false, error: "" }; drawMachines(); },
     remove: () => { void removeMachine(); }, cancelRemove: () => { MC.asking = null; drawMachines(); },
   } });

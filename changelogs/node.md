@@ -2,6 +2,42 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.9] - 2026-11-15
+
+### Added
+
+- Node: Claude Code can run directly on the `claude` CLI instead of the npm
+  ACP adapter, when its harness is set to Direct. Prompts, streamed text and
+  thinking, tool calls, tool permission prompts, plan approval, Claude's
+  questions (shown as forms when the app supports them), model and mode
+  changes, stopping a turn, and resuming a session with its history all work.
+  Claude Code also runs on a machine that has its CLI but neither its ACP
+  adapter nor Node.js/npx, through the node's own Direct driver.
+
+## [0.7.8] - 2026-11-15
+
+### Added
+
+- Node: coding agents can rig a textured humanoid 3D model so it can be animated, optionally remeshing it and setting its height. The `model_3d` tool's new `rig` action needs a saved Meshy API key, takes a GLB from the session folder or an HTTP(S) URL, and saves the rigged GLB in the session's working folder.
+- Node: a Mac node lists the iPhones and iPads plugged into it, so they
+  appear in the Device tab and to agents. The screen, app installs and
+  app launches work as on the desktop. Taps, typing and buttons are not
+  available yet.
+
+### Changed
+
+- Node: the Beep tools for coding agents now have one tool per action, such as `list_machines`, `remote_run`, `remote_run_status`, `send_files`, `start_agent`, `device_tap`, `beep_logs`, `generate_image`, `generate_3d`, `rig_3d` and `list_models`. Each tool takes only its own arguments, so agents mix up arguments less often.
+- Node: the `plugins` tool is removed, so coding agents can no longer list, create or call Beep plugins.
+
+### Fixed
+
+- Node: Claude Code sessions run through a node can ask you questions now.
+  Claude Code's questions and forms from MCP servers appear in the session
+  one at a time, each with its options and a Skip option.
+- Node: while a question waits, words typed in the message box become the
+  answer. In a multiple choice question, pick several options by typing
+  their numbers, such as 1, 3.
+
 ## [0.7.7] - 2026-11-15
 
 ### Changed

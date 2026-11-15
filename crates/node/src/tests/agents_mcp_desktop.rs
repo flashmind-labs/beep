@@ -1,27 +1,28 @@
 use super::*;
+use beep_proto::node::tools::Tool;
 use beep_mesh::Key;
 use iroh::{Endpoint, SecretKey, endpoint::presets};
 use std::time::Duration;
 
-/// A desktop that answers with the tool and the arguments it got.
+/// A desktop that answers with the arguments it got.
 struct Echo;
 
-impl DesktopTools for Echo {
-    fn call(&self, tool: Tool, args: String) -> BoxFuture<'_, Reply> {
+impl ProjectTools for Echo {
+    fn call(&self, args: String) -> BoxFuture<'_, Reply> {
         Box::pin(async move {
             Reply::Done {
-                text: format!("{tool} got {args}"),
+                text: format!("got {args}"),
                 failed: false,
             }
         })
     }
 }
 
-fn request(tool: Tool) -> Request {
+fn request() -> Request {
     Request {
         session: "a3f9c1".to_owned(),
-        tool,
-        args: r#"{"action":"list"}"#.to_owned(),
+        tool: Tool::Projects,
+        args: r#"{"action":"hosts"}"#.to_owned(),
         approved: Default::default(),
     }
 }
@@ -29,33 +30,29 @@ fn request(tool: Tool) -> Request {
 #[tokio::test]
 async fn a_desktop_answers_for_its_own_sessions_and_for_a_node() {
     let offers = Offers {
-        desktop: Some(Arc::new(Echo)),
+        project_tools: Some(Arc::new(Echo)),
         ..Offers::default()
     };
+    let expected = Reply::Done {
+        text: r#"got {"action":"hosts"}"#.to_owned(),
+        failed: false,
+    };
 
-    for tool in [Tool::Plugins, Tool::Projects] {
-        let expected = Reply::Done {
-            text: format!(r#"{tool} got {{"action":"list"}}"#),
-            failed: false,
-        };
-
-        assert_eq!(call(&offers, &request(tool)).await, expected);
-        assert_eq!(answer(offers.desktop.as_ref(), &request(tool)).await, expected);
-    }
+    assert_eq!(call(&offers, &request()).await, expected);
+    assert_eq!(answer(offers.project_tools.as_ref(), &request()).await, expected);
 }
 
 #[tokio::test]
 async fn a_node_without_a_mesh_or_a_desktop_says_where_the_tool_runs() {
-    let Reply::Done { text, failed } = call(&Offers::default(), &request(Tool::Plugins)).await
-    else {
+    let Reply::Done { text, failed } = call(&Offers::default(), &request()).await else {
         panic!("not done");
     };
     assert!(
-        failed && text.contains("The plugins tool runs in the Beep desktop"),
+        failed && text.contains("The project tools run in the Beep desktop"),
         "{text}"
     );
 
-    let Reply::Done { text, failed } = answer(None, &request(Tool::Projects)).await else {
+    let Reply::Done { text, failed } = answer(None, &request()).await else {
         panic!("not done");
     };
     assert!(failed && text.contains("only the Beep desktop"), "{text}");
@@ -77,7 +74,7 @@ async fn forward_skips_observers() {
 
     let forwarded = tokio::time::timeout(
         Duration::from_secs(10),
-        forward(&mesh, &request(Tool::Projects)),
+        forward(&mesh, &request()),
     )
     .await
     .expect("no dial");
@@ -94,12 +91,12 @@ fn old_desktop_reply_maps_to_update_message() {
         failed: true,
     };
 
-    let Reply::Done { text, failed } = from_desktop("mac-box", Tool::Projects, Ok(old)) else {
+    let Reply::Done { text, failed } = from_desktop("mac-box", Ok(old)) else {
         panic!("not done");
     };
     assert!(failed, "{text}");
     assert_eq!(
         text,
-        "mac-box: That desktop's Beep is too old for the projects tool. Update it."
+        "mac-box: That desktop's Beep is too old for the project tools. Update it."
     );
 }

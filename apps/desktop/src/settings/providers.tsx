@@ -327,7 +327,7 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
       draft={draft} others={hv ? st.others.get(hv.agent) : undefined} saving={st.saving}
       updating={hv ? st.updating.has(key(hv.agent)) : false} adapter={hv ? adapter(hv.agent) : null}
       error={st.machines === null ? st.note : machine ? st.errors.get(machine) ?? "" : st.note} inSettings={inSettings} savedAll={st.savedAll.get(draftKey) ?? ""}
-      includeProgram={st.includeProgram} shared={sharedAgent ? sharedSettings(sharedAgent) : null} flsh={flsh} contexts={contexts}
+      includeProgram={st.includeProgram} shared={sharedAgent ? sharedSettings(sharedAgent) : null} flsh={flsh} contexts={contexts} invoke={invoke}
       loadOthers={loadOthers} loadCompact={loadCompact} changeCompact={changeCompact} saveCompact={saveSharedCompact} discardCompact={discardCompact}
       loading={isLoading()} checked={checkedLabel(current ? current.checked_at : null, Date.now())} updateCount={updateCount} canUpdate={!!behind.length}
       pick={(agent: string) => { st.picked = agent; draw(); }}

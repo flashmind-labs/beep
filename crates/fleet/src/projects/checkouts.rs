@@ -5,8 +5,8 @@ use crate::{
     desk::{Desk, Seen},
     error::{FleetError, Result},
     records::{
-        Place, ProjectRecord, WRITES, find_project, now_ms, place_key, project_key, projects, read,
-        sync_checkouts, write,
+        Place, ProjectRecord, Stored, WRITES, find_project, now_ms, place_key, project_key,
+        projects, read, sync_checkouts, write,
     },
 };
 use beep_mesh::Key;
@@ -20,7 +20,10 @@ use beep_projects::{
     is_windows,
     model::{plain_path, windows_path},
 };
-use beep_proto::{ImportedProject, MachineFolder, ProjectBranches, node::mesh_state::SyncSpec};
+use beep_proto::{
+    ImportedProject, MachineFolder, ProjectBranches,
+    node::mesh_state::{ProjectSyncSettings, SyncSpec},
+};
 use iroh::EndpointId;
 
 pub(super) const FALLBACK_DEFAULT: &str = "main";
@@ -45,29 +48,63 @@ async fn look_at(seen: &Seen, folder: &str) -> Result<(FolderPath, MachineFolder
 }
 
 /// The folder's path, refused when Syncthing keeps it in step there: Beep's sync would hold it,
-/// so nothing would ever arrive.
-async fn refuse_syncthing(desk: &Desk, seen: &Seen, there: MachineFolder) -> Result<String> {
-    if seen
+/// so nothing would ever arrive. A project that uses Beep sync first leaves that machine's share.
+async fn refuse_syncthing(
+    desk: &Desk,
+    seen: &Seen,
+    there: MachineFolder,
+    record: &ProjectRecord,
+) -> Result<String> {
+    if !seen
         .env
         .as_ref()
         .is_some_and(|env| env.syncthing_folder(&there.path).is_some())
     {
-        if there.exists
-            && desk
-                .syncthing_files(&seen.machine.id, &there.path, None)
-                .await
-                .is_ok_and(|files| files.available && !files.enabled)
-        {
-            return Ok(there.path);
-        }
-
-        return Err(FleetError::refused(format!(
-            "Syncthing keeps {} in step on {}. Choose another folder.",
-            there.path, seen.machine.name
-        )));
+        return Ok(there.path);
     }
 
-    Ok(there.path)
+    let sync = read::<ProjectSyncSettings>(&desk.mesh, &Key::ProjectSync).unwrap_or_default();
+    let leave = (record.syncthing_choice(&sync) == Some(false)).then_some(false);
+    if there.exists
+        && desk
+            .syncthing_files(&seen.machine.id, &there.path, leave)
+            .await
+            .is_ok_and(|files| files.available && !files.enabled)
+    {
+        return Ok(there.path);
+    }
+
+    Err(FleetError::refused(format!(
+        "Syncthing keeps {} in step on {}. Choose another folder.",
+        there.path, seen.machine.name
+    )))
+}
+
+/// Refuses a folder the project cannot take. It takes one that is missing or empty, which the
+/// others fill, a checkout of the same repository, which joins as it is, and for a repository
+/// one with files and no `.git`: the history arrives and the files stay as they are, local
+/// changes where they differ. A folder without Git merges every file into every machine, so
+/// its folder starts empty. Says whether the others have to fill it.
+fn takes(desk: &Desk, stored: &Stored, there: &MachineFolder) -> Result<bool> {
+    let Some(origin) = there.origin.as_deref() else {
+        if there.exists && !there.empty && stored.record.url.is_empty() {
+            return Err(FleetError::refused(format!(
+                "{} has other files. Choose an empty folder.",
+                there.path
+            )));
+        }
+
+        return Ok(true);
+    };
+
+    if same_repo(&stored.record.url, origin, &forgejo_of(&desk.opened())) {
+        return Ok(false);
+    }
+
+    Err(FleetError::refused(format!(
+        "{} is a checkout of another repository. Choose an empty folder or a checkout of {}.",
+        there.path, stored.name
+    )))
 }
 
 impl Desk {
@@ -104,7 +141,7 @@ impl Desk {
         ))
     }
 
-    /// Puts `project` on `machine` in `folder`, which is missing or empty: makes the folder and
+    /// Puts `project` on `machine` in `folder`, one the project [`takes`]: makes the folder and
     /// records the checkout, and with it the project's sync, which brings the files and `.git`.
     pub async fn add_to_machine(
         &self,
@@ -136,16 +173,13 @@ impl Desk {
         }
 
         let (asked, there) = look_at(&seen, folder).await?;
+        takes(self, &stored, &there)?;
+        let exists = there.exists;
+        let path = refuse_syncthing(self, &seen, there, &stored.record).await?;
 
-        if there.exists && !there.empty {
-            return Err(FleetError::refused(format!(
-                "{} has other files. Choose another folder.",
-                there.path
-            )));
+        if !exists {
+            folder::make(seen.machine.shell()?, name, &asked).await?;
         }
-
-        let path = refuse_syncthing(self, &seen, there).await?;
-        folder::make(seen.machine.shell()?, name, &asked).await?;
 
         let _write = WRITES.lock().await;
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
@@ -161,11 +195,9 @@ impl Desk {
         Ok(flow::project(row(&stored, id, &place), name.clone(), false))
     }
 
-    /// Points `project` on `machine` at `folder`, leaving the folder it had on disk as it is. The
-    /// new folder is missing or empty, and the others fill it as they fill one Add made, or holds
-    /// a checkout of the same repository, which joins the sync and merges with the others as two
-    /// checkouts do. Nothing is moved: moving a checkout under a running sync is how files get
-    /// lost.
+    /// Points `project` on `machine` at `folder`, one the project [`takes`], leaving the folder it
+    /// had on disk as it is. Nothing is moved: moving a checkout under a running sync is how
+    /// files get lost.
     pub async fn change_folder(
         &self,
         project: &str,
@@ -192,21 +224,12 @@ impl Desk {
             )));
         }
 
-        let checkout = there.origin.as_deref().is_some_and(|origin| {
-            same_repo(&stored.record.url, origin, &forgejo_of(&self.opened()))
-        });
-
-        if there.exists && !there.empty && !checkout {
-            return Err(FleetError::refused(format!(
-                "{} has other files. Choose an empty folder or a checkout of {}.",
-                there.path, stored.name
-            )));
-        }
-        // An empty folder is filled by the machines it syncs with; with none, nothing would come.
+        let filled = takes(self, &stored, &there)?;
+        // The machines it syncs with fill it; with none, nothing would come.
         let sync = Key::Sync(stored.name.clone());
         let fills = read::<SyncSpec>(&self.mesh, &sync)
             .is_some_and(|spec| spec.folders.keys().any(|other| *other != id));
-        if !checkout && !fills {
+        if filled && !fills {
             return Err(FleetError::refused(format!(
                 "No other machine syncs {} to fill it. Choose a checkout of it.",
                 stored.name
@@ -214,7 +237,7 @@ impl Desk {
         }
 
         let exists = there.exists;
-        let path = refuse_syncthing(self, &seen, there).await?;
+        let path = refuse_syncthing(self, &seen, there, &stored.record).await?;
 
         if !exists {
             folder::make(seen.machine.shell()?, name, &asked).await?;

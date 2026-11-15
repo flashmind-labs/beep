@@ -116,7 +116,7 @@ const pageHost = createRef<HTMLDivElement>();
 
 /// The sheet's frame, which Settings renders its content in. The window
 /// hands it over (sheet.ts), so the bar never loads the window's modules.
-export interface SettingsSheetOwner { show(sheet: HTMLElement, content: ReactNode): void }
+export interface SettingsSheetOwner { show(sheet: HTMLElement, content: ReactNode): void; close(): void }
 let sheetOwner: SettingsSheetOwner | null = null;
 export function connectSettingsSheet(owner: SettingsSheetOwner) { sheetOwner = owner; }
 
@@ -131,7 +131,8 @@ function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPa
   const openPage = (page: SettingsPage) => goTo(selectPage(page));
   showSheet(sheet, <SettingsShell
     navigation={<SettingsNavigation pages={pages} path={path} version={version} subs={subEntries} pageName={pageLabel} subName={subLabel} count={navCount} openPage={openPage} openSub={(sub: SettingsSub) => goTo(openSub(sub))} />}
-    breadcrumb={<SettingsBreadcrumb path={path} page={pageLabel(path.page)} sub={path.sub ? subLabel(path.sub) : null} openPage={openPage} />}>
+    breadcrumb={<SettingsBreadcrumb path={path} page={pageLabel(path.page)} sub={path.sub ? subLabel(path.sub) : null} openPage={openPage} />}
+    close={() => sheetOwner?.close()}>
     {settingsSections(SET.local?.mac ?? null, true).find(([page]) => page === path.page)?.[1] ?? null}
   </SettingsShell>);
 }

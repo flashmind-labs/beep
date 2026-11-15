@@ -4,7 +4,9 @@
 
 mod install;
 
-use super::{Adapter, AgentKind, KNOWN, flsh_config, models::flsh_dir_of, unix_now};
+use super::{
+    Adapter, AgentKind, KNOWN, flsh_config, kinds::direct, models::flsh_dir_of, unix_now,
+};
 use crate::{
     AsyncMutex, lock,
     machine::env::{claude_logged_in, opencode_logged_in, output},
@@ -12,7 +14,8 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::harness::{
-    AgentSettings, HARNESSES, HarnessConfig, HarnessInfo, HarnessReport, harness, parse_version,
+    AgentSettings, HARNESSES, HarnessConfig, HarnessDriver, HarnessInfo, HarnessReport, harness,
+    parse_version,
 };
 use beep_proto::{AgentSlug, FlshSettings};
 use reqwest::Client;
@@ -125,12 +128,25 @@ impl Settings {
 }
 
 /// `kind` with `config` applied: its program swapped, its home variable
-/// and env vars set, and its arguments added after the node's own.
+/// and env vars set, and its arguments added after the node's own. With the
+/// `Direct` driver the node's own bridge runs Claude Code's CLI; the program
+/// and arguments set for its adapter do not apply.
 fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
-    let mut kind = kind.clone();
-    if let Some(program) = config.program.as_deref().filter(|p| !p.trim().is_empty()) {
-        kind.program = program.trim().to_owned();
+    let direct = match config.driver {
+        HarnessDriver::Direct => direct(kind),
+        HarnessDriver::Acp | HarnessDriver::Other => None,
+    };
+    let adapter = direct.is_none();
+    let mut kind = direct.unwrap_or_else(|| kind.clone());
+
+    if adapter {
+        let program = config.program.as_deref().map(str::trim);
+        if let Some(program) = program.filter(|program| !program.is_empty()) {
+            kind.program = program.to_owned();
+        }
+        kind.args.extend(config.args.iter().cloned());
     }
+
     if let (Some(home), Some(known)) = (
         config.home.as_deref().filter(|h| !h.trim().is_empty()),
         harness(&kind.name),
@@ -138,7 +154,6 @@ fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
         kind.env
             .insert(known.home_var.to_owned(), expand_home(home.trim()));
     }
-    kind.args.extend(config.args.iter().cloned());
     kind.default_model.clone_from(&config.default_model);
     kind.compact = config.compact;
     kind.compact_models.clone_from(&config.compact_models);

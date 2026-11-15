@@ -99,6 +99,8 @@ body.cbody
           button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
             span style(display)
               svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
+        button.mb-set [aria-label="Settings" type="button"]
+          svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div#home-box.cc-box [hidden]
         div#view.cc-view
           canvas.haze.painted-art [aria-hidden="true" height="15" width="272"]

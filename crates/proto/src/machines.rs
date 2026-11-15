@@ -141,6 +141,9 @@ wire_structs! {
         pub empty: bool,
         /// It is a git checkout: its `origin` remote, empty when it has none.
         pub origin: Option<String>,
+        /// Those of `folders` that are git checkouts.
+        #[serde(default)]
+        pub repos: Vec<String>,
     }
 
     /// The apps, graphics cards and abilities of one machine.

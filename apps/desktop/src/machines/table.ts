@@ -1,7 +1,7 @@
 // The command center's machines table: one row per machine, its terminals
-// under it, and the menu that removes one.
+// under it, and the menu that renames or removes one.
 import { invoke } from "../ui/tauri.ts";
-import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
+import { confirmSheet, openMenu, renameSheet, type MenuItem } from "../ui/menu.tsx";
 import { state } from "../center/state.ts";
 import { currentLocation } from "../center/views.tsx";
 import { draw } from "../center/home.tsx";
@@ -36,7 +36,7 @@ export async function useThisMac() {
   reloadGroup("machines");
 }
 
-/// A machine the window can offer to remove: any but this Mac, which
+/// A machine the menu can rename, or remove unless it is this Mac, which
 /// unlinks from Settings.
 interface Removable {
   id: string;
@@ -46,13 +46,29 @@ interface Removable {
 }
 
 /// The menu for machine `m`, with the lines `first` gives on top: a terminal
-/// on it when it is online, and removing it, which this Mac cannot do to itself.
+/// on it when it is online, renaming it, and removing it, which this Mac cannot do to itself.
 export function showMachineMenu(m: Removable, first: () => MenuItem[], e: MouseEvent) {
   if (!m.id) return;
   const items: MenuItem[] = [...first()];
   if (m.online !== false && m.can_host !== false) items.push({ label: "New terminal", on: () => openTerminals({ newOn: m.id }) });
+  items.push({ label: "Rename…", on: () => renameMachine(m) });
   if (m.id !== state.mac?.id) items.push({ label: "Remove…", warn: true, on: () => removeMachine(m) });
   if (items.length) openMenu(e, m.name, items);
+}
+
+/// Asks for a new name for `m` and shows it on every machine.
+function renameMachine(m: Removable) {
+  renameSheet({
+    title: `Rename ${m.name}`,
+    value: m.name,
+    run: async name => {
+      await invoke("rename_machine", { id: m.id, name });
+      if (state.home) state.home = { ...state.home, machines: state.home.machines?.map(x => (x.id === m.id ? { ...x, name } : x)) ?? null };
+      draw();
+      reloadGroup("machines");
+      refresh();
+    },
+  });
 }
 
 /// Asks, then removes `m` from the mesh.

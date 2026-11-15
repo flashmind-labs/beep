@@ -9,7 +9,7 @@ import type { ViewName } from "./state.ts";
 
 /// The places of the window that modules fill.
 export type ShellPart = "sidebar" | "mobile-back" | "project-back" | "title" | "date" | "scope" | "tools" | "usage" | "notices"
-  | "home" | "home-composer" | "pages" | "mobile-tabs" | "palette";
+  | "mobile-settings" | "home" | "home-composer" | "pages" | "mobile-tabs" | "palette";
 
 interface Shell {
   /// The view showing; null before the first.
@@ -66,6 +66,7 @@ export function CenterWindow() {
         <span className="tools" id="tools">{parts.tools}</span>
         <span id="usage" className="us" hidden={parts.usage == null} ref={refs.usage}>{parts.usage}</span>
         <span id="bell" className="nt" ref={refs.bell}>{parts.notices}</span>
+        {parts["mobile-settings"]}
       </div>
       <div className="cc-box" id="home-box" hidden={view !== null && view !== "home"} ref={refs.homeBox}>
         <div className="cc-view" id="view" ref={refs.view}>{parts.home}</div>

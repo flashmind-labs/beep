@@ -201,6 +201,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-top b { font-size: 15px; font-weight: 600 }
 .cc-set .dset-top small { font-size: 12px; color: var(--muted) }
 .cc-set .dset-top kbd { font: inherit; font-size: 11px; opacity: .7; margin-left: auto; flex: none }
+/* A phone closes Settings with this: it has no Esc. */
+.cc-set .dset-close { display: none }
 .cc-set .dset-crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap }
 .cc-set .dset-crumbs > svg { flex: none; color: var(--dim) }
 .cc-set .dset-crumb { all: unset; cursor: default; font-size: 15px; color: var(--muted) }
@@ -1018,7 +1020,6 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .bd-card .sub .cc-ag svg { width: 11px; height: 11px }
 .bd-card .ft { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 22px }
 .bd-card .ft .sp { flex: 1 }
-.bd-empty { padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius); font-size: 11.5px; color: var(--muted) }
 .pj-board { overflow: auto; min-height: 0; padding: 0 16px 130px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
 .bd-pick { display: inline-flex; align-items: center; gap: 3px }
 .bd-pick svg { width: 12px; height: 12px }

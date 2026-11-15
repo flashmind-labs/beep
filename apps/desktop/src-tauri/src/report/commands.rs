@@ -78,7 +78,7 @@ pub async fn report_collect(
     #[cfg_attr(desktop, expect(unused_mut))]
     let mut shares = collect(targets, since).await;
     #[cfg(mobile)]
-    shares.insert(0, phone_share(me, machine.name().to_owned()).await);
+    shares.insert(0, phone_share(me, machine.name().to_owned(), since).await);
     let sender = Sender {
         id: me,
         mesh: fleet.mesh().map(|mesh| mesh.id()),
@@ -90,12 +90,12 @@ pub async fn report_collect(
     Ok(draft.map_err(anyhow::Error::from)?)
 }
 
-/// The phone's own part of a report: its app log, so a phone that reaches no
-/// machine can still say why.
+/// The phone's own part of a report: its app log from `since` on, so a phone
+/// that reaches no machine can still say why.
 #[cfg(mobile)]
-async fn phone_share(id: EndpointId, name: String) -> Share {
+async fn phone_share(id: EndpointId, name: String, since: i64) -> Share {
     let log = match crate::platform::logfile::dir() {
-        Some(dir) => spawn_blocking(move || local_log(&dir))
+        Some(dir) => spawn_blocking(move || local_log(&dir, since))
             .await
             .map_err(io::Error::other)
             .and_then(|read| read)

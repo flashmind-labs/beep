@@ -76,6 +76,8 @@ body.cbody
           button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
             span style(display)
               svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
+        button.mb-set [aria-label="Settings" type="button"]
+          svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div#home-box.cc-box
         div#view.cc-view
           canvas.haze.painted-art [aria-hidden="true" height="15" width="272"]
@@ -191,6 +193,7 @@ body.cbody
           span.dset-crumbs
             b "Appearance"
           kbd "esc"
+          button.dbtn.dset-close.quiet [type="button"] "Close"
         div.dform.dset-page
           section#set-appearance-sec [data-sec="appearance"]
             div.dsec.flat.top "Appearance"
@@ -239,16 +242,10 @@ body.cbody
                 span
                   b "Home"
                   small "Lanes of cards, or sections of rows"
-                div.hv-seg [aria-label="Home layout" aria-orientation="horizontal" data-orientation="horizontal" data-rac role="radiogroup"]
-                  button.react-aria-ToggleButton [aria-checked="true" data-rac data-react-aria-pressable="true" data-selected="true" role="radio" tabindex="0" type="button"] "Board"
-                  button.react-aria-ToggleButton [aria-checked="false" data-rac data-react-aria-pressable="true" role="radio" tabindex="0" type="button"] "List"
               div.dtoggle
                 span
                   b "Projects"
                   small "A project's front page"
-                div.hv-seg [aria-label="Projects layout" aria-orientation="horizontal" data-orientation="horizontal" data-rac role="radiogroup"]
-                  button.react-aria-ToggleButton [aria-checked="true" data-rac data-react-aria-pressable="true" data-selected="true" role="radio" tabindex="0" type="button"] "Board"
-                  button.react-aria-ToggleButton [aria-checked="false" data-rac data-react-aria-pressable="true" role="radio" tabindex="0" type="button"] "List"
               div.dtoggle
                 span
                   b "Conversation scrollbar"

@@ -27,7 +27,7 @@ impl TryFrom<&Request> for Args {
         args.harness = args.harness.trim().to_owned();
 
         if args.harness.is_empty() {
-            return Err("Give a `harness`, as machines list names it.".to_owned());
+            return Err("Give a `harness`, as list_machines names it.".to_owned());
         }
 
         Ok(args)
@@ -76,7 +76,7 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
     };
     let Some(target) = find(&mesh, &name) else {
         return failed(format!(
-            "No machine called {name}. Use machines list for the names."
+            "No machine called {name}. Use list_machines for the names."
         ));
     };
 

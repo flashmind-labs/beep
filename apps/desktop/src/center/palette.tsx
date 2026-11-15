@@ -5,7 +5,8 @@ import type { NavigationArgs } from "./state.ts";
 import { commandKey } from "../ui/platform.ts";
 // The Cmd+K palette: one search over actions, settings, projects, pull
 // requests, coding agents and machines. The window holds the index, so a
-// keystroke waits on nothing.
+// keystroke waits on nothing. The right arrow on a project lists its
+// sessions in place of the hits.
 import { invoke, listen } from "../ui/tauri.ts";
 import type { AgentRow } from "../agents/agents.ts";
 import { rank, type Entry, type Hit as FoundHit, type HitKind, type PaletteIndex } from "./palette-rank.ts";
@@ -53,6 +54,8 @@ let deps: PaletteDeps | null = null;
 let open = false;
 const field = createRef<HTMLInputElement>();
 let hits: Hit[] = [], sel = 0, drawnQuery = "";
+/// The project whose sessions are listed in place of the search's hits.
+let inside: Hit | null = null;
 let searching: PaletteSearch<Entry<AgentRow>> | null = null, back: HTMLElement | null = null;
 /// What the palette finds, as of the app's last word. Empty until the first
 /// read answers.
@@ -83,12 +86,15 @@ export function openPalette() {
   hits = [];
   sel = 0;
   drawnQuery = "";
+  inside = null;
   searching = new PaletteSearch<Entry<AgentRow>>(
     query => invoke<Entry<AgentRow>[]>("center_find_prompts", { query }),
     (q, text) => {
       // A redraw of the same query keeps the row the user is on.
       const on = q === drawnQuery ? hits[sel] : undefined;
-      hits = projectFirst(rank(q, index, text), deps?.scope());
+      const sessions = inside ? sessionsOf(inside) : [];
+      if (!sessions.length) inside = null;
+      hits = inside ? sessions : projectFirst(rank(q, index, text), deps?.scope());
       sel = on ? Math.max(0, hits.findIndex(h => h.kind === on.kind && h.id === on.id)) : 0;
       drawnQuery = q;
       draw(q.trim());
@@ -112,17 +118,38 @@ function close() {
   (to?.isConnected ? to : document.querySelector<HTMLElement>(".cc-search"))?.focus();
 }
 
+/// Most sessions a project lists.
+const SESSIONS_SHOWN = 10;
+
+/// The sessions of a project or folder hit, the one that moved last first.
+function sessionsOf(hit: Hit): Hit[] {
+  if (hit.kind !== "project" && hit.kind !== "folder") return [];
+  return index.sessions.filter(session => session.project === hit.id).slice(0, SESSIONS_SHOWN);
+}
+
+/// Back to the search's hits, on the project whose sessions were listed.
+function leave() {
+  if (!inside) return;
+  // The redraw keeps the row it finds selected.
+  hits = [inside];
+  sel = 0;
+  inside = null;
+  searching?.refresh();
+}
+
 function draw(q: string) {
   if (!open) return;
+  const listing = inside?.title ?? null, more = !inside && hits[sel] && sessionsOf(hits[sel]).length > 0;
   placeWindowParts({ palette: <div className="cc-scrim" onMouseDown={(e: ReactMouseEvent) => { if (e.target === e.currentTarget) { e.preventDefault(); close(); } }}>
     <PaletteView
       input={field} hits={hits} selected={sel} query={q} searchIcon={IC.find}
-      group={(hit: Hit) => hit.top ? "Top hit" : GROUPS[hit.kind]}
+      group={(hit: Hit) => listing ? `Sessions · ${listing}` : hit.top ? "Top hit" : GROUPS[hit.kind]}
+      keys={[["↑↓", "move"], ["↵", "open"], ...(listing ? [["←", "back"]] : more ? [["→", "sessions"]] : []), ["esc", "close"]]}
       icon={(hit: Hit) => {
         const name = ICON_OF[hit.kind] ?? hit.kind;
         return name in ICONS ? ICONS[name as keyof typeof ICONS] : IC[name as keyof typeof IC];
       }}
-      search={(value: string) => searching?.type(value)} choose={pick}
+      search={(value: string) => { inside = null; searching?.type(value); }} choose={pick}
       hover={(index: number) => { if (sel !== index) { sel = index; mark(); } }}
     />
   </div> });
@@ -170,6 +197,18 @@ window.addEventListener("keydown", e => {
     mark();
     return;
   }
+
+  if (e.key === "ArrowRight" && !inside) {
+    const hit = hits[sel], input = field.current;
+    // Only from the end of what was typed, where the key moves no caret.
+    if (!hit || !input || input.selectionStart !== input.value.length || !sessionsOf(hit).length) return;
+    stop();
+    inside = hit;
+    searching?.refresh();
+    return;
+  }
+
+  if (e.key === "ArrowLeft" && inside) { stop(); return leave(); }
 
   // Other window shortcuts do nothing under the overlay.
   if (commandKey(e) && !["a", "c", "v", "x", "z"].includes(e.key.toLowerCase())) stop();

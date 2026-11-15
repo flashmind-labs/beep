@@ -45,8 +45,8 @@ mod transcripts;
 
 pub(crate) use machines::over_the_mesh;
 pub use machines::command_name;
-pub(crate) use desktop::answer as answer_desktop;
-pub use desktop::DesktopTools;
+pub(crate) use desktop::answer as answer_projects;
+pub use desktop::ProjectTools;
 pub(crate) use server::Backend;
 use server::Called;
 
@@ -211,7 +211,7 @@ impl Backend for Node {
                 ));
             }
             Tool::HarnessInfo => return Ok(harness::call(&self.offers, request).await),
-            Tool::Plugins | Tool::Projects => return Ok(desktop::call(&self.offers, request).await),
+            Tool::Projects => return Ok(desktop::call(&self.offers, request).await),
             Tool::Review => return Ok(review::review(&self.offers, request).await),
             Tool::SubmitReview => return Ok(review::submit(&self.offers, request)),
             Tool::StartAgent

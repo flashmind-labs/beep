@@ -9,7 +9,7 @@ use crate::{beep::state::Prefs, machines::desktop, platform::logfile};
 use beep_node::machine::wsl::Wsl;
 use beep_node::{
     agents::{
-        mcp::{self, DesktopTools},
+        mcp::{self, ProjectTools},
         skills::Skills,
     },
     link::{self, Offers, listen_hooks, state::Search},
@@ -75,11 +75,11 @@ struct NodeHome {
 impl Machine {
     /// The machine whose node keeps its tools, teacli config and sockets
     /// in `dir`.
-    pub fn new(dir: &Path, desktop: Option<Arc<dyn DesktopTools>>) -> Self {
+    pub fn new(dir: &Path, project_tools: Option<Arc<dyn ProjectTools>>) -> Self {
         let provision = Provision::new(dir);
         let mut offers = Offers::local(&[], provision.clone());
-        // Agents on this Mac reach the plugins and projects this app answers.
-        offers.desktop = desktop;
+        // The assistant's project tools on this Mac reach this app.
+        offers.project_tools = project_tools;
         #[cfg(target_os = "macos")]
         offers.extra.push(Arc::new(desktop::Desktop));
         // The user's coding agent skills reach the mesh's other machines.

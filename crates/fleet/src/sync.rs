@@ -6,7 +6,7 @@ mod ignored;
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
-    records::{WRITES, find_project, project_key, projects, read, scan, write},
+    records::{WRITES, find_project, project_key, read, scan, write},
 };
 use beep_mesh::{Key, PeerClient};
 use beep_projects::model::plain_path;
@@ -102,36 +102,6 @@ impl Desk {
         Ok(())
     }
 
-    pub fn beep_sync_over_syncthing(&self) -> bool {
-        read::<ProjectSyncSettings>(&self.mesh, &Key::ProjectSync)
-            .unwrap_or_default()
-            .beep_sync_over_syncthing
-    }
-
-    /// Turning it on excludes every project from Syncthing; turning it off
-    /// leaves each project's choice as it is.
-    pub async fn set_beep_sync_over_syncthing(&self, enabled: bool) -> Result<()> {
-        let _write = WRITES.lock().await;
-        let mut settings =
-            read::<ProjectSyncSettings>(&self.mesh, &Key::ProjectSync).unwrap_or_default();
-
-        if enabled {
-            for mut stored in projects(&self.mesh) {
-                if stored.record.syncthing_files != Some(false) {
-                    stored.record.syncthing_files = Some(false);
-                    write(&self.mesh, project_key(&stored.name), Some(&stored.record)).await?;
-                }
-            }
-        }
-
-        if settings.beep_sync_over_syncthing != enabled {
-            settings.beep_sync_over_syncthing = enabled;
-            write(&self.mesh, Key::ProjectSync, Some(&settings)).await?;
-        }
-
-        Ok(())
-    }
-
     pub async fn project_git_auto_recovery(
         &self,
         project: &str,
@@ -162,7 +132,8 @@ impl Desk {
             write(&self.mesh, project_key(&stored.name), Some(&stored.record)).await?;
         }
 
-        Ok(stored.record.syncthing_files)
+        let sync = read::<ProjectSyncSettings>(&self.mesh, &Key::ProjectSync).unwrap_or_default();
+        Ok(stored.record.syncthing_choice(&sync))
     }
 
     /// Brings an explicit snapshot to a clean checkout. The source stays intact.
