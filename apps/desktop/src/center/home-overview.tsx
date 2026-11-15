@@ -5,7 +5,7 @@ import { lastProjectVisit, readProjectSort, saveProjectSort } from "../project/p
 import { visibleRunning } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
-import { agentName, byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
+import { byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { Board, CardRow, type BoardCard } from "./lanes-view.tsx";
 import { byProject, endedToday, laneOf } from "./lanes-state.ts";
@@ -26,10 +26,7 @@ import { go } from "./views.tsx";
 import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
 import { isMobile } from "../ui/platform.ts";
-import { Button, Section, SectionHead, EmptyPanel, EndedFold, LineRow } from "../ui/kit.tsx";
-import { sessions } from "../agents/sessions.ts";
-import { assistantRows } from "../agents/assistant-state.ts";
-import type { AgentSession } from "../agents/agents.ts";
+import { Button, Section, EmptyPanel } from "../ui/kit.tsx";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
 import { RunningStatus } from "../project/split-view.tsx";
 
@@ -85,10 +82,10 @@ function needsCards(home: HomeView): BoardCard[] {
   return cards;
 }
 
-/// Everything that runs but the assistants, the latest first.
-function runningCards(home: HomeView, assistants: ReadonlySet<string>): BoardCard[] {
+/// Everything that runs, the latest first.
+function runningCards(home: HomeView): BoardCard[] {
   const projects = home.projects || [];
-  return byRecent(visibleRunning(home.running).filter(row => !assistants.has(runningKey(row)))).map(row => {
+  return byRecent(visibleRunning(home.running)).map(row => {
     const { title, sub } = runningLineAt(row, projects);
     const status = runningStatus(row, home);
     return { key: runningKey(row), lane: laneOf(row.status), project: sessionProject(row, home), session: true, lead: <HarnessIcon agent={row.agent} />,
@@ -132,10 +129,9 @@ export function HomeOverview({ home }: { home: HomeView }) {
   };
 
   const list = frontLayout("home") === "list";
-  const assistants = assistantRows(sessions.filter(sessionVisible));
-  const needs = needsCards(home), running = runningCards(home, new Set(assistants.running.map(runningKey)));
+  const needs = needsCards(home), running = runningCards(home);
   const cards = list ? [...needs, ...running] : boardCards(home, needs, running);
-  const empty = !cards.length && !assistants.running.length;
+  const empty = !cards.length;
   // A row's dot matches the project's in the sidebar.
   const listed = projectRows() || [];
   const activity = new Map<string, number>();
@@ -163,29 +159,8 @@ export function HomeOverview({ home }: { home: HomeView }) {
     {list ? !!needs.length && <Section id="sec-needs" title="Needs you" count={needs.length}>{ordered(needs).map(card => <CardRow key={card.key} card={card}/>)}</Section>
       : !!cards.length && <div id="sec-needs"><Board cards={ordered(cards)} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={isMobile() ? null : rows} recency={recency}/></div>}
     {list && !!running.length && <Section id="sec-running" title={<Button className="lk" onClick={() => go("pane", "agents")}>Running</Button>} count={running.length}>{ordered(running).map(card => <CardRow key={card.key} card={card}/>)}</Section>}
-    <Assistants running={assistants.running} ended={assistants.ended} />
     {empty && <Empty home={home} />}
   </>;
-}
-
-/// The Home assistant's sessions: those that run, then the ended ones under their fold.
-function Assistants({ running, ended }: { running: AgentSession[]; ended: AgentSession[] }) {
-  const [endedOpen, setEndedOpen] = useState(false);
-  if (!running.length && !ended.length) return null;
-  const row = (session: AgentSession) => {
-    const right = session.status === "ended" ? formatAgo(session.last_activity, "since") : <RunningStatus row={{ kind: "agent", ...session }} />;
-    return <LineRow key={runningKey(session)} dataKey={runningKey(session)} lead={<HarnessIcon agent={session.agent} />} title={session.title || agentName(session.agent)} sub={session.machine_name} right={right} dim={session.status === "ended"} onOpen={() => go("pane", { agent: session })} />;
-  };
-
-  // Plain rows, as the board's done log.
-  return <div id="sec-assistant">
-    <SectionHead title="Assistant" count={running.length} />
-    <div className="bd-log">
-      {running.map(row)}
-      {!!ended.length && <EndedFold count={ended.length} open={endedOpen} onToggle={() => setEndedOpen(!endedOpen)} />}
-      {endedOpen && ended.map(row)}
-    </div>
-  </div>;
 }
 
 /// Nothing to show: nothing runs, or no machine has answered yet. Before any

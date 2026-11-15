@@ -127,7 +127,7 @@ let gitReadAt: number | null = null;
 export const homeView: CenterView<"home"> = {
   title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }),
     // A phone has no ⌘N: the assistant starts from here.
-    reactTools: isMobile() ? <Button small className="pj-tool fab" aria-label="New assistant" onClick={() => go("pane", { agentnew: { at: null, assistant: true } })}><span style={{ display: "contents" }}><Icon name="plus" /></span> New assistant</Button> : null }),
+    reactTools: isMobile() ? <Button small className="pj-tool fab" aria-label="New assistant" onClick={() => go("pane", { assistant: "chats" })}><span style={{ display: "contents" }}><Icon name="plus" /></span> New assistant</Button> : null }),
   mount() {
     draw();
     ensureHome();

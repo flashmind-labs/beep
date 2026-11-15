@@ -85,7 +85,7 @@ body.mobile #pane-box > .dbar:not([data-view="chat"]):not([data-view="group"]) .
 /* A project: its list, or the picked row's detail, never both. */
 body.mobile .pj-split { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) }
 body.mobile .pj-split > .pj-list { border-right: 0 }
-body.mobile .pj-split:not(.picked):not(.gh-layout) > .pj-det { display: none }
+body.mobile .pj-split:not(.picked):not(.gh-layout) > :is(.pj-det, .dbar) { display: none }
 body.mobile .pj-split.picked:not(.gh-layout) > .pj-list { display: none }
 body.mobile .pj-split.gh-layout { grid-template-rows: auto minmax(0, 1fr) }
 body.mobile .pj-split > .pj-det { padding-bottom: 12px }

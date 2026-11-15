@@ -150,7 +150,7 @@ function projectHere() {
 function newAgentHere() {
   const to = projectHere();
   if (to) return void go("pane", { draft: { project: to.project, machine: to.machine } });
-  if (currentLocation()?.view === "home") return void go("pane", { agentnew: { at: null, assistant: true } });
+  if (currentLocation()?.view === "home") return void go("pane", { assistant: "new" });
   go("projects", { project: null });
 }
 pane.connect({

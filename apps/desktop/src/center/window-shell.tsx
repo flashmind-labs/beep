@@ -9,15 +9,18 @@ import type { ViewName } from "./state.ts";
 
 /// The places of the window that modules fill.
 export type ShellPart = "sidebar" | "mobile-back" | "project-back" | "title" | "date" | "scope" | "tools" | "usage" | "notices"
-  | "mobile-settings" | "home" | "home-composer" | "pages" | "mobile-tabs" | "palette";
+  | "mobile-settings" | "home" | "home-composer" | "pages" | "mobile-tabs" | "palette" | "assistant";
 
 interface Shell {
   /// The view showing; null before the first.
   view: ViewName | null;
+  /// The pane shows the Assistant page: its chats beside the bar, and whether a chat or the
+  /// start composer is picked, which the phone shows in place of the chats.
+  assistant: { picked: boolean } | null;
   parts: Partial<Record<ShellPart, ReactNode>>;
 }
 
-export const shell = createStore<Shell>(() => ({ view: null, parts: { title: "Home" } }));
+export const shell = createStore<Shell>(() => ({ view: null, assistant: null, parts: { title: "Home" } }));
 
 /// The window's elements other modules work in.
 type Host = "side" | "main" | "top" | "home-box" | "view" | "pane-box" | "usage" | "bell";
@@ -43,7 +46,7 @@ export function windowHost(name: Host): HTMLElement {
 }
 
 export function CenterWindow() {
-  const { view, parts } = useStore(shell);
+  const { view, assistant, parts } = useStore(shell);
   // The top bar's own width, which a session's title row keeps clear of (native.css).
   useLayoutEffect(() => {
     const top = hosts.get("top"), main = hosts.get("main");
@@ -72,7 +75,8 @@ export function CenterWindow() {
         <div className="cc-view" id="view" ref={refs.view}>{parts.home}</div>
         {parts["home-composer"]}
       </div>
-      <div className="cc-box" id="pane-box" hidden={view !== "pane"} ref={refs.paneBox} />
+      {/* The Assistant page sets its chats beside the pane's bar, which `adoptBar` appends after them. */}
+      <div className={`cc-box${assistant ? ` pj-split${assistant.picked ? " picked" : ""}` : ""}`} id="pane-box" hidden={view !== "pane"} ref={refs.paneBox}>{parts.assistant}</div>
       {parts.pages}
     </div>
     <nav className="mb-tabs" id="mb-tabs" aria-label="Sections">{parts["mobile-tabs"]}</nav>

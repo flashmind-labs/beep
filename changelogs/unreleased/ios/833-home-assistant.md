@@ -1,4 +1,4 @@
 ### Added
 
-- iOS: Home lists assistant chats, and a New assistant action starts a new
-  one.
+- iOS: New assistant on Home opens the Assistant page, which lists the
+  assistant's chats. Tap one to open it, or New chat to start one.

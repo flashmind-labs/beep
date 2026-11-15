@@ -9,6 +9,10 @@ div#side-content.cc-side-list
       span.sidebar-icon style(display)
         svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       span.tt "Home"
+    button.cc-si [aria-label="Assistant" title="Assistant" type="button"]
+      span.sidebar-icon style(display)
+        svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+      span.tt "Assistant"
     button.cc-si [aria-label="Terminals" title="Terminals" type="button"]
       span.sidebar-icon style(display)
         svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]

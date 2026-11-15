@@ -151,7 +151,7 @@ async function openProject(page: Page, responses: Record<string, unknown> = {}) 
   await expect(page.locator(".pj-strip")).toBeVisible();
 }
 
-/// Assistant sessions: one started as the assistant, one found in build-box's home folder, one ended.
+/// Assistant sessions: two that run, one ended.
 const linux = { os: "linux", os_version: "Ubuntu 26.04", arch: "x86_64", hostname: "build-box", cpus: 32, memory_mb: 124_000, home: "/srv", tools: [], logins: [], avds: [], gpus: [] };
 const assistantHome = { ...home, machines: [{ ...home.machines[0], env: linux }, home.machines[1]] };
 const assistantSessions = [
@@ -169,26 +169,34 @@ test("home overview", async ({ page }) => {
   await baseline(page, "home-overview");
 });
 
-test("home assistant list", async ({ page }) => {
-  await openDesktop(page, false, { center_home: assistantHome, agent_sessions: assistantSessions });
-  const list = page.locator("#sec-assistant");
-  await expect(list.locator(".cc-line")).toHaveCount(2);
-  const ended = list.getByRole("button", { name: /Ended/ });
-  await ended.click();
-  await expect(list.locator(".cc-line")).toHaveCount(3);
-  await ended.blur();
-  await baseline(page, "home-assistant");
+test("assistant page", async ({ page }) => {
+  const chat = assistantSessions[0];
+  const transcript = [
+    { kind: "user", text: "Set up the widget project on build-box." },
+    { kind: "agent", text: "Cloned example/widget into ~/Projects/example/widget and imported it." },
+  ];
+  await openDesktop(page, false, {
+    center_home: assistantHome, agent_sessions: assistantSessions, agent_hosts: [assistantHost],
+    assistant_settings_get: { agent: "flsh", model: null, effort: "high" },
+    agent_view: { ...agentView, session: { ...chat, question: null }, entries: transcript },
+  });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  const list = page.locator(".asst-list");
+  await list.getByRole("button", { name: /Set up the widget project/ }).click();
+  await expect(page.getByText("Cloned example/widget")).toBeVisible();
+  await expect(list.locator('[aria-current="true"]')).toContainText("Set up the widget project");
+  await baseline(page, "assistant-page");
 });
 
-test("assistant composer", async ({ page }, info) => {
-  await openDesktop(page, false, { center_home: home, agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high" } });
-  // The headline is drawn by lot when the form opens; the screenshot needs the same one each run.
-  await page.evaluate(() => { Math.random = () => 0; });
+test("assistant page empty", async ({ page }, info) => {
+  await openDesktop(page, false, { center_home: home, agent_sessions: [], agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high" } });
   await expect(page.locator("#sec-needs")).toBeVisible();
+  // Cmd+N on Home lands on the page with a new chat.
   await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await expect(page.locator(".asst-list")).toBeVisible();
   await expect(page.locator("#agpillb .flsh")).toBeVisible();
   await expect(page.locator("#aghostb")).toHaveText(machineId);
-  await baseline(page, "assistant-composer");
+  await baseline(page, "assistant-page-empty");
 });
 
 test("home first start", async ({ page }) => {
@@ -718,13 +726,15 @@ test("phone home", async ({ page }) => {
   await baseline(page, "phone-home");
 });
 
-test("phone home assistant", async ({ page }) => {
+test("phone assistant", async ({ page }) => {
   await page.setViewportSize(PHONE);
-  await openDesktop(page, false, { center_home: assistantHome, agent_sessions: assistantSessions });
+  await openDesktop(page, false, { center_home: assistantHome, agent_sessions: assistantSessions, agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high" } });
   await expect(page.locator("body")).toHaveClass(/mobile/);
-  await expect(page.locator("#sec-assistant .cc-line")).toHaveCount(2);
-  await expect(page.getByRole("button", { name: "New assistant" })).toBeVisible();
-  await baseline(page, "phone-home-assistant");
+  await page.getByRole("button", { name: "New assistant" }).click();
+  const list = page.locator(".asst-list");
+  await expect(list.locator(".pj-li")).toHaveCount(2);
+  await expect(page.locator("#agprompt")).toBeHidden();
+  await baseline(page, "phone-assistant");
 });
 
 test("phone settings", async ({ page }) => {

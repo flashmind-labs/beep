@@ -421,6 +421,12 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .pj-list h4 { margin: 0; padding: 12px 14px 4px; display: flex; gap: 8px }
 .pj-list h4 .n { font-weight: 400 }
 .pj-list .note { padding: 4px 14px 6px; font-size: 12px; color: var(--muted) }
+/* The Assistant page: its chats before the pane's bar (which the window appends first), New
+   chat by their heading, the Ended fold in line. */
+.asst-list { order: -1 }
+.asst-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px 4px 0 }
+.asst-head > h4 { padding-block: 0 }
+.asst-list > .dagfold { margin: 0; padding: 6px 12px 6px 14px; border: 0 }
 .pj-li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 6px 12px 6px 14px; border: 0; background: none; color: var(--fg); font: inherit; text-align: left; cursor: default }
 .pj-li:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 .pj-li[aria-current="true"] { background: var(--elev); box-shadow: inset 2px 0 var(--accent) }
@@ -1013,7 +1019,7 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .bd-lanes > .bd-lane { flex: 1 1 0; max-width: 420px }
 .bd-lanes > .bd-lane.log { max-width: 340px }
 .bd-log { display: grid; min-width: 0 }
-.bd-log :is(.cc-row, .dagfold) { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; margin: 0; padding: 5px 8px; border: 0; border-radius: var(--radius-sm) }
+.bd-log .cc-row { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; padding: 5px 8px; border: 0; border-radius: var(--radius-sm) }
 .bd-log .cc-row .t > span:empty { display: none }
 .bd-lane.log > .dbtn { justify-self: start }
 .bd-art { display: none }

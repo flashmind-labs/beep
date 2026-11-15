@@ -13,6 +13,8 @@ import { showNotices } from "./notices.tsx";
 import { openReport } from "../report/report.tsx";
 import { debugPrompt } from "../report/report-state.ts";
 import type { MacControl } from "../machines/machine-state.ts";
+import { AssistantList, leaveAssistantPage, syncAssistantPage } from "../agents/assistant-page.tsx";
+import { placeWindowParts } from "./window-root.tsx";
 
 /// Titles of the pane's views.
 const PANE_TITLES: Record<View, [string, string]> = {
@@ -40,19 +42,22 @@ export const paneView: CenterView<"pane"> = {
   title: paneTitle,
   mount(_el, arg) {
     pane.mounted(true);
-    return Promise.resolve(pane.open(arg)).then(() => {});
+    return Promise.resolve(pane.open(arg)).then(() => { syncAssistantPage(); });
   },
   unmount() {
     pane.mounted(false);
     pane.leave();
+    leaveAssistantPage();
   },
 };
 
 bar.dataset.view = pane.current().view;
 pane.onChange(now => {
   bar.dataset.view = now.view;
+  syncAssistantPage();
   drawSide();
 });
+placeWindowParts({ assistant: <AssistantList /> });
 
 // ---------- Handoffs ----------
 

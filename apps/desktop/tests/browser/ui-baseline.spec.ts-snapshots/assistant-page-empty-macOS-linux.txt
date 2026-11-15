@@ -15,10 +15,14 @@ body.cbody
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Search"
             kbd "⌘K"
-          button.cc-si [aria-current="true" aria-label="Home" title="Home" type="button"]
+          button.cc-si [aria-label="Home" title="Home" type="button"]
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Home"
+          button.cc-si [aria-current="true" aria-label="Assistant" title="Assistant" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Assistant"
           button.cc-si [aria-label="Terminals" title="Terminals" type="button"]
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
@@ -89,10 +93,11 @@ body.cbody
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
-        h2#title "Home"
+        h2#title "Assistant"
         span#scope
-        small#date "Thursday, January 15"
+        small#date "It works across your machines and projects"
         span#tools.tools
+          button.dbtn.small [type="button"] "All sessions"
         span#usage.us [hidden]
         span#bell.nt
           button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
@@ -100,7 +105,7 @@ body.cbody
               svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
         button.mb-set [aria-label="Settings" type="button"]
           svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-      div#home-box.cc-box
+      div#home-box.cc-box [hidden]
         div#view.cc-view
           canvas.haze.painted-art [aria-hidden="true" height="15" width="272"]
           div.cc-mstrip
@@ -171,39 +176,67 @@ body.cbody
                   span.ft "10m ago"
                     span.sp
               div.bd-lane
-          div#sec-assistant
-            div.cc-sec
-              h4 "Assistant"
-                span.n "2"
-            div.bd-log
-              div.cc-line.cc-row [data-key="agent:build-box:helper-one"]
-                span.cc-ag.flsh.mark
-                  svg [aria-hidden="true" viewBox="0 0 28 28"]
-                button.t [title="Set up the widget project" type="button"]
-                  b "Set up the widget project"
-                  span "build-box"
-                span.r
-                  span.cc-running "now"
-                    span.drun [aria-label="Working" role="img"]
-              div.cc-line.cc-row [data-key="agent:build-box:helper-two"]
-                span.cc-ag.claude.mark
-                  svg [aria-hidden="true" viewBox="0 0 24 24"]
-                button.t [title="Check the open pull requests" type="button"]
-                  b "Check the open pull requests"
-                  span "build-box"
-                span.r "15m ago"
-              button.dagfold [aria-expanded="true" type="button"] "Ended"
-                span.chev [aria-hidden="true"] "▾"
-                span.n "1"
-              div.cc-line.cc-row [data-key="agent:build-box:helper-old"] style(opacity)
-                span.cc-ag.flsh.mark
-                  svg [aria-hidden="true" viewBox="0 0 28 28"]
-                button.t [title="Import my projects" type="button"]
-                  b "Import my projects"
-                  span "build-box"
-                span.r "2 h ago"
-      div#pane-box.cc-box [hidden]
-        div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
+      div#pane-box.cc-box.picked.pj-split
+        div#bar.dbar [aria-label="Session" data-mode="window" data-view="agentnew"]
+          div [data-bar-page] style(display)
+            div#agcomposer.agc-wrap
+              form.cc-pjc.centered
+                section.agc-intro
+                  canvas.painted-art.sunrise [aria-hidden="true" height="160" width="272"]
+                  h3 [aria-label="What can I help with?"]
+                    span [aria-hidden="true"]
+                      span.agc-word style(--word) "What"
+                      span.agc-word style(--word) "can"
+                      span.agc-word style(--word) "I"
+                      span.agc-word style(--word) "help"
+                      span.agc-word style(--word) "with?"
+                  p "Ask about your machines and projects."
+                div#agbox.box
+                  div.cx-layer [aria-hidden="true" hidden]
+                  textarea#agprompt.cx-field [aria-label="Message for the assistant" autocomplete="off" data-prompt-stash placeholder="Ask the assistant." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] style(height,overflow-y) value="" (focused)
+                  div.row
+                    span.sp
+                    button#agpillb.pill [aria-expanded="false" title="Harness, model and thinking" type="button"] "High Default"
+                      span.cc-ag.flsh.mark
+                        svg [aria-hidden="true" viewBox="0 0 28 28"]
+                      svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                    button.dbtn.quiet [aria-label="Attach files" title="Attach files" type="button"]
+                      svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+                    input [hidden multiple type="file"] value=""
+                    div.ag-att [hidden]
+                    button#aggo.agc-send [aria-label="Start" title="Start (⌘↩)" type="submit"]
+                      svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="16"]
+                  div#agpick.pick
+                  div#agunder
+                span#agchoices.choices
+                  button#aghostb.pill [aria-expanded="false" title="The machine it runs on" type="button"] "build-box"
+                  button#agfoldb.pill [aria-expanded="false" hidden title="The machine's workspace" type="button"] "Workspace"
+                    svg [fill="none" height="13" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                    small.mono "~"
+                  span.choices
+                span#agerr.cc-err.cc-progress [role="status"]
+                div.agnew-notes
+                  div#agwhy.agc-why [hidden]
+                  div#aghelp
+            div.agkeys.prompt-stash-bar
+              div.dhints.slim
+                span "model"
+                  kbd "⇧⌘M"
+                span "back"
+                  kbd "esc"
+              details
+                summary "Show more"
+                div.agkeys-list
+                  section
+                    b "Stash"
+                    button [data-stash-action="save" type="button"] "Stash draft"
+                      kbd "Ctrl S"
+                    button [data-stash-action="pop" type="button"] "Pop latest"
+                      kbd "Ctrl P"
+        div.asst-list.pj-list
+          div.asst-head
+            h4 "Chats"
+            button.dbtn.small [type="button"] "New chat"
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
