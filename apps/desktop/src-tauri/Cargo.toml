@@ -32,6 +32,7 @@ beep-report.workspace = true
 futures.workspace = true
 iroh.workspace = true
 iroh-blobs.workspace = true
+iroh-metrics.workspace = true
 iroh-tickets.workspace = true
 log.workspace = true
 metrics.workspace = true

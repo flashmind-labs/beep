@@ -1,6 +1,6 @@
 //! Owns peer dialers and retires connections after membership changes.
 
-use super::{Inner, Mesh, PEER_ALPN};
+use super::{Inner, Mesh, PEER_ALPN, ways};
 use crate::link;
 use beep_proto::watched;
 use iroh::endpoint::Connection;
@@ -188,6 +188,7 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
         let addr = tried
             .as_ref()
             .map_or_else(|| EndpointAddr::new(peer), |n| n.addr.clone());
+        let to = ways(&addr);
         let started = Instant::now();
         let connect = timeout(DIAL_TIMEOUT, inner.endpoint.connect(addr, PEER_ALPN));
         tokio::pin!(connect);
@@ -220,10 +221,10 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             Ok(Err(e)) => {
                 info!(
                     elapsed_ms = started.elapsed().as_millis(),
-                    "dial failed: {e}"
+                    "dial to {to} failed: {e}"
                 )
             }
-            Err(_) => info!("dial timed out"),
+            Err(_) => info!("dial to {to} timed out"),
         }
         // A new address for this peer or for us ends the wait early.
         let pause = sleep(backoff.pause());
