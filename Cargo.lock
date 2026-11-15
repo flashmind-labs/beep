@@ -2459,9 +2459,9 @@ checksum = "5905ec755cc8386d7928353e4d356d2be3e89e81e5ca01fe630a1ca4d08dc175"
 
 [[package]]
 name = "flashmind-llm"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0be8ea740f2756606cb0aee4fb4767b42343c20a218d23fc42b3a7086b2b9f83"
+checksum = "865b55255a47af560dea7b802c741acf08340b10783f367c656790f4bd88e9af"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2491,9 +2491,9 @@ dependencies = [
 
 [[package]]
 name = "flashmind-tools"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cd80542d255d1dc05efd788c5270d8cd4bbb57416bf5543a826f7348eccfb87"
+checksum = "f8dc4579b5b241ec2b10d56f3d0cbf02eb035d5aaf1ce36d2cfb93d78b8f3ff5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2528,9 +2528,9 @@ dependencies = [
 
 [[package]]
 name = "flashmind-types"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ad33c8841c36425129c74ead709425b9a54dced93144b05c3ba92c85db1e8c4"
+checksum = "857b1ba3262438bcac7009ff60d34997f637eebd9e67ff6bf40346a5bbf24a5c"
 dependencies = [
  "anyhow",
  "async-trait",

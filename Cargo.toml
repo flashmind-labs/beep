@@ -61,7 +61,7 @@ crc32fast = "1"
 dirs = "7"
 dunce = "1"
 fastrand = "2"
-flashmind-tools = { version = "0.3.6", default-features = false }
+flashmind-tools = { version = "0.3.7", default-features = false }
 flashmind-types = "0.3.2"
 flate2 = "1"
 futures = "0.3"

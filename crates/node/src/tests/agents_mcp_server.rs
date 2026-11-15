@@ -500,6 +500,8 @@ async fn a_media_group_runs_its_actions_and_lists_its_models() {
             call(5, json!({ "action": "models", "prompt": "a chair" })),
             call(6, json!({ "action": "models", "query": 5 })),
             call(7, json!({ "action": "generate", "query": "lite" })),
+            call(8, json!({ "action": "generate", "glb": "hero.glb" })),
+            call(9, json!({ "action": "rig", "prompt": "a chair" })),
         ],
     )
     .await;
@@ -513,7 +515,7 @@ async fn a_media_group_runs_its_actions_and_lists_its_models() {
         .expect("model_3d is offered");
     assert_eq!(
         tool["inputSchema"]["properties"]["action"]["enum"],
-        json!(["generate", "models"])
+        json!(["generate", "rig", "models"])
     );
     assert!(text(&out[1]).contains("meshy:latest"), "{}", text(&out[1]));
     assert!(!text(&out[1]).contains("tripo:"), "{}", text(&out[1]));
@@ -521,6 +523,8 @@ async fn a_media_group_runs_its_actions_and_lists_its_models() {
     assert_eq!(text(&out[4]), "`prompt` does not apply to models.");
     assert_eq!(text(&out[5]), "`query` must be a string.");
     assert_eq!(text(&out[6]), "`query` does not apply to generate.");
+    assert_eq!(text(&out[7]), "`glb` does not apply to generate.");
+    assert_eq!(text(&out[8]), "`prompt` does not apply to rig.");
     assert!(fake.calls.lock().unwrap().is_empty());
 }
 
