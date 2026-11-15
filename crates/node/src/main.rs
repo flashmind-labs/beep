@@ -1,7 +1,7 @@
 //! The `beep-node` command line.
 
 use beep_node::{
-    agents::{Agents, claude::hooks, mcp},
+    agents::{self, Agents, claude::hooks, mcp},
     link::{self, peers, state},
     machine::{env, host, service, update},
 };
@@ -121,6 +121,16 @@ enum Command {
         /// The node's id of the agent's session.
         #[arg(long)]
         session: String,
+    },
+    /// Started by the node for Claude Code's Direct driver: ACP on stdio,
+    /// spoken to the Claude Code CLI `cli` itself. Arguments after `--` go
+    /// to the CLI.
+    #[command(name = agents::DIRECT_COMMAND, hide = true)]
+    ClaudeAcp {
+        #[arg(long, default_value = "claude")]
+        cli: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     /// Started by the node: keeps its terminals running while it restarts.
     #[cfg(unix)]
@@ -509,6 +519,7 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Command::Mcp { session } => mcp::pipe(&dir, &session).await,
+        Command::ClaudeAcp { cli, args } => agents::claude_direct::serve(cli, args).await,
         #[cfg(unix)]
         Command::PtyHost => beep_node::run_terminal_host(&dir).await,
         Command::Hook { event: _ } => {

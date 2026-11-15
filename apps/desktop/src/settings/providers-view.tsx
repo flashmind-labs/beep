@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ModelContextView } from "./model-context-view.tsx";
 import type { ModelContextPanel } from "./model-context.ts";
 import { FlshView } from "./flsh-view.tsx";
@@ -7,7 +7,8 @@ import { FailBanner } from "../ui/failbanner-view.tsx";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { adapterLine, type AdapterInstall } from "../machines/adapters-state.ts";
 import { compactKind, differsLabel, differsOn, draftChanged, envProblem, harnessName, hasUpdate, listRows, planOf, summaryLine, versionLine, type AutoCompactDraft, type HarnessDraft, type HarnessesView, type HarnessView, type MachineSettings, type SharedField } from "./providers-state.ts";
-import { Button, Checkbox, CopyButton, EmptyPanel, onRowKey, Switch } from "../ui/kit.tsx";
+import { Button, Checkbox, ChipToggle, CopyButton, EmptyPanel, onRowKey, Switch } from "../ui/kit.tsx";
+import type { invoke as Invoke } from "../ui/tauri.ts";
 
 export interface SharedProviderSettings {
   agent: string; machineName: string | null;
@@ -21,7 +22,7 @@ interface ProviderProps {
   adapter: AdapterInstall | null | undefined; error: string; inSettings: boolean; savedAll: string; includeProgram: boolean;
   shared: SharedProviderSettings | null;
   loadOthers(agent: string): void; loadCompact(agent: string): void; changeCompact(agent: string, change: Partial<AutoCompactDraft>): void; saveCompact(agent: string): void; discardCompact(agent: string): void;
-  flsh: FlshPanel; contexts: ModelContextPanel;
+  flsh: FlshPanel; contexts: ModelContextPanel; invoke: typeof Invoke;
   loading: boolean; checked: string; updateCount: number; canUpdate: boolean;
   pick: (agent: string) => void; toggle: (hv: HarnessView, on: boolean) => void; update: (hv: HarnessView) => void;
   retryAdapter: (agent: string) => void; openAccounts: () => void; setDraft: (value: Partial<HarnessDraft>) => void;
@@ -63,11 +64,37 @@ function SharedSettings({ value, p }: { value: SharedProviderSettings; p: Provid
       <Switch label={`Auto-compact for ${harnessName(value.agent)}`} on={compact.draft.compactOn} disabled={!compact.loaded || compact.busy} flip={() => p.changeCompact(value.agent, { compactOn: !compact.draft.compactOn })} />
       {compactKind(value.agent) === "percent" && <input className="hv-in" value={compact.draft.compactPercent} placeholder="80% or 350000" aria-label="Auto-compact threshold" autoComplete="off" spellCheck={false} disabled={!compact.loaded || compact.busy} onChange={event => p.changeCompact(value.agent, { compactPercent: event.currentTarget.value })} />}
     </span></div><div className="hv-acts"><Button look="primary" disabled={!compact.canSave} onClick={() => p.saveCompact(value.agent)}>{compact.busy ? "Saving…" : "Save auto-compact"}</Button><Button look="quiet" hidden={!compact.edited} disabled={compact.busy} onClick={() => p.discardCompact(value.agent)}>Discard</Button><span className="derr">{compact.error}</span></div></>}
+    {value.agent === "claude" && <DriverField agent={value.agent} invoke={p.invoke} />}
     {value.agent === "flsh" && <FlshView panel={p.flsh} />}
     {value.machineName && <div className="hv-note">Model choices and reported limits come from {value.machineName}.</div>}
     {p.machine && <ModelContextView panel={p.contexts} machine={p.machine} agent={value.agent} />}
   </section>;
 }
+/// How the nodes drive a harness; only Claude Code offers Direct.
+type Driver = "acp" | "direct";
+const DRIVERS: readonly { id: Driver; label: string }[] = [{ id: "acp", label: "ACP adapter" }, { id: "direct", label: "Direct" }];
+
+function DriverField({ agent, invoke }: { agent: string; invoke: typeof Invoke }) {
+  const [driver, setDriver] = useState<Driver | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let live = true;
+    invoke<string>("harness_driver", { agent }).then(saved => { if (live) setDriver(saved === "direct" ? "direct" : "acp"); }, e => { if (live) setError(String(e)); });
+    return () => { live = false; };
+  }, [agent, invoke]);
+  const pick = (next: Driver) => {
+    if (next === driver) return;
+    const was = driver;
+    setDriver(next);
+    setError("");
+    invoke("harness_driver_save", { agent, driver: next }).catch(e => { setDriver(was); setError(String(e)); });
+  };
+  return <div className="hv-f"><span><b>Harness</b><small>Direct runs the claude CLI without the npm adapter. New sessions use it.</small></span><span className="fl-row">
+    <span className="dchips" role="group" aria-label="Harness">{DRIVERS.map(option => <ChipToggle key={option.id} label={option.label} selected={driver === option.id} onToggle={() => pick(option.id)} />)}</span>
+    <span className="derr">{error}</span>
+  </span></div>;
+}
+
 function HarnessSwitch({ hv, p, on }: { hv: HarnessView; p: ProviderProps; on: boolean }) {
   return <Switch label={`${harnessName(hv.agent)} on ${p.machineName}`} on={on} disabled={p.saving} contained flip={() => p.toggle(hv, !on)} />;
 }

@@ -14,7 +14,7 @@ use beep_proto::{
     ApiError, FlshSettings, HarnessEnv, HarnessSettings, InstructionsVersion,
     MachineHarnessSettings, check_agent, check_settings, merged_env,
     node::agent::valid_model,
-    node::harness::{AutoCompact, HarnessConfig, ModelCompact},
+    node::harness::{AutoCompact, HarnessConfig, HarnessDriver, ModelCompact},
     node::mesh_state::SkillSync,
 };
 use iroh::EndpointId;
@@ -177,6 +177,30 @@ impl Desk {
         }
 
         self.update_harness(agent, |config| config.default_model = model)
+            .await
+    }
+
+    /// How the nodes drive `agent`, the same on every machine.
+    pub fn harness_driver(&self, agent: &str) -> Result<HarnessDriver> {
+        check_agent(agent)?;
+        Ok(read::<HarnessConfig>(&self.mesh, &Self::harness_key(agent))
+            .map(|config| config.driver)
+            .unwrap_or_default())
+    }
+
+    /// Saves how the nodes drive `agent`, for every machine. Only Claude Code runs directly.
+    pub async fn save_harness_driver(&self, agent: &str, driver: HarnessDriver) -> Result<()> {
+        check_agent(agent)?;
+
+        match driver {
+            HarnessDriver::Acp => {}
+            HarnessDriver::Direct if agent == "claude" => {}
+            HarnessDriver::Direct | HarnessDriver::Other => {
+                return Err(FleetError::refused("Only Claude Code runs directly."));
+            }
+        }
+
+        self.update_harness(agent, |config| config.driver = driver)
             .await
     }
 

@@ -78,6 +78,37 @@ pub(super) struct Known {
     pub(super) async_tasks: bool,
 }
 
+/// The subcommand of `beep-node` that speaks ACP and drives Claude Code's
+/// CLI itself, in place of its npm adapter.
+pub const DIRECT_COMMAND: &str = "claude-acp";
+
+/// `kind`, Claude Code, run by this executable's `DIRECT_COMMAND` on the CLI
+/// at `cli` (the one found here when `None`); arguments added after it go to
+/// the CLI. `None` for another agent, or when this executable is not found.
+pub(super) fn direct(kind: &AgentKind, cli: Option<&str>) -> Option<AgentKind> {
+    if kind.name != "claude" {
+        return None;
+    }
+
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            log::warn!("Claude Code runs on its ACP adapter: this binary is not found: {e}");
+            return None;
+        }
+    };
+    let found = || locate::find("claude", dirs::home_dir().as_deref());
+    let cli = match cli {
+        Some(cli) => cli.to_owned(),
+        None => found().map_or_else(|| "claude".to_owned(), |path| path.display().to_string()),
+    };
+    Some(AgentKind {
+        program: exe.display().to_string(),
+        args: vec![DIRECT_COMMAND.to_owned(), "--cli".to_owned(), cli, "--".to_owned()],
+        ..kind.clone()
+    })
+}
+
 /// How the agent `name` is asked to compact: one the node does not know
 /// takes `/compact` when it advertises it.
 pub(super) fn route(name: &str) -> Route {

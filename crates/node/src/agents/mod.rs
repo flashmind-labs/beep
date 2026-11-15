@@ -21,6 +21,7 @@ host! {
     use tokio::{sync::watch, time::Instant};
 
     pub mod claude;
+    pub mod claude_direct;
     pub(crate) mod found;
     pub mod mcp;
     pub(crate) mod skill_library;
@@ -77,7 +78,7 @@ host! {
 
     pub(crate) use acp::{Line, LineReader};
     pub(crate) use images::{Picture, block_picture};
-    pub use kinds::{AgentKind, detect};
+    pub use kinds::{AgentKind, DIRECT_COMMAND, detect};
     pub use moving::SESSIONS_ALPN;
     pub use moving::SessionsAlpn;
     pub(crate) use moving::follow as follow_moves;
