@@ -755,6 +755,25 @@ test("home with nothing running", async ({ page }) => {
   await baseline(page, "home-empty");
 });
 
+// The frozen clock is on a day of the sunrise. The paintings of the three days after it:
+for (const [day, scene] of [[1, "haystacks"], [2, "lilies"], [3, "parliament"]] as const) {
+  test(`home with nothing running, under the ${scene}`, async ({ page }) => {
+    await page.clock.setFixedTime(NOW + day * 86_400_000);
+    await openDesktop(page, false, { center_home: { ...home, running: [], needs_you: [] }, agent_sessions: [], project_sessions: [], projects_sessions: [] });
+    await expect(page.locator(`.painted-empty > .painted-art.${scene}`)).toBeVisible();
+    await baseline(page, `home-empty-${scene}`);
+  });
+
+  test(`start screen under the ${scene}`, async ({ page }) => {
+    await page.clock.setFixedTime(NOW + day * 86_400_000);
+    await openDesktop(page, false, { center_home: home });
+    await page.evaluate(() => { Math.random = () => 0; });
+    await openStartForm(page);
+    await expect(page.locator(`.agc-intro > .painted-art.${scene}`)).toBeVisible();
+    await baseline(page, `start-${scene}`);
+  });
+}
+
 test("add a project", async ({ page }) => {
   const place = (folder: string) => ({ machine_id: machineId, machine_name: machineId, folder });
   const found = [

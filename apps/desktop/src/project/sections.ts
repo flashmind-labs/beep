@@ -34,7 +34,7 @@ import { drawProjects } from "./page.tsx";
 /// The row of the project's list picked, null for the first, and a run to
 /// open on the Actions tile.
 /// The tile picked, a run to open, and whether the project's board is blank,
-/// which centers the agent bar on the page under the sunrise.
+/// which centers the agent bar on the page under the day's painting.
 export const pa = { tile: null as string | null, run: null as { project: string; id: number; host: string } | null, blank: false };
 
 export const terms = makeTerminals({ invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => redrawProjects(), kept: keptSection("terminals") });
