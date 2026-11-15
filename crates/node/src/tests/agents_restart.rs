@@ -521,38 +521,18 @@ async fn assistant_survives_restart() {
     after.shutdown().await;
 }
 
-#[cfg(unix)]
-#[test]
-fn home_folder_is_assistant_without_parent() {
-    let home = dirs::home_dir().expect("a home folder");
-
-    assert!(crate::agents::running::home_assistant(&home, false));
-    assert!(!crate::agents::running::home_assistant(&home, true));
-    assert!(!crate::agents::running::home_assistant(
-        &home.join("x"),
-        false
-    ));
-}
-
-#[cfg(unix)]
 #[tokio::test]
-async fn a_fresh_start_in_the_home_folder_is_the_assistant() {
+async fn a_fresh_start_in_the_home_folder_is_no_assistant() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
-    // No folder is the home folder.
-    let at_home = Agents::new(vec![kind.clone()]);
-    let home = at_home
+    let agents = Agents::new(vec![kind.clone()]);
+    // No folder is the home folder; only the flag makes the assistant.
+    let home = agents
         .start(&kind, None, begin("hello"))
         .expect("the session starts");
-    assert!(at_home.is_assistant(&home.id));
-    at_home.shutdown().await;
 
-    let in_project = Agents::new(vec![kind.clone()]);
-    let elsewhere = in_project
-        .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
-        .expect("the session starts");
-    assert!(!in_project.is_assistant(&elsewhere.id));
-    in_project.shutdown().await;
+    assert!(!agents.is_assistant(&home.id));
+    agents.shutdown().await;
 }
 
 #[tokio::test]
@@ -641,22 +621,6 @@ fn a_note_from_before_saved_sessions_reads() {
     assert_eq!(saved.model, Some(ModelId::new("deep")));
     assert_eq!(saved.worktrees, vec!["/srv/project/.worktrees/fix".to_owned()]);
     assert!(!saved.assistant);
-}
-
-#[cfg(unix)]
-#[test]
-fn an_open_session_of_an_old_note_in_the_home_folder_is_the_assistant() {
-    let dir = tempfile::tempdir().expect("a temporary folder");
-    let home = dirs::home_dir().expect("a home folder");
-    let old = serde_json::json!({
-        "sessions": [{"agent": "claude", "session": "s1", "cwd": home, "held": []}],
-        "terminals": [],
-        "models": [{"session": "s1", "model": "deep"}],
-    });
-    std::fs::write(dir.path().join("reopen.json"), old.to_string()).expect("an old note");
-
-    let note = Reopen::read(dir.path());
-    assert!(note.saved[0].info.assistant);
 }
 
 #[test]

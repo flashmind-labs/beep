@@ -5,51 +5,25 @@ import { assistantHost, assistantRows, isAssistant, resolveAssistant } from "../
 
 const HOME = "/home/user";
 
-const OLD_NODE = { home: HOME, windows: false, marks: false };
-
-test("a session is the assistant by its flag, else on an older node when top-level in the home folder off Windows", () => {
-  const found = { assistant: false, cwd: HOME, parent: null };
-  assert.equal(isAssistant({ assistant: true, cwd: "/srv/project", parent: null }, { ...OLD_NODE, windows: true }), true);
-  assert.equal(isAssistant(found, OLD_NODE), true);
-  assert.equal(isAssistant(found, { ...OLD_NODE, windows: true }), false);
-  assert.equal(isAssistant({ ...found, parent: { machine_id: "build-box", id: "a1", key: "a1" } }, OLD_NODE), false);
-  assert.equal(isAssistant({ ...found, cwd: `${HOME}/project` }, OLD_NODE), false);
-  assert.equal(isAssistant(found, { ...OLD_NODE, home: null }), false);
+test("a session is the assistant only by its flag, never as a reviewer", () => {
+  assert.equal(isAssistant({ assistant: true }), true);
+  assert.equal(isAssistant({ assistant: false }), false);
+  assert.equal(isAssistant({ assistant: true, reviewer: true }), false);
 });
 
-test("a reviewer is never the assistant", () => {
-  assert.equal(isAssistant({ assistant: false, cwd: HOME, parent: null, reviewer: true }, OLD_NODE), false);
-  assert.equal(isAssistant({ assistant: true, cwd: HOME, parent: null, reviewer: true }, OLD_NODE), false);
+const session = (id: string, cwd: string, status: string, last_activity: number, assistant = false): AgentSession => ({
+  machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: null, cwd, status, doing: null, started_at: 0, last_activity, external: false, question: null, assistant,
 });
 
-test("a newer node's flag is the answer, as in WSL, where its home folder holds no assistant", () => {
-  const newer = { ...OLD_NODE, marks: true };
-  assert.equal(isAssistant({ assistant: false, cwd: HOME, parent: null }, newer), false);
-  assert.equal(isAssistant({ assistant: true, cwd: HOME, parent: null }, newer), true);
-});
-
-const session = (id: string, machine_id: string, cwd: string, status: string, last_activity: number, assistant = false, external = true): AgentSession => ({
-  machine_id, machine_name: machine_id, id, agent: "codex", title: null, cwd, status, doing: null, started_at: 0, last_activity, external, question: null, assistant,
-});
-
-test("the assistant list splits running from ended, the latest first", () => {
-  const machines = [
-    { id: "build-box", marks_assistant: false, env: { os: "linux", home: HOME } },
-    { id: "win-box", marks_assistant: false, env: { os: "windows", home: "C:\\Users\\user" } },
-    { id: "wsl-box", marks_assistant: true, env: { os: "linux", home: HOME } },
-  ];
+test("the assistant list splits running from ended, the latest first, and leaves out home folder sessions without the flag", () => {
   const rows = assistantRows([
-    session("old", "build-box", HOME, "idle", 10),
-    session("new", "build-box", "/srv/x", "working", 30, true),
-    session("done", "build-box", HOME, "ended", 20),
-    session("project", "build-box", "/srv/project", "working", 40),
-    session("windows", "win-box", "C:\\Users\\user", "idle", 50),
-    session("unknown", "gone-box", HOME, "idle", 60),
-    session("fresh", "build-box", HOME, "idle", 70, false, false),
-    session("wsl", "wsl-box", HOME, "idle", 80),
-    session("wsl-flagged", "wsl-box", "/srv/y", "idle", 90, true),
-  ], machines);
-  assert.deepEqual(rows.running.map(s => s.id), ["wsl-flagged", "fresh", "new", "old"]);
+    session("home", HOME, "idle", 10),
+    session("new", "/srv/x", "working", 30, true),
+    session("done", HOME, "ended", 20, true),
+    session("project", "/srv/project", "working", 40),
+    session("latest", HOME, "idle", 50, true),
+  ]);
+  assert.deepEqual(rows.running.map(s => s.id), ["latest", "new"]);
   assert.deepEqual(rows.ended.map(s => s.id), ["done"]);
 });
 

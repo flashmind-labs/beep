@@ -132,7 +132,7 @@ export function HomeOverview({ home }: { home: HomeView }) {
   };
 
   const list = frontLayout("home") === "list";
-  const assistants = assistantRows(sessions.filter(sessionVisible), home.machines ?? []);
+  const assistants = assistantRows(sessions.filter(sessionVisible));
   const needs = needsCards(home), running = runningCards(home, new Set(assistants.running.map(runningKey)));
   const cards = list ? [...needs, ...running] : boardCards(home, needs, running);
   const empty = !cards.length && !assistants.running.length;

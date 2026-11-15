@@ -2,38 +2,20 @@
 import type { AgentHost, AgentSession } from "./agents.ts";
 import { AGENT_ORDER, harnessFor, keepEffort } from "./agentpick.ts";
 import type { AssistantPick } from "../settings/assistant.ts";
-import type { MachineEnv } from "../machines/machine-state.ts";
 
 /// What a start composer's field is to a screen reader: a task, or a message for the assistant.
 export const TASK_LABEL = "Task for a coding agent";
 export const ASSISTANT_LABEL = "Message for the assistant";
 
-/// What the assistant list needs of a session's machine.
-export interface AssistantMachine {
-  home: string | null;
-  windows: boolean;
-  /// Its node marks every assistant session itself, so its flag is the answer.
-  marks: boolean;
-}
-
-/// A session is the assistant when its node says so. A reviewer never is. For a node that does
-/// not mark them all, off Windows, so is one that no session started in the machine's home folder.
-export function isAssistant(session: Pick<AgentSession, "assistant" | "cwd" | "parent" | "reviewer">, machine: AssistantMachine): boolean {
-  if (session.reviewer) return false;
-  if (session.assistant) return true;
-  if (machine.marks) return false;
-  return !machine.windows && !session.parent && machine.home !== null && session.cwd === machine.home;
+/// A session is the assistant when started as one (Cmd+N on Home), as its node keeps it. A
+/// reviewer never is.
+export function isAssistant(session: Pick<AgentSession, "assistant" | "reviewer">): boolean {
+  return session.assistant && !session.reviewer;
 }
 
 /// The assistant sessions Home lists, the latest first: those that run, and those that ended.
-export function assistantRows(sessions: readonly AgentSession[], machines: readonly { id: string; marks_assistant: boolean; env: Pick<MachineEnv, "os" | "home"> | null }[]): { running: AgentSession[]; ended: AgentSession[] } {
-  const byId = new Map(machines.map(m => [m.id, m]));
-  const listed = sessions
-    .filter(s => {
-      const m = byId.get(s.machine_id) ?? null;
-      return isAssistant(s, { home: m?.env?.home || null, windows: m?.env?.os === "windows", marks: m?.marks_assistant ?? false });
-    })
-    .sort((a, b) => b.last_activity - a.last_activity);
+export function assistantRows(sessions: readonly AgentSession[]): { running: AgentSession[]; ended: AgentSession[] } {
+  const listed = sessions.filter(isAssistant).sort((a, b) => b.last_activity - a.last_activity);
 
   return { running: listed.filter(s => s.status !== "ended"), ended: listed.filter(s => s.status === "ended") };
 }

@@ -525,12 +525,7 @@ impl Agents {
             !recovering.iter().any(|root| recovery_cwd.starts_with(root)),
             "Git sync is preserving local edits in this checkout; try starting the session again shortly."
         );
-        // A new top-level session in the home folder is the assistant, but
-        // never a reviewer. A resumed one is what its caller saved.
-        let assistant = begin.assistant
-            || begin.resume.is_none()
-                && !begin.review
-                && home_assistant(&cwd, begin.parent.is_some());
+        let assistant = begin.assistant;
         // A reviewer changes nothing, so it needs no git rule.
         let rule = super::session::standing(
             crate::lock(&self.instructions)
@@ -733,8 +728,7 @@ pub(super) struct Begin {
     pub(super) follows: Option<watch::Receiver<Live>>,
     /// A temporary reviewer (`agents::reviews`).
     pub(super) review: bool,
-    /// The home assistant. A new session in the home folder is one without
-    /// asking (`home_assistant`).
+    /// The home assistant, as asked for (Cmd+N on Home) or as saved.
     pub(super) assistant: bool,
 }
 
@@ -802,30 +796,6 @@ pub(super) fn folder(cwd: Option<&str>) -> Result<PathBuf> {
     }
 
     anyhow::bail!("there is no folder {}", path.display())
-}
-
-/// Whether a session in `cwd` is the home assistant without being asked to
-/// be: one in the home folder of a Linux or macOS machine that no session
-/// started. Only a session with nothing saved of it is judged by it; on
-/// Windows and in WSL only the asked-for flag makes the assistant.
-pub(super) fn home_assistant(cwd: &Path, parent: bool) -> bool {
-    let wsl = std::env::var_os("WSL_DISTRO_NAME").is_some_and(|distro| !distro.is_empty());
-
-    if !cfg!(unix) || wsl || parent {
-        return false;
-    }
-
-    let Some(home) = dirs::home_dir() else {
-        return false;
-    };
-
-    match (
-        crate::files::paths::canonicalize(cwd),
-        crate::files::paths::canonicalize(home),
-    ) {
-        (Ok(cwd), Ok(home)) => cwd == home,
-        _ => false,
-    }
 }
 
 /// Where `path`, named under some home folder, may be under `home`: the

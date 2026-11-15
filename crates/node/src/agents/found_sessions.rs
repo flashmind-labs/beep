@@ -12,7 +12,7 @@ use crate::{
 use anyhow::{Context, Result};
 use beep_proto::node::{
     agent::{
-        ExternalAsk, ExternalSession, MAX_EXTERNAL_NAMED, Presence, SessionFolder, SessionInfo,
+        ExternalAsk, ExternalSession, MAX_EXTERNAL_NAMED, Presence, SessionFolder,
         Status,
     },
     events::Topic,
@@ -578,15 +578,8 @@ impl Agents {
 
         self.prepare(kind).await?;
         super::restart::to_project(kind, id, Path::new(&cwd)).await;
-        // Never seen here: in the home folder it is the assistant.
-        let before = before.unwrap_or_else(|| SavedSession {
-            info: SessionInfo {
-                assistant: super::running::home_assistant(Path::new(&cwd), false),
-                ..SessionInfo::default()
-            },
-            effort: None,
-        });
-        let begin = self.resumed_begin(prompt, id, before);
+        // Never seen here, as one found outside Beep: never the assistant.
+        let begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
         let session = self.start(kind, Some(&cwd), begin)?;
         self.watch_parent(&session);
         Ok(session)

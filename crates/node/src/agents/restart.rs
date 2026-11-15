@@ -41,7 +41,7 @@ const KEPT_SAVED: usize = 500;
 /// What the node keeps of a session, also after it ended, so it goes on as
 /// it was when it is resumed, taken over or moved: its `SessionInfo` as
 /// listed, and the thinking level, which the info does not carry.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SavedSession {
     /// By the agent's own id.
     pub(crate) info: SessionInfo,
@@ -107,11 +107,8 @@ pub(crate) struct OpenSession {
 
 impl From<&OpenSession> for SavedSession {
     /// What a note from before saved sessions knows of open session `open`.
-    /// It said nothing of the assistant: the home folder does.
     fn from(open: &OpenSession) -> Self {
         let cwd = open.cwd.to_string_lossy().into_owned();
-        let assistant = open.assistant
-            || super::running::home_assistant(&open.cwd, open.parent.is_some());
 
         Self {
             info: SessionInfo {
@@ -124,7 +121,7 @@ impl From<&OpenSession> for SavedSession {
                 model: open.model.clone(),
                 device: open.device.clone(),
                 worktrees: open.worktrees.clone(),
-                assistant,
+                assistant: open.assistant,
                 ..SessionInfo::default()
             },
             effort: open.effort,
@@ -380,13 +377,6 @@ impl Agents {
             .parent
             .as_ref()
             .and_then(|link| self.parent_live_of(link));
-        // A note from before the saved sessions says nothing of the
-        // assistant: the home folder does.
-        let assistant = open.assistant
-            || self.saved(&open.session).map_or_else(
-                || super::running::home_assistant(&open.cwd, open.parent.is_some()),
-                |saved| saved.info.assistant,
-            );
         let session = self.start(
             &kind,
             Some(&cwd),
@@ -401,7 +391,7 @@ impl Agents {
                 follows,
                 note: Some(RESUMED.to_owned()),
                 worktrees: open.worktrees,
-                assistant,
+                assistant: open.assistant,
                 effort: open.effort,
                 ..Begin::default()
             },

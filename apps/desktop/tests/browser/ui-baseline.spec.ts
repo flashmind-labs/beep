@@ -156,7 +156,7 @@ const linux = { os: "linux", os_version: "Ubuntu 26.04", arch: "x86_64", hostnam
 const assistantHome = { ...home, machines: [{ ...home.machines[0], env: linux }, home.machines[1]] };
 const assistantSessions = [
   { ...agentRow("helper-one", "Set up the widget project", "working", 60_000, "/srv"), agent: "flsh", assistant: true, parent: null },
-  { ...agentRow("helper-two", "Check the open pull requests", "idle", 900_000, "/srv"), agent: "claude", assistant: false, parent: null, external: true },
+  { ...agentRow("helper-two", "Check the open pull requests", "idle", 900_000, "/srv"), agent: "claude", assistant: true, parent: null, external: true },
   { ...agentRow("helper-old", "Import my projects", "ended", 7_200_000, "/srv"), agent: "flsh", assistant: true, parent: null },
 ];
 const assistantHost = { machine_id: machineId, machine_name: machineId, agents: ["claude", "codex", "flsh"], workspace: null, home: "/srv", capabilities: [], assistant: true };

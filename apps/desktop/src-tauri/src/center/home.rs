@@ -10,9 +10,7 @@ use crate::{
     beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
-        Fleet,
-        agents::marks_assistant,
-        alerts,
+        Fleet, alerts,
         projects::{FleetState, desk},
     },
     projects::ProjectRow,
@@ -115,9 +113,6 @@ struct MachineCard {
     /// Its live resources; `None` while offline, before its first sample,
     /// or from a node from before them.
     stats: Option<CardStats>,
-    /// Its node marks every assistant session itself; an older one leaves
-    /// the app to tell them by their folder.
-    marks_assistant: bool,
 }
 
 /// What a machine last said it has free.
@@ -179,8 +174,6 @@ pub(crate) enum NeedsYou {
 
 /// What Home is made of, as the mesh answered.
 struct HomeParts {
-    /// This computer's machine id.
-    me: String,
     machines: Result<Vec<Machine>>,
     details: Result<Vec<MachineDetails>>,
     stats: Result<Vec<MachineStats>>,
@@ -295,7 +288,6 @@ async fn read_home(app: &AppHandle) -> Result<HomeView> {
     );
     let status = fleet.status();
     let mut view = home_view(HomeParts {
-        me: fleet.id().to_string(),
         machines: Ok(status.machines()),
         details: Ok(status.details()),
         stats: Ok(status.stats()),
@@ -366,7 +358,7 @@ fn home_view(parts: HomeParts) -> Result<HomeView> {
         machines: section("machines", machines).map(|machines| {
             let details = section("machine details", parts.details).unwrap_or_default();
             let stats = section("machine stats", parts.stats).unwrap_or_default();
-            machine_cards(&parts.me, machines, details, stats, &live)
+            machine_cards(machines, details, stats, &live)
         }),
         running,
         needs_you: needs_you(sessions.iter().flatten()),
@@ -386,7 +378,6 @@ pub(crate) fn is_unsupported(e: &DesktopError) -> bool {
 
 /// Online machines first, then the busiest, then by name.
 fn machine_cards(
-    me: &str,
     machines: Vec<Machine>,
     details: Vec<MachineDetails>,
     stats: Vec<MachineStats>,
@@ -408,7 +399,6 @@ fn machine_cards(
             let detail = details.remove(&machine.id);
             MachineCard {
                 can_host: true,
-                marks_assistant: marks_assistant(machine.id == me, Some(&machine.version)),
                 stats: stats.remove(&machine.id).map(CardStats::from),
                 agents: agents.get(machine.id.as_str()).copied().unwrap_or(0),
                 seen_at: epoch_ms(machine.seen_at),
