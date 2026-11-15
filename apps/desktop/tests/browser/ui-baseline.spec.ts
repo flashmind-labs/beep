@@ -443,30 +443,24 @@ for (const section of [null, "Agent accounts", "Appearance"] as const) {
 
 // Agent session
 
-test("narrow window: the sidebar folds and the session shows chat or a pane", async ({ page }) => {
-  await page.setViewportSize({ width: 740, height: 832 });
-  await openAgent(page);
-  await expect(page.locator(".cwin")).toHaveClass(/side-collapsed/);
+test("unfolded foldable session with the sidebar collapsed", async ({ page }) => {
+  await page.addInitScript(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
+  await page.setViewportSize({ width: 750, height: 832 });
+  await openAgent(page, { mobile_paired: true });
+  await page.getByRole("button", { name: "Collapse sidebar" }).click();
+  // A phone docks Files under the conversation, never beside it.
   await expect(page.locator("#agshell")).toHaveClass(/narrow/);
-  const strip = page.locator("#agmnav");
-  await expect(strip.locator("[aria-selected=true]")).toHaveText("Chat");
-  await expect(page.locator("#agpane-bottom")).toBeHidden();
   expect((await page.locator("#agtitle").boundingBox())?.width ?? 0).toBeGreaterThan(150);
-  await baseline(page, "narrow-session");
+  await baseline(page, "foldable-session");
 
-  await strip.getByRole("button", { name: /^Changes/ }).click();
-  await expect(page.locator('.dv-file[data-path="sample.ts"]')).toBeVisible();
-  await expect(page.locator(".agconv")).toBeHidden();
-  await baseline(page, "narrow-session-changes");
-
-  await strip.getByRole("button", { name: "Chat" }).click();
-  await expect(page.locator(".agconv")).toBeVisible();
-
-  // Wide again, the sidebar opens and the pane sits beside the conversation.
-  await page.setViewportSize({ width: 1280, height: 832 });
-  await expect(page.locator(".cwin")).not.toHaveClass(/side-collapsed/);
-  await expect(strip).toHaveCount(0);
-  await expect(page.locator("#agpane-right")).toBeVisible();
+  // Folded, the dock keeps its tabs in a row; a tab opens it again.
+  await page.locator("#agpane-bottom").getByTitle("Hide the pane").click();
+  const strip = page.locator("#agpstrip-bottom");
+  await expect(strip.getByRole("tab", { name: "Changes" })).toBeVisible();
+  await baseline(page, "foldable-session-folded");
+  await strip.getByRole("tab", { name: "Changes" }).click();
+  await expect(page.locator("#agpane-bottom")).toBeVisible();
+  await expect(page.locator("#agpane-bottom .agtab.on")).toHaveAttribute("data-mtab", /changes/i);
 });
 
 test("agent session transcript", async ({ page }) => {

@@ -1,4 +1,4 @@
-import { useEffect, useState, Fragment, type ReactNode } from "react";
+import { useState, Fragment, type ReactNode } from "react";
 import { IC, Icon } from "../ui/icons.tsx";
 import type { GroupSlot } from "./state.ts";
 import { Button, useLazyCount } from "../ui/kit.tsx";
@@ -25,8 +25,6 @@ export function SidebarGroup({ name, group }: { name: string; group: GroupSlot<u
   </div>;
 }
 const STAR_KEY = "beep.starPrompt.dismissed";
-/// The window width at which the sidebar folds to its rail.
-const FOLD_BELOW = 1100;
 const REPO_URL = "https://github.com/flashmind-labs/beep";
 
 /// Asks once for a star. The row opens the repository in the browser; the
@@ -39,18 +37,6 @@ function StarPrompt() {
 }
 export function SidebarShell({ host, links, groups, footer, addMachine }: { host: HTMLElement; links: SideLink[]; groups: ReactNode; footer: SideFooter; addMachine(): void }) {
   const [collapsed, setCollapsed] = useState(() => host.closest(".cwin")?.classList.contains("side-collapsed") ?? false);
-  const fold = (on?: boolean) => { const win = host.closest(".cwin"); if (win) setCollapsed(win.classList.toggle("side-collapsed", on)); };
-  const toggle = () => fold();
-
-  // A narrow window folds the sidebar to its rail, and a wide one opens it again; the toggle
-  // still works in between. The phone layout has no sidebar.
-  useEffect(() => {
-    const narrow = matchMedia(`(max-width: ${FOLD_BELOW - 1}px)`);
-    const follow = () => { if (!document.body.classList.contains("mobile")) fold(narrow.matches); };
-    if (narrow.matches) follow();
-    narrow.addEventListener("change", follow);
-    return () => narrow.removeEventListener("change", follow);
-  }, [host]);
-
+  const toggle = () => { const win = host.closest(".cwin"); if (win) setCollapsed(win.classList.toggle("side-collapsed")); };
   return <><div className="cc-head" data-tauri-drag-region="" /><div className="cc-brand"><b>Beep</b><button type="button" className="cc-side-toggle" title={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} aria-controls="side-content" onClick={toggle}><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg></span></button></div><div className="cc-side-list" id="side-content"><div className="cc-grp cc-nav">{links.map(link => <SidebarItem key={link.label} {...link} />)}</div>{groups}<StarPrompt /><div className="cc-foot"><span title={footer.title}>{footer.dot && <span className={`ddot${footer.dot === "on" ? "" : ` ${footer.dot}`}`} />}{footer.dot && " "}{footer.count !== undefined ? <><b>{footer.count}</b>{footer.text}</> : footer.text}</span>{footer.action === "add" && <Button look="quiet" title="Add a machine" aria-label="Add a machine" onClick={event => { event.stopPropagation(); addMachine(); }} dangerouslySetInnerHTML={{ __html: IC.plus }} />}</div></div></>;
 }

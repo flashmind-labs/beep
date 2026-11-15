@@ -7,7 +7,7 @@ import { createStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { onPhone } from "../ui/platform.ts";
 import { type Box, type Dock, DOCKS, onZoomKey, paneSize, SIDE_BY_SIDE_MIN, splitTabs } from "./media-state.ts";
-import type { PaneTabItem, SingleTab } from "./tabs-view.tsx";
+import type { PaneTabItem } from "./tabs-view.tsx";
 import type { IconName } from "../ui/icons.tsx";
 import type { WorktreeMenuModel } from "./worktree-view.tsx";
 import { artifactCount } from "./artifacts.ts";
@@ -121,13 +121,12 @@ interface PaneModel {
   /// The divider being dragged.
   resizing: Dock | null;
   drag: DragModel | null;
-  /// Too narrow to show the conversation beside a pane, on a phone or a narrow window: the
-  /// strip of Chat and the tabs, one shown at a time, and the one shown.
-  single: { tabs: SingleTab[]; selected: string } | null;
+  /// On a phone: its tabs, and whether the conversation is the one shown.
+  phone: { tabs: { id: string; name: string }[]; selected: string } | null;
   log: boolean;
 }
 
-export const paneModel = createStore<PaneModel>(() => ({ docks: null, narrow: false, zoomed: false, resizing: null, drag: null, single: null, log: false }));
+export const paneModel = createStore<PaneModel>(() => ({ docks: null, narrow: false, zoomed: false, resizing: null, drag: null, phone: null, log: false }));
 
 /// Sets part of the model and renders it now: callers measure and focus what it draws.
 export function setPaneModel(change: Partial<PaneModel>) {

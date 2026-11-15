@@ -23,7 +23,7 @@ import { readError, loadText, startTerminal, load } from "./read.ts";
 import { togglePreview } from "./text-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
-import { draw, flipTab, noteTab, pickSingleTab } from "./media-draw.ts";
+import { draw, flipTab, noteTab, pickPhoneTab } from "./media-draw.ts";
 import { dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 import { savedIn } from "../ui/platform.ts";
 
@@ -139,8 +139,8 @@ export const P = {
   dragged: false,
   /// The dock zoomed over the whole session by ⇧esc, remembered per session.
   zoom: null as Dock | null,
-  /// The session drew one pane at a time, which shows the conversation first.
-  singleShown: false,
+  /// The session drew on a phone, which shows the conversation first.
+  phoneShown: false,
 };
 
 /// Starts the pane for session `s`, closing what the last one had open.
@@ -157,7 +157,7 @@ export function startPane(s: PaneSession) {
   P.subCount = 0;
   P.moved.clear();
   P.zoom = null;
-  P.singleShown = false;
+  P.phoneShown = false;
   const el = shell();
   if (!el) return;
   P.watch?.disconnect();
@@ -198,8 +198,8 @@ export function startPane(s: PaneSession) {
     foldInBar();
     if ("zoom" in saved && (saved.zoom === "right" || saved.zoom === "bottom")) P.zoom = saved.zoom;
   }
-  // Each tab reopened above took the one-pane screen; a session still opens on its chat.
-  P.singleShown = false;
+  // Each tab reopened above took the phone's screen; a session still opens on its chat.
+  P.phoneShown = false;
   draw();
   paneReleased = false;
   rememberPane();
@@ -282,9 +282,9 @@ export function focusTab(id: string) {
   paneOf(d)?.focus({ preventScroll: true });
 }
 
-/// Shown one pane at a time, a tab being shown takes the screen from the log.
+/// On a phone, which shows one pane at a time, a tab being shown takes the screen from the log.
 function leaveLog() {
-  if (paneModel.getState().single) setPaneModel({ log: false });
+  if (paneModel.getState().phone) setPaneModel({ log: false });
 }
 
 /// ⌘2 to ⌘9: the pane's tab `n` (from 0), counting the right strip's tabs
@@ -497,7 +497,7 @@ export const showSubagents = () => showList(SUBS);
 
 function showList(id: typeof RUNNING | typeof SUBS) {
   if (!shell() || !tabIds().includes(id)) return;
-  if (paneModel.getState().single) return pickSingleTab(id);
+  if (paneModel.getState().phone) return pickPhoneTab(id);
 
   const d = dockOf(id);
   P.layout.hidden[d] = false;
@@ -508,7 +508,7 @@ function showList(id: typeof RUNNING | typeof SUBS) {
 /// Turns the Device tab's dock to it, unfolded, without taking the keys
 /// from the conversation. A phone keeps its screen.
 export function showDevice() {
-  if (!shell() || paneModel.getState().single || !tabIds().includes(DEVICE)) return;
+  if (!shell() || paneModel.getState().phone || !tabIds().includes(DEVICE)) return;
   const d = dockOf(DEVICE);
   P.layout.hidden[d] = false;
   saveLayout();
