@@ -288,7 +288,7 @@ pub(super) fn lit_screen(dumped: &str) -> Option<String> {
 /// A PNG screenshot as a frame no longer than `max_side`, with the
 /// screenshot's own size. Anything `screencap` printed before the image,
 /// such as a warning, is skipped.
-fn frame(png: &[u8], max_side: u32) -> Result<((u32, u32), Frame)> {
+pub(super) fn frame(png: &[u8], max_side: u32) -> Result<((u32, u32), Frame)> {
     let start = png
         .windows(PNG_SIGNATURE.len())
         .position(|window| window == PNG_SIGNATURE)

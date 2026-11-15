@@ -132,7 +132,7 @@ async fn an_attached_device_answers_input_and_closes_once_idle() {
     let local = beep_proto::node::local_link();
     let (mut node_tx, mut node_rx) = local.node;
     let (tx, rx) = local.caller;
-    let viewer = Viewer::start(Link { tx, rx, _here: None }, Duration::from_secs(30));
+    let viewer = Viewer::start(Link { tx, rx, _here: None }, Duration::from_secs(30), true);
 
     node_tx.send(&Reply::Frame(frame(100, 200))).await.unwrap();
     assert_eq!(viewer.shot().await.unwrap().height, 200);
@@ -206,6 +206,7 @@ fn attached(machine: EndpointId, id: &str, called: &str) -> (Attached, mpsc::Rec
     let task = tokio::spawn(async {});
     let viewer = Viewer {
         asks,
+        takes_input: true,
         _task: std::sync::Arc::new(AbortOnDropHandle::new(task)),
     };
     let attached = Attached {
