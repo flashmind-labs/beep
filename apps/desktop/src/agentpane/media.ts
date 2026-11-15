@@ -139,6 +139,8 @@ export const P = {
   dragged: false,
   /// The dock zoomed over the whole session by ⇧esc, remembered per session.
   zoom: null as Dock | null,
+  /// The wide layout's fold of the right pane while a narrow window keeps it folded.
+  wideFolded: null as boolean | null,
   /// The session drew on a phone, which shows the conversation first.
   phoneShown: false,
 };
@@ -157,11 +159,12 @@ export function startPane(s: PaneSession) {
   P.subCount = 0;
   P.moved.clear();
   P.zoom = null;
+  P.wideFolded = null;
   P.phoneShown = false;
   const el = shell();
   if (!el) return;
   P.watch?.disconnect();
-  // Too narrow for a right dock, its tabs join the bottom one, and back.
+  // Too narrow for the conversation beside it, the right pane folds to its strip, and back.
   P.watch = frameResize(() => {
     shellResized();
     if (paneModel.getState().narrow !== (dockWidth() < SIDE_BY_SIDE_MIN)) draw(); else place();
@@ -404,11 +407,8 @@ export function newTerminal(d?: Dock, zoom = false, like?: Omit<TermPlace, "name
   const root = like?.cwd ?? paneRoot();
   const name = terminalName(root, terms.map(t => t.name));
   const id = `term:${name}`;
-  // While the window is too narrow for a right dock, every tab shows at
-  // the bottom and a new one keeps the dock it would have.
-  const narrow = !!shell() && dockWidth() < SIDE_BY_SIDE_MIN;
   const newest = terms.at(-1);
-  const to = d && !narrow ? d : newest ? tabDock(P.layout, newest.id) : tabDock(P.layout, id);
+  const to = d ? d : newest ? tabDock(P.layout, newest.id) : tabDock(P.layout, id);
   if (to !== tabDock(P.layout, id)) P.layout = moveTab(P.layout, id, to);
   const at = like ?? { machine_id: s.machine_id, machine_name: s.machine_name, cwd: root, project: s.project ?? "" };
   open({ id, kind: "term", name, path: null, url: null, at, error: at.machine_id ? "" : "No machine has a checkout of this project to open a terminal in." });
@@ -584,7 +584,7 @@ export function rememberPane() {
   const key = viewKey(P.session.machine_id, P.session.id);
   const pending = P.tabs.filter(t => t.kind === "term" && !t.term && !t.existing && !t.closed);
   if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
-  writeView(key, { on: P.on, layout: P.layout, zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed).map(savedTab) });
+  writeView(key, { on: P.on, layout: keptLayout(), zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed).map(savedTab) });
 }
 
 function savedTab(t: MediaTab) {
@@ -639,7 +639,12 @@ function loadLayout(): PaneLayout {
   try { return readLayout(localStorage.getItem(KEY)); } catch { return readLayout(null); }
 }
 
+/// The layout to keep: a narrow window's fold of the right pane is not kept.
+function keptLayout(): PaneLayout {
+  return P.wideFolded === null ? P.layout : { ...P.layout, hidden: { ...P.layout.hidden, right: P.wideFolded } };
+}
+
 export function saveLayout() {
-  try { localStorage.setItem(KEY, JSON.stringify(P.layout)); } catch { /* kept while the window is open */ }
+  try { localStorage.setItem(KEY, JSON.stringify(keptLayout())); } catch { /* kept while the window is open */ }
   rememberPane();
 }

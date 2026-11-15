@@ -381,6 +381,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agpstrip span { writing-mode: vertical-rl } .agpstrip small { color: var(--dim) } .agpstrip:hover { color: var(--fg) }
 .agmain > .agpstrip { width: auto; flex-direction: row; justify-content: center; padding: 6px 0; border-left: 0; border-top: 1px solid var(--border) }
 .agmain > .agpstrip.tabs { justify-content: flex-start; gap: 2px; padding: 4px 6px; overflow-x: auto; scrollbar-width: none }
+/* The folded right pane keeps its tabs down its strip, read sideways. */
+.agpstrip[data-dock="right"] { gap: 2px; padding: 6px 0; overflow-y: auto; scrollbar-width: none }
+.agpstrip[data-dock="right"] .agtab { flex: none; flex-direction: column; min-width: 0; max-width: none; max-height: 180px; padding: 8px 4px }
 /* The Files tab: filter, tree with git marks, drop targets, right-click menu. */
 .agaddterm { width: auto; padding: 0 8px; font-size: 11.5px; white-space: nowrap }
 .agtab[data-mtab="files"] { flex: none }

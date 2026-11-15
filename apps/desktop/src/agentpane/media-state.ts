@@ -119,8 +119,10 @@ const CONV_MIN_WIDTH = 360;
 /// The lowest a bottom pane and the conversation above it get.
 const BOTTOM_MIN = 150;
 const CONV_MIN_HEIGHT = 200;
-/// Narrower than this, the pane goes under the conversation whatever its dock.
-export const SIDE_BY_SIDE_MIN = RIGHT_MIN + CONV_MIN_WIDTH + 60;
+/// The conversation's least width beside a right pane before that pane folds to its strip.
+const CONV_BESIDE_MIN = 600;
+/// Narrower than this, the right pane folds to its strip and opens over the conversation.
+export const SIDE_BY_SIDE_MIN = RIGHT_MIN + CONV_BESIDE_MIN + 60;
 
 const isDock = (x: unknown): x is Dock => x === "right" || x === "bottom";
 
@@ -205,10 +207,10 @@ export function dropDock(shell: Box, x: number, y: number, sideBySide: boolean):
   return inRight ? "right" : inBottom ? "bottom" : null;
 }
 
-/// The dock the pane takes in a shell `width` wide: right only when both
-/// it and the conversation fit side by side.
+/// The dock the pane takes in a shell `width` wide: right when a right pane fits at all,
+/// beside the conversation or over it. A phone lays out at width 0, all at the bottom.
 function effectiveDock(dock: Dock, width: number): Dock {
-  return dock === "right" && width >= SIDE_BY_SIDE_MIN ? "right" : "bottom";
+  return dock === "right" && width >= RIGHT_MIN ? "right" : "bottom";
 }
 
 /// The size the pane takes along `total` (the shell's width for a right

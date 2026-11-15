@@ -8,7 +8,6 @@ import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { onPhone } from "../ui/platform.ts";
 import { type Box, type Dock, DOCKS, onZoomKey, paneSize, SIDE_BY_SIDE_MIN, splitTabs } from "./media-state.ts";
 import type { PaneTabItem } from "./tabs-view.tsx";
-import type { IconName } from "../ui/icons.tsx";
 import type { WorktreeMenuModel } from "./worktree-view.tsx";
 import { artifactCount } from "./artifacts.ts";
 import { S } from "../bar/core.ts";
@@ -103,8 +102,6 @@ export interface DockModel {
   /// Its size along the shell, once it was laid out.
   size: number | null;
   zoomed: boolean;
-  label: string;
-  icon: IconName;
   /// The worktree menu in its head, while it shows Files or Changes.
   worktrees: WorktreeMenuModel | null;
   views: DockView[];
@@ -144,6 +141,7 @@ export function place(fresh?: Record<Dock, DockModel>, extra: Partial<PaneModel>
   if (!el || !box) { setPaneModel({ ...extra, docks }); return; }
   const { width, height } = shellSize();
   const narrow = dockWidth() < SIDE_BY_SIDE_MIN;
+  const over = foldNarrow();
   const split = docked();
   const next = { ...docks };
 
@@ -158,11 +156,29 @@ export function place(fresh?: Record<Dock, DockModel>, extra: Partial<PaneModel>
   const shown = DOCKS.some(d => next[d].shown);
   // A zoomed dock that folded, emptied or moved away ends the zoom.
   if (P.zoom && !next[P.zoom].shown) P.zoom = null;
-  for (const d of DOCKS) next[d] = { ...next[d], zoomed: P.zoom === d };
-  setPaneModel({ ...extra, docks: next, narrow, zoomed: !!P.zoom });
+  // On a narrow window the right pane, when open, covers the conversation.
+  const zoom = over && next.right.shown ? "right" : P.zoom;
+  for (const d of DOCKS) next[d] = { ...next[d], zoomed: zoom === d };
+  setPaneModel({ ...extra, docks: next, narrow, zoomed: !!zoom });
   if (shown && !paneWasShown) queueMicrotask(() => window.dispatchEvent(new Event("agent-pane-shown")));
   paneWasShown = shown;
   refreshTopicSubscriptions();
+}
+
+/// A window too narrow for the conversation beside the right pane folds that pane to its
+/// strip, keeping the wide layout's choice to put back once it is wide again. True while
+/// the window is that narrow; a phone, which has no right pane, never is.
+export function foldNarrow(): boolean {
+  const width = dockWidth(), over = width > 0 && width < SIDE_BY_SIDE_MIN;
+  if (over && P.wideFolded === null) {
+    P.wideFolded = P.layout.hidden.right;
+    P.layout.hidden.right = true;
+  } else if (!over && P.wideFolded !== null) {
+    P.layout.hidden.right = P.wideFolded;
+    P.wideFolded = null;
+  }
+
+  return over;
 }
 
 /// The docks on screen now, as last laid out.
@@ -175,7 +191,9 @@ export function shownDocks(): Dock[] {
 /// over the conversation; again puts it back. Only classes change, so a model, a video
 /// or a terminal keeps its state and fits the new size on its own.
 function toggleZoom() {
-  if (P.zoom) P.zoom = null;
+  // Narrow, the open right pane already covers the conversation: it folds instead.
+  if (foldNarrow() && !P.layout.hidden.right) P.layout.hidden.right = true;
+  else if (P.zoom) P.zoom = null;
   else {
     const shown = shownDocks();
     P.zoom = dockHolding(document.activeElement) ?? shown.find(d => d === "right") ?? shown[0] ?? null;

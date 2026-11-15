@@ -5,10 +5,9 @@
 import { memo, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "zustand";
-import { Icon } from "../ui/icons.tsx";
 import { dragHandle } from "../ui/drag.ts";
 import type { Dock } from "./media-state.ts";
-import { type DockModel, type DockView, dividerDrag, dividerKey, mainRef, paneModel, paneRefs, resetDivider, shellRef, stripRefs } from "./media-layout.ts";
+import { type DockView, dividerDrag, dividerKey, mainRef, paneModel, paneRefs, resetDivider, shellRef, stripRefs } from "./media-layout.ts";
 import { foldDock, moveDock, pickPhoneTab, pickTab, tabMenu } from "./media-draw.ts";
 import { closeTab, newTerminal, P, type MediaTab } from "./media.ts";
 import { ghostRef, tabDown } from "./drag.ts";
@@ -50,8 +49,9 @@ const tabActions = (d: Dock): PaneTabActions => ({
   down: (event, id) => tabDown(event.nativeEvent, id, event.currentTarget),
 });
 const ACTIONS: Record<Dock, PaneTabActions> = { right: tabActions("right"), bottom: tabActions("bottom") };
-/// A folded bottom dock keeps its tabs in a row: picking one opens the dock on it.
-const UNFOLD: PaneTabActions = { ...ACTIONS.bottom, pick: id => { foldDock("bottom", false); pickTab("bottom", id); } };
+/// A folded dock keeps its tabs in its strip: picking one opens the dock on it.
+const unfold = (d: Dock): PaneTabActions => ({ ...ACTIONS[d], pick: id => { foldDock(d, false); pickTab(d, id); } });
+const UNFOLD: Record<Dock, PaneTabActions> = { right: unfold("right"), bottom: unfold("bottom") };
 
 /// Dock `dock`: its divider, the pane with its head and views, and its strip while folded.
 export function PaneDock({ dock }: { dock: Dock }) {
@@ -82,13 +82,7 @@ export function PaneDock({ dock }: { dock: Dock }) {
         <button className="agpbtn" data-pact="fold" title="Hide the pane" onClick={() => foldDock(dock, true)}>{model && <span style={{ display: "contents" }}>{bottom ? FOLD_DOWN : FOLD_RIGHT}</span>}</button>
       </div><div className="agpviews">{model?.views.map(view => <PaneView key={view.kind === "tab" ? view.tab.id : view.kind} view={view} />)}</div></div>
     </aside>
-    {dock === "bottom"
-      ? <div ref={el => { stripRefs[dock].current = el; }} className="agpstrip tabs" id={`agpstrip-${dock}`} data-dock={dock} role="tablist" hidden={!model?.strip}>{model?.strip && <PaneTabs tabs={model.tabs} selected={model.on} dragging={dragging} actions={UNFOLD} />}</div>
-      : <button ref={el => { stripRefs[dock].current = el; }} className="agpstrip" id={`agpstrip-${dock}`} data-dock={dock} hidden={!model?.strip} title="Show the pane" onClick={() => foldDock(dock, false)}>{model && <DockStrip model={model} />}</button>}</>;
-}
-
-function DockStrip({ model }: { model: DockModel }) {
-  return <><span style={{ display: "contents" }}><Icon name={model.icon} /></span><span>{model.label}</span><small>{model.tabs.length}</small></>;
+    <div ref={el => { stripRefs[dock].current = el; }} className="agpstrip tabs" id={`agpstrip-${dock}`} data-dock={dock} role="tablist" aria-orientation={bottom ? "horizontal" : "vertical"} hidden={!model?.strip}>{model?.strip && <PaneTabs tabs={model.tabs} selected={model.on} dragging={dragging} actions={UNFOLD[dock]} />}</div></>;
 }
 
 function PaneView({ view }: { view: DockView }) {

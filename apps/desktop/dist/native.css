@@ -330,9 +330,10 @@ body.mobile .aguse > span + span { margin-left: 10px }
 .aguse .ctx[data-level="full"] i { background: linear-gradient(90deg, var(--err) var(--pct), color-mix(in srgb, var(--fg) 12%, transparent) 0) }
 
 /* Pane tabs, a step smaller. */
-body:not(.mobile) :is(.agphead, .agdevhead) { --ctl-h: 20px }
+body:not(.mobile) :is(.agphead, .agdevhead, .agpstrip) { --ctl-h: 20px }
 body:not(.mobile) .agtab { gap: 4px; padding-inline: 6px 5px; font-size: 9.5px; letter-spacing: .05em }
 body:not(.mobile) .agtab > svg { width: 12px; height: 12px }
+body:not(.mobile) .agpstrip[data-dock="right"] .agtab { width: var(--ctl-h); height: auto; padding: 8px 0 }
 
 /* ----- Boards, the projects page and lists: lit cards without rules, mono labels and details ----- */
 body:not(.mobile) .cc-mstrip { gap: 4px; border: 0; background: none; overflow: visible }

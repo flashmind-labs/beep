@@ -21,7 +21,7 @@ import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
 import { type TabKind, ARTS, CHANGES, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
-import { type DockModel, type DockView, docked, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
+import { type DockModel, type DockView, docked, foldNarrow, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
 import { savedIn } from "../ui/platform.ts";
 
 // ----- Tabs -----
@@ -50,6 +50,7 @@ export function drawPane(subs?: { rows: SubagentRow[]; count: number }, arts?: P
 
 /// Brings each dock's views up to date with what they show, then draws.
 export function draw() {
+  foldNarrow();
   // A tab being dragged is not drawn over until it drops.
   if (drag?.ghost) return;
   const split = docked();
@@ -109,8 +110,6 @@ export function paneTabItem(id: string): PaneTabItem {
 /// What dock `d` with tabs `ids` shows.
 function dockModel(d: Dock, ids: string[]): DockModel {
   const on = P.on[d];
-  const shown = P.tabs.find(t => t.id === on);
-  const fixed = isFixed(on) ? on : FILES;
   const has = (id: string) => ids.includes(id);
   const views: DockView[] = [
     ...(has(FILES) ? [{ kind: "files" as const, hidden: on !== FILES }] : []),
@@ -126,7 +125,6 @@ function dockModel(d: Dock, ids: string[]): DockModel {
   return {
     tabs: ids.map(paneTabItem), on, views,
     shown: before?.shown ?? false, strip: before?.strip ?? false, size: before?.size ?? null, zoomed: before?.zoomed ?? false,
-    label: shown ? shown.name : FIXED_NAMES[fixed], icon: TAB_ICONS[shown?.kind ?? fixed],
     worktrees: on === FILES || on === CHANGES ? worktreeMenu() : null,
   };
 }
