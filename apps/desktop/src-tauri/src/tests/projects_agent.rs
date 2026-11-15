@@ -107,3 +107,32 @@ async fn import_reports_a_checkout_that_failed_next_to_one_that_landed() {
         })
     );
 }
+
+#[tokio::test]
+async fn import_takes_a_project_named_by_name_and_remote_once() {
+    let list = [found("org/app", "m1")];
+    let names = [
+        "org/app".to_owned(),
+        "https://example.com/org/app".to_owned(),
+    ];
+    let calls = std::sync::atomic::AtomicUsize::new(0);
+
+    import_found(&list, &names, &[], |repo, place| {
+        calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        async move {
+            Ok(ImportedProject {
+                project: "org/app".to_owned(),
+                url: repo,
+                machine_id: place.machine_id,
+                machine_name: place.machine_name,
+                folder: place.folder,
+                cloned: false,
+                imported_at: SystemTime::UNIX_EPOCH,
+                display_name: None,
+            })
+        }
+    })
+    .await;
+
+    assert_eq!(calls.into_inner(), 1);
+}

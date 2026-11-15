@@ -356,19 +356,30 @@ where
     F: Fn(String, FoundPlace) -> Fut,
     Fut: Future<Output = Result<ImportedProject, String>>,
 {
+    // A name and its remote resolve to the same project: keep it once, by remote.
     let mut seen = HashSet::new();
-    let wanted: Vec<String> = names
+    let wanted: Vec<Result<usize, String>> = names
         .iter()
-        .map(|name| name.trim().to_owned())
-        .filter(|name| seen.insert(name.to_ascii_lowercase()))
+        .map(|name| {
+            let name = name.trim();
+            found
+                .iter()
+                .position(|project| {
+                    project.project.eq_ignore_ascii_case(name) || project.remote == name
+                })
+                .ok_or_else(|| name.to_owned())
+        })
+        .filter(|wanted| match wanted {
+            Ok(at) => seen.insert(found[*at].remote.clone()),
+            Err(name) => seen.insert(name.to_ascii_lowercase()),
+        })
         .collect();
     let import = &import;
     let outcomes: Vec<Outcome> = stream::iter(wanted)
-        .map(|name| async move {
-            let Some(project) = found.iter().find(|project| {
-                project.project.eq_ignore_ascii_case(&name) || project.remote == name
-            }) else {
-                return Outcome::Skipped(name, NOT_FOUND);
+        .map(|wanted| async move {
+            let project = match wanted {
+                Ok(at) => &found[at],
+                Err(name) => return Outcome::Skipped(name, NOT_FOUND),
             };
 
             let places = project
