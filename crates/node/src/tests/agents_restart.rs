@@ -580,6 +580,7 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
         sessions: before.open_sessions(),
         terminals: Vec::new(),
         saved: before.saved_sessions(),
+        ..Reopen::default()
     };
     assert!(note.sessions.is_empty(), "closed, so not reopened");
     note.save(dir.path()).expect("the note writes");
@@ -633,5 +634,55 @@ fn a_note_from_before_saved_sessions_reads() {
     let note = Reopen::read(dir.path());
     assert_eq!(note.sessions.len(), 1);
     assert!(!note.sessions[0].assistant);
-    assert!(note.saved.is_empty());
+    // Its models and worktrees are kept as saved sessions.
+    assert_eq!(note.saved.len(), 1);
+    assert_eq!(note.saved[0].info.id, "s1");
+    assert_eq!(note.saved[0].info.model, Some(ModelId::new("deep")));
+    assert_eq!(
+        note.saved[0].info.worktrees,
+        vec!["/srv/project/.worktrees/fix".to_owned()]
+    );
+}
+
+#[tokio::test]
+async fn a_saved_session_keeps_what_it_goes_on_with_and_not_its_state() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let kind = adapter(&dir.path().join("log"));
+    let agents = Agents::new(vec![kind.clone()]);
+    let session = agents
+        .start(
+            &kind,
+            Some(&dir.path().to_string_lossy()),
+            Begin {
+                assistant: true,
+                ..begin("hello")
+            },
+        )
+        .expect("the session starts");
+    let mut live = session.live.clone();
+    until(&mut live, |live| live.info.turns == 1).await;
+
+    let saved = agents.saved("held-1").expect("saved");
+    assert_eq!(saved.info.cwd, session.info().cwd);
+    assert!(saved.info.assistant);
+    assert_eq!(saved.info.turns, 0);
+    assert!(saved.info.last_message.is_empty());
+    assert_eq!(saved.info.state, Default::default());
+    agents.shutdown().await;
+}
+
+#[test]
+fn a_reviewer_taken_over_is_never_the_assistant() {
+    let agents = Agents::new(Vec::new());
+    let saved = SavedSession {
+        info: SessionInfo {
+            id: "held-1".into(),
+            reviewer: true,
+            assistant: true,
+            ..SessionInfo::default()
+        },
+        effort: None,
+    };
+
+    assert!(!agents.resumed_begin(None, "held-1", saved).assistant);
 }

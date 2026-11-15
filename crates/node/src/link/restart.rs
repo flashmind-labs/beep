@@ -10,6 +10,7 @@ use crate::{
     run::terminal::{self, OpenTerminal},
 };
 use anyhow::{Context, Result};
+use beep_proto::{ModelId, node::agent::SessionInfo};
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
 use tokio::{
@@ -41,14 +42,64 @@ pub(crate) struct Reopen {
     /// What sessions were, ended ones too.
     #[serde(default)]
     pub(crate) saved: Vec<SavedSession>,
+    /// The models sessions last ran on, in a note from before `saved`.
+    #[serde(default, skip_serializing)]
+    pub(crate) models: Vec<OldModel>,
+    /// The worktrees sessions created, in a note from before `saved`.
+    #[serde(default, skip_serializing)]
+    pub(crate) worktrees: Vec<OldWorktrees>,
+}
+
+/// A session's model in a note from before `saved`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct OldModel {
+    session: String,
+    model: ModelId,
+}
+
+/// A session's worktrees in a note from before `saved`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct OldWorktrees {
+    session: String,
+    worktrees: Vec<String>,
 }
 
 impl Reopen {
     /// What the node in `dir` had open. The note stays until the next
     /// write, so a start that dies before it took over still finds it.
-    /// Nothing when there is none or it cannot be read.
+    /// Nothing when there is none or it cannot be read. A note from before
+    /// `saved` keeps its models and worktrees in it.
     pub(crate) fn read(dir: &Path) -> Self {
-        note::read(&dir.join(FILE))
+        let mut reopen: Self = note::read(&dir.join(FILE));
+
+        for old in std::mem::take(&mut reopen.models) {
+            reopen.saved_for(old.session).info.model = Some(old.model);
+        }
+
+        for old in std::mem::take(&mut reopen.worktrees) {
+            reopen.saved_for(old.session).info.worktrees = old.worktrees;
+        }
+
+        reopen
+    }
+
+    /// The saved entry of session `id`, added when there is none.
+    fn saved_for(&mut self, id: String) -> &mut SavedSession {
+        let at = match self.saved.iter().position(|saved| saved.info.id == id) {
+            Some(at) => at,
+            None => {
+                self.saved.push(SavedSession {
+                    info: SessionInfo {
+                        id,
+                        ..SessionInfo::default()
+                    },
+                    effort: None,
+                });
+                self.saved.len() - 1
+            }
+        };
+
+        &mut self.saved[at]
     }
 
     /// What `agents` and the terminals have open now.
@@ -57,6 +108,7 @@ impl Reopen {
             sessions: agents.open_sessions(),
             terminals: terminal::running(),
             saved: agents.saved_sessions(),
+            ..Self::default()
         }
     }
 

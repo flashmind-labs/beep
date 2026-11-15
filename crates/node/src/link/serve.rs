@@ -283,6 +283,7 @@ pub async fn serve(
         sessions: offers.agents.open_sessions(),
         terminals,
         saved: offers.agents.saved_sessions(),
+        ..Reopen::default()
     };
 
     if let Err(e) = reopen.save(&state.dir) {

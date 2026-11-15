@@ -170,16 +170,15 @@ impl Agents {
     }
 
     /// What sessions here were, the ones running now last, added to those
-    /// kept from before. Reviewers are temporary and left out.
+    /// kept from before. Reviewers are kept too, so one taken over after a
+    /// restart is still known as one.
     pub(crate) fn saved_sessions(&self) -> Vec<SavedSession> {
         // Copied out, as in `open_sessions`.
-        let sessions: Vec<Arc<Session>> = self
-            .lock()
-            .values()
-            .filter(|session| !session.reviewer)
-            .cloned()
+        let sessions: Vec<Arc<Session>> = self.lock().values().cloned().collect();
+        let now: Vec<SavedSession> = sessions
+            .iter()
+            .filter_map(|session| Self::saved_of(session))
             .collect();
-        let now: Vec<SavedSession> = sessions.iter().filter_map(|session| Self::saved_of(session)).collect();
         kept_with(&mut crate::lock(&self.saved), now, |kept| &kept.info.id)
     }
 
@@ -208,16 +207,27 @@ impl Agents {
             .unwrap_or_default()
     }
 
-    /// What `session` is now, once the agent gave it its own id. Its info
-    /// says whether it is a reviewer or the assistant as listings do.
+    /// What `session` is now, once the agent gave it its own id: what it
+    /// goes on with, and whether it is a reviewer or the assistant as
+    /// listings say. Its state, spend and last words are left out.
     fn saved_of(session: &Session) -> Option<SavedSession> {
         watched::read(&session.live, |live| {
             live.agent_session.as_ref()?;
+            let info = &live.info;
             Some(SavedSession {
                 info: SessionInfo {
+                    id: info.id.clone(),
+                    agent: info.agent.clone(),
+                    cwd: info.cwd.clone(),
+                    title: info.title.clone(),
+                    mode: info.mode.clone(),
+                    parent: info.parent.clone(),
                     reviewer: session.reviewer,
+                    model: info.model.clone(),
+                    device: info.device.clone(),
+                    worktrees: info.worktrees.clone(),
                     assistant: session.assistant,
-                    ..live.info.clone()
+                    ..SessionInfo::default()
                 },
                 effort: live.effort,
             })

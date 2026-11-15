@@ -565,7 +565,8 @@ impl Agents {
 
             found.cwd
         } else {
-            let previous = before.as_ref().with_context(|| {
+            // A record from before saved sessions may know no folder.
+            let previous = before.as_ref().filter(|saved| !saved.info.cwd.is_empty()).with_context(|| {
                 format!(
                     "{} sessions started outside Beep cannot be taken over",
                     kind.name
@@ -615,7 +616,7 @@ impl Agents {
             parent: info.parent,
             follows,
             worktrees: info.worktrees,
-            assistant: info.assistant,
+            assistant: info.assistant && !info.reviewer,
             ..Begin::default()
         }
     }
