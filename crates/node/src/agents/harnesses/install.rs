@@ -174,8 +174,13 @@ impl fmt::Display for Step {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.program)?;
 
+        // An argument with spaces is quoted, so the line can be pasted into a shell.
         for arg in &self.args {
-            write!(f, " {arg}")?;
+            if arg.contains(' ') {
+                write!(f, " \"{arg}\"")?;
+            } else {
+                write!(f, " {arg}")?;
+            }
         }
 
         Ok(())
@@ -193,14 +198,17 @@ pub(super) struct Target<'a> {
 
 /// The commands that install `target` when it is missing, or update it,
 /// in the order to try them: the installer it came from, then its own
-/// updater when that is another way. Empty when the node knows none.
+/// updater when that is another way. A missing one tries npm, then its
+/// own installer. Empty when the node knows none.
 pub(super) fn plan(target: &Target<'_>, npm: &Npm) -> Vec<Step> {
     let package = harness(target.agent).and_then(|known| known.npm);
     let Some(cli) = target.cli else {
         return package
             .filter(|_| npm.found)
-            .map(|package| vec![npm_install(&[package])])
-            .unwrap_or_default();
+            .map(|package| npm_install(&[package]))
+            .into_iter()
+            .chain(own_installer(target.agent))
+            .collect();
     };
     let own = own_updater(target.agent, cli).map(|args| Step::new(cli.display().to_string(), args));
     let first = match method(target.agent, cli, npm) {
@@ -221,6 +229,19 @@ pub(super) fn plan(target: &Target<'_>, npm: &Npm) -> Vec<Step> {
         Some(Method::Npm | Method::Own) | None => None,
     };
     first.into_iter().chain(own).collect()
+}
+
+/// A harness's own installer, which needs no Node.js: Claude Code's
+/// native install, the way it installs on Windows without npm.
+fn own_installer(agent: &str) -> Option<Step> {
+    match agent {
+        "claude" if cfg!(windows) => Some(Step::new(
+            "powershell",
+            &["-NoProfile", "-NonInteractive", "-Command", "irm https://claude.ai/install.ps1 | iex"],
+        )),
+        "claude" => Some(Step::new("sh", &["-c", "curl -fsSL https://claude.ai/install.sh | bash"])),
+        _ => None,
+    }
 }
 
 fn npm_install(packages: &[&str]) -> Step {
@@ -295,7 +316,7 @@ pub(super) async fn run(
 ) -> Result<()> {
     if steps.is_empty() {
         bail!(
-            "this node knows no way to install or update {agent}; install npm, or update it by hand"
+            "this node knows no way to install or update {agent}; install Node.js, or update it by hand"
         );
     }
 

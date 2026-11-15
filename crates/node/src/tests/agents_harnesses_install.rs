@@ -28,6 +28,35 @@ fn hermes_uses_its_own_updater_without_an_npm_package() {
     );
 }
 
+#[test]
+fn a_missing_claude_installs_with_npm_then_its_own_installer() {
+    let missing = Target {
+        agent: "claude",
+        cli: None,
+        npm_adapter: None,
+    };
+    let installer = own_installer("claude").expect("Claude Code has its own installer");
+    let without_npm = Npm {
+        found: false,
+        global: None,
+    };
+
+    assert_eq!(plan(&missing, &without_npm), std::slice::from_ref(&installer));
+    assert_eq!(
+        plan(&missing, &npm_none()),
+        [
+            Step::new("npm", &["install", "-g", "@anthropic-ai/claude-code@latest"]),
+            installer.clone()
+        ]
+    );
+    let line = installer.to_string();
+    assert!(line.ends_with(if cfg!(windows) {
+        "\"irm https://claude.ai/install.ps1 | iex\""
+    } else {
+        "\"curl -fsSL https://claude.ai/install.sh | bash\""
+    }), "{line}");
+}
+
 fn npm_none() -> Npm {
     Npm {
         found: true,
