@@ -198,6 +198,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-top b { font-size: 15px; font-weight: 600 }
 .cc-set .dset-top small { font-size: 12px; color: var(--muted) }
 .cc-set .dset-top kbd { font: inherit; font-size: 11px; opacity: .7; margin-left: auto; flex: none }
+/* A phone closes Settings with this: it has no Esc. */
+.cc-set .dset-close { display: none }
 .cc-set .dset-crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap }
 .cc-set .dset-crumbs > svg { flex: none; color: var(--dim) }
 .cc-set .dset-crumb { all: unset; cursor: default; font-size: 15px; color: var(--muted) }

@@ -71,6 +71,8 @@ body.cbody
           button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
             span style(display)
               svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
+        button.mb-set [aria-label="Settings" type="button"]
+          svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div#home-box.cc-box [hidden]
         div#view.cc-view
           canvas.haze.painted-art [aria-hidden="true" height="15" width="139"]
@@ -176,11 +178,6 @@ body.cbody
                                   p "The login page redirects to a blank page after sign in. Find out why and fix it."
                             div style(display)
                               div.dcoderturn
-                                span.hd
-                                  span "Worked"
-                                span.when "10:00"
-                            div style(display)
-                              div.dcoderturn
                                 button.hd [aria-expanded="false" data-turn="1" title="Show the steps"]
                                   span "Ran 1 command, read 1 file"
                                   svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
@@ -258,7 +255,7 @@ body.cbody
                             kbd "⌘."
                           span "Close session"
                             kbd "⇧⌘W"
-                          span "Pick the model, on the start form"
+                          span "Pick the model, on the start form and in a conversation"
                             kbd "⇧⌘M"
                           span "Move through models, in the model search"
                             kbd "↑ ↓"

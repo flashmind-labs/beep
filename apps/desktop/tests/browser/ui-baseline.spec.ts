@@ -403,21 +403,22 @@ test("settings claude code", async ({ page }) => {
   await baseline(page, "settings-claude-code");
 });
 
+const agentAccountResponses = {
+  ...settingsResponses,
+  agent_accounts: { claude: null, codex_key: null, machines: [
+    { id: "build-box", name: "build-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+    { id: "test-box", name: "test-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+    { id: "offline-box", name: "offline-box", online: false, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+  ] },
+  list_machines: [
+    { ...machine("build-box", "build-box", true, 0), env: { logins: [{ tool: "claude", signed_in: true, account: "you@example.com" }] } },
+    { ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }] } },
+  ],
+};
 for (const section of [null, "Agent accounts", "Appearance"] as const) {
   const name = `settings-${section === null ? "first" : section.toLowerCase().replace(/\s+/g, "-")}`;
   test(name, async ({ page }) => {
-    await openDesktop(page, false, section === "Agent accounts" ? {
-      ...settingsResponses,
-      agent_accounts: { claude: null, codex_key: null, machines: [
-        { id: "build-box", name: "build-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
-        { id: "test-box", name: "test-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
-        { id: "offline-box", name: "offline-box", online: false, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
-      ] },
-      list_machines: [
-        { ...machine("build-box", "build-box", true, 0), env: { logins: [{ tool: "claude", signed_in: true, account: "you@example.com" }] } },
-        { ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }] } },
-      ],
-    } : settingsResponses);
+    await openDesktop(page, false, section === "Agent accounts" ? agentAccountResponses : settingsResponses);
     await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
     const nav = page.getByRole("dialog", { name: "Settings" }).getByRole("navigation", { name: "Settings pages" });
     await expect(nav).toBeVisible();
@@ -609,6 +610,22 @@ test("phone home", async ({ page }) => {
   await expect(page.locator("body")).toHaveClass(/mobile/);
   await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
   await baseline(page, "phone-home");
+});
+
+test("phone settings", async ({ page }) => {
+  await page.addInitScript(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
+  await page.setViewportSize(PHONE);
+  await openDesktop(page, false, { ...agentAccountResponses, center_home: home, mobile_paired: true });
+  await page.locator("#main").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await expect(settings.getByRole("button", { name: "Report…" })).toBeVisible();
+  await baseline(page, "phone-settings");
+  await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await expect(settings.getByRole("button", { name: "Agent accounts", exact: true })).toHaveAttribute("aria-current", "true");
+  await baseline(page, "phone-settings-agent-accounts");
+  // A phone has no Esc: the sheet closes with its own button.
+  await settings.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(settings).toBeHidden();
 });
 
 test("unfolded foldable home", async ({ page }) => {
