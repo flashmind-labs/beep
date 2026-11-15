@@ -45,10 +45,13 @@ function usePlacement(content: string, anchor: () => HTMLElement | null, bounds:
     const pick = node.current, pill = where.current.anchor(), area = where.current.bounds();
     if (place || !pick || !pill || !area) return;
     const pane = area.getBoundingClientRect(), a = pill.getBoundingClientRect();
-    const top = Math.max(0, pane.top), left = Math.max(0, pane.left);
-    const view = { width: Math.min(pane.right, window.innerWidth) - left, height: Math.min(pane.bottom, window.innerHeight) - top };
+    // The unplaced picker sits at the fixed origin. With an iPhone's keyboard up the window
+    // is scrolled, and client rects are off from that origin by the scroll.
+    const origin = pick.getBoundingClientRect();
+    const top = Math.max(origin.top, pane.top), left = Math.max(origin.left, pane.left);
+    const view = { width: Math.min(pane.right, origin.left + window.innerWidth) - left, height: Math.min(pane.bottom, origin.top + window.innerHeight) - top };
     const at = placePopover({ top: a.top - top, left: a.left - left, width: a.width, height: a.height }, { width: pick.offsetWidth, height: pick.offsetHeight }, view);
-    setPlace({ ...at, top: at.top + top, left: at.left + left });
+    setPlace({ ...at, top: at.top + top - origin.top, left: at.left + left - origin.left });
   }, [place]);
   useEffect(() => {
     const again = () => setPlace(null);
