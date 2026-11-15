@@ -3,7 +3,10 @@
 //! the harnesses and sign-ins of each machine.
 
 use super::Fleet;
-use crate::error::{DesktopError, Result};
+use crate::{
+    agents::steer::{BEFORE_ASSISTANT, newer_than},
+    error::{DesktopError, Result},
+};
 use beep_mesh::{
     Key, MeshError, PeerClient,
     machine::{
@@ -438,6 +441,13 @@ pub(crate) async fn start(
                     fleet.name_of(machine)
                 ))
             })?;
+            let host = if start.assistant {
+                for_assistant(vec![host], |host| node_version(fleet, host))?
+                    .pop()
+                    .ok_or(ApiError::Internal {})?
+            } else {
+                host
+            };
             (host, String::new())
         }
         None => pick(fleet, &start, &prompt).await?,
@@ -464,7 +474,7 @@ pub(crate) async fn start(
         effort,
         checkout,
         images,
-        assistant: false,
+        assistant: start.assistant,
     };
     let client = fleet.client(machine).await?;
     let opened = open_agent(&client, &agent, first).await.map_err(|e| {
@@ -480,8 +490,13 @@ async fn pick(
     prompt: &str,
 ) -> Result<(AgentHost, String)> {
     let mut asking = Vec::new();
+    let candidates = if start.assistant {
+        for_assistant(hosts(fleet), |host| node_version(fleet, host))?
+    } else {
+        hosts(fleet)
+    };
 
-    for host in hosts(fleet) {
+    for host in candidates {
         let machine = fleet.member(&host.machine_id).ok_or_else(not_found)?;
         asking.push(AutoHost {
             client: fleet.client(machine).await?,
@@ -496,6 +511,32 @@ async fn pick(
         .ok_or(ApiError::Internal {})?
         .host;
     Ok((host, choice.why))
+}
+
+/// The hosts whose node runs the home assistant, or, when none does, the
+/// update one of them needs.
+fn for_assistant(
+    hosts: Vec<AgentHost>,
+    version: impl Fn(&AgentHost) -> Option<String>,
+) -> Result<Vec<AgentHost>> {
+    let (ready, old): (Vec<AgentHost>, Vec<AgentHost>) = hosts
+        .into_iter()
+        .partition(|host| newer_than(version(host).as_deref(), &BEFORE_ASSISTANT));
+
+    match (ready.is_empty(), old.first()) {
+        (true, Some(old)) => Err(DesktopError::BadRequest(format!(
+            "Update Beep on {} to use the assistant.",
+            old.machine_name
+        ))),
+        _ => Ok(ready),
+    }
+}
+
+/// The beep-node `host` runs, once it said.
+fn node_version(fleet: &Fleet, host: &AgentHost) -> Option<String> {
+    fleet
+        .member(&host.machine_id)
+        .and_then(|machine| fleet.status().version(machine))
 }
 
 /// Takes over a session started outside Beep; the node refuses one still in
@@ -1031,3 +1072,7 @@ pub(crate) async fn codex_login_cancel(
     let client = fleet.client(machine).await?;
     Ok(codex_login::cancel(&client, task).await?)
 }
+
+#[cfg(test)]
+#[path = "../tests/fleet_agents.rs"]
+mod tests;

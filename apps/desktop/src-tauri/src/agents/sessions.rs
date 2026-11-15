@@ -503,7 +503,7 @@ pub(crate) async fn machine_sessions(
 /// Starts a session; no `machine_id` lets the mesh pick. `model`, from
 /// `agent_models`, picks the agent's model, `effort` how hard it thinks and
 /// `checkout` the new branch or worktree it starts on. `images` go with the
-/// prompt.
+/// prompt. `assistant` starts the home assistant.
 // The arguments are the fields of the window's `invoke` call.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
@@ -518,6 +518,7 @@ pub async fn agent_start(
     effort: Option<Effort>,
     checkout: Option<CheckoutPlan>,
     images: Option<Vec<PastedImage>>,
+    assistant: Option<bool>,
 ) -> Result<Started> {
     let images = uploads(images.unwrap_or_default())?;
 
@@ -535,6 +536,7 @@ pub async fn agent_start(
         model,
         effort,
         checkout,
+        assistant: assistant.unwrap_or(false),
     };
     let started = direct::start(&fleet, request, images).await?;
     crate::palette::prompts::sent(&app, started.session.clone(), &indexed_prompt).await;

@@ -65,33 +65,39 @@ pub(crate) fn tools(app: &AppHandle) -> Arc<dyn DesktopTools> {
 impl DesktopTools for AgentTools {
     fn call(&self, tool: Tool, args: String) -> BoxFuture<'_, Reply> {
         Box::pin(async move {
-            if tool != Tool::Plugins {
-                return Reply::Done {
+            match tool {
+                Tool::Plugins => self.plugins(args).await,
+                Tool::Projects => crate::projects::agent::answer(&self.app, &args).await,
+                tool => Reply::Done {
                     text: format!("This desktop does not answer {tool} yet."),
                     failed: true,
-                };
-            }
-
-            let app = self.app.clone();
-            let logs = self.logs.clone();
-            // A tool call waits for the plugin's thread, and the log is read from disk.
-            let outcome = tauri::async_runtime::spawn_blocking(move || {
-                match app.try_state::<beep_plugins::Host>() {
-                    Some(host) => answer(&host, logs.as_deref(), &args),
-                    None => Err("The plugin host did not start.".to_owned()),
-                }
-            })
-            .await
-            .unwrap_or_else(|e| Err(format!("The plugin call did not finish: {e}")));
-
-            match outcome {
-                Ok(text) => Reply::Done {
-                    text,
-                    failed: false,
                 },
-                Err(text) => Reply::Done { text, failed: true },
             }
         })
+    }
+}
+
+impl AgentTools {
+    async fn plugins(&self, args: String) -> Reply {
+        let app = self.app.clone();
+        let logs = self.logs.clone();
+        // A tool call waits for the plugin's thread, and the log is read from disk.
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            match app.try_state::<beep_plugins::Host>() {
+                Some(host) => answer(&host, logs.as_deref(), &args),
+                None => Err("The plugin host did not start.".to_owned()),
+            }
+        })
+        .await
+        .unwrap_or_else(|e| Err(format!("The plugin call did not finish: {e}")));
+
+        match outcome {
+            Ok(text) => Reply::Done {
+                text,
+                failed: false,
+            },
+            Err(text) => Reply::Done { text, failed: true },
+        }
     }
 }
 

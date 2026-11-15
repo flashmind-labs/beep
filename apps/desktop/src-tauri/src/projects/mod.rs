@@ -1,6 +1,8 @@
 //! Projects imported onto the user's machines: the sidebar's rows, the Add a
 //! project sheet, a project's page and its branches, threads, runs and sync.
 
+#[cfg(desktop)]
+pub(crate) mod agent;
 pub(crate) mod branches;
 pub(crate) mod create;
 pub(crate) mod file_sync;

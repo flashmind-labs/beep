@@ -477,6 +477,7 @@ fn names(tools: &Value) -> Vec<&str> {
 fn assistant_session_lists_projects_tool() {
     assert!(names(&catalog::tools(false, false, true)).contains(&"projects"));
     assert!(!names(&catalog::tools(false, false, false)).contains(&"projects"));
+    assert!(!names(&catalog::tools(false, false, true)).contains(&"review"));
 }
 
 #[tokio::test]
@@ -526,9 +527,11 @@ fn the_tool_definitions_fit_the_budget() {
     // Includes the constraints that reject fields belonging to other actions.
     const TOKENS: usize = 3_750;
 
-    let listed = catalog::tools(false, false, false).to_string();
-    let tokens = listed.len() / 4;
-    assert!(tokens <= TOKENS, "{tokens} tokens");
+    for assistant in [false, true] {
+        let listed = catalog::tools(false, false, assistant).to_string();
+        let tokens = listed.len() / 4;
+        assert!(tokens <= TOKENS, "{tokens} tokens, assistant {assistant}");
+    }
     let brief = (super::super::BRIEF.len()) / 4;
     assert!(brief <= 500, "the brief is {brief} tokens");
 }

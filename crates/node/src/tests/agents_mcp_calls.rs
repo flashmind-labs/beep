@@ -83,3 +83,24 @@ fn grouped_calls_take_the_words_of_their_action() {
     );
     assert_eq!(title("agent", json!({"action": "dance"})), "Beep: Use agent");
 }
+
+#[test]
+fn project_calls_name_their_action() {
+    let title = |args: Value| Tool::Projects.title(Some(&args));
+    assert_eq!(Tool::of_name("mcp__beep__projects"), Some(Tool::Projects));
+    assert_eq!(title(json!({"action": "hosts"})), "Beep: List Git hosts");
+    assert_eq!(
+        title(json!({"action": "create", "name": "notes", "machines": ["build-box"]})),
+        "Beep: Create project: notes"
+    );
+    assert_eq!(
+        title(json!({"action": "clone", "url": "https://example.com/org/repo"})),
+        "Beep: Clone project: https://example.com/org/repo"
+    );
+    assert_eq!(title(json!({"action": "found"})), "Beep: Find projects");
+    assert_eq!(
+        title(json!({"action": "import", "projects": ["org/repo"]})),
+        "Beep: Import projects"
+    );
+    assert_eq!(title(json!({})), "Beep: Use projects");
+}

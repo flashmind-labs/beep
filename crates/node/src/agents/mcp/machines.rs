@@ -44,7 +44,7 @@ const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
 
 /// A machine as the agent names it: lower case, one word, with apostrophes
 /// dropped and other symbols and spaces as single dashes.
-pub(super) fn command_name(name: &str) -> String {
+pub fn command_name(name: &str) -> String {
     let kept: String = name
         .chars()
         .filter(|c| !matches!(c, '\'' | '\u{2019}'))

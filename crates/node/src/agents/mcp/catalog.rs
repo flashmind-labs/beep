@@ -16,6 +16,8 @@ const PLUGINS: &str = "plugins";
 /// The home assistant's projects, which a desktop creates, clones and imports.
 /// `tools/1` takes the call whole as `Tool::Projects`, like `plugins`.
 const PROJECTS: &str = "projects";
+/// The tool that has an agent's changes reviewed.
+const REVIEW: &str = "review";
 
 /// The grouped tools and what each action calls, by the tool's name before
 /// grouping, which the node still routes by.
@@ -96,7 +98,8 @@ pub(super) fn ungroup(name: &str, mut args: Value) -> Result<(&str, Value), Stri
 
 /// Every tool, in the order agents see them. A reviewer gets
 /// `submit_review` in place of `review`; without other machines, `run` and
-/// `files` are left out; only the home assistant gets `projects`.
+/// `files` are left out; only the home assistant gets `projects`, and it has
+/// no changes to `review`.
 pub(super) fn tools(reviewer: bool, alone: bool, assistant: bool) -> Value {
     let text = |what: &str| json!({ "type": "string", "description": what });
     let action = |group: &str| {
@@ -336,12 +339,12 @@ pub(super) fn tools(reviewer: bool, alone: bool, assistant: bool) -> Value {
         }),
         json!({
             "name": PROJECTS,
-            "description": "The user's projects, set up by the Beep desktop. Actions:\n\
-                hosts: the Git hosts and owners the user's credentials reach\n\
-                create: name, machines, optional folder and repository; a new project\n\
-                clone: url, machines, optional name and folder; checks a repository out\n\
-                found: optional machines; Git checkouts on the machines that are no project yet\n\
-                import: projects (names from found), optional machines; makes them projects",
+            "description": "The user's projects, through the Beep desktop. Actions:\n\
+                hosts: Git hosts and owners to create on\n\
+                create: name, machines, optional folder, repository\n\
+                clone: url, machines, optional name, folder\n\
+                found: checkouts that are no project yet\n\
+                import: projects from found, optional machines",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -379,12 +382,13 @@ pub(super) fn tools(reviewer: bool, alone: bool, assistant: bool) -> Value {
         .into_iter()
         .filter(|tool| !(alone && ELSEWHERE.iter().any(|name| tool["name"] == *name)))
         .filter(|tool| assistant || tool["name"] != PROJECTS)
+        .filter(|tool| !assistant || tool["name"] != REVIEW)
         .collect()
 }
 
 fn review() -> Value {
     json!({
-        "name": "review",
+        "name": REVIEW,
         "description": "Have your changes since the merge base with base (default branch \
             when left out, HEAD for uncommitted changes only) reviewed by a read-only reviewer \
             agent; returns its verdict and findings. After about 45 seconds it returns an id \
@@ -527,7 +531,7 @@ fn close_actions(tool: &mut Value) {
             let schema = json!({"propertyNames": {"enum": fields}, "required": required});
             conditions.push(json!({"if": {"properties": {"action": {"enum": actions}}, "required": ["action"]}, "then": schema}));
         }
-    } else if name == "review" {
+    } else if name == REVIEW {
         conditions
             .push(json!({"if": {"required": ["id"]}, "then": {"propertyNames": {"enum": ["id"]}}}));
     }
@@ -546,8 +550,8 @@ pub(super) fn validate(name: &str, args: &Value) -> Result<(), String> {
         LazyLock::new(|| {
             let mut validators = HashMap::new();
 
-            for reviewer in [false, true] {
-                let listed = tools(reviewer, false, true);
+            for (reviewer, assistant) in [(false, false), (true, false), (false, true)] {
+                let listed = tools(reviewer, false, assistant);
                 let Some(listed) = listed.as_array() else {
                     return Err("Invalid tool catalog".to_owned());
                 };
