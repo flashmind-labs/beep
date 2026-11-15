@@ -5,7 +5,8 @@ use agent_client_protocol::{
     schema::ProtocolVersion,
     v1::schema::{
         AGENT_METHOD_NAMES, ClientCapabilities, ClientSessionCapabilities, CompactionCapabilities,
-        ContentBlock, Implementation, InitializeRequest, InitializeResponse, LoadSessionRequest,
+        ContentBlock, ElicitationCapabilities, ElicitationFormCapabilities, Implementation,
+        InitializeRequest, InitializeResponse, LoadSessionRequest,
         McpServer, Meta, NewSessionRequest, NewSessionResponse, ResumeSessionRequest,
         SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
         SessionConfigSelectOption, SessionConfigSelectOptions, SessionId, SessionModeState,
@@ -19,13 +20,19 @@ use std::path::Path;
 
 /// What `initialize` sends: this client reads and writes no files and runs
 /// no terminals for the agent (the crate's defaults), so it does that work
-/// itself. It takes `compaction_update`s, which the transcript shows. With
+/// itself. It takes `compaction_update`s, which the transcript shows, and
+/// form elicitations, which the user answers as questions. With
 /// `async_tasks` it also says, in the AIR extension Claude Code's adapter
 /// reads, that it takes the commands the agent runs in the background
 /// (`async_task_*` updates, see `AsyncTask`) and can stop them.
 pub(in crate::agents) fn initialize(async_tasks: bool) -> InitializeRequest {
     let session = ClientSessionCapabilities::new().compaction(CompactionCapabilities::new());
-    let mut capabilities = ClientCapabilities::new().session(session);
+    // Form elicitation lets Claude Code ask its own questions
+    // (AskUserQuestion), which its adapter turns off for a client without it.
+    let elicitation = ElicitationCapabilities::new().form(ElicitationFormCapabilities::new());
+    let mut capabilities = ClientCapabilities::new()
+        .session(session)
+        .elicitation(elicitation);
 
     if async_tasks {
         let mut meta = Map::new();

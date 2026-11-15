@@ -143,6 +143,15 @@ impl Actor {
             return Ok(Err(MOVING_REFUSAL.to_owned()));
         }
 
+        // Words sent while a form asks are its answer, as the agent waits.
+        if let Some(asked) = self.asked.front()
+            && matches!(asked.waiting, Waiting::Form(_))
+            && prompt.images.is_empty()
+        {
+            let question = asked.question.id;
+            return self.answer(question, &prompt.text);
+        }
+
         let prompt = self.fitted(prompt);
 
         if let Err(full) = self.room_for(&prompt) {
@@ -434,6 +443,11 @@ impl Actor {
         self.put(question, Waiting::Agent(Box::new(responder)), None);
     }
 
+    /// Puts the next field of `form` to the user.
+    pub(super) fn ask_form(&mut self, form: acp::Form) {
+        self.put(form.question().clone(), Waiting::Form(Box::new(form)), None);
+    }
+
     /// Shows `question` once those before it are answered, numbered next.
     fn put(&mut self, mut question: Question, waiting: Waiting, plan: Option<String>) {
         question.id = self.next_question;
@@ -470,6 +484,25 @@ impl Actor {
         }
 
         let options = &asked.question.options;
+
+        if matches!(asked.waiting, Waiting::Form(_)) {
+            // A form takes any words as the answer, and asks its next field.
+            let Some(Asked {
+                waiting: Waiting::Form(form),
+                ..
+            }) = self.asked.pop_front()
+            else {
+                return Ok(Ok(()));
+            };
+            match form.answer(reply, |options, reply| choose(options, reply).cloned())? {
+                acp::Answer::Next(form) => {
+                    self.answered(reply.trim());
+                    self.ask_form(*form);
+                }
+                acp::Answer::Sent(name) => self.answered(&name),
+            }
+            return Ok(Ok(()));
+        }
 
         if matches!(asked.waiting, Waiting::Node(_)) {
             // The node's own question takes any words as the answer.
