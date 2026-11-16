@@ -7,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard, PoisonError},
 };
+use tauri::LogicalSize;
 
 /// The page zoom of every window, in percent, from 70 to 200.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +67,10 @@ pub struct Saved {
     /// of minor releases only.
     #[serde(default)]
     pub developer: bool,
+    /// The size of the last project window, which a project opened in a
+    /// window for the first time takes.
+    #[serde(default)]
+    pub project_window: Option<LogicalSize<f64>>,
 }
 
 fn on() -> bool {
@@ -102,6 +107,7 @@ impl Default for Saved {
             zoom: Zoom::default(),
             save_folder: None,
             developer: false,
+            project_window: None,
         }
     }
 }
@@ -200,6 +206,22 @@ impl Prefs {
 
     pub fn set_zoom(&self, zoom: Zoom) {
         self.update(|s| s.zoom = zoom);
+    }
+
+    /// The size of the last project window.
+    pub fn project_window(&self) -> Option<LogicalSize<f64>> {
+        self.saved().project_window
+    }
+
+    /// Notes a project window's size as it resizes, without writing it:
+    /// `save` does when the window closes or Beep quits.
+    pub fn note_project_window(&self, size: LogicalSize<f64>) {
+        self.saved().project_window = Some(size);
+    }
+
+    /// Writes what was noted.
+    pub fn save(&self) {
+        self.file.save(&self.saved());
     }
 }
 
