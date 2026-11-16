@@ -19,7 +19,7 @@ import { type HomeView, needsLine } from "./home-state.ts";
 import { homeSessions, openAsking } from "./home.tsx";
 import { itemChips, newestFirst, projectsWithOpen, waitsOnYou } from "./openitems-state.ts";
 import { openUrl, reviewButton } from "./openitems.ts";
-import { loadFound, projectRows } from "./sidebar.tsx";
+import { loadFound, projectRows, projectWindowProps } from "./sidebar.tsx";
 import { HomeAssistant } from "./home-assistant.tsx";
 import { state } from "./state.ts";
 import { go } from "./views.tsx";
@@ -76,9 +76,9 @@ function needsCards(home: HomeView): BoardCard[] {
     const detail = fsync.detail(project), conflicts = conflictList(detail), first = conflicts[0];
     if (!first) continue;
     const one = conflicts.length === 1, open = () => go("projects", { project, tile: "machines" });
-    cards.push({ key: `${project}:conflicts`, lane: "needs", project, session: false, lead: <span style={{ display: "contents" }}><Icon name="sync" /></span>,
+    cards.push({ windowProps: projectWindowProps(project), key: `${project}:conflicts`, lane: "needs", project, session: false, lead: <span style={{ display: "contents" }}><Icon name="sync" /></span>,
       title: one ? first.path : `${conflicts.length} files have two copies`, sub: one ? conflictSub(project, first, detail?.machines ?? []) : project, foot: null,
-      action: { kind: "run", label: "Resolve", primary: false, run: open }, dim: false, hint: conflicts.map(conflict => conflict.path).join("\n"), open, menu: null });
+      action: { kind: "run", label: "Resolve", primary: false, run: open, windowProps: projectWindowProps(project) }, dim: false, hint: conflicts.map(conflict => conflict.path).join("\n"), open, menu: null });
   }
 
   return cards;
@@ -162,7 +162,7 @@ export function HomeOverview({ home }: { home: HomeView }) {
   const ordered = (rows: BoardCard[]) => recency === null ? rows : byProject(rows, order).flatMap(row => row.cards);
   const rows = (project: string) => {
     const at = listed.findIndex(row => row.name === project);
-    return { color: at < 0 ? null : PROJECT_COLORS[at % PROJECT_COLORS.length], open: listed[at]?.imported ? () => { go("projects", { project }); } : null };
+    return { windowProps: projectWindowProps(project), color: at < 0 ? null : PROJECT_COLORS[at % PROJECT_COLORS.length], open: listed[at]?.imported ? () => { go("projects", { project }); } : null };
   };
 
   return <>

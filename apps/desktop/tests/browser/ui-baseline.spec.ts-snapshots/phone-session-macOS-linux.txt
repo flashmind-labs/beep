@@ -151,7 +151,7 @@ body.cbody.mb-full.mobile
                 b#agtitle [aria-label="Rename session: Fix the login redirect" role="button" tabindex="0" title="Fix the login redirect Double-click to rename (Enter)"] "Fix the login redirect"
                 small.aglocation [title="/srv/project"]
                   span.agfolder
-                    button#agproj.agproj "example/widget"
+                    button#agproj.agproj [type="button"] "example/widget"
                     span#agbranch
                   span "@"
                   span#aghere

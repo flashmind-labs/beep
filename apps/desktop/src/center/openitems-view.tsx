@@ -4,7 +4,7 @@ import { Icon } from "../ui/icons.tsx";
 import { RepoSection } from "../project/outside-lists.tsx";
 import { GIT_SORTS, parseGitSort, replyStart, projectsWithOpen, type GitItemRow, type GitItemsView, type GitSort } from "./openitems-state.ts";
 import { openUrl, quickImport, reviewButton, rowImports } from "./openitems.ts";
-import { projectRows } from "./sidebar.tsx";
+import { projectRows, projectWindowProps } from "./sidebar.tsx";
 import { state } from "./state.ts";
 import { go } from "./views.tsx";
 
@@ -19,7 +19,7 @@ function Column({ kind, title, none, view, sort }: { kind: GitItemRow["kind"]; t
     const importing = rowImports.get(row.key), project = row.project;
     const start = project && { review: (item: GitItemRow) => reviewButton(item, project, machines), reply: (item: GitItemRow) => go("pane", { agentnew: { ...replyStart(item, project, machines), assistant: false } }) };
     return { key: `${kind} ${row.key}`, name: row.repo, failed: importing && importing !== "busy" ? importing.error : null, last: row.last, open: true, items: row.items, start: start || null,
-      action: project ? { label: "Open project", run: () => go("projects", { project: project.name }) } : { label: importing === "busy" ? "Importing…" : "Import project", disabled: importing === "busy", run: () => { void quickImport(row); } } };
+      action: project ? { label: "Open project", windowProps: projectWindowProps(project.name), run: () => go("projects", { project: project.name }) } : { label: importing === "busy" ? "Importing…" : "Import project", disabled: importing === "busy", run: () => { void quickImport(row); } } };
   });
   if (!repos.length) return <div className="cc-empty"><span>{none}</span></div>;
   return <RepoSection id={`section:home-${kind}`} title={title} note="" repos={repos} sort={sort} open={openUrl} />;

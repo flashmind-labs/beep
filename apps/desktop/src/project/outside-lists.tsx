@@ -1,3 +1,4 @@
+import type { ProjectWindowProps } from "./projectwindow.ts";
 import { useState, type MouseEvent, type ReactNode } from "react";
 import { formatAgo, plural } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
@@ -27,7 +28,7 @@ function Fold({ id, title, count, note, children }: { id: string; title: string;
 
 /// A repository's line: `open` unfolds its items at first, `action` is its one button.
 /// `start` starts an agent on an item; only a project's items have it.
-export interface RepoLine { key: string; name: string; failed: string | null; last: number; open: boolean; items: GitItemRow[]; action: { label: string; primary?: boolean; disabled?: boolean; run(): void }; start: ItemStart | null }
+export interface RepoLine { key: string; name: string; failed: string | null; last: number; open: boolean; items: GitItemRow[]; action: { windowProps?: ProjectWindowProps; label: string; primary?: boolean; disabled?: boolean; run(): void }; start: ItemStart | null }
 /// Review, an agent button that starts at once, and Reply, which opens the start form.
 interface ItemStart { review(item: GitItemRow): AgentButtonItem; reply(item: GitItemRow): void }
 
@@ -41,7 +42,7 @@ function RepoLines({ repo, open }: { repo: RepoLine; open(url: string): void }) 
   return <>
     <div className="pl-row repo" onClick={toggle}>
       <button type="button" className="t" aria-expanded={shown} title={repo.name}><span className="twist"><Icon name="twist" /></span><b>{repo.name}</b><span className="dim">{repo.failed ?? counts(repo.items)}</span></button>
-      <span className="r"><span className="age">{formatAgo(repo.last, "short")}</span><span className="acts"><Button look={repo.action.primary ? "primary" : "secondary"} small disabled={repo.action.disabled} onClick={event => act(event, repo.action.run)}>{repo.action.label}</Button></span></span>
+      <span className="r"><span className="age">{formatAgo(repo.last, "short")}</span><span className="acts"><Button {...repo.action.windowProps?.clicks} {...repo.action.windowProps?.menu} look={repo.action.primary ? "primary" : "secondary"} small disabled={repo.action.disabled} onClick={event => act(event, repo.action.run)}>{repo.action.label}</Button></span></span>
     </div>
     {shown && repo.items.map(item => <ItemLine key={item.url} item={item} repo={null} at={item.updated_at} start={repo.start} open={open} />)}
   </>;

@@ -1,3 +1,4 @@
+import { projectWindowProps } from "./sidebar.tsx";
 import { placeWindowParts } from "./window-root.tsx";
 import { windowHost } from "./window-shell.tsx";
 import { NoticesView } from "./notices-view.tsx";
@@ -80,7 +81,7 @@ export function mountNotices() {
     const action = focused ? [...focused.querySelectorAll("button")].indexOf(active as HTMLButtonElement) : -1;
     const shown = opened ? find(notes, opened) : null;
     placeWindowParts({ notices: <NoticesView
-      items={notes} open={open} shown={shown} answering={answering} failed={failed} keeping={keeping} toggle={() => toggle(!open)} back={backToList}
+      windowProps={projectWindowProps} items={notes} open={open} shown={shown} answering={answering} failed={failed} keeping={keeping} toggle={() => toggle(!open)} back={backToList}
       dismiss={dismiss} openItem={openItem} answer={answer} keep={keepCopy}
     /> });
     if (focused && !focused.isConnected && open) {

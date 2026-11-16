@@ -151,14 +151,14 @@ export function openProjectWindow(name: string) {
 /// from a right-click on the one given `menu`. The capture runs before the click opens it here.
 export function projectWindowProps(name: string): ProjectWindowProps {
   const open = (e: ReactMouseEvent) => {
-    if (!opensNewWindow(e)) return;
+    if (onPhone() || !opensNewWindow(e)) return;
     e.preventDefault();
     e.stopPropagation();
     openProjectWindow(name);
   };
   return {
     clicks: { onClickCapture: open, onAuxClick: open, ...prefetchOnHover(name) },
-    menu: { onContextMenu: (e: ReactMouseEvent) => openProjectMenu(e.nativeEvent, name) },
+    menu: { onContextMenu: (e: ReactMouseEvent) => { e.stopPropagation(); openProjectMenu(e.nativeEvent, name); } },
   };
 }
 

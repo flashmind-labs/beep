@@ -3,7 +3,7 @@ import { formatAgo, plural } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
 import { ALL, byMachine, terminalNote, terminalWhere, type TerminalRow } from "../terminals/terminals.tsx";
 import { allTerms, openTerminals, termMachines } from "../terminals/view.tsx";
-import { openAddMachine, openProjects } from "../center/sidebar.tsx";
+import { openAddMachine, openProjects, projectWindowProps } from "../center/sidebar.tsx";
 import { state } from "../center/state.ts";
 import { fsync } from "../project/sections.ts";
 import { openTile } from "../project/split.tsx";
@@ -26,15 +26,16 @@ function AddMachine({ look = "secondary", small = false }: { look?: ButtonLook; 
 function Terminal({ terminal, online }: { terminal: TerminalRow; online: boolean }) {
   return <button type="button" className="cc-row tl-row" title={`${terminal.machine_name}: ${terminal.command} in ${terminal.cwd}`} onClick={() => openTerminals({ id: terminal.id })}><span className={`ddot${terminal.state === "running" && online ? "" : " off"}`} /><span className="t"><b>{terminal.name}</b><span>{terminalWhere(terminal)}</span></span><span className="r">{terminalNote(terminal, ms => formatAgo(ms, "short"))}</span></button>;
 }
-function Project({ project }: { project: MachineProject }) {
-  return <button type="button" className="cc-row tl-row" title={project.title} onClick={() => { openProjects(project.project); openTile("sync"); }}><span className={`ddot${project.off ? " off" : ""}`} /><span className="t"><b>{project.project}</b><span>{project.meta.join(" · ")}</span></span><span className="r">{project.pct == null ? <span className={`chip${project.chip.wait ? " wait" : ""}`}>{project.chip.text}</span> : <span className="fs-pct"><span className="fs-bar"><i style={{ width: `${project.pct}%` }} /></span>{project.pct}%</span>}</span></button>;
+function Project({ project, compact = false }: { project: MachineProject; compact?: boolean }) {
+  const props = projectWindowProps(project.project);
+  return <Button look="plain" className="cc-row tl-row" title={project.title} {...props.clicks} {...props.menu} onClick={() => { openProjects(project.project); openTile("sync"); }}><span className={`ddot${project.off ? " off" : ""}`} /><span className="t">{compact ? project.project : <><b>{project.project}</b><span>{project.meta.join(" · ")}</span></>}</span>{!compact && <span className="r">{project.pct == null ? <span className={`chip${project.chip.wait ? " wait" : ""}`}>{project.chip.text}</span> : <span className="fs-pct"><span className="fs-bar"><i style={{ width: `${project.pct}%` }} /></span>{project.pct}%</span>}</span>}</Button>;
 }
 function Stat({ label, title, bar, low = false, children }: { label: string; title?: string; bar?: number | null; low?: boolean; children: React.ReactNode }) {
   return <div className="mstat" title={title || undefined}><span className="ml">{label}</span>{children}{bar != null && <div className={`mbar${low ? " low" : ""}`}><i style={{ width: `${Math.round(100 * bar)}%` }} /></div>}</div>;
 }
 function Folded({ machine, projects }: { machine: MachineCard; projects: MachineProject[] }) {
   const open = useOpenFolds(fold => fold.open.has(machine.id)), toggle = useOpenFolds(fold => fold.toggle);
-  return <div className="mlist"><button type="button" className="cc-row tl-row mfold" aria-expanded={open} onClick={() => toggle(machine.id)}><Icon name="chev" /><span className="t"><b>{plural(projects.length, "project", "projects")} here</b><span>· {projectsSummary(projects)}</span></span></button>{open && <div className="mgrid">{projects.map(project => <button key={project.project} type="button" className="cc-row tl-row" title={project.title} onClick={() => { openProjects(project.project); openTile("sync"); }}><span className={`ddot${project.off ? " off" : ""}`} /><span className="t">{project.project}</span></button>)}</div>}</div>;
+  return <div className="mlist"><button type="button" className="cc-row tl-row mfold" aria-expanded={open} onClick={() => toggle(machine.id)}><Icon name="chev" /><span className="t"><b>{plural(projects.length, "project", "projects")} here</b><span>· {projectsSummary(projects)}</span></span></button>{open && <div className="mgrid">{projects.map(project => <Project key={project.project} project={project} compact />)}</div>}</div>;
 }
 function Machine({ machine, terminals }: { machine: MachineCard; terminals: TerminalRow[] }) {
   const caps = machine.can_host === false ? ["Controller"] : machineCaps(machine);

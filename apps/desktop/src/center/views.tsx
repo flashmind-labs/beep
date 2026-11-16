@@ -1,3 +1,4 @@
+import { Button } from "../ui/kit.tsx";
 import { projectName } from "../project/projects-state.ts";
 import { Fragment, memo } from "react";
 import { flushSync } from "react-dom";
@@ -11,7 +12,7 @@ import type { PaneTarget } from "../bar/pane.ts";
 import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
 import { shortName } from "../project/agent.ts";
 import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName } from "./state.ts";
-import { drawSide, openProjects, projectRows } from "./sidebar.tsx";
+import { drawSide, openProjects, projectRows, projectWindowProps } from "./sidebar.tsx";
 import { instructionsView, openSettings, providersView } from "../settings/sheet.ts";
 import { paneView } from "./pane.tsx";
 import { homeView } from "./home.tsx";
@@ -275,7 +276,7 @@ export function drawTop() {
   if (project) document.title = label ?? project;
   const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? S.view : null]);
   placeWindowParts({
-    "project-back": project ? <button type="button" className="dbtn small pw-back" id="pw-back" title={`Back to ${label} (esc)`} hidden={currentPage?.view === "projects"} onClick={() => void openProjects(project)}>{shortName(label ?? project)}</button> : null,
+    "project-back": project ? <Button {...projectWindowProps(project).clicks} {...projectWindowProps(project).menu} small className="pw-back" id="pw-back" title={`Back to ${label} (esc)`} hidden={currentPage?.view === "projects"} onClick={() => void openProjects(project)}>{shortName(label ?? project)}</Button> : null,
     title: head.title || "Beep",
     date: head.sub || "",
     scope: head.reactScope ? <Fragment key={page}>{head.reactScope}</Fragment> : null,
