@@ -279,7 +279,11 @@ impl Managed {
         });
         change(&mut record);
 
-        let turned_on = record.enabled && !before.as_ref().is_some_and(|record| record.enabled);
+        // Allowing new permissions counts as turning the plugin on again.
+        let turned_on = record.enabled
+            && !before
+                .as_ref()
+                .is_some_and(|before| before.enabled && before.approved == record.approved);
         if turned_on {
             let last = records
                 .values()

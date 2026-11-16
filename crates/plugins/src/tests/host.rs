@@ -1748,4 +1748,16 @@ fn a_theme_waiting_for_approval_sets_nothing() {
 
     host.approve(&plugin_id("sharp")).unwrap();
     assert_eq!(host.style().tokens[&StyleToken::Radius].as_ref(), "0");
+
+    // A newer version asks for style again: allowing it turns it on last.
+    write_theme(root.path(), "round", "12px");
+    host.refresh(&plugin_id("round"));
+    host.approve(&plugin_id("round")).unwrap();
+    assert_eq!(host.style().tokens[&StyleToken::Radius].as_ref(), "12px");
+    host.set_enabled(&plugin_id("sharp"), false).unwrap();
+    host.set_enabled(&plugin_id("sharp"), true).unwrap();
+    assert_eq!(host.style().tokens[&StyleToken::Radius].as_ref(), "0");
+
+    let record = host.record(&plugin_id("round")).unwrap();
+    assert!(record.order > 0);
 }
