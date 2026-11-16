@@ -9,7 +9,8 @@
 import type { DiffView } from "../review/diff-state.ts";
 import { type DiffViewHandle, type DiffOwner, diffView } from "../review/diff.tsx";
 import { sendReview } from "../agents/messages.ts";
-import { openWorkFile, paneSession } from "./media.ts";
+import { CHANGES, openWorkFile, paneSession, showChanges } from "./media.ts";
+import { dockOf, paneModel } from "./media-layout.ts";
 import { localFileItems } from "./localfile.ts";
 import { paneLinked, paneRoot, refreshWorktrees, removedBranch, watchRoot, worktreesReady, worktreesSettled } from "./worktree.ts";
 import { reviewHeading } from "./worktree-state.ts";
@@ -124,6 +125,7 @@ function make(key: string) {
   const view = diffView({
     owner,
     uncommitted: true,
+    zoom: { zoomed: () => !!paneModel.getState().docks?.[dockOf(CHANGES)].zoomed, subscribe: paneModel.subscribe, enter: () => showChanges() },
     load: async (only, lockfiles, uncommitted, context) => {
       const full = !only.length;
 

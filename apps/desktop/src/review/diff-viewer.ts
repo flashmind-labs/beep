@@ -13,7 +13,7 @@ import { loadDraft } from "./draftstore.ts";
 import { matchesFilter, placeComments, sameDiffFile, type DiffFile, type DiffView, type Extent, type ReviewComment } from "./diff-state.ts";
 import type { DiffSource } from "./diff.tsx";
 
-/// Wider than this, the file list shows on the left.
+/// Wider than this, the file list can show on the left.
 export const WIDE = 900;
 /// At this width or less the lines stay unified, as the CSS hides the button.
 export const NARROW = 640;
@@ -41,6 +41,9 @@ export interface DiffState {
   filter: string;
   /// Side by side is chosen; it shows only while the viewer is not narrow.
   split: boolean;
+  /// The file list is open; it shows only while the viewer is wide, and in a
+  /// side pane only while ⇧esc has it fill the session.
+  files: boolean;
   narrow: boolean;
   /// Only the uncommitted changes, against HEAD.
   uncommitted: boolean;
@@ -127,7 +130,7 @@ export class Viewer {
     }
 
     this.store = createStore<DiffState>(() => ({
-      view: null, list: [], loading: false, error: "", sending: false, flash: "", filter, split: loadSplit(), narrow: false,
+      view: null, list: [], loading: false, error: "", sending: false, flash: "", filter, split: loadFlag(SPLIT_KEY, false), files: loadFlag(FILES_KEY, true), narrow: false,
       uncommitted: false, folded, closedFolders: new Set(), filteredClosedFolders: new Set(), pending: new Set(), cur: null, revealTree: 0,
       draft: src.readOnly ? [] : loadDraft(src.review.key), editors: new Map(), orphaned: new Set(),
     }));
@@ -304,14 +307,18 @@ export function say(v: Viewer, text: string) {
   v.flashTimer = window.setTimeout(() => v.store.setState({ flash: "" }), 2000);
 }
 
-const SPLIT_KEY = "beep.diffSplit";
+export const SPLIT_KEY = "beep.diffSplit";
+export const FILES_KEY = "beep.diffFiles";
 
-function loadSplit() {
-  try { return localStorage.getItem(SPLIT_KEY) === "1"; } catch { return false; }
+function loadFlag(key: string, fallback: boolean) {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved === null ? fallback : saved === "1";
+  } catch { return fallback; }
 }
 
-export function saveSplit(on: boolean) {
-  try { localStorage.setItem(SPLIT_KEY, on ? "1" : "0"); } catch { /* kept for this launch only */ }
+export function saveFlag(key: string, on: boolean) {
+  try { localStorage.setItem(key, on ? "1" : "0"); } catch { /* kept for this launch only */ }
 }
 
 export function reasonOf(e: unknown) {

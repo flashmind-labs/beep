@@ -1,7 +1,7 @@
 // The diff viewer's frame: a one-line header with the counts, a filter, icon
-// toggles and the review buttons; a list of the files at wide widths, with a
-// grip to resize it; the files themselves (diff-files.tsx); and the keys.
-import { memo, useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+// toggles and the review buttons; a list of the files at wide widths, opened
+// and closed by the Files button, with a grip to resize it; the files themselves (diff-files.tsx); and the keys.
+import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { DiffToolbar } from "./diff-toolbar.tsx";
@@ -10,7 +10,7 @@ import { DiffKeys } from "./diff-status.tsx";
 import { DiffFiles, fileMenu } from "./diff-files.tsx";
 import { FeedbackBox, FeedbackNoteBox } from "./feedback-view.tsx";
 import { allFolded, commentCounts, type DiffFile } from "./diff-state.ts";
-import { NARROW, WIDE, type Viewer, keepCurrent, remeasure, remember, saveSplit, shown } from "./diff-viewer.ts";
+import { NARROW, WIDE, type Viewer, keepCurrent, remeasure, remember, saveFlag, shown, FILES_KEY, SPLIT_KEY } from "./diff-viewer.ts";
 import { foldAll, jump, jumpToLine, markCurrent, onKey } from "./diff-keys.ts";
 import { load, sendReview } from "./diff.tsx";
 import { useTreeWidth } from "./treewidth.ts";
@@ -21,12 +21,13 @@ export function DiffViewer({ v }: { v: Viewer }) {
   const [grip, setGrip] = useState<HTMLDivElement | null>(null);
   const width = useTreeWidth(body, grip);
   const bodyStyle: CSSProperties & Record<`--${string}`, string> = { "--dv-tree-width": `${width.width}px` };
+  const files = useFiles(v);
   useRootEvents(v);
 
   return <>
-    <div className="dv-head"><Toolbar v={v} /></div>
+    <div className="dv-head"><Toolbar v={v} files={files} /></div>
     {v.feedback ? <FeedbackNoteBox feedback={v.feedback} /> : <span />}
-    <div className={`dv-body${width.resizing ? " resizing" : ""}`} ref={setBody} style={bodyStyle}>
+    <div className={`dv-body${files.open ? " files" : ""}${width.resizing ? " resizing" : ""}`} ref={setBody} style={bodyStyle}>
       <nav className="dv-tree" aria-label="Changed files" ref={setTree}>{tree && <Tree v={v} scroller={tree} />}</nav>
       <div className="dv-resize" ref={setGrip} tabIndex={0} title="Drag to resize, double-click to reset" role="separator" aria-label="Resize changed files"
         aria-orientation="vertical" aria-valuemin={width.min} aria-valuemax={width.max} aria-valuenow={width.width}
@@ -36,6 +37,30 @@ export function DiffViewer({ v }: { v: Viewer }) {
     <div className="dv-keys"><DiffKeys /></div>
   </>;
 }
+
+interface Files { open: boolean; zoomed: boolean; toggle: () => void }
+
+/// The file list: open as the user left it, and in a side pane only while it
+/// fills the session. Shown in a side pane, the button zooms it and opens the list.
+function useFiles(v: Viewer): Files {
+  const zoom = v.src.zoom;
+  const zoomed = useSyncExternalStore(zoom?.subscribe ?? noSubscribe, zoom?.zoomed ?? alwaysZoomed);
+  const chosen = useStore(v.store, s => s.files);
+
+  return {
+    open: chosen && zoomed,
+    zoomed,
+    toggle: () => {
+      const files = !zoomed || !chosen;
+      v.set({ files });
+      saveFlag(FILES_KEY, files);
+      if (!zoomed) zoom?.enter();
+    },
+  };
+}
+
+const noSubscribe = () => () => {};
+const alwaysZoomed = () => true;
 
 /// The root is the caller's element: its keys, and its width, which picks the layout.
 function useRootEvents(v: Viewer) {
@@ -55,13 +80,13 @@ function useRootEvents(v: Viewer) {
   }, [v]);
 }
 
-const Toolbar = memo(function Toolbar({ v }: { v: Viewer }) {
+const Toolbar = memo(function Toolbar({ v, files }: { v: Viewer; files: Files }) {
   const s = useStore(v.store, useShallow(s => ({
     view: s.view, loading: s.loading, filter: s.filter, split: s.split, uncommitted: s.uncommitted, flash: s.flash,
     comments: s.draft.length, sending: s.sending, allFolded: allFolded(shown(s), s.folded),
   })));
   const findRef = useCallback((find: HTMLInputElement | null) => { v.find = find; }, [v]);
-  return <DiffToolbar {...s} showUncommitted={!!v.src.uncommitted} readOnly={!!v.src.readOnly}
+  return <DiffToolbar {...s} files={files.open} filesZoom={!files.zoomed} onFiles={files.toggle} showUncommitted={!!v.src.uncommitted} readOnly={!!v.src.readOnly}
     feedback={v.feedback ? <FeedbackBox feedback={v.feedback} /> : <span />} findRef={findRef}
     onFilter={filter => {
       v.set({ filter, filteredClosedFolders: new Set() });
@@ -72,7 +97,7 @@ const Toolbar = memo(function Toolbar({ v }: { v: Viewer }) {
     }}
     onSplit={() => {
       const split = !v.state.split;
-      saveSplit(split);
+      saveFlag(SPLIT_KEY, split);
       keepCurrent(v, () => { v.set({ split }); remeasure(v); });
     }}
     onUncommitted={() => { v.set({ uncommitted: !v.state.uncommitted }); void load(v); }}
