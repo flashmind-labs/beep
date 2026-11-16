@@ -26,7 +26,7 @@ import { openUrl } from "../center/openitems.ts";
 import { currentLocation, go, drawTop } from "../center/views.tsx";
 import { openTile } from "./split.tsx";
 import { AG } from "../agents/agents.ts";
-import { barOn, drawProjectComp, workOnIssue, startIssue, continuePr, reviewPr, startReview, threadButton, earlierReview, fixRun, fixConflict } from "./composer.tsx";
+import { barOn, drawProjectComp, workOnIssue, startIssue, continuePr, startContinue, reviewPr, startReview, pickButton, earlierReview, fixRun, startFix, fixConflict } from "./composer.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
 import type { Starting } from "../agents/draft-state.ts";
 import { redrawSync } from "./syncpage.ts";
@@ -78,6 +78,8 @@ export const runs = makeRuns({
   redraw: () => redrawProjects(),
   openUrl,
   fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
+  startFix,
+  button: pickButton,
   mode: liveMode.mode,
   kept: keptSection("runs"),
   hostsChanged: () => redrawProjectsPage(),
@@ -124,9 +126,10 @@ export function repoActs(p: Project): RepoActs {
     workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
     startIssue: (issue: IssueRow, pick: ProjectPick) => startIssue(p.name, issue, pick),
     continuePr: (pr: PullRequestRow) => continuePr(p.name, pr),
+    startContinue: (pr: PullRequestRow, pick: ProjectPick) => startContinue(p.name, pr, pick),
     reviewPr: (pr: PullRequestRow) => reviewPr(p.name, pr),
     startReview: (pr: PullRequestRow, pick: ProjectPick) => startReview(p.name, pr, pick),
-    button: start => threadButton(p.name, start),
+    button: start => pickButton(p.name, start),
     reviewOf: (pr: PullRequestRow) => earlierReview(p.name, pr.number),
     openReview: (session: ReviewSession) => go("pane", { agent: session }),
   };

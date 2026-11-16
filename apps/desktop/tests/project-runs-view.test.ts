@@ -5,6 +5,9 @@ import { act, createElement } from "react";
 import { RunsView, type RunsViewProps } from "../src/project/runs-view.tsx";
 import type { RunRow, RunDetail } from "../src/project/runs.tsx";
 
+import type { PickButton } from "../src/review/feedback-view.tsx";
+const button: PickButton = { snapshot: () => ({ open: false, picker: null }), subscribe: () => () => {}, setBox() {}, setButton() {}, setSlot() {}, click() {}, why: () => "" };
+
 test("run log updates retain the row, focus and scroll", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });
   const previous = new Map<string, PropertyDescriptor | undefined>();
@@ -17,7 +20,7 @@ test("run log updates retain the row, focus and scroll", async () => {
   const root = createRoot(host);
   const run: RunRow = { id: 1, number: 1, workflow: "Build", title: "Check", branch: "main", event: "push", actor: "Example", state: "running", url: "https://example.test/run", started_at: 1, finished_at: null, progress: null, pull_requests: [], host: "example.test" };
   const detail: RunDetail = { run, jobs: [], log: { job: "Test", step: null, text: "First line", truncated: false }, error: null, rate_limited_until: null };
-  const props: RunsViewProps = { data: { runs: [run], checks: [], synced_at: null, error: null, rate_limited_until: null }, error: "", only: null, open: "example.test#1", mode: null, refresh() {}, filter() {}, toggle() {}, hover() {}, leave() {}, menu() {}, detail: () => ({ data: detail, error: "" }), fix() {}, openUrl() {} };
+  const props: RunsViewProps = { data: { runs: [run], checks: [], synced_at: null, error: null, rate_limited_until: null }, error: "", only: null, open: "example.test#1", mode: null, refresh() {}, filter() {}, toggle() {}, hover() {}, leave() {}, menu() {}, detail: () => ({ data: detail, error: "" }), fix: () => ({ button, state: { kind: "starting" }, error: "" }), openUrl() {} };
   try {
     await act(() => root.render(createElement(RunsView, props)));
     const row = host.querySelector<HTMLElement>(".rr-head"), log = host.querySelector<HTMLElement>(".pj-log pre"); assert.ok(row && log);

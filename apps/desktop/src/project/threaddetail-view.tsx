@@ -1,8 +1,7 @@
-import { useSyncExternalStore, type ReactElement } from "react";
 import { formatAgo } from "../ui/format.ts";
 import { forgeLabel, type ThreadDetailRow, type ThreadStub } from "./threaddetail.tsx";
 import { Button, Chip, EmptyPanel, useHtml } from "../ui/kit.tsx";
-import { FeedbackControl, type FeedbackState } from "../review/feedback-view.tsx";
+import { AgentButton, type AgentState, type PickButton } from "../review/feedback-view.tsx";
 
 const CHECKS: Record<string, [string, string]> = { failed: ["blocked", "checks failing"], passed: ["done", "checks passing"], running: ["running", "checks running"], queued: ["running", "checks queued"], waiting: ["running", "checks waiting"] };
 function Markdown({ html, open }: { html: string; open(url: string): void }) {
@@ -12,38 +11,11 @@ function Markdown({ html, open }: { html: string; open(url: string): void }) {
 }
 export interface ThreadActions { buttons: ThreadAction[]; error: string | null }
 
-/// A thread's button: a plain one, or the agent button (Review with agent,
-/// Work on it) whose picker starts a session.
+/// A thread's button: a plain one, or the agent button (Continue, Review
+/// with agent, Work on it) whose picker starts a session.
 export type ThreadAction =
   | { kind: "run"; key: string; label: string; primary: boolean; disabled: boolean; title: string; run(): void }
-  | { kind: "agent"; key: string; button: ThreadButton; state: AgentState };
-
-/// The agent button as its thread has it; the picker adds whether it is open.
-export type AgentState =
-  | { kind: "ready"; label: string; hint: string }
-  | { kind: "starting" }
-  | { kind: "running"; agent: string; hint: string; open(): void };
-
-/// The agent button's picker, kept per thread across draws.
-export interface ThreadButton {
-  snapshot: () => { open: boolean; picker: ReactElement | null };
-  subscribe: (listener: () => void) => () => void;
-  setBox: (box: HTMLElement | null) => void;
-  setButton: (button: HTMLButtonElement | null) => void;
-  setSlot: (slot: HTMLDivElement | null) => void;
-  click: () => void;
-  /// Why it cannot start, or "".
-  why: () => string;
-}
-
-function AgentButton({ button, state }: { button: ThreadButton; state: AgentState }) {
-  const { open, picker } = useSyncExternalStore(button.subscribe, button.snapshot);
-  const shown: FeedbackState = state.kind === "ready" ? { ...state, reason: button.why(), open }
-    : state.kind === "running" ? { kind: "running", agent: state.agent, hint: state.hint } : state;
-  return <span className="dv-fbw" ref={button.setBox}>
-    <FeedbackControl state={shown} setButton={button.setButton} setSlot={button.setSlot} onClick={state.kind === "running" ? state.open : button.click} picker={picker} />
-  </span>;
-}
+  | { kind: "agent"; key: string; button: PickButton; state: AgentState };
 
 function ActionButton({ action }: { action: ThreadAction }) {
   switch (action.kind) {
