@@ -1286,8 +1286,14 @@ fn a_cancelled_turn_closes_the_subagent_calls_it_interrupted() {
     })));
     assert_eq!(live.info.state.subagents, 1);
 
+    assert!(!live.orphaned_subagents);
+
     live.close_interrupted_subagents();
     assert_eq!(live.info.state.subagents, 0);
+    assert!(
+        live.orphaned_subagents,
+        "Stop all still ends the agent for the subagents the stop closed"
+    );
     assert!(
         live.transcript(10)
             .0

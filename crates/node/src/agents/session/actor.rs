@@ -409,6 +409,7 @@ impl Actor {
             live.info.state.queued_messages.clear();
             live.end_tasks();
             live.info.state.subagents = 0;
+            live.orphaned_subagents = false;
             live.held = waiting;
             live.stopped(closed && by_user);
             if !closed {
@@ -534,7 +535,9 @@ impl Actor {
                     }
 
                     if let Command::StopAll { by_user } = command
-                        && watched::read_sent(&self.live, |live| live.info.state.subagents) > 0
+                        && watched::read_sent(&self.live, |live| {
+                            live.info.state.subagents > 0 || live.orphaned_subagents
+                        })
                     {
                         self.by_user = by_user;
                         let _ = done.send(Ok(()));

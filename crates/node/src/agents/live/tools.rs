@@ -189,6 +189,8 @@ impl Live {
             .map(|(id, _)| id.clone())
             .collect();
 
+        self.orphaned_subagents |= !open.is_empty();
+
         for id in &open {
             if let Some(tool) = self.tools.get_mut(id) {
                 tool.status = ToolCallStatus::Failed;
