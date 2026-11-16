@@ -7,8 +7,8 @@ import { openSheet } from "../ui/parts.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
 import { ConsentView } from "./plugins-settings-view.tsx";
 import {
-  IDLE, UNEXPECTED, consentTitle, flowStep, openStage, parseFailure, parsePreview, parseRows, parseStaged, parseUpdateCheck,
-  type Flow, type FlowEvent, type GitField, type PluginFailure, type PluginRow, type StagedPlugin, type UpdateState,
+  IDLE, UNEXPECTED, consentTitle, flowStep, openStage, parseFailure, parsePluginStyle, parsePreview, parseRows, parseStaged, parseUpdateCheck,
+  type Flow, type FlowEvent, type GitField, type PluginFailure, type PluginRow, type StagedPlugin, type StyleConflict, type UpdateState,
 } from "./plugins-settings-state.ts";
 
 type Call = typeof invoke;
@@ -25,9 +25,11 @@ export interface PluginsState {
   failures: ReadonlyMap<string, PluginFailure>;
   /// What each plugin's update check found, by id.
   updates: ReadonlyMap<string, UpdateState>;
+  /// The style tokens more than one plugin sets.
+  conflicts: readonly StyleConflict[];
 }
 
-const START: PluginsState = { list: { kind: "loading" }, flow: IDLE, busy: [], failures: new Map(), updates: new Map() };
+const START: PluginsState = { list: { kind: "loading" }, flow: IDLE, busy: [], failures: new Map(), updates: new Map(), conflicts: [] };
 
 export function createPluginsSettings(call: Call, hear: Listen) {
   const state = createStore<PluginsState>()(() => START);
@@ -42,9 +44,11 @@ export function createPluginsSettings(call: Call, hear: Listen) {
   async function load() {
     const mine = ++reads;
     try {
-      const rows = parseRows(await call<unknown>("plugins_status"));
+      const [status, style] = await Promise.all([call<unknown>("plugins_status"), call<unknown>("plugins_style")]);
       if (mine !== reads) return;
-      state.setState({ list: rows === null ? { kind: "failed", failure: UNEXPECTED } : { kind: "ready", rows } });
+
+      const rows = parseRows(status), conflicts = parsePluginStyle(style)?.conflicts ?? [];
+      state.setState({ list: rows === null ? { kind: "failed", failure: UNEXPECTED } : { kind: "ready", rows }, conflicts });
     } catch (error) {
       if (mine !== reads) return;
       state.setState(now => now.list.kind === "ready" ? now : { list: { kind: "failed", failure: parseFailure(error) } });

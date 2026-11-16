@@ -5,7 +5,7 @@ import { Spinner } from "../ui/kit.tsx";
 import { askRemove, showConsentSheets, type PluginsSettings, type PluginsState } from "./plugins-settings.ts";
 import {
   consentAction, consentTitle, consentVersions, isNewPermission, permissionLabel, permissionMeaning, rowOffers, runLine,
-  sourceLabel, sourceSentence, updateLine, type Flow, type PluginFailure, type PluginPermission, type PluginRow,
+  sourceLabel, sourceSentence, styleClashLine, updateLine, type Flow, type PluginFailure, type PluginPermission, type PluginRow,
 } from "./plugins-settings-state.ts";
 
 type Consenting = Extract<Flow, { kind: "consent" }>;
@@ -88,7 +88,9 @@ function Rows({ store, state, working }: { store: PluginsSettings; state: Plugin
 }
 
 function Row({ row, store, state, working }: { row: PluginRow; store: PluginsSettings; state: PluginsState; working: boolean }) {
-  const offers = rowOffers(row), line = runLine(row.run);
+  const offers = rowOffers(row), line = runLine(row.run, row.styled);
+  const rows = state.list.kind === "ready" ? state.list.rows : [];
+  const clash = styleClashLine(row.id, state.conflicts, id => rows.find(other => other.id === id)?.name ?? id);
   const busy = state.busy.includes(row.id);
   const failure = state.failures.get(row.id) ?? null, check = state.updates.get(row.id) ?? null;
   return <div className={`dgit plg${offers.on ? "" : " off"}`} role="listitem" data-plugin={row.id}>
@@ -106,6 +108,7 @@ function Row({ row, store, state, working }: { row: PluginRow; store: PluginsSet
         {offers.remove && <button type="button" className="dbtn quiet small" aria-label={`Remove ${row.name}`} disabled={busy} onClick={() => askRemove(store, row)}>Remove…</button>}
       </span>
     </div>
+    {clash !== null && <span className="dsub plg-note warn" role="status">{clash}</span>}
     {check !== null && <span className={`dsub plg-note${check.kind === "failed" ? " bad" : ""}`} role={check.kind === "failed" ? "alert" : "status"}>{updateLine(check)}</span>}
     {failure !== null && <Failure failure={failure} />}
   </div>;

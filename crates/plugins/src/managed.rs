@@ -128,6 +128,10 @@ pub struct Record {
     /// The permissions the user allowed, sorted.
     pub approved: Vec<Permission>,
     pub origin: Origin,
+    /// When the plugin was last turned on, counted across the folder's
+    /// plugins: a plugin turned on later has a higher number. Its style wins.
+    #[serde(default)]
+    pub order: u64,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -151,6 +155,7 @@ pub(crate) struct Assessment {
     pub enabled: bool,
     pub approved: Vec<Permission>,
     pub origin: Origin,
+    pub order: u64,
 }
 
 /// The records of the plugins folder, kept in memory and in `.plugins.json`.
@@ -231,6 +236,7 @@ impl Managed {
             enabled: record.enabled,
             approved: record.approved,
             origin: record.origin,
+            order: record.order,
         }
     }
 
@@ -241,11 +247,13 @@ impl Managed {
                 enabled: true,
                 approved: sorted(&manifest.permissions),
                 origin: Origin::Dev,
+                order: 0,
             },
             Policy::Managed => Record {
                 enabled: true,
                 approved: Vec::new(),
                 origin: Origin::Local,
+                order: 0,
             },
         }
     }
@@ -266,9 +274,20 @@ impl Managed {
                 enabled: true,
                 approved: Vec::new(),
                 origin: Origin::Local,
+                order: 0,
             },
         });
         change(&mut record);
+
+        let turned_on = record.enabled && !before.as_ref().is_some_and(|record| record.enabled);
+        if turned_on {
+            let last = records
+                .values()
+                .map(|record| record.order)
+                .max()
+                .unwrap_or(0);
+            record.order = last.saturating_add(1);
+        }
         records.insert(id.clone(), record);
 
         let saved = self.write(&records);

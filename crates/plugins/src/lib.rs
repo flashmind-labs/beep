@@ -15,6 +15,7 @@ mod sandbox;
 mod source;
 mod status;
 mod store;
+mod style;
 mod tool;
 mod topic;
 mod ui;
@@ -33,6 +34,10 @@ pub use manifest::{
     Permission, PluginId,
 };
 pub use status::{PluginState, PluginStatus};
+pub use style::{
+    InvalidStyleValue, MAX_STYLE_VALUE, ResolvedStyle, Style, StyleConflict, StyleToken,
+    StyleValue, UnknownStyleToken,
+};
 pub use tool::{
     InvalidToolName, MAX_DESCRIPTION, MAX_TOOLS, ToolError, ToolName, ToolSpec, ToolsError,
 };

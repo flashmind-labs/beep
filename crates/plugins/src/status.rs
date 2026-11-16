@@ -8,6 +8,7 @@ use serde::Serialize;
 use crate::managed::Origin;
 use crate::manifest::{Permission, PluginId};
 use crate::meter::Meter;
+use crate::style::{Layer, ResolvedStyle, Style, resolve};
 use crate::tool::ToolSpec;
 
 /// Where a plugin stands, as the page and agent tools read it.
@@ -49,6 +50,8 @@ pub struct PluginStatus {
     pub source: Origin,
     /// The tools the manifest gives coding agents.
     pub tools: Vec<ToolSpec>,
+    /// The style tokens the manifest sets.
+    pub style: Style,
     /// Whether the user left it turned on.
     pub enabled: bool,
     #[serde(flatten)]
@@ -77,7 +80,10 @@ pub(crate) struct Info {
     pub approved: Vec<Permission>,
     pub source: Origin,
     pub tools: Vec<ToolSpec>,
+    pub style: Style,
     pub enabled: bool,
+    /// When the user turned it on, as the record counts it.
+    pub order: u64,
 }
 
 struct Entry {
@@ -169,6 +175,28 @@ impl Registry {
         }
     }
 
+    /// The styles of the plugins that are on and allowed to restyle the app.
+    pub(crate) fn style(&self) -> ResolvedStyle {
+        let layers = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| {
+                let on = !matches!(
+                    entry.lifecycle,
+                    Lifecycle::Disabled | Lifecycle::NeedsApproval(_)
+                );
+                on && entry.info.enabled && entry.info.approved.contains(&Permission::Style)
+            })
+            .map(|(id, entry)| Layer {
+                id,
+                order: entry.info.order,
+                style: &entry.info.style,
+            })
+            .collect();
+
+        resolve(layers)
+    }
+
     pub(crate) fn list(&self, now: Instant) -> Vec<PluginStatus> {
         self.entries
             .iter()
@@ -186,6 +214,7 @@ impl Registry {
                     approved: entry.info.approved.clone(),
                     source: entry.info.source.clone(),
                     tools: entry.info.tools.clone(),
+                    style: entry.info.style.clone(),
                     enabled: entry.info.enabled,
                     state: self.state_of(entry),
                     used_ms: u64::try_from(used).unwrap_or(u64::MAX),

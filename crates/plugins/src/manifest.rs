@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 use thiserror::Error;
 
+use crate::style::Style;
 use crate::tool::{ToolSpec, ToolsError, check_all};
 use crate::topic::{Topic, TopicError};
 use crate::ui::Slot;
@@ -15,7 +16,8 @@ use crate::ui::Slot;
 pub const MANIFEST_FILE: &str = "beep-plugin.json";
 
 /// The plugin API this Beep implements. A manifest asks for one with `api`.
-pub const API_VERSION: NonZeroU32 = NonZeroU32::MIN;
+/// API 2 adds `style`.
+pub const API_VERSION: NonZeroU32 = NonZeroU32::new(2).expect("2 is not zero");
 
 const ID_LEN: std::ops::RangeInclusive<usize> = 2..=40;
 
@@ -94,6 +96,10 @@ pub enum Permission {
     #[serde(rename = "tools")]
     #[strum(serialize = "tools")]
     Tools,
+    /// Restyle the app with the tokens declared in `style`.
+    #[serde(rename = "style")]
+    #[strum(serialize = "style")]
+    Style,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -175,12 +181,17 @@ pub struct Manifest {
     pub entry: PathBuf,
     #[serde(default)]
     pub permissions: Vec<Permission>,
-    /// When the plugin starts. Default: `["startup"]`.
+    /// When the plugin starts. Default: `["startup"]`. A plugin with a `style`
+    /// may list none, and then never runs code.
     #[serde(default = "default_activation")]
     pub activation: Vec<Activation>,
     /// The tools the plugin gives coding agents. Needs the `tools` permission.
     #[serde(default)]
     pub tools: Vec<ToolSpec>,
+    /// The style tokens the plugin sets while it is enabled. Needs the
+    /// `style` permission.
+    #[serde(default)]
+    pub style: Style,
 }
 
 #[derive(Debug, Error)]
@@ -200,6 +211,8 @@ pub enum ManifestError {
     Api(NonZeroU32),
     #[error("activation needs at least one entry")]
     NoActivation,
+    #[error("style needs the style permission")]
+    StylePermission,
     #[error("invalid tools: {0}")]
     Tools(#[from] ToolsError),
 }
@@ -250,8 +263,12 @@ impl Manifest {
             return Err(ManifestError::Entry(manifest.entry));
         }
 
-        if manifest.activation.is_empty() {
+        if manifest.activation.is_empty() && manifest.style.is_empty() {
             return Err(ManifestError::NoActivation);
+        }
+
+        if !manifest.style.is_empty() && !manifest.allows(Permission::Style) {
+            return Err(ManifestError::StylePermission);
         }
 
         check_all(&manifest.tools, &manifest.permissions)?;

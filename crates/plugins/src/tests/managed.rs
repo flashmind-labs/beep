@@ -65,6 +65,7 @@ fn the_file_has_a_stable_shape() {
             "plugins": { "cat-one": {
                 "enabled": true,
                 "approved": ["ui.add"],
+                "order": 1,
                 "origin": { "kind": "git", "url": "https://github.com/owner/repo.git",
                             "ref": "main", "subfolder": "plugins/cat",
                             "commit": "0123456789abcdef0123456789abcdef01234567" }

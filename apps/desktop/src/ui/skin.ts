@@ -1,8 +1,11 @@
-// The skin every window draws in: a set of color, corner, font and label
-// tokens (dist/skins.css). The pick is kept in localStorage, which all of
-// the app's windows share, so a change in one shows in the others at once.
-// Also the layout picked for Home and a project's front page.
+// The skin every window draws in: a set of style tokens (dist/skins.css). The
+// pick is kept in localStorage, which all of the app's windows share, so a
+// change in one shows in the others at once. Plugins with the style permission
+// set tokens over the skin. Also the layout picked for Home and a project's
+// front page.
+import { parsePluginStyle } from "../settings/plugins-settings-state.ts";
 import { APPLE, onPhone } from "./platform.ts";
+import { invoke, listen } from "./tauri.ts";
 
 interface Skin {
   id: string;
@@ -59,10 +62,29 @@ export function setSkin(id: string) {
   apply();
 }
 
-/// Draws this window in the picked skin, and follows picks made in others.
+/// Draws this window in the picked skin with the plugins' tokens over it, and follows
+/// picks made in others and plugins turned on or off.
 export function followSkin() {
   apply();
   addEventListener("storage", e => { if (e.key === KEY) apply(); });
+
+  void listen("plugins-status", () => { void applyPluginStyle(); }).catch(() => {});
+  void applyPluginStyle();
+}
+
+/// The tokens plugins set on this window, to clear the ones they stop setting.
+let pluginTokens: readonly string[] = [];
+let styleReads = 0;
+
+async function applyPluginStyle() {
+  const mine = ++styleReads;
+  const style = parsePluginStyle(await invoke<unknown>("plugins_style").catch(() => null));
+  if (style === null || mine !== styleReads) return;
+
+  const root = document.documentElement.style;
+  for (const token of pluginTokens) if (!style.tokens.has(token)) root.removeProperty(token);
+  for (const [token, value] of style.tokens) root.setProperty(token, value);
+  pluginTokens = [...style.tokens.keys()];
 }
 
 /// How Home and a project's front page lay out, each on its own: the board, or the

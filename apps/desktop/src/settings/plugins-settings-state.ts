@@ -2,7 +2,7 @@
 // can be tested without Tauri. plugins-settings.ts runs them and
 // plugins-settings-view.tsx draws them.
 
-export type PluginPermission = "ui.add" | "sessions.read" | "tools";
+export type PluginPermission = "ui.add" | "sessions.read" | "tools" | "style";
 
 /// Where a plugin came from.
 export type PluginSource =
@@ -31,6 +31,21 @@ export interface PluginRow {
   source: PluginSource;
   enabled: boolean;
   run: PluginRun;
+  /// Whether its manifest sets style tokens.
+  styled: boolean;
+}
+
+/// The style tokens the enabled plugins set (`plugins_style`), each with the value of the
+/// plugin turned on last, and the tokens more than one plugin sets.
+export interface PluginStyle {
+  tokens: ReadonlyMap<string, string>;
+  conflicts: StyleConflict[];
+}
+
+/// A token several plugins set, with the plugins in the order they apply: the last wins.
+export interface StyleConflict {
+  token: string;
+  plugins: string[];
 }
 
 export type PreviewKind = "new" | "update" | "allow";
@@ -69,6 +84,7 @@ const LABELS: Record<PluginPermission, { label: string; meaning: string }> = {
   "ui.add": { label: "Add to the interface", meaning: "Show text, buttons and images in the message box, session rows and session header." },
   "sessions.read": { label: "Read your sessions", meaning: "See your coding agent sessions and what each one is doing." },
   tools: { label: "Give tools to your agents", meaning: "Coding agents can call the tools this plugin lists." },
+  style: { label: "Restyle the app", meaning: "Change the colours, corners, fonts, glass and paintings of every window." },
 };
 
 export const permissionLabel = (permission: PluginPermission) => LABELS[permission].label;
@@ -110,11 +126,11 @@ export function repositoryName(url: string): string {
 
 export type StateTone = "ok" | "off" | "warn" | "err";
 
-/// The state line of a row.
-export function runLine(run: PluginRun): { text: string; tone: StateTone } {
+/// The state line of a row. A plugin that styles the app is on while it waits for its slot.
+export function runLine(run: PluginRun, styled: boolean): { text: string; tone: StateTone } {
   switch (run.state) {
     case "running": return { text: "On", tone: "ok" };
-    case "waiting": return { text: "Waiting for its slot", tone: "off" };
+    case "waiting": return styled ? { text: "On", tone: "ok" } : { text: "Waiting for its slot", tone: "off" };
     case "paused": return { text: "Paused", tone: "off" };
     case "disabled": return { text: "Off", tone: "off" };
     case "needs-approval": return { text: "Needs approval", tone: "warn" };
@@ -247,7 +263,7 @@ const isFlag = (value: unknown): value is boolean => typeof value === "boolean";
 const textOrNull = (value: unknown): string | null | undefined => value === null ? null : isText(value) ? value : undefined;
 
 function permission(value: unknown): PluginPermission | null {
-  return value === "ui.add" || value === "sessions.read" || value === "tools" ? value : null;
+  return value === "ui.add" || value === "sessions.read" || value === "tools" || value === "style" ? value : null;
 }
 
 function permissions(value: unknown): PluginPermission[] | null {
@@ -292,7 +308,37 @@ function parseRow(raw: unknown): PluginRow | null {
   const asked = permissions(raw.permissions), approved = permissions(raw.approved), source = parseSource(raw.source), run = parseRun(raw);
   if (!isText(raw.id) || !isText(raw.name) || !isText(raw.version) || !isText(raw.description) || !isFlag(raw.enabled)) return null;
   if (asked === null || approved === null || source === null || run === null) return null;
-  return { id: raw.id, name: raw.name, version: raw.version, description: raw.description, permissions: asked, approved, source, enabled: raw.enabled, run };
+  const styled = isRecord(raw.style) && Object.keys(raw.style).length > 0;
+  return { id: raw.id, name: raw.name, version: raw.version, description: raw.description, permissions: asked, approved, source, enabled: raw.enabled, run, styled };
+}
+
+/// What `plugins_style` answers with; null when it is not what the desktop promised.
+export function parsePluginStyle(raw: unknown): PluginStyle | null {
+  if (!isRecord(raw) || !isRecord(raw.tokens) || !Array.isArray(raw.conflicts)) return null;
+
+  const tokens = new Map<string, string>();
+  for (const [token, value] of Object.entries(raw.tokens)) {
+    if (!token.startsWith("--") || !isText(value)) return null;
+    tokens.set(token, value);
+  }
+
+  const conflicts: StyleConflict[] = [];
+  for (const item of raw.conflicts) {
+    if (!isRecord(item) || !isText(item.token) || !Array.isArray(item.plugins) || !item.plugins.every(isText)) return null;
+    conflicts.push({ token: item.token, plugins: item.plugins });
+  }
+
+  return { tokens, conflicts };
+}
+
+/// The warning on a plugin's row when another plugin sets the same tokens, or null.
+export function styleClashLine(id: string, conflicts: readonly StyleConflict[], nameOf: (id: string) => string): string | null {
+  const mine = conflicts.filter(conflict => conflict.plugins.includes(id));
+  if (mine.length === 0) return null;
+
+  const tokens = mine.map(conflict => conflict.token);
+  const others = [...new Set(mine.flatMap(conflict => conflict.plugins).filter(other => other !== id))].map(nameOf);
+  return `Sets ${tokens.join(", ")} like ${others.join(", ")}. The plugin turned on last wins.`;
 }
 
 /// The list `plugins_status` answers with; null when any row is not what the desktop promised.

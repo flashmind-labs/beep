@@ -31,6 +31,12 @@ type Statuses = Vec<beep_plugins::PluginStatus>;
 #[cfg(mobile)]
 type Statuses = Vec<serde_json::Value>;
 
+/// The style tokens plugins set, as the page reads them.
+#[cfg(desktop)]
+type Styled = beep_plugins::ResolvedStyle;
+#[cfg(mobile)]
+type Styled = serde_json::Value;
+
 /// The name of an image placements use, a 64 digit hex hash.
 #[cfg(desktop)]
 type Hash = beep_plugins::AssetHash;
@@ -42,6 +48,26 @@ type Hash = String;
 type Event = beep_plugins::UiEvent;
 #[cfg(mobile)]
 type Event = serde_json::Value;
+
+/// The `tokens` the enabled style plugins set, each with the value of the one turned on
+/// last, and the `conflicts`: each `token` more than one sets, with the `plugins` in the
+/// order they apply. Nothing on a phone and when no host runs.
+#[tauri::command]
+pub(crate) fn plugins_style(app: AppHandle) -> Styled {
+    #[cfg(desktop)]
+    {
+        use tauri::Manager;
+
+        app.try_state::<beep_plugins::Host>()
+            .map(|host| host.style())
+            .unwrap_or_default()
+    }
+    #[cfg(mobile)]
+    {
+        let _ = app;
+        serde_json::json!({ "tokens": {}, "conflicts": [] })
+    }
+}
 
 /// Every placement of every running plugin. Empty on a phone and when no host runs.
 #[tauri::command]

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   IDLE, UNEXPECTED, consentAction, consentTitle, consentVersions, flowStep, isNewPermission, openStage, parseFailure, parsePreview,
-  parseRows, parseSource, parseStaged, parseUpdateCheck, permissionLabel, permissionMeaning, repositoryName, rowOffers, runLine, sourceLabel, sourceSentence,
+  parsePluginStyle, parseRows, parseSource, parseStaged, parseUpdateCheck, permissionLabel, permissionMeaning, repositoryName, rowOffers, runLine, sourceLabel, sourceSentence, styleClashLine,
   updateLine, type Flow, type PluginPreview, type PluginRow, type StagedPlugin,
 } from "../src/settings/plugins-settings-state.ts";
 
@@ -77,12 +77,13 @@ test("permissions have plain labels", () => {
 });
 
 test("the state line says what the user sees", () => {
-  assert.deepEqual(runLine({ state: "running" }), { text: "On", tone: "ok" });
-  assert.deepEqual(runLine({ state: "disabled" }), { text: "Off", tone: "off" });
-  assert.deepEqual(runLine({ state: "needs-approval", missing: ["ui.add"] }), { text: "Needs approval", tone: "warn" });
-  assert.deepEqual(runLine({ state: "waiting" }), { text: "Waiting for its slot", tone: "off" });
-  assert.deepEqual(runLine({ state: "paused" }), { text: "Paused", tone: "off" });
-  assert.deepEqual(runLine({ state: "stopped", reason: "used 600 ms" }), { text: "Stopped: used 600 ms", tone: "err" });
+  assert.deepEqual(runLine({ state: "running" }, false), { text: "On", tone: "ok" });
+  assert.deepEqual(runLine({ state: "disabled" }, true), { text: "Off", tone: "off" });
+  assert.deepEqual(runLine({ state: "needs-approval", missing: ["ui.add"] }, false), { text: "Needs approval", tone: "warn" });
+  assert.deepEqual(runLine({ state: "waiting" }, false), { text: "Waiting for its slot", tone: "off" });
+  assert.deepEqual(runLine({ state: "waiting" }, true), { text: "On", tone: "ok" });
+  assert.deepEqual(runLine({ state: "paused" }, false), { text: "Paused", tone: "off" });
+  assert.deepEqual(runLine({ state: "stopped", reason: "used 600 ms" }, false), { text: "Stopped: used 600 ms", tone: "err" });
 });
 
 test("a row offers update for git plugins and allow for plugins that need approval", () => {
@@ -203,4 +204,23 @@ test("events that do not fit the flow change nothing", () => {
   assert.deepEqual(flowStep(IDLE, { type: "submit-git" }), IDLE);
   assert.deepEqual(flowStep(IDLE, { type: "confirming" }), IDLE);
   assert.equal(UNEXPECTED.kind, "unexpected");
+});
+
+test("plugin style reads tokens and conflicts and refuses anything else", () => {
+  const style = parsePluginStyle({ tokens: { "--radius": "0", "--accent": "#f80" }, conflicts: [{ token: "--radius", plugins: ["sharp", "round"] }] });
+  assert.deepEqual(style && [...style.tokens], [["--radius", "0"], ["--accent", "#f80"]]);
+  assert.deepEqual(style?.conflicts, [{ token: "--radius", plugins: ["sharp", "round"] }]);
+
+  assert.equal(parsePluginStyle({ tokens: { color: "red" }, conflicts: [] }), null);
+  assert.equal(parsePluginStyle({ tokens: { "--radius": 0 }, conflicts: [] }), null);
+  assert.equal(parsePluginStyle({ tokens: {} }), null);
+});
+
+test("a style clash names the other plugins and says who wins", () => {
+  const conflicts = [{ token: "--radius", plugins: ["sharp", "round"] }, { token: "--accent", plugins: ["round", "sharp", "calm"] }];
+  const names = (id: string) => ({ sharp: "Sharp", round: "Round", calm: "Calm" })[id] ?? id;
+
+  assert.equal(styleClashLine("sharp", conflicts, names), "Sets --radius, --accent like Round, Calm. The plugin turned on last wins.");
+  assert.equal(styleClashLine("calm", conflicts, names), "Sets --accent like Round, Sharp. The plugin turned on last wins.");
+  assert.equal(styleClashLine("other", conflicts, names), null);
 });

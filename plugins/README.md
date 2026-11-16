@@ -3,7 +3,8 @@
 Prototype. A plugin is a folder `<plugins dir>/<id>/` with a `beep-plugin.json`
 and TypeScript files. The desktop runs it in an embedded sandbox, reloads it
 when its files change, and draws what it places. A plugin never touches the DOM.
-There are three slots and three permissions (`ui.add`, `sessions.read`, `tools`).
+There are three slots and four permissions (`ui.add`, `sessions.read`, `tools`,
+`style`).
 Folders and files whose names start with a dot are never plugins.
 
 ## Installing and approval
@@ -50,17 +51,19 @@ that folder with the same id runs instead.
 
 - `id`: 2 to 40 chars, lowercase letters, digits and dashes, starts with a
   letter, equals the folder name.
-- `version`: semver. `api`: the plugin API version, default 1. This Beep knows
-  version 1. A plugin that asks for a newer one does not load, and Settings shows
-  "needs a newer Beep". `description`: optional. `entry`: optional, default
+- `version`: semver. `api`: the plugin API version, default the newest. This Beep
+  knows version 2, which adds `style`. A plugin that asks for a newer one does not
+  load, and Settings shows "needs a newer Beep". `description`: optional. `entry`: optional, default
   `main.ts`, a path inside the folder.
 - `activation`: optional, when the plugin starts, default `["startup"]`. See
-  Activation.
+  Activation. A plugin with a `style` may list none: it then runs no code.
 - `permissions`: `ui.add` (place UI), `sessions.read` (follow `session.turn`,
-  `agents` and `agent` topics) and `tools` (give coding agents tools, see Tools for agents).
+  `agents` and `agent` topics), `tools` (give coding agents tools, see Tools for agents)
+  and `style` (restyle the app, see Style).
   Unknown permissions or fields fail the load.
 - `tools`: optional, the tools the plugin gives coding agents. Needs the `tools`
   permission.
+- `style`: optional, style tokens and their values. Needs the `style` permission.
 
 ## API
 
@@ -176,6 +179,31 @@ beep.tool<{ session: string }>("get_note", ({ session }) => ({ note: notes.get()
   declared, stops the plugin and its status says which.
 - `examples/session-notes` gives `get_note` and `set_note`, so an agent reads and
   writes the notes the UI shows.
+
+## Style
+
+A plugin restyles every window by setting style tokens, the CSS custom properties
+the skins set. It cannot add CSS rules.
+
+```json
+{ "id": "flat", "name": "Flat", "version": "0.1.0", "api": 2, "permissions": ["style"],
+  "activation": [], "style": { "--radius": "0", "--glass": "none", "--glass-solid": "100%" } }
+```
+
+- Colors: `--ink`, `--surface`, `--elev`, `--deep`, `--border`, `--border-hi`, `--fg`,
+  `--muted`, `--dim`, `--accent`, `--on-accent`, `--hot`, `--ok`, `--err`, `--warn`,
+  `--link`, `--shade`.
+- Faces: `--body`, `--display`, `--mono`. Corners: `--radius`, `--radius-sm`. Section
+  labels: `--label-case`, `--label-track`, `--label-size`. Control height: `--ctl-h`.
+- Floating layers: `--glass` is their backdrop filter (`none` for no frost) and
+  `--glass-solid` their least opacity (`100%` makes them opaque).
+- Paintings: `--paintings`, `block` or `none`.
+
+An unknown token fails the load. A value is at most 200 bytes and may not contain
+`url(`, `src(`, `image`, `@`, `\`, `;`, `{`, `}`, `<` or `>`, so a style loads
+nothing. The tokens apply over the picked skin while the plugin is on and allowed.
+When two plugins set a token, the one turned on last wins, and Settings shows the
+clash on both rows. `examples/flat` is a style-only plugin.
 
 ## Slots
 
@@ -303,8 +331,9 @@ machine does not count). A plugin that uses more than
 change. The `plugins_status` command lists each plugin's id, name, version, description,
 `permissions` asked for, `approved` permissions, the `tools` it declares, `source` (`local`, `git`, `dev` or `builtin`),
 `enabled`, `state` (`waiting`, `running`, `paused`, `disabled`, `needs-approval` with
-the `missing` permissions, or `stopped` with a `reason`), `usedMs` (CPU time) over the last minute
-and `pendingTimers`. The desktop emits `plugins-status` when a plugin is added, removed
+the `missing` permissions, or `stopped` with a `reason`), `usedMs` (CPU time) over the last minute,
+`pendingTimers` and the `style` it sets. `plugins_style` gives the `tokens` every window
+applies and the `conflicts`, each `token` with the `plugins` that set it, the winner last. The desktop emits `plugins-status` when a plugin is added, removed
 or changes state.
 
 ## Topics
@@ -359,6 +388,7 @@ BEEP_PLUGINS_DIR=$PWD/plugins/examples just desktop-dev
 
 `examples/session-notes` puts a note on each session's row, set from an input
 and a button in the open session's header, and keeps the notes in its store.
+`examples/flat` makes corners square and floating layers flat and opaque.
 `examples/composer-cat` follows `ui.composer` and `session.turn`: it types while the
 turn runs, asks while the session asks, and reacts once to each way a turn ends.
 

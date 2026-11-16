@@ -344,6 +344,7 @@ pub fn run() {
             plugins::command::plugins_asset,
             plugins::command::plugins_visible,
             plugins::command::plugins_status,
+            plugins::command::plugins_style,
             #[cfg(desktop)]
             plugins::manage::plugins_enable,
             #[cfg(desktop)]

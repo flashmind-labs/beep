@@ -24,7 +24,7 @@ const plugins = [
 
 const settings = { name: "build-box", version: "0.1", autostart: false, agent_notices: false };
 
-interface FakeOptions { plugins: unknown[]; failRemove: boolean }
+interface FakeOptions { plugins: unknown[]; failRemove: boolean; style: unknown }
 
 /// Stands in for the desktop's plugin commands inside the page: a list that changes as the page asks, and the same `{ kind, message }` errors.
 function installFake(options: FakeOptions): void {
@@ -47,6 +47,7 @@ function installFake(options: FakeOptions): void {
     calls.push({ command, args });
     switch (command) {
       case "plugins_status": return structuredClone(listed);
+      case "plugins_style": return structuredClone(options.style);
       case "plugins_enable": {
         const row = find(args.id);
         if (row) { row.enabled = args.enabled; row.state = args.enabled ? "running" : "disabled"; }
@@ -92,7 +93,7 @@ function installFake(options: FakeOptions): void {
 async function openPlugins(page: Page, options: Partial<FakeOptions> = {}) {
   const errors = pageErrors(page);
   await openDesktop(page, false, { settings, list_machines: [], list_credentials: [], list_github_accounts: [] });
-  await page.evaluate(installFake, { plugins, failRemove: false, ...options });
+  await page.evaluate(installFake, { plugins, failRemove: false, style: { tokens: {}, conflicts: [] }, ...options });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const sheet = page.getByRole("dialog", { name: "Settings" });
   await sheet.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Plugins", exact: true }).click();
@@ -390,3 +391,18 @@ for (const scheme of ["dark"] as const) {
     await page.screenshot({ path: docs("plugins-consent.png") });
   });
 }
+
+test("style plugins restyle the window and a shared token is flagged on both rows", async ({ page }) => {
+  const theme = (id: string, name: string, radius: string) => status(id, name, { permissions: ["style"], approved: ["style"], state: "waiting", style: { "--radius": radius } });
+  const style = { tokens: { "--radius": "12px" }, conflicts: [{ token: "--radius", plugins: ["sharp", "round"] }] };
+  const { sheet, errors } = await openPlugins(page, { plugins: [theme("sharp", "Sharp", "0"), theme("round", "Round", "12px")], style });
+
+  const sharp = sheet.locator('[data-plugin="sharp"]');
+  await expect(sharp.locator(".plg-state")).toHaveText("On");
+  await expect(sharp.getByRole("status")).toHaveText("Sets --radius like Round. The plugin turned on last wins.");
+  await expect(sheet.locator('[data-plugin="round"]').getByRole("status")).toHaveText("Sets --radius like Sharp. The plugin turned on last wins.");
+
+  await page.evaluate(() => window.__navigation.emit("plugins-status", null));
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--radius"))).toBe("12px");
+  expect(errors).toEqual([]);
+});
