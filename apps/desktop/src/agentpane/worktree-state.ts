@@ -113,7 +113,7 @@ const WORD = /[^\s"'`;|&()<>=,]+/g;
 /// What names a folder in the word after it.
 const DIR_AFTER = new Set(["cd", "pushd", "-C", "--cwd", "--directory", "--work-tree", "--prefix"]);
 const DIFF = /^\[diff\] (\S.*?) \+\d+ -\d+$/;
-const NESTED = /^(.*?\/\.worktrees\/[^/]+)/;
+const NESTED = /^(.*?\/(?:\.worktrees|\.claude\/worktrees)\/[^/]+)/;
 const WORKTREE_WORD = /\bworktree\b/i;
 const MOVES = /^(Enter|Exit)Worktree\b/;
 
@@ -121,7 +121,7 @@ const MOVES = /^(Enter|Exit)Worktree\b/;
 /// paths) and `cwd` (the paths of diffs, which the node cuts the session's
 /// folder from), in the order they appear. `exit` is an ExitWorktree call
 /// that names none.
-function places(text: string, base: string, cwd: string) {
+function places(text: string, base: string, cwd: string, directoriesOnly = false) {
   const { title, output } = parseTool(text);
   const found: string[] = [];
   const moves = MOVES.exec(title)?.[1];
@@ -129,6 +129,7 @@ function places(text: string, base: string, cwd: string) {
     let before = "";
 
     for (const word of words.match(WORD) ?? []) {
+      if (directoriesOnly && !DIR_AFTER.has(before)) { before = word; continue; }
       if (word.startsWith("/")) found.push(resolvePath(base, word));
       else if (DIR_AFTER.has(before) && !word.startsWith("-") && !word.startsWith("~")) found.push(resolvePath(base, word));
       else if (!word.startsWith("-") && !word.startsWith("~") && !word.includes("://") && word.includes("/")) found.push(resolvePath(base, word));
@@ -139,7 +140,7 @@ function places(text: string, base: string, cwd: string) {
 
   for (const line of output.split("\n")) {
     const diff = DIFF.exec(line);
-    if (diff) found.push(resolvePath(cwd, diff[1]));
+    if (diff && !directoriesOnly) found.push(resolvePath(cwd, diff[1]));
     // What Enter and ExitWorktree report is the worktree they went to.
     else if (moves) scan(line);
   }
@@ -175,9 +176,11 @@ export function follow(entries: readonly Entry[], trees: readonly Tree[], cwd: s
 
     if (en.kind === "tool" && status !== "failed") {
       if (WORKTREE_WORD.test(title)) out.unknown.push(title.split("\n")[0].slice(0, 200));
-      if (trees.length > 1 && (!WORKTREE_WORD.test(title) || MOVES.test(title))) {
-        // Creation lists a candidate; a later edit or directory confirms usage.
-        const { found, exit } = places(en.text, out.last, cwd);
+      if (trees.length) {
+        // Creating a worktree alone is not a move. A directory in the same
+        // command still confirms usage, including `worktree add ... && cd ...`.
+        const creating = WORKTREE_WORD.test(title) && !MOVES.test(title);
+        const { found, exit } = places(en.text, out.last, cwd, creating);
         const directory = workingDirectory(en);
         if (directory) found.push(resolvePath(cwd, directory));
         const editing = /^(?:Edit|Write|Create|Delete|Move|apply_patch)\b/i.test(title)
@@ -189,7 +192,7 @@ export function follow(entries: readonly Entry[], trees: readonly Tree[], cwd: s
           if (nested && !trees.some(t => bare(t.path) === nested)) out.unknown.push(nested);
           const t = treeAt(trees, cwd, path);
           // Reading in the launch checkout must not hide the active worktree.
-          if (t && (!t.own || editing || out.last === bare(cwd))) {
+          if (t && trees.length > 1 && (!t.own || editing || out.last === bare(cwd))) {
             out.last = rootOf(t, cwd); out.hit = true;
           }
         }

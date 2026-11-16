@@ -183,3 +183,31 @@ test("completed and failed tools trigger Git list comparisons, pending ones wait
     {kind: "agent", text: "Done [completed]"},
   ], 20), [21, 22]);
 });
+
+
+test("creation followed by cd confirms usage before relative shell edits", () => {
+  const got = where([
+    tool("git worktree add -q -b fix .worktrees/fix main && cd .worktrees/fix && rg name src [completed]"),
+    tool("python3 edit.py [completed]"),
+  ]);
+  assert.equal(got.last, fix.path);
+  assert.equal(got.hit, true);
+  assert.equal(got.unknown.length, 1);
+});
+
+test("creation of another candidate does not leave the current worktree", () => {
+  const got = where([tool("git worktree add /srv/app-side -b side [completed]")], fix.path);
+  assert.equal(got.last, fix.path);
+  assert.equal(got.hit, false);
+});
+
+test("cd requests discovery even before a second worktree is listed", () => {
+  const got = follow([tool("cd .worktrees/new && cargo test [completed]")], [main], main.path, main.path);
+  assert.deepEqual(got.unknown, ["/srv/app/.worktrees/new"]);
+  assert.equal(got.hit, false);
+});
+
+test("Claude's worktree folder also requests discovery", () => {
+  const got = where([tool("cd .claude/worktrees/new [completed]")]);
+  assert.deepEqual(got.unknown, ["/srv/app/.claude/worktrees/new"]);
+});

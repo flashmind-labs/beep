@@ -448,6 +448,50 @@ impl Agents {
         self.listed_where(reviewers, None)
     }
 
+    /// Listings also read Claude Code's current folder from its native
+    /// transcript. Shell tools may change it without naming a structured cwd.
+    pub(super) async fn listed_with_places(&self, reviewers: bool) -> Vec<SessionInfo> {
+        let mut sessions = if reviewers {
+            self.listed(true)
+        } else {
+            self.list()
+        };
+        let owned: HashMap<String, String> = sessions
+            .iter()
+            .filter(|info| info.agent == "claude")
+            .filter_map(|info| {
+                let session = self.get(&info.id)?;
+                let id = watched::read(&session.live, |live| live.agent_session.clone())?;
+                Some((id, info.id.clone()))
+            })
+            .collect();
+
+        if owned.is_empty() {
+            return sessions;
+        }
+
+        match self
+            .external
+            .named(owned.keys().cloned().collect(), owned.clone())
+            .await
+        {
+            Ok(found) => {
+                for native in found {
+                    if let Some(info) = sessions
+                        .iter_mut()
+                        .find(|info| owned.get(&native.id) == Some(&info.id))
+                        && let Some(place) = native.place
+                    {
+                        info.place = Some(place);
+                    }
+                }
+            }
+            Err(e) => log::debug!("native session folders not read: {e:#}"),
+        }
+
+        sessions
+    }
+
     /// The entries of the full list whose id is `id`, without copying the others.
     pub(crate) fn listed_session(&self, id: &str) -> Vec<SessionInfo> {
         self.listed_where(true, Some(id))
