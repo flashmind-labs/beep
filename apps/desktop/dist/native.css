@@ -20,12 +20,12 @@ a[href] { cursor: pointer }
 
 /* ----- Conversation ----- */
 /* Your message is a rounded block across the column, without the "You" over it. */
-body:not(.mobile) .dcoderen.user { position: relative; padding: 9px 12px; border-radius: 10px; background: color-mix(in srgb, var(--fg) 7%, transparent) }
+body:not(.mobile) .dcoderen.user { position: relative; padding: 9px 12px; border-radius: var(--radius); background: color-mix(in srgb, var(--fg) 7%, transparent) }
 /* The "You" goes; the time it was sent stays, at the block's end. */
 /* The send time takes no line of its own: it sits in the top right corner over the block, shown on hover. */
 body:not(.mobile) .dcoderen.user > b { position: absolute; top: 4px; right: 8px; font-size: 0; line-height: 0; opacity: 0; transition: opacity .12s; pointer-events: none }
 body:not(.mobile) .dcoderen.user:hover > b { opacity: 1 }
-body:not(.mobile) .dcoderen.user > b time { padding: 1px 5px; border-radius: 4px; background: var(--elev); line-height: 14px }
+body:not(.mobile) .dcoderen.user > b time { padding: 1px 5px; border-radius: var(--radius-sm); background: var(--elev); line-height: 14px }
 /* Words the agent said on the way read quieter than its answer. */
 body:not(.mobile) .dcoderen.agent:has(+ .dcoderturn) { color: var(--muted) }
 
@@ -162,7 +162,7 @@ body:not(.mobile) .tl-view > .tl > .tl-list { overflow-y: auto }
 
 /* ----- Controls: one family. A button is a quiet fill with no border, in one height and one
    text size; the main action alone takes the accent; a chosen state is a stronger fill. ----- */
-body:not(.mobile) { --ctl-h: 26px; --ctl-fill: color-mix(in srgb, var(--fg) 7%, transparent); --ctl-fill-hi: color-mix(in srgb, var(--fg) 13%, transparent) }
+body:not(.mobile) { --ctl-fill: color-mix(in srgb, var(--fg) 7%, transparent); --ctl-fill-hi: color-mix(in srgb, var(--fg) 13%, transparent) }
 body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin) { min-height: var(--ctl-h); padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--ctl-fill); color: var(--fg); font-size: 12.5px; font-weight: 500 }
 body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin):hover:not(:disabled) { border-color: transparent; background: var(--ctl-fill-hi) }
 body:not(.mobile) .dbtn.small { min-height: 22px; padding: 0 8px; font-size: 12px }
@@ -196,7 +196,7 @@ body:not(.mobile) .dfield :is(input, select, textarea):focus, body:not(.mobile) 
 body:not(.mobile) .dfield.err :is(input, textarea, .f) { border-color: var(--err) }
 
 /* Keys: one small tile. */
-body:not(.mobile) kbd { padding: 0 4px; border: 0; border-radius: 4px; background: color-mix(in srgb, var(--fg) 9%, transparent); color: var(--muted); font: 500 10.5px/16px var(--mono) }
+body:not(.mobile) kbd { padding: 0 4px; border: 0; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 9%, transparent); color: var(--muted); font: 500 10.5px/16px var(--mono) }
 body:not(.mobile) .dbtn.pri kbd { background: color-mix(in srgb, var(--on-accent) 18%, transparent); color: var(--on-accent) }
 /* An icon alone is a quiet control, and keeps its own width. */
 body:not(.mobile) .dv-btn.icon { width: var(--ctl-h); padding: 0; background: none; color: var(--muted) }
@@ -241,11 +241,11 @@ body:not(.mobile) .cc-box:not(:has(> .dbar[data-view="agent"])):not(:has(.tl-vie
 
 
 /* Glass: only layers that float. */
-body:not(.mobile) :is(.cc-pal, .agctx, .agc-pick, .agc-menu, .us-pop, .nt-pop) { border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit), color-mix(in srgb, var(--elev) 72%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
+body:not(.mobile) :is(.cc-pal, .agctx, .agc-pick, .agc-menu, .us-pop, .nt-pop) { border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit), color-mix(in srgb, var(--elev) max(72%, var(--glass-solid)), transparent); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass) }
 /* The two composers hold the model picker, which is placed against the window. A blur on the
    composer itself would become what the picker is placed against, so the glass is a layer behind it. */
 body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { position: relative; isolation: isolate; border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit) }
-body:not(.mobile) #agfield#agfield.dinput.small::before, body:not(.mobile) .cc-pjc .box::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--elev) 72%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
+body:not(.mobile) #agfield#agfield.dinput.small::before, body:not(.mobile) .cc-pjc .box::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--elev) max(72%, var(--glass-solid)), transparent); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass) }
 /* While you type, the field glows. */
 body:not(.mobile) #agfield#agfield.dinput.small:focus-within, body:not(.mobile) .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 40px -6px color-mix(in srgb, var(--accent) 50%, transparent) }
 /* The main action glows too. */
@@ -255,20 +255,20 @@ body:not(.mobile) .dcard.dcoder:has(> .q) { border-color: color-mix(in srgb, var
 
 /* The sidebar's backdrop: the dawn haze painted down it (src/ui/painted-art.tsx), strongest at
    the top and gone by the foot, faint enough for the rows over it to read. */
-body:not(.mobile) .cc-side > .painted-art { display: block; position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; opacity: .5; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent 82%); mask-image: linear-gradient(#000, transparent 82%) }
+body:not(.mobile) .cc-side > .painted-art { display: var(--paintings); position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; opacity: .5; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent 82%); mask-image: linear-gradient(#000, transparent 82%) }
 
 /* ----- The start screen: the day's painting behind the headline (src/ui/painted-art.tsx), with the
    composer as frosted glass over its lower half. It is no wider than the draft area, which clips it,
    so its mask fades out before the edges instead of being cut. ----- */
 .painted-art { display: none; image-rendering: pixelated }
 .cc-pjc.centered { position: relative; isolation: isolate }
-.agc-intro > .painted-art { display: block; position: absolute; z-index: -1; left: 50%; top: -290px; width: min(1500px, 100cqw); height: 640px; opacity: .9; transform: translateX(-50%); pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent); mask-image: radial-gradient(closest-side, #000 45%, transparent) }
+.agc-intro > .painted-art { display: var(--paintings); position: absolute; z-index: -1; left: 50%; top: -290px; width: min(1500px, 100cqw); height: 640px; opacity: .9; transform: translateX(-50%); pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent); mask-image: radial-gradient(closest-side, #000 45%, transparent) }
 .cc-pjc.centered .agc-intro h3 { text-shadow: 0 2px 24px var(--ink) }
 .cc-pjc.centered .agc-intro p { font-family: var(--mono); font-size: 12px; color: color-mix(in srgb, var(--fg) 78%, transparent); text-shadow: 0 1px 12px var(--ink) }
 /* Frosted glass: a light tint, a strong blur, a bright rim. */
 .cc-pjc.centered .box { border-color: color-mix(in srgb, var(--fg) 22%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 22%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--fg) 5%, transparent), 0 20px 50px -16px color-mix(in srgb, var(--shade) 80%, transparent) }
 /* The tint alone keeps the words readable: WebKit does not always blur what lies behind this layer. */
-.cc-pjc.centered .box::before { background: color-mix(in srgb, var(--fg) 6%, color-mix(in srgb, var(--ink) 86%, transparent)); -webkit-backdrop-filter: blur(18px) saturate(1.8); backdrop-filter: blur(18px) saturate(1.8) }
+.cc-pjc.centered .box::before { background: color-mix(in srgb, var(--fg) 6%, color-mix(in srgb, var(--ink) max(86%, var(--glass-solid)), transparent)); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass) }
 /* The start screen fills its card on any window: the old 960px box cut the picture on a large one.
    The doubled id outranks the pane's own rule in center.css. */
 body:not(.mobile) #pane-box#pane-box > .dbar:has(.cc-pjc.centered) { width: 100%; max-width: none; border: 0; border-radius: 0; background: none; box-shadow: none }
@@ -303,7 +303,7 @@ body:not(.mobile) #agfield .attachment-count { height: 22px; min-height: 0; padd
    It takes the main cards' colour, so the window reads as one surface. -----
    The blur sits on a layer behind, so menus opened inside stay placed against the window. */
 body:not(.mobile) .cc-set { position: relative; isolation: isolate; border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: none; box-shadow: 0 30px 80px -10px color-mix(in srgb, var(--shade) 80%, transparent), 0 0 60px -20px color-mix(in srgb, var(--accent) 45%, transparent) }
-body:not(.mobile) .cc-set::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--lit), color-mix(in srgb, var(--ink) 92%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
+body:not(.mobile) .cc-set::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--lit), color-mix(in srgb, var(--ink) max(92%, var(--glass-solid)), transparent); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass) }
 body:not(.mobile) .cc-set .dset-nav { border-right: 0; background: color-mix(in srgb, var(--deep) 60%, transparent) }
 body:not(.mobile) .cc-set .dset-nav > b, body:not(.mobile) .cc-set .dset-top b { font-size: 14px }
 body:not(.mobile) .cc-set .dset-pages .cc-si { padding: 5px 10px }
@@ -377,10 +377,10 @@ body:not(.mobile) .fs-note { color: var(--dim) }
 /* ----- An empty Home or Projects: the day's painting across the page, with what to do next on a
    glass card over its quiet side (src/ui/painted-art.tsx) ----- */
 body:not(.mobile) .painted-empty { position: relative; isolation: isolate; display: grid; align-items: center; justify-items: start; min-height: min(520px, 64vh); padding: 0 7%; overflow: hidden }
-body:not(.mobile) .painted-empty > .painted-art { display: block; position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent), linear-gradient(transparent, #000 16%, #000 78%, transparent); mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent), linear-gradient(transparent, #000 16%, #000 78%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect }
+body:not(.mobile) .painted-empty > .painted-art { display: var(--paintings); position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent), linear-gradient(transparent, #000 16%, #000 78%, transparent); mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent), linear-gradient(transparent, #000 16%, #000 78%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect }
 body:not(.mobile) .painted-empty > .cc-empty { position: relative; isolation: isolate; width: min(340px, 100%); justify-items: start; gap: 8px; padding: 20px 22px; border: 0; border-radius: var(--radius); background: none; text-align: left }
 body:not(.mobile) .painted-empty > .cc-empty:has(> .home-assistant) { width: min(560px, 100%) }
-body:not(.mobile) .painted-empty > .cc-empty::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: color-mix(in srgb, var(--ink) 80%, transparent); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent), 0 24px 70px -12px color-mix(in srgb, var(--shade) 60%, transparent) }
+body:not(.mobile) .painted-empty > .cc-empty::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: color-mix(in srgb, var(--ink) max(80%, var(--glass-solid)), transparent); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent), 0 24px 70px -12px color-mix(in srgb, var(--shade) 60%, transparent) }
 body:not(.mobile) .painted-empty > .cc-empty b { font-size: 16px; font-weight: 600 }
 body:not(.mobile) .painted-empty > .cc-empty > span { font-family: var(--mono); font-size: 11.5px; line-height: 1.5 }
 body:not(.mobile) .painted-empty > .cc-empty > :is(.dbtn, .pri) { margin-top: 6px }
@@ -413,11 +413,11 @@ body:not(.mobile) .ap-sheet .ap-remote summary:hover, body:not(.mobile) .ap-sync
    gone before the first cards; project rows and groups labelled in quiet mono ----- */
 /* A wide board: the wanderer above the sea of fog in the room beside its lanes, never behind a card. */
 @container (min-width: 1200px) {
-  body:not(.mobile) .bd-art { display: block; flex: 1 1 0; min-width: 0; height: min(820px, 62vh); margin-left: 24px }
-  body:not(.mobile) .bd-art > .painted-art { display: block; width: 100%; height: 100%; opacity: .8; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(transparent, #000 14%, #000 84%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(transparent, #000 14%, #000 84%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect }
+  body:not(.mobile) .bd-art { display: var(--paintings); flex: 1 1 0; min-width: 0; height: min(820px, 62vh); margin-left: 24px }
+  body:not(.mobile) .bd-art > .painted-art { display: var(--paintings); width: 100%; height: 100%; opacity: .8; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(transparent, #000 14%, #000 84%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(transparent, #000 14%, #000 84%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect }
 }
 body:not(.mobile) .cc-view:has(.painted-art.haze) { position: relative; isolation: isolate }
-body:not(.mobile) .cc-view .painted-art.haze { display: block; position: absolute; z-index: -1; top: 0; left: 0; width: 100%; height: 130px; opacity: .4; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent); mask-image: linear-gradient(#000, transparent) }
+body:not(.mobile) .cc-view .painted-art.haze { display: var(--paintings); position: absolute; z-index: -1; top: 0; left: 0; width: 100%; height: 130px; opacity: .4; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent); mask-image: linear-gradient(#000, transparent) }
 body:not(.mobile) #view > .painted-art.haze { height: 58px }
 body:not(.mobile) .bd-rows > .pj { padding: 18px 0 8px; border-top: 0; font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: var(--muted) }
 body:not(.mobile) .bd-rows > .pj button:hover, body:not(.mobile) .bd-rows > .pj button:focus-visible { color: var(--fg); text-decoration: none }

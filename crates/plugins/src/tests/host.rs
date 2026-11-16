@@ -12,6 +12,7 @@ use crate::instance::{
 use crate::managed::Origin;
 use crate::manifest::Permission;
 use crate::status::{PluginState, PluginStatus};
+use crate::style::StyleToken;
 use crate::ui::{CallbackId, Node, Slot};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -858,6 +859,7 @@ fn status_serializes_the_state_and_reason_flat() {
         approved: vec![Permission::UiAdd],
         source: Origin::Dev,
         tools: Vec::new(),
+        style: Default::default(),
         enabled: true,
         state: PluginState::Stopped {
             reason: "used 600 ms".to_owned(),
@@ -870,7 +872,7 @@ fn status_serializes_the_state_and_reason_flat() {
         serde_json::to_value(&status).unwrap(),
         json!({ "id": "lazy-one", "name": "Lazy", "version": "1.0.0", "description": "",
                 "permissions": ["ui.add"], "approved": ["ui.add"], "source": { "kind": "dev" },
-                "tools": [], "enabled": true, "state": "stopped", "reason": "used 600 ms", "usedMs": 600,
+                "tools": [], "style": {}, "enabled": true, "state": "stopped", "reason": "used 600 ms", "usedMs": 600,
                 "pendingTimers": 2 })
     );
     let running = PluginStatus {
@@ -1401,7 +1403,7 @@ fn a_plugin_that_needs_a_newer_api_stops_with_a_reason() {
     write_plugin(root.path(), "cat-one", "meow");
     std::fs::write(
         root.path().join("cat-one/beep-plugin.json"),
-        r#"{ "id": "cat-one", "name": "T", "version": "0.1.0", "api": 2 }"#,
+        r#"{ "id": "cat-one", "name": "T", "version": "0.1.0", "api": 3 }"#,
     )
     .unwrap();
 
@@ -1694,4 +1696,36 @@ fn a_plugin_that_waits_for_its_slot_starts_for_the_call_but_not_while_paused() {
     wait_state(&host, "tool-one", PluginState::Paused);
     let error = call(&host, "tool-one", "add", json!({ "a": 1, "b": 2 })).unwrap_err();
     assert!(error.to_string().contains("paused"), "{error}");
+}
+
+fn write_theme(dir: &std::path::Path, id: &str, radius: &str) {
+    std::fs::create_dir_all(dir.join(id)).unwrap();
+    std::fs::write(
+        dir.join(id).join("beep-plugin.json"),
+        json!({ "id": id, "name": id, "version": "0.1.0", "permissions": ["style"],
+                "activation": [], "style": { "--radius": radius } })
+        .to_string(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_skin_needs_no_code_and_waits_for_approval() {
+    let root = tempfile::tempdir().unwrap();
+    write_theme(root.path(), "sharp", "0");
+    let (host, _rx) = start_with(root.path(), Policy::Managed);
+
+    let status = status_of(&host, "sharp").unwrap();
+    assert_eq!(
+        status.state,
+        PluginState::NeedsApproval {
+            missing: vec![Permission::Style]
+        }
+    );
+    assert_eq!(status.style[&StyleToken::Radius].as_ref(), "0");
+
+    host.approve(&plugin_id("sharp")).unwrap();
+    let status = status_of(&host, "sharp").unwrap();
+    assert_eq!(status.state, PluginState::Waiting);
+    assert_eq!(status.approved, [Permission::Style]);
 }

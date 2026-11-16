@@ -30,7 +30,6 @@ fn the_embedded_composer_cat_matches_its_source() {
     let manifest = Manifest::load(&source).unwrap();
     let embedded = |name: &str| COMPOSER_CAT.iter().find(|(file, _)| *file == name);
 
-    assert_eq!(builtins().len(), 1);
     assert_eq!(builtins()[0].id, manifest.id);
     assert!(embedded("beep-plugin.json").is_some());
     assert!(embedded(&manifest.entry.to_string_lossy()).is_some());
@@ -69,4 +68,23 @@ fn the_embedded_composer_cat_matches_its_source() {
     }
     let art = std::fs::read_dir(source.join("art")).unwrap().count();
     assert_eq!(art, COMPOSER_CAT.len() - 2);
+}
+
+#[test]
+fn every_built_in_plugin_is_embedded_under_its_id() {
+    let ids: Vec<String> = builtins()
+        .iter()
+        .map(|builtin| {
+            let (_, text) = builtin
+                .files
+                .iter()
+                .find(|(file, _)| *file == "beep-plugin.json")
+                .unwrap();
+            let manifest = Manifest::parse(std::str::from_utf8(text).unwrap()).unwrap();
+            assert_eq!(manifest.id, builtin.id);
+            builtin.id.to_string()
+        })
+        .collect();
+
+    assert_eq!(ids, ["composer-cat", "dot-matrix", "hardware-dark"]);
 }

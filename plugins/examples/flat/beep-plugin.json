@@ -1,0 +1,15 @@
+{
+  "id": "flat",
+  "name": "Flat",
+  "version": "0.1.0",
+  "api": 2,
+  "description": "Square corners and flat, opaque menus and dialogs.",
+  "permissions": ["style"],
+  "activation": [],
+  "style": {
+    "--radius": "0",
+    "--radius-sm": "0",
+    "--glass": "none",
+    "--glass-solid": "100%"
+  }
+}

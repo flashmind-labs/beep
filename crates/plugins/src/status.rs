@@ -8,6 +8,7 @@ use serde::Serialize;
 use crate::managed::Origin;
 use crate::manifest::{Permission, PluginId};
 use crate::meter::Meter;
+use crate::style::Style;
 use crate::tool::ToolSpec;
 
 /// Where a plugin stands, as the page and agent tools read it.
@@ -49,6 +50,8 @@ pub struct PluginStatus {
     pub source: Origin,
     /// The tools the manifest gives coding agents.
     pub tools: Vec<ToolSpec>,
+    /// The style tokens the manifest sets.
+    pub style: Style,
     /// Whether the user left it turned on.
     pub enabled: bool,
     #[serde(flatten)]
@@ -77,6 +80,7 @@ pub(crate) struct Info {
     pub approved: Vec<Permission>,
     pub source: Origin,
     pub tools: Vec<ToolSpec>,
+    pub style: Style,
     pub enabled: bool,
 }
 
@@ -186,6 +190,7 @@ impl Registry {
                     approved: entry.info.approved.clone(),
                     source: entry.info.source.clone(),
                     tools: entry.info.tools.clone(),
+                    style: entry.info.style.clone(),
                     enabled: entry.info.enabled,
                     state: self.state_of(entry),
                     used_ms: u64::try_from(used).unwrap_or(u64::MAX),

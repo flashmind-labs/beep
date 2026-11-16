@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   IDLE, UNEXPECTED, consentAction, consentTitle, consentVersions, flowStep, isNewPermission, openStage, parseFailure, parsePreview,
-  parseRows, parseSource, parseStaged, parseUpdateCheck, permissionLabel, permissionMeaning, repositoryName, rowOffers, runLine, sourceLabel, sourceSentence,
+  parseRows, pluginSkins, parseSource, parseStaged, parseUpdateCheck, permissionLabel, permissionMeaning, repositoryName, rowOffers, runLine, sourceLabel, sourceSentence,
   updateLine, type Flow, type PluginPreview, type PluginRow, type StagedPlugin,
 } from "../src/settings/plugins-settings-state.ts";
 
@@ -77,12 +77,13 @@ test("permissions have plain labels", () => {
 });
 
 test("the state line says what the user sees", () => {
-  assert.deepEqual(runLine({ state: "running" }), { text: "On", tone: "ok" });
-  assert.deepEqual(runLine({ state: "disabled" }), { text: "Off", tone: "off" });
-  assert.deepEqual(runLine({ state: "needs-approval", missing: ["ui.add"] }), { text: "Needs approval", tone: "warn" });
-  assert.deepEqual(runLine({ state: "waiting" }), { text: "Waiting for its slot", tone: "off" });
-  assert.deepEqual(runLine({ state: "paused" }), { text: "Paused", tone: "off" });
-  assert.deepEqual(runLine({ state: "stopped", reason: "used 600 ms" }), { text: "Stopped: used 600 ms", tone: "err" });
+  assert.deepEqual(runLine({ state: "running" }, false), { text: "On", tone: "ok" });
+  assert.deepEqual(runLine({ state: "disabled" }, true), { text: "Off", tone: "off" });
+  assert.deepEqual(runLine({ state: "needs-approval", missing: ["ui.add"] }, false), { text: "Needs approval", tone: "warn" });
+  assert.deepEqual(runLine({ state: "waiting" }, false), { text: "Waiting for its slot", tone: "off" });
+  assert.deepEqual(runLine({ state: "waiting" }, true), { text: "Pick it in Appearance", tone: "ok" });
+  assert.deepEqual(runLine({ state: "paused" }, false), { text: "Paused", tone: "off" });
+  assert.deepEqual(runLine({ state: "stopped", reason: "used 600 ms" }, false), { text: "Stopped: used 600 ms", tone: "err" });
 });
 
 test("a row offers update for git plugins and allow for plugins that need approval", () => {
@@ -203,4 +204,20 @@ test("events that do not fit the flow change nothing", () => {
   assert.deepEqual(flowStep(IDLE, { type: "submit-git" }), IDLE);
   assert.deepEqual(flowStep(IDLE, { type: "confirming" }), IDLE);
   assert.equal(UNEXPECTED.kind, "unexpected");
+});
+
+test("a plugin is a skin while it sets tokens, is on and may restyle the app", () => {
+  const row = (id: string, extra: Record<string, unknown>) => ({
+    id, name: id.toUpperCase(), version: "0.1.0", description: "", permissions: ["style"], approved: ["style"],
+    source: { kind: "local" }, enabled: true, state: "waiting", style: { "--radius": "0", "--surface": "#123" }, ...extra,
+  });
+  const rows = parseRows([
+    row("flat", {}),
+    row("off", { enabled: false, state: "disabled" }),
+    row("asks", { approved: [], state: "needs-approval", missing: ["style"] }),
+    row("plain", { style: {}, permissions: [], approved: [] }),
+  ]);
+
+  assert.deepEqual(pluginSkins(rows ?? []).map(skin => [skin.id, skin.name, skin.swatch, [...skin.tokens]]), [["flat", "FLAT", "#123", [["--radius", "0"], ["--surface", "#123"]]]]);
+  assert.equal(parseRows([row("bad", { style: { color: "red" } })]), null);
 });

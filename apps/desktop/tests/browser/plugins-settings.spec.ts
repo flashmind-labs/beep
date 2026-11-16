@@ -390,3 +390,25 @@ for (const scheme of ["dark"] as const) {
     await page.screenshot({ path: docs("plugins-consent.png") });
   });
 }
+
+test("a skin plugin is picked in Appearance and restyles the window", async ({ page }) => {
+  const errors = pageErrors(page);
+  const flat = status("flat", "Flat", { permissions: ["style"], approved: ["style"], state: "waiting", style: { "--radius": "0", "--surface": "#202020" } });
+  await openDesktop(page, false, { settings, list_machines: [], list_credentials: [], list_github_accounts: [], plugins_status: [flat] });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Settings" });
+  await sheet.getByRole("button", { name: "Appearance", exact: true }).click();
+
+  const pick = sheet.locator('[data-skin-pick="plugin:flat"]');
+  await expect(pick).toHaveText("Flat");
+  await pick.click();
+
+  await expect(pick).toHaveAttribute("aria-pressed", "true");
+  const radius = () => page.evaluate(() => document.documentElement.style.getPropertyValue("--radius"));
+  await expect.poll(radius).toBe("0");
+
+  await sheet.locator('[data-skin-pick="paper"]').click();
+  await expect.poll(radius).toBe("");
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.skin)).toBe("paper");
+  expect(errors).toEqual([]);
+});

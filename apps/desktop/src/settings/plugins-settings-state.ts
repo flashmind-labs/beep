@@ -2,7 +2,7 @@
 // can be tested without Tauri. plugins-settings.ts runs them and
 // plugins-settings-view.tsx draws them.
 
-export type PluginPermission = "ui.add" | "sessions.read" | "tools";
+export type PluginPermission = "ui.add" | "sessions.read" | "tools" | "style";
 
 /// Where a plugin came from.
 export type PluginSource =
@@ -31,6 +31,18 @@ export interface PluginRow {
   source: PluginSource;
   enabled: boolean;
   run: PluginRun;
+  /// The style tokens its manifest sets, which make it a skin.
+  style: ReadonlyMap<string, string>;
+}
+
+/// A skin a plugin offers in Appearance.
+export interface PluginSkin {
+  /// The plugin's id.
+  id: string;
+  name: string;
+  /// A color that stands for it in the picker.
+  swatch: string;
+  tokens: ReadonlyMap<string, string>;
 }
 
 export type PreviewKind = "new" | "update" | "allow";
@@ -69,6 +81,7 @@ const LABELS: Record<PluginPermission, { label: string; meaning: string }> = {
   "ui.add": { label: "Add to the interface", meaning: "Show text, buttons and images in the message box, session rows and session header." },
   "sessions.read": { label: "Read your sessions", meaning: "See your coding agent sessions and what each one is doing." },
   tools: { label: "Give tools to your agents", meaning: "Coding agents can call the tools this plugin lists." },
+  style: { label: "Restyle the app", meaning: "Change the colours, corners, fonts, glass and paintings of every window." },
 };
 
 export const permissionLabel = (permission: PluginPermission) => LABELS[permission].label;
@@ -110,11 +123,11 @@ export function repositoryName(url: string): string {
 
 export type StateTone = "ok" | "off" | "warn" | "err";
 
-/// The state line of a row.
-export function runLine(run: PluginRun): { text: string; tone: StateTone } {
+/// The state line of a row. A skin waits for its slot only if it also has code.
+export function runLine(run: PluginRun, skin: boolean): { text: string; tone: StateTone } {
   switch (run.state) {
     case "running": return { text: "On", tone: "ok" };
-    case "waiting": return { text: "Waiting for its slot", tone: "off" };
+    case "waiting": return skin ? { text: "Pick it in Appearance", tone: "ok" } : { text: "Waiting for its slot", tone: "off" };
     case "paused": return { text: "Paused", tone: "off" };
     case "disabled": return { text: "Off", tone: "off" };
     case "needs-approval": return { text: "Needs approval", tone: "warn" };
@@ -247,7 +260,7 @@ const isFlag = (value: unknown): value is boolean => typeof value === "boolean";
 const textOrNull = (value: unknown): string | null | undefined => value === null ? null : isText(value) ? value : undefined;
 
 function permission(value: unknown): PluginPermission | null {
-  return value === "ui.add" || value === "sessions.read" || value === "tools" ? value : null;
+  return value === "ui.add" || value === "sessions.read" || value === "tools" || value === "style" ? value : null;
 }
 
 function permissions(value: unknown): PluginPermission[] | null {
@@ -292,7 +305,26 @@ function parseRow(raw: unknown): PluginRow | null {
   const asked = permissions(raw.permissions), approved = permissions(raw.approved), source = parseSource(raw.source), run = parseRun(raw);
   if (!isText(raw.id) || !isText(raw.name) || !isText(raw.version) || !isText(raw.description) || !isFlag(raw.enabled)) return null;
   if (asked === null || approved === null || source === null || run === null) return null;
-  return { id: raw.id, name: raw.name, version: raw.version, description: raw.description, permissions: asked, approved, source, enabled: raw.enabled, run };
+  const style = parseStyle(raw.style ?? {});
+  if (style === null) return null;
+  return { id: raw.id, name: raw.name, version: raw.version, description: raw.description, permissions: asked, approved, source, enabled: raw.enabled, run, style };
+}
+
+function parseStyle(raw: unknown): Map<string, string> | null {
+  if (!isRecord(raw)) return null;
+  const tokens = new Map<string, string>();
+  for (const [token, value] of Object.entries(raw)) {
+    if (!token.startsWith("--") || !isText(value)) return null;
+    tokens.set(token, value);
+  }
+  return tokens;
+}
+
+/// The skins the plugins offer: those that set tokens, are on and may restyle the app.
+export function pluginSkins(rows: readonly PluginRow[]): PluginSkin[] {
+  return rows
+    .filter(row => row.style.size > 0 && row.enabled && row.approved.includes("style") && row.run.state !== "disabled" && row.run.state !== "needs-approval")
+    .map(row => ({ id: row.id, name: row.name, swatch: row.style.get("--surface") ?? row.style.get("--ink") ?? row.style.get("--accent") ?? "var(--surface)", tokens: row.style }));
 }
 
 /// The list `plugins_status` answers with; null when any row is not what the desktop promised.

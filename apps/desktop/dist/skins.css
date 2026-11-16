@@ -1,4 +1,7 @@
-/* Skins: every color, corner, font and label style the windows use. The
+/* Skins: the style tokens. Colors, corners, faces and labels, control height
+   (`--ctl-h`), the frost behind floating layers (`--glass`; `none` with
+   `--glass-solid: 100%` for flat, opaque layers) and the paintings
+   (`--paintings`: `block`, or `none` to leave them out). The
    default is Linear; `data-skin` on <html> picks another (src/ui/skin.ts). */
 :root {
   --ink: #0f1011; --surface: #151617; --elev: #1c1d1f; --border: #222326;
@@ -6,6 +9,7 @@
   --ok: #4cb782; --err: #eb5757; --warn: #f2c94c; --link: #8a9cf0;
   --body: Inter, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   --radius: 6px; --label-case: none; --label-track: 0; --label-size: 12px;
+  --ctl-h: 26px; --glass: blur(24px) saturate(1.5); --glass-solid: 0%; --paintings: block;
   /* Derived; a skin may set them itself. */
   --dim: color-mix(in srgb, var(--muted) 90%, var(--ink));
   --deep: color-mix(in srgb, var(--ink) 80%, #000);

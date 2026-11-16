@@ -88,7 +88,7 @@ function Rows({ store, state, working }: { store: PluginsSettings; state: Plugin
 }
 
 function Row({ row, store, state, working }: { row: PluginRow; store: PluginsSettings; state: PluginsState; working: boolean }) {
-  const offers = rowOffers(row), line = runLine(row.run);
+  const offers = rowOffers(row), line = runLine(row.run, row.style.size > 0);
   const busy = state.busy.includes(row.id);
   const failure = state.failures.get(row.id) ?? null, check = state.updates.get(row.id) ?? null;
   return <div className={`dgit plg${offers.on ? "" : " off"}`} role="listitem" data-plugin={row.id}>

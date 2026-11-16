@@ -50,7 +50,7 @@
 .dv-resize::after { content: ""; position: absolute; inset: 0 4px; background: var(--border) }
 .dv-resize:hover::after, .dv-resize:focus-visible::after, .dv-body.resizing .dv-resize::after { inset: 0 3px; background: var(--accent) }
 .dv-body.resizing, .dv-body.resizing * { cursor: col-resize; user-select: none }
-.dv-tr { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--fg); text-align: left; font: 12px var(--mono); cursor: default }
+.dv-tr { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 3px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fg); text-align: left; font: 12px var(--mono); cursor: default }
 .dv-tr:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .dv-tr.on { background: color-mix(in srgb, var(--accent) 20%, transparent) }
 .dv-tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
@@ -116,7 +116,7 @@
 .dv-l.del { background: var(--dv-del-bg) } .dv-l.del .dv-g { background: linear-gradient(var(--dv-del-gut), var(--dv-del-gut)), var(--dv-gut-bg); color: var(--dv-del-fg) } .dv-l.del .dv-c::before { content: "-"; color: var(--dv-del-fg) }
 .dv-l.hunk { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) } .dv-l.hunk .dv-g { background: linear-gradient(var(--dv-hunk-bg), var(--dv-hunk-bg)), var(--dv-gut-bg) }
 .dv-l.hunk .dv-c { font-size: 11.5px } .dv-l.hunk .dv-c::before { content: none }
-.dv-eol { margin-left: 8px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); font: 10.5px/15px var(--body, inherit) }
+.dv-eol { margin-left: 8px; padding: 0 5px; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--muted); font: 10.5px/15px var(--body, inherit) }
 .dv-context { display: flex; height: 22px; border-block: 1px solid var(--border); background: var(--dv-gut-bg); color: var(--muted) }
 .dv-context-g { position: sticky; left: 0; display: flex; flex: none; width: calc(var(--nw, 3) * 2ch + 28px); border-right: 1px solid var(--border); background: inherit }
 .dv-l.hunk .dv-g.ctl { width: calc(var(--nw, 3) * 2ch + 28px) }
@@ -134,12 +134,12 @@
 .dv-more { padding: 4px 2px 0; color: var(--muted); font-size: 12px }
 /* The sheet a branch's or a task's diff opens in, over the window. */
 .dv-keys { flex: none; display: flex; gap: 12px; padding: 5px 12px; border-top: 1px solid var(--border); color: var(--dim); font-size: 11px }
-.dv-keys kbd { margin-right: 4px; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; font: 10.5px var(--mono); color: var(--muted) }
+.dv-keys kbd { margin-right: 4px; padding: 0 4px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 10.5px var(--mono); color: var(--muted) }
 /* Review comments. */
 .dv-head [hidden] { display: none }
 .dv-l:not(.hunk):not(.none) .dv-g { cursor: default }
 .dv-l:not(.hunk):not(.none):hover .dv-g span:last-child { color: var(--fg) }
-.dv-cmt { position: sticky; left: 0; max-width: 560px; margin: 4px 10px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); font: 12.5px/18px var(--body, inherit); display: flex; gap: 8px; align-items: flex-start }
+.dv-cmt { position: sticky; left: 0; max-width: 560px; margin: 4px 10px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); font: 12.5px/18px var(--body, inherit); display: flex; gap: 8px; align-items: flex-start }
 .dv-cmt .b { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere }
 .dv-cmt .b code { font: 11.5px var(--mono); color: var(--muted) }
 .dv-cmt .a { display: flex; gap: 8px; color: var(--muted); font-size: 12px }
@@ -158,8 +158,8 @@
 .dv-fb .dspin { width: 10px; height: 10px }
 .dv-fb small { color: var(--muted); font-size: 11.5px }
 .dv-cmt .by { display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; color: var(--muted); font-size: 11.5px; vertical-align: 1px }
-.dv-cmt .by .cc-ag { width: 14px; height: 14px; border-radius: 4px }
-.dv-fbnote { display: grid; gap: 6px; margin: 8px 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px; line-height: 18px }
+.dv-cmt .by .cc-ag { width: 14px; height: 14px; border-radius: var(--radius-sm) }
+.dv-fbnote { display: grid; gap: 6px; margin: 8px 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 12.5px; line-height: 18px }
 .dv-fbnote[hidden] { display: none }
 .dv-fbnote pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/17px var(--mono); color: var(--muted); max-height: 120px; overflow: auto }
 .dv-fbnote .a { display: flex; gap: 8px }

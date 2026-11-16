@@ -133,14 +133,14 @@ fn bad_activations_fail_the_manifest() {
 }
 
 #[test]
-fn a_missing_api_is_version_one_and_a_newer_one_needs_a_newer_beep() {
+fn a_missing_api_is_the_current_one_and_a_newer_one_needs_a_newer_beep() {
     let plain = r#"{ "id": "ab", "name": "n", "version": "1.0.0" }"#;
     assert_eq!(Manifest::parse(plain).unwrap().api, API_VERSION);
 
-    let current = r#"{ "id": "ab", "name": "n", "version": "1.0.0", "api": 1 }"#;
+    let current = r#"{ "id": "ab", "name": "n", "version": "1.0.0", "api": 2 }"#;
     assert_eq!(Manifest::parse(current).unwrap().api, API_VERSION);
 
-    let newer = r#"{ "id": "ab", "name": "n", "version": "1.0.0", "api": 2 }"#;
+    let newer = r#"{ "id": "ab", "name": "n", "version": "1.0.0", "api": 3 }"#;
     let error = Manifest::parse(newer).unwrap_err();
     assert!(
         error.to_string().starts_with("needs a newer Beep"),
@@ -190,4 +190,38 @@ fn tools_need_the_permission_and_stay_within_the_limits() {
     let schema = r#"[{ "name": "a", "input": { "type": 5 } }]"#;
     let error = Manifest::parse(&with_tools(r#""tools""#, schema)).unwrap_err();
     assert!(error.to_string().contains("not valid"), "{error}");
+}
+
+#[test]
+fn a_style_needs_its_permission_and_may_go_without_activation() {
+    let theme = r##"{ "id": "ab", "name": "n", "version": "1.0.0", "permissions": ["style"],
+        "activation": [], "style": { "--radius": "0", "--accent": "#f80" } }"##;
+    let manifest = Manifest::parse(theme).unwrap();
+    assert_eq!(manifest.style.len(), 2);
+
+    let unallowed = theme.replace(r#"["style"]"#, "[]");
+    assert!(matches!(
+        Manifest::parse(&unallowed),
+        Err(ManifestError::StylePermission)
+    ));
+
+    let unknown = theme.replace("--radius", "--anything");
+    assert!(Manifest::parse(&unknown).is_err());
+
+    let loads = theme.replace("\"0\"", "\"url(https://example.com)\"");
+    assert!(Manifest::parse(&loads).is_err());
+}
+
+#[test]
+fn the_shipped_skins_are_valid_style_only_plugins() {
+    for text in [
+        include_str!("../../../../plugins/examples/flat/beep-plugin.json"),
+        include_str!("../../../../plugins/skins/dot-matrix/beep-plugin.json"),
+        include_str!("../../../../plugins/skins/hardware-dark/beep-plugin.json"),
+    ] {
+        let manifest = Manifest::parse(text).unwrap();
+
+        assert!(manifest.activation.is_empty(), "{}", manifest.id);
+        assert!(!manifest.style.is_empty(), "{}", manifest.id);
+    }
 }

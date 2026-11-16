@@ -22,6 +22,7 @@ use crate::meter::{BUDGET, Meter};
 use crate::sandbox::locked;
 use crate::status::{Info, Lifecycle, PluginState, PluginStatus, Registry};
 use crate::store::DATA_DIR;
+use crate::style::Style;
 use crate::tool::{MAX_JSON_BYTES, TIMEOUT, ToolCall, ToolError, ToolName};
 use crate::topic::{Delivery, Inbox, Publication, Topic, TopicError};
 use crate::ui::Placement;
@@ -959,6 +960,7 @@ impl Supervisor {
                         approved: assessed.approved,
                         source: assessed.origin,
                         tools: manifest.tools,
+                        style: manifest.style,
                         enabled: assessed.enabled,
                     },
                     lifecycle,
@@ -993,6 +995,7 @@ impl Supervisor {
                             .as_ref()
                             .map_or(Origin::Local, |record| record.origin.clone()),
                         tools: Vec::new(),
+                        style: Style::new(),
                         enabled: record.is_none_or(|record| record.enabled),
                     },
                     Lifecycle::Stopped(error.to_string()),
