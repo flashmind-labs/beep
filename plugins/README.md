@@ -204,7 +204,9 @@ plugin cannot add CSS rules.
 An unknown token fails the load. A value is at most 200 bytes and may not contain
 `url(`, `src(`, `image`, `@`, `\`, `;`, `{`, `}`, `<` or `>`, so a style loads
 nothing. A skin is offered while the plugin is on and allowed; when it goes, the
-window falls back to the default skin. `examples/flat` is a skin with no code.
+window falls back to the default skin. `examples/flat` is a skin with no code, and
+`skins/` holds more (`dot-matrix`, `hardware-dark`). A skin cannot ship fonts: a face
+it names applies only when installed on the computer, else the next one in its list.
 
 ## Slots
 

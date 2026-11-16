@@ -213,12 +213,15 @@ fn a_style_needs_its_permission_and_may_go_without_activation() {
 }
 
 #[test]
-fn the_flat_example_is_a_valid_style_only_plugin() {
-    let manifest = Manifest::parse(include_str!(
-        "../../../../plugins/examples/flat/beep-plugin.json"
-    ))
-    .unwrap();
+fn the_shipped_skins_are_valid_style_only_plugins() {
+    for text in [
+        include_str!("../../../../plugins/examples/flat/beep-plugin.json"),
+        include_str!("../../../../plugins/skins/dot-matrix/beep-plugin.json"),
+        include_str!("../../../../plugins/skins/hardware-dark/beep-plugin.json"),
+    ] {
+        let manifest = Manifest::parse(text).unwrap();
 
-    assert!(manifest.activation.is_empty());
-    assert_eq!(manifest.style.len(), 4);
+        assert!(manifest.activation.is_empty(), "{}", manifest.id);
+        assert!(!manifest.style.is_empty(), "{}", manifest.id);
+    }
 }
