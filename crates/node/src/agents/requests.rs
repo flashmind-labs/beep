@@ -7,13 +7,13 @@ use super::{
 use crate::files::transfer::Transfers;
 use anyhow::{Context, Result};
 use beep_mesh::machine::thumb::{Picture, thumb_of};
+use beep_proto::media_mime;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{self, SessionsReply, SessionsRequest},
     usage::SessionSpend,
 };
 use beep_proto::watched;
-use beep_proto::media_mime;
 use iroh::EndpointId;
 use std::{fmt::Display, io::ErrorKind, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
@@ -215,6 +215,14 @@ pub async fn serve_sessions(
             .sessions_in(folders, limit)
             .await
             .map_or_else(failed, |sessions| SessionsReply::External { sessions }),
+        SessionsRequest::InFoldersPage {
+            folders,
+            limit,
+            before,
+        } => agents
+            .sessions_page(folders, limit, before)
+            .await
+            .map_or_else(failed, |page| SessionsReply::SessionPage { page }),
         SessionsRequest::Live { session } => live_reply(&agents, &session, None).await,
         SessionsRequest::Steer { session, steer } => {
             live_reply(&agents, &session, Some(steer)).await
@@ -484,7 +492,12 @@ pub async fn serve_sessions(
         },
     };
 
-    if let SessionsReply::External { sessions } = &mut reply {
+    let metadata = match &mut reply {
+        SessionsReply::External { sessions } => Some(sessions),
+        SessionsReply::SessionPage { page } => Some(&mut page.sessions),
+        _ => None,
+    };
+    if let Some(sessions) = metadata {
         agents.settle_closed(sessions);
         agents.observe_external(sessions);
     }

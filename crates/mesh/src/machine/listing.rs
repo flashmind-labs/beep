@@ -27,7 +27,7 @@ pub const NODE_LIMIT: Duration = Duration::from_secs(3);
 /// The agents whose outside sessions are listed, and how many of each.
 const EXTERNAL_AGENTS: [&str; 3] = ["claude", "codex", "flsh"];
 const EXTERNAL_LIMIT: u32 = 20;
-/// The most sessions a project asks each machine to list.
+/// The page size used when asking each machine for project history.
 pub const MAX_PROJECT_SESSIONS: usize = 50;
 /// A node slower than this to list a project's sessions is logged.
 const SLOW_NODE: Duration = Duration::from_secs(1);
@@ -139,7 +139,7 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
     let limit = u32::try_from(MAX_PROJECT_SESSIONS).unwrap_or(u32::MAX);
     let started = Instant::now();
     let (listed, owned) = tokio::join!(
-        timeout(NODE_LIMIT, sessions::in_folders(node, folders, limit)),
+        project_metadata(node, folders, limit),
         linked_sessions(node, host, true),
     );
     let children: HashSet<_> = owned
@@ -165,7 +165,7 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
     }
 
     match listed {
-        Ok(Ok(found)) => found
+        Ok(found) => found
             .into_iter()
             .filter(|session| {
                 !children.contains(&(
@@ -186,19 +186,58 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
                 }
             })
             .collect(),
-        Ok(Err(e)) => {
+        Err(e) => {
             tracing::info!("project sessions not listed; node={} error={e:#}", host.id);
-            Vec::new()
-        }
-        Err(_) => {
-            tracing::info!("project sessions not listed in time; node={}", host.id);
             Vec::new()
         }
     }
 }
 
+/// Read bounded metadata pages. Old nodes still answer their original list.
+async fn project_metadata<S: Sessions + ?Sized>(
+    node: &S,
+    folders: Vec<String>,
+    limit: u32,
+) -> Result<Vec<ExternalSession>, crate::MeshError> {
+    let mut before = None;
+    let mut found = Vec::new();
+    let mut seen = HashSet::new();
+    loop {
+        let page = sessions::in_folders_page(node, folders.clone(), limit, before.clone()).await?;
+        let Some(page) = page else {
+            if before.is_none() {
+                return sessions::in_folders(node, folders, limit).await;
+            }
+            return Err(super::said(
+                "the node stopped answering session history pages",
+            ));
+        };
+        for session in page.sessions {
+            if seen.insert((session.agent.clone(), session.id.clone())) {
+                found.push(session);
+            }
+        }
+        match page.next {
+            None => return Ok(found),
+            Some(next) => {
+                if let Some(previous) = &before
+                    && (Reverse(next.last_activity), &next.agent, &next.id)
+                        <= (
+                            Reverse(previous.last_activity),
+                            &previous.agent,
+                            &previous.id,
+                        )
+                {
+                    return Err(super::said("the session history cursor did not advance"));
+                }
+                before = Some(next);
+            }
+        }
+    }
+}
+
 /// Combines the machines' project histories, newest first. Each machine's
-/// list is already bounded; another cap here hides the quieter machines.
+/// list has been paged independently, so quieter machines are kept too.
 pub fn project_history(sessions: impl IntoIterator<Item = MachineSession>) -> Vec<MachineSession> {
     let mut sessions: Vec<_> = sessions.into_iter().collect();
     sessions.sort_by_key(|session| Reverse(session.last_activity));

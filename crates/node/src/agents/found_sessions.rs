@@ -1,8 +1,8 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
 use super::{
-    AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, SavedSession, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
-    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, Session, Sighted,
+    AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
+    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, SavedSession, Session, Sighted,
     holders::{self, Holding},
 };
 use crate::{
@@ -12,8 +12,8 @@ use crate::{
 use anyhow::{Context, Result};
 use beep_proto::node::{
     agent::{
-        ExternalAsk, ExternalSession, MAX_EXTERNAL_NAMED, Presence, SessionFolder,
-        Status,
+        ExternalAsk, ExternalSession, HistoryCursor, MAX_EXTERNAL_NAMED, Presence, SessionFolder,
+        SessionPage, Status,
     },
     events::Topic,
 };
@@ -255,6 +255,49 @@ impl Agents {
             .filter(|folder| folder.is_absolute())
             .collect();
         let picked = found::in_folders(self.sightings().await?, &folders, limit);
+        let mut sessions = self.describe_history(picked, &folders).await?;
+        sessions.truncate(limit);
+        Ok(sessions)
+    }
+
+    /// Pages metadata without a total history cap. The cursor follows the
+    /// discovery order, even when a file disappears while describing it.
+    pub async fn sessions_page(
+        &self,
+        folders: Vec<String>,
+        limit: u32,
+        before: Option<HistoryCursor>,
+    ) -> Result<SessionPage> {
+        let limit = match usize::try_from(limit).unwrap_or(MAX_IN_FOLDERS) {
+            0 => DEFAULT_IN_FOLDERS,
+            limit => limit.min(MAX_IN_FOLDERS),
+        };
+        let folders: Vec<PathBuf> = folders
+            .into_iter()
+            .take(MAX_ASKED_FOLDERS)
+            .map(PathBuf::from)
+            .filter(|folder| folder.is_absolute())
+            .collect();
+        let (picked, next) =
+            found::history_page(self.sightings().await?, &folders, limit, before.as_ref());
+        let selected: HashSet<_> = picked
+            .iter()
+            .map(|seen| (seen.agent.to_string(), seen.id.clone()))
+            .collect();
+        let mut sessions = self.describe_history(picked, &folders).await?;
+        sessions.retain(|session| selected.contains(&(session.agent.clone(), session.id.clone())));
+        for session in &mut sessions {
+            session.last_prompt.clear();
+            session.last_message.clear();
+        }
+        Ok(SessionPage { sessions, next })
+    }
+
+    async fn describe_history(
+        &self,
+        picked: Vec<found::Seen>,
+        folders: &[PathBuf],
+    ) -> Result<Vec<ExternalSession>> {
         let (claude, others): (Vec<found::Seen>, Vec<found::Seen>) = picked
             .into_iter()
             .partition(|seen| seen.agent == Agent::Claude);
@@ -293,7 +336,6 @@ impl Agents {
         });
 
         sessions.sort_by_key(|session| Reverse(session.last_activity));
-        sessions.truncate(limit);
         Ok(sessions)
     }
 
@@ -555,7 +597,9 @@ impl Agents {
             let mut found = self
                 .find_external(agent, id, owned)
                 .await?
-                .with_context(|| format!("there is no {} session {id} on this machine", kind.name))?;
+                .with_context(|| {
+                    format!("there is no {} session {id} on this machine", kind.name)
+                })?;
             found.presence = self.presence(agent, &found).await;
             self.settle_closed(std::slice::from_mut(&mut found));
 
@@ -566,12 +610,15 @@ impl Agents {
             found.cwd
         } else {
             // A record from before saved sessions may know no folder.
-            let previous = before.as_ref().filter(|saved| !saved.info.cwd.is_empty()).with_context(|| {
-                format!(
-                    "{} sessions started outside Beep cannot be taken over",
-                    kind.name
-                )
-            })?;
+            let previous = before
+                .as_ref()
+                .filter(|saved| !saved.info.cwd.is_empty())
+                .with_context(|| {
+                    format!(
+                        "{} sessions started outside Beep cannot be taken over",
+                        kind.name
+                    )
+                })?;
 
             previous.info.cwd.clone()
         };

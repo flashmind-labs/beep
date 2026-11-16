@@ -873,3 +873,42 @@ mod actor_tests {
         session.close().await;
     }
 }
+
+#[tokio::test]
+async fn project_history_pages_metadata_without_preview_text() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions/--project--");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::create_dir_all(root.path().join("projects")).unwrap();
+    for i in 0..125 {
+        let text = format!(
+            "{{\"type\":\"session\",\"id\":\"session-{i:03}\",\"cwd\":\"/srv/project\",\"timestamp\":\"2026-01-01T00:00:00Z\"}}\n{{\"type\":\"session_info\",\"name\":\"A session title\"}}\n"
+        );
+        std::fs::write(sessions.join(format!("session-{i:03}.jsonl")), text).unwrap();
+    }
+    let agents = Agents {
+        stores: found::Stores::at(None, Some(&root.path().join("sessions")), None),
+        external: External::at(root.path()),
+        ..Agents::default()
+    };
+    let mut cursor = None;
+    let mut ids = std::collections::HashSet::new();
+    loop {
+        let page = agents
+            .sessions_page(vec!["/srv/project".into()], 50, cursor)
+            .await
+            .unwrap();
+        assert!(page.sessions.len() <= 50);
+        for session in page.sessions {
+            assert_eq!(session.title.as_deref(), Some("A session title"));
+            assert!(session.last_prompt.is_empty());
+            assert!(session.last_message.is_empty());
+            assert!(ids.insert(session.id));
+        }
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(ids.len(), 125);
+}

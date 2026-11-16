@@ -5,7 +5,7 @@
 //! `sessions.db`, read here (read-only) until flsh has imported it, which
 //! it marks with `.sqlite-imported`.
 
-use super::{Agent, MAX_FILES, Memos, Seen, head_lines, newest_files, prompt_title};
+use super::{Agent, Memos, Seen, head_lines, newest_files, prompt_title};
 use crate::agents::claude::unix_seconds;
 use serde_json::Value;
 use std::{
@@ -15,9 +15,6 @@ use std::{
     sync::Arc,
 };
 
-/// The most databases read in one listing.
-const MAX_DATABASES: usize = 300;
-
 const QUERY: &str = "SELECT m.chat_key, m.title, m.working_dir, m.created_at,
         (SELECT MAX(s.created_at) FROM sessions s WHERE s.chat_key = m.chat_key),
         (SELECT substr(s.content, 1, 1000) FROM sessions s
@@ -25,8 +22,7 @@ const QUERY: &str = "SELECT m.chat_key, m.title, m.working_dir, m.created_at,
           ORDER BY s.turn_index ASC LIMIT 1)
      FROM session_meta m
      WHERE m.working_dir IS NOT NULL AND m.working_dir != ''
-     ORDER BY m.created_at DESC
-     LIMIT ?1";
+     ORDER BY m.created_at DESC";
 
 /// flsh's sessions folder, when it has one here.
 pub(super) fn locate() -> Option<PathBuf> {
@@ -75,7 +71,7 @@ pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
     };
     let mut ids: HashSet<String> = seen.iter().map(|one| one.id.clone()).collect();
 
-    for entry in entries.flatten().take(MAX_DATABASES) {
+    for entry in entries.flatten() {
         let database = entry.path().join("sessions.db");
 
         if !database.is_file() || entry.path().join(".sqlite-imported").exists() {
@@ -96,10 +92,6 @@ pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
                 "flsh sessions not read; database={} error={e}",
                 database.display()
             ),
-        }
-
-        if seen.len() >= MAX_FILES {
-            break;
         }
     }
 
@@ -153,8 +145,7 @@ fn head(path: &Path) -> Option<Seen> {
 fn read(database: &Path) -> rusqlite::Result<Vec<Seen>> {
     let conn = super::open_database(database)?;
     let mut statement = conn.prepare(QUERY)?;
-    let limit = i64::try_from(MAX_FILES).unwrap_or(i64::MAX);
-    let rows = statement.query_map([limit], |row| {
+    let rows = statement.query_map([], |row| {
         let created: Option<i64> = row.get(3)?;
         let last: Option<i64> = row.get(4)?;
         let title: Option<String> = row.get(1)?;

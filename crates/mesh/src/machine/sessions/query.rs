@@ -4,8 +4,8 @@ use crate::{
     machine::{said, unexpected},
 };
 use beep_proto::node::agent::{
-    Entry, ExternalAsk, ExternalSession, LiveStatus, ModelList, SessionFolder, SessionInfo,
-    SessionsReply, SessionsRequest, Steer,
+    Entry, ExternalAsk, ExternalSession, HistoryCursor, LiveStatus, ModelList, SessionFolder,
+    SessionInfo, SessionPage, SessionsReply, SessionsRequest, Steer,
 };
 
 /// Every agent session on the node.
@@ -115,6 +115,31 @@ fn external_reply(reply: SessionsReply) -> Result<Vec<ExternalSession>, MeshErro
         SessionsReply::External { sessions } => Ok(sessions),
         SessionsReply::Error { message } => Err(said(message)),
         other => Err(unexpected(&other)),
+    }
+}
+
+/// One metadata page, or `None` when the node does not support pagination.
+pub async fn in_folders_page<S: Sessions + ?Sized>(
+    node: &S,
+    folders: Vec<String>,
+    limit: u32,
+    before: Option<HistoryCursor>,
+) -> Result<Option<SessionPage>, MeshError> {
+    match once(
+        node,
+        SessionsRequest::InFoldersPage {
+            folders,
+            limit,
+            before,
+        },
+    )
+    .await
+    {
+        Ok(SessionsReply::SessionPage { page }) => Ok(Some(page)),
+        Err(MeshError::Link(_)) => Ok(None),
+        Ok(SessionsReply::Error { message }) => Err(said(message)),
+        Ok(other) => Err(unexpected(&other)),
+        Err(error) => Err(error),
     }
 }
 
