@@ -20,6 +20,7 @@ import { conversationAppearance } from "../ui/conversation-appearance.ts";
 import { syncJump } from "./logview.tsx";
 import { ComposerPresence, PluginSlot, SessionHeaderSlot } from "../plugins/slot-view.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
+import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import type { SessionUsage } from "./agents.ts";
 
 interface AgentHintsModel { value: HintViewModel; project: string | null }
@@ -87,9 +88,9 @@ export function removeSessionPortal(host: HTMLElement) {
   draw(owner);
 }
 
-export function DraftHead({ project, openProject, machine }: { project: string; openProject(): void; machine: StoreApi<string> }) {
+export function DraftHead({ project, openProject, machine, windowProps = null }: { windowProps?: ProjectWindowProps | null; project: string; openProject(): void; machine: StoreApi<string> }) {
   const here = useStore(machine);
-  return <><span className="tt"><b><button className="agproj" id="agproj" onClick={openProject}>{project}</button></b><small id="aghere">{here}</small></span><span ref={editHost} id="agedit" className="agedit" /></>;
+  return <><span className="tt"><b><Button look="plain" className="agproj" id="agproj" {...windowProps?.clicks} {...windowProps?.menu} onClick={openProject}>{project}</Button></b><small id="aghere">{here}</small></span><span ref={editHost} id="agedit" className="agedit" /></>;
 }
 
 interface SessionHeadProps {
@@ -100,12 +101,13 @@ interface SessionHeadProps {
   moveKey: string;
   /// Opens the session's project from its folder name; null outside a project.
   openProject: (() => void) | null;
+  windowProps?: ProjectWindowProps | null;
   /// Saves the title on the session's machine; null for a start, which no machine has yet.
   saveTitle: ((value: string) => Promise<void>) | null;
 }
 
-export function SessionHead({ agent, title, folder, branch, openProject, cwd, machine, usage, moveKey, saveTitle, machineId, session }: SessionHeadProps) {
-  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={fixedTitle(title) ? null : saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <button className="agproj" id="agproj" onClick={openProject}>{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /></small></span><SessionHeaderSlot machine={machineId} session={session} /><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage && <UsageBits usage={usage} />}</small><span id="agstate"><FieldControl slot="state" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
+export function SessionHead({ agent, title, folder, branch, openProject, windowProps = null, cwd, machine, usage, moveKey, saveTitle, machineId, session }: SessionHeadProps) {
+  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={fixedTitle(title) ? null : saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <Button look="plain" className="agproj" id="agproj" {...windowProps?.clicks} {...windowProps?.menu} onClick={openProject}>{folder}</Button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /></small></span><SessionHeaderSlot machine={machineId} session={session} /><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage && <UsageBits usage={usage} />}</small><span id="agstate"><FieldControl slot="state" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
 }
 
 /// A session's usage in its header: a meter of the context, then the tokens and the spend.

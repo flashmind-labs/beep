@@ -21,8 +21,7 @@ use beep_projects::{
     for_machine,
     history::{self, CommitId, HistoryAsk},
     imports::{
-        ImportError,
-        folder::{self, FolderPath, look},
+        folder::{self, FolderPath},
         found::MachineFound,
     },
     is_windows,
@@ -336,37 +335,23 @@ pub(crate) async fn project_sessions(fleet: &Fleet, places: &[Place]) -> Vec<Mac
     listing::project_history(sessions)
 }
 
-/// One folder of a machine for the folder browser: `path`, else its home.
+/// A folder of a machine for the folder picker, `path` else its home, then the folders two
+/// levels below it, read in one run so opening them is instant.
 pub(crate) async fn folder(
     fleet: &Fleet,
     machine: EndpointId,
     path: Option<&str>,
-) -> Result<MachineFolder> {
+    depth: u8,
+) -> Result<Vec<MachineFolder>> {
     let start = match path.map(FolderPath::parse).transpose() {
         Ok(Some(Some(picked))) => picked,
         Ok(_) => FolderPath::Home(String::new()),
         Err(e) => return Err(DesktopError::BadRequest(e.to_string())),
     };
     let shell = PeerShell::on(fleet, machine).await?;
-    look(&shell, &fleet.name_of(machine), &start)
+    folder::tree(&shell, &fleet.name_of(machine), &start, depth)
         .await
         .map_err(|e| DesktopError::BadRequest(e.to_string()))
-}
-
-/// The branch of the checkout at `path` on `machine`; `None` when it is no checkout.
-pub(crate) async fn folder_branch(
-    fleet: &Fleet,
-    machine: EndpointId,
-    path: &str,
-) -> Result<Option<String>> {
-    let bad = |e: ImportError| DesktopError::BadRequest(e.to_string());
-    let Some(folder) = FolderPath::parse(path).map_err(bad)? else {
-        return Ok(None);
-    };
-    let shell = PeerShell::on(fleet, machine).await?;
-    folder::branch(&shell, &fleet.name_of(machine), &folder)
-        .await
-        .map_err(bad)
 }
 
 /// The default branch and the branches of the checkout at `place`.

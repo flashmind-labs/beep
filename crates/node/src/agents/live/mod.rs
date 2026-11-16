@@ -23,8 +23,8 @@ mod updates;
 mod v2;
 
 pub(crate) use content::cut;
-use tools::ToolCall;
 pub(crate) use tools::Sent;
+use tools::ToolCall;
 
 /// The most transcript entries kept; older ones are dropped.
 const MAX_ENTRIES: usize = 5000;
@@ -146,6 +146,7 @@ pub(crate) struct Live {
     pub(crate) place_wanted: Option<PathBuf>,
     /// The thinking level the agent took, which `SessionInfo` does not carry.
     pub(crate) effort: Option<Effort>,
+    pub(crate) fast: Option<bool>,
 }
 
 /// A thought still arriving.

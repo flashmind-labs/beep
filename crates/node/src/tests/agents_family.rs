@@ -581,6 +581,7 @@ async fn a_resumed_session_goes_on_under_its_parent_in_its_mode() {
     let held = SavedSession {
         info: before.clone(),
         effort: None,
+        fast: None,
     };
     let begin = rig.agents.resumed_begin(None, "agent-id", held);
     assert_eq!(begin.parent, before.parent);
@@ -871,27 +872,50 @@ async fn another_machine_s_agent_lists_and_messages_any_agent_until_the_user_spe
     };
     assert!(text.contains(&format!("\"id\":\"{id}\"")), "{text}");
 
-    let send = || call(Tool::SendToAgent, serde_json::json!({ "id": id, "text": "hello" }));
+    let send = || {
+        call(
+            Tool::SendToAgent,
+            serde_json::json!({ "id": id, "text": "hello" }),
+        )
+    };
     for _ in 0..crate::agents::session::PEER_MESSAGES {
         let reply = send().await;
-        assert!(matches!(&reply, Reply::Done { failed: false, .. }), "{reply:?}");
+        assert!(
+            matches!(&reply, Reply::Done { failed: false, .. }),
+            "{reply:?}"
+        );
     }
     let refused = send().await;
-    assert!(matches!(&refused, Reply::Done { failed: true, .. }), "{refused:?}");
+    assert!(
+        matches!(&refused, Reply::Done { failed: true, .. }),
+        "{refused:?}"
+    );
 
     rig.agents
-        .send_session("top", &session.id, Request::Prompt { text: "carry on".into() })
+        .send_session(
+            "top",
+            &session.id,
+            Request::Prompt {
+                text: "carry on".into(),
+            },
+        )
         .await
         .expect("the user's prompt goes");
     let reply = send().await;
-    assert!(matches!(&reply, Reply::Done { failed: false, .. }), "{reply:?}");
+    assert!(
+        matches!(&reply, Reply::Done { failed: false, .. }),
+        "{reply:?}"
+    );
     // Messages go as steers, merged into as few turns as the agent allows.
     until(&session, |live| {
         live.info.turns >= 3 && live.info.state.queued == 0 && live.status() == Status::Idle
     })
     .await;
     let delivered = rig.read("top.log").matches("hello").count();
-    assert_eq!(delivered, usize::try_from(crate::agents::session::PEER_MESSAGES).expect("a small count") + 1);
+    assert_eq!(
+        delivered,
+        usize::try_from(crate::agents::session::PEER_MESSAGES).expect("a small count") + 1
+    );
 
     rig.agents.shutdown().await;
 }
@@ -907,7 +931,13 @@ async fn a_prompt_to_a_session_that_ended_resumes_it() {
 
     let info = rig
         .agents
-        .send_session("top", &id, Request::Prompt { text: "carry on".into() })
+        .send_session(
+            "top",
+            &id,
+            Request::Prompt {
+                text: "carry on".into(),
+            },
+        )
         .await
         .expect("the prompt resumes the session");
     let resumed = rig.agents.get(&info.id).expect("the session runs again");

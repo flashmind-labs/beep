@@ -44,6 +44,7 @@ pub async fn agent_review_start(
     parent: Option<String>,
     model: Option<String>,
     effort: Option<Effort>,
+    fast: Option<bool>,
 ) -> Result<ReviewRun> {
     let machine = member(&fleet, &machine_id)?;
     let client = fleet.client(machine).await?;
@@ -52,6 +53,7 @@ pub async fn agent_review_start(
         agent,
         model,
         effort,
+        fast,
         base,
         focus: String::new(),
         parent,

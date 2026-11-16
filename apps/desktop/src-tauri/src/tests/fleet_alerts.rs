@@ -89,6 +89,7 @@ async fn an_agents_question_reaches_the_desktop_and_its_answer_returns() {
         prompt: "go".into(),
         model: None,
         effort: None,
+        fast: None,
         checkout: None,
         images: Vec::new(),
         assistant: false,

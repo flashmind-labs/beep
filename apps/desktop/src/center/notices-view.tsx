@@ -1,11 +1,13 @@
-import { useRef, type KeyboardEvent } from "react";
+import type { ProjectWindowProps } from "../project/projectwindow.ts";
+import { useRef, type MouseEventHandler, type KeyboardEvent } from "react";
 import { formatAgo } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
-import { asks, badge, bellLabel, copies, copyLine, doneLabel, skillName, subLine, unreadCount, type Held, type Note } from "./notices-state.ts";
+import { conflictProject, opens, asks, badge, bellLabel, copies, copyLine, doneLabel, skillName, subLine, unreadCount, type Held, type Note } from "./notices-state.ts";
 import { Button, onRowKey } from "../ui/kit.tsx";
 
 interface Props {
+  windowProps?(project: string): ProjectWindowProps;
   items: Note[]; open: boolean; shown: Note | null; answering: ReadonlySet<string>; failed: ReadonlyMap<string, string>; keeping: ReadonlyMap<string, { hash: string; was: string }>;
   toggle(): void; back(): void; dismiss(ids: string[]): void; openItem(item: Note): void; answer(item: Note, allow: boolean): void; keep(item: Note, held: Held): void;
 }
@@ -32,7 +34,13 @@ function List({ p }: { p: Props }) {
 }
 function Row({ item: i, p }: { item: Note; p: Props }) {
   const over = p.keeping.has(i.id) && !i.done ? "Keeping" : doneLabel(i), why = p.failed.get(i.id);
-  return <div className={`nt-row${i.read ? "" : " unread"}${i.done ? " done" : ""}`} tabIndex={0} data-id={i.id} role="button" onClick={() => p.openItem(i)} onKeyDown={onRowKey(() => p.openItem(i))}><span className="nt-dot" /><span className="nt-t"><b>{i.title}</b>{i.text && <span>{i.text.split("\n").join(", ")}</span>}<span>{subLine(i, formatAgo(i.at, "short"))}{over && <i className="nt-done">{over}</i>}</span>{asks(i) && <span className="nt-acts"><Button look="primary" small disabled={p.answering.has(i.id)} onClick={e => { e.stopPropagation(); p.answer(i, true); }}>Allow</Button><Button small disabled={p.answering.has(i.id)} onClick={e => { e.stopPropagation(); p.answer(i, false); }}>Deny</Button>{why && <span className="nt-err">{why}</span>}</span>}</span><Button look="quiet" aria-label="Dismiss" title="Dismiss" onClick={e => { e.stopPropagation(); p.dismiss([i.id]); }}><Icon name="close" /></Button></div>;
+  const project = opens(i) === "conflict" ? conflictProject(i) : opens(i) === "project" && i.target && typeof i.target === "object" && "projects" in i.target ? i.target.projects.project ?? null : null;
+  const props = project ? p.windowProps?.(project) ?? null : null;
+  const openWindow: MouseEventHandler = event => {
+    if (event.target instanceof Element && event.target.closest("button")) return;
+    props?.clicks.onClickCapture(event);
+  };
+  return <div {...props?.clicks} {...props?.menu} onClickCapture={openWindow} onAuxClick={openWindow} className={`nt-row${i.read ? "" : " unread"}${i.done ? " done" : ""}`} tabIndex={0} data-id={i.id} role="button" onClick={() => p.openItem(i)} onKeyDown={onRowKey(() => p.openItem(i))}><span className="nt-dot" /><span className="nt-t"><b>{i.title}</b>{i.text && <span>{i.text.split("\n").join(", ")}</span>}<span>{subLine(i, formatAgo(i.at, "short"))}{over && <i className="nt-done">{over}</i>}</span>{asks(i) && <span className="nt-acts"><Button look="primary" small disabled={p.answering.has(i.id)} onClick={e => { e.stopPropagation(); p.answer(i, true); }}>Allow</Button><Button small disabled={p.answering.has(i.id)} onClick={e => { e.stopPropagation(); p.answer(i, false); }}>Deny</Button>{why && <span className="nt-err">{why}</span>}</span>}</span><Button look="quiet" aria-label="Dismiss" title="Dismiss" onClick={e => { e.stopPropagation(); p.dismiss([i.id]); }}><Icon name="close" /></Button></div>;
 }
 function Head({ item, p }: { item: Note; p: Props }) { return <div className="nt-h"><Button look="quiet" small onClick={p.back}>Notifications</Button><span>{subLine(item, formatAgo(item.at, "short"))}</span><Button small onClick={() => p.dismiss([item.id])}>Dismiss</Button></div>; }
 function Skill({ item: i, p }: { item: Note; p: Props }) {

@@ -21,11 +21,9 @@ use std::{
 /// A transcript written this recently counts as active even when no
 /// process is found for it.
 const RECENT: Duration = Duration::from_secs(3 * 60);
-/// The most transcript files looked at in one listing.
-const MAX_FILES: usize = 20_000;
 /// The longest a pid file may be.
 const MAX_PID_FILE: u64 = 64 * 1024;
-/// The most project folders whose sessions `sightings` reads.
+/// The project folder count used to size bounded metadata caches.
 const MAX_FOLDERS: usize = 1_000;
 /// The most transcript heads read in one folder for where it is.
 const HEADS_PER_FOLDER: usize = 3;
@@ -160,10 +158,6 @@ impl Store {
             };
 
             for file in files.flatten() {
-                if found.len() >= MAX_FILES {
-                    break;
-                }
-
                 if let Some(transcript) = transcript_with(&file.path(), || file.metadata()) {
                     found.push(transcript);
                 }
@@ -363,7 +357,7 @@ pub(super) fn list_ids(
 
 /// Every session, with the folder it ran in. Sessions are filed by that
 /// folder, so only the head of each folder's newest transcript is read
-/// (the next ones when it names no folder); at most `MAX_FOLDERS` folders.
+/// (the next ones when it names no folder).
 pub(super) fn sightings(store: &Store) -> io::Result<Vec<Sighting>> {
     let all = store.transcripts()?;
     let mut by_folder: HashMap<&str, Vec<&Transcript>> = HashMap::new();
@@ -380,7 +374,7 @@ pub(super) fn sightings(store: &Store) -> io::Result<Vec<Sighting>> {
     folders.sort_by_key(|transcripts| Reverse(transcripts.first().map(|t| t.modified)));
     let mut out = Vec::new();
 
-    for transcripts in folders.into_iter().take(MAX_FOLDERS) {
+    for transcripts in folders {
         let Some(cwd) = transcripts.iter().take(HEADS_PER_FOLDER).find_map(|t| {
             let read = || transcript::head(&t.path).map(|head| head.said.cwd);
             store.memos.cwds.read(&t.path, read).ok()?

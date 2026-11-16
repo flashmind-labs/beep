@@ -2,6 +2,28 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.16] - 2026-11-16
+
+### Added
+
+- Node: Codex fast mode and all available thinking levels.
+
+### Changed
+
+- Node: `beep-node mesh join` accepts the short `beepjoin3` ticket. The
+  older `beepjoin2` ticket still works, but desktops no longer make it.
+- Node: Beep now keeps every project it excludes from Syncthing in one `// Beep project files` block in the shared folder's ignore file, not one block per project. Old blocks merge on the next change.
+- Node: session history metadata is available in pages.
+
+### Fixed
+
+- Node: a Claude Code turn that finished normally no longer ends with
+  "The turn did not finish" when the same step asked for the advisor
+  next to a local command. The advisor request never ran, so that turn
+  now ends normally.
+- Node: "Stop all" now ends a session's subagents even after the turn was interrupted first, instead of only cancelling the turn.
+- Node: detect when an agent moves into a linked Git worktree.
+
 ## [0.7.15] - 2026-11-16
 
 ### Changed

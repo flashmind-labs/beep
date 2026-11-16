@@ -1,6 +1,7 @@
 // The Plugins page: what it holds, what its buttons do and the consent sheet.
 // plugins-settings-state.ts has its words and flow; plugins-settings-view.tsx draws it.
 import { createElement } from "react";
+import { pickHere } from "../addproject/folderbrowser.tsx";
 import { createStore } from "zustand/vanilla";
 import { confirmSheet } from "../ui/menu.tsx";
 import { openSheet } from "../ui/parts.tsx";
@@ -86,14 +87,14 @@ export function createPluginsSettings(call: Call, hear: Listen) {
     await stage(() => call<unknown>("plugins_stage_git", { repository: now.repository, reference: now.reference, folder: now.folder }));
   }
 
-  /// Picks a folder and shows what installing it would do.
+  /// Picks a folder on this computer and shows what installing it would do.
   async function installFromFolder() {
     if (flow().kind !== "idle") return;
     step({ type: "work" });
     try {
-      const raw = await call<unknown>("plugins_stage_folder");
-      if (raw === null) return step({ type: "closed" });
-      accept(raw);
+      const folder = await pickHere("Choose a plugin folder", null);
+      if (folder === null) return step({ type: "closed" });
+      accept(await call<unknown>("plugins_stage_folder", { folder }));
     } catch (error) {
       step({ type: "failed", failure: parseFailure(error) });
     }

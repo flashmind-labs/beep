@@ -24,7 +24,7 @@ export function drawModelPill() {
   if (!s) return;
   const can = SWITCHES.has(s.agent) && !isNativeSession(s.id)
     && (s.status === "ended" ? !s.external || canTakeOver(s.agent) : !s.external);
-  const p = sessionPicks.get(s.id) ?? { model: "", effort: null };
+  const p = sessionPicks.get(s.id) ?? { model: "", effort: null, fast: null };
   const model = resumePicks.get(s.id)?.model ?? (AG.page?.model || p.model);
   const models = modelsOn(s.machine_id, s.agent, () => { if (AG.page?.session.id === s.id) drawModelPill(); });
   const displayModel = model || (models?.current ? "" : "Model unknown");
@@ -68,10 +68,10 @@ function drawModelPicker() {
   if (!el) return;
   pickerLayer(AG.modelOpen && !!s);
   if (!AG.modelOpen || !s) { closedPicker(el); return; }
-  const now = sessionPicks.get(s.id) ?? { model: "", effort: null };
+  const now = sessionPicks.get(s.id) ?? { model: "", effort: null, fast: null };
   const pending = resumePicks.get(s.id);
   const was = pending ? pending.effort : now.effort;
-  const picked: Picked = { agent: s.agent, model: pending?.model ?? (AG.page?.model || now.model), effort: was, query: "" };
+  const picked: Picked = { agent: s.agent, model: pending?.model ?? (AG.page?.model || now.model), effort: was, fast: pending ? pending.fast : now.fast, query: "" };
   drawPicker(el, {
     render: view => { if (el.isConnected) showAgentControl("pick", view); },
     picked,
@@ -87,13 +87,13 @@ function drawModelPicker() {
       // A search such as `opus high` picks the thinking level with the model.
       const both = what === "model" && picked.effort !== was;
       if (what === "model") { AG.modelOpen = false; drawModelPicker(); }
-      switchSessionModel(s, { model: picked.model, effort: picked.effort }, both ? "both" : what);
+      switchSessionModel(s, { model: picked.model, effort: picked.effort, fast: picked.fast }, both ? "both" : what);
     },
   });
 }
 
 /// Switches session `s` to the model, the thinking or both in `next`.
-export async function switchSessionModel(s: AgentRow, next: { model: string; effort: string | null }, what: "model" | "effort" | "both") {
+export async function switchSessionModel(s: AgentRow, next: SessionPick, what: "model" | "effort" | "fast" | "both") {
   next = { ...next, model: modelId(knownModels(s.machine_id, s.agent), next.model) };
   if (s.status === "ended") {
     resumePicks.set(s.id, next);
@@ -103,11 +103,12 @@ export async function switchSessionModel(s: AgentRow, next: { model: string; eff
     return;
   }
 
-  const was = sessionPicks.get(s.id) ?? { model: "", effort: null };
-  const model = what !== "effort" ? next.model || null : null, effort = what !== "model" ? next.effort : null;
+  const was = sessionPicks.get(s.id) ?? { model: "", effort: null, fast: null };
+  const model = what === "model" || what === "both" ? next.model || null : null, effort = what === "effort" || what === "both" ? next.effort : null;
 
-  if (model || effort) {
-    if (await steerAgent({ configure: { model, effort } })) sessionPicks.set(s.id, next);
+  const fast = what === "fast" ? next.fast : null;
+  if (model || effort || fast !== null) {
+    if (await steerAgent({ configure: { model, effort, fast } })) sessionPicks.set(s.id, next);
   } else if (what === "effort" ? was.effort : was.model) {
     AG.note = `A running session cannot go back to Default; pick ${what === "effort" ? "a level" : "a model"} by name.`;
     drawAgentBody();

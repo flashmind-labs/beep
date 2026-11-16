@@ -5,7 +5,7 @@ import { Button, Spinner } from "../ui/kit.tsx";
 
 interface Props {
   title: string; verb: string; project: string; machine: string; start: string | null; adding: boolean; error: string | null; copying: CopyLine | null;
-  offers(listing: MachineFolder, opened: string): FolderOffer[]; noteFor(offer: FolderOffer): Promise<string | null>; take(offer: FolderOffer): void; close(): void;
+  offers(listing: MachineFolder, opened: string): FolderOffer[]; noteFor(listing: MachineFolder, offer: FolderOffer | null): Promise<string | null>; take(offer: FolderOffer): void; close(): void;
 }
 export function AddMachineView(p: Props) {
   if (p.copying) return <div className="fp-wait"><h5>{p.title}</h5><div className="am-wait"><Spinner />{p.copying.text}</div>{p.copying.pct !== null && <div className="fs-bar"><i style={{ width: `${p.copying.pct}%` }} /></div>}{p.copying.note && <div className="am-sub">{p.copying.note}</div>}<Button look="quiet" onClick={p.close}>Close</Button></div>;

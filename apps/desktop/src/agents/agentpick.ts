@@ -47,6 +47,7 @@ interface Effort {
 }
 
 const level = (value: string, label: string): Effort => ({ value, label });
+const NONE = level("none", "None"), ULTRA = level("ultra", "Ultra");
 const OFF = level("off", "Off"), MINIMAL = level("minimal", "Minimal"), LOW = level("low", "Low"),
   MEDIUM = level("medium", "Medium"), HIGH = level("high", "High"), XHIGH = level("xhigh", "Extra high"), MAX = level("max", "Max");
 
@@ -55,7 +56,7 @@ const OFF = level("off", "Off"), MINIMAL = level("minimal", "Minimal"), LOW = le
 /// flsh's `thought_level` (0.2.7 and later).
 const EFFORTS: Record<string, readonly Effort[]> = {
   claude: [LOW, MEDIUM, HIGH, XHIGH, MAX],
-  codex: [LOW, MEDIUM, HIGH],
+  codex: [NONE, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX, ULTRA],
   pi: [OFF, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX],
   flsh: [OFF, LOW, MEDIUM, HIGH],
 };

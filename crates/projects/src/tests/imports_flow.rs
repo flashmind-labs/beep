@@ -25,10 +25,7 @@ impl crate::Shell for Scripted {
             return Ok(ShellOutput::exited(0, ""));
         }
 
-        let word = script
-            .lines()
-            .next()
-            .and_then(|line| line.strip_prefix("d="));
+        let word = script.lines().find_map(|line| line.strip_prefix("d="));
         let path = shlex::split(word.unwrap_or_default())
             .unwrap_or_default()
             .concat()

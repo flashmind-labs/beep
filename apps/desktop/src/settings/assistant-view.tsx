@@ -39,7 +39,7 @@ export function AssistantView() {
     const shown = pick && resolveAssistant(pick, hosts);
     if (!open || !shown?.agent) { closedPicker(el); return; }
     const offered = assistantAgents(hosts);
-    const picked: Picked = { agent: shown.agent, model: shown.model ?? "", effort: shown.effort, query: "" };
+    const picked: Picked = { agent: shown.agent, model: shown.model ?? "", effort: shown.effort, fast: shown.fast ?? null, query: "" };
     drawPicker(el, {
       render: setPicker,
       picked,
@@ -51,7 +51,7 @@ export function AssistantView() {
       bounds: () => document.body,
       changed: what => {
         if (what === "models") return listed(n => n + 1);
-        const next = { agent: picked.agent, model: picked.model || null, effort: picked.effort };
+        const next = { agent: picked.agent, model: picked.model || null, effort: picked.effort, fast: picked.agent === "codex" ? picked.fast : null };
         setPick(next);
         setError("");
         saveAssistant(next).catch(e => setError(String(e)));

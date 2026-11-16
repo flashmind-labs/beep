@@ -156,6 +156,7 @@ impl Protocol {
                         .collect();
                 }
                 Some(v2::SessionConfigOptionCategory::ThoughtLevel) => offered.thinking = Some(id),
+                _ if id.to_string() == "fast-mode" => offered.fast = Some(id),
                 Some(v2::SessionConfigOptionCategory::Mode) => {
                     offered.mode_config = Some(id);
                     offered.modes = Some(session::Modes {

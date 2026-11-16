@@ -1,6 +1,6 @@
 [package]
 name = "beep-desktop"
-version = "0.9.20"
+version = "0.9.22"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -52,7 +52,6 @@ serde_bytes.workspace = true
 serde_json.workspace = true
 strum.workspace = true
 tauri = { workspace = true, features = ["wry", "dynamic-acl", "tray-icon", "image-png", "macos-private-api"] }
-tauri-plugin-dialog.workspace = true
 tauri-plugin-notification.workspace = true
 tauri-plugin-opener.workspace = true
 thiserror.workspace = true

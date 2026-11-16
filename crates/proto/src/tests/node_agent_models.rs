@@ -17,3 +17,23 @@ fn model_ids_are_short_and_plain() {
     assert!(!valid_model("a\nb"));
     assert!(!valid_model(&"m".repeat(MAX_MODEL + 1)));
 }
+
+#[test]
+fn fast_configuration_has_its_own_wire_operation() {
+    use crate::agents::AgentSteer;
+    let old = rmp_serde::to_vec(&(4u8, Option::<String>::None, Option::<Effort>::None)).unwrap();
+    assert_eq!(
+        rmp_serde::from_slice::<AgentSteer>(&old).unwrap(),
+        AgentSteer::Configure {
+            model: None,
+            effort: None
+        }
+    );
+    let fast = AgentSteer::ConfigureFast {
+        model: None,
+        effort: None,
+        fast: false,
+    };
+    let encoded = rmp_serde::to_vec(&fast).unwrap();
+    assert_eq!(rmp_serde::from_slice::<AgentSteer>(&encoded).unwrap(), fast);
+}

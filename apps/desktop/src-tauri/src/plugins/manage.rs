@@ -80,25 +80,26 @@ pub(crate) async fn plugins_stage_git(
     .await
 }
 
-/// Copies a folder the user picks into a staging folder and says what installing
-/// it would do. None when the picker was closed.
+/// Copies `folder`, one picked on this computer, into a staging folder and says what installing
+/// it would do.
 #[tauri::command]
-pub(crate) async fn plugins_stage_folder(app: AppHandle) -> Result<Option<Staged>, PluginsError> {
+pub(crate) async fn plugins_stage_folder(
+    app: AppHandle,
+    folder: PathBuf,
+) -> Result<Staged, PluginsError> {
     let plugins = plugins_folder(&app)?;
-    let picked = crate::projects::import::pick(&app, "Choose a plugin folder", None)
-        .await
-        .map_err(|e| PluginsError::Disk(e.to_string()))?;
-    let Some(picked) = picked else {
-        return Ok(None);
-    };
-    let source = picked
-        .into_path()
-        .map_err(|e| PluginsError::Disk(format!("That folder cannot be used: {e}")))?;
+
+    if !folder.is_absolute() || !folder.is_dir() {
+        return Err(PluginsError::Disk(format!(
+            "{} is not a folder on this computer.",
+            folder.display()
+        )));
+    }
 
     blocking(&app, move |host, installer| {
-        let fetched = installer.copy_local(&plugins, &source)?;
+        let fetched = installer.copy_local(&plugins, &folder)?;
 
-        installer.preview(host, fetched).map(Some)
+        installer.preview(host, fetched)
     })
     .await
 }

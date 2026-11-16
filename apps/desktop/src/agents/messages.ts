@@ -14,7 +14,7 @@ import { type AgentQuestion, type OpenAgent, type SentImage, type Started, type 
 import { type SendError, sendError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns } from "./session.tsx";
 import { redrawAgentHints } from "./session-head.tsx";
-import { drawAgentAttached, keepSentImages, keepAgentPics } from "./images.tsx";
+import { drawAgentAttached, fitAttachedImages, keepSentImages, keepAgentPics } from "./images.tsx";
 import { drawAgentBody } from "./logview.tsx";
 import { sameSession } from "./running-state.ts";
 import { invoke, listen } from "../ui/tauri.ts";
@@ -43,7 +43,7 @@ function takeMessage(input: HTMLTextAreaElement | null, uploading = false, reser
 
   // Copies: what is attached next must not join this message.
   const typed = composeMessage(input?.value ?? "");
-  const images = AG.att.filter(image => typeof image.original !== "string" || !reserved.has(image.original));
+  const images = uploading ? [] : AG.att.filter(image => typeof image.original !== "string" || !reserved.has(image.original));
   const paths = MN.paths.filter(path => !reserved.has(path));
   if (!typed && !images.length && !paths.length && !uploading) return null;
   const files = paths.flatMap(path => { const file = MN.files.get(path); return file ? [{ path, file }] : []; });
@@ -63,7 +63,8 @@ function prepareMessage(input: HTMLTextAreaElement | null): Waiting | null | Pro
   if (input?.readOnly) return null;
   const typed = input?.value ?? "", state = currentMentions();
   const batches = [...MN.pending].filter(batch => !claimedUploads.has(batch));
-  const reserved = new Set([...MN.pending].filter(batch => claimedUploads.has(batch)).flatMap(batch => batch.paths));
+  // Keep pending batches together until all their images fit the prompt budget.
+  const reserved = new Set([...MN.pending].flatMap(batch => batch.paths));
   for (const batch of batches) claimedUploads.add(batch);
   const draft = takeMessage(input, batches.length > 0, reserved), session = AG.open;
   if (!draft || !batches.length) return draft;
@@ -85,7 +86,7 @@ function prepareMessage(input: HTMLTextAreaElement | null): Waiting | null | Pro
     }
 
     const paths = new Set(batches.flatMap(batch => batch.paths));
-    const images = mentionImages(state).filter(image => typeof image.original === "string" && paths.has(image.original));
+    const images = mentionImages(state).filter(image => typeof image.original !== "string" || paths.has(image.original) || draft.paths.includes(image.original));
     for (const path of paths) {
       if (!draft.paths.includes(path)) draft.paths.push(path);
       const file = state.files.get(path);
@@ -101,6 +102,14 @@ function prepareMessage(input: HTMLTextAreaElement | null): Waiting | null | Pro
 
     if (batches.some(batch => batch.failed)) {
       restoreUploadDraft(draft, state, session);
+      return null;
+    }
+
+    try {
+      draft.images = await fitAttachedImages(draft.images);
+    } catch (e) {
+      restoreUploadDraft(draft, state, session);
+      if (currentMentions() === state) MN.error(String(e));
       return null;
     }
 
@@ -140,8 +149,8 @@ async function sendBackground(session: OpenAgent, draft: Waiting, state: Mention
       const started = await invoke<Started>("agent_resume", { ...where(session), prompt: null }, AGENT_SEND_WAIT_MS);
       target = openOf(started.session);
       const pick = resumePicks.get(session.session);
-      if (pick && (pick.model || pick.effort)) {
-        await invoke("agent_steer", { ...where(target), steer: { configure: { model: pick.model || null, effort: pick.effort } } }, AGENT_SEND_WAIT_MS);
+      if (pick && (pick.model || pick.effort || pick.fast !== null)) {
+        await invoke("agent_steer", { ...where(target), steer: { configure: { model: pick.model || null, effort: pick.effort, fast: pick.fast } } }, AGENT_SEND_WAIT_MS);
         sessionPicks.set(target.session, pick);
       }
       resumePicks.delete(session.session);
@@ -438,7 +447,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
 
   try {
     const pick = resumePicks.get(o.session);
-    const configure = pick && (pick.model || pick.effort) ? { model: pick.model || null, effort: pick.effort } : null;
+    const configure = pick && (pick.model || pick.effort || pick.fast !== null) ? { model: pick.model || null, effort: pick.effort, fast: pick.fast } : null;
     const started = await invoke<Started>("agent_resume", { ...where(o), prompt: images.length || configure ? null : text }, AGENT_SEND_WAIT_MS);
 
     if (configure && pick) {

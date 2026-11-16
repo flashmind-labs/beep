@@ -1,3 +1,4 @@
+import type { ProjectWindowProps } from "../project/projectwindow.ts";
 // The bar's page, and the pane the command center window shows it in.
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -69,6 +70,7 @@ export interface WindowHooks {
   openStarted(session: AgentRow): void;
   /// The project a coding session runs in, and how to open it.
   sessionDestinations?(s: { machine_id: string; cwd: string }): { name: string; folder: string }[];
+  projectWindowProps?(project: string): ProjectWindowProps;
   sessionProject?(s: { machine_id: string; cwd: string }): { label: string; name: string; open(): void } | null;
 }
 

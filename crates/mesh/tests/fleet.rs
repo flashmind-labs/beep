@@ -96,6 +96,7 @@ async fn start(client: &PeerClient, cwd: &Path) -> machine::agent::Opened {
         prompt: "go".into(),
         model: None,
         effort: None,
+        fast: None,
         checkout: None,
         images: Vec::new(),
         assistant: false,

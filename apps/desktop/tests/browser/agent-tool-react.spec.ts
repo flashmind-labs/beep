@@ -111,7 +111,7 @@ test("an opened command's output can be selected", async ({ page }) => {
   await expect(row).toHaveAttribute("aria-expanded", "true");
 });
 
-test("a reply shows its copy buttons once it is finished", async ({ page }) => {
+test("only the latest reply shows its copy button once it is finished", async ({ page }) => {
   await openDesktop(page);
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
@@ -120,7 +120,7 @@ test("a reply shows its copy buttons once it is finished", async ({ page }) => {
       if (command !== "agent_view" || !value || typeof value !== "object") return value;
       const session = Reflect.get(value, "session");
       const status = Reflect.get(window, "replyStatus");
-      return { ...value, session: { ...session, status }, entries: [{ kind: "user", text: "Draft it" }, { kind: "agent", text: "> First\n\n> Second", html: "<blockquote><p>First</p></blockquote><blockquote><p>Second</p></blockquote>" }] } as T;
+      return { ...value, session: { ...session, status }, entries: [{ kind: "user", text: "Start it" }, { kind: "agent", text: "Earlier answer" }, { kind: "user", text: "Draft it" }, { kind: "agent", text: "Earlier progress" }, { kind: "tool", text: "Read: draft.md [completed]" }, { kind: "agent", text: "> First\n\n> Second", html: "<blockquote><p>First</p></blockquote><blockquote><p>Second</p></blockquote>" }] } as T;
     };
   });
   await page.evaluate(() => Reflect.set(window, "replyStatus", "working"));
@@ -130,12 +130,14 @@ test("a reply shows its copy buttons once it is finished", async ({ page }) => {
   await expect(copies.first()).toBeVisible();
   await expect(copies.last()).toBeHidden();
   const reply = page.locator(".dcoderen.agent .reply-copy");
+  await expect(reply).toHaveCount(1);
+  await expect(page.locator(".dcoderen.agent").filter({ hasText: "Earlier" }).locator(".reply-copy")).toHaveCount(0);
   await expect(reply).toBeHidden();
 
   await page.evaluate(() => Reflect.set(window, "replyStatus", "idle"));
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "idle", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await expect(copies.last()).toBeVisible();
-  await page.locator(".dcoderen.agent").hover();
+  await page.locator(".dcoderen.agent").last().hover();
   await expect(reply).toHaveCSS("opacity", "1");
   await reply.click();
   await expect(reply).toHaveAttribute("aria-label", "Copied");

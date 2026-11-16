@@ -27,7 +27,7 @@ import { windowCommand } from "../ui/windowkeys.ts";
 import { state, pagesAccount, keepPagesFile } from "./state.ts";
 import { draw, homeTab, jump } from "./home.tsx";
 import { currentLocation, windowProject, go, goHistory, hasHistory, setWindowProject, goTo } from "./views.tsx";
-import { reloadGroup, paneOn, openProjects, openProjectWindow, addProject } from "./sidebar.tsx";
+import { reloadGroup, paneOn, openProjects, projectWindowProps, openProjectWindow, addProject } from "./sidebar.tsx";
 import { escUp } from "./escup-state.ts";
 import { itemScroll, setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
 import { openTile } from "../project/split.tsx";
@@ -189,6 +189,7 @@ pane.connect({
       .filter(p => p.machine_id === s.machine_id && p.name !== current?.name && p.folder !== s.cwd)
       .map(p => ({ name: p.name, folder: p.folder }));
   },
+  projectWindowProps,
   sessionProject(s) {
     const projects = state.home?.projects ?? [], p = projectOf(s, projects);
     return p ? { label: repoOf(s, projects) || p.name, name: p.name, open: () => void openProjects(p.name) } : null;

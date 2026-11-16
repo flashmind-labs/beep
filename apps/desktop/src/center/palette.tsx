@@ -11,7 +11,8 @@ import { invoke, listen } from "../ui/tauri.ts";
 import type { AgentRow } from "../agents/agents.ts";
 import { rank, type Entry, type Hit as FoundHit, type HitKind, type PaletteIndex } from "./palette-rank.ts";
 import { PaletteSearch } from "./palette-search.ts";
-import { projectFirst } from "../project/projectwindow.ts";
+import { projectWindowProps } from "./sidebar.tsx";
+import { opensNewWindow, projectFirst } from "../project/projectwindow.ts";
 import { IC } from "../ui/icons.tsx";
 
 /// One search result. A branch's id is its project and the branch, split by
@@ -148,6 +149,15 @@ function draw(q: string) {
       icon={(hit: Hit) => {
         const name = ICON_OF[hit.kind] ?? hit.kind;
         return name in ICONS ? ICONS[name as keyof typeof ICONS] : IC[name as keyof typeof IC];
+      }}
+      windowProps={hit => {
+        if (hit.kind !== "project") return null;
+        const props = projectWindowProps(hit.id);
+        const open = (event: ReactMouseEvent) => {
+          props.clicks.onClickCapture(event);
+          if (opensNewWindow(event)) close();
+        };
+        return { ...props, clicks: { ...props.clicks, onClickCapture: open, onAuxClick: open } };
       }}
       search={(value: string) => { inside = null; searching?.type(value); }} choose={pick}
       hover={(index: number) => { if (sel !== index) { sel = index; mark(); } }}

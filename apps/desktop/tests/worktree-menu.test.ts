@@ -131,3 +131,29 @@ test("the menu lists the worktrees the session made, and every one with Show all
   all.click();
   assert.deepEqual(listed(), [main.path, fix.path]);
 });
+
+
+test("native cwd reports follow relative shell edits into a worktree and back", async t => {
+  t.mock.timers.enable({apis: ["setTimeout"]});
+  setup("native-cwd", [main, fix]);
+  answers.agent_places = {kind: "found", places: [{folder: fix.path, main: main.path, linked: true, branch: "fix-login", origin: ""}]};
+  await flush();
+  followAgent([tool("python3 edit.py [completed]")], 0, null);
+  await flush();
+  assert.equal(paneRoot(), fix.path);
+
+  const now = Date.now;
+  try {
+    Date.now = () => now() + 6000;
+    answers.agent_places = {kind: "found", places: [{folder: main.path, main: main.path, linked: false, branch: "main", origin: ""}]};
+    followAgent([tool("python3 edit.py [completed]")], 0, null);
+    await flush();
+    t.mock.timers.tick(150);
+    assert.equal(paneRoot(), main.path);
+    followAgent([tool("python3 edit.py [completed]"), tool("python3 next.py [completed]")], 0, null);
+    await flush();
+    assert.equal(paneRoot(), main.path);
+  } finally {
+    Date.now = now;
+  }
+});

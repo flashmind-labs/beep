@@ -6,9 +6,9 @@ use agent_client_protocol::{
     v1::schema::{
         AGENT_METHOD_NAMES, ClientCapabilities, ClientSessionCapabilities, CompactionCapabilities,
         ContentBlock, ElicitationCapabilities, ElicitationFormCapabilities, Implementation,
-        InitializeRequest, InitializeResponse, LoadSessionRequest,
-        McpServer, Meta, NewSessionRequest, NewSessionResponse, ResumeSessionRequest,
-        SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
+        InitializeRequest, InitializeResponse, LoadSessionRequest, McpServer, Meta,
+        NewSessionRequest, NewSessionResponse, ResumeSessionRequest, SessionConfigId,
+        SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
         SessionConfigSelectOption, SessionConfigSelectOptions, SessionId, SessionModeState,
         SetSessionConfigOptionRequest, SystemPrompt, TextContent,
     },
@@ -84,6 +84,7 @@ pub(in crate::agents) const PLAN_MODE: &str = "plan";
 /// switches between them.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(in crate::agents) struct Offered {
+    pub(in crate::agents) fast: Option<SessionConfigId>,
     /// The model the session runs on, when it says.
     pub(in crate::agents) current: Option<String>,
     pub(in crate::agents) models: Vec<ModelOption>,
@@ -223,6 +224,10 @@ pub(in crate::agents) fn session_created(
 pub(in crate::agents) fn offers(answer: &Value) -> Offered {
     let options = config_options(answer);
     Offered {
+        fast: options
+            .iter()
+            .find(|o| o.id.to_string() == "fast-mode")
+            .map(|o| o.id.clone()),
         thinking: thinking_option(&options),
         modes: session_modes(answer),
         ..models_from_options(answer, options)
@@ -286,8 +291,24 @@ pub(in crate::agents) fn set_effort(
     )
 }
 
+pub(in crate::agents) fn set_fast(
+    session: &SessionId,
+    id: &SessionConfigId,
+    fast: bool,
+) -> Result<UntypedMessage, agent_client_protocol::Error> {
+    UntypedMessage::new(
+        AGENT_METHOD_NAMES.session_set_config_option,
+        SetSessionConfigOptionRequest::new(
+            session.clone(),
+            id.clone(),
+            if fast { "on" } else { "off" },
+        ),
+    )
+}
+
 /// The models an answer offers: its config option of
 /// category `model` when it has one, else its unstable `models`.
+#[cfg(test)]
 pub(in crate::agents) fn offered_models(answer: &Value) -> Offered {
     models_from_options(answer, config_options(answer))
 }

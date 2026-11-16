@@ -475,6 +475,7 @@ pub(crate) async fn plan(
     let machine = fleet.member(&host.machine_id).ok_or_else(not_found)?;
     let agent = machine::pick_agent(&host, start.agent.as_deref())?;
     let effort = machine::picked_effort(&agent, start.effort)?;
+    let fast = start.fast;
     let checkout = machine::checkout_for(
         Makes {
             checkouts: true,
@@ -492,6 +493,7 @@ pub(crate) async fn plan(
         prompt,
         model,
         effort,
+        fast,
         checkout,
         images,
         assistant: start.assistant,

@@ -1,7 +1,7 @@
 //! Context limits from the installed harness's catalog, never a model-name guess.
 
 use super::super::AgentKind;
-use beep_proto::node::agent::ModelList;
+use beep_proto::node::agent::{Effort, ModelList};
 use serde::Deserialize;
 use std::{collections::HashMap, path::PathBuf};
 use tokio::io::AsyncReadExt;
@@ -16,9 +16,17 @@ struct Catalog {
 #[derive(Deserialize)]
 struct Model {
     slug: String,
+    #[serde(default)]
+    supported_reasoning_levels: Vec<ReasoningLevel>,
+    additional_speed_tiers: Option<Vec<String>>,
     context_window: Option<u64>,
     max_context_window: Option<u64>,
     effective_context_window_percent: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct ReasoningLevel {
+    effort: String,
 }
 
 pub(super) async fn enrich(kind: &AgentKind, list: &mut ModelList) {
@@ -65,6 +73,18 @@ fn apply(bytes: &[u8], list: &mut ModelList) {
         let Some(model) = models.get(id) else {
             continue;
         };
+        option.efforts = model
+            .supported_reasoning_levels
+            .iter()
+            .filter_map(|level| {
+                serde_json::from_value::<Effort>(serde_json::Value::String(level.effort.clone()))
+                    .ok()
+            })
+            .collect();
+        option.fast = model
+            .additional_speed_tiers
+            .as_ref()
+            .map(|tiers| tiers.iter().any(|tier| tier == "fast"));
         let Some(percent @ 1..=100) = model.effective_context_window_percent else {
             continue;
         };

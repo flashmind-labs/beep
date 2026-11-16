@@ -245,7 +245,7 @@ function drawPicker(c: StartComposer) {
   if (f.open !== "pick" || !f.agent) { closedPicker(el); return; }
   const host = formHost(), machine = f.modelFor ? f.machine || null : null;
   const name = machine ? AG.hosts?.find(m => m.machine_id === machine)?.machine_name ?? machine : null;
-  const picked: Picked = { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null, query: f.query ?? "" };
+  const picked: Picked = { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null, fast: f.fast ?? null, query: f.query ?? "" };
   drawPickerIn(el, {
     render: view => { if (c.form.isConnected) c.setPicker(view); },
     picked,
@@ -257,14 +257,14 @@ function drawPicker(c: StartComposer) {
     bounds: () => bar,
     changed: what => {
       if (what === "models") return drawPill(c, false);
-      Object.assign(f, { agent: picked.agent, model: picked.model, effort: picked.effort, query: picked.query });
+      Object.assign(f, { agent: picked.agent, model: picked.model, effort: picked.effort, fast: picked.agent === "codex" ? picked.fast : null, query: picked.query });
       // A model found under another harness keeps with it.
       if (what === "model" && f.modelFor && machine) f.modelFor = `${machine}/${picked.agent}`;
       if (what !== "agent" && !f.assistant) keepProjectPick(f.project ?? null, picked);
       if (what === "model") { f.open = null; drawParts(); return c.input.focus(); }
       drawParts();
       if (what === "agent") {
-        if (f.agent && !f.assistant) keepProjectPick(f.project ?? null, { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null });
+        if (f.agent && !f.assistant) keepProjectPick(f.project ?? null, { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null, fast: f.fast ?? null });
         focusSearch(el);
       }
     },
@@ -530,6 +530,7 @@ function restoreProjectPick() {
   f.agent = saved?.agent ?? null;
   f.model = saved?.model ?? "";
   f.effort = saved?.effort ?? null;
+  f.fast = saved?.fast ?? null;
   f.modelFor = "";
 }
 
@@ -555,7 +556,7 @@ function presetAssistant() {
 
 /// The harness, model and thinking level the form starts on: the assistant
 /// setting, or the ones last picked in the project.
-function formPick(): { agent: string | null; model: string; effort: string | null } | null {
+function formPick(): { agent: string | null; model: string; effort: string | null; fast: boolean | null } | null {
   const f = AG.form;
   if (!f.assistant) return lastProjectPick(f.project ?? null);
   if (!assistantPick || !AG.hosts) return null;
@@ -571,7 +572,7 @@ function syncModel() {
   if (f.modelFor !== key) {
     const saved = !f.modelFor ? formPick() : null;
     f.model = saved?.agent === agent ? saved.model : "";
-    if (saved?.agent === agent) f.effort = keepEffort(agent, saved.effort);
+    if (saved?.agent === agent) { f.effort = keepEffort(agent, saved.effort); f.fast = saved.fast ?? null; }
     f.modelFor = key;
   }
   if (!machine || !agent) return;
@@ -604,8 +605,8 @@ export async function startAgent() {
     if (attachments.files.pending.length) composer?.update({ progress: "Starting the agent…" });
     const images = attachments.images.map(sentImage);
     const started = f.assistant
-      ? await startAssistant(prompt, { agent: f.agent, model, effort }, AG.hosts ?? [], f.machinePicked ? f.machine : null, images)
-      : await start({ machine: f.machine, agent: f.agent, cwd: cwd || null, prompt, images, model, effort, checkout, assistant: false });
+      ? await startAssistant(prompt, { agent: f.agent, model, effort, fast: f.fast ?? null }, AG.hosts ?? [], f.machinePicked ? f.machine : null, images)
+      : await start({ machine: f.machine, agent: f.agent, cwd: cwd || null, prompt, images, model, effort, fast: f.agent === "codex" ? f.fast ?? null : null, checkout, assistant: false });
     attachments.clear();
     AG.busy = false;
     composer?.update({ progress: "" });
@@ -629,7 +630,7 @@ export async function startAssistant(prompt: string, pick: AssistantPick, hosts:
   const resolved = resolveAssistant(pick, hosts);
   const last = hosts.find(host => host.machine_id === lastAssistantMachine());
   const lastOffers = !!resolved.agent && !!last?.assistant && last.agents.includes(resolved.agent);
-  const started = await start({ machine: machine ?? (lastOffers ? last.machine_id : null), agent: resolved.agent, cwd: null, prompt, images, model: resolved.model, effort: resolved.effort, checkout: null, assistant: true });
+  const started = await start({ machine: machine ?? (lastOffers ? last.machine_id : null), agent: resolved.agent, cwd: null, prompt, images, model: resolved.model, effort: resolved.effort, fast: resolved.fast ?? null, checkout: null, assistant: true });
   keepAssistantMachine(started.session.machine_id);
 
   return started;
@@ -644,6 +645,7 @@ interface Start {
   images: readonly SentImage[];
   model: string | null;
   effort: string | null;
+  fast: boolean | null;
   checkout: CheckoutPlan | null;
   assistant: boolean;
 }
@@ -652,9 +654,9 @@ interface Start {
 /// machine names it, and keeps the model and thinking level it starts on for its pill, and its
 /// first message for its log.
 async function start(s: Start): Promise<Started> {
-  const started = await invoke<Started>("agent_begin", { machineId: s.machine, agent: s.agent, cwd: s.cwd, prompt: s.prompt, images: s.images, model: s.model, effort: s.effort, checkout: s.checkout, assistant: s.assistant });
+  const started = await invoke<Started>("agent_begin", { machineId: s.machine, agent: s.agent, cwd: s.cwd, prompt: s.prompt, images: s.images, model: s.model, effort: s.effort, fast: s.fast ?? null, checkout: s.checkout, assistant: s.assistant });
   const resolved = s.model ?? knownModels(s.machine, s.agent)?.current ?? "";
-  sessionPicks.set(started.session.id, { model: resolved.toLowerCase() === "default" ? "" : resolved, effort: s.effort });
+  sessionPicks.set(started.session.id, { model: resolved.toLowerCase() === "default" ? "" : resolved, effort: s.effort, fast: s.fast ?? null });
   startedWith(started.session, s.prompt, s.images);
 
   // The start's row may leave out that the session is the assistant, as a released node's does.

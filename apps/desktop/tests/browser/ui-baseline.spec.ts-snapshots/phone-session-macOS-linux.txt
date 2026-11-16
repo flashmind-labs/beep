@@ -151,7 +151,7 @@ body.cbody.mb-full.mobile
                 b#agtitle [aria-label="Rename session: Fix the login redirect" role="button" tabindex="0" title="Fix the login redirect Double-click to rename (Enter)"] "Fix the login redirect"
                 small.aglocation [title="/srv/project"]
                   span.agfolder
-                    button#agproj.agproj "example/widget"
+                    button#agproj.agproj [type="button"] "example/widget"
                     span#agbranch
                   span "@"
                   span#aghere
@@ -201,6 +201,8 @@ body.cbody.mb-full.mobile
                             div style(display)
                               div.agent.dcoderen [data-row="6"]
                                 div.reply-body "Done. The query string now survives the redirect."
+                                button.dbtn.quiet.reply-copy.small [aria-label="Copy" title="Copy" type="button"]
+                                  svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                             div style(display)
                               div.dlive.dthink
                                 button [data-wait="running" title="Show it in the Running tab"]

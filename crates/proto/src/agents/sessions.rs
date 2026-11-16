@@ -265,6 +265,7 @@ wire_enum! {
         8 StopTask { task: String }
         9 StopAll {}
         10 SetDevice { device: Option<SessionDevice> }
+        11 ConfigureFast { model: Option<ModelId>, effort: Option<Effort>, fast: bool }
     }
 }
 
@@ -428,6 +429,7 @@ wire_structs! {
 /// starts the home assistant, which only newer nodes run.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StartAgentSession {
+    pub fast: Option<bool>,
     pub machine_id: Option<String>,
     pub agent: Option<String>,
     pub cwd: Option<String>,

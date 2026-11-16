@@ -61,7 +61,7 @@ interface Attached {
 
 const attached = new Map<string, Attached>();
 /// The harness, model and thinking last picked, for the next time.
-let lastPick: Pick<Picked, "agent" | "model" | "effort"> | null = null;
+let lastPick: Pick<Picked, "agent" | "model" | "effort" | "fast"> | null = null;
 /// The machines that run coding agents, as last read.
 let hosts: AgentHost[] | null = null;
 /// Whether the last read failed, so an empty list does not mean offline.
@@ -230,7 +230,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   let starting = false;
   /// When the session's own reviews were last read.
   let tookAt = 0;
-  const picked: Picked = { agent: "", model: "", effort: null, query: "" };
+  const picked: Picked = { agent: "", model: "", effort: null, fast: null, query: "" };
   const listeners = new Set<() => void>();
   let current: FeedbackSnapshot = { state: { kind: "ready", label: LABEL, hint: HINT, reason: "", open: false }, picker: null, note: "" };
 
@@ -259,10 +259,10 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     if (offered.includes(picked.agent)) return;
     const first = lastPick && offered.includes(lastPick.agent) ? lastPick : null;
 
-    if (first) Object.assign(picked, { agent: first.agent, model: first.model, effort: first.effort });
+    if (first) Object.assign(picked, { agent: first.agent, model: first.model, effort: first.effort, fast: first.fast });
     else {
       const agent = o.prefer && offered.includes(o.prefer) ? o.prefer : [...offered].sort(byPreference)[0] ?? "";
-      Object.assign(picked, { agent, model: "", effort: null });
+      Object.assign(picked, { agent, model: "", effort: null, fast: null });
     }
   }
 
@@ -282,7 +282,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     const v = o.view();
     const machine = o.machine;
     if (!v || !machine || starting || runs.has(o.key)) return;
-    lastPick = { agent: picked.agent, model: picked.model, effort: picked.effort };
+    lastPick = { agent: picked.agent, model: picked.model, effort: picked.effort, fast: picked.fast };
     const uncommitted = o.uncommitted();
     starting = true;
     drawButton();
@@ -290,7 +290,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     try {
       const started = await invoke<ReviewRun>("agent_review_start", {
         machineId: machine.id, agent: picked.agent, cwd: v.root, base: reviewBase(v, uncommitted),
-        parent: o.session ?? null, model: picked.model.trim() || null, effort: picked.effort,
+        parent: o.session ?? null, model: picked.model.trim() || null, effort: picked.effort, fast: picked.agent === "codex" ? picked.fast : null,
       });
       const load = o.load;
       const run: Run = {

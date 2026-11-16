@@ -117,8 +117,12 @@ function report() {
   if (!p?.id) return;
   const got = placeOf({ machine_id: p.machine_id, agent: p.agent, id: p.id, external: p.external }, REPORT_MS);
   if (JSON.stringify(got) === JSON.stringify(W.placed)) return;
+  const moved = W.placed !== null && got?.folder !== W.placed.folder;
   W.placed = got;
-  if (got?.linked) W.seen = reportedRoot(W.trees, W.cwd, got.folder) ?? W.seen;
+  if (got && (got.linked || moved)) {
+    const root = reportedRoot(W.trees, W.cwd, got.folder);
+    if (root) { W.seen = root; W.last = root; }
+  }
   if (got && !W.trees.some(t => bare(t.path) === bare(got.folder))) ask([got.folder]);
   apply(true);
   W.changed(false);

@@ -1,6 +1,7 @@
 // The board: Needs you, Working, Ready to review and Done today. Home shows
 // every project's cards, a row for each project, and a project page its own,
 // with the sessions that ended as a list.
+import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Icon } from "../ui/icons.tsx";
@@ -12,6 +13,7 @@ import { isMobile } from "../ui/platform.ts";
 import { LANES, byLane, byProject, travelled, withoutProject, type Lane } from "./lanes-state.ts";
 
 export interface BoardCard {
+  windowProps?: ProjectWindowProps;
   key: string;
   lane: Lane;
   /// The project whose row holds it on Home; null for a card of no project.
@@ -33,7 +35,7 @@ export interface BoardCard {
 /// What a card's button does: one thing, a menu of them, or an agent
 /// button whose model pick starts a session.
 type CardAction =
-  | { kind: "run"; label: string; primary: boolean; run(): void }
+  | { kind: "run"; label: string; primary: boolean; run(): void; windowProps?: ProjectWindowProps }
   | { kind: "menu"; label: string; items: readonly MenuAction[] }
   | { kind: "agent"; item: AgentButtonItem };
 
@@ -42,18 +44,18 @@ function ActionButton({ action, title }: { action: CardAction; title: string }) 
     case "menu": return <Button small className="bd-pick" aria-haspopup="menu" onClick={event => { event.stopPropagation(); openMenu(event.nativeEvent, title, action.items); }}>{action.label}<Icon name="caretDown"/></Button>;
     // Clicks in its picker stay off the card.
     case "agent": return <span style={{ display: "contents" }} onClick={event => event.stopPropagation()}><AgentButton item={action.item} /></span>;
-    case "run": return <Button look={action.primary ? "primary" : "secondary"} small onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</Button>;
+    case "run": return <Button {...action.windowProps?.clicks} {...action.windowProps?.menu} look={action.primary ? "primary" : "secondary"} small onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</Button>;
   }
 }
 
 /// Home's rows, a project each: its dot's color, and what its name opens; null when it has neither.
-export type ProjectRows = (project: string) => { color: string | null; open: (() => void) | null };
+export type ProjectRows = (project: string) => { color: string | null; open: (() => void) | null; windowProps?: ProjectWindowProps };
 
 /// A card as a row of a list section. A session's row opens with the page move.
 export function CardRow({ card }: { card: BoardCard }) {
   const action = card.action;
   const open = card.session ? () => { setHeroCard(null); withMove("open", card.open); } : card.open;
-  return <LineRow lead={card.lead} title={card.title} sub={card.sub} dim={card.dim} rowTitle={card.hint ?? undefined} onOpen={open} onContext={card.menu ?? undefined}
+  return <LineRow events={{ ...card.windowProps?.clicks, ...card.windowProps?.menu }} lead={card.lead} title={card.title} sub={card.sub} dim={card.dim} rowTitle={card.hint ?? undefined} onOpen={open} onContext={card.menu ?? undefined}
     right={action ? <ActionButton action={action} title={card.title}/> : card.foot}/>;
 }
 
@@ -79,8 +81,8 @@ export function Board({ cards, more, rows, recency = null, beside = null }: { re
   if (rows) {
     return <div className="bd-rows" ref={box}>
       {LANES.map(({ lane, title }) => <div className="bd-lane hd" key={lane}>{heading(lane, title)}</div>)}
-      {byProject(cards, recency).map(row => { const own = byLane(row.cards), name = row.project ?? "Other", head = row.project === null ? { color: null, open: null } : rows(row.project); return <Fragment key={row.project ?? ""}>
-        <h3 className="pj" title={name}>{head.color && <span className="cc-pdot" style={{ background: head.color }}/>}{head.open ? <button type="button" onClick={head.open}>{name}</button> : <span>{name}</span>}</h3>
+      {byProject(cards, recency).map(row => { const own = byLane(row.cards), name = row.project ?? "Other", head = row.project === null ? { color: null, open: null, windowProps: null } : rows(row.project); return <Fragment key={row.project ?? ""}>
+        <h3 className="pj" title={name}>{head.color && <span className="cc-pdot" style={{ background: head.color }}/>}{head.open ? <Button look="plain" {...head.windowProps?.clicks} {...head.windowProps?.menu} onClick={head.open}>{name}</Button> : <span>{name}</span>}</h3>
         {LANES.map(({ lane }) => <Cell key={lane} shown="two">{own[lane].map(card => <Card key={card.key} card={typeof card.sub === "string" ? { ...card, sub: withoutProject(card.sub, row.project) } : card} open={() => open(card)}/>)}</Cell>)}
       </Fragment>; })}
     </div>;
@@ -105,8 +107,8 @@ function Card({ card, open }: { card: BoardCard; open(): void }) {
   const style = { opacity: card.dim ? .55 : undefined, viewTransitionName: heroCard() === card.key ? "board-hero" : undefined };
   const action = card.action;
 
-  return <div className="bd-card" data-card={card.key} role="button" tabIndex={0} title={card.hint ?? undefined} style={style}
-    onClick={open} onKeyDown={onRowKey(open)} onContextMenu={card.menu ? event => card.menu?.(event.nativeEvent) : undefined}>
+  return <div {...card.windowProps?.clicks} {...card.windowProps?.menu} className="bd-card" data-card={card.key} role="button" tabIndex={0} title={card.hint ?? undefined} style={style}
+    onClick={open} onKeyDown={onRowKey(open)} onContextMenu={card.menu ? event => card.menu?.(event.nativeEvent) : card.windowProps?.menu.onContextMenu}>
     <b>{card.title}</b>
     <span className="sub">{card.lead}<span>{card.sub}</span></span>
     {(card.foot || action) && <span className="ft">{card.foot}<span className="sp"/>
@@ -125,8 +127,10 @@ function Cell({ shown, children }: { shown: Shown; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState<number | null>(null);
 
-  // The cell is as tall as its shown cards, so none shows cut at the bottom.
-  useLayoutEffect(() => { if (ref.current) setFit(shownHeight(ref.current, shown)); });
+  // The cell is as tall as its shown cards, so none shows cut at the bottom. It measures
+  // when its cards change, not on its own update: its height feeds back into the
+  // measure, and measuring after every render could loop until React gives up.
+  useLayoutEffect(() => { if (ref.current) setFit(shownHeight(ref.current, shown)); }, [shown, children]);
 
   // A cell that fills the page fits again when the page changes size.
   useEffect(() => {

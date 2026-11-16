@@ -155,7 +155,10 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
         .order(Command::Prompt("after".to_owned().into()))
         .await
         .expect("queued");
-    assert_eq!(before.open_sessions()[0].held[0].text, crate::agents::tags::context(CONTINUE));
+    assert_eq!(
+        before.open_sessions()[0].held[0].text,
+        crate::agents::tags::context(CONTINUE)
+    );
     before.shutdown().await;
     let stopped = before.open_sessions();
     assert_eq!(
@@ -448,8 +451,13 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
           reply '{"stopReason":"end_turn"}'"#,
     );
     let before = Agents::new(vec![kind.clone()]);
-    let session = before.start(&kind, Some(&dir.path().to_string_lossy()), begin("first")).expect("starts");
-    until(&mut session.live.clone(), |live| live.status() == Status::Asking).await;
+    let session = before
+        .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
+        .expect("starts");
+    until(&mut session.live.clone(), |live| {
+        live.status() == Status::Asking
+    })
+    .await;
     before.shutdown().await;
     let stopped = before.open_sessions();
     let after = Agents::new(vec![kind]);
@@ -461,7 +469,10 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
     watched::read(&live, |live| {
         assert_eq!(live.info.title.as_deref(), Some("first"));
         let entries = live.transcript(100).0;
-        let context = entries.iter().find(|entry| entry.text.contains(CONTINUE)).expect("recovery context");
+        let context = entries
+            .iter()
+            .find(|entry| entry.text.contains(CONTINUE))
+            .expect("recovery context");
         assert!(crate::agents::tags::own_words(&context.text).is_empty());
     });
     after.shutdown().await;
@@ -588,6 +599,7 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
             ..SessionInfo::default()
         },
         effort: None,
+        fast: None,
     }]);
     agents.settings_arrived();
     let resumed = agents
@@ -619,7 +631,10 @@ fn a_note_from_before_saved_sessions_reads() {
         ("s1", "claude", "/srv/project")
     );
     assert_eq!(saved.model, Some(ModelId::new("deep")));
-    assert_eq!(saved.worktrees, vec!["/srv/project/.worktrees/fix".to_owned()]);
+    assert_eq!(
+        saved.worktrees,
+        vec!["/srv/project/.worktrees/fix".to_owned()]
+    );
     assert!(!saved.assistant);
 }
 
@@ -655,6 +670,7 @@ fn a_new_note_reads_as_an_old_node_keeps_it() {
             ..SessionInfo::default()
         },
         effort: None,
+        fast: None,
     };
     Reopen::new(Vec::new(), Vec::new(), vec![saved])
         .save(dir.path())
@@ -664,10 +680,16 @@ fn a_new_note_reads_as_an_old_node_keeps_it() {
     let old: OldReopen = serde_json::from_str(&text).expect("an old node reads it");
     assert!(old.sessions.is_empty() && old.terminals.is_empty());
     assert_eq!(old.models.len(), 1);
-    assert_eq!((old.models[0].session.as_str(), &old.models[0].model), ("s1", &ModelId::new("deep")));
+    assert_eq!(
+        (old.models[0].session.as_str(), &old.models[0].model),
+        ("s1", &ModelId::new("deep"))
+    );
     assert_eq!(old.worktrees.len(), 1);
     assert_eq!(old.worktrees[0].session, "s1");
-    assert_eq!(old.worktrees[0].worktrees, vec!["/srv/project/.worktrees/fix".to_owned()]);
+    assert_eq!(
+        old.worktrees[0].worktrees,
+        vec!["/srv/project/.worktrees/fix".to_owned()]
+    );
 }
 
 #[tokio::test]
@@ -708,6 +730,7 @@ fn a_reviewer_taken_over_is_never_the_assistant() {
             ..SessionInfo::default()
         },
         effort: None,
+        fast: None,
     };
 
     assert!(!agents.resumed_begin(None, "held-1", saved).assistant);

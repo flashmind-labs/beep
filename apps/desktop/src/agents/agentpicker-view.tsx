@@ -1,4 +1,5 @@
-import { Spinner } from "../ui/kit.tsx";
+import type { ModelInfo } from "./agentmodels.ts";
+import { Spinner, Switch } from "../ui/kit.tsx";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { agentKind } from "./agents.ts";
@@ -9,6 +10,7 @@ import { useDialogRef } from "../ui/parts.tsx";
 
 interface PickerProps {
   picked: Picked;
+  model: ModelInfo | null;
   offered: readonly string[];
   everywhere: readonly string[];
   machineName: string | null;
@@ -22,6 +24,7 @@ interface PickerProps {
   onAgent: (agent: string) => void;
   onModel: (row: PickRow) => void;
   onEffort: (effort: string | null) => void;
+  onFast: (fast: boolean) => void;
   /// The pill the picker opens from, and the area it stays inside.
   anchor: () => HTMLElement | null;
   bounds: () => HTMLElement | null;
@@ -81,8 +84,9 @@ export function AgentPillContent({ agent, detail }: { agent: string; detail: str
   return <><HarnessIcon agent={agent}/>{detail}<Icon name="caretDown" size={12} /></>;
 }
 
-export function AgentPicker({ picked, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, anchor, bounds, search }: PickerProps) {
-  const name = agentKind(picked.agent).name, levels = effortsOf(picked.agent);
+export function AgentPicker({ picked, model, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, onFast, anchor, bounds, search }: PickerProps) {
+  const name = agentKind(picked.agent).name;
+  const levels = effortsOf(picked.agent).filter(level => !model?.efforts?.length || model.efforts.includes(level.value));
   // The highlighted row is kept by its model, so a list that streams in
   // keeps it where it still shows; another harness or machine starts over.
   const [lit, setLit] = useState<Lit | null>(null);
@@ -126,7 +130,7 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
         {failed && <button type="button" data-agretry="" onClick={onRetry}>Retry</button>}
       </div>
     </div>
-    <div className="agc-think"><h5>Thinking</h5>{levels.length ? <>
+    <div className="agc-think">{picked.agent === "codex" && <><h5>Fast mode<Switch label="Fast mode" on={picked.fast === true} disabled={model?.fast === false} flip={() => onFast(picked.fast !== true)} /></h5><p className="none">Higher usage.</p></>}<h5>Thinking</h5>{levels.length ? <>
       <button type="button" data-age="" className={picked.effort ? "" : "on"} onClick={() => onEffort(null)}>Default{!picked.effort && <Check/>}</button>
       {levels.map(level => <button key={level.value} type="button" data-age={level.value} className={picked.effort === level.value ? "on" : effort === level.value ? "hi" : ""}
         onClick={() => onEffort(level.value)}>{level.label}{picked.effort === level.value && <Check/>}</button>)}

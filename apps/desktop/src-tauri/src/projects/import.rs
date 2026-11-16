@@ -17,13 +17,7 @@ use beep_proto::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-#[cfg(desktop)]
-use tauri::AppHandle;
 use tauri::State;
-#[cfg(desktop)]
-use tauri_plugin_dialog::{DialogExt, FilePath};
-#[cfg(desktop)]
-use tokio::sync::oneshot;
 
 /// A branch the import sheet gives a worktree, on `machine_id` or, without
 /// one, the machine the project lands on.
@@ -238,87 +232,27 @@ pub async fn import_project(
     Ok(imported.into())
 }
 
-/// One folder on `machine_id`, for the sheet's folder browser and to see
-/// whether a folder picked on this Mac is a checkout: `path`, or the
-/// machine's workspace, else its home.
+/// One folder on `machine_id`, for completing a typed path: `path`, else
+/// the machine's home.
 #[tauri::command]
 pub async fn list_machine_folder(
     fleet: Machines<'_>,
     machine_id: String,
     path: Option<String>,
 ) -> Result<MachineFolder> {
-    direct::folder(&fleet, fleet.machine(&machine_id)?, path.as_deref()).await
+    let mut tree = direct::folder(&fleet, fleet.machine(&machine_id)?, path.as_deref(), 0).await?;
+    Ok(tree.swap_remove(0))
 }
 
-/// The branch the checkout at `path` on `machine_id` is on; `None` when it
-/// is no checkout or the machine is not in the mesh.
+/// A folder on `machine_id` for the folder picker, `path` else the
+/// machine's home, first, then the folders two levels below it.
 #[tauri::command]
-pub async fn folder_branch(
+pub async fn list_machine_tree(
     fleet: Machines<'_>,
     machine_id: String,
-    path: String,
-) -> Result<Option<String>> {
-    match fleet.member(&machine_id) {
-        Some(machine) => direct::folder_branch(&fleet, machine, &path).await,
-        None => Ok(None),
-    }
-}
-
-/// Projects are created from a desktop; a phone has no folder picker.
-#[cfg(mobile)]
-#[tauri::command]
-pub async fn pick_folder(_start: Option<String>) -> Result<Option<String>> {
-    Err(DesktopError::BadRequest(
-        "A phone cannot pick a folder.".into(),
-    ))
-}
-
-/// The macOS folder picker, opened at `start`; `None` when the user
-/// cancels.
-#[cfg(desktop)]
-#[tauri::command]
-pub async fn pick_folder(app: AppHandle, start: Option<String>) -> Result<Option<String>> {
-    let start = start.filter(|start| !start.is_empty()).map(PathBuf::from);
-    let folder = pick(&app, "Choose a folder for the project", start).await?;
-    folder.map(folder_text).transpose()
-}
-
-/// The system folder picker titled `title`, opened at `start`; `None`
-/// when the user cancels.
-#[cfg(desktop)]
-pub(crate) async fn pick(
-    app: &AppHandle,
-    title: &str,
-    start: Option<PathBuf>,
-) -> Result<Option<FilePath>> {
-    let (picked, chosen) = oneshot::channel();
-    let mut dialog = app
-        .dialog()
-        .file()
-        .set_title(title)
-        .set_can_create_directories(true);
-    if let Some(start) = start {
-        dialog = dialog.set_directory(start);
-    }
-
-    dialog.pick_folder(move |folder| {
-        // The sheet may have closed meanwhile; then nobody waits for it.
-        let _ = picked.send(folder);
-    });
-    chosen
-        .await
-        .map_err(|_| DesktopError::BadRequest("The folder picker closed.".into()))
-}
-
-/// A picked folder as the path the machines take.
-#[cfg(desktop)]
-fn folder_text(folder: FilePath) -> Result<String> {
-    let path = folder
-        .into_path()
-        .map_err(|e| DesktopError::BadRequest(format!("That folder cannot be used: {e}")))?;
-    path.into_os_string()
-        .into_string()
-        .map_err(|_| DesktopError::BadRequest("That folder's name is not valid text.".into()))
+    path: Option<String>,
+) -> Result<Vec<MachineFolder>> {
+    direct::folder(&fleet, fleet.machine(&machine_id)?, path.as_deref(), 2).await
 }
 
 #[cfg(test)]

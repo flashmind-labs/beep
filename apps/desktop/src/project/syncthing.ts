@@ -15,23 +15,28 @@ export interface SyncthingFiles {
 }
 
 /// An untouched import preserves the folder's existing Syncthing setting.
+/// The choice is `available`, so shown, only where Syncthing is in use.
 export function syncthingImportChoice() {
   let value: boolean | null = null;
-  const state = createStore(() => ({ checked: true, disabled: false, indeterminate: true }));
+  const state = createStore(() => ({ checked: true, indeterminate: true, available: false, label: null as string | null }));
   const lookup = latest();
   let lastTarget = "";
   const choice = {
     value: () => value,
     state,
-    change: (checked: boolean) => { value = checked; state.setState({ checked, disabled: false, indeterminate: false }); },
+    change: (checked: boolean) => { value = checked; state.setState({ checked, indeterminate: false }); },
     dispose: () => { lookup.cancel(); },
+    /// For a batch of folders: the choice shows when a machine has Syncthing folders.
+    anywhere: async () => {
+      const used = await invoke<boolean>("syncthing_in_use").catch(() => false);
+      if (used) state.setState({ available: true });
+    },
     follow: async (machine: string | null, folder: string | null) => {
       const target = `${machine ?? ""}\0${folder ?? ""}`;
       if (target === lastTarget) return;
       lastTarget = target;
       lookup.cancel();
-      if (value !== null) return;
-      state.setState({ checked: true, disabled: false, indeterminate: true });
+      state.setState(value === null ? { checked: true, indeterminate: true, available: false, label: null } : { available: false, label: null });
       if (!machine || !folder) return;
 
       try {
@@ -39,11 +44,12 @@ export function syncthingImportChoice() {
           invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine, folder }),
           invoke<boolean>("project_sync_get").catch(() => false),
         ]));
-        if (found === STALE || value !== null) return;
+        if (found === STALE) return;
 
         // With project sync on, an untouched import leaves Syncthing.
         const [files, beep] = found;
-        state.setState({ checked: files.enabled && !beep, disabled: !files.available, indeterminate: false });
+        state.setState({ available: files.available, label: files.label });
+        if (value === null) state.setState({ checked: files.enabled && !beep, indeterminate: false });
       } catch { /* Import keeps the current setting if the machine cannot answer. */ }
     },
   };

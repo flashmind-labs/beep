@@ -1,7 +1,7 @@
 // Shared command-center building blocks. Each one draws the exact markup the
 // views wrote by hand (`cc-sec`, `cc-panel cc-empty`, `cc-line`, `chip`,
 // `dspin`), so a view can switch to it without a visible change.
-import { cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
+import { cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
 import parse from "html-react-parser";
 import { ErrorBoundary } from "react-error-boundary";
 import { copy } from "./parts.tsx";
@@ -38,11 +38,12 @@ export function SkeletonRows({ widths }: { widths: readonly number[] }) {
 
 /// One row of a section: `lead` (a harness or icon), a title over one muted
 /// line, then `right`. A click anywhere opens it.
-export function LineRow({ lead, title, sub, right, onOpen, onContext, dim = false, rowTitle, textTitle, dataKey }: {
+export function LineRow({ lead, title, sub, right, onOpen, onContext, dim = false, rowTitle, textTitle, dataKey, events }: {
   lead: ReactNode; title: string; sub: ReactNode; right?: ReactNode; onOpen(): void; onContext?(event: MouseEvent): void;
+  events?: Pick<HTMLAttributes<HTMLDivElement>, "onClickCapture" | "onAuxClick" | "onMouseEnter" | "onMouseLeave" | "onContextMenu">;
   dim?: boolean; rowTitle?: string; textTitle?: string; dataKey?: string;
 }) {
-  return <div data-key={dataKey} className={`cc-row cc-line${lead ? "" : " bare"}`} title={rowTitle} style={dim ? { opacity: .55 } : undefined} onClick={onOpen} onContextMenu={onContext ? event => onContext(event.nativeEvent) : undefined}>
+  return <div data-key={dataKey} className={`cc-row cc-line${lead ? "" : " bare"}`} title={rowTitle} style={dim ? { opacity: .55 } : undefined} onClick={onOpen} onContextMenu={onContext ? event => onContext(event.nativeEvent) : undefined} {...events}>
     {lead}<button type="button" className="t" title={textTitle ?? title}><b>{title}</b><span>{sub}</span></button><span className="r">{right}</span>
   </div>;
 }
@@ -76,9 +77,9 @@ export function ChipToggle({ label, selected, onToggle }: { label: string; selec
 }
 
 /// How much a button stands out. A dialog or form has one `primary`, its main action;
-/// `secondary` is bordered, `quiet` is text until hovered.
-export type ButtonLook = "primary" | "secondary" | "quiet";
-const LOOK_CLASS: Record<ButtonLook, string> = { primary: " pri", secondary: "", quiet: " quiet" };
+/// `secondary` is bordered, `quiet` is text until hovered, `plain` keeps a view's own style.
+export type ButtonLook = "primary" | "secondary" | "quiet" | "plain";
+const LOOK_CLASS: Record<ButtonLook, string> = { primary: " pri", secondary: "", quiet: " quiet", plain: "" };
 
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
   look?: ButtonLook; danger?: boolean; small?: boolean; type?: "button" | "submit"; ref?: Ref<HTMLButtonElement>;
@@ -87,8 +88,8 @@ type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
 /// The app's button (`dbtn`). `danger` colors it for an action that removes or stops
 /// something; `className` adds a view's own layout class.
 export function Button({ look = "secondary", danger = false, small = false, type = "button", className, ...rest }: ButtonProps) {
-  const name = `dbtn${LOOK_CLASS[look]}${danger ? " warn" : ""}${small ? " small" : ""}${className ? ` ${className}` : ""}`;
-  return <button type={type} className={name} {...rest} />;
+  const name = `${look === "plain" ? "" : "dbtn"}${LOOK_CLASS[look]}${danger ? " warn" : ""}${small ? " small" : ""}${className ? ` ${className}` : ""}`;
+  return <button type={type} className={name.trim()} {...rest} />;
 }
 
 /// Keeps a click or key on a control from reaching the row around it.

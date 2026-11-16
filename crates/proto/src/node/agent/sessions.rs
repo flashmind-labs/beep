@@ -339,6 +339,28 @@ pub enum SessionsRequest {
     Share {
         path: String,
     },
+    /// One page of session metadata in these folders. Older nodes refuse
+    /// this request; callers can fall back to `InFolders`.
+    InFoldersPage {
+        folders: Vec<String>,
+        limit: u32,
+        before: Option<HistoryCursor>,
+    },
+}
+
+/// A position in history: newest activity first, then agent and id ascending.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryCursor {
+    pub last_activity: u64,
+    pub agent: String,
+    pub id: String,
+}
+
+/// Session metadata only. Transcripts are requested when a session opens.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionPage {
+    pub sessions: Vec<ExternalSession>,
+    pub next: Option<HistoryCursor>,
 }
 
 /// One session asked for by `SessionsRequest::ExternalNamed`.
@@ -478,6 +500,7 @@ impl SessionsRequest {
             | Self::ExternalNamed { .. }
             | Self::Folders { .. }
             | Self::InFolders { .. }
+            | Self::InFoldersPage { .. }
             | Self::Image { .. }
             | Self::Thumb { .. }
             | Self::Models { .. }
@@ -696,6 +719,10 @@ pub enum SessionsReply {
         #[serde(with = "serde_bytes")]
         hash: [u8; 32],
         size: u64,
+    },
+    /// The answer to `InFoldersPage`.
+    SessionPage {
+        page: SessionPage,
     },
 }
 

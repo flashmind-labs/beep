@@ -534,6 +534,7 @@ pub async fn agent_start(
     prompt: String,
     model: Option<String>,
     effort: Option<Effort>,
+    fast: Option<bool>,
     checkout: Option<CheckoutPlan>,
     images: Option<Vec<PastedImage>>,
     assistant: Option<bool>,
@@ -553,6 +554,7 @@ pub async fn agent_start(
         needs: Vec::new(),
         model,
         effort,
+        fast,
         checkout,
         assistant: assistant.unwrap_or(false),
     };

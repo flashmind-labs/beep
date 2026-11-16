@@ -52,7 +52,7 @@ function drawFrame(project: string) {
   const draft = host = document.createElement("div"); draft.id = "agdraft"; body.append(draft);
   const openProject = () => windowHooks?.goBack({ view: "projects", arg: { project } }, true);
   machine.setState("", true);
-  showSessionFrame({ head: <DraftHead project={project} openProject={openProject} machine={machine} />, field: null, body, hints: agentHints() }, false, () => { draftMessage.current = null; });
+  showSessionFrame({ head: <DraftHead windowProps={windowHooks?.projectWindowProps?.(project) ?? null} project={project} openProject={openProject} machine={machine} />, field: null, body, hints: agentHints() }, false, () => { draftMessage.current = null; });
   draftMessage.current = projectComp.input;
   draft.append(projectComp.form);
   bound = "";

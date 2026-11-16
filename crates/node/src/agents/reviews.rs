@@ -12,7 +12,9 @@ use super::{
     unix_now,
 };
 use beep_proto::ModelId;
-use beep_proto::node::agent::{Alert, AlertKind, ReviewOrder, ReviewRun, Status, StopReason, SubmittedReview};
+use beep_proto::node::agent::{
+    Alert, AlertKind, ReviewOrder, ReviewRun, Status, StopReason, SubmittedReview,
+};
 use beep_proto::watched;
 use house::HouseRules;
 use std::{
@@ -130,6 +132,7 @@ impl Agents {
                     model,
                     review: Some(Review {
                         effort: order.effort,
+                        fast: order.fast,
                     }),
                 };
                 let child = self.start_child(link, start).await?;
@@ -143,6 +146,7 @@ impl Agents {
                     prompt: Some(prompt),
                     model,
                     effort: order.effort,
+                    fast: order.fast,
                     mode: known(&kind.name)
                         .and_then(|known| known.read_only_mode)
                         .map(str::to_owned),

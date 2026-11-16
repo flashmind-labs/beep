@@ -496,8 +496,7 @@ async fn a_form_is_asked_field_by_field_and_sent_whole() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
-    let session =
-        Session::start(start_on(&script("pi", FORM_ADAPTER, &log), dir, None)).unwrap();
+    let session = Session::start(start_on(&script("pi", FORM_ADAPTER, &log), dir, None)).unwrap();
     settle(&session).await;
     let first = session.info().question.expect("the first field");
     assert_eq!(first.text, "Which layout?");
@@ -883,6 +882,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         title: None,
         model: model.map(ModelId::new),
         effort: None,
+        fast: None,
         mode: None,
         parent: None,
         follows: None,
@@ -983,6 +983,7 @@ async fn a_running_session_switches_its_model_for_the_next_turn() {
         .order(Command::Configure {
             model: None,
             effort: Some(Effort::High),
+            fast: None,
         })
         .await;
     assert!(
@@ -994,6 +995,7 @@ async fn a_running_session_switches_its_model_for_the_next_turn() {
         .order(Command::Configure {
             model: Some("deep".into()),
             effort: None,
+            fast: None,
         })
         .await
         .unwrap();
@@ -1049,6 +1051,7 @@ async fn a_resumed_session_switches_its_model_with_what_load_offers() {
         .order(Command::Configure {
             model: Some("deep".into()),
             effort: None,
+            fast: None,
         })
         .await
         .unwrap();
@@ -1194,7 +1197,9 @@ async fn a_full_window_is_compacted_as_soon_as_its_turn_ends() {
     // Nothing waits: the compaction goes before the next message comes, so
     // that message does not wait for it.
     until(&session, |live| {
-        live.info.context.is_some_and(|context| context.used == 12_000)
+        live.info
+            .context
+            .is_some_and(|context| context.used == 12_000)
             && live.status() == Status::Idle
     })
     .await;
@@ -2691,3 +2696,74 @@ async fn an_image_sent_during_resume_waits_for_image_capabilities() {
 #[cfg(unix)]
 #[path = "agents_session_v2.rs"]
 mod v2;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn codex_sets_fast_before_prompt_and_can_turn_it_off() {
+    let temp = tempfile::tempdir().unwrap();
+    let log = temp.path().join("sent.jsonl");
+    let adapter = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s","configOptions":[{"id":"fast-mode","name":"Fast mode","type":"select","currentValue":"off","options":[{"value":"off","name":"Off"},{"value":"on","name":"On"}]}]}'
+read -r line; log "$1"; reply '{}'
+read -r line; log "$1"; reply '{"stopReason":"end_turn"}'
+read -r line; log "$1"; reply '{}'
+cat > /dev/null
+"#;
+    let kind = script("codex", adapter, &log);
+    let session = Session::start(Start {
+        fast: Some(true),
+        ..start_on(&kind, temp.path(), None)
+    })
+    .unwrap();
+    settle(&session).await;
+    assert_eq!(session.info().turns, 1);
+    session
+        .order(Command::Configure {
+            model: None,
+            effort: None,
+            fast: Some(false),
+        })
+        .await
+        .unwrap();
+    until(&session, |live| live.fast == Some(false)).await;
+    let sent = sent(&log);
+    assert_eq!(sent[2]["params"]["configId"], "fast-mode");
+    assert_eq!(sent[2]["params"]["value"], "on");
+    assert_eq!(sent[3]["method"], "session/prompt");
+    assert_eq!(sent[4]["params"]["value"], "off");
+    session.close().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn codex_discovers_fast_mode_after_selecting_a_model() {
+    let temp = tempfile::tempdir().unwrap();
+    let log = temp.path().join("sent.jsonl");
+    let adapter = r#"
+read -r line; log "$1"; reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s","configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"model-a","options":[{"value":"model-a","name":"A"},{"value":"model-b","name":"B"}]}]}'
+read -r line; log "$1"
+reply '{"configOptions":[{"id":"fast-mode","name":"Fast mode","type":"select","currentValue":"off","options":[{"value":"off","name":"Off"},{"value":"on","name":"On"}]}]}'
+read -r line; log "$1"; reply '{}'
+read -r line; log "$1"; reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+    let kind = script("codex", adapter, &log);
+    let session = Session::start(Start {
+        fast: Some(true),
+        ..start_on(&kind, temp.path(), Some("model-b"))
+    })
+    .unwrap();
+    settle(&session).await;
+    assert_eq!(session.info().turns, 1);
+    let sent = sent(&log);
+    assert_eq!(sent[2]["params"]["value"], "model-b");
+    assert_eq!(sent[3]["params"]["configId"], "fast-mode");
+    assert_eq!(sent[3]["params"]["value"], "on");
+    assert_eq!(sent[4]["method"], "session/prompt");
+    session.close().await;
+}

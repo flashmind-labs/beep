@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { promptAttachments } from "../src/agents/promptparts-state.ts";
+import { attachmentPictures, promptAttachments } from "../src/agents/promptparts-state.ts";
 import { AgentPrompt } from "../src/agents/reply-view.tsx";
 
 const shown = (html: string, files: string[]) => renderToStaticMarkup(createElement(AgentPrompt, { prompt: { kind: "prompt", row: "1", html, files, pictures: "" } }));
@@ -39,8 +39,9 @@ test("prose, pasted content and code keep literal references; small batches need
   assert.deepEqual([...node.querySelectorAll(".attachment-file")].map(chip => chip.textContent), ["main.ts", "a <img>.png"]);
 });
 
-test("a message that shows its pictures names only its other files", () => {
-  const { html, files } = promptAttachments('<p>See these.</p><p>@/path/to/shot.png @src/main.ts</p><p>@"/path/to/second shot.JPG"</p>', true);
-  assert.equal(html, "<p>See these.</p>");
-  assert.deepEqual(files, ["src/main.ts"]);
+test("original image references pair in order, keeping ambiguous references accessible", () => {
+  const files = ["/srv/project/first shot.png", "src/main.ts", "/srv/project/second.JPG"];
+  assert.deepEqual(attachmentPictures(files, 2), [files[0], files[2]]);
+  assert.deepEqual(attachmentPictures(files, 1), []);
+  assert.deepEqual(attachmentPictures(files, 0), []);
 });

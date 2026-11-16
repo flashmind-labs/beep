@@ -1,5 +1,6 @@
 // A project's board: its sessions by lane, with the sync conflicts and
 // questions that wait on the user.
+import { projectWindowProps } from "../center/sidebar.tsx";
 import { byRecent, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
@@ -32,8 +33,8 @@ export function projectCards({ project, running, past, openTile }: {
   const detail = fsync.detail(project);
 
   for (const conflict of conflictList(detail)) {
-    cards.push({ key: `sync:${conflict.path}`, lane: "needs", project, session: false, lead: <span style={{ display: "contents" }}><Icon name="sync"/></span>, title: conflict.path,
-      sub: conflictSub(null, conflict, detail?.machines ?? []), foot: null, action: { kind: "run", label: "Resolve", primary: false, run: () => openTile("machines") }, dim: false, hint: conflict.path, open: () => openTile("machines"), menu: null });
+    cards.push({ windowProps: projectWindowProps(project), key: `sync:${conflict.path}`, lane: "needs", project, session: false, lead: <span style={{ display: "contents" }}><Icon name="sync"/></span>, title: conflict.path,
+      sub: conflictSub(null, conflict, detail?.machines ?? []), foot: null, action: { kind: "run", label: "Resolve", primary: false, windowProps: projectWindowProps(project), run: () => openTile("machines") }, dim: false, hint: conflict.path, open: () => openTile("machines"), menu: null });
   }
 
   for (const session of endedToday(past, Date.now())) {

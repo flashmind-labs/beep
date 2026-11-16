@@ -29,6 +29,8 @@ pub struct ReviewOrder {
     /// as its child. `None` for a review of a checkout alone.
     #[serde(default)]
     pub parent: Option<String>,
+    #[serde(default)]
+    pub fast: Option<bool>,
 }
 
 /// One review as the node keeps it.

@@ -1,7 +1,9 @@
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import type { MachineFolder } from "../project/projects-state.ts";
 import type { FolderOffer } from "../project/addmachine-state.ts";
 import { invoke } from "../ui/tauri.ts";
+import { openSheet } from "../ui/parts.tsx";
 import { NO_MENU, completed, crumbs, isOpen, matching, menuKey, menuOf, splitTyped, suggest, type FolderMenu } from "./foldercomplete.ts";
 import { Button, SkeletonRows, Spinner } from "../ui/kit.tsx";
 import { Icon } from "../ui/icons.tsx";
@@ -19,9 +21,11 @@ interface PickerProps {
   prefer: string;
   /// What to offer for the folder shown; `opened` is the first one it showed.
   offers(listing: MachineFolder, opened: string): FolderOffer[];
-  /// What to say before taking `offer`, such as how Syncthing lets go of it; null for nothing.
-  noteFor(offer: FolderOffer): Promise<string | null>;
-  take(offer: FolderOffer): void;
+  /// What to say of the folder shown and of the first thing offered for it, such as how
+  /// Syncthing lets go of it; null for nothing.
+  noteFor(listing: MachineFolder, offer: FolderOffer | null): Promise<ReactNode>;
+  /// Takes `offer`, made for the folder shown, `listing`.
+  take(offer: FolderOffer, listing: MachineFolder): void;
   /// Esc in the empty field; with a filter it clears that first.
   close(): void;
   taking: boolean; error: string | null;
@@ -34,6 +38,26 @@ const LTR = "\u200e";
 /// to go to, or a folder in it to open.
 type Row = { kind: "offer"; offer: FolderOffer } | { kind: "go"; path: string } | { kind: "folder"; name: string };
 
+/// The folders each machine's pickers read, by machine and path, and each
+/// machine's home: a folder read once, or read ahead with the one above it,
+/// shows at once and is read again behind.
+const known = new Map<string, Map<string, MachineFolder>>(), homes = new Map<string, string>();
+
+/// The folder at `path` on `machine` as last read; null for home.
+function cached(machine: string, path: string | null) {
+  const home = homes.get(machine) ?? null;
+  const full = path === null || path === "~" ? home : path.startsWith("~/") ? home && `${home}/${path.slice(2)}` : path;
+  return full === null ? null : known.get(machine)?.get(full.replace(/(.)\/+$/, "$1")) ?? null;
+}
+
+/// Keeps `tree`, read at `path` on `machine`, with what was read before.
+function remember(machine: string, path: string | null, tree: MachineFolder[]) {
+  const folders = known.get(machine) ?? new Map<string, MachineFolder>();
+  known.set(machine, folders);
+  for (const listing of tree) folders.set(listing.path, listing);
+  if ((path === null || path === "~") && tree[0]) homes.set(machine, tree[0].path);
+}
+
 /// A machine's folders as a palette: the path as steps back, a field that
 /// filters the folder shown (or takes a path to go to), what the sheet offers
 /// to do with it, then its folders to open. Up and Down move, Enter takes the
@@ -44,28 +68,34 @@ export function FolderPicker(p: PickerProps) {
   const [home, setHome] = useState<string | null>(null);
   const [filter, setFilter] = useState(""), [index, setIndex] = useState(0);
   const [reading, setReading] = useState(true), [failed, setFailed] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<ReactNode>(null);
   const id = useId(), field = useRef<HTMLInputElement>(null), active = useRef<HTMLButtonElement>(null), ask = useRef(0);
 
+  const show = (listing: MachineFolder) => setShown(was => ({ listing, opened: was?.opened ?? listing.path }));
   const go = (path: string | null) => {
-    const mine = ++ask.current;
+    const mine = ++ask.current, hit = cached(p.machine, path);
     setReading(true);
-    invoke<MachineFolder>("list_machine_folder", { machineId: p.machine, path }).then(listing => {
+    setFilter("");
+    setFailed(null);
+    if (hit) show(hit);
+
+    invoke<MachineFolder[]>("list_machine_tree", { machineId: p.machine, path }).then(tree => {
+      remember(p.machine, path, tree);
       if (mine !== ask.current) return;
-      setShown(was => ({ listing, opened: was?.opened ?? listing.path }));
-      setFilter("");
-      setFailed(null);
+      if (tree[0]) show(tree[0]);
       setReading(false);
     }, e => {
       if (mine !== ask.current) return;
-      setFailed(reason(e));
+      if (!hit) setFailed(reason(e));
       setReading(false);
     });
     field.current?.focus();
   };
   useEffect(() => {
     go(p.start);
-    invoke<MachineFolder>("list_machine_folder", { machineId: p.machine, path: "~" }).then(listing => setHome(listing.path), () => {});
+    const home = homes.get(p.machine);
+    if (home) setHome(home);
+    else invoke<MachineFolder>("list_machine_folder", { machineId: p.machine, path: "~" }).then(listing => { homes.set(p.machine, listing.path); setHome(listing.path); }, () => {});
 
     return () => { ask.current++; };
   }, []);
@@ -75,12 +105,12 @@ export function FolderPicker(p: PickerProps) {
   const offeredPath = offered[0]?.path ?? null;
   useEffect(() => {
     setNote(null);
-    if (!offeredPath) return;
+    if (!listing) return;
 
     let current = true;
-    p.noteFor(offered[0]).then(said => { if (current) setNote(said); }, () => {});
+    p.noteFor(listing, offered[0] ?? null).then(said => { if (current) setNote(said); }, () => {});
     return () => { current = false; };
-  }, [offeredPath]);
+  }, [listing?.path, offeredPath]);
   const typed = filter === "~" || splitTyped(filter) ? filter : null;
   const folders = listing && !typed ? matching(listing.folders, filter) : [];
   const rows: Row[] = [
@@ -89,14 +119,14 @@ export function FolderPicker(p: PickerProps) {
     ...folders.map((name): Row => ({ kind: "folder", name })),
   ];
   const first = rows[0]?.kind === "folder" && !filter ? Math.max(0, folders.indexOf(p.prefer)) : 0;
-  useLayoutEffect(() => { setIndex(first); }, [listing, filter]);
+  useLayoutEffect(() => { setIndex(first); }, [listing?.path, filter]);
   useLayoutEffect(() => { active.current?.scrollIntoView({ block: "nearest" }); }, [listing, index]);
   const at = rows[index] ?? null;
 
   const act = (row: Row | null) => {
     if (!row || !listing || p.taking) return;
 
-    if (row.kind === "offer") p.take(row.offer);
+    if (row.kind === "offer") p.take(row.offer, listing);
     else go(row.kind === "go" ? row.path : `${listing.path.replace(/\/$/, "")}/${row.name}`);
   };
   const key = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -151,20 +181,22 @@ export function FolderPicker(p: PickerProps) {
   </>;
 }
 
-interface Props {
-  listing: MachineFolder; reading: boolean; note: string | null; focusFirst: boolean;
-  browse(path: string | null): void; cancel(): void; use(listing: MachineFolder): void;
+/// A folder of `machine`, picked in the palette as a sheet of its own over
+/// the one that asks; null when it is closed.
+export function pickFolder(o: { machine: string; start: string | null; heading: string; noteFor?: PickerProps["noteFor"] }) {
+  return new Promise<MachineFolder | null>(resolve => {
+    const { close, render } = openSheet(o.heading, "cc-pal fp", { onClose: () => resolve(null) });
+    flushSync(() => render(<FolderPicker machine={o.machine} start={o.start} heading={o.heading} verb="Use" prefer="" offers={listing => [{ label: "Use this folder", path: listing.path }]} noteFor={o.noteFor ?? (async () => null)} take={(_, listing) => { resolve(listing); close(); }} close={close} taking={false} error={null} />));
+  });
 }
 
-/// Shared remote folder controls; each sheet owns its navigation and selection.
-export function FolderBrowser(p: Props) {
-  const { listing } = p, first = useRef<HTMLButtonElement>(null);
-  useLayoutEffect(() => { if (p.focusFirst) first.current?.focus(); }, [listing.path, p.focusFirst]);
-  const into = (name: string) => `${listing.path.replace(/\/+$/, "")}/${name}`;
-  return <div className="ip-browse"><div className="at"><Button look="quiet" className="ip-up" disabled={!listing.parent || p.reading} onClick={() => p.browse(listing.parent)}>Up</Button><span title={listing.path}>{listing.path}</span></div>
-    <div className="dirs">{listing.folders.map((name, index) => <button type="button" ref={index === 0 ? first : null} key={name} disabled={p.reading} onClick={() => p.browse(into(name))}>{name}</button>)}{!listing.folders.length && <span className="none">{listing.exists ? "No folders in here" : "Not there yet"}</span>}{!!listing.more && <span className="none">and {listing.more} more</span>}</div>
-    <div className="foot"><span className="note">{p.note}</span><Button look="quiet" onClick={p.cancel}>Cancel</Button><Button look="primary" onClick={() => p.use(listing)}>Use this folder</Button></div>
-  </div>;
+/// A folder of this computer, picked in the palette; null when it is closed.
+/// Refuses while Beep does not run on this computer, as its folders are read through it.
+export async function pickHere(heading: string, start: string | null) {
+  const mac = await invoke<{ id: string | null }>("mac_control");
+  if (!mac.id) throw new Error("Turn on “Let Beep use this computer” in Settings to choose its folders.");
+
+  return (await pickFolder({ machine: mac.id, start, heading }))?.path ?? null;
 }
 
 interface FieldProps {

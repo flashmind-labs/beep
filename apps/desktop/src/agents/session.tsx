@@ -200,7 +200,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     await invoke("agent_title_save", { ...where(openOf(s)), title });
     await retitleOpen({ ...openOf(s), title: title || null });
   };
-  const head = <SessionHead agent={s.agent} {...headText(s)} openProject={project?.open ?? null} cwd={s.cwd} machine={s.machine_name} machineId={s.machine_id} session={s.id} usage={shownUsage(s)} moveKey={agentKey(s)} saveTitle={starting ? null : saveTitle} />;
+  const head = <SessionHead agent={s.agent} {...headText(s)} openProject={project?.open ?? null} windowProps={project ? windowHooks?.projectWindowProps?.(project.name) ?? null : null} cwd={s.cwd} machine={s.machine_name} machineId={s.machine_id} session={s.id} usage={shownUsage(s)} moveKey={agentKey(s)} saveTitle={starting ? null : saveTitle} />;
   const field = <SessionField mode={mode} name={k.name} banner={banner} moveKey={agentKey(s)} machine={s.machine_id} session={s.id} continueHere={continueHere} attach={agentDrop} draft={conversationKey(s)} removeLast={removeLastAttachment} send={submitAgentMessage} stop={() => void interruptAgent()} openParent={openParent} retry={starting && s.status !== "starting" ? () => void retryStart() : null} cancel={() => void closeOpenSession()} />;
   showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
   activateMentions(s);

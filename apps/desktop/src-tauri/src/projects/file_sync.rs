@@ -67,6 +67,12 @@ pub async fn project_handoff_work(
         .await?)
 }
 
+/// Whether any machine runs Syncthing, so the add sheets offer its choice.
+#[tauri::command]
+pub async fn syncthing_in_use(fleet: FleetState<'_>) -> Result<bool> {
+    Ok(desk(&fleet).await?.syncthing_in_use().await)
+}
+
 #[tauri::command]
 pub async fn project_syncthing_files(
     fleet: FleetState<'_>,
