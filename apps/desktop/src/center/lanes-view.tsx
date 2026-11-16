@@ -7,6 +7,7 @@ import { Icon } from "../ui/icons.tsx";
 import { Button, LineRow, onRowKey } from "../ui/kit.tsx";
 import { openMenu, type MenuAction } from "../ui/menu.tsx";
 import { heroCard, motionAllowed, movePlaying, setHeroCard, withMove } from "../ui/motion.ts";
+import { isMobile } from "../ui/platform.ts";
 import { LANES, byLane, byProject, travelled, withoutProject, type Lane } from "./lanes-state.ts";
 
 export interface BoardCard {
@@ -76,7 +77,7 @@ export function Board({ cards, more, rows, recency = null, beside = null }: { re
       {LANES.map(({ lane, title }) => <div className="bd-lane hd" key={lane}>{heading(lane, title)}</div>)}
       {byProject(cards, recency).map(row => { const own = byLane(row.cards), name = row.project ?? "Other", head = row.project === null ? { color: null, open: null } : rows(row.project); return <Fragment key={row.project ?? ""}>
         <h3 className="pj" title={name}>{head.color && <span className="cc-pdot" style={{ background: head.color }}/>}{head.open ? <button type="button" onClick={head.open}>{name}</button> : <span>{name}</span>}</h3>
-        {LANES.map(({ lane }) => <Cell key={lane}>{own[lane].map(card => <Card key={card.key} card={typeof card.sub === "string" ? { ...card, sub: withoutProject(card.sub, row.project) } : card} open={() => open(card)}/>)}</Cell>)}
+        {LANES.map(({ lane }) => <Cell key={lane} shown="two">{own[lane].map(card => <Card key={card.key} card={typeof card.sub === "string" ? { ...card, sub: withoutProject(card.sub, row.project) } : card} open={() => open(card)}/>)}</Cell>)}
       </Fragment>; })}
     </div>;
   }
@@ -87,16 +88,14 @@ export function Board({ cards, more, rows, recency = null, beside = null }: { re
       <div className="bd-log">{lanes.done.slice(0, DONE_SHOWN).map(card => <CardRow key={card.key} card={{ ...card, sub: "" }}/>)}</div>
       {lanes.done.length > DONE_SHOWN && more.done && <Button look="quiet" small onClick={more.done}>All {lanes.done.length}</Button>}
     </div>
-    : <div className={lanes[lane].length > WIDE_FROM ? "bd-lane many" : "bd-lane"} key={lane}>
+    : <div className="bd-lane" key={lane}>
       {heading(lane, title)}
-      {lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}
+      <Cell shown="page">{lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}</Cell>
     </div>)}{beside !== null && <div className="bd-art">{beside}</div>}</div>;
 }
 
 /// How many ended sessions the done log lists before its "All" button.
 const DONE_SHOWN = 10;
-/// A lane with more cards than this takes two columns in a wide window.
-const WIDE_FROM = 4;
 
 function Card({ card, open }: { card: BoardCard; open(): void }) {
   const style = { opacity: card.dim ? .55 : undefined, viewTransitionName: heroCard() === card.key ? "board-hero" : undefined };
@@ -112,15 +111,29 @@ function Card({ card, open }: { card: BoardCard; open(): void }) {
   </div>;
 }
 
-/// A project's lane on Home, which shows two whole cards. A wheel notch or a
-/// swipe moves one card, gliding there. At either end the cell holds the next
-/// few steps, so a swipe that ran out of cards does not scroll the page.
-function Cell({ children }: { children: ReactNode }) {
+/// How many whole cards a lane's cell shows: two in a project's row on Home,
+/// or as many as fit above the bottom of a project's page.
+type Shown = "two" | "page";
+
+/// A lane's cards, which scroll a card at a time. A wheel notch or a swipe
+/// moves one card, gliding there. At either end the cell holds the next few
+/// steps, so a swipe that ran out of cards does not scroll the page.
+function Cell({ shown, children }: { shown: Shown; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState<number | null>(null);
 
   // The cell is as tall as its shown cards, so none shows cut at the bottom.
-  useLayoutEffect(() => { if (ref.current) setFit(shownHeight(ref.current)); });
+  useLayoutEffect(() => { if (ref.current) setFit(shownHeight(ref.current, shown)); });
+
+  // A cell that fills the page fits again when the page changes size.
+  useEffect(() => {
+    const cell = ref.current, page = cell && shown === "page" ? pageOf(cell) : null;
+    if (!cell || !page) return;
+    const observer = new ResizeObserver(() => setFit(shownHeight(cell, shown)));
+
+    observer.observe(page);
+    return () => observer.disconnect();
+  }, [shown]);
 
   useEffect(() => {
     const cell = ref.current;
@@ -154,19 +167,35 @@ function Cell({ children }: { children: ReactNode }) {
     return () => cell.removeEventListener("wheel", wheel);
   }, []);
 
-  return <div className="bd-lane" ref={ref} style={fit === null ? undefined : { maxHeight: fit }}>{children}</div>;
+  return <div className={fit === null ? "bd-lane cell" : "bd-lane cell full"} ref={ref} style={fit === null ? undefined : { maxHeight: fit }}>{children}</div>;
 }
 
-/// How many cards a cell shows at once.
+/// The fewest cards a cell shows at once.
 const SHOWN = 2;
 
-/// The height of `SHOWN` cards and the gaps between them, or null when the cell holds no more.
-function shownHeight(cell: HTMLElement) {
+/// The height of the shown cards and the gaps between them, or null when the cell holds no more.
+function shownHeight(cell: HTMLElement, shown: Shown) {
   const cards = [...cell.children].flatMap(card => card instanceof HTMLElement ? [card.offsetHeight] : []);
-  if (cards.length <= SHOWN) return null;
-  const gap = Number.parseFloat(getComputedStyle(cell).rowGap) || 0;
+  const gap = Number.parseFloat(getComputedStyle(cell).rowGap) || 0, tallest = Math.max(...cards);
+  const count = shown === "page" ? pageFits(cell, tallest + gap) : SHOWN;
+  if (count === null || cards.length <= count) return null;
 
-  return SHOWN * Math.max(...cards) + (SHOWN - 1) * gap;
+  return count * tallest + (count - 1) * gap;
+}
+
+/// How many cards of `step` pixels fit between the cell's top and the bottom
+/// of its page, at least `SHOWN`; null on a phone, whose lanes show every card.
+function pageFits(cell: HTMLElement, step: number) {
+  const page = pageOf(cell);
+  if (!page || isMobile()) return null;
+  const room = page.clientHeight - (cell.getBoundingClientRect().top - page.getBoundingClientRect().top + page.scrollTop);
+
+  return Math.max(SHOWN, Math.floor(room / step));
+}
+
+/// The project page that scrolls a board's lanes.
+function pageOf(cell: HTMLElement) {
+  return cell.closest<HTMLElement>(".pj-board");
 }
 
 /// How far the wheel travels for a step, the pixels of a wheel line, how long

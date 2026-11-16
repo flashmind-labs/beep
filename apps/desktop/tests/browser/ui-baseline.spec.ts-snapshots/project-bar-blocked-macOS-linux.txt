@@ -129,8 +129,8 @@ body.cbody
                   span
               h3.pj [title="Other"]
                 span "Other"
-              div.bd-lane
-              div.bd-lane
+              div.bd-lane.cell
+              div.bd-lane.cell
                 div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
                   b "Fix the login redirect"
                   span.sub
@@ -141,7 +141,7 @@ body.cbody
                     span.cc-running "now"
                       span.drun [aria-label="Working" role="img"]
                     span.sp
-              div.bd-lane
+              div.bd-lane.cell
                 div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
                   b "Update the changelog"
                   span.sub
@@ -150,7 +150,7 @@ body.cbody
                     span "gadget · build-box"
                   span.ft "10m ago"
                     span.sp
-              div.bd-lane
+              div.bd-lane.cell
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
         div.asst-list.pj-list [hidden]
@@ -180,13 +180,16 @@ body.cbody
               div.bd-lane
                 h4 "Needs you"
                   span
+                div.bd-lane.cell
               div.bd-lane
                 h4
                   button [type="button"] "Working"
                   span
+                div.bd-lane.cell
               div.bd-lane
                 h4 "Ready to review"
                   span
+                div.bd-lane.cell
               div.bd-lane.log
                 h4
                   button [type="button"] "Done today"

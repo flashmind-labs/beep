@@ -106,33 +106,36 @@ body.cbody.mb-full.mobile
               div.bd-lane
                 h4 "Needs you"
                   span
+                div.bd-lane.cell
               div.bd-lane
                 h4
                   button [type="button"] "Working"
                   span "2"
-                div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
-                  b "First notification"
-                  span.sub
-                    span.cc-ag.codex.mark
-                      svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "example/widget · build-box"
-                  span.ft
-                    span.cc-running "now"
-                      span.drun [aria-label="Working" role="img"]
-                    span.sp
-                div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
-                  b "Second notification"
-                  span.sub
-                    span.cc-ag.codex.mark
-                      svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "example/widget · build-box"
-                  span.ft
-                    span.cc-running "now"
-                      span.drun [aria-label="Working" role="img"]
-                    span.sp
+                div.bd-lane.cell
+                  div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
+                    b "First notification"
+                    span.sub
+                      span.cc-ag.codex.mark
+                        svg [aria-hidden="true" viewBox="0 0 24 24"]
+                      span "example/widget · build-box"
+                    span.ft
+                      span.cc-running "now"
+                        span.drun [aria-label="Working" role="img"]
+                      span.sp
+                  div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
+                    b "Second notification"
+                    span.sub
+                      span.cc-ag.codex.mark
+                        svg [aria-hidden="true" viewBox="0 0 24 24"]
+                      span "example/widget · build-box"
+                    span.ft
+                      span.cc-running "now"
+                        span.drun [aria-label="Working" role="img"]
+                      span.sp
               div.bd-lane
                 h4 "Ready to review"
                   span
+                div.bd-lane.cell
               div.bd-lane.log
                 h4
                   button [type="button"] "Done today"
@@ -218,14 +221,14 @@ body.cbody.mb-full.mobile
                       div [data-agent-queue-slot="true"] style(display)
                         div#agqueue.ag-queue
                           div.it.steer
-                            span.lbl "Steer"
+                            span.lbl [title="Steer"] "Steer"
                             span.t [title="Also log each retry"] "Also log each retry"
                             span.w "after the current step"
                             button [data-act="edit" data-agq="0"] "Edit"
                             button [aria-label="Remove" data-agq="0"]
                               svg [fill="none" height="12" stroke-linecap="round" stroke-width="3" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                           div.it.steer
-                            span.lbl "Steer"
+                            span.lbl [title="Steer"] "Steer"
                             span.t [title="Then run clippy"] "Then run clippy"
                             span.w "after the current step"
                             button [data-act="edit" data-agq="1"] "Edit"

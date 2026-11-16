@@ -138,31 +138,34 @@ body.cbody.mobile
               div.bd-lane
                 h4 "Needs you"
                   span
+                div.bd-lane.cell
               div.bd-lane
                 h4
                   button [type="button"] "Working"
                   span "1"
-                div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
-                  b "Fix the login redirect"
-                  span.sub
-                    span.cc-ag.codex.mark
-                      svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "example/widget · build-box"
-                  span.ft
-                    span.cc-running "now"
-                      span.drun [aria-label="Working" role="img"]
-                    span.sp
+                div.bd-lane.cell
+                  div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
+                    b "Fix the login redirect"
+                    span.sub
+                      span.cc-ag.codex.mark
+                        svg [aria-hidden="true" viewBox="0 0 24 24"]
+                      span "example/widget · build-box"
+                    span.ft
+                      span.cc-running "now"
+                        span.drun [aria-label="Working" role="img"]
+                      span.sp
               div.bd-lane
                 h4 "Ready to review"
                   span "1"
-                div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
-                  b "Update the changelog"
-                  span.sub
-                    span.cc-ag.codex.mark
-                      svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "example/gadget · build-box"
-                  span.ft "10m ago"
-                    span.sp
+                div.bd-lane.cell
+                  div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
+                    b "Update the changelog"
+                    span.sub
+                      span.cc-ag.codex.mark
+                        svg [aria-hidden="true" viewBox="0 0 24 24"]
+                      span "example/gadget · build-box"
+                    span.ft "10m ago"
+                      span.sp
               div.bd-lane.log
                 h4
                   button [type="button"] "Done today"
