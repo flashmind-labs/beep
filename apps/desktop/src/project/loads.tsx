@@ -395,7 +395,7 @@ export function elsewhereSection(rows: Project[], enabled: boolean) {
     return { key: `${r.host} ${r.repo}`, name: r.repo, failed, last: r.last, open: i === 0, items: r.items, start: null,
       action: { label: importing ? "Importing…" : "Import project", primary: i === 0, disabled: !!here && state.importing != null, run: () => { if (here) void importFromPage(here); else importSheet(r.repo); } } };
   });
-  return <div id="sec-elsewhere"><RepoSection id="section:elsewhere" title="Your PRs and issues elsewhere" note="in repos without a project" repos={body} newest={false} open={openUrl} /></div>;
+  return <div id="sec-elsewhere"><RepoSection id="section:elsewhere" title="Your PRs and issues elsewhere" note="in repos without a project" repos={body} sort="default" open={openUrl} /></div>;
 }
 
 // Reopened sessions and moves change independently of project membership.

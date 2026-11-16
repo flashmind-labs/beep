@@ -299,14 +299,21 @@ test("home machines", async ({ page }) => {
   await baseline(page, "home-machines");
 });
 
-test("home PRs and issues newest first", async ({ page }) => {
-  await openDesktop(page, false, { center_home: home, git_items: { items: gitItems, hosts: [] } });
+test("home PRs and issues sorted", async ({ page }) => {
+  const items = gitItems.map(item => ({ ...item, opened_at: NOW - item.number * 3_600_000 }));
+  const sortBy = async (label: string) => {
+    await page.getByRole("button", { name: /Sort PRs and issues/ }).click();
+    await page.getByRole("menuitemradio", { name: label }).click();
+  };
+  await openDesktop(page, false, { center_home: home, git_items: { items, hosts: [] } });
   await page.getByRole("tab", { name: /PRs and issues/ }).click();
   await expect(page.locator("#sec-git .pl-row.repo")).toHaveCount(6);
-  await page.getByRole("button", { name: "Newest first" }).click();
+  await sortBy("Recent activity");
   await expect(page.locator("#sec-git .pl-row.repo")).toHaveCount(0);
   await expect(page.locator("#sec-git .pl-row.it.flat .num")).toHaveText(["#412", "#398", "#88", "#31", "#85", "#14", "#377", "#12"]);
-  await baseline(page, "home-git-newest");
+  await baseline(page, "home-git-activity");
+  await sortBy("Newest");
+  await expect(page.locator("#sec-git .pl-row.it.flat .num")).toHaveText(["#31", "#85", "#88", "#398", "#412", "#12", "#14", "#377"]);
 });
 
 test("sidebar groups folded and collapsed", async ({ page }) => {

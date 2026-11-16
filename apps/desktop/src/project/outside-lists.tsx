@@ -2,7 +2,7 @@ import { useState, type MouseEvent, type ReactNode } from "react";
 import { formatAgo, plural } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
 import { Button } from "../ui/kit.tsx";
-import { itemChips, newestFirst, type GitItemRow } from "../center/openitems-state.ts";
+import { itemChips, itemTime, type GitItemRow, type GitSort } from "../center/openitems-state.ts";
 import { agentLabel, foundSessions, type FoundRow } from "./projects-state.ts";
 
 /// The folders the Found list shows before "All".
@@ -41,28 +41,28 @@ function RepoLines({ repo, open }: { repo: RepoLine; open(url: string): void }) 
       <button type="button" className="t" aria-expanded={shown} title={repo.name}><span className="twist"><Icon name="twist" /></span><b>{repo.name}</b><span className="dim">{repo.failed ?? counts(repo.items)}</span></button>
       <span className="r"><span className="age">{formatAgo(repo.last, "short")}</span><span className="acts"><Button look={repo.action.primary ? "primary" : "secondary"} small disabled={repo.action.disabled} onClick={event => act(event, repo.action.run)}>{repo.action.label}</Button></span></span>
     </div>
-    {shown && repo.items.map(item => <ItemLine key={item.url} item={item} repo={null} start={repo.start} open={open} />)}
+    {shown && repo.items.map(item => <ItemLine key={item.url} item={item} repo={null} at={item.updated_at} start={repo.start} open={open} />)}
   </>;
 }
 
-/// An open PR or issue. `repo` names its repository when the list mixes them.
-function ItemLine({ item, repo, start, open }: { item: GitItemRow; repo: string | null; start: ItemStart | null; open(url: string): void }) {
+/// An open PR or issue, with its age from `at`. `repo` names its repository when the list mixes them.
+function ItemLine({ item, repo, at, start, open }: { item: GitItemRow; repo: string | null; at: number; start: ItemStart | null; open(url: string): void }) {
   return <div className={repo ? "pl-row it flat" : "pl-row it"} onClick={() => open(item.url)}>
     <span className="ic"><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>
     <button type="button" className="t" title={item.url}>{repo && <span className="dim">{repo}</span>}<span className="num">#{item.number}</span><b>{item.title}</b>{item.labels?.map(label => <i key={label} className="pj-tag">{label}</i>)}</button>
-    <span className="r">{itemChips(item).map((chip, index) => <span className={chip.cls ? `chip ${chip.cls}` : "chip"} key={`${chip.text}:${index}`}>{chip.text}</span>)}<span className="age">{formatAgo(item.updated_at, "short")}</span>{start && <span className="acts">{item.kind === "pull_request" && <Button look="quiet" small onClick={event => act(event, () => start.review(item))}>Review</Button>}<Button look="quiet" small onClick={event => act(event, () => start.reply(item))}>Reply</Button></span>}</span>
+    <span className="r">{itemChips(item).map((chip, index) => <span className={chip.cls ? `chip ${chip.cls}` : "chip"} key={`${chip.text}:${index}`}>{chip.text}</span>)}<span className="age">{at ? formatAgo(at, "short") : ""}</span>{start && <span className="acts">{item.kind === "pull_request" && <Button look="quiet" small onClick={event => act(event, () => start.review(item))}>Review</Button>}<Button look="quiet" small onClick={event => act(event, () => start.reply(item))}>Reply</Button></span>}</span>
   </div>;
 }
 
 /// Open PRs and issues by repository: a line per repository, which unfolds to its items.
-/// `newest` lists every item in one run instead, the latest update first.
-export function RepoSection({ id, title, note, repos, newest, open }: { id: string; title: string; note: string; repos: RepoLine[]; newest: boolean; open(url: string): void }) {
+/// A `sort` other than `default` lists every item in one run, newest first.
+export function RepoSection({ id, title, note, repos, sort, open }: { id: string; title: string; note: string; repos: RepoLine[]; sort: GitSort; open(url: string): void }) {
   const total = repos.reduce((sum, repo) => sum + repo.items.length, 0);
-  const items = newest ? repos.flatMap(repo => repo.items.map(item => ({ item, repo }))).sort((a, b) => newestFirst(a.item, b.item)) : [];
+  const items = sort === "default" ? [] : repos.flatMap(repo => repo.items.map(item => ({ item, repo, at: itemTime(sort, item) }))).sort((a, b) => b.at - a.at);
   return <Fold id={id} title={title} count={`${plural(repos.length, "repo", "repos")} · ${total} open`} note={note}>
-    {newest
-      ? items.map(({ item, repo }) => <ItemLine key={item.url} item={item} repo={repo.name} start={repo.start} open={open} />)
-      : repos.map(repo => <RepoLines key={repo.key} repo={repo} open={open} />)}
+    {sort === "default"
+      ? repos.map(repo => <RepoLines key={repo.key} repo={repo} open={open} />)
+      : items.map(({ item, repo, at }) => <ItemLine key={item.url} item={item} repo={repo.name} at={at} start={repo.start} open={open} />)}
   </Fold>;
 }
 

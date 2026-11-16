@@ -124,8 +124,11 @@ body.cbody
               span.n "8"
             button [aria-selected="false" role="tab" type="button"] "Machines"
           div#sec-git.cc-git
-            div
-              button.dbtn.dchip [aria-pressed="true" type="button"] (focused) "Newest first"
+            div.home-sort
+              button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort PRs and issues Recent activity" data-focused="true" data-rac data-react-aria-pressable="true" tabindex="0" type="button"] (focused)
+                svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+                span "Recent activity"
+                svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
             div.cc-cols
               section.cc-panel.pl
                 button.pl-head [aria-expanded="true" type="button"]

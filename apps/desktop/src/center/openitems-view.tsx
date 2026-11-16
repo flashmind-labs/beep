@@ -1,18 +1,18 @@
 import { useState } from "react";
-import { ChipToggle } from "../ui/kit.tsx";
+import { Dropdown } from "../ui/dropdown.tsx";
+import { Icon } from "../ui/icons.tsx";
 import { RepoSection } from "../project/outside-lists.tsx";
-import { replyStart, reviewStart, projectsWithOpen, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
+import { GIT_SORTS, parseGitSort, replyStart, reviewStart, projectsWithOpen, type GitItemRow, type GitItemsView, type GitSort } from "./openitems-state.ts";
 import { openUrl, quickImport, rowImports } from "./openitems.ts";
 import { projectRows } from "./sidebar.tsx";
 import { state } from "./state.ts";
 import { go } from "./views.tsx";
 
-/// Whether Home lists open items newest first across repositories, instead of by repository.
-const NEWEST_KEY = "beep.gitNewest";
+const SORT_KEY = "beep.git.sort";
 
 /// One kind of open item by repository, those with something waiting on the
 /// user first. Every repository starts unfolded.
-function Column({ kind, title, none, view, newest }: { kind: GitItemRow["kind"]; title: string; none: string; view: GitItemsView; newest: boolean }) {
+function Column({ kind, title, none, view, sort }: { kind: GitItemRow["kind"]; title: string; none: string; view: GitItemsView; sort: GitSort }) {
   const rows = projectsWithOpen({ items: view.items.filter(item => item.kind === kind) }, projectRows() || []);
   const machines = state.home?.machines?.filter(m => m.can_host !== false);
   const repos = rows.map(row => {
@@ -22,14 +22,14 @@ function Column({ kind, title, none, view, newest }: { kind: GitItemRow["kind"];
       action: project ? { label: "Open project", run: () => go("projects", { project: project.name }) } : { label: importing === "busy" ? "Importing…" : "Import project", disabled: importing === "busy", run: () => { void quickImport(row); } } };
   });
   if (!repos.length) return <div className="cc-empty"><span>{none}</span></div>;
-  return <RepoSection id={`section:home-${kind}`} title={title} note="" repos={repos} newest={newest} open={openUrl} />;
+  return <RepoSection id={`section:home-${kind}`} title={title} note="" repos={repos} sort={sort} open={openUrl} />;
 }
 
 export function HomeGit({ view }: { view: GitItemsView }) {
-  const [newest, setNewest] = useState(() => { try { return localStorage.getItem(NEWEST_KEY) === "1"; } catch { return false; } });
-  const toggle = () => { setNewest(!newest); try { localStorage.setItem(NEWEST_KEY, newest ? "0" : "1"); } catch { /* kept for this launch only */ } };
+  const [sort, setSort] = useState(() => { try { return parseGitSort(localStorage.getItem(SORT_KEY)); } catch { return "default"; } });
+  const changeSort = (value: GitSort) => { setSort(value); try { localStorage.setItem(SORT_KEY, value); } catch { /* kept for this launch only */ } };
   return <div className="cc-git" id="sec-git">{[state.gitError, ...view.hosts.map(host => host.error)].filter(Boolean).map((error, index) => <div className="cc-note" key={index}><span className="ddot bad" /><span>{error}</span></div>)}
-    <div><ChipToggle label="Newest first" selected={newest} onToggle={toggle} /></div>
-    <div className="cc-cols"><Column kind="pull_request" title="Pull requests" none="No open pull requests." view={view} newest={newest} /><Column kind="issue" title="Issues" none="No open issues." view={view} newest={newest} /></div>
+    <div className="home-sort"><Dropdown label="Sort PRs and issues" options={GIT_SORTS} value={sort} onChange={changeSort} icon={<Icon name="sort"/>}/></div>
+    <div className="cc-cols"><Column kind="pull_request" title="Pull requests" none="No open pull requests." view={view} sort={sort} /><Column kind="issue" title="Issues" none="No open issues." view={view} sort={sort} /></div>
   </div>;
 }
