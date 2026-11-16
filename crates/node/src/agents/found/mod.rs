@@ -5,7 +5,7 @@
 use crate::agents::place::of_folder;
 use beep_proto::{
     AgentSlug,
-    node::agent::{AgentSessions, ExternalSession, Presence, SessionFolder},
+    node::agent::{AgentSessions, ExternalSession, HistoryCursor, Presence, SessionFolder},
 };
 use rusqlite::{Connection, OpenFlags};
 use std::{
@@ -40,7 +40,7 @@ pub(crate) use disk::{forget_checkouts, rescan, saved_checkouts, walk};
 pub(crate) use git::{Checkout, checkout, common_dir, git_dir, head, last_commit, place};
 pub(crate) use memo::Memo;
 
-/// The most session files one store looks at.
+/// Session count used to size bounded metadata caches.
 const MAX_FILES: usize = 2_000;
 /// The most distinct folders looked up with git in one listing.
 const MAX_LOOKUPS: usize = 400;
@@ -537,6 +537,44 @@ pub(crate) fn in_folders(mut seen: Vec<Seen>, folders: &[PathBuf], limit: usize)
     seen
 }
 
+/// A stable page boundary also distinguishes sessions with the same activity time.
+pub(crate) fn history_page(
+    mut seen: Vec<Seen>,
+    folders: &[PathBuf],
+    limit: usize,
+    before: Option<&HistoryCursor>,
+) -> (Vec<Seen>, Option<HistoryCursor>) {
+    let position = |seen: &Seen| HistoryCursor {
+        last_activity: seen.last_activity,
+        agent: seen.agent.to_string(),
+        id: seen.id.clone(),
+    };
+    fn key(seen: &Seen) -> (Reverse<u64>, &str, &str) {
+        (Reverse(seen.last_activity), seen.agent.as_ref(), &seen.id)
+    }
+    seen.retain(|one| {
+        folders.iter().any(|folder| within(&one.cwd, folder))
+            && before.is_none_or(|before| {
+                key(one)
+                    > (
+                        Reverse(before.last_activity),
+                        before.agent.as_str(),
+                        before.id.as_str(),
+                    )
+            })
+    });
+    seen.sort_by(|a, b| key(a).cmp(&key(b)));
+    seen.dedup_by(|a, b| a.agent == b.agent && a.id == b.id);
+    let more = seen.len() > limit;
+    seen.truncate(limit);
+    let next = if more {
+        seen.last().map(position)
+    } else {
+        None
+    };
+    (seen, next)
+}
+
 /// The name or first prompt in `agent`'s session file at `file`.
 fn title(agent: Agent, file: &Path) -> Option<String> {
     match agent {
@@ -598,18 +636,16 @@ fn unix(at: SystemTime) -> u64 {
         .map_or(0, |since| since.as_secs())
 }
 
-/// The newest `MAX_FILES` files under `dir` for which `wanted` holds,
+/// The files under `dir` for which `wanted` holds,
 /// `depth` folders down, newest first.
 fn newest_files(dir: &Path, depth: usize, wanted: &dyn Fn(&Path) -> bool) -> Vec<(PathBuf, u64)> {
     let mut found = Vec::new();
     collect(dir, depth, wanted, &mut found);
     found.sort_by_key(|(_, at)| Reverse(*at));
-    found.truncate(MAX_FILES);
     found
 }
 
-/// Gathers files, stopping well past `MAX_FILES` so a huge store stays
-/// bounded.
+/// Gathers file metadata, without following directory symlinks.
 fn collect(
     dir: &Path,
     depth: usize,
@@ -621,10 +657,6 @@ fn collect(
     };
 
     for entry in entries.flatten() {
-        if out.len() >= MAX_FILES * 10 {
-            return;
-        }
-
         let path = entry.path();
         let Ok(kind) = entry.file_type() else {
             continue;

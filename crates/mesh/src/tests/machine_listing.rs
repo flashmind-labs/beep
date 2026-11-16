@@ -110,6 +110,9 @@ async fn project_history_hides_background_children_only() {
                         sessions: vec![parent, child, front],
                     })
                 }
+                SessionsRequest::InFoldersPage { .. } => {
+                    Err(MeshError::Link(anyhow::anyhow!("unsupported request")))
+                }
                 SessionsRequest::InFolders { .. } => Ok(SessionsReply::External {
                     sessions: ["parent", "child", "front", "outside"]
                         .into_iter()
@@ -138,5 +141,108 @@ async fn project_history_hides_background_children_only() {
             .map(|session| session.id.as_str())
             .collect::<Vec<_>>(),
         ["parent", "front", "outside"]
+    );
+}
+
+#[tokio::test]
+async fn project_history_reads_every_metadata_page_without_transcripts() {
+    use crate::MeshError;
+    use crate::machine::sessions::Reading;
+    use beep_proto::node::agent::{HistoryCursor, SessionPage, SessionsReply, SessionsRequest};
+
+    struct Node;
+    impl Sessions for Node {
+        async fn sessions(
+            &self,
+            request: SessionsRequest,
+            _: Reading,
+            _: Duration,
+        ) -> Result<SessionsReply, MeshError> {
+            match request {
+                SessionsRequest::ListAll {} => Ok(SessionsReply::Sessions { sessions: vec![] }),
+                SessionsRequest::InFoldersPage { limit, before, .. } => {
+                    let start = before.map_or(0, |cursor| cursor.id.parse::<usize>().unwrap() + 1);
+                    let end = (start + usize::try_from(limit).unwrap()).min(125);
+                    Ok(SessionsReply::SessionPage {
+                        page: SessionPage {
+                            sessions: (start..end)
+                                .map(|i| ExternalSession {
+                                    id: i.to_string(),
+                                    agent: "codex".into(),
+                                    title: Some(format!("Session {i}")),
+                                    last_activity: 1000 - u64::try_from(i).unwrap(),
+                                    presence: Presence::Stopped,
+                                    ..ExternalSession::default()
+                                })
+                                .collect(),
+                            next: (end < 125).then(|| HistoryCursor {
+                                id: (end - 1).to_string(),
+                                agent: "codex".into(),
+                                last_activity: 1000 - u64::try_from(end - 1).unwrap(),
+                            }),
+                        },
+                    })
+                }
+                other => panic!("history must only request metadata: {other:?}"),
+            }
+        }
+    }
+    let host = Host {
+        id: "machine-a".into(),
+        name: "build-box".into(),
+    };
+    let listed = project_sessions(&Node, &host, vec!["/srv/project".into()]).await;
+    assert_eq!(listed.len(), 125);
+    assert!(listed.iter().all(|s| s.status == AgentStatus::Ended {}));
+    assert_eq!(listed.last().unwrap().title.as_deref(), Some("Session 124"));
+}
+
+#[tokio::test]
+async fn history_continues_after_filtered_pages_and_rejects_stuck_cursors() {
+    use crate::MeshError;
+    use crate::machine::sessions::Reading;
+    use beep_proto::node::agent::{HistoryCursor, SessionPage, SessionsReply, SessionsRequest};
+
+    struct Node {
+        stuck: bool,
+    }
+    impl Sessions for Node {
+        async fn sessions(
+            &self,
+            request: SessionsRequest,
+            _: Reading,
+            _: Duration,
+        ) -> Result<SessionsReply, MeshError> {
+            let SessionsRequest::InFoldersPage { before, .. } = request else {
+                panic!("only metadata pages are expected");
+            };
+            let done = before.is_some() && !self.stuck;
+            Ok(SessionsReply::SessionPage {
+                page: SessionPage {
+                    sessions: if done {
+                        vec![ExternalSession {
+                            id: "older".into(),
+                            ..ExternalSession::default()
+                        }]
+                    } else {
+                        vec![]
+                    },
+                    next: (!done).then(|| HistoryCursor {
+                        last_activity: 100,
+                        agent: "codex".into(),
+                        id: "filtered".into(),
+                    }),
+                },
+            })
+        }
+    }
+    let found = project_metadata(&Node { stuck: false }, vec![], 50)
+        .await
+        .unwrap();
+    assert_eq!(found.len(), 1);
+    assert!(
+        project_metadata(&Node { stuck: true }, vec![], 50)
+            .await
+            .is_err()
     );
 }
