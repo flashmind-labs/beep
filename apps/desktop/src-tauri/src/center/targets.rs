@@ -28,6 +28,8 @@ pub(crate) enum CenterTarget {
         run: Option<RunAt>,
     },
     Terminals,
+    /// Machines in Settings, as a beep-node update's notification asks.
+    Machines,
     /// The Report a problem sheet, over the page on screen.
     Report,
 }

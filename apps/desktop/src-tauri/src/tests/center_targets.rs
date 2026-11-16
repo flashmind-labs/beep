@@ -40,6 +40,7 @@ fn a_project_window_hands_its_targets_to_the_main_window() {
         })
     );
     assert_eq!(read(r#""terminals""#), Some(CenterTarget::Terminals));
+    assert_eq!(read(r#""machines""#), Some(CenterTarget::Machines));
     assert_eq!(read(r#""report""#), Some(CenterTarget::Report));
     assert_eq!(read(r#""research""#), None);
 }

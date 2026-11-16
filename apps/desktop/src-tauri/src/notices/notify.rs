@@ -1,6 +1,6 @@
 //! Notices as macOS notifications. A click opens what a notice is about, a
 //! coding-agent session or Home, in the command center; an agent's question
-//! also has Allow and Deny.
+//! also has Allow and Deny, and a beep-node release has Update.
 // Off macOS a notice is plain text, so the click and answer paths go unused.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
@@ -30,19 +30,49 @@ pub(crate) fn set_foreground(on: bool) {
 
 /// A notification with nothing to answer or open.
 pub fn text(app: &AppHandle, title: &str, body: &str) {
+    send(
+        app,
+        title,
+        body,
+        Route {
+            target: None,
+            buttons: None,
+        },
+    );
+}
+
+/// A notification that a beep-node release is out: Update updates the
+/// machines behind, and a click opens Machines.
+pub(crate) fn update_nodes(app: &AppHandle, title: &str, body: &str) {
+    send(
+        app,
+        title,
+        body,
+        Route {
+            target: Some(CenterTarget::Machines),
+            buttons: Some(Buttons::UpdateNodes),
+        },
+    );
+}
+
+/// Shows a notification; off macOS it is plain text, without its click
+/// target and buttons.
+fn send(app: &AppHandle, title: &str, body: &str, route: Route) {
     #[cfg(mobile)]
     if FOREGROUND.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
 
     #[cfg(target_os = "macos")]
-    mac::text(app, title, body);
+    mac::send(app, title, body, route);
     #[cfg(not(target_os = "macos"))]
-    let shown = app.notification().builder().title(title).body(body).show();
+    {
+        let _ = route;
+        let shown = app.notification().builder().title(title).body(body).show();
 
-    #[cfg(not(target_os = "macos"))]
-    if let Err(e) = shown {
-        log::warn!("showing a notice: {e}");
+        if let Err(e) = shown {
+            log::warn!("showing a notice: {e}");
+        }
     }
 }
 
@@ -83,13 +113,15 @@ pub(crate) fn opening(app: &AppHandle, title: &str, body: &str, target: CenterTa
 }
 
 fn show(app: &AppHandle, notice: &Notice, target: CenterTarget) {
-    #[cfg(target_os = "macos")]
-    mac::show(app, notice, target);
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = target;
-        text(app, &notice.title, &notice.body);
-    }
+    send(
+        app,
+        &notice.title,
+        &notice.body,
+        Route {
+            target: Some(target),
+            buttons: ask(notice).map(|key| Buttons::Answer(key.to_string())),
+        },
+    );
 }
 
 /// What a click on `notice` opens.
@@ -165,14 +197,35 @@ fn agent_reply(allow: bool) -> &'static str {
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Route {
     target: Option<CenterTarget>,
-    question: Option<String>,
+    buttons: Option<Buttons>,
 }
 
+/// What a notification's two buttons do.
+#[derive(serde::Serialize, serde::Deserialize)]
+enum Buttons {
+    /// Allow and Deny answer the agent question this key names.
+    Answer(String),
+    /// Update updates the machines behind on beep-node; Later does nothing.
+    UpdateNodes,
+}
+
+impl Buttons {
+    /// The action button's title and the other one's.
+    fn titles(&self) -> (&'static str, &'static str) {
+        match self {
+            Self::Answer(_) => ("Allow", "Deny"),
+            Self::UpdateNodes => ("Update", "Later"),
+        }
+    }
+}
+
+/// What the user did to a notification: clicked it, its action button
+/// (Allow, Update) or its other one (Deny, Later, or dismissing it).
 #[derive(Clone, Copy)]
 enum Interaction {
     Open,
-    Allow,
-    Deny,
+    Action,
+    Other,
     Ignore,
 }
 
@@ -180,22 +233,22 @@ enum Interaction {
 enum Response {
     Open(CenterTarget),
     Answer(AgentNoticeKey, bool),
+    UpdateNodes,
     Nothing,
 }
 
 fn response(route: Route, interaction: Interaction) -> Response {
-    match interaction {
-        Interaction::Open => route.target.map_or(Response::Nothing, Response::Open),
-        Interaction::Allow | Interaction::Deny => {
-            let question = route
-                .question
-                .and_then(|key| key.parse::<AgentNoticeKey>().ok())
-                .filter(|key| key.question.is_some());
-            question.map_or(Response::Nothing, |key| {
-                Response::Answer(key, matches!(interaction, Interaction::Allow))
-            })
-        }
-        Interaction::Ignore => Response::Nothing,
+    match (interaction, route.buttons) {
+        (Interaction::Open, _) => route.target.map_or(Response::Nothing, Response::Open),
+        (Interaction::Action | Interaction::Other, Some(Buttons::Answer(key))) => key
+            .parse::<AgentNoticeKey>()
+            .ok()
+            .filter(|key| key.question.is_some())
+            .map_or(Response::Nothing, |key| {
+                Response::Answer(key, matches!(interaction, Interaction::Action))
+            }),
+        (Interaction::Action, Some(Buttons::UpdateNodes)) => Response::UpdateNodes,
+        _ => Response::Nothing,
     }
 }
 
@@ -205,9 +258,8 @@ pub(crate) use mac::init;
 #[cfg(target_os = "macos")]
 #[allow(deprecated)] // Keep the existing notification presentation and development identity.
 mod mac {
-    use super::{Interaction, Response, Route, answer, ask, notification_icon, open, response};
-    use crate::center::CenterTarget;
-    use beep_proto::Notice;
+    use super::{Interaction, Response, Route, answer, notification_icon, open, response};
+    use crate::machines::node_updates;
     use objc2::{
         AnyThread, DefinedClass, define_class, msg_send,
         rc::Retained,
@@ -244,7 +296,7 @@ mod mac {
             fn activated(&self, center: &NSUserNotificationCenter, notification: &NSUserNotification) {
                 let interaction = match notification.activationType() {
                     NSUserNotificationActivationType::ContentsClicked => Interaction::Open,
-                    NSUserNotificationActivationType::ActionButtonClicked => Interaction::Allow,
+                    NSUserNotificationActivationType::ActionButtonClicked => Interaction::Action,
                     _ => Interaction::Ignore,
                 };
                 self.handle(notification, interaction);
@@ -256,7 +308,7 @@ mod mac {
             // SAFETY: This is the same dismissal selector and signature used by mac-notification-sys.
             #[unsafe(method(userNotificationCenter:didDismissAlert:))]
             fn dismissed(&self, center: &NSUserNotificationCenter, notification: &NSUserNotification) {
-                self.handle(notification, Interaction::Deny);
+                self.handle(notification, Interaction::Other);
                 center.removeDeliveredNotification(notification);
             }
         }
@@ -284,6 +336,9 @@ mod mac {
                 Response::Answer(key, allow) => {
                     tauri::async_runtime::spawn(answer(self.ivars().clone(), key, allow));
                 }
+                Response::UpdateNodes => {
+                    tauri::async_runtime::spawn(node_updates::update_behind(self.ivars().clone()));
+                }
                 Response::Nothing => {}
             }
         }
@@ -305,31 +360,7 @@ mod mac {
         });
     }
 
-    pub(super) fn show(app: &AppHandle, notice: &Notice, target: CenterTarget) {
-        send(
-            app,
-            &notice.title,
-            &notice.body,
-            Route {
-                target: Some(target),
-                question: ask(notice).map(|key| key.to_string()),
-            },
-        );
-    }
-
-    pub(super) fn text(app: &AppHandle, title: &str, body: &str) {
-        send(
-            app,
-            title,
-            body,
-            Route {
-                target: None,
-                question: None,
-            },
-        );
-    }
-
-    fn send(app: &AppHandle, title: &str, body: &str, route: Route) {
+    pub(super) fn send(app: &AppHandle, title: &str, body: &str, route: Route) {
         let title = title.to_owned();
         let body = body.to_owned();
         let handle = app.clone();
@@ -366,11 +397,12 @@ mod mac {
             notification.setUserInfo(Some(&info));
         }
 
-        notification.setHasActionButton(route.question.is_some());
+        let titles = route.buttons.as_ref().map(super::Buttons::titles);
+        notification.setHasActionButton(titles.is_some());
 
-        if route.question.is_some() {
-            notification.setActionButtonTitle(ns_string!("Allow"));
-            notification.setOtherButtonTitle(ns_string!("Deny"));
+        if let Some((action, other)) = titles {
+            notification.setActionButtonTitle(&NSString::from_str(action));
+            notification.setOtherButtonTitle(&NSString::from_str(other));
             // SAFETY: The existing notification crate uses this KVC key with an NSNumber boolean.
             unsafe {
                 let _: () = msg_send![&notification, setValue: &*NSNumber::numberWithBool(true), forKey: ns_string!("_showsButtons")];

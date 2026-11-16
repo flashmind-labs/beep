@@ -11,6 +11,7 @@ import { drawSide, paneOn } from "./sidebar.tsx";
 import { ensureHome } from "./refresh.ts";
 import { showNotices } from "./notices.tsx";
 import { openReport } from "../report/report.tsx";
+import { openSettings } from "../settings/sheet.ts";
 import { debugPrompt } from "../report/report-state.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import { AssistantList, leaveAssistantPage, syncAssistantPage } from "../agents/assistant-page.tsx";
@@ -87,6 +88,12 @@ export function showPending(target: CenterTarget | null, fallback: "home" | null
   if (target === "report") {
     if (!currentLocation()) go("home");
     return openReport(document.body, debugWithAgent);
+  }
+
+  // A beep-node update's notification: Machines in Settings.
+  if (target === "machines") {
+    if (!currentLocation()) go("home");
+    return openSettings("machines");
   }
 
   if (typeof target === "object" && "projects" in target) return go("projects", target.projects);

@@ -44,7 +44,7 @@ fn any_other_notice_opens_home() {
 fn route(notice: &Notice) -> Route {
     Route {
         target: Some(click_target(notice)),
-        question: ask(notice).map(|key| key.to_string()),
+        buttons: ask(notice).map(|key| Buttons::Answer(key.to_string())),
     }
 }
 
@@ -60,11 +60,11 @@ fn notification_targets_survive_serialization_without_waiters() {
             Response::Open(click_target(&notice))
         );
         assert_eq!(
-            response(recovered(), Interaction::Allow),
+            response(recovered(), Interaction::Action),
             Response::Answer(key.clone(), true)
         );
         assert_eq!(
-            response(recovered(), Interaction::Deny),
+            response(recovered(), Interaction::Other),
             Response::Answer(key, false)
         );
         assert_eq!(
@@ -77,13 +77,13 @@ fn notification_targets_survive_serialization_without_waiters() {
 #[test]
 fn plain_and_finished_notifications_cannot_answer_a_question() {
     let (notice, _) = agent_notice(None);
-    for interaction in [Interaction::Allow, Interaction::Deny] {
+    for interaction in [Interaction::Action, Interaction::Other] {
         assert_eq!(response(route(&notice), interaction), Response::Nothing);
         assert_eq!(
             response(
                 Route {
                     target: None,
-                    question: Some("invalid".into())
+                    buttons: Some(Buttons::Answer("invalid".into()))
                 },
                 interaction
             ),
@@ -94,7 +94,7 @@ fn plain_and_finished_notifications_cannot_answer_a_question() {
             response(
                 Route {
                     target: None,
-                    question: Some(finished.to_string())
+                    buttons: Some(Buttons::Answer(finished.to_string()))
                 },
                 interaction
             ),
@@ -105,12 +105,33 @@ fn plain_and_finished_notifications_cannot_answer_a_question() {
         response(
             Route {
                 target: None,
-                question: None
+                buttons: None
             },
             Interaction::Open
         ),
         Response::Nothing
     );
+}
+
+#[test]
+fn a_node_release_updates_from_its_action_button_only() {
+    let route = || Route {
+        target: Some(CenterTarget::Machines),
+        buttons: Some(Buttons::UpdateNodes),
+    };
+    let stored = serde_json::to_string(&route()).unwrap();
+    let recovered = || serde_json::from_str(&stored).unwrap();
+    assert_eq!(
+        response(recovered(), Interaction::Action),
+        Response::UpdateNodes
+    );
+    assert_eq!(
+        response(recovered(), Interaction::Open),
+        Response::Open(CenterTarget::Machines)
+    );
+    for interaction in [Interaction::Other, Interaction::Ignore] {
+        assert_eq!(response(route(), interaction), Response::Nothing);
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -133,7 +154,7 @@ fn native_notification_keeps_its_actions_and_click_target() {
         .unwrap();
     let recovered: Route = serde_json::from_str(&value.to_string()).unwrap();
     assert_eq!(
-        response(recovered, Interaction::Deny),
+        response(recovered, Interaction::Other),
         Response::Answer(key, false)
     );
 
@@ -142,7 +163,7 @@ fn native_notification_keeps_its_actions_and_click_target() {
         "Finished",
         &Route {
             target: None,
-            question: None,
+            buttons: None,
         },
         None,
     )

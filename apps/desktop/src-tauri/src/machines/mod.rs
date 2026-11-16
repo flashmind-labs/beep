@@ -7,6 +7,8 @@ pub(crate) mod devices;
 pub(crate) mod list;
 #[cfg(desktop)]
 pub(crate) mod mcp_command;
+#[cfg(desktop)]
+pub(crate) mod node_updates;
 pub(crate) mod sign_in;
 pub(crate) mod terminals;
 #[cfg(desktop)]
