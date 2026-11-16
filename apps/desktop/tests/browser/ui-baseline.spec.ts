@@ -565,6 +565,23 @@ test("agent files", async ({ page }) => {
   await baseline(page, "agent-files");
 });
 
+test("agent file being edited", async ({ page }) => {
+  await openAgent(page);
+  await page.evaluate(() => window.__navigation.respond("agent_tree_text", { size: 10000, text: Array.from({ length: 500 }, (_, i) => `const value${i} = ${i};`).join("\n"), cut: false, binary: false, editable: true }));
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await page.locator('[data-fpath="README.md"]').click();
+  await page.locator("[data-tedit]").click();
+  await expect(page.locator(".agcm .cm-content")).toBeFocused();
+  await page.keyboard.type("// note");
+
+  // The editor fits its box and scrolls itself, drawing only the lines in view.
+  const box = await page.locator(".agcm").evaluate(element => element.getBoundingClientRect().height);
+  const editor = await page.locator(".agcm .cm-editor").evaluate(element => element.getBoundingClientRect().height);
+  expect(Math.abs(box - editor)).toBeLessThan(1);
+  expect(await page.locator(".agcm .cm-scroller").evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await baseline(page, "agent-file-edit");
+});
+
 test("agent changes", async ({ page }) => {
   await openAgent(page);
   await page.getByRole("tab", { name: "Changes", exact: true }).click();

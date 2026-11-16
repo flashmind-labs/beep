@@ -11,6 +11,8 @@ import { hasPreview } from "./html-preview-state.ts";
 import { baseName, type Dock, type FileRef, DOCKS, type ImageView, type MediaKind, mediaKind, moveTab, type PaneLayout, readLayout, resolvePath, SIDE_BY_SIDE_MIN, tabDock } from "./media-state.ts";
 import { terminalName } from "./files-state.ts";
 import type { ModelView } from "./model3d.ts";
+import type { EditorState } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
 import { artifactCount, pickArtifact } from "./artifacts.ts";
 import { changeListeners, PANE, S } from "../bar/core.ts";
 import { focusChanges, revalidateChanges } from "./changes.ts";
@@ -26,6 +28,7 @@ import { invoke } from "../ui/tauri.ts";
 import { draw, flipTab, noteTab, pickPhoneTab } from "./media-draw.ts";
 import { dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 import { savedIn } from "../ui/platform.ts";
+import { confirmSheet } from "../ui/menu.tsx";
 
 /// What the node gives of a file, a part at a time (`agent_file`).
 export interface FilePart {
@@ -41,6 +44,23 @@ export interface TreeText {
   text: string;
   cut: boolean;
   binary: boolean;
+  /// `text` is all of the file, read without change, so it can be edited.
+  editable: boolean;
+}
+
+/// A text tab being edited: the text it was opened or last saved with, the
+/// editor once it shows and its state while it does not (with its undo
+/// history), and how a save goes.
+export interface FileEdit {
+  base: string;
+  view: EditorView | null;
+  state: EditorState | null;
+  /// Counts reloads, so the editor starts again from `base`.
+  generation: number;
+  dirty: boolean;
+  saving: boolean;
+  /// A save found the file changed since `base`; Overwrite or Reload decide.
+  conflict: boolean;
 }
 
 /// What a tab shows: a media file, a file of the Files tab as text, or a
@@ -89,6 +109,7 @@ export interface MediaTab {
   /// Its HTML preview opens as soon as its text is read.
   previewQueued?: boolean;
   preview?: { active: boolean; loading: boolean; src: string; html: string; error: string };
+  edit?: FileEdit | null;
   /// A terminal tab's terminal, once it started.
   term?: PaneTerm;
   /// Where a new terminal tab starts its shell (its machine and folder stay
@@ -431,11 +452,21 @@ export function newTerminalLike() {
   return true;
 }
 
+/// Asks before dropping a text tab's unsaved edits; `discard` drops them.
+export function discardSheet(tab: MediaTab, discard: () => void) {
+  confirmSheet({ title: `Discard changes to ${tab.name}?`, text: "Your edits since the last save are lost.", action: "Discard", run: async () => discard() });
+}
+
 export function closeTab(id: string) {
   const i = P.tabs.findIndex(t => t.id === id);
   if (i < 0) return;
   // The tab goes once its terminal stopped, and says why when it could not.
   const tab = P.tabs[i];
+
+  if (tab.edit?.dirty) {
+    discardSheet(tab, () => { tab.edit = null; closeTab(id); });
+    return;
+  }
 
   if (tab.term) {
     if (tab.closed) return;

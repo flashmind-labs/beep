@@ -1,14 +1,17 @@
-import { useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { lazy, Suspense, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { addMention } from "../agents/workdrop.ts";
 import { invoke } from "../ui/tauri.ts";
 import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
 import { hasPreview } from "./html-preview-state.ts";
-import { type MediaTab, type TreeText, P, saveWorkFile } from "./media.ts";
+import { type MediaTab, type TreeText, discardSheet, P, saveWorkFile } from "./media.ts";
 import { noteTab, touchTab } from "./media-draw.ts";
-import { fileError } from "./read.ts";
+import { fileError, readError } from "./read.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
 import { mentioned } from "./worktree-state.ts";
 import { Button } from "../ui/kit.tsx";
+import { onPhone } from "../ui/platform.ts";
+
+const CodeEditor = lazy(() => import("./code-editor.tsx"));
 
 /// Shows an HTML or Markdown file's preview in its tab, reading it the first time, or its source again.
 export async function togglePreview(tab: MediaTab) {
@@ -28,6 +31,69 @@ export async function togglePreview(tab: MediaTab) {
     preview.error = fileError(error, tab.rel);
   } finally {
     preview.loading = false; touchTab(tab);
+  }
+}
+
+/// Starts editing a text tab's file, from the text it shows.
+function startEdit(tab: MediaTab) {
+  if (!tab.text?.editable) return;
+  tab.edit = { base: tab.text.text, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false };
+  touchTab(tab);
+}
+
+/// Stops editing, asking first when there are unsaved changes.
+function endEdit(tab: MediaTab) {
+  const stop = () => { tab.edit = null; tab.note = null; touchTab(tab); };
+  if (tab.edit?.dirty) discardSheet(tab, stop); else stop();
+}
+
+/// Writes the editor's text to the file. Unless `overwrite`, it reads the file
+/// first and stops when someone, such as the agent, changed it since.
+async function saveEdit(tab: MediaTab, overwrite = false) {
+  const s = P.session, edit = tab.edit;
+  if (!s || !edit || !tab.rel || edit.saving) return;
+  const at = { machineId: s.machine_id, root: tab.root ?? s.cwd, path: tab.rel };
+  const text = (edit.view?.state ?? edit.state)?.doc.toString() ?? edit.base;
+  edit.saving = true;
+  noteTab(tab, `Saving ${tab.name}…`);
+
+  try {
+    if (!overwrite) {
+      const now = await invoke<TreeText>("agent_tree_text", at);
+      if (!now.editable || now.text !== edit.base) {
+        edit.conflict = true;
+        noteTab(tab, `${tab.name} changed since you opened it.`);
+        return;
+      }
+    }
+
+    await invoke("agent_tree_edit", { machineId: at.machineId, root: at.root, action: { Write: { path: at.path, text } } });
+    edit.base = text;
+    edit.conflict = false;
+    edit.dirty = (edit.view?.state ?? edit.state)?.doc.toString() !== text;
+    tab.text = { size: new TextEncoder().encode(text).length, text, cut: false, binary: false, editable: true };
+    noteTab(tab, `Saved ${tab.name}`);
+  } catch (error) {
+    noteTab(tab, readError(error));
+  } finally {
+    edit.saving = false;
+    touchTab(tab);
+  }
+}
+
+/// Drops the edits and starts again from the file as it is now.
+async function reloadEdit(tab: MediaTab) {
+  const s = P.session, edit = tab.edit;
+  if (!s || !edit || !tab.rel) return;
+
+  try {
+    const now = await invoke<TreeText>("agent_tree_text", { machineId: s.machine_id, root: tab.root ?? s.cwd, path: tab.rel });
+    tab.text = now;
+    if (!now.editable) { tab.edit = null; noteTab(tab, `${tab.name} can no longer be edited here.`); return; }
+    Object.assign(edit, { base: now.text, view: null, state: null, generation: edit.generation + 1, dirty: false, conflict: false });
+    noteTab(tab, `Reloaded ${tab.name}`);
+  } catch (error) {
+    noteTab(tab, readError(error));
   }
 }
 
@@ -72,6 +138,19 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
   }, [source, tab.line, html]);
 
   const scrolled = () => { if (scrollKey && code.current) writeView(scrollKey, { top: code.current.scrollTop, left: code.current.scrollLeft }); };
+  const edit = tab.edit;
+  if (edit) return <>
+    <Suspense fallback={<div className="agpmsg">Loading the editor…</div>}>
+      <CodeEditor key={edit.generation} edit={edit} rel={rel} save={() => void saveEdit(tab)} changed={() => { if (!edit.dirty) { edit.dirty = true; tab.note = null; touchTab(tab); } }} />
+    </Suspense>
+    <div className="agpacts"><span className="meta mono" title={rel}>{tab.note ?? (edit.dirty ? `${rel} · edited` : rel)}</span><span className="sp" />
+      {edit.conflict ? <>
+        <Button data-treload="1" onClick={() => void reloadEdit(tab)}>Reload</Button>
+        <Button data-toverwrite="1" look="primary" disabled={edit.saving} onClick={() => void saveEdit(tab, true)}>Overwrite</Button>
+      </> : <Button data-tsave="1" look="primary" disabled={edit.saving || !edit.dirty} onClick={() => void saveEdit(tab)}>Save</Button>}
+      <Button data-tdone="1" onClick={() => endEdit(tab)}>Done</Button>
+    </div></>;
+
   return <>{preview?.active ? preview.loading ? <div className="agpmsg">Loading preview…</div>
     : preview.error ? <div className="agpmsg derr">{preview.error}</div>
     : preview.html ? <div className="agartmd" dangerouslySetInnerHTML={{ __html: preview.html }} />
@@ -80,7 +159,8 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
     : <div className="agcode" style={style} ref={code} onScroll={scrolled}><pre dangerouslySetInnerHTML={{ __html: html }} /></div>}
     <div className="agpacts"><span className="meta mono" title={rel}>{tab.note ?? about}</span><span className="sp" />
       {!text.binary && hasPreview(rel) && <Button data-preview="1" onClick={() => void togglePreview(tab)}>{preview?.active ? "Source" : "Preview"}</Button>}
+      {text.editable && !preview?.active && !onPhone() && <Button data-tedit="1" onClick={() => startEdit(tab)}>Edit</Button>}
       <Button data-tment="1" onClick={() => addMention(mentioned(tab.root ?? P.session?.cwd ?? "", P.session?.cwd ?? "", rel))}>Mention</Button>
-      <Button data-tsave="1" onClick={() => saveWorkFile(rel, text => noteTab(tab, text), tab.root)}>Save</Button>
+      <Button data-tdownload="1" onClick={() => saveWorkFile(rel, text => noteTab(tab, text), tab.root)}>Download</Button>
     </div></>;
 }

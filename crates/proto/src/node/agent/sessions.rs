@@ -353,15 +353,37 @@ pub struct ExternalAsk {
 /// The most sessions one `ExternalNamed` asks for.
 pub const MAX_EXTERNAL_NAMED: usize = 100;
 
-/// File browser operations. Destinations must not already exist.
+/// File browser operations. Destinations must not already exist, except
+/// the file `Write` replaces.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FileAction {
-    CreateFile { path: String },
-    CreateFolder { path: String },
-    Rename { path: String, to: String },
-    Copy { paths: Vec<String>, folder: String },
-    Move { paths: Vec<String>, folder: String },
-    Delete { paths: Vec<String> },
+    CreateFile {
+        path: String,
+    },
+    CreateFolder {
+        path: String,
+    },
+    Rename {
+        path: String,
+        to: String,
+    },
+    Copy {
+        paths: Vec<String>,
+        folder: String,
+    },
+    Move {
+        paths: Vec<String>,
+        folder: String,
+    },
+    Delete {
+        paths: Vec<String>,
+    },
+    /// Replaces the text of the file `path`, keeping its permissions. Older
+    /// nodes refuse it.
+    Write {
+        path: String,
+        text: String,
+    },
 }
 
 /// The most paths one `Present` asks about.

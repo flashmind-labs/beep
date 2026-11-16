@@ -297,3 +297,37 @@ test("a tree read that answers nothing shows a plain message, not an exception",
   await expect(tree).toContainText("The machine sent no file listing.");
   await expect(tree).not.toContainText("Cannot read properties");
 });
+
+test("a text file edits in the pane, saves with the shortcut and stops when it changed", async ({ page }) => {
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await openDesktop(page, true, { agent_tree: listing(["notes.txt"]), agent_tree_text: { size: 6, text: "hello\n", cut: false, binary: false, editable: true }, agent_tree_edit: null });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await page.locator('[data-fpath="notes.txt"]').click();
+  await page.locator("[data-tedit]").click();
+
+  const editor = page.locator(".agcm .cm-content");
+  await expect(editor).toBeFocused();
+  await page.keyboard.press(`${modifier}+End`);
+  await page.keyboard.type("world");
+  await page.keyboard.press(`${modifier}+s`);
+  const writes = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_tree_edit").map(call => call.args));
+  await expect.poll(writes).toEqual([{ machineId: "build-box", root: "/srv/project", action: { Write: { path: "notes.txt", text: "hello\nworld" } } }]);
+  await expect(page.locator("[data-tsave]")).toBeDisabled();
+
+  // The agent changed the file since: the save stops and asks.
+  await page.evaluate(() => window.__navigation.respond("agent_tree_text", { size: 3, text: "new", cut: false, binary: false, editable: true }));
+  await page.keyboard.type("!");
+  await page.keyboard.press(`${modifier}+s`);
+  await expect(page.locator("[data-toverwrite]")).toBeVisible();
+  expect(await writes()).toHaveLength(1);
+  await page.locator("[data-treload]").click();
+  await expect(editor).toHaveText("new");
+
+  await page.keyboard.type("x");
+  await page.locator("[data-tdone]").click();
+  const dialog = page.getByRole("dialog").filter({ hasText: "Discard changes" });
+  await dialog.getByRole("button", { name: "Discard" }).click();
+  await expect(page.locator("[data-tedit]")).toBeVisible();
+  expect(await writes()).toHaveLength(1);
+});
