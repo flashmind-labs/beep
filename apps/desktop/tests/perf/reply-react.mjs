@@ -51,7 +51,7 @@ try {
   assert.deepEqual(duplicates, { oldCount: 2, count: 2, firstKept: true, secondKept: true, text: ["First updated", "Second"], afterRemoval: ["Second"] });
   const prompt = await page.evaluate(() => {
     const body = document.querySelector(".dbody"), log = document.querySelector(".dcoderlog");
-    const row = text => ({ kind: "prompt", row: "4", html: `<p>${text}</p>`, pictures: '<img class="pic" alt="attachment">' });
+    const row = text => ({ kind: "prompt", row: "4", html: `<p>${text}</p>`, files: [], pictures: '<img class="pic" alt="attachment">' });
     const units = text => [{ key: "turn", rows: () => [row(text)] }];
     logWindow.setUnits(log, units("First"), []); logWindow.fillLog(body, false);
     const original = log.querySelector('.dcoderen.user[data-at="4"]');
