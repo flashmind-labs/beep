@@ -1514,3 +1514,28 @@ fn a_plan_step_keeps_when_it_ran_across_plan_updates() {
     assert_eq!(live.info.state.plan[0].started_at, Some(5));
     assert_eq!(live.info.state.plan[0].ended_at, None);
 }
+
+#[test]
+fn image_only_prompts_wait_for_text_before_naming_the_session() {
+    let marker = "[image: image-0123456789abcdef]";
+    let mut started = live();
+    started.prompted(marker);
+    assert_eq!(started.info.title, None);
+    assert_eq!(started.transcript.back().unwrap().text, marker);
+    started.prompted("Fix the overlap");
+    assert_eq!(started.info.title.as_deref(), Some("Fix the overlap"));
+
+    let mut replayed = live();
+    for text in ["[image: image-", "0123456789abcdef]\n"] {
+        replayed.apply(&update(json!({
+            "sessionUpdate": "user_message_chunk",
+            "content": {"type": "text", "text": text}
+        })));
+        assert_eq!(replayed.info.title, None);
+    }
+    replayed.apply(&update(json!({
+        "sessionUpdate": "user_message_chunk",
+        "content": {"type": "text", "text": "Fix the overlap"}
+    })));
+    assert_eq!(replayed.info.title.as_deref(), Some("Fix the overlap"));
+}

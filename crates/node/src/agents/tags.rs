@@ -176,7 +176,7 @@ pub(crate) fn join(parts: &[Part<'_>]) -> String {
 }
 
 /// What was said to the agent, without Beep's context: the user's words and
-/// what other sessions sent, for a title or a last prompt.
+/// what other sessions sent, without image markers, for a title or last prompt.
 pub(crate) fn said(text: &str) -> String {
     // A bare brief is context: only what follows it was said.
     let text = bare_split(text).map_or(text, |(_, rest)| rest);
@@ -189,6 +189,10 @@ pub(crate) fn said(text: &str) -> String {
         .map(|text| text.trim())
         .collect();
     said.join("\n")
+        .lines()
+        .filter(|line| !line.trim().starts_with("[image: "))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// A readable automatic title, including old titles copied from tagged prompts.

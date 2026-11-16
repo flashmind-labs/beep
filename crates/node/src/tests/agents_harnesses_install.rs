@@ -309,3 +309,114 @@ fn a_standalone_codex_updates_itself() {
         [Step::new(cli.display().to_string(), &["update"])]
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn brew_updates_the_formula_from_its_installed_tap() {
+    let prefix = tempfile::tempdir().unwrap();
+    let real = file(prefix.path(), "Cellar/opencode/1.0.0/bin/opencode");
+    let receipt = prefix
+        .path()
+        .join("Cellar/opencode/1.0.0/INSTALL_RECEIPT.json");
+    std::fs::write(receipt, r#"{"source":{"tap":"vendor/tools"}}"#).unwrap();
+    let cli = prefix.path().join("bin/opencode");
+    link(&real, &cli);
+    let steps = plan(
+        &Target {
+            agent: "opencode",
+            cli: Some(&cli),
+            npm_adapter: None,
+        },
+        &npm_none(),
+    );
+    assert_eq!(steps[0].args, ["upgrade", "vendor/tools/opencode"]);
+}
+
+#[tokio::test]
+async fn a_brew_trust_failure_trusts_only_the_installed_formula_and_retries() {
+    let upgrade = Step::new("/srv/brew/bin/brew", &["upgrade", "vendor/tools/opencode"]);
+    let trust = Step::new(
+        "/srv/brew/bin/brew",
+        &["trust", "--formula", "vendor/tools/opencode"],
+    );
+    let refusal = Ran { ok: false, output:
+        "Error: Refusing to load formula vendor/tools/opencode from untrusted tap vendor/tools. Run brew trust vendor/tools to trust it.".into() };
+    let success = Ran {
+        ok: true,
+        output: String::new(),
+    };
+    let fake = Fake::new(vec![refusal.clone(), success.clone(), success.clone()]);
+    run(
+        &fake,
+        "opencode",
+        std::slice::from_ref(&upgrade),
+        Duration::from_secs(60),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        *fake.ran.lock().unwrap(),
+        [upgrade.clone(), trust.clone(), upgrade.clone()]
+    );
+
+    let fake = Fake::new(vec![refusal.clone(), success, refusal.clone()]);
+    let error = run(
+        &fake,
+        "opencode",
+        std::slice::from_ref(&upgrade),
+        Duration::from_secs(60),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.starts_with("brew upgrade vendor/tools/opencode failed:"),
+        "{error}"
+    );
+    assert_eq!(
+        *fake.ran.lock().unwrap(),
+        [upgrade.clone(), trust.clone(), upgrade.clone()]
+    );
+
+    let fake = Fake::new(vec![
+        refusal,
+        Ran {
+            ok: false,
+            output: "Error: trust denied".into(),
+        },
+    ]);
+    let error = run(
+        &fake,
+        "opencode",
+        &[upgrade.clone(), Step::new("opencode", &["upgrade"])],
+        Duration::from_secs(60),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.starts_with("brew trust --formula vendor/tools/opencode failed: Error: trust denied"),
+        "{error}"
+    );
+    assert_eq!(*fake.ran.lock().unwrap(), [upgrade, trust]);
+}
+
+#[test]
+fn trust_recovery_ignores_unrelated_formulae_and_other_programs() {
+    let refusal = "Error: Refusing to load formula other/tap/package from untrusted tap other/tap.";
+    assert!(
+        formula_trust(
+            &Step::new("brew", &["upgrade", "vendor/tools/opencode"]),
+            refusal
+        )
+        .is_none()
+    );
+    assert!(formula_trust(&Step::new("brew", &["upgrade", "opencode"]), refusal).is_none());
+    assert!(
+        formula_trust(
+            &Step::new("opencode", &["upgrade", "other/tap/package"]),
+            refusal
+        )
+        .is_none()
+    );
+}

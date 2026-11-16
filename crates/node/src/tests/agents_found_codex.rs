@@ -109,3 +109,23 @@ fn a_workdir_survives_a_new_turn_in_the_same_launch_folder() {
         Some(PathBuf::from("/srv/project/.worktrees/fix"))
     );
 }
+
+#[test]
+fn image_only_rollouts_use_the_next_text_prompt_as_title() {
+    let root = tempfile::tempdir().unwrap();
+    let image = r#"{"type":"event_msg","payload":{"type":"user_message","message":"[image: image-0123456789abcdef]"}}"#;
+    let path = write(
+        root.path(),
+        "rollout-images.jsonl",
+        &[meta(ID, r#""cli""#), image.into()],
+    );
+    assert_eq!(title(&path), None);
+    let words =
+        r#"{"type":"event_msg","payload":{"type":"user_message","message":"Fix the overlap"}}"#;
+    fs::write(
+        &path,
+        [meta(ID, r#""cli""#), image.into(), words.into()].join("\n"),
+    )
+    .unwrap();
+    assert_eq!(title(&path).as_deref(), Some("Fix the overlap"));
+}

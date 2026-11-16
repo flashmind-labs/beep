@@ -130,9 +130,28 @@ fn brew_keg(real: &Path) -> Option<Method> {
     let at = parts
         .iter()
         .position(|part| matches!(part.as_os_str().to_str(), Some("Cellar" | "Caskroom")))?;
-    let name = parts.get(at + 1)?.as_os_str().to_str()?.to_owned();
+    let mut name = parts.get(at + 1)?.as_os_str().to_str()?.to_owned();
     let cask = parts[at].as_os_str() == "Caskroom";
     let prefix: PathBuf = parts[..at].iter().collect();
+
+    if !cask {
+        // Read metadata without evaluating code from an untrusted tap.
+        let keg: PathBuf = parts.get(..at + 3)?.iter().collect();
+        if let Ok(receipt) = std::fs::read(keg.join("INSTALL_RECEIPT.json"))
+            && let Ok(receipt) = serde_json::from_slice::<serde_json::Value>(&receipt)
+            && let Some(tap) = receipt["source"]["tap"].as_str()
+            && tap.split('/').count() == 2
+            && tap.split('/').all(|part| {
+                !part.is_empty()
+                    && part
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
+            })
+        {
+            name = format!("{tap}/{name}");
+        }
+    }
+
     Some(Method::Brew { prefix, name, cask })
 }
 
@@ -300,8 +319,8 @@ impl Runner for Processes {
 }
 
 /// A command that failed, with its output cleaned.
-struct Failed<'a> {
-    step: &'a Step,
+struct Failed {
+    step: Step,
     output: String,
 }
 
@@ -321,7 +340,7 @@ pub(super) async fn run(
     }
 
     let deadline = Instant::now() + budget;
-    let mut failed: Vec<Failed<'_>> = Vec::new();
+    let mut failed: Vec<Failed> = Vec::new();
 
     for step in steps {
         let left = deadline.saturating_duration_since(Instant::now());
@@ -338,16 +357,64 @@ pub(super) async fn run(
         }
 
         log::warn!("updating {agent}: {step} failed");
+        let output = clean_output(&ran.output);
+        let trust = formula_trust(step, &output);
         failed.push(Failed {
-            step,
-            output: clean_output(&ran.output),
+            step: step.clone(),
+            output,
         });
+
+        if let Some(trust) = trust {
+            // Updating the installed formula authorizes only that formula,
+            // never every package or command in its tap.
+            for command in [&trust, step] {
+                let left = deadline.saturating_duration_since(Instant::now());
+
+                if left.is_zero() {
+                    bail!("{}", failure_message(&failed));
+                }
+
+                let ran = runner.run(command, left).await;
+
+                if !ran.ok {
+                    failed.push(Failed {
+                        step: command.clone(),
+                        output: clean_output(&ran.output),
+                    });
+                    bail!("{}", failure_message(&failed));
+                }
+            }
+
+            return Ok(());
+        }
     }
 
     bail!("{}", failure_message(&failed))
 }
 
-fn failure_message(failed: &[Failed<'_>]) -> String {
+/// Trust only the installed formula named by the update plan, and only when
+/// Homebrew refuses that same formula. Never execute its suggested command.
+fn formula_trust(step: &Step, output: &str) -> Option<Step> {
+    if Path::new(&step.program).file_name()? != "brew" {
+        return None;
+    }
+
+    let [action, name] = step.args.as_slice() else {
+        return None;
+    };
+
+    if action != "upgrade" || name.split('/').count() != 3 {
+        return None;
+    }
+
+    let refusal = format!("Error: Refusing to load formula {name} from untrusted tap ");
+    output
+        .lines()
+        .any(|line| line.starts_with(&refusal))
+        .then(|| Step::new(&step.program, &["trust", "--formula", name]))
+}
+
+fn failure_message(failed: &[Failed]) -> String {
     let Some(last) = failed.last() else {
         return "the update ran out of time".to_owned();
     };

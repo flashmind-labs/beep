@@ -159,3 +159,17 @@ fn claude_code_messages_read_as_another_sessions() {
     );
     assert_eq!(own_words(text), "thanks");
 }
+
+#[test]
+fn prompt_words_leave_out_image_markers() {
+    let marker = "[image: image-0123456789abcdef]";
+    assert_eq!(said(marker), "");
+    assert_eq!(
+        said(&format!("{marker}\nFix the overlap\n{marker}")),
+        "Fix the overlap"
+    );
+    assert_eq!(
+        said("Explain the [image: image-0123456789abcdef] marker"),
+        "Explain the [image: image-0123456789abcdef] marker"
+    );
+}

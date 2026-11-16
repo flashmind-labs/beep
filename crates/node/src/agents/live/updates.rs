@@ -254,17 +254,14 @@ impl Live {
 
         if self.naming
             && let Some(prompt) = self.transcript.back()
-            && let Some(title) = crate::agents::tags::title(&prompt.text)
         {
             // Claude replays compaction summaries as user messages on restore.
             // Also defer partial prefixes while the message is streaming.
             const CONTINUATION: &str =
                 "This session is being continued from a previous conversation";
-            self.info.title = if CONTINUATION.starts_with(&title) || title.starts_with(CONTINUATION) {
-                None
-            } else {
-                Some(title)
-            };
+            self.info.title = crate::agents::tags::title(&prompt.text).filter(|title| {
+                !CONTINUATION.starts_with(title) && !title.starts_with(CONTINUATION)
+            });
         }
     }
 
