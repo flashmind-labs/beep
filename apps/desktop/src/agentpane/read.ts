@@ -180,26 +180,47 @@ function drawTermStatus(t: MediaTab) {
   touchTab(t);
 }
 
-export async function load(t: MediaTab) {
+/// Reads a media tab's file. `again` reads it after it changed: what the tab
+/// shows stays until the new bytes are here, and stays when they cannot be read.
+export async function load(t: MediaTab, again = false) {
   const s = P.session;
   if (!s || !t.path) return;
+  if (again) localUploads.delete(localUploadKey(s.machine_id, t.path));
 
   try {
     const { bytes, mime } = await readFile(s.machine_id, t.path, s.id, (done, size) => {
+      if (again) return;
       t.done = done;
       t.size = size;
       touchTab(t);
     });
     if (!P.tabs.includes(t)) return;
+    if (again) replacing(t);
+    const was = t.url;
     t.size = bytes.length;
     t.bytes = bytes.buffer as ArrayBuffer;
     t.url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime || "application/octet-stream" }));
+    if (was?.startsWith("blob:")) URL.revokeObjectURL(was);
   } catch (e) {
-    if (!P.tabs.includes(t)) return;
+    if (!P.tabs.includes(t) || again) return;
     if (lookElsewhere(t)) return load(t);
     t.error = fileError(e, t.path);
   }
 
   // Drawn again now its bytes are here.
   touchTab(t);
+}
+
+/// Before a tab takes its file's new bytes: a player goes on from where it
+/// stands, playing if it played, and a model is drawn again from them.
+function replacing(t: MediaTab) {
+  const player = t.player;
+
+  if (player) {
+    t.playerAt = player.currentTime;
+    if (!player.paused) player.addEventListener("loadedmetadata", () => void player.play().catch(() => {}), { once: true });
+  }
+
+  t.model?.dispose();
+  t.model = null;
 }

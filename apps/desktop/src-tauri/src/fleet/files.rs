@@ -222,6 +222,18 @@ pub(crate) async fn present(
     Ok(sessions::present(&client, paths).await?)
 }
 
+/// The BLAKE3 hash of each of `paths` inside `root` on `machine`, in order;
+/// `None` from a node from before the question.
+pub(crate) async fn hashes(
+    fleet: &Fleet,
+    machine: EndpointId,
+    root: &str,
+    paths: Vec<String>,
+) -> Result<Option<Vec<Option<[u8; 32]>>>> {
+    let client = fleet.client(machine).await?;
+    Ok(sessions::hashes(&client, root, paths).await?)
+}
+
 /// Writes one part of a file into a session's folder; gives the path it went to.
 pub(crate) async fn write(
     fleet: &Fleet,

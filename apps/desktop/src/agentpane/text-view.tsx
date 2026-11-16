@@ -23,15 +23,51 @@ export async function togglePreview(tab: MediaTab) {
   preview.loading = true; preview.error = ""; touchTab(tab);
 
   try {
-    const result = await invoke<{ kind: string; src?: string; html?: string }>("agent_artifact", { machineId: session.machine_id, root: tab.root ?? session.cwd, path: tab.rel, preview: true });
-    if (result.kind === "html" && result.src) preview.src = result.src;
-    else if (result.kind === "md" && result.html !== undefined) preview.html = result.html;
-    else throw new Error("This file cannot be previewed.");
+    Object.assign(preview, await readPreview(session, tab.root ?? session.cwd, tab.rel));
   } catch (error) {
     preview.error = fileError(error, tab.rel);
   } finally {
     preview.loading = false; touchTab(tab);
   }
+}
+
+/// Reads a tab's preview again after its file or one beside it changed,
+/// keeping the one shown until the new one is read. One not shown is read
+/// when it next shows.
+export async function refreshPreview(tab: MediaTab) {
+  const session = P.session, preview = tab.preview;
+  if (!session || !tab.rel || !preview) return;
+
+  if (!preview.active) {
+    Object.assign(preview, { src: "", html: "" });
+    return;
+  }
+
+  try {
+    Object.assign(preview, await readPreview(session, tab.root ?? session.cwd, tab.rel), { error: "" });
+    touchTab(tab);
+  } catch {
+    // The preview shown stays.
+  }
+}
+
+/// An HTML file's page URL, fresh at each read, or a Markdown file's HTML.
+async function readPreview(session: { machine_id: string }, root: string, path: string) {
+  const result = await invoke<{ kind: string; src?: string; html?: string }>("agent_artifact", { machineId: session.machine_id, root, path, preview: true });
+  if (result.kind === "html" && result.src) return { src: result.src, html: "" };
+  if (result.kind === "md" && result.html !== undefined) return { src: "", html: result.html };
+  throw new Error("This file cannot be previewed.");
+}
+
+/// Shows `now`, the file as it is now, in a text tab. An editor starts again
+/// from it, or stops when the file can no longer be edited here.
+export function takeText(tab: MediaTab, now: TreeText) {
+  tab.text = now;
+  tab.size = now.size;
+  const edit = tab.edit;
+  if (!edit) return;
+  if (!now.editable) tab.edit = null;
+  else Object.assign(edit, { base: now.text, view: null, state: null, generation: edit.generation + 1, dirty: false, conflict: false });
 }
 
 /// Starts editing a text tab's file, from the text it shows, with the cursor `at` a place.
@@ -100,11 +136,8 @@ async function reloadEdit(tab: MediaTab) {
   if (!s || !edit || !tab.rel) return;
 
   try {
-    const now = await invoke<TreeText>("agent_tree_text", { machineId: s.machine_id, root: tab.root ?? s.cwd, path: tab.rel });
-    tab.text = now;
-    if (!now.editable) { tab.edit = null; noteTab(tab, `${tab.name} can no longer be edited here.`); return; }
-    Object.assign(edit, { base: now.text, view: null, state: null, generation: edit.generation + 1, dirty: false, conflict: false });
-    noteTab(tab, `Reloaded ${tab.name}`);
+    takeText(tab, await invoke<TreeText>("agent_tree_text", { machineId: s.machine_id, root: tab.root ?? s.cwd, path: tab.rel }));
+    noteTab(tab, tab.edit ? `Reloaded ${tab.name}` : `${tab.name} can no longer be edited here.`);
   } catch (error) {
     noteTab(tab, readError(error));
   }

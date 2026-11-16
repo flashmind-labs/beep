@@ -142,6 +142,31 @@ pub async fn agent_tree(
     })
 }
 
+/// The BLAKE3 hash of each of `paths` in `root`, in base64, from the copy
+/// reads come from: `None` for a file not there, and `None` in all from a
+/// node from before the question, which the pane then checks by size.
+#[tauri::command]
+pub async fn agent_file_hashes(
+    fleet: Machines<'_>,
+    machine_id: String,
+    root: String,
+    paths: Vec<String>,
+) -> Result<Option<Vec<Option<String>>>> {
+    let hashes = match work_copy::hashes(&fleet, &machine_id, &root, paths.clone()).await {
+        Some(hashes) => Some(hashes),
+        None => {
+            let machine = fleet.machine(&machine_id)?;
+            direct::hashes(&fleet, machine, &root, paths).await?
+        }
+    };
+    Ok(hashes.map(|hashes| {
+        hashes
+            .into_iter()
+            .map(|hash| hash.map(|hash| STANDARD.encode(hash)))
+            .collect()
+    }))
+}
+
 /// The first `TEXT_CAP` bytes of the file `path` in `root`, for the text view.
 #[tauri::command]
 pub async fn agent_tree_text(

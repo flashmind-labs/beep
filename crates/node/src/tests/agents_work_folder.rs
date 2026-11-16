@@ -317,3 +317,32 @@ fn large_project_uploads_complete_on_disk_without_a_size_cap() {
     file.read_exact(&mut last).unwrap();
     assert_eq!(last, *b"z");
 }
+
+#[test]
+fn a_hash_changes_with_the_content_and_an_unchanged_file_is_not_read_again() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("site")).unwrap();
+    let page = dir.path().join("site/index.html");
+    fs::write(&page, "color: #fff").unwrap();
+    let root = root_in(&dir);
+    let ask = |path: &str| hashes(&root, &[path.to_owned()])[0];
+    let first = ask("site/index.html").expect("a file has a hash");
+
+    // Same size, new content, a later time: a new hash.
+    fs::write(&page, "color: #000").unwrap();
+    let file = fs::File::options().write(true).open(&page).unwrap();
+    let later = SystemTime::now() + std::time::Duration::from_secs(5);
+    file.set_modified(later).unwrap();
+    let second = ask("site/index.html").expect("a file has a hash");
+    assert_ne!(first, second);
+
+    // The same size and time again are taken as unchanged: the kept hash
+    // comes back, though the bytes differ, as the file is not read.
+    fs::write(&page, "color: #abc").unwrap();
+    file.set_modified(later).unwrap();
+    assert_eq!(ask("site/index.html"), Some(second));
+
+    assert_eq!(ask("site/gone.html"), None);
+    assert_eq!(ask("site"), None);
+    assert_eq!(ask("../outside"), None);
+}

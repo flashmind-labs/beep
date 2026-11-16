@@ -18,6 +18,7 @@ import { changeListeners, PANE, S } from "../bar/core.ts";
 import { focusChanges, revalidateChanges } from "./changes.ts";
 import { pointFilesAt } from "./files.ts";
 import { paneRoot, startWorktrees } from "./worktree.ts";
+import { unfollowFiles } from "./reload.ts";
 import { dropTerm, killTerm, type PaneTerm, type TermPlace } from "./terminal.ts";
 import type { TerminalRow } from "../terminals/terminals.tsx";
 import { newTermLike } from "../terminals/newkey-state.ts";
@@ -669,7 +670,7 @@ function dropTab(t: MediaTab) {
 
 // Leaving the session view lets go of what its tabs hold. Files and Changes
 // keep their views of the last few folders, to show again as they were.
-changeListeners.push(() => { if (S.view !== "agent") { closePaneTabs(); P.watch?.disconnect(); P.watch = null; watchShell(null); } });
+changeListeners.push(() => { if (S.view !== "agent") { closePaneTabs(); unfollowFiles(); P.watch?.disconnect(); P.watch = null; watchShell(null); } });
 
 function loadLayout(): PaneLayout {
   try { return readLayout(localStorage.getItem(KEY)); } catch { return readLayout(null); }

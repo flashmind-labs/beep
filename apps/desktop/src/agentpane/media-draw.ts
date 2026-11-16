@@ -16,6 +16,7 @@ import { togglePreview } from "./text-view.tsx";
 import type { IconName } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { runningCount } from "./running.ts";
+import { followFiles } from "./reload.ts";
 import { onShownChange } from "../ui/active.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
@@ -55,6 +56,7 @@ export function draw() {
   if (drag?.ghost) return;
   const split = docked();
   for (const d of DOCKS) syncDock(d, split[d]);
+  followFiles();
   publish(split);
 }
 
@@ -66,6 +68,7 @@ export function flipTab(d: Dock) {
   const ids = docked()[d];
   if (ids.length !== docks[d].tabs.length || ids.some((id, i) => docks[d].tabs[i].id !== id)) return false;
   syncDock(d, ids);
+  followFiles();
   setPaneModel({ docks: { ...docks, [d]: dockModel(d, ids) } });
   refreshTopicSubscriptions();
   return true;

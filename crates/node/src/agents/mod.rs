@@ -74,7 +74,7 @@ host! {
     mod work_folder;
     mod worktrees;
 
-    pub use work_folder::{local_read, local_tree};
+    pub use work_folder::{local_hashes, local_read, local_tree};
 
     pub(crate) use acp::{Line, LineReader};
     pub(crate) use images::{Picture, block_picture};
