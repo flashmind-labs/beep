@@ -479,6 +479,25 @@ impl Status {
             .collect()
     }
 
+    /// The machines `updatable` names whose beep-node is older than
+    /// `latest`. This Mac's node is the desktop's build, so it is left out.
+    pub fn behind(&self, latest: &semver::Version) -> Vec<Device> {
+        self.shared
+            .peers()
+            .values()
+            .filter(|peer| {
+                peer.online && peer.offers(update::PROTOCOL) && peer.device.id != self.me
+            })
+            .filter(|peer| {
+                peer.version
+                    .as_deref()
+                    .and_then(|version| semver::Version::parse(version).ok())
+                    .is_some_and(|version| version < *latest)
+            })
+            .map(|peer| peer.device.clone())
+            .collect()
+    }
+
     /// The machines that are on and serve `protocol`, this Mac among them
     /// while its node runs.
     pub fn offering(&self, protocol: &str) -> Vec<EndpointId> {

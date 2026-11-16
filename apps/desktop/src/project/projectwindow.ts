@@ -74,7 +74,7 @@ export function route(scope: ProjectScope | null, page: Location): Route {
 }
 
 /// What the main window is asked to show (`CenterTarget` in center.rs).
-export type CenterTarget = "home" | "settings" | "instructions" | "providers" | "terminals" | "report"
+export type CenterTarget = "home" | "settings" | "instructions" | "providers" | "terminals" | "machines" | "report"
   | { agent: AgentTarget } | { projects: { project: string | null; run?: { id: number; host: string } | null } } | { notice: { session: string | null } };
 
 /// A coding agent session for the main window, every field filled as

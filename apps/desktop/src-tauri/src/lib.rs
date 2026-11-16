@@ -735,6 +735,8 @@ fn setup(
     tauri::async_runtime::spawn(notices::serve(handle.clone(), direct));
     tauri::async_runtime::spawn(palette::lists::follow(handle.clone()));
     tauri::async_runtime::spawn(platform::update::follow(handle.clone()));
+    #[cfg(desktop)]
+    tauri::async_runtime::spawn(machines::node_updates::follow(handle.clone()));
     tauri::async_runtime::spawn(tray::waiting::follow(handle.clone()));
     let desks = app.state::<Arc<beep_fleet::Session>>().inner().clone();
     tauri::async_runtime::spawn(notices::follow(handle.clone(), fleet.clone(), desks));
