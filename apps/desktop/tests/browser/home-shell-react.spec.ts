@@ -52,7 +52,7 @@ test("Git issue list loads more rows while scrolling", async ({ page }) => {
 });
 
 test("Home lists pull requests and issues by repository, unfolded, with their buttons under the pointer", async ({ page }) => {
-  const item = (number: number, kind: string) => ({ host: "example.test", repo: "org/repo", number, title: `Change ${number}`, kind, url: `https://example.test/org/repo/${number}`, updated_at: 1, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: ["bug"] });
+  const item = (number: number, kind: string) => ({ host: "example.test", repo: "example/widget", number, title: `Change ${number}`, kind, url: `https://example.test/org/repo/${number}`, updated_at: 1, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: ["bug"] });
   await openDesktop(page, false, { git_items: { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items: [item(1, "pull_request"), item(2, "issue"), item(3, "issue")] }, agent_hosts: [] });
   await page.getByRole("tab", { name: "PRs and issues" }).click();
   const pulls = page.locator("#sec-git .cc-cols > .pl").first(), issues = page.locator("#sec-git .cc-cols > .pl").nth(1);
@@ -60,11 +60,11 @@ test("Home lists pull requests and issues by repository, unfolded, with their bu
   await expect(pulls.locator(".it")).toHaveCount(1);
   await expect(issues.locator(".pl-head")).toContainText("1 repo · 2 open");
   await expect(issues.locator(".it")).toHaveCount(2);
-  const row = pulls.locator(".it"), review = row.getByRole("button", { name: "Review" });
+  const row = pulls.locator(".it"), review = row.getByRole("button", { name: "Review with agent" });
   await expect(review).toHaveCount(0);
   await row.hover();
   await expect(review).toBeVisible();
-  await issues.getByRole("button", { name: /org\/repo/ }).click();
+  await issues.getByRole("button", { name: /example\/widget/ }).click();
   await expect(issues.locator(".it")).toHaveCount(0);
 });
 
