@@ -54,9 +54,9 @@ export function keepUnchanged(before: HomeView | null, after: HomeView): HomeVie
   return changed ? kept : null;
 }
 
-/// A Needs you row: a title, one muted line and its one button, which opens the session.
-export function needsLine(n: Pick<NeedsYou, "agent" | "title" | "machine_name"> & { question: Pick<AgentQuestion, "text"> }) {
-  return { title: n.question.text, sub: [agentName(n.agent), n.title || n.machine_name].filter(Boolean).join(" · "), button: "Answer" };
+/// A Needs you row: the question as its title, and one muted line.
+export function needsLine(n: Pick<NeedsYou, "agent" | "title" | "machine_name"> & { question: Pick<AgentQuestion, "text" | "detail"> }) {
+  return { title: n.question.text, sub: [n.question.detail, agentName(n.agent), n.title || n.machine_name].filter(Boolean).join(" · ") };
 }
 
 /// The machines online in `home`, as a key that changes when one connects.

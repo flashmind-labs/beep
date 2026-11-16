@@ -27,7 +27,7 @@ test("Home kept from before says its machines are connecting until Home is read"
   await holdFromStart(page, "center_home");
   await openDesktop(page, false, { center_cached: { home: home(true, false) }, center_home: home(true, false) });
   const strip = page.locator(".cc-mstrip .m").filter({ hasText: "build-box" });
-  const row = page.locator("#sec-needs .bd-card").filter({ hasText: "Fix the build script" });
+  const row = page.locator("#sec-running .bd-card").filter({ hasText: "Fix the build script" });
 
   await expect(strip).toContainText("connecting");
   await expect(strip.locator(".ddot.dial")).toHaveCount(1);

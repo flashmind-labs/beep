@@ -9,7 +9,6 @@ import { SettingRow } from "./overview-view.tsx";
 
 const LAYOUTS: readonly { id: FrontLayout; label: string }[] = [{ id: "board", label: "Board" }, { id: "list", label: "List" }];
 const FRONT_PAGES: readonly { page: FrontPage; name: string; note: string }[] = [
-  { page: "home", name: "Home", note: "Lanes of cards, or sections of rows" },
   { page: "project", name: "Projects", note: "A project's front page" },
 ];
 // React Aria sets up global listeners on load, so it loads with the view that

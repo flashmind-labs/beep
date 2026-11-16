@@ -127,13 +127,13 @@ async function readPluginSkins() {
   apply();
 }
 
-/// How Home and a project's front page lay out, each on its own: the board, or the
-/// sections and rows before it. Picked in Settings, under Appearance.
+/// How a project's front page lays out: the board, or the sections and rows
+/// before it. Picked in Settings, under Appearance.
 export type FrontLayout = "board" | "list";
-export type FrontPage = "home" | "project";
+export type FrontPage = "project";
 const layoutKey = (page: FrontPage) => `beep.layout.${page}`;
 const kept = (page: FrontPage): FrontLayout => { try { return localStorage.getItem(layoutKey(page)) === "list" ? "list" : "board"; } catch { return "board"; } };
-const layouts: Record<FrontPage, FrontLayout> = { home: kept("home"), project: kept("project") };
+const layouts: Record<FrontPage, FrontLayout> = { project: kept("project") };
 export const frontLayout = (page: FrontPage) => layouts[page];
 /// Called when the user picks a layout: every page that shows it draws again.
 export const layoutChanged = new Set<() => void>();

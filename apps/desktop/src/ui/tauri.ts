@@ -140,6 +140,9 @@ let nextInvocation = 0;
 let traceCommands = false;
 void core.invoke<boolean>("desktop_trace_enabled").then(enabled => { traceCommands = enabled === true; }).catch(() => {});
 
+/// Whether a command was refused as a conflict, such as a question another device answered first.
+export const conflicted = (error: unknown) => /^conflict/i.test(String(error));
+
 export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>, within?: number): Promise<T> {
   const request = ++nextInvocation;
   const started = performance.now();

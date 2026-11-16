@@ -24,7 +24,7 @@ export function projectCards({ project, running, past, openTile }: {
 
   for (const row of byRecent(running)) {
     const lane = laneOf(row.status), open = () => go("pane", { agent: row }), line = runningLineAt(row, projects);
-    cards.push({ key: runningKey(row), lane, project, session: true, lead: <HarnessIcon agent={row.agent}/>, title: line.title, sub: withoutProject(line.sub, project),
+    cards.push({ key: runningKey(row), lane, project, color: null, session: true, lead: <HarnessIcon agent={row.agent}/>, title: line.title, sub: withoutProject(line.sub, project),
       foot: <RunningStatus row={row} doing/>,
       action: lane === "needs" ? { kind: "run", label: "Answer", primary: true, run: open } : null, dim: false, hint: null, open,
       menu: event => { void sessionMenu(event, row, session => go("pane", { agent: session })); } });
@@ -33,12 +33,12 @@ export function projectCards({ project, running, past, openTile }: {
   const detail = fsync.detail(project);
 
   for (const conflict of conflictList(detail)) {
-    cards.push({ windowProps: projectWindowProps(project), key: `sync:${conflict.path}`, lane: "needs", project, session: false, lead: <span style={{ display: "contents" }}><Icon name="sync"/></span>, title: conflict.path,
+    cards.push({ windowProps: projectWindowProps(project), key: `sync:${conflict.path}`, lane: "needs", project, color: null, session: false, lead: <span style={{ display: "contents" }}><Icon name="sync"/></span>, title: conflict.path,
       sub: conflictSub(null, conflict, detail?.machines ?? []), foot: null, action: { kind: "run", label: "Resolve", primary: false, windowProps: projectWindowProps(project), run: () => openTile("machines") }, dim: false, hint: conflict.path, open: () => openTile("machines"), menu: null });
   }
 
   for (const session of endedToday(past, Date.now())) {
-    cards.push({ key: runningKey(session), lane: "done", project, session: true, lead: <HarnessIcon agent={session.agent}/>, ...runningLine(session, projects),
+    cards.push({ key: runningKey(session), lane: "done", project, color: null, session: true, lead: <HarnessIcon agent={session.agent}/>, ...runningLine(session, projects),
       foot: formatAgo(session.last_activity, "since"), action: null, dim: false, hint: null, open: () => go("pane", { agent: { kind: "agent", ...session } }), menu: null });
   }
 

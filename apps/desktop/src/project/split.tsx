@@ -248,7 +248,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     pa.blank = !cards.length && !isMobile();
     if (pa.blank) return [viewPart("strip", strip)];
     return [viewPart("strip", strip), viewPart("board", <Parts className="pj-board" parts={[
-      viewPart("lanes", <Board cards={cards} more={{ working: () => openTile("running"), done: () => openTile("agents") }} rows={null} beside={<WandererArt/>}/>),
+      viewPart("lanes", <Board cards={cards} more={{ working: () => openTile("running"), done: () => openTile("agents") }} beside={<WandererArt/>}/>),
     ]} />)];
   }
 

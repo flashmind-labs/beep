@@ -249,7 +249,7 @@ function light(el: HTMLElement | null, ms: number) {
 /// The scrollers that can hold a board, and the board items they stop at. An item belongs
 /// to the nearest scroller around it. A scroller showing no board item scrolls freely.
 const LISTS = [".cc-view", ".pj-det", ".pj-board", ".bd-lane.cell"].join(", ");
-const ITEMS = [".bd-rows > .pj", ".bd-card"].join(", ");
+const ITEMS = [".bd-card"].join(", ");
 
 /// The first part of a swipe moves one item and every further stretch one more; a pause
 /// longer than the gap starts a new swipe. A list that reached its end holds the next

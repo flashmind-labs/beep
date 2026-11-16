@@ -1,6 +1,6 @@
 import { parseProjectSort, type ProjectSort } from "./overview-state.ts";
 
-export type ProjectSortPage = "home" | "projects";
+export type ProjectSortPage = "projects";
 
 export function readProjectSort(page: ProjectSortPage): ProjectSort {
   try { return parseProjectSort(localStorage.getItem(`beep.${page}.sort`)); } catch { return "default"; }

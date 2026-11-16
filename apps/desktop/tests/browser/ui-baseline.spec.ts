@@ -180,7 +180,7 @@ const gitItems = [
 
 test("home overview", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
-  await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
+  await expect(page.locator("#sec-running .bd-card").first()).toBeVisible();
   await baseline(page, "home-overview");
 });
 
@@ -205,7 +205,7 @@ test("assistant page", async ({ page }) => {
 
 test("assistant page empty", async ({ page }, info) => {
   await openDesktop(page, false, { center_home: home, agent_sessions: [], agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null } });
-  await expect(page.locator("#sec-needs")).toBeVisible();
+  await expect(page.locator("#sec-running")).toBeVisible();
   // Cmd+N on Home lands on the page with a new chat.
   await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
   await expect(page.locator(".asst-list")).toBeVisible();
@@ -759,7 +759,7 @@ test("phone home", async ({ page }) => {
   await page.setViewportSize(PHONE);
   await openDesktop(page, false, { center_home: home });
   await expect(page.locator("body")).toHaveClass(/mobile/);
-  await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
+  await expect(page.locator("#sec-running .bd-card").first()).toBeVisible();
   await baseline(page, "phone-home");
 });
 
@@ -806,7 +806,7 @@ test("unfolded foldable home", async ({ page }) => {
   await page.addInitScript(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
   await page.setViewportSize({ width: 690, height: 830 });
   await openDesktop(page, false, { center_home: home, mobile_paired: true });
-  await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
+  await expect(page.locator("#sec-running .bd-card").first()).toBeVisible();
   await expect(page.locator("body")).not.toHaveClass(/mobile/);
   await expect(page.locator("#side kbd")).toHaveCount(0);
   await baseline(page, "foldable-home");
