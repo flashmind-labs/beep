@@ -20,7 +20,7 @@ use crate::files::sync::{
 use crate::files::{fsat::Dir, transfer::place::Folder};
 use crate::{files::transfer::place::Partial, read_lock};
 use anyhow::{Context, Result, anyhow, bail};
-use beep_proto::node::sync::{MAX_WAITING, State as SyncState};
+use beep_proto::node::sync::{FileProgress, MAX_WAITING, State as SyncState};
 use iroh_blobs::Hash;
 use std::{
     collections::{HashSet, VecDeque},
@@ -534,7 +534,7 @@ impl Task {
         }
 
         let hash = Hash::from_bytes(file.hash);
-        let fetched = self.blob_from(ahead, hash, round).await?;
+        let fetched = self.blob_from(ahead, &work.path, &file, round).await?;
         let started = Instant::now();
         let partial = match &round.partial {
             Some(partial) => partial,
@@ -620,14 +620,16 @@ impl Task {
         Ok(())
     }
 
-    /// Waits for what `ahead` gets of `hash`, putting the batch in place
-    /// meanwhile if it has waited long enough.
+    /// Waits for what `ahead` gets of `file` at `path`, putting the batch
+    /// in place meanwhile if it has waited long enough.
     async fn blob_from(
         &mut self,
         ahead: &mut Ahead,
-        hash: Hash,
+        path: &str,
+        file: &FileMeta,
         round: &mut Round,
     ) -> Result<Option<Fetched>> {
+        let hash = Hash::from_bytes(file.hash);
         let started = Instant::now();
         let mut shown = started;
         let got = loop {
@@ -646,9 +648,15 @@ impl Task {
             if shown.elapsed() >= SHOW_EVERY {
                 shown = Instant::now();
                 self.count_received(round);
+                round.meter.waits_on(Some(FileProgress {
+                    path: path.to_owned(),
+                    done: self.fetcher.coming(&hash),
+                    size: file.size,
+                }));
                 self.show_progress(&round.meter);
             }
         };
+        round.meter.waits_on(None);
         round.waited += started.elapsed();
         got
     }

@@ -301,7 +301,7 @@ fn sync_line(status: &ProjectStatus) -> String {
             status.error.as_deref().unwrap_or("no reason given")
         ),
         SyncState::Paused => "paused by the user".to_owned(),
-        _ => match status.progress {
+        _ => match &status.progress {
             Some(progress) => format!(
                 "syncing, {} of {} files",
                 progress.files_done, progress.files_total

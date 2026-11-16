@@ -1,6 +1,6 @@
 // What the "Add a project to a machine" sheet shows, as pure functions.
 // addmachine.tsx draws it.
-import { rateText, syncPct, syncedBySyncthing, timeLeft, type SyncDetail } from "./filesync.ts";
+import { fileText, rateText, syncPct, syncedBySyncthing, timeLeft, type SyncDetail } from "./filesync.ts";
 import { bytes } from "../ui/format.ts";
 import type { MachineFolder } from "./projects-state.ts";
 import { projectUnder } from "../addproject/importproject-state.ts";
@@ -49,6 +49,8 @@ export interface CopyLine {
   text: string;
   /// How far it is, 0 to 100, while the machine syncs; null otherwise.
   pct: number | null;
+  /// The large file it waits on and how much of it came, while it comes.
+  file: string | null;
   /// Why it is not moving, or what went wrong.
   note: string | null;
   done: boolean;
@@ -56,7 +58,7 @@ export interface CopyLine {
 
 /// "Copying to laptop: 12 MB of 25 MB · 1.2 MB/s · under a minute" while
 /// the machine says how far it is, else "Copying to laptop: 1,204 of 1,880
-/// files". The total is what the machines that have the project hold; with
+/// files", with the large file it waits on under it. The total is what the machines that have the project hold; with
 /// none of them answering, only the count that is known shows.
 export function copyLine(detail: SyncDetail | null | undefined, machineId: string, machineName: string): CopyLine {
   const machines = detail?.machines || [];
@@ -73,5 +75,5 @@ export function copyLine(detail: SyncDetail | null | undefined, machineId: strin
     : machines.some(syncedBySyncthing) ? "Synced by Syncthing"
     : me?.error ?? null;
   const done = !!me && !!total && have >= total && me.status === "in_sync";
-  return { text, pct: me ? syncPct(me) : null, note, done };
+  return { text, pct: me ? syncPct(me) : null, file: fileText(p?.file ?? null) || null, note, done };
 }

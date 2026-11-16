@@ -22,6 +22,15 @@ interface SyncProgress {
   /// Bytes a second; 0 before it can tell.
   rate: number;
   eta_secs: number | null;
+  /// The file it waits on while it comes.
+  file: FileProgress | null;
+}
+
+/// How much of one file has come.
+interface FileProgress {
+  path: string;
+  done: number;
+  size: number;
 }
 
 /// One machine's sync of the project (MachineDetailRow).
@@ -290,6 +299,11 @@ export function rateText(rate: number | null | undefined) {
   return rate && rate > 0 ? `${bytes(rate)}/s` : "";
 }
 
+/// "pack-1a2b.pack: 12 MB of 40 MB" for the file a sync waits on, or "".
+export function fileText(file: FileProgress | null) {
+  return file ? `${file.path.slice(file.path.lastIndexOf("/") + 1)}: ${bytes(file.done)} of ${bytes(file.size)}` : "";
+}
+
 /// "under a minute", "about 1 min", "about 12 min", "about 2 h", or ""
 /// before it can tell.
 export function timeLeft(secs: number | null | undefined) {
@@ -379,6 +393,7 @@ export function machineMeta(m: Pick<MachineDetail, "status" | "paused" | "progre
       p.bytes_total ? `${bytes(p.bytes_done)} of ${bytes(p.bytes_total)}` : "",
       rateText(p.rate),
       timeLeft(p.eta_secs),
+      fileText(p.file),
     ].filter(Boolean);
   }
 

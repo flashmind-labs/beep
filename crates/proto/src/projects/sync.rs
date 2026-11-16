@@ -1,5 +1,7 @@
 //! Project sync between machines.
 
+use crate::node::sync::FileProgress;
+
 wire_structs! {
     /// One project's sync in detail.
     pub struct ProjectSyncDetail {
@@ -36,6 +38,9 @@ wire_structs! {
         pub rate: u64,
         /// Seconds left at that rate; `None` before it can tell.
         pub eta_secs: Option<u32>,
+        /// The file it waits on while it comes.
+        #[serde(default)]
+        pub file: Option<FileProgress>,
     }
 }
 

@@ -1,7 +1,7 @@
 //! How far one round of bringing files in line is, and how fast it moves.
 //! Times are passed in, so it runs on any clock.
 
-use beep_proto::node::sync::{MAX_WAITING, Progress};
+use beep_proto::node::sync::{FileProgress, MAX_WAITING, Progress};
 use std::collections::VecDeque;
 use tokio::time::{Duration, Instant};
 
@@ -31,6 +31,8 @@ pub(super) struct Meter {
     brought: u64,
     /// The bytes fetched from peers this round, done or not.
     received: u64,
+    /// The file the round waits on, while it comes.
+    file: Option<FileProgress>,
     samples: VecDeque<Sample>,
 }
 
@@ -45,6 +47,7 @@ impl Meter {
             bytes_total,
             brought: 0,
             received: 0,
+            file: None,
             samples: VecDeque::from([Sample { at: now, bytes: 0 }]),
         }
     }
@@ -65,6 +68,11 @@ impl Meter {
 
         self.received = bytes;
         self.sample(now);
+    }
+
+    /// The file the round waits on while it comes, or `None` once it is here.
+    pub(super) fn waits_on(&mut self, file: Option<FileProgress>) {
+        self.file = file;
     }
 
     /// The bytes that moved: those brought in line, or those received when
@@ -121,6 +129,7 @@ impl Meter {
             bytes_total: self.bytes_total,
             rate,
             eta_secs: eta(self.bytes_total.saturating_sub(bytes_done), rate),
+            file: self.file.clone(),
         }
     }
 }

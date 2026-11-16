@@ -51,6 +51,7 @@ fn the_detail_keeps_each_machine_s_progress_and_what_it_can_do() {
                 bytes_total: 210,
                 rate: 2,
                 eta_secs: Some(60),
+                file: None,
             }),
             waiting: vec!["src/main.rs".into()],
             can_resolve: true,
