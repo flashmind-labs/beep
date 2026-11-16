@@ -527,12 +527,17 @@ impl Actor {
             return;
         }
 
-        if self.queued.is_empty() && self.steers.is_empty() {
+        let waiting = !(self.queued.is_empty() && self.steers.is_empty());
+
+        // A conversation past the threshold compacts as soon as its turn
+        // ends, so the next message need not wait for it. A session that
+        // moves with nothing waiting leaves it to its new machine.
+        if (waiting || !self.moving) && self.compactor.start(!self.asked.is_empty()) {
+            self.compact(cx, &session);
             return;
         }
 
-        if self.compactor.start(!self.asked.is_empty()) {
-            self.compact(cx, &session);
+        if !waiting {
             return;
         }
         // A steer goes ahead of the prompts queued for after the turn.

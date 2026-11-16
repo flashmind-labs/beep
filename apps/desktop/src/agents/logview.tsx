@@ -39,7 +39,7 @@ import { modelLabel } from "./agentpick.ts";
 import { knownModels, modelsOn } from "./agentpicker.tsx";
 import { drawModes } from "./modepill.tsx";
 import { backgroundedEntry, drawTasks, runs } from "./tasks.tsx";
-import { waitLine, type BackgroundWork } from "./waiting-state.ts";
+import { COMPACTING, waitLine, type BackgroundWork } from "./waiting-state.ts";
 import { drawQueue, questionKey } from "./messages.ts";
 import { olderNote } from "./older-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
@@ -717,7 +717,8 @@ function turnUnits(p: AgentPage, news: boolean): Unit[] {
       const shownTitle = newest != null ? toolParts(entry(newest))?.title.trim() : "";
       const liveDoing = state === "working" && doing !== "Thinking" && !(shownTitle && (shownTitle.includes(doing) || doing.includes(shownTitle))) ? doing : "";
       // Replied, but subagents or commands in the background hold the turn open.
-      const wait = state === "working" && t.answer.length ? waitLine(backgroundWork(p)) : null;
+      // A compaction the node started after the reply says so instead.
+      const wait = state === "working" && t.answer.length && status !== COMPACTING ? waitLine(backgroundWork(p)) : null;
       const live: ActivityRow | null = !running ? null : wait ? { kind: "waiting", id: String(t.key), line: wait } : { kind: "live", id: String(t.key), state, thinking, start: start ?? null, doing: liveDoing };
       return [...user(), ...(head ? [head] : []), ...work, ...(live ? [live] : [])];
     };
