@@ -101,7 +101,6 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_qr_scan::init());
     builder
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(artifacts::Pages::default())
         .manage(Arc::new(chat::clipboard::ImageClipboard::default()))
@@ -267,7 +266,7 @@ pub fn run() {
             bar::app::quit,
             bar::app::set_agent_notices,
             bar::app::set_developer_mode,
-            bar::app::choose_save_folder,
+            bar::app::set_save_folder,
             bar::app::use_downloads,
             bar::app::set_autostart,
             bar::app::set_mac_control,
@@ -386,6 +385,7 @@ pub fn run() {
             projects::branches::preview_import,
             projects::file_sync::project_sync,
             projects::file_sync::project_syncthing_files,
+            projects::file_sync::syncthing_in_use,
             projects::git_sync::project_git_move,
             projects::file_sync::project_handoff_work,
             projects::file_sync::project_git_auto_recovery,
@@ -401,7 +401,6 @@ pub fn run() {
             projects::groups::project_group_save,
             projects::groups::project_groups,
             projects::import::found_projects,
-            projects::import::folder_branch,
             projects::import::found_machines,
             projects::import::rescan_found,
             projects::import::host_repos,
@@ -409,8 +408,8 @@ pub fn run() {
             projects::create::project_forges,
             projects::import::import_project,
             projects::import::list_machine_folder,
+            projects::import::list_machine_tree,
             projects::import::open_folder,
-            projects::import::pick_folder,
             projects::list::pin_project_to_top,
             projects::list::projects_on_top,
             projects::list::remove_project,

@@ -91,7 +91,8 @@ function installFake(options: FakeOptions): void {
 
 async function openPlugins(page: Page, options: Partial<FakeOptions> = {}) {
   const errors = pageErrors(page);
-  await openDesktop(page, false, { settings, list_machines: [], list_credentials: [], list_github_accounts: [] });
+  const folder = { path: "/srv/plugins/cat", parent: "/srv/plugins", exists: true, folders: [], more: 0, empty: false, origin: null, repos: [] };
+  await openDesktop(page, false, { settings, list_machines: [], list_credentials: [], list_github_accounts: [], mac_control: { id: "local" }, list_machine_folder: folder });
   await page.evaluate(installFake, { plugins, failRemove: false, ...options });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const sheet = page.getByRole("dialog", { name: "Settings" });
@@ -256,8 +257,10 @@ test("a folder without a manifest fails next to the install buttons", async ({ p
   const { sheet } = await openPlugins(page);
 
   await sheet.getByRole("button", { name: "Install from folder…" }).click();
+  await page.getByRole("option", { name: /Use this folder/ }).click();
 
   await expect(sheet.getByRole("alert")).toContainText("There is no beep-plugin.json");
+  expect(await calls(page, "plugins_stage_folder")).toEqual([{ folder: "/srv/plugins/cat" }]);
   await expect(sheet.getByRole("button", { name: "Install from folder…" })).toBeEnabled();
 });
 
@@ -337,7 +340,8 @@ test("an empty list says what plugins are and offers both installs", async ({ pa
 
 test("a list that cannot be read says so and tries again", async ({ page }) => {
   const errors = pageErrors(page);
-  await openDesktop(page, false, { settings, list_machines: [], list_credentials: [], list_github_accounts: [] });
+  const folder = { path: "/srv/plugins/cat", parent: "/srv/plugins", exists: true, folders: [], more: 0, empty: false, origin: null, repos: [] };
+  await openDesktop(page, false, { settings, list_machines: [], list_credentials: [], list_github_accounts: [], mac_control: { id: "local" }, list_machine_folder: folder });
   await page.evaluate(() => {
     const core = window.__TAURI__.core;
     const before: (command: string, args?: Record<string, unknown>) => Promise<unknown> = core.invoke.bind(core);
@@ -359,7 +363,8 @@ test("a list that cannot be read says so and tries again", async ({ page }) => {
 });
 
 test("a phone lists no Plugins page", async ({ page }) => {
-  await openDesktop(page, false, { settings, list_machines: [], list_credentials: [], list_github_accounts: [] });
+  const folder = { path: "/srv/plugins/cat", parent: "/srv/plugins", exists: true, folders: [], more: 0, empty: false, origin: null, repos: [] };
+  await openDesktop(page, false, { settings, list_machines: [], list_credentials: [], list_github_accounts: [], mac_control: { id: "local" }, list_machine_folder: folder });
   await page.evaluate(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const sheet = page.getByRole("dialog", { name: "Settings" });

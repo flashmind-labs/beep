@@ -1,23 +1,23 @@
-import { type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { AddFolderView } from "./addfolder-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
-// The "Add a folder" sheet: a machine (this Mac first), a folder on it, what
-// that folder is (a checkout, its remote and branch), then Add project, which
-// adds the checkout in place with no clone. Choose… opens the macOS folder
-// picker on this Mac, only when clicked, and the folder browser elsewhere.
+import { SyncthingChoice } from "../project/syncthing-choice.tsx";
+// The "Add a folder" sheet: a machine (this computer first) and a palette of
+// its folders, opened in the folder it keeps projects in. A checkout with an
+// origin remote offers Add, which adds it in place with no clone.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.tsx";
-import { keepLastImport } from "./importproject.tsx";
-import { chooseWith, nextFolder, repoOf, startOn } from "./addfolder-state.ts";
-import type { FolderEvent, FolderState } from "./addfolder-state.ts";
+import { keepLastImport, projectsIn } from "./importproject.tsx";
+import { cleanError, repoFromRemote } from "./importproject-state.ts";
+import { noOffer, startOn } from "./addfolder-state.ts";
+import type { FolderOffer } from "../project/addmachine-state.ts";
 import type { MachineFolder, ProjectRow } from "../project/projects-state.ts";
 
 /// What the window hands the sheet.
 export interface AddFolderOptions {
   /// The machines Home lists.
   machines?: readonly { id: string; name: string; online: boolean; can_host?: boolean }[];
-  /// This Mac's machine id, when it is one.
+  /// This computer's machine id, when it is one.
   macId?: string | null;
   /// Runs once the project is in.
   onDone?: ((project: ProjectRow) => void) | null;
@@ -25,123 +25,64 @@ export interface AddFolderOptions {
   onBack?: (() => void) | null;
 }
 
-let syncthing = syncthingImportChoice();
-let root: HTMLDivElement | null = null, close: (() => void) | null = null;
-let opts: AddFolderOptions = {};
-let state: FolderState = startOn([], null);
-/// A folder is being read, so the folder buttons wait.
-let reading = false;
-let view: ((content: ReactNode) => void) | null = null, opening = 0, branchRequest = 0;
-
-/// Opens the sheet on this Mac. Nothing opens the folder picker until Choose….
+/// Opens the sheet; each opening has its own state.
 export function openAddFolder(options: AddFolderOptions = {}) {
-  if (root) return;
-  opening++;
-  syncthing = syncthingImportChoice();
-  opts = { ...options, machines: options.machines?.filter(m => m.can_host !== false) };
-  state = startOn(opts.machines || [], opts.macId || null);
-  reading = false;
-  ({ root, close, render: view } = openSheet("Add a folder", "am-sheet ip-sheet", {
-    canClose: () => state.step !== "adding",
-    onClose: closed,
-  }));
-  draw();
-}
+  const machines = (options.machines ?? []).filter(m => m.online && m.can_host !== false);
+  const syncthing = syncthingImportChoice();
+  /// Where each machine keeps its projects, once read.
+  const starts = new Map<string, string>();
+  let machine: string | null = null, adding = false, error: string | null = null, open = true;
+  const { close, render } = openSheet("Add a folder", "cc-pal fp", {
+    canClose: () => !adding,
+    onClose: () => { open = false; syncthing.dispose(); },
+  });
 
-function closed() {
-  syncthing.dispose();
-  view = null;
-  root = close = null;
-  const done = state.step === "done" ? state.project : null;
-  const then = opts.onDone;
-  opts = {};
-  if (done && then) then(done);
-}
+  const draw = () => {
+    if (!open) return;
+    flushSync(() => render(<AddFolderView
+      machines={machines} machine={machine} start={machine ? starts.get(machine) ?? null : null} adding={adding} error={error}
+      pick={pick} noteFor={noteFor} add={listing => void add(listing)} close={() => { if (adding) return; close(); options.onBack?.(); }}
+    />));
+  };
 
-function update(event: FolderEvent) {
-  if (event.type === "pick" || event.type === "choose") branchRequest++;
-  state = nextFolder(state, event);
-  void syncthing.follow(state.machine, state.chosen?.path ?? null);
-  if (root) draw();
-}
+  const pick = (id: string) => {
+    if (adding || id === machine) return;
+    machine = id;
+    error = null;
+    draw();
+    if (!starts.has(id)) void projectsIn(id).then(root => { starts.set(id, root); draw(); });
+  };
 
-/// Reads `path` (null for where the machine starts) on the picked machine.
-async function read(path: string | null, then: (listing: MachineFolder) => void) {
-  const machine = state.machine, mine = opening;
-  if (!machine || reading) return;
-  reading = true;
-  draw();
+  /// The Syncthing choice, which shows only for a folder Syncthing holds; or why a checkout cannot be added.
+  const noteFor = async (listing: MachineFolder, offer: FolderOffer | null) => {
+    if (!offer) return noOffer(listing);
 
-  try {
-    const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: machine, path });
-    if (mine === opening && root && state.machine === machine) then(listing);
-  } catch (e) {
-    if (mine === opening && root && state.machine === machine) update({ type: "oops", message: String(e) });
-  } finally {
-    if (mine === opening && root) { reading = false; draw(); }
-  }
-}
+    void syncthing.follow(machine, offer.path);
+    return <SyncthingChoice choice={syncthing} />;
+  };
 
-/// Picks `listing` and reads its branch when it is a checkout.
-function use(listing: MachineFolder) {
-  update({ type: "choose", listing });
-  const machine = state.machine, mine = opening, request = branchRequest;
-  if (listing.origin == null || !machine) return;
-  invoke<string | null>("folder_branch", { machineId: machine, path: listing.path })
-    .then(branch => branch, () => null)
-    .then(branch => { if (mine === opening && request === branchRequest && root && state.machine === machine) update({ type: "branch", path: listing.path, branch }); });
-}
+  const add = async (listing: MachineFolder) => {
+    if (adding || !machine) return;
+    adding = true;
+    error = null;
+    draw();
 
-const browseTo = (path: string | null) => read(path, listing => update({ type: "browse", listing }));
+    try {
+      const project = await invoke<ProjectRow>("import_project", {
+        repo: repoFromRemote(listing.origin), machineId: machine, folder: listing.path, worktrees: [], parent: null, syncthingFiles: syncthing.value(),
+      });
+      keepLastImport(project);
+      adding = false;
+      close();
+      options.onDone?.(project);
+    } catch (e) {
+      adding = false;
+      error = cleanError(String(e));
+      draw();
+    }
+  };
 
-/// Choose…: the macOS folder picker on this Mac, the folder browser elsewhere.
-async function choose() {
-  if (reading) return;
-  const how = chooseWith(state.machine, opts.macId || null);
-
-  if (how === "browser") {
-    browseTo(state.chosen?.path ?? null);
-    return;
-  }
-
-  if (how !== "picker") return;
-  const mine = opening, machine = state.machine;
-  let path: string | null = null;
-
-  try {
-    path = await invoke<string | null>("pick_folder", { start: state.chosen?.path ?? null });
-  } catch (e) {
-    if (mine === opening && root && state.machine === machine) update({ type: "oops", message: String(e) });
-  }
-
-  if (path && mine === opening && root && state.machine === machine) read(path, use);
-}
-
-async function submit() {
-  const was = state;
-  update({ type: "submit" });
-  if (state === was || !state.chosen) return;
-
-  const mine = opening, then = opts.onDone;
-  try {
-    const project = await invoke<ProjectRow>("import_project", {
-      repo: repoOf(state.chosen), machineId: state.machine, folder: state.chosen.path, worktrees: [], parent: null, syncthingFiles: syncthing.value(),
-    });
-    keepLastImport(project);
-    if (mine !== opening || !root) { then?.(project); return; }
-    update({ type: "done", project });
-  } catch (e) {
-    if (mine === opening && root) update({ type: "failed", message: String(e) });
-  }
-}
-
-function draw() {
-  if (!view) return;
-  const current = view;
-  flushSync(() => current(<AddFolderView
-    state={state} machines={opts.machines ?? []} reading={reading} sync={syncthing}
-    pick={(machine: string) => update({ type: "pick", machine })} choose={() => void choose()} browse={browseTo}
-    cancelBrowse={() => update({ type: "browse", listing: null })} use={use} submit={() => void submit()}
-    back={() => { const back = opts.onBack; close?.(); back?.(); }} close={() => close?.()}
-  />));
+  const first = startOn(machines, options.macId ?? null);
+  if (first) pick(first);
+  else draw();
 }

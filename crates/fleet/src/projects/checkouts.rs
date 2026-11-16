@@ -47,34 +47,48 @@ async fn look_at(seen: &Seen, folder: &str) -> Result<(FolderPath, MachineFolder
     Ok((asked, there))
 }
 
-/// The folder's path, out of the Syncthing share that holds it there: Beep's sync would wait on
-/// Syncthing, so nothing would ever arrive. The machine's ignore rules gain the project's folder
-/// before it is made. A project set to use Syncthing is refused instead.
-async fn leave_syncthing(
+/// The folder's path, made when missing and out of the Syncthing share that holds it there:
+/// Beep's sync would wait on Syncthing, so nothing would ever arrive. The node there reads the
+/// folder before its ignore rules gain it, so it is made first. A project set to use Syncthing
+/// is refused instead, before anything is made.
+async fn make_and_leave_syncthing(
     desk: &Desk,
     seen: &Seen,
+    asked: &FolderPath,
     there: MachineFolder,
     record: &ProjectRecord,
 ) -> Result<String> {
-    if !seen
+    let shared = seen
         .env
         .as_ref()
-        .is_some_and(|env| env.syncthing_folder(&there.path).is_some())
-    {
+        .is_some_and(|env| env.syncthing_folder(&there.path).is_some());
+    let sync = read::<ProjectSyncSettings>(&desk.mesh, &Key::ProjectSync).unwrap_or_default();
+    let leave = (record.syncthing_choice(&sync) != Some(true)).then_some(false);
+    let refused = || {
+        FleetError::refused(format!(
+            "Syncthing keeps {} in step on {}, and this project uses Syncthing. Choose another folder.",
+            there.path, seen.machine.name
+        ))
+    };
+
+    if shared && leave.is_none() && !there.exists {
+        return Err(refused());
+    }
+
+    if !there.exists {
+        folder::make(seen.machine.shell()?, &seen.machine.name, asked).await?;
+    }
+
+    if !shared {
         return Ok(there.path);
     }
 
-    let sync = read::<ProjectSyncSettings>(&desk.mesh, &Key::ProjectSync).unwrap_or_default();
-    let leave = (record.syncthing_choice(&sync) != Some(true)).then_some(false);
     let files = desk
         .syncthing_files(&seen.machine.id, &there.path, leave)
         .await?;
 
     if files.available && files.enabled {
-        return Err(FleetError::refused(format!(
-            "Syncthing keeps {} in step on {}, and this project uses Syncthing. Choose another folder.",
-            there.path, seen.machine.name
-        )));
+        return Err(refused());
     }
 
     Ok(there.path)
@@ -174,12 +188,7 @@ impl Desk {
 
         let (asked, there) = look_at(&seen, folder).await?;
         takes(self, &stored, &there)?;
-        let exists = there.exists;
-        let path = leave_syncthing(self, &seen, there, &stored.record).await?;
-
-        if !exists {
-            folder::make(seen.machine.shell()?, name, &asked).await?;
-        }
+        let path = make_and_leave_syncthing(self, &seen, &asked, there, &stored.record).await?;
 
         let _write = WRITES.lock().await;
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
@@ -236,12 +245,7 @@ impl Desk {
             )));
         }
 
-        let exists = there.exists;
-        let path = leave_syncthing(self, &seen, there, &stored.record).await?;
-
-        if !exists {
-            folder::make(seen.machine.shell()?, name, &asked).await?;
-        }
+        let path = make_and_leave_syncthing(self, &seen, &asked, there, &stored.record).await?;
 
         let _write = WRITES.lock().await;
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;

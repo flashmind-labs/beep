@@ -914,6 +914,23 @@ test("add a project", async ({ page }) => {
   await baseline(page, "add-project");
 });
 
+test("add a folder", async ({ page }) => {
+  const at = (path: string, folders: string[], repos: string[], origin: string | null = null) => ({ path, parent: path.slice(0, path.lastIndexOf("/")), exists: true, folders, more: 0, empty: false, origin, repos });
+  const machine_folders = {
+    "~": at("/home/dev", ["projects"], []),
+    "/home/dev/projects": at("/home/dev/projects", ["atlas", "harbor", "notes", "quill"], ["atlas", "harbor", "quill"]),
+    "/home/dev/projects/atlas": at("/home/dev/projects/atlas", ["docs", "src"], [], "https://example.test/example/atlas.git"),
+  };
+  const online = { ...home, machines: home.machines.map(m => ({ ...m, online: true })) };
+  await openDesktop(page, false, { center_home: online, machine_search: "/home/dev/projects", machine_folders, syncthing_in_use: true, project_syncthing_files: { available: true, enabled: true, label: "Projects" } });
+  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Choose folder" }).click();
+  const sheet = page.getByRole("dialog", { name: "Add a folder" });
+  await sheet.getByRole("option", { name: "atlas" }).click();
+  await expect(sheet.getByRole("checkbox", { name: "Keep Syncthing file sync" })).toBeVisible();
+  await baseline(page, "add-folder");
+});
+
 test("agent sign-in", async ({ page }) => {
   await openDesktop(page, false, {
     ...settingsResponses,
