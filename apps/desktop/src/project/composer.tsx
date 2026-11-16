@@ -22,7 +22,7 @@ import { commandKey, isMobile } from "../ui/platform.ts";
 import { filterProjects } from "./projects-state.ts";
 import { openMenu } from "../ui/menu.tsx";
 import { localProjectId } from "./localid.ts";
-import { addHosts, type BarPlace, type BarTarget, barCheckout, barPlace, barPrompt, barReadiness, blockedHosts, forgeOf, nextBarMachine, reviewPrompt, reviewSession, type ReviewSession, reviewTitle, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
+import { addHosts, type BarPlace, type BarTarget, barCheckout, barPlace, barPrompt, barReadiness, blockedHosts, fixedTitle, forgeOf, nextBarMachine, reviewPrompt, reviewSession, type ReviewSession, reviewTitle, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine, openAgents, openMachine, openMachines } from "../agents/agentnew.tsx";
 import { TASK_WORDS } from "../agents/assistant-state.ts";
 import type { Machine } from "../machines/machines.tsx";
@@ -33,6 +33,7 @@ import { AG, type AgentHost } from "../agents/agents.ts";
 import { draftPlace } from "../agents/draft.tsx";
 import { S } from "../bar/core.ts";
 import { ensureSessions, sessions } from "../agents/sessions.ts";
+import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { issueBranch, issuePrompt, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
 import { planStarts, type StartEntry, type StartRow } from "./openlist-state.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.tsx";
@@ -309,10 +310,14 @@ export function drawProjectComp(name: string) {
 /// machine, or null; none without a target.
 function barExisting(name: string, place: { machine_id: string; cwd: string }, t: BarTarget | null) {
   if (!t || !t.branch.trim()) return null;
-  // Where the branch list (read on one machine) found its worktree.
+  return sessionIn(sessions, place.machine_id, targetFolders(t, place.cwd, knownWorktree(name, place.machine_id, t)));
+}
+
+/// Where the branch list of project `name`, read on one machine, found the
+/// worktree of `t`'s branch when that machine is `machine`.
+function knownWorktree(name: string, machine: string, t: BarTarget) {
   const listed = pc.branches.get(name) as unknown as { machine_id?: string; branches: readonly { name: string; worktree?: string | null }[] } | null | undefined;
-  const known = listed?.machine_id === place.machine_id ? listed.branches.find(b => b.name === t.branch.trim())?.worktree : null;
-  return sessionIn(sessions, place.machine_id, targetFolders(t, place.cwd, known));
+  return listed?.machine_id === machine ? listed.branches.find(b => b.name === t.branch.trim())?.worktree : null;
 }
 
 /// Fills the bar for project `name` with `text` and `target`, on the
@@ -404,14 +409,24 @@ export async function continuePr(name: string, pr: PullRequestRow) {
   fillBar(name, task.prompt, task.target);
 }
 
-/// Continue on the PR's page: starts the agent at once.
-export async function startContinue(name: string, pr: PullRequestRow, pick: ProjectPick) {
-  await startTask(name, await continueTask(name, pr), pick);
+/// Continue on the PR's page and on Home: goes on in the chat on the PR's
+/// branch, opening it while it works, or starts an agent there at once, on
+/// `machine` when it can.
+export async function startContinue(name: string, pr: ContinuedPr, pick: ProjectPick, machine: string | null = null) {
+  const task = await continueTask(name, pr);
+  await ensureSessions().catch(e => console.warn("agent sessions:", e));
+  const earlier = task.target && branchSession(name, task.target);
+  if (!earlier) await startTask(name, task, pick, machine);
+  else if (AGENT_ACTIVE.has(earlier.status)) go("pane", { agent: earlier });
+  else await steer(earlier, task.prompt, []);
 }
+
+/// The fields of a pull request Continue reads.
+type ContinuedPr = Pick<PullRequestRow, "number" | "title" | "url">;
 
 /// Continue's task: the PR's branch. A fork's branch is not on `origin`, so
 /// it is refused.
-async function continueTask(name: string, pr: PullRequestRow): Promise<AgentTask> {
+async function continueTask(name: string, pr: ContinuedPr): Promise<AgentTask> {
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: localProjectId(name), number: pr.number });
   if (head.fork) throw new Error(`PR #${pr.number} comes from a fork, so its branch ${head.branch} is not in this repository.`);
   return { prompt: `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, target: { kind: "pr", number: pr.number, branch: head.branch } };
@@ -531,7 +546,11 @@ async function startFromBar() {
   if (!p || !place || (!text && !barAttachments.count) || barAttachments.reading || pc.starting || pc.adding) return;
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.update({ error: "Name the branch first." }); return; }
-  if (t?.review?.earlier) return continueReview(t.review.number, t.review.earlier, text);
+  const review = t?.review, earlier = review?.earlier;
+  if (review && earlier) return continueInBar(earlier, text, (prompt, images) => steerReview(review.number, earlier, prompt, images));
+  // A first review starts its own chat, apart from the one coding on the branch.
+  const chat = t?.kind === "pr" && !review ? branchSession(p.name, t) : null;
+  if (chat) return continueInBar(chat, text, (prompt, images) => steer(chat, prompt, images));
   const { agent } = barHarness(place);
   c.update({ error: "" });
   pc.starting = true;
@@ -708,11 +727,25 @@ export function agentButtons(redraw: () => void) {
 /// The session that last reviewed PR `number` of `project`, found by its
 /// name among the project's sessions on every machine, as it is now.
 export function earlierReview(project: string, number: number): ReviewSession | null {
-  // Home reads no project's sessions: those in the project's checkouts stand in.
+  const found = reviewSession(projectSessions(project), number);
+  return found && (sameSession(found) ?? found);
+}
+
+/// The newest chat of ours in `target`'s worktree on any machine of
+/// `project`, as it is now; review chats are left to their PR's reviews.
+function branchSession(project: string, target: BarTarget): ReviewSession | null {
+  const places = projectOf(project)?.places ?? [];
+  const chats = projectSessions(project).filter(s => !fixedTitle(s.title));
+  const found = places.map(p => sessionIn(chats, p.machine, targetFolders(target, p.cwd, knownWorktree(project, p.machine, target)))).filter(s => s !== null).sort((a, b) => b.last_activity - a.last_activity)[0];
+  return found ? sameSession(found) ?? found : null;
+}
+
+/// The sessions of `project` the page read, and those in its checkouts on
+/// every machine, which stand in on Home, where no project's are read.
+function projectSessions(project: string) {
   const places = projectOf(project)?.places ?? [];
   const inside = (s: ReviewSession) => places.some(p => p.machine === s.machine_id && `${s.cwd}/`.startsWith(`${p.cwd.replace(/\/+$/, "")}/`));
-  const found = reviewSession([...(state.sessions.get(project) ?? []), ...sessions.filter(inside)], number);
-  return found && (sameSession(found) ?? found);
+  return [...(state.sessions.get(project) ?? []), ...sessions.filter(inside)];
 }
 
 const sameSession = (s: ReviewSession) => sessions.find(l => l.machine_id === s.machine_id && l.agent === s.agent && l.id === s.id) ?? null;
@@ -723,8 +756,8 @@ function nameReview(s: ReviewSession, number: number) {
     .catch(e => console.warn("review title:", e));
 }
 
-/// Sends the bar's review to the session that reviewed the PR before.
-async function continueReview(number: number, earlier: ReviewSession, text: string) {
+/// Sends the bar's text and attachments to `earlier` through `send`.
+async function continueInBar(earlier: ReviewSession, text: string, send: (prompt: string, images: Image[]) => Promise<unknown>) {
   const c = projectComp;
   c.update({ error: "" });
   pc.starting = true;
@@ -734,7 +767,7 @@ async function continueReview(number: number, earlier: ReviewSession, text: stri
     const root = sameSession(earlier)?.cwd ?? barProject()?.places.find(p => p.machine === earlier.machine_id)?.cwd ?? "";
     const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root);
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
-    await steerReview(number, earlier, prompt, images);
+    await send(prompt, images);
     barAttachments.clear();
     c.setText("");
     pc.target = null;
@@ -746,19 +779,24 @@ async function continueReview(number: number, earlier: ReviewSession, text: stri
   }
 }
 
-/// Sends `prompt` to the session that reviewed PR `number` before, resuming
-/// it when it ended, and opens it.
+/// Sends `prompt` to the session that reviewed PR `number` before, and
+/// names it again when resuming gave it a new id.
 async function steerReview(number: number, earlier: ReviewSession, prompt: string, images: Image[]) {
-  const at = { machineId: earlier.machine_id, agent: earlier.agent, session: earlier.id };
+  const session = await steer(earlier, prompt, images);
+  if (session.id !== earlier.id) nameReview(session, number);
+}
+
+/// Sends `prompt` to `earlier`, resuming it when it ended, and opens it.
+async function steer(earlier: ReviewSession, prompt: string, images: Image[]) {
   let session = sameSession(earlier);
 
   if (!session || session.status === "ended") {
-    session = (await invoke<Started>("agent_resume", { ...at, prompt: "" })).session;
-    if (session.id !== earlier.id) nameReview(session, number);
+    session = (await invoke<Started>("agent_resume", { machineId: earlier.machine_id, agent: earlier.agent, session: earlier.id, prompt: "" })).session;
   }
 
   await invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer: { prompt: { text: prompt, images } } });
   go("pane", { agent: session });
+  return session;
 }
 
 /// Adds `project` to machine `m` as its machine row's Add does, in the folder

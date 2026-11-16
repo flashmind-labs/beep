@@ -29,8 +29,8 @@ function Fold({ id, title, count, note, children }: { id: string; title: string;
 /// A repository's line: `open` unfolds its items at first, `action` is its one button.
 /// `start` starts an agent on an item; only a project's items have it.
 export interface RepoLine { key: string; name: string; failed: string | null; last: number; open: boolean; items: GitItemRow[]; action: { windowProps?: ProjectWindowProps; label: string; primary?: boolean; disabled?: boolean; run(): void }; start: ItemStart | null }
-/// Review, an agent button that starts at once, and Reply, which opens the start form.
-interface ItemStart { review(item: GitItemRow): AgentButtonItem; reply(item: GitItemRow): void }
+/// Continue and Review, agent buttons that start at once, and Reply, which opens the start form.
+interface ItemStart { continue(item: GitItemRow): AgentButtonItem; review(item: GitItemRow): AgentButtonItem; reply(item: GitItemRow): void }
 
 function counts(items: GitItemRow[]) {
   const prs = items.filter(item => item.kind === "pull_request").length;
@@ -53,7 +53,7 @@ function ItemLine({ item, repo, at, start, open }: { item: GitItemRow; repo: str
   return <div className={repo ? "pl-row it flat" : "pl-row it"} onClick={() => open(item.url)}>
     <span className="ic"><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>
     <button type="button" className="t" title={item.url}>{repo && <span className="dim">{repo}</span>}<span className="num">#{item.number}</span><b>{item.title}</b>{item.labels?.map(label => <i key={label} className="pj-tag">{label}</i>)}</button>
-    <span className="r">{itemChips(item).map((chip, index) => <span className={chip.cls ? `chip ${chip.cls}` : "chip"} key={`${chip.text}:${index}`}>{chip.text}</span>)}<span className="age">{at ? formatAgo(at, "short") : ""}</span>{start && <span className="acts">{item.kind === "pull_request" && <span style={{ display: "contents" }} onClick={event => event.stopPropagation()}><AgentButton item={start.review(item)} /></span>}<Button look="quiet" small onClick={event => act(event, () => start.reply(item))}>Reply</Button></span>}</span>
+    <span className="r">{itemChips(item).map((chip, index) => <span className={chip.cls ? `chip ${chip.cls}` : "chip"} key={`${chip.text}:${index}`}>{chip.text}</span>)}<span className="age">{at ? formatAgo(at, "short") : ""}</span>{start && <span className="acts">{item.kind === "pull_request" && <span style={{ display: "contents" }} onClick={event => event.stopPropagation()}>{item.authored && <AgentButton item={start.continue(item)} />}<AgentButton item={start.review(item)} /></span>}<Button look="quiet" small onClick={event => act(event, () => start.reply(item))}>Reply</Button></span>}</span>
   </div>;
 }
 

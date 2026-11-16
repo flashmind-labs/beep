@@ -5,7 +5,7 @@ import { keepLastImport, lastImport, openImportProject } from "../addproject/imp
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.tsx";
 import { projectStart, projectsWithOpen, type GitItemRow, type GitItemsView, type Hosts, type StartProject } from "./openitems-state.ts";
-import { agentButtons, earlierReview, startReview } from "../project/composer.tsx";
+import { agentButtons, earlierReview, startContinue, startReview } from "../project/composer.tsx";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import type { AgentButtonItem } from "../review/feedback-view.tsx";
@@ -36,6 +36,16 @@ export function reviewButton(item: GitItemRow, project: StartProject, machines: 
     hint: earlier ? "Reviews what changed in the chat that reviewed this PR before" : "Pick a model: an agent reviews this PR and posts its comments on it",
     running: earlier && AGENT_ACTIVE.has(earlier.status) ? { agent: agentLabel(earlier.agent), open: () => go("pane", { agent: earlier }) } : null,
     start: pick => startReview(project.name, pr, pick, machine),
+  });
+}
+
+/// Continue on one of the user's PRs of `project`: goes on in the chat on
+/// its branch, or starts an agent there, as the project page's does.
+export function continueButton(item: GitItemRow, project: StartProject, machines: Hosts): AgentButtonItem {
+  const machine = projectStart(project, machines).machine;
+  return homeButtons(`continue ${item.url}`, {
+    project: project.name, machine, label: "Continue", hint: "Pick a model: goes on in the chat on this pull request's branch, or starts an agent there",
+    running: null, start: pick => startContinue(project.name, item, pick, machine),
   });
 }
 
