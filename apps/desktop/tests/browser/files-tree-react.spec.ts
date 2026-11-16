@@ -331,3 +331,19 @@ test("a text file edits in the pane, saves with the shortcut and stops when it c
   await expect(page.locator("[data-tedit]")).toBeVisible();
   expect(await writes()).toHaveLength(1);
 });
+
+test("a middle click closes a file tab and leaves fixed tabs open", async ({ page }) => {
+  await openDesktop(page, true, { agent_tree: listing(["notes.txt"]), agent_tree_text: { size: 6, text: "hello\n", cut: false, binary: false, editable: true } });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  const files = page.getByRole("tab", { name: "Files", exact: true });
+  await files.click();
+  await page.locator('[data-fpath="notes.txt"]').click();
+  const file = page.locator('[role="tab"][data-mtab]').filter({ hasText: "notes.txt" });
+  await expect(file).toBeVisible();
+
+  await files.click({ button: "middle" });
+  await expect(files).toBeVisible();
+
+  await file.click({ button: "middle" });
+  await expect(file).toHaveCount(0);
+});
