@@ -248,15 +248,49 @@ fn a_low_timestamp_node_readd_leaves_a_desktop_in_every_order() {
 }
 
 #[test]
-fn a_removed_key_stays_out_when_added_again() {
+fn a_removed_key_comes_back_when_added_again_in_any_order() {
+    let (a, b) = (key(), key());
+    let mut src = genesis(&a);
+    let ops = vec![
+        src.add(&a, device(&b, "b", DeviceKind::Node)).unwrap(),
+        src.remove(&a, b.public()).unwrap(),
+        src.add(&a, device(&b, "b", DeviceKind::Node)).unwrap(),
+    ];
+    assert!(src.is_member(b.public()));
+
+    for order in permutations(&ops) {
+        let mut d = only_genesis(&src);
+        d.merge(&order);
+        assert!(d.is_member(b.public()));
+        assert!(!d.is_removed(b.public()));
+    }
+
+    let gone = src.remove(&a, b.public()).unwrap();
+    let mut all = ops;
+    all.push(gone);
+
+    for order in permutations(&all) {
+        let mut d = only_genesis(&src);
+        d.merge(&order);
+        assert!(d.is_removed(b.public()));
+    }
+}
+
+/// A clock behind the last op still orders a new `Add` or `Remove` after it.
+#[test]
+fn a_slow_clock_cannot_undo_a_remove_or_an_add() {
     let (a, b) = (key(), key());
     let mut d = genesis(&a);
-    d.add(&a, device(&b, "b", DeviceKind::Node)).unwrap();
+    let future = now_ms() + 3_600_000;
+    let ahead = Device {
+        added_at_ms: future,
+        ..device(&b, "b", DeviceKind::Node)
+    };
+    d.add(&a, ahead).unwrap();
     d.remove(&a, b.public()).unwrap();
-    assert!(!d.is_member(b.public()));
-    let again = d.add(&a, device(&b, "b", DeviceKind::Node));
-    assert!(matches!(again, Err(MeshError::Removed(_))));
-    assert!(!d.is_member(b.public()));
+    assert!(d.is_removed(b.public()));
+    d.add(&a, device(&b, "b", DeviceKind::Node)).unwrap();
+    assert!(d.is_member(b.public()));
 }
 
 #[test]
