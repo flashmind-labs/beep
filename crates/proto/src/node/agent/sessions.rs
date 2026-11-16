@@ -356,12 +356,102 @@ pub const MAX_EXTERNAL_NAMED: usize = 100;
 /// File browser operations. Destinations must not already exist.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FileAction {
-    CreateFile { path: String },
-    CreateFolder { path: String },
-    Rename { path: String, to: String },
-    Copy { paths: Vec<String>, folder: String },
-    Move { paths: Vec<String>, folder: String },
-    Delete { paths: Vec<String> },
+    CreateFile {
+        path: RelPath,
+    },
+    CreateFolder {
+        path: RelPath,
+    },
+    Rename {
+        path: RelPath,
+        to: RelPath,
+    },
+    Copy {
+        paths: Vec<RelPath>,
+        folder: RelPath,
+    },
+    Move {
+        paths: Vec<RelPath>,
+        folder: RelPath,
+    },
+    Delete {
+        paths: Vec<RelPath>,
+    },
+}
+
+/// A path inside a working folder, `/`-separated on every system, with no
+/// `.`, `..` or empty parts; empty for the folder itself. On the wire it is
+/// the string, so peers that send a plain string read it the same.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct RelPath(String);
+
+/// Why a string is not a [`RelPath`].
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0} is not a relative path inside the working folder")]
+pub struct NotRelPath(String);
+
+impl RelPath {
+    /// The working folder itself.
+    pub fn is_root(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Its names, outermost first.
+    pub fn parts(&self) -> impl Iterator<Item = &str> {
+        self.0.split('/').filter(|part| !part.is_empty())
+    }
+}
+
+impl TryFrom<&str> for RelPath {
+    type Error = NotRelPath;
+
+    /// Drops empty and `.` parts, as in `a//b/./c/`; refuses absolute paths,
+    /// `..`, and the `\\` and `:` of Windows paths.
+    fn try_from(path: &str) -> Result<Self, Self::Error> {
+        let outside = path.starts_with('/') || path.contains(['\\', ':']);
+        let parts = path.split('/').filter(|part| !matches!(*part, "" | "."));
+        let parts: Vec<&str> = parts.collect();
+
+        if outside || parts.contains(&"..") {
+            return Err(NotRelPath(path.to_owned()));
+        }
+
+        Ok(Self(parts.join("/")))
+    }
+}
+
+impl TryFrom<String> for RelPath {
+    type Error = NotRelPath;
+
+    fn try_from(path: String) -> Result<Self, Self::Error> {
+        Self::try_from(path.as_str())
+    }
+}
+
+impl From<RelPath> for String {
+    fn from(path: RelPath) -> Self {
+        path.0
+    }
+}
+
+impl AsRef<str> for RelPath {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for RelPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// The path on this machine, under the working folder.
+impl From<&RelPath> for std::path::PathBuf {
+    fn from(path: &RelPath) -> Self {
+        path.parts().collect()
+    }
 }
 
 /// The most paths one `Present` asks about.

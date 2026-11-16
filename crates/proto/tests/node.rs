@@ -1653,28 +1653,28 @@ mod agent {
 
         #[test]
         fn file_edits_roundtrip_and_are_never_retried() {
-            use beep_proto::node::agent::FileAction;
+            use beep_proto::node::agent::{FileAction, RelPath};
             for action in [
                 FileAction::CreateFile {
-                    path: "notes.txt".into(),
+                    path: RelPath::try_from("notes.txt").unwrap(),
                 },
                 FileAction::CreateFolder {
-                    path: "drafts".into(),
+                    path: RelPath::try_from("drafts").unwrap(),
                 },
                 FileAction::Rename {
-                    path: "notes.txt".into(),
-                    to: "draft.txt".into(),
+                    path: RelPath::try_from("notes.txt").unwrap(),
+                    to: RelPath::try_from("draft.txt").unwrap(),
                 },
                 FileAction::Copy {
-                    paths: vec!["notes.txt".into()],
-                    folder: "drafts".into(),
+                    paths: vec![RelPath::try_from("notes.txt").unwrap()],
+                    folder: RelPath::try_from("drafts").unwrap(),
                 },
                 FileAction::Move {
-                    paths: vec!["notes.txt".into()],
-                    folder: "drafts".into(),
+                    paths: vec![RelPath::try_from("notes.txt").unwrap()],
+                    folder: RelPath::try_from("drafts").unwrap(),
                 },
                 FileAction::Delete {
-                    paths: vec!["notes.txt".into()],
+                    paths: vec![RelPath::try_from("notes.txt").unwrap()],
                 },
             ] {
                 let request = SessionsRequest::EditFiles {
@@ -1694,6 +1694,28 @@ mod agent {
                 beep_proto::lenient::from_slice::<SessionsReply>(&bytes).expect("decodes"),
                 reply
             );
+        }
+
+        #[test]
+        fn rel_paths_read_plain_strings_and_refuse_escapes() {
+            use beep_proto::node::agent::RelPath;
+            // An older peer sends the path as a plain string.
+            let bytes = rmp_serde::to_vec("./src//a.rs/").expect("encodes");
+            let path: RelPath = beep_proto::lenient::from_slice(&bytes).expect("decodes");
+            assert_eq!(path.as_ref(), "src/a.rs");
+            assert_eq!(
+                rmp_serde::to_vec(&path).expect("encodes"),
+                rmp_serde::to_vec("src/a.rs").expect("encodes")
+            );
+            assert!(RelPath::try_from("").expect("the folder").is_root());
+
+            for bad in ["/etc", "..", "a/../b", "a\\b", "C:/a"] {
+                let bytes = rmp_serde::to_vec(bad).expect("encodes");
+                assert!(
+                    beep_proto::lenient::from_slice::<RelPath>(&bytes).is_err(),
+                    "{bad}"
+                );
+            }
         }
 
         #[test]
