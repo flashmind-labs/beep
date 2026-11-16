@@ -137,3 +137,21 @@ fn changing_one_project_preserves_other_projects_and_user_rules() {
     );
     assert_eq!(update(&one, "/owner/one", true), original);
 }
+
+#[test]
+fn every_excluded_project_shares_one_managed_block() {
+    let original = vec!["*.tmp".to_owned()];
+    let one = update(&original, "/owner/one", false);
+    let two = update(&one, "/owner/two", false);
+    assert_eq!(
+        two,
+        [BEGIN, "/owner/one", "/owner/two", END, "*.tmp"].map(str::to_owned)
+    );
+
+    // Old files with one block per project merge into one.
+    let old: Vec<String> = [BEGIN, "/owner/one", END, BEGIN, "/owner/two", END, "*.tmp"]
+        .map(str::to_owned)
+        .into();
+    assert_eq!(update(&old, "/owner/two", false), two);
+    assert_eq!(update(&two, "/owner/one", true).len(), 4);
+}

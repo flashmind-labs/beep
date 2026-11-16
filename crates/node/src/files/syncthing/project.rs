@@ -110,33 +110,43 @@ fn pattern(root: &Path, folder: &Path) -> Result<String> {
     Ok(crate::files::sync::stignore::project_pattern(&relative))
 }
 
+/// Keeps every excluded project's pattern in one managed block, so the
+/// block holds all of them between a single pair of markers.
 fn update(lines: &[String], pattern: &str, enabled: bool) -> Vec<String> {
     let mut out = Vec::new();
-    let mut at = 0;
+    let mut patterns: Vec<String> = Vec::new();
+    let mut inside = false;
 
-    while at < lines.len() {
-        if lines[at] == BEGIN
-            && lines.get(at + 1).is_some_and(|line| line == pattern)
-            && lines.get(at + 2).is_some_and(|line| line == END)
-        {
-            at += 3;
+    for line in lines {
+        if line == BEGIN {
+            inside = true;
+        } else if line == END && inside {
+            inside = false;
+        } else if inside {
+            patterns.push(line.clone());
         } else {
-            out.push(lines[at].clone());
-            at += 1;
+            out.push(line.clone());
         }
     }
 
+    patterns.retain(|existing| existing != pattern);
+
     if !enabled {
+        patterns.push(pattern.to_owned());
+    }
+
+    if !patterns.is_empty() {
         let git_rules: Vec<_> = super::LOCAL_GIT.lines().map(str::to_owned).collect();
         let at = if out.starts_with(&git_rules) {
             git_rules.len()
         } else {
             0
         };
-        out.splice(
-            at..at,
-            [BEGIN.to_owned(), pattern.to_owned(), END.to_owned()],
-        );
+        let block = [BEGIN.to_owned()]
+            .into_iter()
+            .chain(patterns)
+            .chain([END.to_owned()]);
+        out.splice(at..at, block);
     }
 
     out
