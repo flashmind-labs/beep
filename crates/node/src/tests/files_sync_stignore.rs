@@ -99,6 +99,23 @@ fn a_project_exclusion_hands_ownership_to_beep_and_keeps_user_rules() {
 }
 
 #[test]
+fn one_managed_block_holds_several_projects() {
+    let dir = TempDir::new().unwrap();
+    let project = dir.path().join("owner/widget");
+    let other = dir.path().join("owner/other");
+    fs::create_dir_all(&project).unwrap();
+    fs::create_dir_all(&other).unwrap();
+    fs::write(
+        dir.path().join(STIGNORE),
+        format!("{PROJECT_IGNORE_BEGIN}\n/owner/widget\n/owner/other\n{PROJECT_IGNORE_END}\n"),
+    )
+    .unwrap();
+    assert!(project_ignored(&project, dir.path()).unwrap());
+    assert!(project_ignored(&other, dir.path()).unwrap());
+    assert!(!ignored(&Stignore::load_above(&other).unwrap(), "a.rs"));
+}
+
+#[test]
 fn exceptions_and_rules_outside_the_share_cannot_release_ownership() {
     let dir = TempDir::new().unwrap();
     let share = dir.path().join("share");

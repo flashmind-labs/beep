@@ -143,7 +143,15 @@ fn read_lines_for_project(
     };
     let lines: Vec<_> = text.trim_start_matches('\u{feff}').lines().collect();
 
-    for (at, line) in lines.iter().enumerate() {
+    let mut managed = false;
+
+    for line in &lines {
+        if *line == PROJECT_IGNORE_BEGIN {
+            managed = true;
+        } else if *line == PROJECT_IGNORE_END {
+            managed = false;
+        }
+
         // Only Beep's own whole-project exclusion is omitted. User rules,
         // including identical patterns, still apply to Beep's file list.
         if project.is_some_and(|project| {
@@ -155,10 +163,8 @@ fn read_lines_for_project(
             };
             let relative = relative.to_string_lossy().replace('\\', "/");
             let pattern = project_pattern(&relative);
-            (*line == pattern || *line == "/**" || pattern.starts_with(&format!("{line}/")))
-                && at > 0
-                && lines[at - 1] == PROJECT_IGNORE_BEGIN
-                && lines.get(at + 1) == Some(&PROJECT_IGNORE_END)
+            managed
+                && (*line == pattern || *line == "/**" || pattern.starts_with(&format!("{line}/")))
         }) {
             continue;
         }
