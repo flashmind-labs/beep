@@ -81,6 +81,7 @@ test("wheeling over an opened run's log scrolls the page", async ({ page }) => {
   if (!box) throw new Error("the log is not laid out");
   await page.mouse.move(box.x + 40, box.y + 20);
   await page.mouse.wheel(0, 300);
-  await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  // The page is no board: it follows the wheel instead of stepping a screen at a time.
+  await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBe(300);
   expect(await pre.evaluate(el => el.scrollTop)).toBe(0);
 });
