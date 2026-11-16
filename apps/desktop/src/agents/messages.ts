@@ -3,6 +3,7 @@
 import { type Attached, dropDelivered, type OutboxRow, sentFromOutbox, type Waiting } from "./agentqueue.ts";
 import { resumePicks } from "./modelpill.tsx";
 import { sessionPicks } from "./session.tsx";
+import { sentText } from "./agentlog.ts";
 import { composeMessage, prependDraft } from "../chat/compose.tsx";
 import { conversationKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
@@ -366,7 +367,7 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
     keepAgentPics(o, images);
   }
 
-  const mine = { kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") };
+  const mine = { kind: "user", text: sentText(text, images) };
   const seen = seenNow();
   page.entries.push(mine);
   drawAgentBody();

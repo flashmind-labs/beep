@@ -42,6 +42,11 @@ function unfence(output: string) {
 
 const IMAGE_LINE = /^\[image: (.+)\]$/;
 
+/// A message as the log holds it: its words, then a line for each image sent with it.
+export function sentText(text: string, images: readonly { name: string }[]) {
+  return [text, ...images.map(image => `[image: ${image.name}]`)].filter(Boolean).join("\n");
+}
+
 /// An agent or tool entry's text without its image lines, which the node
 /// writes for each picture the agent showed (`[image: image-<key>]`), and
 /// the names those lines give, in order.
