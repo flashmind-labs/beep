@@ -15,9 +15,9 @@ import { AMBIENT_MS, latest, STALE } from "../ui/active.ts";
 import { makeStartComposer } from "../agents/start-composer.tsx";
 import { menuPlaceFor } from "../agents/mentionmenu.ts";
 import { sessionPicks, startedWith } from "../agents/session.tsx";
-import { sentText } from "../agents/agentlog.ts";
 import { reason } from "../ui/format.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, listen } from "../ui/tauri.ts";
+import type { AgentStarted } from "../agents/starting-state.ts";
 import { commandKey, isMobile } from "../ui/platform.ts";
 import { filterProjects } from "./projects-state.ts";
 import { openMenu } from "../ui/menu.tsx";
@@ -29,8 +29,8 @@ import type { Machine } from "../machines/machines.tsx";
 import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
 import { BlockedHelp, NoAgentHelp } from "../agents/start-composer-view.tsx";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent, preloadModels } from "../agents/agentpicker.tsx";
-import { AG, type AgentHost, agentKind } from "../agents/agents.ts";
-import { draftPlace, draftSent } from "../agents/draft.tsx";
+import { AG, type AgentHost } from "../agents/agents.ts";
+import { draftPlace } from "../agents/draft.tsx";
 import { S } from "../bar/core.ts";
 import { ensureSessions, sessions } from "../agents/sessions.ts";
 import { issueBranch, issuePrompt, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
@@ -148,7 +148,7 @@ function openFolderMenu(e: MouseEvent) {
 
 const barAttachments = startAttachments(projectComp, error => projectComp.update({ error }), () => {
   const p = barProject();
-  projectComp.update({ sendDisabled: !!pc.starting || barAttachments.reading || !p || !barPlace(p.places, pc.hosts ?? [], pc.machine) || !!pc.adding });
+  projectComp.update({ sendDisabled: pc.starting || barAttachments.reading || !p || !barPlace(p.places, pc.hosts ?? [], pc.machine) || !!pc.adding });
 });
 
 barAttachments.bindStash(() => pc.project);
@@ -276,8 +276,8 @@ export function drawProjectComp(name: string) {
   const co = t ? targetCheckout(t) : barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
   c.renderChoices({
     machine: pc.adding?.machine_name ?? (place ? place.machine_name : readiness.kind === "no agent" ? "Install a coding agent" : pc.hosts ? "Add to a machine" : "Machine"),
-    on: !!place && !pc.adding, adding: !!pc.adding, machineDisabled: !!pc.adding || !!pc.starting,
-    folder: co.label, folderSub: co.sub, folderDisabled: !place || !!pc.starting,
+    on: !!place && !pc.adding, adding: !!pc.adding, machineDisabled: !!pc.adding || pc.starting,
+    folder: co.label, folderSub: co.sub, folderDisabled: !place || pc.starting,
     branch: t?.kind === "issue" ? t.branch : "", showBranch: t?.kind === "issue" && !t.review?.earlier,
     showClear: !!t,
   });
@@ -294,16 +294,15 @@ export function drawProjectComp(name: string) {
   c.update({
     placeholder: c.centered() && readiness.kind === "ready" ? TASK_WORDS.placeholder : barPrompt(name, pc.adding ? { kind: "no checkout" } : readiness),
     project: name,
-    harnessDisabled: !agent || !!pc.starting, open: pc.open ? "pick" : null,
-    sendDisabled: !!pc.starting || barAttachments.reading || !place || !!pc.adding, busy: !!pc.starting,
+    harnessDisabled: !agent || pc.starting, open: pc.open ? "pick" : null,
+    sendDisabled: pc.starting || barAttachments.reading || !place || !!pc.adding, busy: pc.starting,
     notes: readiness.kind === "no agent" ? <NoAgentHelp openAgents={openAgents} openMachines={openMachines} />
       : readiness.kind === "blocked" && !pc.adding ? <BlockedHelp host={readiness.host} open={() => openMachine(readiness.host.machine_id)} /> : null,
   });
   drawBarPicker(host, offered);
-  barAttachments.setBusy(!!pc.starting);
+  barAttachments.setBusy(pc.starting);
   if (place && !pc.starting) barAttachments.files.moveTo(place.machine_id, place.cwd);
   draftPlace(place);
-  draftSent(pc.starting);
 }
 
 /// The newest session of ours in the bar target's worktree on the bar's
@@ -529,15 +528,15 @@ async function startFromBar() {
   if (t?.kind === "issue" && !t.branch.trim()) { c.update({ error: "Name the branch first." }); return; }
   if (t?.review?.earlier) return continueReview(t.review.number, t.review.earlier, text);
   const { agent } = barHarness(place);
-  const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
   c.update({ error: "" });
-  pc.starting = { text: sentText(text, images), line: `Starting ${agent ? agentKind(agent).name : "the agent"} on ${place.machine_name}` };
+  pc.starting = true;
   pc.open = false;
   redrawProjects();
 
   try {
     const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd);
     if (barAttachments.files.pending.length) c.update({ progress: "Starting the agent…" });
+    const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     const session = await startSession(p.name, place, { ...pc.picked, agent }, prompt, images, t, pc.checkout);
     c.setText("");
     barAttachments.clear();
@@ -547,7 +546,7 @@ async function startFromBar() {
     c.update({ error: reason(e) });
   } finally {
     c.update({ progress: "" });
-    pc.starting = null;
+    pc.starting = false;
     redrawProjects();
   }
 }
@@ -556,21 +555,33 @@ type Image = { name: string; mime: string; data: string };
 
 /// Starts a coding agent of project `name` on `place` with `prompt`: in
 /// `target`'s worktree, beside a session already there, or without a target
-/// in `checkout`. Names a review for its PR.
+/// in `checkout`. This device keeps the start and answers at once with the
+/// session it shows as until its machine names it. A review is named for its
+/// PR then.
 async function startSession(name: string, place: BarPlace, pick: Omit<ProjectPick, "agent"> & { agent: string | null }, prompt: string, images: Image[], target: BarTarget | null, checkout: CheckoutPick) {
   const was = barExisting(name, place, target);
   const model = pick.model.trim() || null, effort = pick.effort;
   const at = was ? { cwd: was.cwd, checkout: null }
     : target ? { cwd: place.cwd, checkout: targetPlan(target) }
     : startPlace(checkout, place.cwd, baseFor(null, pc.branches.get(name)));
-  const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent: pick.agent, cwd: at.cwd, prompt, model, effort, checkout: at.checkout, images });
+  const started = await invoke<Started>("agent_begin", { machineId: place.machine_id, agent: pick.agent, cwd: at.cwd, prompt, model, effort, checkout: at.checkout, images });
   if (model || effort) sessionPicks.set(started.session.id, { model: model ?? "", effort });
   startedWith(started.session, prompt, images);
   keepMachine(name, place.machine_id);
-  if (target?.review) nameReview(started.session, target.review.number);
+  if (target?.review) reviewStarts.set(started.session.id, target.review.number);
 
   return started.session;
 }
+
+/// The PR each review start is for, by the start's id, until its machine names its session.
+const reviewStarts = new Map<string, number>();
+
+listen<AgentStarted>("agent-started", ({ payload: { start, session } }) => {
+  const number = reviewStarts.get(start);
+  if (number === undefined) return;
+  reviewStarts.delete(start);
+  nameReview(session, number);
+});
 
 /// What an agent button starts: the prompt and the worktree, or the
 /// checkout as it is without one.
@@ -711,14 +722,14 @@ async function continueReview(number: number, earlier: ReviewSession, text: stri
   const c = projectComp;
   const listed = sameSession(earlier);
   const at = { machineId: earlier.machine_id, agent: earlier.agent, session: earlier.id };
-  const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
   c.update({ error: "" });
-  pc.starting = { text: sentText(text, images), line: `Sending to ${agentKind(earlier.agent).name} on ${earlier.machine_name}` };
+  pc.starting = true;
   redrawProjects();
 
   try {
     const root = listed?.cwd ?? barProject()?.places.find(p => p.machine === earlier.machine_id)?.cwd ?? "";
     const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root);
+    const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     let session = listed;
 
     if (!session || session.status === "ended") {
@@ -734,7 +745,7 @@ async function continueReview(number: number, earlier: ReviewSession, text: stri
   } catch (e) {
     c.update({ error: reason(e) });
   } finally {
-    pc.starting = null;
+    pc.starting = false;
     redrawProjects();
   }
 }

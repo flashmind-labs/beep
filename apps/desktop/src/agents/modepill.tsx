@@ -5,6 +5,7 @@ import { AgentMode, AgentPlan } from "./mode-view.tsx";
 import { type AgentModes, type OpenAgent, AG, AGENT_READ_WAIT_MS, agentKind, openOf, where } from "./agents.ts";
 import { questionKey, steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
+import { isStarting } from "./starting-state.ts";
 
 /// Machines too old to know the request, so they are not asked again.
 const oldMachines = new Set<string>();
@@ -14,7 +15,7 @@ let switching = false;
 /// The modes of the open session; null when it has none to switch between.
 export async function readModes(o: OpenAgent) {
   const s = AG.page?.session;
-  if (oldMachines.has(o.machine_id) || !s || s.external || s.status === "ended") return null;
+  if (oldMachines.has(o.machine_id) || !s || s.external || isStarting(s.id) || s.status === "ended") return null;
 
   try {
     const modes = await invoke<AgentModes | null>("agent_modes", where(o), AGENT_READ_WAIT_MS);

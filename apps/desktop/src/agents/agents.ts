@@ -209,7 +209,8 @@ export function usageLine(u: AgentUsage) {
   return [context && `${context.percent}%/${context.size}`, tokens && `${tokens} tokens`, spend].filter(Boolean).join(" · ");
 }
 
-/// A session `agent_start` or `agent_resume` started, and why Auto picked its machine.
+/// A session `agent_start` or `agent_resume` started, or the one `agent_begin` keeps a start as, and
+/// why Auto picked its machine.
 export interface Started {
   session: AgentSession;
   why: string;

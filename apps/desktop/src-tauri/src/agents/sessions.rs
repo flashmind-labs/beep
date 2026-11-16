@@ -4,6 +4,7 @@
 
 use crate::{
     agents::{
+        starts::{Start, StartId, Starts},
         steer::{self, DevicePick, PastedImage, uploads},
         work_copy,
     },
@@ -84,7 +85,7 @@ impl From<AgentHost> for HostRow {
 }
 
 /// One session as the views list it.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct SessionRow {
     machine_id: String,
     machine_name: String,
@@ -256,8 +257,8 @@ impl From<AgentSessionView> for SessionPage {
 
 #[derive(Debug, Serialize)]
 pub struct Started {
-    session: SessionRow,
-    why: String,
+    pub(crate) session: SessionRow,
+    pub(crate) why: String,
 }
 
 #[tauri::command]
@@ -512,6 +513,7 @@ pub(crate) async fn machine_sessions(
         }
     }
 
+    sessions.extend(app.state::<Arc<Starts>>().rows());
     sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
     sessions
 }
@@ -722,6 +724,15 @@ pub async fn agent_view(
     last: u32,
     before: Option<u64>,
 ) -> Result<SessionPage, ViewError> {
+    // A start is read from this device, before its machine has the session.
+    if let Ok(start) = session.parse::<StartId>() {
+        return app
+            .state::<Arc<Starts>>()
+            .read(|held| held.get(start).map(Start::page))
+            .map(SessionPage::from)
+            .ok_or(ViewError::Gone);
+    }
+
     shown.read(
         window.label(),
         &machine_id,

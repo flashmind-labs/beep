@@ -6,6 +6,7 @@ mod store;
 
 use super::{index::Entry, lists::PaletteCache, places::Place, projects::session_entry};
 use crate::{
+    agents::starts::StartId,
     error::Result,
     fleet::{AsyncMutex, Fleet},
 };
@@ -94,6 +95,11 @@ impl PromptIndex {
         let mut due = Vec::new();
 
         for session in sessions {
+            // A start is kept on this device: its machine has no transcript of it.
+            if session.id.parse::<StartId>().is_ok() {
+                continue;
+            }
+
             let idle = wall
                 .duration_since(session.last_activity)
                 .unwrap_or_default();

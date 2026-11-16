@@ -20,6 +20,7 @@ import { TerminalsPage, terminalsView } from "../terminals/view.tsx";
 import { windowHistory } from "./window-router.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { S } from "../bar/core.ts";
+import { isStarting } from "../agents/starting-state.ts";
 import { canGoBack, syncMobile } from "./mobile.tsx";
 import { placeWindowParts } from "./window-root.tsx";
 import { shell, windowHost } from "./window-shell.tsx";
@@ -194,12 +195,14 @@ export function goTo(target: Location): boolean {
   const view = viewOf(name), box = boxOf(name);
   if (!box) return false;
   const afterMount = pageTiming.start(pageName(name, arg));
-  // Sending from a draft turns it into the session; Back skips the spent form.
-  const replaceDraft = currentPage?.view === "pane" && !!currentPage.arg && typeof currentPage.arg === "object" && "draft" in currentPage.arg
-    && name === "pane" && !!arg && typeof arg === "object" && "agent" in arg && arg.adopt === true;
+  // Sending from a draft turns it into the session, and a start becomes the session its
+  // machine names: Back skips the spent page.
+  const spent = currentPage?.view === "pane" && !!currentPage.arg && typeof currentPage.arg === "object"
+    && ("draft" in currentPage.arg || ("agent" in currentPage.arg && isStarting(currentPage.arg.agent.id)));
+  const replaceSpent = spent && name === "pane" && !!arg && typeof arg === "object" && "agent" in arg && arg.adopt === true;
   const previous = currentLocation();
   const next: Location = page.view === "projects" ? { view: "projects", arg: { project: page.arg?.project ?? null, tile: page.arg?.tile ?? null } } : page;
-  if (!moving) { if (previous) pages.visit(previous, next, replaceDraft); else pages.start(next); }
+  if (!moving) { if (previous) pages.visit(previous, next, replaceSpent); else pages.start(next); }
   if (previous && previous.view !== name) viewOf(previous.view).unmount?.();
   currentPage = page;
   perfView(perfViewOf(pageName(name, arg)));

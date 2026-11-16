@@ -38,30 +38,56 @@ import { onPhone } from "../ui/platform.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
 import { joinRuns, lacksPrompt, newestRead } from "./older-state.ts";
-import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, retryDelay } from "./reconnect-state.ts";
+import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, retryDelay, viewError } from "./reconnect-state.ts";
 import { drawMove } from "./move.ts";
 import { moveStore, refreshMoves } from "./move-store.ts";
 import { movedTo } from "./move-state.ts";
 import { sameSession } from "./running-state.ts";
 import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
+import { type AgentStarted, isStarting } from "./starting-state.ts";
 import { feed, flushDraw, keptTranscript, offScreen, transcripts } from "./session-follow.ts";
 import { drawAgentHeading, headText, readUsage, redrawAgentHints, agentHints, shownUsage } from "./session-head.tsx";
 import { agentClick, openParent, toolKey } from "./session-click.ts";
 import { askContinueHere, continueAfterTurn, keepContinuing } from "./continue-here.ts";
 
-/// The first message of each session started from here, by session, until the session opens.
+/// The first message of each session started from here, by session, until its machine logs one.
 const firstMessages = new Map<string, string>();
 
-/// Session `s` was started with `prompt` and `images`: its log opens with them,
-/// before its machine is read.
+/// Session `s` was started with `prompt` and `images`: its log shows them until its machine
+/// logs the prompt, which it sends only once the model and thinking are set.
 export function startedWith(s: AgentRow, prompt: string, images: readonly { name: string }[]) {
   firstMessages.set(sessionKey(s), sentText(prompt, images));
 }
 
+/// `page` with the message its session was started with, while its machine has logged nothing.
+function withFirstMessage(page: AgentPage): AgentPage {
+  const key = sessionKey(page.session), first = firstMessages.get(key);
+  if (!first) return page;
+
+  if (page.entries.length || page.earlier) {
+    firstMessages.delete(key);
+    return page;
+  }
+
+  return { ...page, entries: [{ kind: "user", text: first }] };
+}
+
+/// The page to hold once `fresh` came: joined on `held`, or alone when it replaces it, with the
+/// message its session was started with while its machine has logged nothing.
+export function heldPage(held: AgentPage | null, fresh: AgentPage, replace: boolean): AgentPage {
+  const page = withFirstMessage(fresh);
+  return replace ? page : joinRuns(held, page);
+}
+
+/// The session each start kept on this device became, by the start's id: a page that still
+/// names the start opens the session.
+const became = new Map<string, AgentRow>();
+
 /// Opens session `s` (a session row) and follows it while it is on screen. With `adopt`,
-/// the empty view that started it becomes the session in place: its pane, terminal
-/// tabs included, stays as it is.
+/// the empty view that started it, or the start it was until its machine named it, becomes
+/// the session in place: its pane, terminal tabs included, stays as it is.
 export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: { why?: string; back?: AgentReturn; adopt?: boolean } = {}) {
+  s = became.get(s.id) ?? s;
   conversationHistory.visit(s);
   traceSession("opening", openOf(s), { status: s.status, adopt });
 
@@ -99,7 +125,10 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   }
 
   if (from === undefined) from = S.view === "agents" ? "agents" : "hide";
-  const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
+  // `s` is what the open start became: Auto's reason for its machine stays.
+  const wasStart = !!AG.open && became.get(AG.open.session)?.id === s.id;
+  if (wasStart) why ||= AG.why;
+  const inPlace = adopt && (!!AG.draft || wasStart) && S.view === "agent" && !!$("#agshell");
   if (AG.open) steerQueues.set(transcriptKey(AG.open), AG.queue);
   for (const [key, queue] of steerQueues) if (!queue.length) steerQueues.delete(key);
   rememberMentionImages();
@@ -109,11 +138,9 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   const open: OpenAgent = openOf(s);
   const log = inPlace ? null : keptLogs.get(sessionKey(s)) ?? null;
   const held = keptPage(log, transcripts.get(transcriptKey(open))?.page ?? null);
-  const first = firstMessages.get(sessionKey(s));
-  firstMessages.delete(sessionKey(s));
   Object.assign(AG, {
     open,
-    page: held ?? { session: s, plan: [], files: [], entries: first ? [{ kind: "user", text: first }] : [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+    page: withFirstMessage(held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 }),
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
     attError: "", opened: new Set(), steps: new Map(), all: new Set(),
     queue: steerQueues.get(transcriptKey(open)) ?? [],
@@ -131,6 +158,8 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   firstRead = { open, at: performance.now() };
   drawAgentFrame(inPlace, held && log && held.earlier <= log.page.earlier ? log.body : null);
   watchRead(open);
+  // A start has no outbox and no kept page.
+  if (isStarting(s.id)) return void pollAgent(true);
   void readOutbox(open);
   if (held) return void pollAgent(true);
   // Not held in this window: the page kept on disk draws at once, and the follow goes on from it.
@@ -160,9 +189,10 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const keptTop = kept ? (kept.isConnected ? kept.scrollTop : kept.top ?? 0) : 0;
   const b = kept ?? document.createElement("div") as ChatBody;
   if (!kept) { b.className = "dbody"; b.id = "agbody"; }
-  const mode = isNativeSession(s.id) ? "native" : followsOnly(s) ? "readonly" : "writable";
+  const starting = isStarting(s.id);
+  const mode = starting ? "starting" : isNativeSession(s.id) ? "native" : followsOnly(s) ? "readonly" : "writable";
   const takeover = canTakeOver(s.agent) && !isNativeSession(s.id);
-  const banner = takeover ? "Running outside Beep. Beep follows it here." : "Started outside Beep. Beep follows it here.";
+  const banner = starting ? s.doing ?? "It did not start." : takeover ? "Running outside Beep. Beep follows it here." : "Started outside Beep. Beep follows it here.";
   const continueHere = takeover ? { target: agentKey(s), start: () => askContinueHere(s) } : null;
   keepContinuing(s);
   // The saved title shows at once; `agent-title-changed` brings it to the lists.
@@ -170,8 +200,8 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     await invoke("agent_title_save", { ...where(openOf(s)), title });
     await retitleOpen({ ...openOf(s), title: title || null });
   };
-  const head = <SessionHead agent={s.agent} {...headText(s)} openProject={project?.open ?? null} cwd={s.cwd} machine={s.machine_name} machineId={s.machine_id} session={s.id} usage={shownUsage(s)} moveKey={agentKey(s)} saveTitle={saveTitle} />;
-  const field = <SessionField mode={mode} name={k.name} banner={banner} moveKey={agentKey(s)} machine={s.machine_id} session={s.id} continueHere={continueHere} attach={agentDrop} draft={conversationKey(s)} removeLast={removeLastAttachment} send={submitAgentMessage} stop={() => void interruptAgent()} openParent={openParent} />;
+  const head = <SessionHead agent={s.agent} {...headText(s)} openProject={project?.open ?? null} cwd={s.cwd} machine={s.machine_name} machineId={s.machine_id} session={s.id} usage={shownUsage(s)} moveKey={agentKey(s)} saveTitle={starting ? null : saveTitle} />;
+  const field = <SessionField mode={mode} name={k.name} banner={banner} moveKey={agentKey(s)} machine={s.machine_id} session={s.id} continueHere={continueHere} attach={agentDrop} draft={conversationKey(s)} removeLast={removeLastAttachment} send={submitAgentMessage} stop={() => void interruptAgent()} openParent={openParent} retry={starting && s.status !== "starting" ? () => void retryStart() : null} cancel={() => void closeOpenSession()} />;
   showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
   activateMentions(s);
   drawAgentHeading();
@@ -254,7 +284,8 @@ export async function pollAgent(readNow = false) {
     return;
   }
 
-  if (paneShown()) feed.follow(o);
+  // A start has no stream: this device answers its reads.
+  if (paneShown() && !isStarting(o.session)) feed.follow(o);
   else feed.leave();
 
   // Followed all along: what came while it was away is drawn once from its model.
@@ -297,7 +328,9 @@ export async function pollAgent(readNow = false) {
   } catch (e) {
     if (trace) traceSession("read-failed", o, { pending: [...current.pending], ms: Date.now() - current.at });
 
-    if (still()) {
+    if (still() && isStarting(o.session) && viewError(e).kind === "gone") {
+      leaveStart(o.session);
+    } else if (still()) {
       // A dropped link is read again with backoff; a session its machine
       // came back without has ended, and no turn runs on.
       const failed = readFailed(AG.link, e, AG.page?.session.machine_name || "the machine");
@@ -423,11 +456,13 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
   if (page.session.question?.id !== AG.answering) AG.answering = null;
   // A session opened with no folder (from a notice) draws again once a read gives it.
   const placed = !AG.page?.session.cwd && !!page.session.cwd;
-  // The session closed or was taken over: the composer replaces the banner.
-  const field = !!AG.page && followsOnly(AG.page.session) !== followsOnly(page.session);
+  // The session closed or was taken over: the composer replaces the banner. A start's banner
+  // says what it does now.
+  const field = !!AG.page && (followsOnly(AG.page.session) !== followsOnly(page.session)
+    || (isStarting(page.session.id) && (AG.page.session.doing !== page.session.doing || AG.page.session.status !== page.session.status)));
   const news = hasNews(AG.page, page);
   // The older entries held stay while the newest are read again.
-  AG.page = replace ? page : joinRuns(AG.page, page);
+  AG.page = heldPage(AG.page, page, replace);
   drawModelPill();
   drawAgentHeading();
   // The frame around the log is drawn again; the log itself stays.
@@ -462,7 +497,8 @@ function drawRest(moved = false, placed = false) {
 /// How long until an older node is asked again. Quiet sessions keep following.
 function agentDelay() {
   const s = AG.page?.session;
-  if (!s || s.status === "ended") return AGENT_SLOW_MS;
+  // A start says when it changes (`sessions-changed`).
+  if (!s || s.status === "ended" || isStarting(s.id)) return AGENT_SLOW_MS;
   const still = Date.now() - AG.changed;
   // A question nobody answers for a while is asked about slowly; an answer
   // from here or a notice reads it at once.
@@ -544,13 +580,42 @@ async function retitleOpen(change: Retitled) {
 const titlesChanged = ambient(() => S.view === "agents" ? ensureSessions().then(() => drawAgents(false)) : undefined, AMBIENT_MS);
 listen<Retitled>("agent-title-changed", e => { void retitleOpen(e.payload); titlesChanged(); });
 
-// A notice about a session that asks may mean it was answered elsewhere.
-listen("sessions-changed", () => { if (AG.page?.session.status === "asking" && S.view === "agent") pollAgent(); });
+// A notice about a session that asks may mean it was answered elsewhere, and a start says so
+// when it waits, starts or fails.
+listen("sessions-changed", () => {
+  if (S.view === "agent" && (AG.page?.session.status === "asking" || (AG.open && isStarting(AG.open.session)))) pollAgent();
+});
+
+// A start's machine named its session: what was kept for the start goes to the session, which
+// takes over the view that shows the start.
+listen<AgentStarted>("agent-started", ({ payload: { start, session, first_message } }) => {
+  firstMessages.set(sessionKey(session), first_message);
+  became.set(start, session);
+  const pick = sessionPicks.get(start);
+
+  if (pick) {
+    sessionPicks.delete(start);
+    sessionPicks.set(session.id, pick);
+  }
+
+  if (S.view === "agent" && AG.open?.session === start) leaveStart(start);
+});
+
+/// The open start `start` is no longer kept: the session it became takes over its view, and one
+/// that became none, cancelled from another window, is left as Cancel leaves it.
+function leaveStart(start: string) {
+  const session = became.get(start);
+  if (!session) return agentBack(true);
+  // A released node's row leaves out that the session is the assistant.
+  const row = AG.page?.session.assistant ? { ...session, assistant: true } : session;
+  if (windowHooks) windowHooks.openStarted(row);
+  else openAgent(row, { back: AG.back, adopt: true });
+}
 
 /// Whether the open session's turn runs, so Enter steers and ⌘. stops.
 export const turnRuns = () => {
   const s = AG.page?.session;
-  return !!s && !s.external && !s.question && AGENT_ACTIVE.has(s.status);
+  return !!s && !s.external && !s.question && !isStarting(s.id) && AGENT_ACTIVE.has(s.status);
 };
 
 /// Sends what the field holds: while the turn runs it steers it after its current tool call.
@@ -589,6 +654,20 @@ export async function closeOpenSession() {
       showFailure(`Could not close session: ${readError(e)}`);
     }
   }
+}
+
+/// Retry on the open start, which failed: it waits for its machine again.
+async function retryStart() {
+  const o = AG.open;
+  if (!o) return;
+
+  try {
+    await invoke("agent_begin_retry", { session: o.session });
+  } catch (e) {
+    if (isOpen(o)) AG.note = readError(e);
+  }
+
+  if (isOpen(o)) void pollAgent(true);
 }
 
 /// A session started outside Beep that only shows here: still running there,

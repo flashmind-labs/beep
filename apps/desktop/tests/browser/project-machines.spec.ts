@@ -215,7 +215,7 @@ test("Fix with an agent on a blocked Git sync starts the agent on that machine a
     ...responses,
     agent_hosts: [{ machine_id: "studio", machine_name: "studio", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] },
-    agent_start: { session: { machine_id: "studio", machine_name: "studio", id: "repair", agent: "codex", cwd: "/srv/project", status: "working", external: false, question: null } },
+    agent_begin: { session: { machine_id: "studio", machine_name: "studio", id: "start:repair", agent: "codex", cwd: "/srv/project", status: "starting", external: false, question: null }, why: "" },
     project_sessions: [],
     center_home: { machines: [], running: [], needs_you: [], projects: ["build-box", "studio"].map(id => ({ display_name: null, name: projectName, url: "https://example.test/example/widget", machine_id: id, machine_name: id, folder: "/srv/project", cloned: true, imported_at: 1 })) },
   });
@@ -223,8 +223,8 @@ test("Fix with an agent on a blocked Git sync starts the agent on that machine a
   const studio = page.getByRole("article", { name: "studio", exact: true });
   await studio.getByRole("button", { name: "Fix with an agent" }).click();
   await page.getByRole("dialog", { name: "Harness, model and thinking" }).locator('[data-agmo="alpha"]').click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").length)).toBe(1);
-  const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_start")?.args);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").length)).toBe(1);
+  const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_begin")?.args);
   expect(args).toMatchObject({ machineId: "studio", agent: "codex", checkout: null });
   expect(String(args?.prompt)).toContain("commit or stash local changes");
 });

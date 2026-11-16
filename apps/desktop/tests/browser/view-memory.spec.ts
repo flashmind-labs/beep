@@ -1,12 +1,14 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
-test("starting a project draft keeps its terminal and dock mounted", async ({ page }, info) => {
-  const session = { machine_id: "build-box", machine_name: "build-box", id: "started", agent: "codex", title: "Started session", cwd: "/srv/project", status: "working", external: false, question: null };
+test("a project draft keeps its terminal and dock mounted as its start, then as the session its machine names", async ({ page }, info) => {
+  const session = { machine_id: "build-box", machine_name: "build-box", id: "started", agent: "codex", title: "Started session", cwd: "/srv/project", status: "working", doing: null as string | null, started_at: 1, last_activity: 1, external: false, question: null, assistant: false };
+  const start = { ...session, id: "start:one", status: "starting", doing: "Starting Codex on build-box" };
+  const pageOf = (row: typeof session) => ({ session: row, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 });
   await openDesktop(page, true, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: "/srv/project", home: "/srv", capabilities: [] }],
-    agent_start: { session },
-    agent_view: { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+    agent_begin: { session: start, why: "" },
+    agent_view: pageOf(start),
     terminal_open: { id: "shell-one", project: projectName, machine_id: "build-box", machine_name: "build-box", name: "shell", command: "", cwd: "/srv/project", state: "running", code: null, started_at: 1 },
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
@@ -19,10 +21,14 @@ test("starting a project draft keeps its terminal and dock mounted", async ({ pa
   await expect(tab).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".agpview.term")).toBeAttached();
   await page.evaluate(() => { Reflect.set(window, "draftDock", document.querySelector("#agpane-right")); Reflect.set(window, "draftTerminal", document.querySelector('.agpview.term')); });
+  const kept = () => page.evaluate(() => document.querySelector("#agpane-right") === Reflect.get(window, "draftDock") && document.querySelector('.agpview.term') === Reflect.get(window, "draftTerminal"));
   await draft.fill("Inspect the project"); await draft.press("Enter");
+  await expect(page.locator("#agconv .dbanner")).toContainText("Starting Codex on build-box");
+  expect(await kept()).toBe(true);
+  await page.evaluate(event => { window.__navigation.respond("agent_view", event.first); window.__navigation.emit("agent-started", event.started); },
+    { first: pageOf(session), started: { start: start.id, session, first_message: "Inspect the project" } });
   await expect(page.locator("#agmsg")).toBeVisible();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").length)).toBe(1);
-  expect(await page.evaluate(() => document.querySelector("#agpane-right") === Reflect.get(window, "draftDock") && document.querySelector('.agpview.term') === Reflect.get(window, "draftTerminal"))).toBe(true);
+  expect(await kept()).toBe(true);
   const calls = await page.evaluate(() => window.__navigation.calls());
   expect(calls.filter(call => call.command === "terminal_open")).toHaveLength(1);
   expect(calls.filter(call => call.command === "terminal_close")).toHaveLength(0);

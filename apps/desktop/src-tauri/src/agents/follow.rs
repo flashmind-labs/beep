@@ -308,6 +308,7 @@ pub async fn agent_follow(
     after: Option<SessionCursor>,
     on_event: Channel<Update>,
 ) -> Result<()> {
+    crate::agents::starts::not_followed(&session)?;
     let (cancel, mut cancelled) = watch::channel(false);
     let (shown, mut on_screen) = watch::channel(false);
     let asking = Arc::new(AtomicBool::new(false));

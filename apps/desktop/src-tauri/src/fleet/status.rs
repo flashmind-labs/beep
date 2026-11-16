@@ -519,36 +519,54 @@ impl Status {
             .peers()
             .values()
             .filter(|peer| peer.online)
-            .filter_map(|peer| {
-                let agents: Vec<String> = peer
-                    .offers
-                    .iter()
-                    .filter_map(|offer| agent_of(offer))
-                    .filter(|agent| !is_off(agent))
-                    .map(str::to_owned)
-                    .collect();
-                if agents.is_empty() {
-                    return None;
-                }
-
-                let env = peer.env.as_ref();
-                Some(AgentHost {
-                    machine_id: peer.device.id.to_string(),
-                    machine_name: peer.device.name.clone(),
-                    agents,
-                    workspace: None,
-                    home: env
-                        .map(|env| env.home.clone())
-                        .filter(|home| !home.is_empty()),
-                    capabilities: env
-                        .iter()
-                        .flat_map(|env| env.capabilities())
-                        .map(machine_capability)
-                        .collect(),
-                })
-            })
+            .filter_map(|peer| agent_host(peer, &is_off))
             .collect()
     }
+
+    /// `machine` as a place to run agents, as its last status report said,
+    /// whether or not it is on now.
+    pub fn last_agent_host(
+        &self,
+        machine: EndpointId,
+        is_off: impl Fn(&str) -> bool,
+    ) -> Option<AgentHost> {
+        self.shared
+            .peers()
+            .get(&machine)
+            .and_then(|peer| agent_host(peer, &is_off))
+    }
+}
+
+/// `peer` as a place to run the agents it offers that `is_off` does not
+/// switch off; `None` when it offers none.
+fn agent_host(peer: &Peer, is_off: impl Fn(&str) -> bool) -> Option<AgentHost> {
+    let agents: Vec<String> = peer
+        .offers
+        .iter()
+        .filter_map(|offer| agent_of(offer))
+        .filter(|agent| !is_off(agent))
+        .map(str::to_owned)
+        .collect();
+
+    if agents.is_empty() {
+        return None;
+    }
+
+    let env = peer.env.as_ref();
+    Some(AgentHost {
+        machine_id: peer.device.id.to_string(),
+        machine_name: peer.device.name.clone(),
+        agents,
+        workspace: None,
+        home: env
+            .map(|env| env.home.clone())
+            .filter(|home| !home.is_empty()),
+        capabilities: env
+            .iter()
+            .flat_map(|env| env.capabilities())
+            .map(machine_capability)
+            .collect(),
+    })
 }
 
 /// What keeps the follows of one mesh going.

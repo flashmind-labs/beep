@@ -36,7 +36,6 @@ const CLAUDE_AGENT: &str = "agent-message";
 const MAX_CONTEXT: usize = 4096;
 
 /// How every bare brief Beep wrote began.
-#[cfg(feature = "host")]
 const BARE_STARTS: [&str; 5] = [
     "Beep: the `beep` MCP server's tools",
     "Beep: the user's standing rules",
@@ -46,7 +45,6 @@ const BARE_STARTS: [&str; 5] = [
 ];
 
 /// How every bare brief Beep wrote ended, latest first.
-#[cfg(feature = "host")]
 const BARE_ENDS: [&str; 3] = [
     "change the user's global configuration unless asked.",
     "ask_user asks the user a question and waits for the answer.",
@@ -54,7 +52,6 @@ const BARE_ENDS: [&str; 3] = [
 ];
 
 /// The worktree brief as bare prompts hold it.
-#[cfg(feature = "host")]
 const BARE_WORKTREE: &str = "Beep: if you will change files and this folder is a git repository's main checkout, first create a new branch and a git worktree for it under the repository's .worktrees/ folder, both named for the work, and work there. Questions that change nothing need neither.";
 
 /// One part of a user entry's text.
@@ -180,10 +177,10 @@ pub(crate) fn join(parts: &[Part<'_>]) -> String {
 
 /// What was said to the agent, without Beep's context: the user's words and
 /// what other sessions sent, for a title or a last prompt.
-#[cfg(feature = "host")]
 pub(crate) fn said(text: &str) -> String {
-    let text = untagged(text);
-    let said: Vec<&str> = parts(&text)
+    // A bare brief is context: only what follows it was said.
+    let text = bare_split(text).map_or(text, |(_, rest)| rest);
+    let said: Vec<&str> = parts(text)
         .into_iter()
         .filter_map(|part| match part {
             Part::User(text) | Part::Session { text, .. } | Part::Child { text, .. } => Some(text),
@@ -195,8 +192,7 @@ pub(crate) fn said(text: &str) -> String {
 }
 
 /// A readable automatic title, including old titles copied from tagged prompts.
-#[cfg(feature = "host")]
-pub(crate) fn title(text: &str) -> Option<String> {
+pub fn title(text: &str) -> Option<String> {
     const MAX_CHARS: usize = 80;
     let said = said(text);
     let line = said.lines().map(str::trim).find(|line| !line.is_empty())?;
@@ -271,27 +267,31 @@ pub(crate) fn bare_block(text: &str) -> String {
 }
 
 /// `text` with a bare brief at its start tagged as context, for a harness
-/// that keeps a prompt's blocks as one string. The brief is known by the
-/// exact text it ends with.
+/// that keeps a prompt's blocks as one string.
 #[cfg(feature = "host")]
 pub(crate) fn untagged(text: &str) -> String {
+    match bare_split(text) {
+        Some((brief, rest)) => join(&[Part::Context(brief), Part::User(rest)]),
+        None => text.to_owned(),
+    }
+}
+
+/// A bare brief at the start of `text` and what follows it. The brief is
+/// known by the exact text it ends with.
+fn bare_split(text: &str) -> Option<(&str, &str)> {
     let trimmed = text.trim_start();
 
     if !is_bare(trimmed) {
-        return text.to_owned();
+        return None;
     }
 
-    for end in BARE_ENDS {
-        if let Some(at) = trimmed.rfind(end) {
-            let (brief, rest) = trimmed.split_at(at + end.len());
-            return join(&[Part::Context(brief), Part::User(rest.trim_start())]);
-        }
-    }
-
-    text.to_owned()
+    BARE_ENDS.into_iter().find_map(|end| {
+        let at = trimmed.rfind(end)?;
+        let (brief, rest) = trimmed.split_at(at + end.len());
+        Some((brief, rest.trim_start()))
+    })
 }
 
-#[cfg(feature = "host")]
 fn is_bare(text: &str) -> bool {
     let text = text.trim_start();
     BARE_STARTS.iter().any(|start| text.starts_with(start))

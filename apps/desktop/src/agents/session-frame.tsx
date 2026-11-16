@@ -100,7 +100,8 @@ interface SessionHeadProps {
   moveKey: string;
   /// Opens the session's project from its folder name; null outside a project.
   openProject: (() => void) | null;
-  saveTitle(value: string): Promise<void>;
+  /// Saves the title on the session's machine; null for a start, which no machine has yet.
+  saveTitle: ((value: string) => Promise<void>) | null;
 }
 
 export function SessionHead({ agent, title, folder, branch, openProject, cwd, machine, usage, moveKey, saveTitle, machineId, session }: SessionHeadProps) {
@@ -144,7 +145,7 @@ function keepPhoneField(event: MouseEvent) {
 interface ContinueHereProps { target: string; start(): void }
 
 interface SessionFieldProps {
-  mode: "native" | "readonly" | "writable"; name: string; banner: string; moveKey: string;
+  mode: "native" | "readonly" | "starting" | "writable"; name: string; banner: string; moveKey: string;
   /// The session this field belongs to, for plugins.
   machine: string; session: string;
   continueHere: ContinueHereProps | null;
@@ -155,6 +156,10 @@ interface SessionFieldProps {
   send(input: HTMLTextAreaElement): void;
   stop(): void;
   openParent(): void;
+  /// Runs a start that failed again; null while it waits or starts.
+  retry: (() => void) | null;
+  /// Drops a start and leaves its view.
+  cancel(): void;
 }
 
 /// The session's message field while the session page shows it.
@@ -203,9 +208,10 @@ function FieldGrip() {
   return <span ref={grip} className="agfield-grip" role="separator" aria-orientation="horizontal" aria-label="Resize the message field" title="Drag to resize, double-click to reset" onPointerDown={drag} onDoubleClick={() => keep(0)} />;
 }
 
-export function SessionField({ mode, name, banner, moveKey, machine, session, continueHere, attach, draft, removeLast, send, stop, openParent }: SessionFieldProps) {
+export function SessionField({ mode, name, banner, moveKey, machine, session, continueHere, attach, draft, removeLast, send, stop, openParent, retry, cancel }: SessionFieldProps) {
   const input = agentMessage, dropping = useFieldDrop(), uploading = useUploadPending();
   if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel"><FieldControl slot="model" /></span><Button id="agnativeparent" onClick={openParent}>Open parent</Button></div>;
+  if (mode === "starting") return <div className="dmuted dbanner dtakeover"><span>{banner}</span>{retry && <Button onClick={retry}>Retry</Button>}<Button look="quiet" onClick={cancel}>Cancel</Button></div>;
   if (mode === "readonly") return continueHere ? <div className="dmuted dbanner dtakeover"><span>{banner}</span><ContinueHere {...continueHere} /></div> : <div className="dmuted dblock dbanner">{banner}</div>;
   return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><FieldControl slot="steps" /><div id="agtasks"><FieldControl slot="tasks" /></div><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><ComposerPresence machine={machine} session={session} /><PluginSlot name="composer" /><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><FieldGrip /><FilePicker attach={attach} /><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><ComposeField key={draft} ref={input} draft={draft} images={attach} removeLast={removeLast} grow={156} id="agmsg" rows={1} readOnly={uploading} aria-busy={uploading} style={uploading ? { opacity: 0.5, cursor: "wait" } : undefined} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" disabled={uploading} onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
 }

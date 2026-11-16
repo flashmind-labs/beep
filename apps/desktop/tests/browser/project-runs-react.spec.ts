@@ -7,7 +7,7 @@ test("workflow run retains focus while details update", async ({ page }) => {
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: 'build-box', machine_name: 'build-box', agents: ['codex'], workspace: null, home: '/srv', capabilities: [] }],
     agent_models: { pick: 'listed', current: 'alpha', models: [{ id: 'alpha', name: 'Alpha', description: null }] },
-    agent_start: { session: { machine_id: 'build-box', machine_name: 'build-box', id: 'fixer', agent: 'codex', cwd: '/srv/project', status: 'working', external: false, question: null } },
+    agent_begin: { session: { machine_id: 'build-box', machine_name: 'build-box', id: 'start:fixer', agent: 'codex', cwd: '/srv/project', status: 'starting', external: false, question: null }, why: '' },
     center_project_runs: { runs: [run], checks: [], synced_at: null, error: null, rate_limited_until: null }, center_project_run: detail,
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "actions" } }), projectName);
@@ -28,8 +28,8 @@ test("workflow run retains focus while details update", async ({ page }) => {
   await expect(page.getByRole('textbox', { name: 'Task for a coding agent' })).toHaveValue(/Build/);
   await page.getByRole('button', { name: 'Fix this' }).click();
   await page.getByRole('dialog', { name: 'Harness, model and thinking' }).locator('[data-agmo="alpha"]').click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'agent_start').length)).toBe(1);
-  const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === 'agent_start')?.args);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'agent_begin').length)).toBe(1);
+  const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === 'agent_begin')?.args);
   expect(args).toMatchObject({ agent: 'codex', model: 'alpha' });
   expect(String(args?.prompt)).toContain('Fix the failing Build run #42');
 });

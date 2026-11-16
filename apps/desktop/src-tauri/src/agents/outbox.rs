@@ -11,6 +11,7 @@
 
 use crate::{
     agents::{
+        kept_folder::{KeptFolder, KeptImage, Write, forget_images, image_writes},
         kept_transcripts::SessionKey,
         steer::{PastedImage, Steer, SteerError, sent},
     },
@@ -23,11 +24,8 @@ use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    fs::{self, File},
-    io::{ErrorKind, Write as _},
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex, PoisonError, mpsc},
-    thread,
+    path::PathBuf,
+    sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -74,36 +72,6 @@ pub struct Seen {
     pub(crate) entries: u64,
     /// The messages the session held for its turn.
     pub(crate) queued: Vec<String>,
-}
-
-/// An image of a kept message. Its bytes are kept in a file of their own,
-/// not in the messages' file.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct KeptImage {
-    pub(crate) name: String,
-    pub(crate) mime: String,
-    #[serde(skip)]
-    pub(crate) data: String,
-}
-
-impl From<PastedImage> for KeptImage {
-    fn from(image: PastedImage) -> Self {
-        Self {
-            name: image.name,
-            mime: image.mime,
-            data: image.data,
-        }
-    }
-}
-
-impl From<KeptImage> for PastedImage {
-    fn from(image: KeptImage) -> Self {
-        Self {
-            name: image.name,
-            mime: image.mime,
-            data: image.data,
-        }
-    }
 }
 
 /// A message as a window hands it to the outbox.
@@ -208,18 +176,6 @@ pub(crate) enum Answer {
     Refused(String),
 }
 
-/// A change to the outbox's folder, done in order by its thread.
-enum Write {
-    /// The messages' file, as it is now.
-    Messages(Vec<u8>),
-    /// An image of a message, kept until it goes.
-    Image { file: String, data: String },
-    /// The images of a message that went.
-    Forget(Vec<String>),
-    /// Answers once what was asked before is on disk.
-    Synced(mpsc::Sender<()>),
-}
-
 /// The kept messages, and what is being done with them.
 #[derive(Default)]
 pub(crate) struct Held {
@@ -234,11 +190,6 @@ pub(crate) struct Held {
     /// messages' file changed.
     writes: Vec<Write>,
     dirty: bool,
-}
-
-/// The file an image of message `id` is kept in.
-fn image_file(id: u64, at: usize) -> String {
-    format!("{id}-{at}")
 }
 
 impl Held {
@@ -273,12 +224,7 @@ impl Held {
         self.next += 1;
         let images: Vec<KeptImage> = draft.images.into_iter().map(Into::into).collect();
 
-        for (at, image) in images.iter().enumerate() {
-            self.writes.push(Write::Image {
-                file: image_file(id, at),
-                data: image.data.clone(),
-            });
-        }
+        self.writes.extend(image_writes(id, &images));
 
         let stuck = self.messages.iter().any(|m| {
             m.key() == *key && m.state == Stage::Waiting && !self.replies.contains_key(&m.id)
@@ -434,12 +380,7 @@ impl Held {
         let message = self.messages.remove(at);
         self.dirty = true;
 
-        if !message.images.is_empty() {
-            let files = (0..message.images.len())
-                .map(|at| image_file(id, at))
-                .collect();
-            self.writes.push(Write::Forget(files));
-        }
+        self.writes.extend(forget_images(id, message.images.len()));
 
         Some(message)
     }
@@ -482,25 +423,17 @@ impl Held {
 /// The kept messages and the thread that writes them.
 pub struct Outbox {
     held: Mutex<Held>,
-    writes: mpsc::Sender<Write>,
+    folder: KeptFolder,
 }
 
 impl Outbox {
     /// The outbox kept in `dir`, or an empty one.
     pub fn load(dir: PathBuf) -> Self {
-        let messages = read_messages(&dir);
-        let (writes, queue) = mpsc::channel();
-        let spawned = thread::Builder::new()
-            .name("outbox".into())
-            .spawn(move || write_all(&dir, &queue));
-
-        if let Err(e) = spawned {
-            log::warn!("starting the outbox writer: {e}");
-        }
-
+        let folder = KeptFolder::open(dir, MESSAGES, "outbox");
+        let messages = read_messages(&folder);
         Self {
             held: Mutex::new(Held::from_messages(messages)),
-            writes,
+            folder,
         }
     }
 
@@ -531,17 +464,10 @@ impl Outbox {
             (out, writes, messages)
         };
 
-        for write in writes {
-            let _ = self.writes.send(write);
-        }
+        self.folder.write(writes);
 
         if let Some(messages) = messages {
-            match serde_json::to_vec(&messages) {
-                Ok(bytes) => {
-                    let _ = self.writes.send(Write::Messages(bytes));
-                }
-                Err(e) => log::warn!("keeping the outbox: {e}"),
-            }
+            self.folder.keep(&messages);
         }
 
         out
@@ -553,45 +479,19 @@ impl Outbox {
 
     /// Returns once what changed so far is on disk.
     pub fn sync(&self) {
-        let (done, wait) = mpsc::channel();
-
-        if self.writes.send(Write::Synced(done)).is_ok() {
-            let _ = wait.recv();
-        }
+        self.folder.sync();
     }
 }
 
 const MESSAGES: &str = "messages.json";
-const IMAGES: &str = "images";
 
-/// The messages kept in `dir`, each with its images read back. One whose
+/// The messages kept in `folder`, each with its images read back. One whose
 /// image is gone stays, refused, for the user to see.
-fn read_messages(dir: &Path) -> Vec<Message> {
-    let file = dir.join(MESSAGES);
-    let mut messages: Vec<Message> = match fs::read(&file) {
-        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-            log::warn!("dropping the unreadable {}: {e}", file.display());
-            Vec::new()
-        }),
-        Err(e) if e.kind() == ErrorKind::NotFound => Vec::new(),
-        Err(e) => {
-            log::warn!("reading {}: {e}", file.display());
-            Vec::new()
-        }
-    };
+fn read_messages(folder: &KeptFolder) -> Vec<Message> {
+    let mut messages: Vec<Message> = folder.read();
 
     for message in &mut messages {
-        let id = message.id;
-        let mut lost = false;
-
-        for (at, image) in message.images.iter_mut().enumerate() {
-            match fs::read_to_string(dir.join(IMAGES).join(image_file(id, at))) {
-                Ok(data) => image.data = data,
-                Err(_) => lost = true,
-            }
-        }
-
-        if lost {
+        if !folder.read_images(message.id, &mut message.images) {
             message.state = Stage::Failed {
                 reason: "An image of this message could not be read.".into(),
             };
@@ -599,65 +499,6 @@ fn read_messages(dir: &Path) -> Vec<Message> {
     }
 
     messages
-}
-
-/// Does each change asked for, in order. Of several messages' files asked
-/// for together only the newest is written, after the images it names.
-fn write_all(dir: &Path, queue: &mpsc::Receiver<Write>) {
-    let images = dir.join(IMAGES);
-    let mut synced = Vec::new();
-
-    while let Ok(first) = queue.recv() {
-        let mut messages = None;
-
-        for write in std::iter::once(first).chain(queue.try_iter()) {
-            match write {
-                Write::Messages(bytes) => messages = Some(bytes),
-                Write::Image { file, data } => {
-                    if let Err(e) = replace(&images, &file, data.as_bytes()) {
-                        log::warn!("keeping an outbox image: {e}");
-                    }
-                }
-                Write::Forget(files) => {
-                    for file in files {
-                        match fs::remove_file(images.join(&file)) {
-                            Ok(()) => {}
-                            Err(e) if e.kind() == ErrorKind::NotFound => {}
-                            Err(e) => log::warn!("removing an outbox image: {e}"),
-                        }
-                    }
-                }
-                Write::Synced(done) => synced.push(done),
-            }
-        }
-
-        if let Some(bytes) = messages
-            && let Err(e) = replace(dir, MESSAGES, &bytes)
-        {
-            log::warn!("writing the outbox: {e}");
-        }
-
-        for done in synced.drain(..) {
-            let _ = done.send(());
-        }
-    }
-}
-
-/// Replaces `dir/name` with `bytes` whole: written beside it, flushed to
-/// the disk, then renamed over it.
-fn replace(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
-    fs::create_dir_all(dir)?;
-    let partial = dir.join(format!("{name}.part"));
-    let mut file = File::create(&partial)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    fs::rename(&partial, dir.join(name))?;
-
-    // The rename itself reaches the disk with the folder; Windows cannot
-    // open a folder this way, and there the rename is kept as it is.
-    #[cfg(unix)]
-    File::open(dir)?.sync_all()?;
-    Ok(())
 }
 
 /// What a flusher needs of the machine and the windows.

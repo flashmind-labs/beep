@@ -4,7 +4,10 @@
 //! has it draw again.
 
 use crate::{
-    agents::sessions::machine_sessions,
+    agents::{
+        sessions::machine_sessions,
+        starts::{StartId, Starts},
+    },
     center::cache_view,
     center::view_cache::{View, ViewCache},
     error::{DesktopError, Result},
@@ -139,6 +142,9 @@ impl AgentSessions {
         cache: &Arc<ViewCache>,
     ) -> Result<Vec<MachineSession>> {
         let mut sessions = self.list_cached(app, cache).await?;
+        // The starts kept here change between reads: the list has them as they are now.
+        sessions.retain(|session| session.id.parse::<StartId>().is_err());
+        sessions.extend(app.state::<Arc<Starts>>().rows());
         // A presence event may have arrived while the cached read was in flight.
         app.state::<Arc<Fleet>>().apply_presence(&mut sessions);
         sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));

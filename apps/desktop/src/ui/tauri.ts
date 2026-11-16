@@ -155,7 +155,7 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
   // A write drops only the rendered views it can change, before and after it runs.
   const writing = writeScope(cmd);
   dropViews(writing);
-  const lifecycle = cmd === "agent_start" || cmd === "agent_resume";
+  const lifecycle = cmd === "agent_start" || cmd === "agent_begin" || cmd === "agent_resume";
   const at = Date.now();
   const measure = TIMED_COMMANDS.has(cmd) ? performance.now() : null;
   let timedOut = false;

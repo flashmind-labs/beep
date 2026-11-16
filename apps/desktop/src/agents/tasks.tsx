@@ -10,6 +10,7 @@ import { plural } from "../ui/format.ts";
 import { backgroundTasks, paneTasks, sessionKey } from "../agentpane/running.ts";
 import { showRunning } from "../agentpane/media.ts";
 import { draw } from "../agentpane/media-draw.ts";
+import { isStarting } from "./starting-state.ts";
 
 /// The tasks asked to stop, until they end.
 const stopping = new Set<string>();
@@ -19,7 +20,7 @@ let shown = "";
 /// The open session's tasks; the last ones when a read fails.
 export async function readTasks(o: OpenAgent) {
   const s = AG.page?.session;
-  if (!s || s.external || s.status === "ended") return [];
+  if (!s || s.external || isStarting(s.id) || s.status === "ended") return [];
 
   try {
     return await invoke<AgentTask[]>("agent_tasks", where(o), AGENT_READ_WAIT_MS);

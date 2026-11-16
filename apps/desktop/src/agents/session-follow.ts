@@ -9,7 +9,7 @@ import { disposeQueue } from "./messages.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { joinRuns } from "./older-state.ts";
 import { readFailed } from "./reconnect-state.ts";
-import { applyAgentPage, isOpen, pollAgent } from "./session.tsx";
+import { applyAgentPage, heldPage, isOpen, pollAgent } from "./session.tsx";
 import { paneShown } from "../ui/active.ts";
 import { publishTurn } from "../plugins/plugins-state.ts";
 
@@ -74,7 +74,7 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     // update, with no draw, so updates join in the order they came.
     if (!isOpen(open)) {
       flushDraw(true);
-      if (AG.page) AG.page = update.kind === "snapshot" ? page : joinRuns(AG.page, fresh);
+      if (AG.page) AG.page = heldPage(AG.page, fresh, update.kind === "snapshot");
       return;
     }
 
@@ -160,7 +160,7 @@ export function flushDraw(now = false) {
   held = null;
 
   if (isOpen(next.open)) applyAgentPage(next.open, next.page, next.read, next.replace, true);
-  else if (AG.open === next.open && AG.page) AG.page = next.replace ? next.page : joinRuns(AG.page, next.page);
+  else if (AG.open === next.open && AG.page) AG.page = heldPage(AG.page, next.page, next.replace);
 }
 
 /// The open session leaves the screen; it stays followed while it runs or asks.

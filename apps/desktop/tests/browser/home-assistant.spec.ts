@@ -1,10 +1,20 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
 const host = { machine_id: "build-box", machine_name: "build-box", agents: ["codex", "flsh"], workspace: null, home: "/srv", capabilities: [], assistant: true };
-const session = { machine_id: "build-box", machine_name: "build-box", id: "assistant-one", agent: "flsh", title: null as string | null, cwd: "/srv", status: "working", doing: null, started_at: 1, last_activity: 1, external: false, question: null, assistant: true };
+const session = { machine_id: "build-box", machine_name: "build-box", id: "assistant-one", agent: "flsh", title: null as string | null, cwd: "/srv", status: "working", doing: null as string | null, started_at: 1, last_activity: 1, external: false, question: null, assistant: true };
 
 const view = (row: typeof session, text: string) => ({ session: row, plan: [], files: [], entries: [{ kind: "agent", text }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1 });
+
+/// The start this device keeps for a chat, and its page: the message alone.
+const start = { ...session, id: "start:one", status: "starting", doing: "Starting flsh on build-box" };
+const kept = { agent_begin: { session: start, why: "" }, agent_view: { ...view(start, ""), entries: [{ kind: "user", text: "hello" }], turns: 0 } };
+
+/// The start's machine names its session `row`, which answers "Hello.".
+const named = (page: Page, row: typeof session) => page.evaluate(event => {
+  window.__navigation.respond("agent_view", event);
+  window.__navigation.emit("agent-started", { start: "start:one", session: event.session, first_message: "hello" });
+}, view(row, "Hello."));
 
 test("the sidebar's Assistant lists the chats and opens one beside them", async ({ page }) => {
   const other = { ...session, id: "assistant-two", title: "Check the open pull requests", status: "idle" };
@@ -33,8 +43,7 @@ test("Cmd+N on Home opens the Assistant page and starts the assistant with its h
   await openDesktop(page, false, {
     agent_hosts: [host],
     assistant_settings_get: { agent: "flsh", model: null, effort: "high" },
-    agent_start: { session, why: "" },
-    agent_view: { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+    ...kept,
   });
   await expect(page.locator("#sec-needs")).toBeVisible();
   await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
@@ -50,7 +59,7 @@ test("Cmd+N on Home opens the Assistant page and starts the assistant with its h
 
   await prompt.fill("How is the widget project doing?");
   await prompt.press("Enter");
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").map(call => call.args))).toEqual([
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").map(call => call.args))).toEqual([
     // No machine picked: Auto picks one, this computer first.
     { machineId: null, agent: "flsh", cwd: null, prompt: "How is the widget project doing?", images: [], model: null, effort: "high", checkout: null, assistant: true },
   ]);
@@ -100,15 +109,15 @@ test("the first start's harness shows the assistant setting saved in Settings", 
 test("a chat started from Home's composer opens on the Assistant page", async ({ page }) => {
   await openDesktop(page, false, {
     center_home: { machines: [], projects: [], running: [], needs_you: [] },
-    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null },
-    // A released node's start reply leaves out that the session is the assistant.
-    agent_start: { session: { ...session, assistant: false }, why: "" },
-    agent_view: view(session, "Hello."),
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null }, ...kept,
   });
   const prompt = page.locator(".painted-empty textarea");
   await prompt.fill("hello");
   await prompt.press("Enter");
+  await expect(page.locator("#agbody .dcoderen.user")).toContainText("hello");
+  await expect(page.locator(".asst-list")).toBeVisible();
 
+  await named(page, session);
   await expect(page.getByText("Hello.", { exact: true })).toBeVisible();
   await expect(page.locator(".asst-list")).toBeVisible();
   await expect(page.locator("#title")).toContainText("Assistant");
@@ -150,17 +159,18 @@ test("the chats' grip resizes them and keeps the width", async ({ page }) => {
 });
 
 test("a chat started on the Assistant page stays on it with a released node", async ({ page }) => {
-  // A released node's start reply and view leave out that the session is the assistant.
-  const old = { ...session, assistant: false };
+  // A released node's session and view leave out that the session is the assistant.
   await openDesktop(page, false, {
     agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null },
-    agent_sessions: [], agent_start: { session: old, why: "" }, agent_view: view(old, "Hello."),
+    agent_sessions: [], ...kept,
   });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
   const prompt = page.locator("#agprompt");
   await prompt.fill("hello");
   await prompt.press("Enter");
+  await expect(page.locator("#agconv .dbanner")).toContainText("Starting flsh on build-box");
 
+  await named(page, { ...session, assistant: false });
   await expect(page.getByText("Hello.", { exact: true })).toBeVisible();
   await page.waitForTimeout(1500);
   await expect(page.locator(".asst-list")).toBeVisible();
@@ -171,13 +181,15 @@ test("a chat started on the Assistant page stays on it while the list also has i
   const outside = { ...session, assistant: false, external: true, status: "working" };
   await openDesktop(page, false, {
     agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null },
-    agent_sessions: [outside], agent_start: { session, why: "" }, agent_view: view(session, "Hello."),
+    agent_sessions: [outside], ...kept,
   });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
   const prompt = page.locator("#agprompt");
   await prompt.fill("hello");
   await prompt.press("Enter");
+  await expect(page.locator("#agconv .dbanner")).toContainText("Starting flsh on build-box");
 
+  await named(page, session);
   await expect(page.getByText("Hello.", { exact: true })).toBeVisible();
   await expect(page.locator(".asst-list")).toBeVisible();
   await expect(page.locator("#title")).toContainText("Assistant");

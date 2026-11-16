@@ -13,6 +13,7 @@ import { onPlaces, placeOf } from "./place.ts";
 import { placeName, placeRepo } from "./place-state.ts";
 import { agentKey } from "./conversation-state.ts";
 import { isNativeSession } from "./native-session-state.ts";
+import { isStarting } from "./starting-state.ts";
 import { followsOnly, isOpen, stoppingNow, turnRuns } from "./session.tsx";
 
 /// The session's keys on one small line.
@@ -27,7 +28,7 @@ export function agentHints() {
   if (q && AG.modes?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
   if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
   if (s && isNativeSession(s.id)) return slim([["esc", "parent session"]]);
-  if (s && followsOnly(s)) return slim([["esc", "back"]]);
+  if (s && (followsOnly(s) || isStarting(s.id))) return slim([["esc", "back"]]);
   if (s?.status === "ended") return slim([[ICON.ret, "continue"], ["esc", "back"]]);
 
   if (turnRuns()) {
@@ -64,7 +65,7 @@ export const shownUsage = (s: AgentRow) => usage.of === agentKey(s) ? usage.show
 /// Reads the open session's usage once per finished turn into the header.
 export async function readUsage(o: OpenAgent, page: AgentPage) {
   const s = page.session, of = agentKey(s);
-  if (s.external || (usage.of === of && usage.turns === page.turns)) return;
+  if (s.external || isStarting(s.id) || (usage.of === of && usage.turns === page.turns)) return;
   usage = { of, turns: page.turns, shown: usage.of === of ? usage.shown : null };
 
   try {

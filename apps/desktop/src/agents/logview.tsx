@@ -459,7 +459,7 @@ function entryRows(en: AgentEntry, at: number): TranscriptRow[] {
   return [{ kind: "note", id: `other:${at}`, at, value: { kind: "other", text: en.text } }];
 }
 
-export function userRows(en: AgentEntry, at: number): (PromptRow | ContextRow)[] {
+function userRows(en: AgentEntry, at: number): (PromptRow | ContextRow)[] {
   // Beep's context, what another session sent and what a child came to
   // get rows of their own, never the user's box.
   const parts = promptParts(en.text);

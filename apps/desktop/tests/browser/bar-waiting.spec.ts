@@ -94,3 +94,73 @@ test("opening again with warm data reads nothing", async ({ page }) => {
   await page.waitForTimeout(300);
   expect(await calls(page, reads)).toBe(before);
 });
+
+test("a start opened in the bar becomes the session its machine names, and Esc still comes back", async ({ page }) => {
+  const start = { ...session("start:one", "Inspect the project", "starting", 1_000), doing: "Waiting for build-box" };
+  const named = session("named", "Inspect the project", "working", 0);
+  const pageOf = (row: typeof named, text: string | null) => ({ session: row, plan: [], files: [], entries: text === null ? [] : [{ kind: "user", text }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 });
+  await openBar(page, [start]);
+  await page.evaluate(first => window.__navigation.respond("agent_view", first), pageOf(start, "Inspect the project"));
+  await shown(page);
+  await expect(page.locator("#wtlist [role=option]")).toHaveCount(1);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#agconv .dbanner")).toContainText("Waiting for build-box");
+
+  await page.evaluate(event => { window.__navigation.respond("agent_view", event.first); window.__navigation.emit("agent-started", event.started); },
+    { first: pageOf(named, null), started: { start: start.id, session: named, first_message: "Inspect the project" } });
+  await expect(page.locator("#agmsg")).toBeFocused();
+  await expect(page.locator("#agbody .dcoderen.user")).toContainText("Inspect the project");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_follow").map(c => c.args.session))).toEqual(["named"]);
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#wtlist")).toBeFocused();
+});
+
+test("a start that went from another window leaves its view", async ({ page }) => {
+  const start = { ...session("start:one", "Inspect the project", "starting", 1_000), doing: "Starting Codex on build-box" };
+  await openBar(page, [start]);
+  await page.evaluate(first => window.__navigation.respond("agent_view", first),
+    { session: start, plan: [], files: [], entries: [{ kind: "user", text: "Inspect the project" }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 });
+  await shown(page);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#agconv .dbanner")).toContainText("Starting Codex on build-box");
+
+  // This device no longer keeps it.
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = <T>(command: string, args?: Record<string, unknown>) => command === "agent_view" ? Promise.reject({ kind: "gone" }) : invoke<T>(command, args);
+    window.__navigation.emit("sessions-changed", "start:one");
+  });
+  await expect(page.locator("#wtlist")).toBeFocused();
+});
+
+test("a session keeps its first message when it is left and opened again before its machine logs it", async ({ page }) => {
+  const named = session("named", "Inspect the project", "starting", 0);
+  const empty = (doing: string | null) => ({ session: { ...named, doing }, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 });
+  const update = (kind: string, doing: string | null) => ({ kind, resumed: false, cursor: { start: 0, next: 0, fingerprint: "empty" }, page: empty(doing), modes: null, tasks: [] });
+  await openBar(page, [named]);
+  // Its stream answers with the empty log, and stays open for what its machine says next.
+  await page.evaluate(first => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const channel = args?.onEvent;
+      if (command !== "agent_follow" || typeof channel !== "object" || channel === null || !("onmessage" in channel) || typeof channel.onmessage !== "function") return invoke<T>(command, args);
+      const push = channel.onmessage.bind(channel);
+      Reflect.set(window, "push", push);
+      push(first);
+      return new Promise<never>(() => {});
+    };
+  }, update("snapshot", null));
+  await page.evaluate(started => window.__navigation.emit("agent-started", started), { start: "start:one", session: named, first_message: "Inspect the project" });
+  await shown(page);
+  await page.keyboard.press("Enter");
+  const sent = page.locator("#agbody .dcoderen.user");
+  await expect(sent).toContainText("Inspect the project");
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#wtlist")).toBeFocused();
+  await page.evaluate(next => Reflect.get(window, "push")(next), update("delta", "Setting the model"));
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#agconv")).toBeVisible();
+  await expect(sent).toContainText("Inspect the project");
+});
