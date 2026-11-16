@@ -34,6 +34,28 @@ fn an_agent_notice_opens_its_session_and_a_question_has_answers() {
 }
 
 #[test]
+fn only_a_permission_prompt_is_answered_with_allow_and_deny() {
+    let option = |id: &str, kind| AnswerOption {
+        id: id.into(),
+        name: id.into(),
+        kind,
+    };
+    let allow = option("allow", OptionKind::AllowOnce);
+    let always = option("always", OptionKind::AllowAlways);
+    let reject = option("reject", OptionKind::RejectOnce);
+    assert!(allow_deny(&[allow.clone(), always, reject.clone()]));
+    assert!(!allow_deny(&[allow.clone()]), "nothing to deny with");
+    let choices = [
+        option("choice-0", OptionKind::AllowOnce),
+        option("choice-1", OptionKind::AllowOnce),
+        reject.clone(),
+    ];
+    assert!(!allow_deny(&choices), "Allow would pick the first choice");
+    let picks = [allow, option("Card lists", OptionKind::Other), reject];
+    assert!(!allow_deny(&picks));
+}
+
+#[test]
 fn any_other_notice_opens_home() {
     let (mut notice, _) = agent_notice(None);
     notice.session_id = String::new();

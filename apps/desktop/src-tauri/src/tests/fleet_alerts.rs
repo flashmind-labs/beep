@@ -50,7 +50,7 @@ async fn heard(heard: &mut mpsc::Receiver<Direct>) -> Notice {
     timeout(LIMIT, async {
         loop {
             match heard.recv().await.expect("the stream follows") {
-                Direct::Notice(notice) => return *notice,
+                Direct::Notice { notice, .. } => return *notice,
                 Direct::Connected
                 | Direct::Run(_)
                 | Direct::Presence { .. }

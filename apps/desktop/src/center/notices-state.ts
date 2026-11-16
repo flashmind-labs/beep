@@ -26,6 +26,8 @@ export interface Note {
   here?: string[];
   /// Each copy of a skill conflict, to keep one.
   held?: Held[];
+  /// Allow and Deny answer its question; any other question opens its chat.
+  allow_deny: boolean;
 }
 
 /// One copy of a conflicting skill as the node told it.
@@ -93,7 +95,7 @@ export function doneLabel(i: Note): string {
 }
 
 /// Whether the row still asks, with Allow and Deny.
-export const asks = (i: Note) => i.kind === "asks" && !i.done;
+export const asks = (i: Note) => i.kind === "asks" && !i.done && i.allow_deny;
 
 /// One copy of a skill: its machine and folder, and whether it is on this Mac.
 export interface Copy {
