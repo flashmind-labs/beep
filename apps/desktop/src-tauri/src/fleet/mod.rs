@@ -27,8 +27,8 @@ use crate::{
     error::{DesktopError, Result},
 };
 use beep_mesh::{
-    DEFAULT_TICKET_TTL, DeviceKind, DeviceStatus, InUse, JoinTicket, Mesh, PeerClient, SessionFn,
-    machine::releases::ToolReleases, with_deadline,
+    DEFAULT_TICKET_TTL, DeviceKind, DeviceStatus, InUse, Invitation, JoinTicket, Mesh, PeerClient,
+    SessionFn, machine::releases::ToolReleases, with_deadline,
 };
 #[cfg(desktop)]
 use beep_node::{files::Folders, link::Offers, link::peers::Peers};
@@ -356,7 +356,7 @@ impl Fleet {
     /// mesh does not leave it, and neither does one whose mesh stays in use
     /// elsewhere in the app past `CLOSE_WAIT`.
     #[cfg(desktop)]
-    pub async fn join(&self, ticket: &JoinTicket, name: &str) -> Result<()> {
+    pub async fn join(&self, invite: impl Into<Invitation>, name: &str) -> Result<()> {
         let peers = &self.peers;
         let _one = self.joining.lock().await;
         let old = self.ready().await?;
@@ -385,7 +385,7 @@ impl Fleet {
         }
 
         let joined =
-            Mesh::join_replacing_lone(&self.dir, self.endpoint.clone(), ticket, name).await;
+            Mesh::join_replacing_lone(&self.dir, self.endpoint.clone(), invite, name).await;
         let new = match joined {
             Ok(new) => new,
             Err(e) => {
@@ -404,7 +404,7 @@ impl Fleet {
 
     /// A phone does not join with a desktop's ticket.
     #[cfg(mobile)]
-    pub async fn join(&self, _ticket: &JoinTicket, _name: &str) -> Result<()> {
+    pub async fn join(&self, _invite: impl Into<Invitation>, _name: &str) -> Result<()> {
         Err(DesktopError::BadRequest(
             "a phone pairs with a phone ticket".into(),
         ))

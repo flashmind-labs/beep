@@ -2,13 +2,13 @@
 //! answers the mesh and join protocols only, so no session, terminal or sync runs on it.
 
 use crate::error::{FleetError, Result};
-use beep_mesh::{DeviceKind, Invitation, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN, PhoneTicket};
+use beep_mesh::{DeviceKind, Invitation, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN, ShortTicket};
 use iroh::{Endpoint, protocol::Router};
 
 /// The invite in `text`: the short code of a desktop's phone QR code, or a full phone pairing
 /// ticket copied from the desktop.
 pub fn phone_ticket(text: &str) -> Result<Invitation> {
-    if let Ok(code) = PhoneTicket::parse(text) {
+    if let Ok(code) = ShortTicket::parse(text) {
         return Ok(Into::<Invitation>::into(&code));
     }
 
@@ -117,7 +117,7 @@ mod tests {
             .invite_observer(Duration::from_secs(3600))
             .await
             .expect("a ticket");
-        let code = PhoneTicket::from(&ticket)
+        let code = ShortTicket::from(&ticket)
             .encode_string()
             .to_ascii_uppercase();
         assert!(code.len() < 130, "{} characters", code.len());

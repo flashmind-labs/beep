@@ -12,6 +12,7 @@ use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use iroh_tickets::{ParseError, Ticket};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug, Formatter};
+use std::str::FromStr;
 use std::time::Duration;
 use subtle::ConstantTimeEq;
 use thiserror::Error;
@@ -61,28 +62,28 @@ pub struct JoinTicket {
     pub observer: bool,
 }
 
-/// A phone's pairing code: the desktop that minted the invite and its secret, short enough for
-/// a QR code a phone reads off a screen. iroh finds the desktop by its id; the desktop keeps the
-/// invite's kind, flags and expiry and enforces them when the secret is spent.
+/// The ticket desktops share: the desktop that minted the invite and its secret, short enough
+/// for a QR code a phone reads off a screen. iroh finds the desktop by its id; the desktop keeps
+/// the invite's kind, flags and expiry and enforces them when the secret is spent.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PhoneTicket {
+pub struct ShortTicket {
     #[serde(with = "crate::wire::id")]
     pub desktop: EndpointId,
     pub secret: JoinSecret,
 }
 
-impl PhoneTicket {
+impl ShortTicket {
     /// Reads the code in either case: the QR code carries it in capitals, which it packs smaller.
     pub fn parse(text: &str) -> Result<Self, TicketError> {
         Self::decode_string(&text.trim().to_ascii_lowercase()).map_err(|_| TicketError::Unreadable)
     }
 }
 
-impl Ticket for PhoneTicket {
+impl Ticket for ShortTicket {
     const KIND: &'static str = "beepjoin3";
 
     fn encode_bytes(&self) -> Vec<u8> {
-        rmp_serde::to_vec(self).expect("msgpack encodes a phone ticket")
+        rmp_serde::to_vec(self).expect("msgpack encodes a short ticket")
     }
 
     fn decode_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
@@ -91,7 +92,7 @@ impl Ticket for PhoneTicket {
     }
 }
 
-impl From<&JoinTicket> for PhoneTicket {
+impl From<&JoinTicket> for ShortTicket {
     fn from(ticket: &JoinTicket) -> Self {
         Self {
             desktop: ticket.addr.id,
@@ -118,8 +119,8 @@ impl From<&JoinTicket> for Invitation {
     }
 }
 
-impl From<&PhoneTicket> for Invitation {
-    fn from(ticket: &PhoneTicket) -> Self {
+impl From<&ShortTicket> for Invitation {
+    fn from(ticket: &ShortTicket) -> Self {
         Self {
             addr: EndpointAddr::new(ticket.desktop),
             secret: ticket.secret.clone(),
@@ -128,9 +129,26 @@ impl From<&PhoneTicket> for Invitation {
     }
 }
 
+impl FromStr for Invitation {
+    type Err = TicketError;
+
+    /// Reads a short ticket, or a full `beepjoin2` one from a released desktop.
+    fn from_str(text: &str) -> Result<Self, TicketError> {
+        if let Ok(code) = ShortTicket::parse(text) {
+            return Ok(Into::<Invitation>::into(&code));
+        }
+
+        JoinTicket::parse(text).map(|ticket| Into::<Invitation>::into(&ticket))
+    }
+}
+
 impl Invitation {
     pub(crate) fn addr(&self) -> &EndpointAddr {
         &self.addr
+    }
+
+    pub(crate) fn secret(&self) -> &JoinSecret {
+        &self.secret
     }
 }
 
@@ -162,6 +180,7 @@ impl JoinTicket {
     }
 }
 
+/// Deprecated: desktops share a `ShortTicket` and only read this form, from released desktops.
 impl Ticket for JoinTicket {
     const KIND: &'static str = "beepjoin2";
 

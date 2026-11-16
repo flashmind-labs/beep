@@ -21,7 +21,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
-    DeviceKind, DeviceStatus, InUse, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerClient,
+    DeviceKind, DeviceStatus, InUse, Invitation, JoinProtocol, Mesh, MeshProtocol, PeerClient,
     PeerStream, SessionFn, StreamHandler,
 };
 use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, report, status::Report};
@@ -456,7 +456,7 @@ impl Peers {
     /// mesh to keep and takes the new one in its place, also after a refused
     /// try already closed the old one.
     pub(crate) async fn join(&self, ticket: &str) -> Result<()> {
-        let ticket = JoinTicket::parse(ticket)?;
+        let invite: Invitation = ticket.parse()?;
         let old = self.active().map(|active| active.mesh);
 
         if old.as_ref().is_some_and(|mesh| mesh.is_member(mesh.me())) {
@@ -471,7 +471,7 @@ impl Peers {
         let mesh = Mesh::join_replacing_lone(
             &self.inner.dir,
             self.inner.endpoint.clone(),
-            &ticket,
+            invite,
             &self.inner.name,
         )
         .await
