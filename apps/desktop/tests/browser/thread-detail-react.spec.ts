@@ -56,7 +56,7 @@ test("Work on it picks a model under the button and starts the issue's agent at 
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }, { id: "beta", name: "Beta", description: null }] },
-    agent_start: { session: { machine_id: "build-box", machine_name: "build-box", id: "started", agent: "codex", cwd: "/srv/project", status: "working", external: false, question: null } },
+    agent_begin: { session: { machine_id: "build-box", machine_name: "build-box", id: "start:one", agent: "codex", cwd: "/srv/project", status: "starting", external: false, question: null } },
     center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail,
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "issues" } }), projectName);
@@ -68,20 +68,21 @@ test("Work on it picks a model under the button and starts the issue's agent at 
   await expect(picker).toBeVisible();
   await picker.locator('[data-agmo="beta"]').click();
   await expect(picker).toHaveCount(0);
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").length)).toBe(1);
-  const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_start")?.args);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").length)).toBe(1);
+  const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_begin")?.args);
   expect(args).toMatchObject({ machineId: "build-box", agent: "codex", model: "beta", checkout: { named_worktree: { branch: "issue-7-example-issue" } } });
   expect(String(args?.prompt)).toContain("https://example.test/issues/7");
   await expect(page.locator(".cc-pjc:visible").getByRole("textbox", { name: "Task for a coding agent" })).toHaveCount(0);
 });
 
 test("Review with agent on a pull request starts a named reviewer on its branch", async ({ page }) => {
+  const reviewer = { machine_id: "build-box", machine_name: "build-box", id: "reviewer", agent: "codex", cwd: "/srv/project", status: "working", external: false, question: null };
   const now = Date.now(), pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, updated_at: now, labels: [] };
   const detail = { kind: "pr", number: 9, title: pr.title, url: pr.url, author: pr.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null };
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] },
-    agent_start: { session: { machine_id: "build-box", machine_name: "build-box", id: "reviewer", agent: "codex", cwd: "/srv/project", status: "working", external: false, question: null } },
+    agent_begin: { session: { ...reviewer, id: "start:review", status: "starting" } },
     center_pull_request_head: { branch: "example-change", fork: false },
     center_project_lists: { issues: [], prs: [pr], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail,
   });
@@ -90,8 +91,14 @@ test("Review with agent on a pull request starts a named reviewer on its branch"
   await page.locator('.pj-split:not(.gh-layout) > .pj-list .pj-li[title="Example change"] .t > b').click();
   await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Review with agent" }).click();
   await page.getByRole("dialog", { name: "Harness, model and thinking" }).locator('[data-agmo="alpha"]').click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_title_save").map(call => call.args.title))).toEqual(["Review #9"]);
-  const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_start")?.args);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").length)).toBe(1);
+  const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_begin")?.args);
   expect(args).toMatchObject({ agent: "codex", model: "alpha", checkout: { branch_worktree: { branch: "example-change" } } });
   expect(String(args?.prompt)).toContain("Review PR #9");
+
+  // The review is named once its machine names the session.
+  const titles = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_title_save").map(call => call.args));
+  expect(await titles()).toEqual([]);
+  await page.evaluate(session => window.__navigation.emit("agent-started", { start: "start:review", session, first_message: "Review PR #9" }), reviewer);
+  await expect.poll(titles).toEqual([{ machineId: "build-box", agent: "codex", session: "reviewer", title: "Review #9" }]);
 });

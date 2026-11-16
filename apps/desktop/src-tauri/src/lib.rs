@@ -241,6 +241,8 @@ pub fn run() {
             agents::sessions::agent_sessions,
             agents::sessions::agent_title_save,
             agents::sessions::agent_start,
+            agents::starts::agent_begin,
+            agents::starts::agent_begin_retry,
             agents::sessions::agent_usage,
             agents::sessions::agent_device,
             agents::sessions::session_folder_here,
@@ -553,6 +555,7 @@ fn quit(app: &AppHandle) {
     // The views a window drew last are kept for the next start.
     app.state::<Arc<center::view_cache::ViewCache>>().flush();
     app.state::<Arc<agents::outbox::Outbox>>().sync();
+    app.state::<Arc<agents::starts::Starts>>().sync();
     // Background tasks the agent started here end with the app.
     #[cfg(desktop)]
     beep_node::kill_tasks();
@@ -623,6 +626,7 @@ fn setup(
         dir.join("transcripts"),
     )));
     app.manage(Arc::new(agents::outbox::Outbox::load(dir.join("outbox"))));
+    app.manage(Arc::new(agents::starts::Starts::load(dir.join("starts"))));
     let endpoint = tauri::async_runtime::block_on(bind_endpoint(
         beep::identity::secret_key(&identity),
         beep_mesh::transport_config(),
@@ -740,6 +744,8 @@ fn setup(
 
     // Messages kept from the last run go once their machines answer.
     agents::outbox::resume(&handle);
+    // Starts kept from the last run go once their machines are online.
+    agents::starts::resume(&handle);
 
     let (following, direct) = fleet::alerts::start(fleet.clone());
     tauri::async_runtime::spawn(following);

@@ -2,7 +2,12 @@
 //! message for the running turn, switching model, cancel and close.
 
 use crate::{
-    agents::{kept_transcripts::SessionKey, outbox, sessions::closed},
+    agents::{
+        kept_transcripts::SessionKey,
+        outbox,
+        sessions::closed,
+        starts::{self, StartId},
+    },
     error::{DesktopError, Result},
     fleet::{Machines, agents as direct, asked::ORDER_LIMIT},
 };
@@ -204,6 +209,10 @@ pub async fn agent_steer(
     // What the window saw of the session when it sent a message.
     seen: Option<outbox::Seen>,
 ) -> Result<Vec<String>, SteerError> {
+    if let Ok(start) = session.parse::<StartId>() {
+        return starts::steer(&app, start, &steer);
+    }
+
     // A message goes after any waiting for its machine, and waits on this
     // device while the machine cannot be reached.
     if matches!(steer, Steer::Prompt { .. } | Steer::InTurn { .. }) {

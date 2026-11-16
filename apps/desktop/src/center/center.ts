@@ -178,6 +178,9 @@ pane.connect({
     if (session) setHeroCard(runningKey(session));
     withMove("back", () => { goTo(from); });
   },
+  openStarted(session) {
+    if (currentLocation()?.view === "pane") go("pane", { agent: session, adopt: true });
+  },
   sessionDestinations(s) {
     const projects = state.home?.projects ?? [];
     const current = projectOf(s, projects);

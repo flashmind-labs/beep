@@ -615,7 +615,7 @@ export function startAssistant(prompt: string, pick: AssistantPick, hosts: reado
   return start({ machine, agent: resolved.agent, cwd: null, prompt, images, model: resolved.model, effort: resolved.effort, checkout: null, assistant: true });
 }
 
-/// What `agent_start` takes.
+/// What `agent_begin` takes.
 interface Start {
   machine: string | null;
   agent: string | null;
@@ -628,14 +628,15 @@ interface Start {
   assistant: boolean;
 }
 
-/// Starts a session and keeps the model and thinking level it started on for its pill, and its
+/// Hands a start to this device, which answers at once with the session it shows as until its
+/// machine names it, and keeps the model and thinking level it starts on for its pill, and its
 /// first message for its log.
 async function start(s: Start): Promise<Started> {
-  const started = await invoke<Started>("agent_start", { machineId: s.machine, agent: s.agent, cwd: s.cwd, prompt: s.prompt, images: s.images, model: s.model, effort: s.effort, checkout: s.checkout, assistant: s.assistant });
+  const started = await invoke<Started>("agent_begin", { machineId: s.machine, agent: s.agent, cwd: s.cwd, prompt: s.prompt, images: s.images, model: s.model, effort: s.effort, checkout: s.checkout, assistant: s.assistant });
   const resolved = s.model ?? knownModels(s.machine, s.agent)?.current ?? "";
   sessionPicks.set(started.session.id, { model: resolved.toLowerCase() === "default" ? "" : resolved, effort: s.effort });
   startedWith(started.session, s.prompt, s.images);
 
-  // A released node's reply leaves out that the session is the assistant.
+  // The start's row may leave out that the session is the assistant, as a released node's does.
   return s.assistant ? { ...started, session: { ...started.session, assistant: true } } : started;
 }

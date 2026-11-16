@@ -2,6 +2,7 @@
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { ViewName, ViewArg, Location } from "../center/state.ts";
+import type { AgentRow } from "../agents/agents.ts";
 
 export const bar = document.getElementById("bar")!;
 /// True when this page runs as a pane in the command center window rather
@@ -63,6 +64,9 @@ export interface WindowHooks {
   /// Esc from an agent view goes back to the view that opened it. A session that
   /// closed leaves at once, with `move` false, so a failed close finds the page it left for.
   goBack(from: BackTo, move: boolean): void;
+  /// The session a start became takes over the page that shows the start, and its navigation
+  /// entry. Nothing happens while the window shows another page.
+  openStarted(session: AgentRow): void;
   /// The project a coding session runs in, and how to open it.
   sessionDestinations?(s: { machine_id: string; cwd: string }): { name: string; folder: string }[];
   sessionProject?(s: { machine_id: string; cwd: string }): { label: string; name: string; open(): void } | null;

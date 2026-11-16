@@ -1,5 +1,12 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
+
+/// A start this device keeps, the session its machine names for it, and their pages.
+const kept = { machine_id: "build-box", machine_name: "build-box", agent: "codex", cwd: "/srv/project", external: false, question: null, started_at: 1, last_activity: 1, assistant: false };
+const start = { ...kept, id: "start:one", title: "Inspect the project", status: "starting", doing: "Waiting for build-box" };
+const named = { ...kept, id: "started", title: null, status: "starting", doing: null };
+const pageOf = (session: Omit<typeof start, "title" | "doing"> & { title: string | null; doing: string | null }, text: string | null, error: string | null) => ({ session, plan: [], files: [], entries: text === null ? [] : [{ kind: "user", text }], earlier: 0, last_message: "", error, queued: 0, queued_messages: [], turns: 0 });
+const calls = (page: Page, command: string) => page.evaluate(name => window.__navigation.calls().filter(call => call.command === name).map(call => call.args), command);
 
 test("project composer keeps draft, menu choices and issue branch across redraws", async ({ page }) => {
   const now = Date.now();
@@ -43,7 +50,7 @@ test("project composer submits keyboard draft and attached image with the chosen
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     agent_tree_upload: ".beep/uploads/example.png",
-    agent_start: { session: { machine_id: "build-box", machine_name: "build-box", id: "started", agent: "codex", cwd: "/srv/project", status: "working", external: false, question: null } },
+    agent_begin: { session: start, why: "" },
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   const form = page.locator(".cc-pjc:visible");
@@ -56,47 +63,99 @@ test("project composer submits keyboard draft and attached image with the chosen
   const input = form.getByRole("textbox", { name: "Task for a coding agent" });
   await input.fill("Inspect the attachment");
   await input.press("Enter");
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").length)).toBe(1);
-  const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_start")?.args);
+  await expect.poll(async () => (await calls(page, "agent_begin")).length).toBe(1);
+  const [args] = await calls(page, "agent_begin");
   expect(args?.machineId).toBe("build-box");
   expect(args?.prompt).toBe("Inspect the attachment\n\n@/srv/project/.beep/uploads/example.png");
   expect(args?.checkout).toEqual({ new_worktree: { base: null } });
   expect(args?.images).toEqual([expect.objectContaining({ name: "example.jpg", mime: "image/jpeg" })]);
 });
 
-test("a draft shows its first message at once, and the session it starts opens with it", async ({ page }, info) => {
-  const session = { machine_id: "build-box", machine_name: "build-box", id: "started", agent: "codex", title: null, cwd: "/srv/project", status: "working", external: false, question: null };
+test("a draft's start opens as a session at once, and the session its machine names takes it over", async ({ page }, info) => {
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: "/srv/project", home: "/srv", capabilities: [] }],
-    agent_start: { session },
+    agent_begin: { session: start, why: "" },
+    agent_view: pageOf(start, "Inspect the project", null),
   });
+  // The machine names the session before it sends the prompt: its first page has no entries.
+  await page.evaluate(first => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const channel = args?.onEvent;
+      if (command !== "agent_follow" || typeof channel !== "object" || channel === null || !("onmessage" in channel) || typeof channel.onmessage !== "function") return invoke<T>(command, args);
+      channel.onmessage({ kind: "snapshot", resumed: false, cursor: { start: 0, next: 0, fingerprint: "empty" }, page: first, modes: null, tasks: [] });
+      Reflect.set(window, "followed", args?.session);
+      return new Promise<never>(() => {});
+    };
+  }, pageOf(named, null, null));
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await expect(page.locator(".pj-strip")).toBeVisible();
-  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
-  const draft = page.locator("#agdraft textarea"), sent = page.locator("#agbody .dcoderen.user");
+  const modifier = info.project.name === "Windows" ? "Control" : "Meta";
+  await page.keyboard.press(`${modifier}+n`);
+  const draft = page.locator("#agdraft textarea"), sent = page.locator("#agbody .dcoderen.user"), live = page.locator("#agbody .dlive .lb"), banner = page.locator("#agconv .dbanner");
   await expect(draft).toBeFocused();
 
-  // The machine refuses: the input comes back with the task and why.
-  await page.evaluate(() => window.__navigation.rejectOnce("agent_start"));
+  // This device refuses the start: the input keeps the task and says why.
+  await page.evaluate(() => window.__navigation.rejectOnce("agent_begin"));
   await draft.fill("Inspect the project");
   await draft.press("Enter");
   await expect(page.locator("#agdraft .cc-err")).not.toBeEmpty();
-  await expect(sent).toHaveCount(0);
   await expect(draft).toHaveValue("Inspect the project");
-  await expect(draft).toBeFocused();
 
-  // While the machine starts the agent, the message shows as sent.
-  await page.evaluate(() => { window.__navigation.hold("agent_start"); window.__navigation.hold("agent_view"); });
+  // Kept: the session view opens with the message and what the start waits for, and only this device is read.
   await draft.press("Enter");
   await expect(sent).toContainText("Inspect the project");
-  await expect(page.locator("#agbody .dlive")).toHaveText("Starting Codex on build-box");
-  await expect(draft).toBeHidden();
+  await expect(live).toHaveText("Waiting for build-box");
+  await expect(banner).toContainText("Waiting for build-box");
+  await expect(banner.getByRole("button", { name: "Retry" })).toHaveCount(0);
+  await expect(page.locator("#agdraft, #agmsg")).toHaveCount(0);
+  expect((await calls(page, "agent_begin")).at(-1)).toEqual({ machineId: "build-box", agent: "codex", cwd: "/srv/project", prompt: "Inspect the project", model: null, effort: null, checkout: null, images: [] });
+  await expect.poll(async () => (await calls(page, "agent_view")).map(args => args.session)).toContain("start:one");
 
-  // The session opens with it, before its machine is read.
-  await page.evaluate(() => window.__navigation.release("agent_start"));
+  for (const command of ["agent_start", "agent_follow", "agent_modes", "agent_tasks", "agent_usage", "agent_processes", "transcript_kept", "outbox_list"]) {
+    expect(await calls(page, command), command).toEqual([]);
+  }
+
+  // The machine came online: the start says so, and the view reads it again.
+  await page.evaluate(next => { window.__navigation.respond("agent_view", next); window.__navigation.emit("sessions-changed", "start:one"); }, pageOf({ ...start, doing: "Starting Codex on build-box" }, "Inspect the project", null));
+  await expect(live).toHaveText("Starting Codex on build-box");
+  await expect(banner).toContainText("Starting Codex on build-box");
+
+  // Its machine named the session: it takes the view over, and keeps the message while its machine has logged nothing.
+  await page.evaluate(event => { window.__navigation.respond("agent_view", event.first); window.__navigation.emit("agent-started", event.started); },
+    { first: pageOf(named, null, null), started: { start: "start:one", session: named, first_message: "Inspect the project" } });
+  await expect(page.locator("#agmsg")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "followed"))).toBe("started");
+  await expect(sent).toContainText("Inspect the project");
+  await expect(page.locator('[data-log-part="starting"]')).toHaveCount(0);
+  await expect(banner).toHaveCount(0);
+
+  // The draft and the start left no page behind: Back is the project, and forward the session.
+  await page.keyboard.press(`${modifier}+[`);
+  await expect(page.locator(".pj-strip")).toBeVisible();
+  await page.keyboard.press(`${modifier}+]`);
   await expect(page.locator("#agmsg")).toBeVisible();
   await expect(sent).toContainText("Inspect the project");
-  await expect(page.locator("#agdraft")).toHaveCount(0);
+});
+
+test("a start that failed says why, runs again on Retry and goes on Cancel", async ({ page }) => {
+  const failed = { ...start, status: "idle", doing: null };
+  await openDesktop(page, false, { agent_view: pageOf(failed, "Inspect the project", "build-box does not have that model.") });
+  await page.evaluate(agent => window.__navigation.open({ agent: { kind: "agent", ...agent } }), failed);
+  const banner = page.locator("#agconv .dbanner");
+  await expect(page.locator('#agbody [data-log-part="error"]')).toContainText("build-box does not have that model.");
+  await expect(page.locator("#agbody .dcoderen.user")).toContainText("Inspect the project");
+  await expect(page.locator("#agbody .dlive")).toHaveCount(0);
+
+  await page.evaluate(next => window.__navigation.respond("agent_view", next), pageOf(start, "Inspect the project", null));
+  await banner.getByRole("button", { name: "Retry" }).click();
+  expect(await calls(page, "agent_begin_retry")).toEqual([{ session: "start:one" }]);
+  await expect(banner).toContainText("Waiting for build-box");
+  await expect(banner.getByRole("button", { name: "Retry" })).toHaveCount(0);
+
+  await banner.getByRole("button", { name: "Cancel" }).click();
+  await expect.poll(() => calls(page, "agent_steer")).toEqual([{ machineId: "build-box", agent: "codex", session: "start:one", steer: "close" }]);
+  await expect(page.locator("#agconv")).toBeHidden();
 });
 
 test("project composer closes and reopens its model picker", async ({ page }) => {
@@ -131,7 +190,7 @@ test("Shift+Enter keeps the focused draft without submitting", async ({ page }) 
   await expect(machine).toHaveText("build-box");
   await expect(input).toBeFocused();
   await expect(input).toHaveValue("First line\nSecond line");
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").length)).toBe(0);
+  expect(await calls(page, "agent_begin")).toEqual([]);
 });
 
 

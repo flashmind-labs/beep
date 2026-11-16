@@ -1,0 +1,226 @@
+//! A folder in the app data folder for what waits on this device for a
+//! machine: the records in one JSON file, each image in a file of its own,
+//! written in order by the folder's own thread. The outbox keeps its
+//! messages in one, and the starts theirs.
+
+use crate::agents::steer::PastedImage;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::{
+    fmt::Display,
+    fs::{self, File},
+    io::{self, ErrorKind, Write as _},
+    path::{Path, PathBuf},
+    sync::mpsc,
+    thread,
+};
+
+/// The folder images are kept in, inside the kept folder.
+pub(crate) const IMAGES: &str = "images";
+
+/// An image of a kept record. Its bytes, in base64, are kept in a file of
+/// their own, not in the records' file.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct KeptImage {
+    pub(crate) name: String,
+    pub(crate) mime: String,
+    #[serde(skip)]
+    pub(crate) data: String,
+}
+
+impl From<PastedImage> for KeptImage {
+    fn from(image: PastedImage) -> Self {
+        Self {
+            name: image.name,
+            mime: image.mime,
+            data: image.data,
+        }
+    }
+}
+
+impl From<KeptImage> for PastedImage {
+    fn from(image: KeptImage) -> Self {
+        Self {
+            name: image.name,
+            mime: image.mime,
+            data: image.data,
+        }
+    }
+}
+
+/// The file image `at` of record `id` is kept in.
+pub(crate) fn image_file(id: impl Display, at: usize) -> String {
+    format!("{id}-{at}")
+}
+
+/// A change to the folder, done in order by its thread.
+pub(crate) enum Write {
+    /// The records' file, as it is now.
+    Records(Vec<u8>),
+    /// An image of a record, kept until it goes.
+    Image { file: String, data: String },
+    /// The images of a record that went.
+    Forget(Vec<String>),
+    /// Answers once what was asked before is on disk.
+    Synced(mpsc::Sender<()>),
+}
+
+/// A kept folder and the thread that writes it.
+pub(crate) struct KeptFolder {
+    dir: PathBuf,
+    records: &'static str,
+    writes: mpsc::Sender<Write>,
+}
+
+impl KeptFolder {
+    /// The folder `dir`, whose records are in its file `records`, with its
+    /// writer thread `name` started.
+    pub(crate) fn open(dir: PathBuf, records: &'static str, name: &str) -> Self {
+        let (writes, queue) = mpsc::channel();
+        let writer = dir.clone();
+        let spawned = thread::Builder::new()
+            .name(name.into())
+            .spawn(move || write_all(&writer, records, &queue));
+
+        if let Err(e) = spawned {
+            log::warn!("starting the {name} writer: {e}");
+        }
+
+        Self {
+            dir,
+            records,
+            writes,
+        }
+    }
+
+    /// The records kept, or none when the file is missing or unreadable.
+    pub(crate) fn read<T: DeserializeOwned>(&self) -> Vec<T> {
+        let file = self.dir.join(self.records);
+
+        match fs::read(&file) {
+            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+                log::warn!("dropping the unreadable {}: {e}", file.display());
+                Vec::new()
+            }),
+            Err(e) if e.kind() == ErrorKind::NotFound => Vec::new(),
+            Err(e) => {
+                log::warn!("reading {}: {e}", file.display());
+                Vec::new()
+            }
+        }
+    }
+
+    /// Reads back the data of `images`, kept for record `id`; false when
+    /// one could not be read.
+    pub(crate) fn read_images(&self, id: impl Display, images: &mut [KeptImage]) -> bool {
+        let mut whole = true;
+
+        for (at, image) in images.iter_mut().enumerate() {
+            match fs::read_to_string(self.dir.join(IMAGES).join(image_file(&id, at))) {
+                Ok(data) => image.data = data,
+                Err(_) => whole = false,
+            }
+        }
+
+        whole
+    }
+
+    /// Has `writes` done, in order.
+    pub(crate) fn write(&self, writes: impl IntoIterator<Item = Write>) {
+        for write in writes {
+            let _ = self.writes.send(write);
+        }
+    }
+
+    /// Has the records' file replaced with `records`.
+    pub(crate) fn keep<T: Serialize>(&self, records: &[T]) {
+        match serde_json::to_vec(records) {
+            Ok(bytes) => self.write([Write::Records(bytes)]),
+            Err(e) => log::warn!("keeping {}: {e}", self.dir.display()),
+        }
+    }
+
+    /// Returns once what changed so far is on disk.
+    pub(crate) fn sync(&self) {
+        let (done, wait) = mpsc::channel();
+
+        if self.writes.send(Write::Synced(done)).is_ok() {
+            let _ = wait.recv();
+        }
+    }
+}
+
+/// The writes of the images of record `id`, to keep them.
+pub(crate) fn image_writes(id: impl Display, images: &[KeptImage]) -> Vec<Write> {
+    images
+        .iter()
+        .enumerate()
+        .map(|(at, image)| Write::Image {
+            file: image_file(&id, at),
+            data: image.data.clone(),
+        })
+        .collect()
+}
+
+/// The write that forgets the `count` images of record `id`, if it has any.
+pub(crate) fn forget_images(id: impl Display, count: usize) -> Option<Write> {
+    (count > 0).then(|| Write::Forget((0..count).map(|at| image_file(&id, at)).collect()))
+}
+
+/// Does each change asked for, in order. Of several records' files asked
+/// for together only the newest is written, after the images it names.
+fn write_all(dir: &Path, records: &str, queue: &mpsc::Receiver<Write>) {
+    let images = dir.join(IMAGES);
+    let mut synced = Vec::new();
+
+    while let Ok(first) = queue.recv() {
+        let mut latest = None;
+
+        for write in std::iter::once(first).chain(queue.try_iter()) {
+            match write {
+                Write::Records(bytes) => latest = Some(bytes),
+                Write::Image { file, data } => {
+                    if let Err(e) = replace(&images, &file, data.as_bytes()) {
+                        log::warn!("keeping an image in {}: {e}", dir.display());
+                    }
+                }
+                Write::Forget(files) => {
+                    for file in files {
+                        match fs::remove_file(images.join(&file)) {
+                            Ok(()) => {}
+                            Err(e) if e.kind() == ErrorKind::NotFound => {}
+                            Err(e) => log::warn!("removing an image in {}: {e}", dir.display()),
+                        }
+                    }
+                }
+                Write::Synced(done) => synced.push(done),
+            }
+        }
+
+        if let Some(bytes) = latest
+            && let Err(e) = replace(dir, records, &bytes)
+        {
+            log::warn!("writing {}: {e}", dir.display());
+        }
+
+        for done in synced.drain(..) {
+            let _ = done.send(());
+        }
+    }
+}
+
+/// Replaces `dir/name` with `bytes` whole: written beside it, flushed to
+/// the disk, then renamed over it.
+fn replace(dir: &Path, name: &str, bytes: &[u8]) -> io::Result<()> {
+    fs::create_dir_all(dir)?;
+    let partial = dir.join(format!("{name}.part"));
+    let mut file = File::create(&partial)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    fs::rename(&partial, dir.join(name))?;
+
+    // The rename itself reaches the disk with the folder; Windows cannot
+    // open a folder this way, and there the rename is kept as it is.
+    #[cfg(unix)]
+    File::open(dir)?.sync_all()?;
+    Ok(())
+}

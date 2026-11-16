@@ -10,11 +10,11 @@ use crate::{
 use beep_mesh::{
     Key, MeshError, PeerClient,
     machine::{
-        self, Host, Makes, Opened as Attached,
+        self, Host, Makes, OpenFailed, Opened as Attached,
         auto::AutoHost,
         codex_login, ended,
         listing::{self, Linked},
-        open_agent, order,
+        open_agent, open_agent_staged, order,
         sessions::{self, NodeFile, NodeImage, NodeWork},
     },
 };
@@ -425,6 +425,31 @@ pub(crate) async fn start(
     start: StartAgentSession,
     images: Vec<Upload>,
 ) -> Result<StartedAgent> {
+    let planned = plan(fleet, start, images).await?;
+    Ok(open(fleet, planned).await?)
+}
+
+/// A start checked and ready for its machine: where it goes and what the
+/// node is sent.
+#[derive(Debug)]
+pub(crate) struct Planned {
+    pub(crate) machine: EndpointId,
+    pub(crate) agent: String,
+    /// A `Request::Start`.
+    pub(crate) first: Request,
+    /// Why Auto picked the machine; empty when the start named it.
+    pub(crate) why: String,
+}
+
+/// Checks `start` and builds what its machine is sent. Only Auto, when no
+/// machine is named, asks the machines; a named machine need not be on: it
+/// is held to the agents it last said it offers, or, before it said, to the
+/// agent named.
+pub(crate) async fn plan(
+    fleet: &Fleet,
+    start: StartAgentSession,
+    images: Vec<Upload>,
+) -> Result<Planned> {
     let prompt = start.prompt.trim().to_owned();
 
     if prompt.is_empty() && images.is_empty() {
@@ -435,12 +460,7 @@ pub(crate) async fn start(
     let (host, why) = match &start.machine_id {
         Some(id) => {
             let machine = fleet.member(id).ok_or_else(not_found)?;
-            let host = fleet.agent_host(machine).ok_or_else(|| {
-                ApiError::bad_request(format!(
-                    "{} offers no coding agent.",
-                    fleet.name_of(machine)
-                ))
-            })?;
+            let host = named_host(fleet, machine, start.agent.as_deref())?;
             let host = if start.assistant {
                 for_assistant(vec![host], |host| runs_assistant(fleet, host))?
                     .pop()
@@ -476,10 +496,92 @@ pub(crate) async fn start(
         images,
         assistant: start.assistant,
     };
-    let client = fleet.client(machine).await?;
-    let opened = open_agent(&client, &agent, first).await.map_err(|e| {
-        DesktopError::BadRequest(format!("Could not start {}: {e:#}", agent_name(&agent)))
+    Ok(Planned {
+        machine,
+        agent,
+        first,
+        why,
+    })
+}
+
+/// The machine a start names, as a place to run `agent`: as it last said
+/// what it offers, on or off now. One that has not said since the app
+/// opened is taken to offer the agent named, and its node decides.
+fn named_host(fleet: &Fleet, machine: EndpointId, agent: Option<&str>) -> Result<AgentHost> {
+    let last = fleet
+        .status()
+        .last_agent_host(machine, |agent| fleet.harness_off(agent));
+
+    match (last, agent) {
+        (Some(host), _) => Ok(host),
+        (None, Some(agent)) if !fleet.harness_off(agent) => Ok(AgentHost {
+            machine_id: machine.to_string(),
+            machine_name: fleet.name_of(machine),
+            agents: vec![agent.to_owned()],
+            workspace: None,
+            home: None,
+            capabilities: Vec::new(),
+        }),
+        (None, _) => Err(ApiError::bad_request(format!(
+            "{} offers no coding agent.",
+            fleet.name_of(machine)
+        ))
+        .into()),
+    }
+}
+
+/// Why a start sent to its machine did not start a session.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum StartFailed {
+    /// The machine could not be reached: the node never had the start.
+    #[error(transparent)]
+    Unreached(DesktopError),
+    /// The link dropped after the node had the start: the session may exist.
+    #[error(transparent)]
+    Dropped(DesktopError),
+    /// The machine refused it, or the app could not send it.
+    #[error(transparent)]
+    Refused(DesktopError),
+}
+
+impl From<StartFailed> for DesktopError {
+    fn from(failed: StartFailed) -> Self {
+        match failed {
+            StartFailed::Unreached(e) | StartFailed::Dropped(e) | StartFailed::Refused(e) => e,
+        }
+    }
+}
+
+/// Sends a planned start to its machine and waits until the node names the
+/// session, however long the agent takes to start.
+pub(crate) async fn open(
+    fleet: &Fleet,
+    planned: Planned,
+) -> std::result::Result<StartedAgent, StartFailed> {
+    let Planned {
+        machine,
+        agent,
+        first,
+        why,
+    } = planned;
+    let client = fleet.client(machine).await.map_err(|e| {
+        if e.is_transport() {
+            StartFailed::Unreached(e)
+        } else {
+            StartFailed::Refused(e)
+        }
     })?;
+    let could_not = |e: MeshError| {
+        DesktopError::BadRequest(format!("Could not start {}: {e:#}", agent_name(&agent)))
+    };
+    let opened =
+        open_agent_staged(&client, &agent, first)
+            .await
+            .map_err(|failed| match failed {
+                OpenFailed::Unsent(e) if e.is_transport() => StartFailed::Unreached(could_not(e)),
+                OpenFailed::Sent(e) if e.is_transport() => StartFailed::Dropped(could_not(e)),
+                OpenFailed::Unsent(e) | OpenFailed::Sent(e) => StartFailed::Refused(could_not(e)),
+            })?;
     Ok(started(&fleet.host_of(machine), opened.info, why))
 }
 

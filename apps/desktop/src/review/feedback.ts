@@ -17,6 +17,7 @@ import {
 import { loadDraft, saveDraft } from "./draftstore.ts";
 import type { DiffFile, ReviewComment } from "./diff-state.ts";
 import type { AgentHost } from "../agents/agents.ts";
+import { isStarting } from "../agents/starting-state.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
 import { byPreference } from "../agents/agentpick.ts";
 import { pickPopover } from "../agents/pick-popover.ts";
@@ -310,7 +311,8 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   /// The reviews the session asked for itself, not taken yet, become comments.
   async function takeSessionReviews() {
     const machine = o.machine;
-    if (!machine || !o.session) return;
+    // A start has no machine to ask yet.
+    if (!machine || !o.session || isStarting(o.session)) return;
     const list = await invoke<ReviewRun[]>("agent_reviews", { machineId: machine.id, session: o.session })
       .catch(e => { console.warn("session reviews not read:", e); return [] as ReviewRun[]; });
     const root = o.view()?.root ?? "";

@@ -100,7 +100,7 @@ const FORGE: readonly ViewCommand[] = ["center_project_lists", "git_items", "cen
 const ACCOUNTS: readonly ViewCommand[] = ["agent_accounts", "usage_get"];
 /// Frequent writes and the views they change. Other writes drop every view.
 const WRITES: Readonly<Record<string, readonly ViewCommand[]>> = {
-  agent_steer: SESSIONS, agent_start: SESSIONS, agent_resume: SESSIONS,
+  agent_steer: SESSIONS, agent_start: SESSIONS, agent_begin: SESSIONS, agent_begin_retry: SESSIONS, agent_resume: SESSIONS,
   agent_delete: SESSIONS, agent_title_save: SESSIONS, agent_stop_process: SESSIONS, agent_close_external: SESSIONS, agent_review_start: SESSIONS,
   center_answer_agent: SESSIONS, session_move: SESSIONS, session_move_cancel: SESSIONS,
   terminal_open: ["center_home", "list_machines"],

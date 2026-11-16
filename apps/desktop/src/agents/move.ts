@@ -8,6 +8,7 @@ import { refreshTopicSubscriptions, subscribeChanges, topic } from "../ui/mesh-e
 import { type AgentHost, type AgentRow, AG } from "./agents.ts";
 import { agentKey } from "./conversation-state.ts";
 import { type MoveRecord, type MoveTarget, canMove, going, moveRows, targetNote } from "./move-state.ts";
+import { isStarting } from "./starting-state.ts";
 import { machineNames, moveStore, nameOf, onMoves, stateOf } from "./move-store.ts";
 import { loadSessions } from "./sessions.ts";
 import { S, windowHooks } from "../bar/core.ts";
@@ -45,7 +46,7 @@ export function drawMove() {
   if (!s) return;
   const key = agentKey(s);
   if (menuSession !== key) { menuSession = key; menuRead.cancel(); UI.open = false; UI.loading = false; UI.targets = []; closeOutside(); }
-  const eligible = canMove(s) && !s.external && !!windowHooks?.sessionProject?.(s)?.name;
+  const eligible = canMove(s) && !s.external && !isStarting(s.id) && !!windowHooks?.sessionProject?.(s)?.name;
   const mid = going(stateOf(s.id)) && here(s)?.from === s.machine_id;
   moveViews.setState({
     key,

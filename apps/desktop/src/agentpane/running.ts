@@ -12,6 +12,7 @@ import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/activ
 import { invoke } from "../ui/tauri.ts";
 import { AGENT_READ_WAIT_MS, type AgentTask } from "../agents/agents.ts";
 import { readError } from "./read.ts";
+import { isStarting } from "../agents/starting-state.ts";
 
 interface ProcessesView { processes: RunningProcess[]; local: boolean }
 let key = "";
@@ -66,7 +67,7 @@ onShownChange(shown => { if (shown) void readRunning(); }, true);
 export async function readRunning() {
   syncSession();
   const s = paneSession(), asked = key, count = list.length;
-  if (!s?.id || s.external || !visible()) return;
+  if (!s?.id || s.external || isStarting(s.id) || !visible()) return;
 
   try {
     const view = await reads.run(invoke<ProcessesView>("agent_processes", { machineId: s.machine_id, session: s.id }, AGENT_READ_WAIT_MS));

@@ -41,7 +41,43 @@ pub async fn open_agent(
     first: Request,
 ) -> Result<Opened, MeshError> {
     let starting = matches!(first, Request::Start { .. });
-    let (tx, mut rx) = client.open_sending(&agent::protocol(agent), &first).await?;
+    let (tx, rx) = client.open_sending(&agent::protocol(agent), &first).await?;
+    attached(tx, rx, starting).await
+}
+
+/// Where opening a session stream failed: before `first` left, or after.
+#[derive(Debug, thiserror::Error)]
+pub enum OpenFailed {
+    /// The node did not open the stream: `first` was never sent.
+    #[error(transparent)]
+    Unsent(MeshError),
+    /// `first` left: it may have reached the node, whose answer did not
+    /// come, or which refused.
+    #[error(transparent)]
+    Sent(MeshError),
+}
+
+/// `open_agent`, saying whether `first` left when it fails, so a caller
+/// knows whether trying again could start a second session. `first` goes
+/// only once the node opened the stream, which costs a round trip more.
+pub async fn open_agent_staged(
+    client: &PeerClient,
+    agent: &str,
+    first: Request,
+) -> Result<Opened, OpenFailed> {
+    let starting = matches!(first, Request::Start { .. });
+    let (mut tx, rx) = client
+        .open(&agent::protocol(agent))
+        .await
+        .map_err(OpenFailed::Unsent)?;
+    tx.send(&first)
+        .await
+        .map_err(|e| OpenFailed::Sent(MeshError::Link(e)))?;
+    attached(tx, rx, starting).await.map_err(OpenFailed::Sent)
+}
+
+/// Reads the node's answer to the first request of a session stream.
+async fn attached(tx: LinkTx, mut rx: LinkRx, starting: bool) -> Result<Opened, MeshError> {
     // A new session exists only when ACP supplies its id, however long startup takes.
     let reply = if starting {
         rx.recv::<Event>().await
@@ -53,6 +89,7 @@ pub async fn open_agent(
     let event = reply
         .map_err(MeshError::Link)?
         .ok_or_else(|| stream_closed("the node closed the session stream"))?;
+
     match event {
         Event::Attached { session } => Ok(Opened {
             info: *session,

@@ -28,7 +28,6 @@ import { openTile } from "./split.tsx";
 import { AG } from "../agents/agents.ts";
 import { barOn, drawProjectComp, workOnIssue, startIssue, continuePr, reviewPr, startReview, threadButton, earlierReview, fixRun, fixConflict } from "./composer.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
-import type { Starting } from "../agents/draft-state.ts";
 import { redrawSync } from "./syncpage.ts";
 import { openSyncRepair } from "./loads.tsx";
 import { drawProjects } from "./page.tsx";
@@ -146,8 +145,8 @@ export const pc = {
   /// The machines with a coding agent installed that Beep cannot run yet.
   blocked: [] as BlockedHost[],
   branches: new Map<string, BaseBranches | null>(),
-  /// The start the bar sent, until its machine answers.
-  starting: null as Starting | null,
+  /// True while the bar's files upload and its start is handed over.
+  starting: false,
   /// The harness, model and thinking picked, and the machine and harness
   /// the model was picked for, as `machine/agent`.
   picked: { agent: "", model: "", effort: null, query: "" } as Picked,

@@ -1180,7 +1180,6 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agnew-notes:has(.agc-why[hidden]):has(#aghelp:empty) { display: none }
 .agdraft-body { display: flex; flex-direction: column }
 #agdraft { flex: 1; display: flex; padding: 16px; box-sizing: border-box; overflow-x: clip }
-#agdraft[hidden] { display: none }
 #agdraft > .cc-pjc.centered { margin: auto }
 #agdraft .agc-intro h3 { font-size: 36px; line-height: 40px }
 
