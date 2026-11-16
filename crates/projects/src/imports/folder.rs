@@ -71,25 +71,56 @@ impl FolderPath {
     }
 }
 
-/// Reads one folder: prints `path`, then `git <origin>`, `full`, and `dir <name>` or `repo <name>`
-/// (a folder that is a checkout) lines as they apply.
-pub fn script(folder: &FolderPath) -> String {
+/// The most folders one tree reads, the first included.
+const MAX_LISTED: u32 = 400;
+
+/// Reads `folder` and, `depth` levels down, the folders in it: each prints `path`, then
+/// `git <origin>`, `full`, and `dir <name>` or `repo <name>` (a folder that is a checkout) lines
+/// as they apply. Below the first, levels are read breadth first, at most [`MAX_LISTED`] folders
+/// in all, skipping links, checkouts' insides and folders that cannot be opened.
+pub fn script(folder: &FolderPath, depth: u8) -> String {
     format!(
-        "d={word}\n\
-         if [ -d \"$d\" ]; then\n\
-         \x20 cd \"$d\" 2>/dev/null || {{ printf '\\n{MARK} denied %s\\n' \"$d\"; exit 0; }}\n\
-         \x20 printf '\\n{MARK} path %s\\n' \"$(pwd)\"\n\
-         \x20 if [ -e .git ]; then printf '{MARK} git %s\\n' \"$(git remote get-url origin 2>/dev/null)\"; fi\n\
-         \x20 if [ -n \"$(ls -A 2>/dev/null)\" ]; then printf '{MARK} full\\n'; fi\n\
+        "one() {{\n\
+         \x20 printf '\\n{MARK} path %s\\n' \"$1\"\n\
+         \x20 if [ -e \"$1/.git\" ]; then printf '{MARK} git %s\\n' \"$(git -C \"$1\" remote get-url origin 2>/dev/null)\"; fi\n\
+         \x20 for f in \"$1\"/* \"$1\"/.[!.]* \"$1\"/..?*; do\n\
+         \x20   if [ -e \"$f\" ] || [ -L \"$f\" ]; then printf '{MARK} full\\n'; break; fi\n\
+         \x20 done\n\
          \x20 n=0\n\
-         \x20 for f in *; do\n\
+         \x20 for f in \"$1\"/*; do\n\
          \x20   [ -d \"$f\" ] || continue\n\
+         \x20   f=${{f##*/}}\n\
          \x20   case $f in *'\n'*) continue;; esac\n\
          \x20   n=$((n+1))\n\
-         \x20   if [ -e \"$f/.git\" ]; then k=repo; else k=dir; fi\n\
+         \x20   if [ -e \"$1/$f/.git\" ]; then k=repo; else k=dir; fi\n\
          \x20   if [ $n -le {MAX_FOLDERS} ]; then printf '{MARK} %s %s\\n' $k \"$f\"; fi\n\
          \x20 done\n\
          \x20 if [ $n -gt {MAX_FOLDERS} ]; then printf '{MARK} more %s\\n' $((n-{MAX_FOLDERS})); fi\n\
+         }}\n\
+         opens() {{ [ -d \"$1\" ] && [ ! -L \"$1\" ] && [ -r \"$1\" ] && [ -x \"$1\" ]; }}\n\
+         d={word}\n\
+         if [ -d \"$d\" ]; then\n\
+         \x20 cd \"$d\" 2>/dev/null || {{ printf '\\n{MARK} denied %s\\n' \"$d\"; exit 0; }}\n\
+         \x20 top=$(pwd); top=${{top%/}}\n\
+         \x20 one \"${{top:-/}}\"\n\
+         \x20 listed=1\n\
+         \x20 if [ {depth} -gt 0 ] && [ ! -e \"$top/.git\" ]; then\n\
+         \x20   for c in \"$top\"/*; do\n\
+         \x20     opens \"$c\" || continue\n\
+         \x20     [ $listed -lt {MAX_LISTED} ] || break\n\
+         \x20     listed=$((listed+1)); one \"$c\"\n\
+         \x20   done\n\
+         \x20 fi\n\
+         \x20 if [ {depth} -gt 1 ] && [ ! -e \"$top/.git\" ]; then\n\
+         \x20   for c in \"$top\"/*; do\n\
+         \x20     opens \"$c\" && [ ! -e \"$c/.git\" ] || continue\n\
+         \x20     for g in \"$c\"/*; do\n\
+         \x20       opens \"$g\" || continue\n\
+         \x20       [ $listed -lt {MAX_LISTED} ] || break 2\n\
+         \x20       listed=$((listed+1)); one \"$g\"\n\
+         \x20     done\n\
+         \x20   done\n\
+         \x20 fi\n\
          elif [ -e \"$d\" ]; then\n\
          \x20 printf '\\n{MARK} file %s\\n' \"$d\"\n\
          else\n\
@@ -109,15 +140,11 @@ pub enum Seen {
     Denied(String),
 }
 
-/// Reads the script's output; `None` when it said nothing it means.
-pub fn read(output: &str) -> Option<Seen> {
-    let mut path = None;
-    let mut exists = true;
-    let mut origin = None;
-    let mut full = false;
-    let mut folders = Vec::new();
-    let mut repos = Vec::new();
-    let mut more = 0;
+/// Reads the script's output: what it found at the folder asked for, then the folders it read
+/// below it. Empty when it said nothing it means.
+pub fn read(output: &str) -> Vec<Seen> {
+    let mut seen = Vec::new();
+    let mut block: Vec<(&str, &str)> = Vec::new();
 
     for line in output.lines() {
         let Some(said) = line.trim_end_matches('\r').strip_prefix(MARK) else {
@@ -126,6 +153,28 @@ pub fn read(output: &str) -> Option<Seen> {
         let said = said.strip_prefix(' ').unwrap_or(said);
         let (word, rest) = said.split_once(' ').unwrap_or((said, ""));
 
+        if matches!(word, "path" | "missing" | "file" | "denied") && !block.is_empty() {
+            seen.extend(read_one(&block));
+            block.clear();
+        }
+        block.push((word, rest));
+    }
+
+    seen.extend(read_one(&block));
+    seen
+}
+
+/// One folder's lines, as `read` splits them.
+fn read_one(block: &[(&str, &str)]) -> Option<Seen> {
+    let mut path = None;
+    let mut exists = true;
+    let mut origin = None;
+    let mut full = false;
+    let mut folders = Vec::new();
+    let mut repos = Vec::new();
+    let mut more = 0;
+
+    for &(word, rest) in block {
         match word {
             "path" => path = Some(rest.to_owned()),
             "missing" => {
@@ -198,27 +247,53 @@ pub async fn look(
     machine: &str,
     folder: &FolderPath,
 ) -> Result<MachineFolder, ImportError> {
+    let mut tree = tree(shell, machine, folder, 0).await?;
+    Ok(tree.swap_remove(0))
+}
+
+/// What `folder` on the machine named `machine` holds, then the folders `depth` levels below
+/// it, in one run.
+pub async fn tree(
+    shell: &dyn Shell,
+    machine: &str,
+    folder: &FolderPath,
+    depth: u8,
+) -> Result<Vec<MachineFolder>, ImportError> {
     let ran = shell
-        .run(&script(folder), LOOK_LIMIT)
+        .run(&script(folder, depth), LOOK_LIMIT)
         .await
         .map_err(|e| ImportError::Link {
             machine: machine.to_owned(),
             detail: format!("{e:#}"),
         })?;
-    match read(&ran.output) {
-        Some(Seen::Folder(seen)) => Ok(seen),
-        Some(Seen::File(path)) => Err(ImportError::NotAFolder {
-            folder: path,
-            machine: machine.to_owned(),
-        }),
-        Some(Seen::Denied(path)) => Err(ImportError::Unreadable {
-            folder: path,
-            machine: machine.to_owned(),
-        }),
-        None => Err(ImportError::NoListing {
-            machine: machine.to_owned(),
-        }),
-    }
+    let mut seen = read(&ran.output).into_iter();
+    let first = match seen.next() {
+        Some(Seen::Folder(first)) => first,
+        Some(Seen::File(path)) => {
+            return Err(ImportError::NotAFolder {
+                folder: path,
+                machine: machine.to_owned(),
+            });
+        }
+        Some(Seen::Denied(path)) => {
+            return Err(ImportError::Unreadable {
+                folder: path,
+                machine: machine.to_owned(),
+            });
+        }
+        None => {
+            return Err(ImportError::NoListing {
+                machine: machine.to_owned(),
+            });
+        }
+    };
+
+    Ok(std::iter::once(first)
+        .chain(seen.filter_map(|seen| match seen {
+            Seen::Folder(folder) => Some(folder),
+            Seen::File(_) | Seen::Denied(_) => None,
+        }))
+        .collect())
 }
 
 /// Makes `folder` on the machine named `machine`, with the folders above it.
@@ -243,40 +318,6 @@ pub async fn make(
         machine: machine.to_owned(),
         detail: ran.output.trim().to_owned(),
     })
-}
-
-/// Prints the branch the checkout at `folder` is on, or its short commit when detached; nothing
-/// when it is no checkout.
-fn branch_script(folder: &FolderPath) -> String {
-    let word = folder.shell_word();
-    format!(
-        "git -C {word} symbolic-ref --short -q HEAD 2>/dev/null \
-         || git -C {word} rev-parse --short HEAD 2>/dev/null || true"
-    )
-}
-
-/// The branch the checkout at `folder` on the machine named `machine` is on; `None` when it is
-/// no checkout.
-pub async fn branch(
-    shell: &dyn Shell,
-    machine: &str,
-    folder: &FolderPath,
-) -> Result<Option<String>, ImportError> {
-    let ran = shell
-        .run(&branch_script(folder), LOOK_LIMIT)
-        .await
-        .map_err(|e| ImportError::Link {
-            machine: machine.to_owned(),
-            detail: format!("{e:#}"),
-        })?;
-    Ok(read_branch(&ran.output))
-}
-
-fn read_branch(out: &str) -> Option<String> {
-    out.lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(str::to_owned)
 }
 
 #[cfg(test)]

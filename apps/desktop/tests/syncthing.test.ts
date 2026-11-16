@@ -34,6 +34,11 @@ test("import preserves existing Syncthing rules and ignores stale folder lookups
   assert.ok(reads.every(read => read.args.enabled === undefined));
   choice.change(true);
   assert.equal(choice.value(), true);
-  await choice.follow("build-box", "/srv/projects/three");
-  assert.equal(reads.length, 2, "a chosen import preference must survive folder changes");
+  const third = choice.follow("build-box", "/srv/projects/three");
+  reads[2].reply({ available: true, enabled: false, label: "Projects" });
+  await third;
+  assert.equal(reads.length, 3);
+  assert.equal(choice.value(), true, "a chosen import preference must survive folder changes");
+  assert.equal(choice.state.getState().checked, true);
+  assert.equal(choice.state.getState().available, true);
 });

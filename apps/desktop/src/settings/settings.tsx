@@ -1,6 +1,7 @@
 // settings/: the Settings pages (credentials, coding agents, instructions,
 // machines) and the window's sheet (sheet.ts). Entry: this file.
 import { createRef, type ReactNode, type ReactElement } from "react";
+import { pickHere } from "../addproject/folderbrowser.tsx";
 import { flushSync } from "react-dom";
 import { AgentsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview, SkillsOverview } from "./overview-view.tsx";
 import { SkillsView } from "./skills-view.tsx";
@@ -322,7 +323,7 @@ function localView(kind: LocalView): ReactNode {
       autostart={(enabled: boolean) => void change(generalPending, "autostart", "set_autostart", { enabled })}
       notices={(enabled: boolean) => void change(generalPending, "notices", "set_agent_notices", { enabled })}
       developer={(enabled: boolean) => void change(generalPending, "developer", "set_developer_mode", { enabled })}
-      chooseSaves={() => void change(generalPending, "saves", "choose_save_folder", {})}
+      chooseSaves={() => void pickHere("Save files to", local.set.save_folder).then(folder => { if (folder !== null) void change(generalPending, "saves", "set_save_folder", { folder }); }, e => console.warn(e))}
       useDownloads={() => void change(generalPending, "saves", "use_downloads", {})}
       shortcuts={() => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts()}
       report={() => windowHooks ? windowHooks.openReport() : toWindow("report")} /> : null;

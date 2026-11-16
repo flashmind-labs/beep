@@ -9,7 +9,7 @@ const found: FoundRow[] = ["example/app", "example/library"].map(name => ({
 }));
 
 test("partial selection survives filtering and sync options stay accessible", async ({ page }) => {
-  await openDesktop(page, false, { found_projects: found, found_machines: [], host_repos: [] });
+  await openDesktop(page, false, { found_projects: found, found_machines: [], host_repos: [], syncthing_in_use: true });
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
   await page.locator("#tools").getByRole("button", { name: "Add a project", exact: true }).click();
   const sheet = page.getByRole("dialog", { name: "Add a project", exact: true });

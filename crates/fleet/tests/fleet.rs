@@ -167,10 +167,7 @@ impl FakeNode {
             return "BEEP_IMPORT: cloned\n".to_owned();
         }
 
-        let word = command
-            .lines()
-            .next()
-            .and_then(|line| line.strip_prefix("d="));
+        let word = command.lines().find_map(|line| line.strip_prefix("d="));
         let path = word
             .unwrap_or_default()
             .replace(['\'', '"'], "")
@@ -1330,7 +1327,7 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
     let build = Arc::new(FakeNode::default());
     let lister = |prints: &'static str| {
         Arc::new(FakeNode {
-            prints: vec![("ls -A", prints)],
+            prints: vec![("BEEP_FOLDER:", prints)],
             ..FakeNode::default()
         })
     };
@@ -1340,7 +1337,7 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
     );
     let at_files = lister("BEEP_FOLDER: path /srv/widget\nBEEP_FOLDER: full\n");
     let at_kept = Arc::new(FakeNode {
-        prints: vec![("ls -A", "BEEP_FOLDER: missing /sync/share/widget\n")],
+        prints: vec![("BEEP_FOLDER:", "BEEP_FOLDER: missing /sync/share/widget\n")],
         syncthing: vec![SyncthingFolder {
             id: "share".into(),
             label: String::new(),
@@ -1451,7 +1448,7 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
         Some("/srv/widget")
     );
 
-    // In a Syncthing share, the folder leaves the share before it is made.
+    // In a Syncthing share, the folder is made, then leaves the share: the node reads it first.
     studio
         .project_syncthing_mode("acme/widget", Some(false))
         .await
@@ -1468,7 +1465,7 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
         .iter()
         .position(|ran| ran.contains("mkdir"))
         .expect("the folder is made");
-    assert!(left < made_at);
+    assert!(made_at < left);
 
     // On it already, a second Add changes nothing.
     let said = studio

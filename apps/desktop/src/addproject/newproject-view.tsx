@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, type MouseEvent } from "react";
 import { canCreate, creatingText, folderOn, folderTail, goesText, landedLines, shownName, type Created, type Forge, type NewProjectForm } from "./newproject-state.ts";
 import { Button, ChipToggle, SheetHead, Spinner } from "../ui/kit.tsx";
-import { FolderField } from "./folderbrowser.tsx";
+import { FolderField, pickFolder } from "./folderbrowser.tsx";
 
 interface Machine { id: string; name: string; online: boolean }
 interface Props {
@@ -20,7 +20,7 @@ function Fields(p: Props) {
     {p.loadError && <div className="am-msg bad">{p.loadError}</div>}{p.hostError && <div className="am-msg bad">{p.hostError}</div>}
     {p.form.host !== null && owners.length > 0 && <><div className="am-label">Owner and visibility</div><div className="am-line"><Button onClick={p.owner}>{p.form.owner}</Button><div className="dchips"><ChipToggle label="Private" selected={p.form.isPrivate} onToggle={() => p.privacy(true)} /><ChipToggle label="Public" selected={!p.form.isPrivate} onToggle={() => p.privacy(false)} /></div></div></>}
     <div className="am-label">Machines</div>{p.machines.length ? <div className="am-line"><div className="dchips">{p.machines.map(machine => <ChipToggle key={machine.id} label={machine.name} selected={p.form.machines.includes(machine.id)} onToggle={() => p.machine(machine.id)} />)}</div></div> : <div className="am-sub">None of your machines is online.</div>}
-    {p.form.machines.length > 0 && <><div className="am-label">Folders</div>{p.form.machines.map(id => { const name = p.machines.find(machine => machine.id === id)?.name ?? id; return <div className="am-line np-folder" key={id}><span className="np-m" title={name}>{name}</span><FolderField machine={id} value={folderOn(p.form, id, p.defaults)} label={`Folder on ${name}`} placeholder="The machine's projects folder" disabled={false} change={folder => p.folder(id, folder)} enter={p.submit} /><span className="np-to" title={tail}>{tail}</span></div>; })}</>}
+    {p.form.machines.length > 0 && <><div className="am-label">Folders</div>{p.form.machines.map(id => { const name = p.machines.find(machine => machine.id === id)?.name ?? id; return <div className="am-line np-folder" key={id}><span className="np-m" title={name}>{name}</span><FolderField machine={id} value={folderOn(p.form, id, p.defaults)} label={`Folder on ${name}`} placeholder="The machine's projects folder" disabled={false} change={folder => p.folder(id, folder)} enter={p.submit} /><Button look="quiet" onClick={() => void pickFolder({ machine: id, start: folderOn(p.form, id, p.defaults) || null, heading: `Choose a folder on ${name}` }).then(listing => { if (listing) p.folder(id, listing.path); })}>Choose…</Button><span className="np-to" title={tail}>{tail}</span></div>; })}</>}
     {note && <div className="am-sub ip-to">{note}</div>}{p.error && <div className="am-msg bad">{p.error}</div>}<div className="am-line ip-foot"><Button look="primary" className="ip-go" disabled={!canCreate(p.form) || !!p.hostError} onClick={p.submit}>Create</Button><Button look="quiet" onClick={p.back}>Back</Button></div></>;
 }
 function Done({ made, p }: { made: Created; p: Props }) {

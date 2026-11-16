@@ -1,33 +1,6 @@
 use super::*;
 use std::{path::Path, process::Command};
 
-#[test]
-fn a_checkout_names_its_branch_and_a_plain_folder_none() {
-    if Command::new("git").arg("--version").output().is_err() {
-        eprintln!("skipped: no git");
-        return;
-    }
-
-    let root = tempfile::tempdir().expect("a temp folder");
-    let home = root.path();
-    let repo = home.join("code/app");
-    std::fs::create_dir_all(&repo).expect("folders");
-    let plain = FolderPath::Home("code".into());
-    assert_eq!(read_branch(&run(&branch_script(&plain), home)), None);
-    let ok = Command::new("git")
-        .args(["init", "-q", "-b", "work"])
-        .current_dir(&repo)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .status()
-        .expect("git runs");
-    assert!(ok.success());
-    let app = FolderPath::Home("code/app".into());
-    assert_eq!(
-        read_branch(&run(&branch_script(&app), home)).as_deref(),
-        Some("work")
-    );
-}
-
 fn parse(input: &str) -> Result<Option<FolderPath>, ImportError> {
     FolderPath::parse(input)
 }
@@ -77,6 +50,10 @@ fn the_path_stays_one_shell_word() {
     );
 }
 
+fn first(output: &str) -> Option<Seen> {
+    read(output).into_iter().next()
+}
+
 fn run(script: &str, home: &Path) -> String {
     let out = Command::new("bash")
         .arg("-c")
@@ -98,8 +75,10 @@ fn lists_a_real_folder() {
     std::fs::create_dir_all(home.join("Documents/clone/.git")).expect("folders");
     std::fs::create_dir_all(home.join("Documents/.hidden")).expect("folders");
     std::fs::write(home.join("Documents/notes.txt"), "x").expect("a file");
-    let Some(Seen::Folder(seen)) = read(&run(&script(&FolderPath::Home("Documents".into())), home))
-    else {
+    let Some(Seen::Folder(seen)) = first(&run(
+        &script(&FolderPath::Home("Documents".into()), 0),
+        home,
+    )) else {
         panic!("a folder");
     };
     assert_eq!(seen.path, home.join("Documents").to_string_lossy());
@@ -107,22 +86,23 @@ fn lists_a_real_folder() {
     assert_eq!(seen.repos, ["clone"]);
     assert!(!seen.empty && seen.origin.is_none());
 
-    let Some(Seen::Folder(empty)) =
-        read(&run(&script(&FolderPath::Home("Documents/a".into())), home))
-    else {
+    let Some(Seen::Folder(empty)) = first(&run(
+        &script(&FolderPath::Home("Documents/a".into()), 0),
+        home,
+    )) else {
         panic!("a folder");
     };
     assert!(empty.empty && empty.folders.is_empty());
 
-    let gone = script(&FolderPath::Home("nope".into()));
-    let Some(Seen::Folder(gone)) = read(&run(&gone, home)) else {
+    let gone = script(&FolderPath::Home("nope".into()), 0);
+    let Some(Seen::Folder(gone)) = first(&run(&gone, home)) else {
         panic!("a missing folder");
     };
     assert!(!gone.exists);
     assert_eq!(gone.path, home.join("nope").to_string_lossy());
 
-    let file = script(&FolderPath::Home("Documents/notes.txt".into()));
-    assert!(matches!(read(&run(&file, home)), Some(Seen::File(_))));
+    let file = script(&FolderPath::Home("Documents/notes.txt".into()), 0);
+    assert!(matches!(first(&run(&file, home)), Some(Seen::File(_))));
 
     if Command::new("git").arg("--version").output().is_err() {
         eprintln!("skipped the checkout: no git");
@@ -144,8 +124,8 @@ fn lists_a_real_folder() {
             .success();
         assert!(ok, "git {args:?}");
     }
-    let Some(Seen::Folder(checkout)) = read(&run(
-        &script(&FolderPath::Home("Documents/b dir".into())),
+    let Some(Seen::Folder(checkout)) = first(&run(
+        &script(&FolderPath::Home("Documents/b dir".into()), 0),
         home,
     )) else {
         panic!("a checkout");
@@ -154,4 +134,38 @@ fn lists_a_real_folder() {
         checkout.origin.as_deref(),
         Some("https://example.com/o/r.git")
     );
+}
+
+#[test]
+fn reads_three_levels_in_one_run() {
+    let root = tempfile::tempdir().expect("a temp folder");
+    let home = root.path();
+    for dir in [
+        "work/app/src",
+        "work/clone/.git/objects",
+        "work/clone/lib",
+        "notes",
+    ] {
+        std::fs::create_dir_all(home.join(dir)).expect("folders");
+    }
+    let seen = read(&run(&script(&FolderPath::Home(String::new()), 2), home));
+    let paths: Vec<_> = seen
+        .iter()
+        .map(|seen| match seen {
+            Seen::Folder(folder) => folder
+                .path
+                .strip_prefix(&*home.to_string_lossy())
+                .unwrap_or(&folder.path)
+                .to_owned(),
+            other => panic!("a folder, not {other:?}"),
+        })
+        .collect();
+
+    // The folder, the folders in it, then theirs; nothing inside a checkout, nothing deeper.
+    assert_eq!(paths, ["", "/notes", "/work", "/work/app", "/work/clone"]);
+    let Seen::Folder(work) = &seen[2] else {
+        panic!("a folder");
+    };
+    assert_eq!(work.folders, ["app", "clone"]);
+    assert_eq!(work.repos, ["clone"]);
 }

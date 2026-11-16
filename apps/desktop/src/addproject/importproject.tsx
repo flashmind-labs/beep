@@ -1,15 +1,16 @@
 import { type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { ImportProjectView } from "./importproject-view.tsx";
+import { pickFolder } from "./folderbrowser.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
 // The "Import a project" sheet: one field for org/repo or a URL, a chip per
 // online machine (Auto lets Beep pick), the parent folder a clone goes
 // under as <parent>/<org>/<repo> (the machine's Projects in folder), then Import.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.tsx";
-import { START, next, looksLikeRepo, folderUnder, type LastImport } from "./importproject-state.ts";
+import { START, next, looksLikeRepo, folderNote, folderUnder, type LastImport } from "./importproject-state.ts";
 import type { ImportEvent } from "./importproject-state.ts";
-import type { MachineFolder, ProjectRow } from "../project/projects-state.ts";
+import type { ProjectRow } from "../project/projects-state.ts";
 import { defaultPlaces, worktreesToAsk } from "../review/branchwork.ts";
 import type { BranchPicks, ImportFork, PreviewView } from "../review/branchwork.ts";
 import { reason } from "../ui/format.ts";
@@ -61,27 +62,22 @@ let previewTimer: ReturnType<typeof setTimeout> | undefined;
 /// The user's fork the import would clone, for the repo text `previewFor`:
 /// undefined while it is read, null when it could not be read.
 let fork: ImportFork | null | undefined = undefined;
-/// The folder each machine starts in, its home, by id, once read.
-const bases = new Map<string, string>();
 /// Each machine's Projects in folder, by id, once read.
 const roots = new Map<string, string>();
-/// A folder is being read, so the folder buttons wait.
-let reading = false;
 /// The parent field's text once the user types in it; null while it shows
 /// the folder chosen or the default parent.
 let folderText: string | null = null;
 let view: ((content: ReactNode) => void) | null = null, opening = 0;
 
-/// Opens the sheet. Choose… opens the folder picker, never the sheet itself.
+/// Opens the sheet.
 export function openImportProject(options: ImportProjectOptions = {}) {
   if (root) return;
-  opening++; reading = false;
+  opening++;
   syncthing = syncthingImportChoice();
   machines = (options.machines || []).filter(m => m.can_host !== false);
   macId = options.macId || null;
   onDone = options.onDone || null;
-  // Start on this Mac when it is one of the machines: Choose… then opens the
-  // macOS folder picker.
+  // Start on this computer when it is one of the machines.
   state = macId && machines.some(m => m.id === macId) ? { ...START, machine: macId } : START;
   if (options.machine && machines.some(m => m.id === options.machine)) state = { ...state, machine: options.machine };
   if (options.repo) state = { ...state, repo: options.repo };
@@ -158,8 +154,13 @@ function update(event: ImportEvent) {
   // Picking a machine or a folder replaces whatever was typed as the folder.
   if (event.type === "pick" || event.type === "choose" || event.type === "unchoose") resetFolder();
   state = next(state, event);
-  void syncthing.follow(state.machine, state.chosen?.path ?? null);
+  followSyncthing();
   if (root) draw();
+}
+
+/// Syncthing is asked about the folder chosen, else the parent a clone goes under.
+function followSyncthing() {
+  void syncthing.follow(state.machine, state.chosen?.path ?? parentFolder());
 }
 
 /// The parent a clone goes under: the one typed, else the default; null on
@@ -193,52 +194,25 @@ function draw() {
   const current = view;
   const folder = state.machine ? folderText ?? state.chosen?.path ?? defaultParent() ?? "" : "";
   flushSync(() => current(<ImportProjectView
-    state={state} machines={machines} preview={preview} previewFor={previewFor} previewError={previewError} fork={fork} picks={picks} reading={reading} folder={folder} goes={goesIn()} syncChoice={syncthing}
+    state={state} machines={machines} preview={preview} previewFor={previewFor} previewError={previewError} fork={fork} picks={picks} folder={folder} goes={goesIn()} syncChoice={syncthing}
     edit={(repo: string) => { update({ type: "edit", repo }); schedulePreview(); }}
     pick={(machine: string | null) => { update({ type: "pick", machine }); learnBase(); }}
-    submit={() => void submit()} close={closeImportProject} choose={() => void choose()} unchoose={() => update({ type: "unchoose" })}
+    submit={() => void submit()} close={closeImportProject} choose={choose} unchoose={() => update({ type: "unchoose" })}
     folderInput={(value: string) => {
-      if (state.chosen) { resetFolder(); state = next(state, { type: "unchoose" }); void syncthing.follow(state.machine, null); }
+      if (state.chosen) { resetFolder(); state = next(state, { type: "unchoose" }); followSyncthing(); }
       folderText = value; draw();
     }}
-    browse={browseTo} cancelBrowse={() => update({ type: "browse", listing: null })} useFolder={(listing: MachineFolder) => update({ type: "choose", listing })}
     pickBranch={(branch: string, machine: string | null) => { if (machine === null) delete picks[branch]; else picks[branch] = machine; draw(); }}
   />));
 }
 
-/// Reads a folder on the picked machine (`path` null for where it starts),
-/// then hands it to `then`; a failure shows as the sheet's error.
-async function read(path: string | null, then: (listing: MachineFolder) => void) {
-  const machine = state.machine, mine = opening;
-  if (!machine || reading) return;
-  reading = true;
-  if (root) draw();
-
-  try {
-    const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: machine, path });
-    if (mine !== opening || !root) return;
-    if (!path && !bases.has(machine)) bases.set(machine, listing.path);
-    if (state.machine === machine) then(listing);
-  } catch (e) {
-    if (mine === opening && root && state.machine === machine) update({ type: "oops", message: String(e) });
-  } finally {
-    if (mine === opening && root) {
-      reading = false; draw();
-      if (state.machine !== machine) learnBase();
-    }
-  }
-}
-
-/// Learns where the picked machine starts, and its Projects in folder for
-/// the default it shows.
+/// Learns the picked machine's Projects in folder, the default it shows.
 function learnBase() {
   const machine = state.machine, mine = opening;
-  if (!machine) return;
-  if (!bases.has(machine)) read(null, () => {});
-  if (roots.has(machine)) return;
+  if (!machine || roots.has(machine)) return;
   void projectsIn(machine).then(folder => {
     roots.set(machine, folder);
-    if (mine === opening && root && state.machine === machine) draw();
+    if (mine === opening && root && state.machine === machine) { followSyncthing(); draw(); }
   });
 }
 
@@ -247,35 +221,21 @@ export function projectsIn(machine: string): Promise<string> {
   return invoke<string>("machine_search", { machineId: machine }).then(folder => folder.trim() || "~", () => "~");
 }
 
-/// Moves the folder browser to `path`.
-const browseTo = (path: string | null) => read(path, listing => update({ type: "browse", listing }));
-
-/// Choose…: the macOS picker on this Mac, the folder browser elsewhere.
-async function choose() {
-  if (reading) return;
-
-  // On Auto, Choose… picks this Mac, or else the first machine listed.
+/// Choose…: the picker of the machine's folders, opened where the folder shown is.
+function choose() {
+  // On Auto, Choose… picks this computer, or else the first machine listed.
   if (!state.machine) {
     const id = macId && machines.some(m => m.id === macId) ? macId : machines[0]?.id;
     if (!id) return;
     update({ type: "pick", machine: id });
+    learnBase();
   }
 
-  if (state.machine !== macId) {
-    browseTo(state.chosen?.path ?? null);
-    return;
-  }
-
-  let path = null;
-  const mine = opening, machine = state.machine;
-
-  try {
-    path = await invoke<string | null>("pick_folder", { start: state.chosen?.path ?? bases.get(state.machine!) ?? null });
-  } catch (e) {
-    if (mine === opening && root && machine === state.machine) update({ type: "oops", message: String(e) });
-  }
-
-  if (path && mine === opening && root && machine === state.machine) read(path, listing => update({ type: "choose", listing }));
+  const machine = state.machine, mine = opening;
+  if (!machine) return;
+  void pickFolder({ machine, start: state.chosen?.path ?? parentFolder(), heading: "Choose a folder", noteFor: async listing => folderNote(listing, state.repo) }).then(listing => {
+    if (listing && mine === opening && root && state.machine === machine) update({ type: "choose", listing });
+  });
 }
 
 /// The parent a clone goes under before anything is typed.

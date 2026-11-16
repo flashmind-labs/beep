@@ -1,25 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chooseWith, folderFacts, nextFolder, startOn } from "../src/addproject/addfolder-state.ts";
+import { folderOffers, noOffer, startOn } from "../src/addproject/addfolder-state.ts";
 import { emptyText, unreadText } from "../src/addproject/addproject-state.ts";
 import type { MachineFolder } from "../src/project/projects-state.ts";
 
 const folder = (origin: string | null): MachineFolder =>
   ({ path: "/srv/acme/api", parent: "/srv/acme", exists: true, folders: [], more: 0, empty: false, origin, repos: [] });
 
-test("the sheet starts on this computer and a checkout with an origin is what Add project takes", () => {
-  const start = startOn([{ id: "box", online: true }, { id: "mac", online: true }], "mac");
-  assert.equal(start.machine, "mac");
-  assert.equal(chooseWith("mac", "mac"), "picker");
-  assert.equal(chooseWith("box", "mac"), "browser");
-  const plain = nextFolder(start, { type: "choose", listing: folder(null) });
-  assert.equal(nextFolder(plain, { type: "submit" }), plain);
-  assert.deepEqual(folderFacts(plain.chosen, plain.branch), ["Not a git checkout. Choose the folder that holds .git."]);
-  const checkout = nextFolder(start, { type: "choose", listing: folder("git@github.com:acme/api.git") });
-  assert.equal(checkout.branch, undefined);
-  const read = nextFolder(checkout, { type: "branch", path: "/srv/acme/api", branch: "main" });
-  assert.deepEqual(folderFacts(read.chosen, read.branch), ["A checkout of acme/api, added in place.", "Remote git@github.com:acme/api.git · Branch main"]);
-  assert.equal(nextFolder(read, { type: "submit" }).step, "adding");
+test("the sheet starts on this computer and only a checkout with an origin offers Add", () => {
+  assert.equal(startOn([{ id: "box" }, { id: "mac" }], "mac"), "mac");
+  assert.equal(startOn([{ id: "box" }], "mac"), "box");
+  assert.equal(startOn([], "mac"), null);
+  assert.deepEqual(folderOffers(folder(null)), []);
+  assert.equal(noOffer(folder(null)), null);
+  assert.deepEqual(folderOffers(folder("")), []);
+  assert.equal(noOffer(folder("")), "This checkout has no origin remote. Add one to add it here.");
+  assert.deepEqual(folderOffers(folder("git@github.com:acme/api.git")), [{ label: "Add acme/api", path: "/srv/acme/api" }]);
+  assert.deepEqual(folderOffers(folder("https://example.test/acme/api.git")), [{ label: "Add acme/api", path: "/srv/acme/api" }]);
 });
 
 test("an empty found list names the machines that could not look, not No other folders yet", () => {

@@ -97,8 +97,6 @@ export interface ImportState {
   /// The folder picked, as `list_machine_folder` read it (null for the
   /// machine's default).
   chosen: MachineFolder | null;
-  /// The folder the browser shows while it is open.
-  browsing: MachineFolder | null;
   /// What Beep made, once `step` is "done".
   project?: ProjectRow;
 }
@@ -107,7 +105,6 @@ export interface ImportState {
 export type ImportEvent =
   | { type: "edit"; repo: string }
   | { type: "pick"; machine: string | null }
-  | { type: "browse"; listing: MachineFolder | null }
   | { type: "choose"; listing: MachineFolder | null }
   | { type: "unchoose" }
   | { type: "oops"; message: string }
@@ -116,14 +113,13 @@ export type ImportEvent =
   | { type: "failed"; message: string };
 
 /// The sheet before anything is typed.
-export const START: ImportState = { step: "form", repo: "", machine: null, error: null, chosen: null, browsing: null };
+export const START: ImportState = { step: "form", repo: "", machine: null, error: null, chosen: null };
 
 /// The next state after `event`:
 /// - `edit` as the field changes
 /// - `pick` for a chip, null for Auto
-/// - `browse` opens or moves the folder browser
 /// - `choose` picks that folder; a checkout fills the field from its origin
-/// - `unchoose` goes back to the default folder, and closes the browser
+/// - `unchoose` goes back to the default folder
 /// - `oops` when reading a folder failed
 /// - `submit` from Import or Enter
 /// - `done` when Beep answered
@@ -136,19 +132,16 @@ export function next(state: ImportState, event: ImportEvent): ImportState {
     case "pick":
       if (state.step !== "form") return state;
       if ((event.machine ?? null) === state.machine) return state;
-      return { ...state, machine: event.machine ?? null, chosen: null, browsing: null, error: null };
-    case "browse":
-      if (state.step !== "form" || !state.machine) return state;
-      return { ...state, browsing: event.listing, error: null };
+      return { ...state, machine: event.machine ?? null, chosen: null, error: null };
     case "choose": {
       if (state.step !== "form" || !state.machine || !event.listing) return state;
       const origin = event.listing.origin;
       const repo = origin ? repoFromRemote(origin) : state.repo;
-      return { ...state, chosen: event.listing, browsing: null, repo, error: null };
+      return { ...state, chosen: event.listing, repo, error: null };
     }
     case "unchoose":
       if (state.step !== "form") return state;
-      return { ...state, chosen: null, browsing: null };
+      return { ...state, chosen: null };
     case "oops":
       if (state.step !== "form") return state;
       return { ...state, error: cleanError(event.message) };
