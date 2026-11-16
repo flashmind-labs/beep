@@ -148,3 +148,37 @@ test("the chats' grip resizes them and keeps the width", async ({ page }) => {
   await grip.dblclick();
   await expect.poll(async () => Math.round((await list.boundingBox())?.width ?? 0)).toBe(300);
 });
+
+test("a chat started on the Assistant page stays on it with a released node", async ({ page }) => {
+  // A released node's start reply and view leave out that the session is the assistant.
+  const old = { ...session, assistant: false };
+  await openDesktop(page, false, {
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null },
+    agent_sessions: [], agent_start: { session: old, why: "" }, agent_view: view(old, "Hello."),
+  });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  const prompt = page.locator("#agprompt");
+  await prompt.fill("hello");
+  await prompt.press("Enter");
+
+  await expect(page.getByText("Hello.", { exact: true })).toBeVisible();
+  await page.waitForTimeout(1500);
+  await expect(page.locator(".asst-list")).toBeVisible();
+  await expect(page.locator("#title")).toContainText("Assistant");
+});
+
+test("a chat started on the Assistant page stays on it while the list also has it as found outside Beep", async ({ page }) => {
+  const outside = { ...session, assistant: false, external: true, status: "working" };
+  await openDesktop(page, false, {
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null },
+    agent_sessions: [outside], agent_start: { session, why: "" }, agent_view: view(session, "Hello."),
+  });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  const prompt = page.locator("#agprompt");
+  await prompt.fill("hello");
+  await prompt.press("Enter");
+
+  await expect(page.getByText("Hello.", { exact: true })).toBeVisible();
+  await expect(page.locator(".asst-list")).toBeVisible();
+  await expect(page.locator("#title")).toContainText("Assistant");
+});

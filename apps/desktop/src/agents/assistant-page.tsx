@@ -45,7 +45,9 @@ export function openedChat(row: AgentRow) {
 }
 
 /// Works out the page from what the pane shows. A chat started from the assistant's composer is
-/// on the page before the session list has it.
+/// on the page before the session list has it, and the list may hold it a second time as found
+/// outside Beep, which does not say it is the assistant: any row that says so wins, the one the
+/// chat opened with too.
 export function syncAssistantPage() {
   const open = S.view === "agent" ? AG.open : null;
 
@@ -54,8 +56,8 @@ export function syncAssistantPage() {
 
   const id = { machine_id: open.machine_id, id: open.session };
   const same = (row: AgentRow) => row.machine_id === id.machine_id && row.id === id.id;
-  const row = sessions.find(same) ?? (lastRow && same(lastRow) ? lastRow : null);
-  const on = row ? row.assistant === true && row.reviewer !== true : !!shell.getState().assistant;
+  const rows = [...sessions, lastRow, AG.page?.session ?? null].filter((row): row is AgentRow => !!row && same(row));
+  const on = rows.length ? rows.some(row => row.assistant === true && row.reviewer !== true) : !!shell.getState().assistant;
   show(on, true, runningKey(id));
 }
 
