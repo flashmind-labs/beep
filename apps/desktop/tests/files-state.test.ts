@@ -81,6 +81,16 @@ test("mentions go after the text, quoted with a space", () => {
   assert.equal(withMentions("hi", []), "hi");
 });
 
+test("image-only messages get a request before their original references", () => {
+  assert.equal(withMentions("", ["/srv/shot.png"]), "Check this image.\n\n@/srv/shot.png");
+  assert.equal(withMentions("  ", ["/srv/shot.png", "/srv/other.JPG"]), "Check these images.\n\n@/srv/shot.png @/srv/other.JPG");
+  assert.equal(withMentions("", [], 1), "Check this image.");
+  assert.equal(withMentions("", [], 2), "Check these images.");
+  assert.equal(withMentions("Explain this", ["/srv/shot.png"], 1), "Explain this\n\n@/srv/shot.png");
+  assert.equal(withMentions("", ["/srv/shot.png", "/srv/notes.txt"], 1), "@/srv/shot.png @/srv/notes.txt");
+  assert.equal(withMentions("", []), "");
+});
+
 test("uploads go in parts, an empty file as one", () => {
   assert.deepEqual(uploadParts(5, 2), [{ offset: 0, len: 2 }, { offset: 2, len: 2 }, { offset: 4, len: 1 }]);
   assert.deepEqual(uploadParts(0, 2), [{ offset: 0, len: 0 }]);

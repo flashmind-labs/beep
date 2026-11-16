@@ -91,6 +91,19 @@ for (const mode of ["original", "oversized", "aggregate", "separate batches"] as
   await expect(page.locator("#viewer .vi img")).toHaveAttribute("src", `data:image/png;base64,${buffer.toString("base64")}`);
 });
 
+for (const count of [1, 2]) test(`image-only message sends a default request with ${count} originals`, async ({ page }) => {
+  await openSession(page);
+  await page.locator('#agfield input[type="file"]').setInputFiles(Array.from({ length: count }, (_, i) => ({
+    name: `screenshot-${i}.png`, mimeType: "image/png", buffer: Buffer.from(tiny, "base64"),
+  })));
+  await expect(page.locator("#agfield .attachment-count")).toHaveText(`${count} ${count === 1 ? "file" : "files"}`);
+  await page.locator("#agmsg").press("Enter");
+  await expect.poll(async () => (await sentImages(page)).length).toBe(count);
+  const sent = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").at(-1)?.args);
+  expect(sent).toMatchObject({ steer: { steer: { text: `${count === 1 ? "Check this image." : "Check these images."}\n\n@${path}` } } });
+  await expect(page.locator(".dcoderen.user")).toContainText(count === 1 ? "Check this image." : "Check these images.");
+});
+
 test("saved prompts open original uploads instead of degraded transcript images", async ({ page }) => {
   await openSession(page, [{ kind: "user", text: `Read this.\n\n@"${path}"\n[image: image-0123456789abcdef]` }], {
     agent_thumb: `data:image/png;base64,${tiny}`, agent_image: `data:image/png;base64,${tiny}`,

@@ -46,7 +46,7 @@ test("project composer keeps draft, menu choices and issue branch across redraws
   await expect(input).toHaveValue("");
 });
 
-test("project composer submits keyboard draft and attached image with the chosen checkout", async ({ page }) => {
+for (const typed of ["Inspect the attachment", ""]) test(`project composer submits ${typed ? "typed" : "default"} image prompt with the chosen checkout`, async ({ page }) => {
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     agent_tree_upload: ".beep/uploads/example.png",
@@ -61,14 +61,14 @@ test("project composer submits keyboard draft and attached image with the chosen
   await form.locator('input[type="file"]').setInputFiles({ name: "example.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64") });
   await expect(form.locator(".attachment-count")).toHaveText("1 file");
   const input = form.getByRole("textbox", { name: "Task for a coding agent" });
-  await input.fill("Inspect the attachment");
+  await input.fill(typed);
   await input.press("Enter");
   await expect.poll(async () => (await calls(page, "agent_begin")).length).toBe(1);
   const [args] = await calls(page, "agent_begin");
   expect(args?.machineId).toBe("build-box");
-  expect(args?.prompt).toBe("Inspect the attachment\n\n@/srv/project/.beep/uploads/example.png");
+  expect(args?.prompt).toBe(`${typed || "Check this image."}\n\n@/srv/project/.beep/uploads/example.png`);
   expect(args?.checkout).toEqual({ new_worktree: { base: null } });
-  expect(args?.images).toEqual([expect.objectContaining({ name: "example.jpg", mime: "image/jpeg" })]);
+  expect(args?.images).toEqual([expect.objectContaining({ name: "example.png", mime: "image/png" })]);
 });
 
 test("a draft's start opens as a session at once, and the session its machine names takes it over", async ({ page }, info) => {

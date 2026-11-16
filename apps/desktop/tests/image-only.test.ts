@@ -35,7 +35,7 @@ const field = () => bar.querySelector<HTMLTextAreaElement>("#agmsg")!;
 const steers = () => calls.filter(c => c.cmd === "agent_steer").map(c => (c.args as { steer: unknown }).steer);
 function refuse(cmd: string, why: string) { Object.defineProperty(answers, cmd, { get() { throw why; }, configurable: true }); }
 
-test("an image continues an ended session without a prompt", async () => {
+test("an image continues an ended session with a default prompt", async () => {
   const page = openSession("ended");
   const input = field();
   AG.att = [png];
@@ -44,7 +44,7 @@ test("an image continues an ended session without a prompt", async () => {
   await sendAgentMessage();
   const resume = calls.find(c => c.cmd === "agent_resume")!;
   assert.equal((resume.args as { prompt: unknown }).prompt, null);
-  assert.deepEqual(steers(), [{ steer: { text: "", images: [{ name: png.name, mime: png.mime, data: png.data }] } }]);
+  assert.deepEqual(steers(), [{ steer: { text: "Check this image.", images: [{ name: png.name, mime: png.mime, data: png.data }] } }]);
   assert.deepEqual(AG.att, []);
   assert.equal(input.disabled, false);
   clearTimeout(AG.timer);

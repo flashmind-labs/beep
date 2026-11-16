@@ -163,9 +163,15 @@ export function mentionText(paths: readonly string[]) {
   return paths.map(p => (/\s/.test(p) ? `@"${p}"` : `@${p}`)).join(" ");
 }
 
-/// The text a message sends: what was typed, then its mentions.
-export function withMentions(text: string, paths: readonly string[]) {
-  return [text.trim(), mentionText(paths)].filter(Boolean).join("\n\n");
+/// The text a message sends: what was typed, then its mentions. Image-only
+/// messages get a request before the filenames, which are not the task.
+export function withMentions(text: string, paths: readonly string[], images = 0) {
+  const count = Math.max(images, paths.length);
+  const request = text.trim() || (count > 0 && paths.every(path => mediaKind(path) === "image")
+    ? count === 1 ? "Check this image." : "Check these images."
+    : "");
+
+  return [request, mentionText(paths)].filter(Boolean).join("\n\n");
 }
 
 /// The bytes one upload part carries.

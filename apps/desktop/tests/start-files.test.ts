@@ -35,6 +35,14 @@ test("a start uploads a dropped video in chunks and mentions it from any worktre
   assert.equal(parts[0].attachment, null);
 });
 
+test("an image-only start puts the request before the uploaded original", async () => {
+  calls.length = 0;
+  answers.agent_tree_upload = ".beep/uploads/screenshot.png";
+  const files = new StartFiles();
+  files.add([new File(["image"], "screenshot.png", { type: "image/png" })]);
+  assert.equal(await files.prompt("", "machine-one", "/srv/project"), "Check this image.\n\n@/srv/project/.beep/uploads/screenshot.png");
+});
+
 test("retrying a start reuses completed files but changing destinations uploads again", async () => {
   calls.length = 0;
   answers.agent_tree_upload = ".beep/uploads/clip.mp4";

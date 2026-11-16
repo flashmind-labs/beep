@@ -35,7 +35,7 @@ export function drawQueue() {
 /// A message as `agent_steer` takes it, its images without what only the
 /// field shows.
 type Outgoing = { text: string; images?: SentImage[] };
-const outgoing = (text: string, images: Attached[]): Outgoing => images.length ? { text, images: images.map(sentImage) } : { text };
+const outgoing = (text: string, images: Attached[]): Outgoing => images.length ? { text: withMentions(text, [], images.length), images: images.map(sentImage) } : { text };
 
 /// Takes what waits in the field for a message: the words, the paths it
 /// mentions and the images.
@@ -47,7 +47,7 @@ function takeMessage(input: HTMLTextAreaElement | null, uploading = false, reser
   const paths = MN.paths.filter(path => !reserved.has(path));
   if (!typed && !images.length && !paths.length && !uploading) return null;
   const files = paths.flatMap(path => { const file = MN.files.get(path); return file ? [{ path, file }] : []; });
-  const text = paths.length ? withMentions(typed, paths) : typed;
+  const text = withMentions(typed, paths, images.length);
   MN.paths = MN.paths.filter(path => reserved.has(path));
   for (const path of paths) MN.files.delete(path);
   MN.redraw();
@@ -95,7 +95,7 @@ function prepareMessage(input: HTMLTextAreaElement | null): Waiting | null | Pro
     }
 
     draft.images.push(...images);
-    draft.text = withMentions(draft.typed, draft.paths);
+    draft.text = withMentions(draft.typed, draft.paths, draft.images.length);
     state.paths = state.paths.filter(path => !paths.has(path));
     setMentionImages(state, mentionImages(state).filter(image => !images.includes(image)));
     if (currentMentions() === state) drawAgentAttached();

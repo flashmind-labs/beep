@@ -671,17 +671,17 @@ test("closing removes list rows and counts before the reply, survives stale read
 });
 
 
-test("an image can be sent with no prompt", async () => {
+test("an image sent without typed text gets a default prompt", async () => {
   const page = openSession("idle");
   const input = field("  ");
   show({}, input);
   AG.att = [png];
   answers.agent_steer = ["picture-key"];
   await sendAgentMessage();
-  assert.deepEqual(steers(), [{ steer: { text: "", images: [{ name: png.name, mime: png.mime, data: png.data }] } }]);
+  assert.deepEqual(steers(), [{ steer: { text: "Check this image.", images: [{ name: png.name, mime: png.mime, data: png.data }] } }]);
   assert.equal(input.value, "");
   assert.deepEqual(AG.att, []);
-  assert.equal(page.entries[0].text, "[image: shot.png]");
+  assert.equal(page.entries[0].text, "Check this image.\n[image: shot.png]");
 });
 
 test("session usage shows cumulative tokens and spend apart from the remaining key budget", () => {

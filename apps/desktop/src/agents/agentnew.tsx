@@ -1,3 +1,4 @@
+import { withMentions } from "../agentpane/files-state.ts";
 import { keepProjectPick, lastProjectPick } from "./agentmodels.ts";
 import { Spinner } from "../ui/kit.tsx";
 import { createRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
@@ -652,10 +653,11 @@ interface Start {
 /// machine names it, and keeps the model and thinking level it starts on for its pill, and its
 /// first message for its log.
 async function start(s: Start): Promise<Started> {
-  const started = await invoke<Started>("agent_begin", { machineId: s.machine, agent: s.agent, cwd: s.cwd, prompt: s.prompt, images: s.images, model: s.model, effort: s.effort, fast: s.fast ?? null, checkout: s.checkout, assistant: s.assistant });
+  const prompt = withMentions(s.prompt, [], s.images.length);
+  const started = await invoke<Started>("agent_begin", { machineId: s.machine, agent: s.agent, cwd: s.cwd, prompt, images: s.images, model: s.model, effort: s.effort, fast: s.fast ?? null, checkout: s.checkout, assistant: s.assistant });
   const resolved = s.model ?? knownModels(s.machine, s.agent)?.current ?? "";
   sessionPicks.set(started.session.id, { model: resolved.toLowerCase() === "default" ? "" : resolved, effort: s.effort, fast: s.fast ?? null });
-  startedWith(started.session, s.prompt, s.images);
+  startedWith(started.session, prompt, s.images);
 
   // The start's row may leave out that the session is the assistant, as a released node's does.
   return s.assistant ? { ...started, session: { ...started.session, assistant: true } } : started;
