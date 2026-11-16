@@ -134,6 +134,10 @@ pub fn run() {
             {
                 bar::hide(window.app_handle());
             }
+            #[cfg(mobile)]
+            WindowEvent::Suspended => notices::notify::set_foreground(false),
+            #[cfg(mobile)]
+            WindowEvent::Resumed => notices::notify::set_foreground(true),
             WindowEvent::CloseRequested { api, .. } => {
                 if center::hide_on_close(window) {
                     api.prevent_close();

@@ -17,8 +17,24 @@ use tauri::{AppHandle, Manager};
 #[cfg(not(target_os = "macos"))]
 use tauri_plugin_notification::NotificationExt;
 
+/// Whether the phone app is on screen, where a notice is already in the bell
+/// and a system notification only repeats it. Android skips the first resume.
+#[cfg(mobile)]
+static FOREGROUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Notes the phone app going to the background or coming back.
+#[cfg(mobile)]
+pub(crate) fn set_foreground(on: bool) {
+    FOREGROUND.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// A notification with nothing to answer or open.
 pub fn text(app: &AppHandle, title: &str, body: &str) {
+    #[cfg(mobile)]
+    if FOREGROUND.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+
     #[cfg(target_os = "macos")]
     mac::text(app, title, body);
     #[cfg(not(target_os = "macos"))]
