@@ -7,6 +7,41 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.24] - 2026-11-16
+
+### Added
+
+- Desktop: while a project copies to a machine, a large file that is still
+  arriving shows its name and progress, such as "pack-1a2b.pack: 12 MB of
+  40 MB". It appears under the copy line in the Add to machine sheet and in
+  the machine's row on the project's sync page.
+
+### Changed
+
+- Desktop: file tabs in a session's side pane update when the file changes
+  on the machine. Pictures, videos and audio keep their place and play
+  state. PDFs, 3D models, text files, and HTML and Markdown previews update
+  too, and a page reloads when a file it loaded, such as its stylesheet,
+  changes. What shows stays until the new version is read, and a text file
+  with unsaved edits is left alone. A tab out of sight is checked when it
+  shows again. With an up-to-date beep-node, an edit that keeps a file's
+  size is caught too.
+- Desktop: the picked artifact on the Artifacts tab also updates when its
+  file is changed outside the agent.
+
+### Fixed
+
+- Desktop: Shift+Esc zooms the side pane again when an HTML page in the
+  Artifacts tab or a file's Preview has keyboard focus. Before, clicking
+  into the page swallowed the key.
+- Desktop: the harness, model and thinking picker (opened from Review with
+  agent, Work on it, Fix this and the model pills) and the new agent form's
+  machine and folder menus now open wherever they fit in the window. Before,
+  Review with agent on Home opened the picker cut off under the sidebar and
+  header.
+- Desktop: a Markdown file previewed in a file tab scrolls again instead of cutting off below the first screen.
+- Desktop: image-only agent messages now include a clear default prompt instead of using filenames as the task.
+
 ## [0.9.23] - 2026-11-16
 
 ### Fixed
