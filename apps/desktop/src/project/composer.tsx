@@ -310,10 +310,14 @@ export function drawProjectComp(name: string) {
 /// machine, or null; none without a target.
 function barExisting(name: string, place: { machine_id: string; cwd: string }, t: BarTarget | null) {
   if (!t || !t.branch.trim()) return null;
-  // Where the branch list (read on one machine) found its worktree.
+  return sessionIn(sessions, place.machine_id, targetFolders(t, place.cwd, knownWorktree(name, place.machine_id, t)));
+}
+
+/// Where the branch list of project `name`, read on one machine, found the
+/// worktree of `t`'s branch when that machine is `machine`.
+function knownWorktree(name: string, machine: string, t: BarTarget) {
   const listed = pc.branches.get(name) as unknown as { machine_id?: string; branches: readonly { name: string; worktree?: string | null }[] } | null | undefined;
-  const known = listed?.machine_id === place.machine_id ? listed.branches.find(b => b.name === t.branch.trim())?.worktree : null;
-  return sessionIn(sessions, place.machine_id, targetFolders(t, place.cwd, known));
+  return listed?.machine_id === machine ? listed.branches.find(b => b.name === t.branch.trim())?.worktree : null;
 }
 
 /// Fills the bar for project `name` with `text` and `target`, on the
@@ -542,7 +546,11 @@ async function startFromBar() {
   if (!p || !place || (!text && !barAttachments.count) || barAttachments.reading || pc.starting || pc.adding) return;
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.update({ error: "Name the branch first." }); return; }
-  if (t?.review?.earlier) return continueReview(t.review.number, t.review.earlier, text);
+  const review = t?.review, earlier = review?.earlier;
+  if (review && earlier) return continueInBar(earlier, text, (prompt, images) => steerReview(review.number, earlier, prompt, images));
+  // A first review starts its own chat, apart from the one coding on the branch.
+  const chat = t?.kind === "pr" && !review ? branchSession(p.name, t) : null;
+  if (chat) return continueInBar(chat, text, (prompt, images) => steer(chat, prompt, images));
   const { agent } = barHarness(place);
   c.update({ error: "" });
   pc.starting = true;
@@ -728,7 +736,7 @@ export function earlierReview(project: string, number: number): ReviewSession | 
 function branchSession(project: string, target: BarTarget): ReviewSession | null {
   const places = projectOf(project)?.places ?? [];
   const chats = projectSessions(project).filter(s => !fixedTitle(s.title));
-  const found = places.map(p => sessionIn(chats, p.machine, targetFolders(target, p.cwd))).filter(s => s !== null).sort((a, b) => b.last_activity - a.last_activity)[0];
+  const found = places.map(p => sessionIn(chats, p.machine, targetFolders(target, p.cwd, knownWorktree(project, p.machine, target)))).filter(s => s !== null).sort((a, b) => b.last_activity - a.last_activity)[0];
   return found ? sameSession(found) ?? found : null;
 }
 
@@ -748,8 +756,8 @@ function nameReview(s: ReviewSession, number: number) {
     .catch(e => console.warn("review title:", e));
 }
 
-/// Sends the bar's review to the session that reviewed the PR before.
-async function continueReview(number: number, earlier: ReviewSession, text: string) {
+/// Sends the bar's text and attachments to `earlier` through `send`.
+async function continueInBar(earlier: ReviewSession, text: string, send: (prompt: string, images: Image[]) => Promise<unknown>) {
   const c = projectComp;
   c.update({ error: "" });
   pc.starting = true;
@@ -759,7 +767,7 @@ async function continueReview(number: number, earlier: ReviewSession, text: stri
     const root = sameSession(earlier)?.cwd ?? barProject()?.places.find(p => p.machine === earlier.machine_id)?.cwd ?? "";
     const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root);
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
-    await steerReview(number, earlier, prompt, images);
+    await send(prompt, images);
     barAttachments.clear();
     c.setText("");
     pc.target = null;
