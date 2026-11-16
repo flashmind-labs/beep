@@ -547,3 +547,16 @@ test("structured conversation blocks and other failed turns use accessible error
   drawAgentBody(undefined, true);
   assert.equal(bar.querySelector('[role="alert"] b')?.textContent, "The turn did not finish");
 });
+
+test("a queued message from another session shows its sender and words", () => {
+  setup();
+  const text = '<from-session id="p1" name="Review login">\nCheck the tests.\n</from-session>';
+  AG.queue = [{ typed: text, text, paths: [], images: [], state: "sent", after: 0 }];
+  drawQueue();
+  const row = bar.querySelector("#agqueue .it.from");
+  assert.ok(row);
+  assert.equal(row.querySelector(".lbl")?.textContent, "Review login");
+  assert.equal(row.querySelector(".t")?.textContent, "Check the tests.");
+  assert.equal(row.textContent?.includes("<from-session"), false);
+  AG.queue = []; drawQueue();
+});

@@ -885,8 +885,13 @@ async fn another_machine_s_agent_lists_and_messages_any_agent_until_the_user_spe
         .expect("the user's prompt goes");
     let reply = send().await;
     assert!(matches!(&reply, Reply::Done { failed: false, .. }), "{reply:?}");
-    until(&session, |live| live.info.turns >= 8).await;
-    assert!(rig.read("top.log").contains("hello"));
+    // Messages go as steers, merged into as few turns as the agent allows.
+    until(&session, |live| {
+        live.info.turns >= 3 && live.info.state.queued == 0 && live.status() == Status::Idle
+    })
+    .await;
+    let delivered = rig.read("top.log").matches("hello").count();
+    assert_eq!(delivered, usize::try_from(crate::agents::session::PEER_MESSAGES).expect("a small count") + 1);
 
     rig.agents.shutdown().await;
 }

@@ -621,7 +621,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .ag-queue .it { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dim) }
 .ag-queue .it { padding: 7px 16px }
 .ag-queue .it:not(.steer, .out) { border-top: 1px solid var(--border) }
-.ag-queue .lbl { font-size: 11px }
+.ag-queue .lbl { font-size: 11px } .ag-queue .from .lbl { flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted) }
 .ag-queue .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted) }
 .ag-queue button { all: unset; cursor: default; display: inline-flex; font-size: 12px; color: var(--muted) } .ag-queue button:hover { color: var(--fg) }
 .ag-queue button svg { width: 12px; height: 12px }
