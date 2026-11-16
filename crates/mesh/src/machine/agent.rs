@@ -191,12 +191,18 @@ pub fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
             effort: None,
         } => return Err(ApiError::bad_request("Nothing to switch.")),
         AgentSteer::Configure { model, effort } => Request::Configure {
-            model: model
-                .as_ref()
-                .map(|m| m.as_ref().trim())
-                .filter(|m| !m.is_empty())
-                .map(ModelId::from),
+            model: picked_model(model.as_ref().map(AsRef::as_ref))?.map(ModelId::from),
             effort,
+            fast: None,
+        },
+        AgentSteer::ConfigureFast {
+            model,
+            effort,
+            fast,
+        } => Request::Configure {
+            model: picked_model(model.as_ref().map(AsRef::as_ref))?.map(ModelId::from),
+            effort,
+            fast: Some(fast),
         },
     })
 }

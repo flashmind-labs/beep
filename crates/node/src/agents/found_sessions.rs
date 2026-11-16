@@ -1,8 +1,8 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
 use super::{
-    AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, SavedSession, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
-    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, Session, Sighted,
+    AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
+    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, SavedSession, Session, Sighted,
     holders::{self, Holding},
 };
 use crate::{
@@ -11,10 +11,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
-    agent::{
-        ExternalAsk, ExternalSession, MAX_EXTERNAL_NAMED, Presence, SessionFolder,
-        Status,
-    },
+    agent::{ExternalAsk, ExternalSession, MAX_EXTERNAL_NAMED, Presence, SessionFolder, Status},
     events::Topic,
 };
 use beep_proto::watched;
@@ -555,7 +552,9 @@ impl Agents {
             let mut found = self
                 .find_external(agent, id, owned)
                 .await?
-                .with_context(|| format!("there is no {} session {id} on this machine", kind.name))?;
+                .with_context(|| {
+                    format!("there is no {} session {id} on this machine", kind.name)
+                })?;
             found.presence = self.presence(agent, &found).await;
             self.settle_closed(std::slice::from_mut(&mut found));
 
@@ -566,12 +565,15 @@ impl Agents {
             found.cwd
         } else {
             // A record from before saved sessions may know no folder.
-            let previous = before.as_ref().filter(|saved| !saved.info.cwd.is_empty()).with_context(|| {
-                format!(
-                    "{} sessions started outside Beep cannot be taken over",
-                    kind.name
-                )
-            })?;
+            let previous = before
+                .as_ref()
+                .filter(|saved| !saved.info.cwd.is_empty())
+                .with_context(|| {
+                    format!(
+                        "{} sessions started outside Beep cannot be taken over",
+                        kind.name
+                    )
+                })?;
 
             previous.info.cwd.clone()
         };
@@ -594,7 +596,7 @@ impl Agents {
         id: &str,
         before: SavedSession,
     ) -> Begin {
-        let SavedSession { info, effort } = before;
+        let SavedSession { info, effort, fast } = before;
         let follows = info
             .parent
             .as_ref()
@@ -606,6 +608,7 @@ impl Agents {
             mode: info.mode,
             model: info.model,
             effort,
+            fast,
             parent: info.parent,
             follows,
             worktrees: info.worktrees,

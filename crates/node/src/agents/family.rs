@@ -84,6 +84,7 @@ pub(crate) struct ChildStart {
 #[derive(Debug, Default)]
 pub(crate) struct Review {
     pub(crate) effort: Option<Effort>,
+    pub(crate) fast: Option<bool>,
 }
 
 impl Agents {
@@ -282,6 +283,7 @@ impl Agents {
             prompt: Some(start.prompt),
             model: start.model,
             effort: start.review.as_ref().and_then(|review| review.effort),
+            fast: start.review.as_ref().and_then(|review| review.fast),
             mode,
             parent: Some(link),
             follows,
@@ -315,7 +317,10 @@ impl Agents {
             .iter()
             .filter(|(_, session)| {
                 watched::read(&session.live, |live| {
-                    live.info.parent.as_ref().is_some_and(|link| link.background)
+                    live.info
+                        .parent
+                        .as_ref()
+                        .is_some_and(|link| link.background)
                         && ended_for_good(live)
                 })
             })

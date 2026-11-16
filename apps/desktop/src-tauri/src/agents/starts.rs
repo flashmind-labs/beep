@@ -129,6 +129,7 @@ pub(crate) struct Start {
     pub(crate) prompt: String,
     pub(crate) model: Option<String>,
     pub(crate) effort: Option<Effort>,
+    pub(crate) fast: Option<bool>,
     pub(crate) checkout: Option<CheckoutPlan>,
     pub(crate) images: Vec<KeptImage>,
     pub(crate) assistant: bool,
@@ -225,6 +226,7 @@ impl Start {
             needs: Vec::new(),
             model: self.model.clone(),
             effort: self.effort,
+            fast: self.fast,
             checkout: self.checkout.clone(),
             assistant: self.assistant,
         }
@@ -730,6 +732,7 @@ pub async fn agent_begin(
     prompt: String,
     model: Option<String>,
     effort: Option<Effort>,
+    fast: Option<bool>,
     checkout: Option<CheckoutPlan>,
     images: Option<Vec<PastedImage>>,
     assistant: Option<bool>,
@@ -749,6 +752,7 @@ pub async fn agent_begin(
         needs: Vec::new(),
         model,
         effort,
+        fast,
         checkout,
         assistant: assistant.unwrap_or(false),
     };
@@ -758,6 +762,7 @@ pub async fn agent_begin(
         prompt,
         model,
         effort,
+        fast,
         checkout,
         assistant,
         ..
@@ -774,6 +779,7 @@ pub async fn agent_begin(
         prompt,
         model,
         effort,
+        fast,
         checkout,
         images: pasted.into_iter().map(KeptImage::from).collect(),
         assistant,

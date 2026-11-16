@@ -55,6 +55,7 @@ pub enum Steer {
         model: Option<ModelId>,
         #[serde(default)]
         effort: Option<Effort>,
+        fast: Option<bool>,
     },
     /// Switches the running session's mode, one `agent_modes` lists.
     Mode {
@@ -151,7 +152,20 @@ impl TryFrom<Steer> for AgentSteer {
             Steer::Cancel => Self::Cancel {},
             Steer::StopAll => Self::StopAll {},
             Steer::Close => Self::Close {},
-            Steer::Configure { model, effort } => Self::Configure { model, effort },
+            Steer::Configure {
+                model,
+                effort,
+                fast: None,
+            } => Self::Configure { model, effort },
+            Steer::Configure {
+                model,
+                effort,
+                fast: Some(fast),
+            } => Self::ConfigureFast {
+                model,
+                effort,
+                fast,
+            },
             Steer::Mode { mode } => Self::SetMode { mode },
             Steer::StopTask { task } => Self::StopTask { task },
             Steer::Device { device } => Self::SetDevice {

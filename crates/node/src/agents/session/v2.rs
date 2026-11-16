@@ -79,6 +79,7 @@ impl Actor {
 
     pub(super) fn v2_options(&mut self, cx: &ConnectionTo<Agent>, answer: &Value) {
         let offered = self.protocol.offers(answer);
+        self.fast_option = offered.fast;
         if let Some(model) = offered.current {
             self.model_is(Some(&model));
         }

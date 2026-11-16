@@ -41,6 +41,7 @@ wire_structs! {
         pub agent: Option<String>,
         pub model: Option<String>,
         pub effort: Option<Effort>,
+        pub fast: Option<bool>,
     }
 }
 

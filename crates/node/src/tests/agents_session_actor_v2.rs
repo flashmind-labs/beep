@@ -28,6 +28,8 @@ fn actor() -> Actor {
         earlier: Vec::new(),
         model: None,
         effort: None,
+        fast: None,
+        fast_option: None,
         thinking: Some(SessionConfigId::new("effort")),
         switch: Some(ModelSwitch::ConfigOption(SessionConfigId::new("model"))),
         mode_config: Some(SessionConfigId::new("mode")),
@@ -136,7 +138,8 @@ async fn incomplete_v2_options_preserve_working_configuration_controls() {
                     &cx,
                     Command::Configure {
                         model: Some(ModelId::new("other")),
-                        effort: Some(Effort::High)
+                        effort: Some(Effort::High),
+                        fast: None,
                     }
                 )
                 .unwrap()
@@ -209,7 +212,9 @@ async fn a_steer_waits_for_the_turn_the_user_stopped() {
             true,
         );
         actor.by_user = true;
-        actor.steers.push_back(Prompt::from("it's dark now".to_owned()));
+        actor
+            .steers
+            .push_back(Prompt::from("it's dark now".to_owned()));
 
         actor.steer_now(&cx).unwrap();
 
@@ -229,7 +234,9 @@ fn a_dropped_server_tool_call_does_not_fail_the_turn() {
     };
     let stuck = |ids: &str| {
         failed(
-            &format!("Internal error: Claude ended the turn without returning results for tool calls: {ids}"),
+            &format!(
+                "Internal error: Claude ended the turn without returning results for tool calls: {ids}"
+            ),
             Some("incomplete_tool_call"),
         )
     };
@@ -238,5 +245,8 @@ fn a_dropped_server_tool_call_does_not_fail_the_turn() {
     assert!(lost_server_tools(&stuck("srvtoolu_01a, srvtoolu_01b")));
     assert!(!lost_server_tools(&stuck("srvtoolu_01a, toolu_01c")));
     assert!(!lost_server_tools(&stuck("")));
-    assert!(!lost_server_tools(&failed("Internal error: srvtoolu_01a", None)));
+    assert!(!lost_server_tools(&failed(
+        "Internal error: srvtoolu_01a",
+        None
+    )));
 }

@@ -101,6 +101,7 @@ export interface Picked {
   /// Empty for the harness's own.
   model: string;
   effort: string | null;
+  fast: boolean | null;
   query: string;
 }
 
@@ -119,7 +120,7 @@ export interface PickerOpts {
   bounds: () => HTMLElement | null;
   /// After a pick, or once the models are read ("models"); the caller
   /// redraws. A model pick is meant to close the picker.
-  changed: (what: "agent" | "model" | "effort" | "models") => void;
+  changed: (what: "agent" | "model" | "effort" | "fast" | "models") => void;
 }
 
 /// The pill's inside: the harness badge, thinking level and model.
@@ -158,7 +159,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   const entry = key ? MODELS.get(key) : undefined;
   const failed = entry?.status === "failed";
   const loading = entry?.status === "loading" && !lists[0]?.list;
-  const data = machine ? searchRows(lists, search) : { rows: [{ value: "", label: "Default", note: "its own", agent: p.agent, effort: null }], note: o.noMachine };
+  const data = machine ? searchRows(lists, search) : { rows: [{ value: "", label: "Default", note: "its own", agent: p.agent, effort: null, fast: null }], note: o.noMachine };
   const note = failed ? "Couldn't load models." : loading ? "Asking the machine which models it has…" : data.note;
   const onRetry = () => {
     const current = key ? MODELS.get(key) : undefined;
@@ -167,6 +168,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   };
   o.render(
     <AgentPicker
+      model={lists.find(list => list.agent === p.agent)?.list?.models.find(model => model.id === (p.model || lists.find(list => list.agent === p.agent)?.list?.current)) ?? null}
       picked={p} offered={o.offered} everywhere={o.everywhere} machineName={o.machine?.name ?? null} machineId={o.machine?.id ?? null}
       rows={data.rows} note={note} loading={loading} failed={failed}
       onRetry={onRetry}
@@ -179,6 +181,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
         p.agent = row.agent; p.model = row.value; p.query = "";
         o.changed("model");
       }}
+      onFast={(fast: boolean) => { p.fast = fast; o.changed("fast"); }}
       onEffort={(next: string | null) => { p.effort = next; o.changed("effort"); }}
       anchor={o.anchor} bounds={o.bounds} search={field}
     />,

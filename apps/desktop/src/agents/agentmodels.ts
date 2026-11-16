@@ -7,6 +7,8 @@ export interface ModelInfo {
   /// Who serves it, such as `openrouter`, when its id names one; the same name can
   /// show under several providers.
   provider: string | null;
+  efforts?: string[];
+  fast?: boolean | null;
   context_window?: number | null;
   max_context_window?: number | null;
 }
@@ -22,7 +24,7 @@ export interface AgentModels {
 /// How long a machine's list is kept here; the node keeps it as long.
 export const MODELS_KEPT_MS = 5 * 60 * 1000;
 
-export interface SessionPick { model: string; effort: string | null }
+export interface SessionPick { model: string; effort: string | null; fast: boolean | null }
 
 /// Keep session choices across window reloads, including resolved defaults.
 export class SessionPicks extends Map<string, SessionPick> {
@@ -39,7 +41,7 @@ export class SessionPicks extends Map<string, SessionPick> {
         const [id, pick] = entry;
         if (typeof id === "string" && pick && typeof pick.model === "string"
           && (pick.effort === null || typeof pick.effort === "string")) {
-          super.set(id, { model: pick.model, effort: pick.effort });
+          super.set(id, { model: pick.model, effort: pick.effort, fast: typeof pick.fast === "boolean" ? pick.fast : null });
         }
       }
     } catch { /* Storage can be unavailable. */ }
@@ -87,7 +89,7 @@ function projectPicks(): Map<string, ProjectPick> {
         && "agent" in pick && typeof pick.agent === "string"
         && "model" in pick && typeof pick.model === "string"
         && "effort" in pick && (pick.effort === null || typeof pick.effort === "string")) {
-        picks.set(project, { agent: pick.agent, model: pick.model, effort: pick.effort });
+        picks.set(project, { agent: pick.agent, model: pick.model, effort: pick.effort, fast: "fast" in pick && typeof pick.fast === "boolean" ? pick.fast : null });
       }
     }
   } catch { /* Storage can be unavailable. */ }

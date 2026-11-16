@@ -314,7 +314,7 @@ test("the model pill does not display the harness default for an unknown session
   show({});
   drawModelPill();
   assert.match(pill.innerHTML, /Model unknown/);
-  sessionPicks.set(page.session.id, { model: "selected-model", effort: null });
+  sessionPicks.set(page.session.id, { model: "selected-model", effort: null, fast: null });
   drawModelPill();
   assert.match(pill.innerHTML, /selected-model/);
   sessionPicks.delete(page.session.id);
@@ -324,7 +324,7 @@ test("the model pill uses the model reported by the session", t => {
   const page = openSession("idle");
   const pill = fieldControl(t);
   show({});
-  sessionPicks.set(page.session.id, { model: "previous-model", effort: null });
+  sessionPicks.set(page.session.id, { model: "previous-model", effort: null, fast: null });
   page.model = "current-model";
   drawModelPill();
   const badge = pill.querySelector(".cc-ag");
@@ -363,18 +363,18 @@ test("the model pill keeps the model that runs", async t => {
   show({});
   const s = page.session;
 
-  await switchSessionModel(s, { model: "opus-x", effort: null }, "model");
+  await switchSessionModel(s, { model: "opus-x", effort: null, fast: null }, "model");
   assert.match(pill.innerHTML, /opus-x/);
 
   // Default cannot be sent to a running session, so opus-x keeps running.
   const sent = calls.length;
-  await switchSessionModel(s, { model: "", effort: null }, "model");
+  await switchSessionModel(s, { model: "", effort: null, fast: null }, "model");
   assert.equal(calls.length, sent);
   assert.match(pill.innerHTML, /opus-x/);
   assert.match(AG.note, /Default/);
 
   refuse("agent_steer", "bad request: the agent is still starting");
-  await switchSessionModel(s, { model: "sonnet-y", effort: null }, "model");
+  await switchSessionModel(s, { model: "sonnet-y", effort: null, fast: null }, "model");
   assert.match(pill.innerHTML, /opus-x/);
   assert.doesNotMatch(pill.innerHTML, /sonnet-y/);
 });
@@ -387,11 +387,11 @@ test("flsh can switch its model and thinking from a working session", async t =>
   show({});
   drawModelPill();
   assert.equal(pill.querySelector("button")?.disabled, false);
-  await switchSessionModel(page.session, { model: "ollama:example", effort: null }, "model");
-  await switchSessionModel(page.session, { model: "ollama:example", effort: "high" }, "effort");
+  await switchSessionModel(page.session, { model: "ollama:example", effort: null, fast: null }, "model");
+  await switchSessionModel(page.session, { model: "ollama:example", effort: "high", fast: null }, "effort");
   assert.deepEqual(steers(), [
-    { configure: { model: "ollama:example", effort: null } },
-    { configure: { model: null, effort: "high" } },
+    { configure: { model: "ollama:example", effort: null, fast: null } },
+    { configure: { model: null, effort: "high", fast: null } },
   ]);
   assert.match(pill.innerHTML, /ollama:example/);
   assert.match(pill.innerHTML, /High/);
@@ -711,8 +711,8 @@ test("session model choices survive a window reload", async t => {
   } });
   const { SessionPicks } = await import("../src/agents/agentmodels.ts");
   const choices = new SessionPicks();
-  choices.set("saved-model-session", { model: "model-sol", effort: "high" });
-  assert.deepEqual(new SessionPicks().get("saved-model-session"), { model: "model-sol", effort: "high" });
+  choices.set("saved-model-session", { model: "model-sol", effort: "high", fast: null });
+  assert.deepEqual(new SessionPicks().get("saved-model-session"), { model: "model-sol", effort: "high", fast: null });
   choices.delete("saved-model-session");
   assert.equal(new SessionPicks().has("saved-model-session"), false);
 });

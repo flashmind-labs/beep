@@ -20,9 +20,8 @@ use agent_client_protocol::{
     JsonRpcResponse, Responder, UntypedMessage, on_receive_dispatch,
     v1::schema::{
         ContentBlock, CreateElicitationRequest, CreateElicitationResponse, McpServer,
-        PromptResponse, RequestPermissionRequest,
-        RequestPermissionResponse, SessionConfigId, SessionId, SessionNotification, SessionUpdate,
-        ToolCallId,
+        PromptResponse, RequestPermissionRequest, RequestPermissionResponse, SessionConfigId,
+        SessionId, SessionNotification, SessionUpdate, ToolCallId,
     },
 };
 use anyhow::{Context, Result};
@@ -86,9 +85,14 @@ pub(super) enum Reply {
         what: String,
         model: Option<ModelId>,
         effort: Option<Effort>,
+        fast: Option<bool>,
         result: Result<(), agent_client_protocol::Error>,
     },
     /// The answer to setting how hard the new session thinks.
+    FastSet {
+        fast: bool,
+        result: Result<(), agent_client_protocol::Error>,
+    },
     EffortSet {
         effort: Effort,
         result: Result<(), agent_client_protocol::Error>,
@@ -209,6 +213,8 @@ pub(super) struct Actor {
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, set before its first prompt.
     pub(super) effort: Option<Effort>,
+    pub(super) fast: Option<bool>,
+    pub(super) fast_option: Option<SessionConfigId>,
     /// The session's option that sets how hard it thinks, once it said.
     pub(super) thinking: Option<SessionConfigId>,
     pub(super) mode_config: Option<SessionConfigId>,
@@ -580,10 +586,10 @@ impl Actor {
                     Err(error) => Err(error),
                 };
                 trace.finish(answer.is_ok());
-                let configured = (protocol == acp::Protocol::V2
-                    && method == "session/set_config_option")
+                let configured = (method == "session/set_config_option")
                     .then(|| answer.as_ref().ok().cloned())
-                    .flatten();
+                    .flatten()
+                    .filter(|answer| answer.get("configOptions").is_some());
                 let reply =
                     reply(answer.and_then(|value| Req::Response::from_json(&method, value)));
                 match configured {
@@ -684,10 +690,12 @@ impl Actor {
                 }
 
                 if let SessionUpdate::ConfigOptionUpdate(options) = &update {
-                    let offered = acp::offered_models(
+                    let offered = acp::offers(
                         &serde_json::json!({ "configOptions": options.config_options }),
                     );
 
+                    self.fast_option = offered.fast;
+                    self.thinking = offered.thinking;
                     if let Some(model) = offered.current {
                         self.model_is(Some(&model));
                     }
@@ -831,6 +839,7 @@ impl Actor {
                 what,
                 model,
                 effort,
+                fast,
                 result,
             } => match result {
                 Ok(()) => {
@@ -842,10 +851,20 @@ impl Actor {
                         self.thinks_at(effort);
                     }
 
+                    if let Some(fast) = fast {
+                        self.live.send_modify(|live| live.fast = Some(fast));
+                    }
                     self.note(&format!("Switched to {what} from the next turn"));
                 }
                 Err(e) => self.note(&format!("Could not switch to {what}: {e}")),
             },
+            Reply::FastSet { fast, result } => {
+                match result {
+                    Ok(()) => self.live.send_modify(|live| live.fast = Some(fast)),
+                    Err(e) => self.note(&format!("Could not set fast mode: {e}")),
+                }
+                self.unprompted(cx);
+            }
             Reply::EffortSet { effort, result } => {
                 if result.is_ok() {
                     self.thinks_at(effort);
@@ -859,7 +878,7 @@ impl Actor {
                     ));
                 }
 
-                self.unprompted(cx);
+                self.set_fast(cx);
             }
             Reply::ModelSet {
                 model,
@@ -1046,6 +1065,7 @@ impl Actor {
             self.v2_state(cx, state);
         }
         self.model_is(offered.current.as_deref());
+        self.fast_option = offered.fast;
         self.thinking = offered.thinking;
         self.mode_config = offered.mode_config;
         self.switch = offered.switch.clone();
@@ -1140,7 +1160,7 @@ impl Actor {
     /// that level runs at its own and says so.
     fn think(&mut self, cx: &ConnectionTo<Agent>) {
         let (Some(effort), Some(session)) = (self.effort.take(), self.acp_session.clone()) else {
-            self.unprompted(cx);
+            self.set_fast(cx);
             return;
         };
         let cannot = |agent: &str| {
@@ -1152,7 +1172,7 @@ impl Actor {
         };
         let Some(id) = self.thinking.clone() else {
             self.note(&cannot(&self.agent));
-            self.unprompted(cx);
+            self.set_fast(cx);
             return;
         };
 
@@ -1164,9 +1184,30 @@ impl Actor {
             }),
             Err(e) => {
                 self.note(&format!("{}: {e}", cannot(&self.agent)));
-                self.unprompted(cx);
+                self.set_fast(cx);
             }
         }
+    }
+
+    fn set_fast(&mut self, cx: &ConnectionTo<Agent>) {
+        if let Some(fast) = self.fast.take() {
+            if let (Some(session), Some(id)) = (&self.acp_session, &self.fast_option) {
+                let request = acp::set_fast(session, id, fast);
+                match request {
+                    Ok(request) => {
+                        self.send(cx, request, move |result| Reply::FastSet {
+                            fast,
+                            result: result.map(drop),
+                        });
+                        return;
+                    }
+                    Err(e) => self.note(&format!("Could not set fast mode: {e}")),
+                }
+            } else {
+                self.note("This model or adapter does not offer fast mode");
+            }
+        }
+        self.unprompted(cx);
     }
 
     /// The session runs on its model and thinking level: turns permission

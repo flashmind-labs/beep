@@ -103,7 +103,11 @@ impl Actor {
 
                 Ok(Ok(()))
             }
-            Command::Configure { model, effort } => Ok(self.configure(cx, model, effort)),
+            Command::Configure {
+                model,
+                effort,
+                fast,
+            } => Ok(self.configure(cx, model, effort, fast)),
             Command::SetMode(mode) => Ok(self.set_mode(cx, mode)),
             Command::StopTask(task) => Ok(self.stop_task(cx, task)),
             Command::SetDevice(device) => {
@@ -365,6 +369,7 @@ impl Actor {
         cx: &ConnectionTo<Agent>,
         model: Option<ModelId>,
         effort: Option<Effort>,
+        fast: Option<bool>,
     ) -> Result<(), String> {
         let Some(session) = self.acp_session.clone() else {
             return Err("the agent is still starting; switch once it is ready".into());
@@ -380,7 +385,7 @@ impl Actor {
             };
             let request = acp::switch_model(&session, switch, model.as_ref())
                 .map_err(|e| format!("{title} could not switch to {model}: {e}"))?;
-            requests.push((request, model.to_string(), Some(model), None));
+            requests.push((request, model.to_string(), Some(model), None, None));
         }
 
         if let Some(effort) = effort {
@@ -389,18 +394,40 @@ impl Actor {
             };
             let request = acp::set_effort(&session, id, effort)
                 .map_err(|e| format!("{title} could not think at {}: {e}", effort.as_ref()))?;
-            requests.push((request, format!("thinking {}", effort.as_ref()), None, Some(effort)));
+            requests.push((
+                request,
+                format!("thinking {}", effort.as_ref()),
+                None,
+                Some(effort),
+                None,
+            ));
+        }
+
+        if let Some(fast) = fast {
+            let id = self
+                .fast_option
+                .as_ref()
+                .ok_or_else(|| format!("{title} here does not offer fast mode for this model"))?;
+            let request = acp::set_fast(&session, id, fast).map_err(|e| e.to_string())?;
+            requests.push((
+                request,
+                format!("fast mode {}", if fast { "on" } else { "off" }),
+                None,
+                None,
+                Some(fast),
+            ));
         }
 
         if requests.is_empty() {
             return Err("nothing to switch".into());
         }
 
-        for (request, what, model, effort) in requests {
+        for (request, what, model, effort, fast) in requests {
             self.send(cx, request, move |result| Reply::Reconfigured {
                 what,
                 model,
                 effort,
+                fast,
                 result: result.map(drop),
             });
         }

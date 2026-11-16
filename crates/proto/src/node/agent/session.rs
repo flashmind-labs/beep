@@ -36,6 +36,8 @@ pub enum Request {
         /// machines. A node from before it runs the session as any other.
         #[serde(default)]
         assistant: bool,
+        #[serde(default)]
+        fast: Option<bool>,
     },
     /// The first message: follows a session that already runs.
     Attach { session: String },
@@ -70,6 +72,8 @@ pub enum Request {
     Configure {
         model: Option<ModelId>,
         effort: Option<Effort>,
+        #[serde(default)]
+        fast: Option<bool>,
     },
     /// A message for the running turn: sent once the agent's current tool call
     /// finishes, by stopping the turn there and prompting again, and ahead of

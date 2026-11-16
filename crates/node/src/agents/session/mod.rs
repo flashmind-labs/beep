@@ -22,7 +22,8 @@ use agent_client_protocol::v1::schema::McpServer;
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
-    AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, SessionDevice, SessionInfo, Status,
+    AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, SessionDevice, SessionInfo,
+    Status,
 };
 use beep_proto::watched;
 use futures::stream::FuturesUnordered;
@@ -112,6 +113,7 @@ pub(super) enum Command {
     Configure {
         model: Option<ModelId>,
         effort: Option<Effort>,
+        fast: Option<bool>,
     },
     /// Switches the session mode, at once.
     SetMode(String),
@@ -216,6 +218,7 @@ pub(super) struct Start<'a> {
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
     pub(super) effort: Option<Effort>,
+    pub(super) fast: Option<bool>,
     /// The session mode it was in before the node restarted, rather than
     /// the one that asks no permission.
     pub(super) mode: Option<String>,
@@ -281,6 +284,7 @@ impl Session {
             title,
             model,
             effort,
+            fast,
             mode,
             parent,
             follows,
@@ -418,7 +422,9 @@ impl Session {
             earlier,
             model,
             effort,
+            fast,
             thinking: None,
+            fast_option: None,
             mode_config: None,
             switch: None,
             bypass_mode: known.and_then(|known| known.bypass_mode),

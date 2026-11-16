@@ -19,7 +19,7 @@ const named = (page: Page, row: typeof session) => page.evaluate(event => {
 test("the sidebar's Assistant lists the chats and opens one beside them", async ({ page }) => {
   const other = { ...session, id: "assistant-two", title: "Check the open pull requests", status: "idle" };
   await openDesktop(page, false, {
-    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null },
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null },
     agent_sessions: [{ ...session, title: "Set up the widget project" }, other],
     agent_view: view(other, "Two pull requests wait for review."),
   });
@@ -42,7 +42,7 @@ test("the sidebar's Assistant lists the chats and opens one beside them", async 
 test("Cmd+N on Home opens the Assistant page and starts the assistant with its harness in the home folder", async ({ page }, info) => {
   await openDesktop(page, false, {
     agent_hosts: [host],
-    assistant_settings_get: { agent: "flsh", model: null, effort: "high" },
+    assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null },
     ...kept,
   });
   await expect(page.locator("#sec-needs")).toBeVisible();
@@ -72,7 +72,7 @@ test.describe("on a phone", () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
 
   test("New assistant on Home opens the chats, and New chat the assistant's start form", async ({ page }) => {
-    await openDesktop(page, false, { agent_hosts: [host], agent_sessions: [session], assistant_settings_get: { agent: "flsh", model: null, effort: null } });
+    await openDesktop(page, false, { agent_hosts: [host], agent_sessions: [session], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null } });
     await expect(page.locator("body")).toHaveClass(/mobile/);
     await page.getByRole("button", { name: "New assistant" }).tap();
     const list = page.locator(".asst-list");
@@ -92,7 +92,7 @@ test("the first start's harness shows the assistant setting saved in Settings", 
     center_home: { machines: [], projects: [], running: [], needs_you: [] },
     settings: { name: "build-box", version: "0.9.0", autostart: false, agent_notices: false },
     agent_hosts: [host], agent_models: models, mac_control: { id: "build-box" },
-    assistant_settings_get: { agent: "flsh", model: null, effort: null },
+    assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null },
   });
   await expect(page.locator(".painted-empty .pill .flsh")).toBeVisible();
 
@@ -101,7 +101,7 @@ test("the first start's harness shows the assistant setting saved in Settings", 
   await settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
   await settings.locator("#assistantSetting").getByRole("button").click();
   // Saved in Settings: Home reads the setting again.
-  await page.evaluate(() => window.__navigation.respond("assistant_settings_get", { agent: "codex", model: null, effort: null }));
+  await page.evaluate(() => window.__navigation.respond("assistant_settings_get", { agent: "codex", model: null, effort: null, fast: null }));
   await page.getByRole("dialog", { name: "Harness, model and thinking" }).getByText("Example Model B").click();
   await expect(page.locator(".painted-empty .pill .codex")).toBeVisible();
 });
@@ -109,7 +109,7 @@ test("the first start's harness shows the assistant setting saved in Settings", 
 test("a chat started from Home's composer opens on the Assistant page", async ({ page }) => {
   await openDesktop(page, false, {
     center_home: { machines: [], projects: [], running: [], needs_you: [] },
-    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null }, ...kept,
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, ...kept,
   });
   const prompt = page.locator(".painted-empty textarea");
   await prompt.fill("hello");
@@ -126,7 +126,7 @@ test("a chat started from Home's composer opens on the Assistant page", async ({
 test("Shift+Tab in the assistant's composer moves to the next machine that runs it", async ({ page }) => {
   const other = { ...host, machine_id: "gpu-box", machine_name: "gpu-box" };
   const old = { ...host, machine_id: "old-box", machine_name: "old-box", assistant: false };
-  await openDesktop(page, false, { agent_hosts: [host, other, old], agent_sessions: [], assistant_settings_get: { agent: "flsh", model: null, effort: null } });
+  await openDesktop(page, false, { agent_hosts: [host, other, old], agent_sessions: [], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null } });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
   const prompt = page.locator("#agprompt");
   await expect(page.locator("#aghostb")).toHaveText("build-box");
@@ -139,7 +139,7 @@ test("Shift+Tab in the assistant's composer moves to the next machine that runs 
 });
 
 test("the chats' grip resizes them and keeps the width", async ({ page }) => {
-  await openDesktop(page, false, { agent_hosts: [host], agent_sessions: [session], assistant_settings_get: { agent: "flsh", model: null, effort: null } });
+  await openDesktop(page, false, { agent_hosts: [host], agent_sessions: [session], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null } });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
   const list = page.locator(".asst-list"), grip = page.getByRole("separator", { name: "Resize the chats" });
   await expect(list).toBeVisible();
@@ -161,7 +161,7 @@ test("the chats' grip resizes them and keeps the width", async ({ page }) => {
 test("a chat started on the Assistant page stays on it with a released node", async ({ page }) => {
   // A released node's session and view leave out that the session is the assistant.
   await openDesktop(page, false, {
-    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null },
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null },
     agent_sessions: [], ...kept,
   });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
@@ -180,7 +180,7 @@ test("a chat started on the Assistant page stays on it with a released node", as
 test("a chat started on the Assistant page stays on it while the list also has it as found outside Beep", async ({ page }) => {
   const outside = { ...session, assistant: false, external: true, status: "working" };
   await openDesktop(page, false, {
-    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null },
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null },
     agent_sessions: [outside], ...kept,
   });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();

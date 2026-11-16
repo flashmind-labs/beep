@@ -1,8 +1,8 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use super::{
-    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, Prompt, Session, Start,
-    checkout, harnesses,
+    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, Prompt, Session, Start, checkout,
+    harnesses,
     live::{Live, Sent},
     models, plans,
 };
@@ -13,7 +13,10 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
-    agent::{self, CheckoutPlan, ModelList, ParentLink, SESSIONS_PROTOCOL, SessionDevice, SessionInfo, Status},
+    agent::{
+        self, CheckoutPlan, ModelList, ParentLink, SESSIONS_PROTOCOL, SessionDevice, SessionInfo,
+        Status,
+    },
     harness::{AgentSettings, HarnessReport},
     usage::PlanUsage,
 };
@@ -601,6 +604,7 @@ impl Agents {
             model: begin.model,
             mode: begin.mode,
             effort: begin.effort,
+            fast: begin.fast,
             parent: begin.parent,
             follows: begin.follows,
             note: begin.note,
@@ -625,14 +629,16 @@ impl Agents {
             let mut saved = None;
 
             loop {
-                let (info, effort) =
-                    watched::read_and_update(&mut updates, |live| (live.info.clone(), live.effort));
+                let (info, effort, fast) = watched::read_and_update(&mut updates, |live| {
+                    (live.info.clone(), live.effort, live.fast)
+                });
                 // What the saved session keeps, noted as it changes.
                 let keeps = (
                     info.id.clone(),
                     info.title.clone(),
                     info.model.clone(),
                     effort,
+                    fast,
                     info.mode.clone(),
                     info.device.clone(),
                     info.worktrees.clone(),
@@ -713,6 +719,7 @@ pub(super) struct Begin {
     pub(super) title: Option<String>,
     pub(super) model: Option<ModelId>,
     pub(super) effort: Option<agent::Effort>,
+    pub(super) fast: Option<bool>,
     /// The session mode it was in before the node restarted.
     pub(super) mode: Option<String>,
     /// A first line for the transcript, such as the branch it started on.

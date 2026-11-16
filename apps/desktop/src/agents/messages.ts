@@ -140,8 +140,8 @@ async function sendBackground(session: OpenAgent, draft: Waiting, state: Mention
       const started = await invoke<Started>("agent_resume", { ...where(session), prompt: null }, AGENT_SEND_WAIT_MS);
       target = openOf(started.session);
       const pick = resumePicks.get(session.session);
-      if (pick && (pick.model || pick.effort)) {
-        await invoke("agent_steer", { ...where(target), steer: { configure: { model: pick.model || null, effort: pick.effort } } }, AGENT_SEND_WAIT_MS);
+      if (pick && (pick.model || pick.effort || pick.fast !== null)) {
+        await invoke("agent_steer", { ...where(target), steer: { configure: { model: pick.model || null, effort: pick.effort, fast: pick.fast } } }, AGENT_SEND_WAIT_MS);
         sessionPicks.set(target.session, pick);
       }
       resumePicks.delete(session.session);
@@ -438,7 +438,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
 
   try {
     const pick = resumePicks.get(o.session);
-    const configure = pick && (pick.model || pick.effort) ? { model: pick.model || null, effort: pick.effort } : null;
+    const configure = pick && (pick.model || pick.effort || pick.fast !== null) ? { model: pick.model || null, effort: pick.effort, fast: pick.fast } : null;
     const started = await invoke<Started>("agent_resume", { ...where(o), prompt: images.length || configure ? null : text }, AGENT_SEND_WAIT_MS);
 
     if (configure && pick) {

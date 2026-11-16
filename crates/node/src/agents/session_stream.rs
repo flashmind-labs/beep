@@ -37,7 +37,15 @@ impl TryFrom<Request> for Command {
             Request::Cancel {} => Command::Cancel { by_user: true },
             Request::StopAll {} => Command::StopAll { by_user: true },
             Request::Close {} => Command::Close { by_user: true },
-            Request::Configure { model, effort } => Command::Configure { model, effort },
+            Request::Configure {
+                model,
+                effort,
+                fast,
+            } => Command::Configure {
+                model,
+                effort,
+                fast,
+            },
             other => return Err(Refused::Request(other)),
         })
     }
@@ -134,6 +142,7 @@ pub async fn serve_session(
             prompt,
             model,
             effort,
+            fast,
             checkout,
             images,
             assistant,
@@ -144,6 +153,7 @@ pub async fn serve_session(
                     images,
                     model: model.map(ModelId::new),
                     effort,
+                    fast,
                     assistant,
                     ..Begin::default()
                 };
@@ -325,7 +335,11 @@ impl Seen {
             self.turns = info.turns;
             events.push(Event::TurnDone {
                 turn: info.turns,
-                stop_reason: live.info.state.last_stop.unwrap_or(agent::StopReason::Other),
+                stop_reason: live
+                    .info
+                    .state
+                    .last_stop
+                    .unwrap_or(agent::StopReason::Other),
                 last_message: info.last_message.clone(),
             });
         }

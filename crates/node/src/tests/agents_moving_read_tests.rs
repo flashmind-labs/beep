@@ -530,7 +530,11 @@ fn git(dir: &Path, args: &[&str]) -> String {
         .current_dir(dir)
         .output()
         .expect("git runs");
-    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
 
@@ -544,8 +548,14 @@ fn project() -> (TempDir, std::path::PathBuf) {
     fs::write(main.join("a.txt"), "one\n").expect("a file");
     git(&main, &["add", "."]);
     git(&main, &["commit", "-q", "-m", "first"]);
-    git(&main, &["worktree", "add", "-q", "-b", "feat", ".worktrees/feat"]);
-    git(&main, &["worktree", "add", "-q", "-b", "other", ".worktrees/other"]);
+    git(
+        &main,
+        &["worktree", "add", "-q", "-b", "feat", ".worktrees/feat"],
+    );
+    git(
+        &main,
+        &["worktree", "add", "-q", "-b", "other", ".worktrees/other"],
+    );
     let feat = main.join(".worktrees/feat");
     fs::write(feat.join("b.txt"), "two\n").expect("a file");
     git(&feat, &["add", "b.txt"]);
@@ -648,7 +658,9 @@ async fn a_worktree_comes_with_its_new_commits_and_uncommitted_work() {
         base: &base,
         bundle: true,
     };
-    let fetched = super::read::worktree(tx, rx, &ask).await.expect("the worktree");
+    let fetched = super::read::worktree(tx, rx, &ask)
+        .await
+        .expect("the worktree");
     assert_eq!(
         fetched.work.head,
         git(&main.join(".worktrees/feat"), &["rev-parse", "HEAD"])
@@ -740,10 +752,14 @@ async fn the_source_sends_what_it_saved_of_the_session_with_its_checkout() {
             ..SessionInfo::default()
         },
         effort: None,
+        fast: None,
     }]);
     let folder = TempDir::new().expect("a temp folder");
     let server = Router::builder(endpoint().await)
-        .accept(ALPN, Leaves(source.agents.clone(), folder.path().to_owned()))
+        .accept(
+            ALPN,
+            Leaves(source.agents.clone(), folder.path().to_owned()),
+        )
         .spawn();
     let client = endpoint().await;
     let connection = client

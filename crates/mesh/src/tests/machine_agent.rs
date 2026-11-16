@@ -11,6 +11,7 @@ fn start() -> Request {
         prompt: "go".to_owned(),
         model: None,
         effort: None,
+        fast: None,
         checkout: None,
         images: Vec::new(),
         assistant: false,
