@@ -5,7 +5,9 @@
 mod install;
 
 use super::{
-    Adapter, AgentKind, KNOWN, flsh_config, kinds::direct, models::flsh_dir_of, unix_now,
+    Adapter, AgentKind, KNOWN, flsh_config,
+    kinds::{direct, in_wsl_bridge},
+    models::flsh_dir_of, unix_now,
 };
 use crate::{
     AsyncMutex, lock,
@@ -134,6 +136,7 @@ impl Settings {
 fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
     let direct = match config.driver {
         HarnessDriver::Direct => direct(kind),
+        _ if in_wsl_bridge(kind) => Some(kind.clone()),
         HarnessDriver::Acp | HarnessDriver::Other => None,
     };
     let adapter = direct.is_none();

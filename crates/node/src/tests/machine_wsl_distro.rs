@@ -53,7 +53,16 @@ some line a profile printed
     assert_eq!(
         found(printed),
         Found {
-            agents: vec!["claude".into(), "codex".into()],
+            agents: vec![
+                FoundAgent {
+                    name: "claude".into(),
+                    path: "/home/sam/.local/bin/claude".parse().unwrap(),
+                },
+                FoundAgent {
+                    name: "codex".into(),
+                    path: "/home/sam/.npm-global/bin/codex".parse().unwrap(),
+                },
+            ],
             node: Some("0.7.4".into()),
             machine_id: Some("4f1c".into()),
         }
@@ -68,13 +77,16 @@ fn the_verbose_list_gives_names_and_whether_each_runs() {
                    \x20 Debian          Stopped         2\r\n\
                    \x20 docker-desktop  Running         2\r\n";
     let read = listed(verbose).expect("English states");
-    let names: Vec<(String, bool)> = read
+    let names: Vec<(String, bool, bool)> = read
         .iter()
-        .map(|listed| (listed.name.to_string(), listed.running))
+        .map(|listed| (listed.name.to_string(), listed.running, listed.default))
         .collect();
     assert_eq!(
         names,
-        [("Ubuntu-24.04".to_owned(), true), ("Debian".to_owned(), false)]
+        [
+            ("Ubuntu-24.04".to_owned(), true, true),
+            ("Debian".to_owned(), false, false)
+        ]
     );
     assert_eq!(listed(&decode(&utf16(verbose))), Some(read));
 }
@@ -84,4 +96,31 @@ fn a_state_in_another_language_asks_for_the_quiet_lists() {
     let verbose = "  NAME      STATUS            VERSION\n* Ubuntu    Wird ausgefuehrt  2\n";
     assert_eq!(listed(verbose), None);
     assert_eq!(listed(""), Some(Vec::new()));
+}
+
+#[test]
+fn a_windows_drive_path_is_under_mnt_in_wsl() {
+    let cases = [
+        (r"C:\Users\sam\code", Some("/mnt/c/Users/sam/code")),
+        (r"\\?\D:\work\", Some("/mnt/d/work")),
+        ("C:", Some("/mnt/c")),
+        (r"\\server\share\code", None),
+        (r"C:code", None),
+        ("/home/sam", None),
+    ];
+    for (windows, linux) in cases {
+        let mapped = linux_path(Path::new(windows)).map(|path| path.to_string());
+        assert_eq!(mapped.as_deref(), linux, "{windows}");
+    }
+}
+
+#[test]
+fn a_linux_path_in_wsl_is_under_the_wsl_share() {
+    let distro: DistroName = "Ubuntu".parse().expect("a name");
+    let home: LinuxPath = "/home/sam/".parse().unwrap();
+    assert_eq!(
+        windows_path(&distro, &home.join(".claude")),
+        PathBuf::from(r"\\wsl$\Ubuntu\home\sam\.claude")
+    );
+    assert!("home/sam".parse::<LinuxPath>().is_err());
 }

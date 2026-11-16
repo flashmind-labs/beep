@@ -82,6 +82,13 @@ pub(super) struct Known {
 /// The subcommand of `beep-node` that speaks ACP and drives Claude Code's
 /// CLI itself, in place of its npm adapter.
 pub const DIRECT_COMMAND: &str = "claude-acp";
+/// The argument of `DIRECT_COMMAND` naming the WSL distribution it runs in.
+const WSL_FLAG: &str = "--wsl";
+
+/// `kind` is Claude Code in WSL, which only the bridge can run.
+pub(super) fn in_wsl_bridge(kind: &AgentKind) -> bool {
+    kind.args.first().is_some_and(|arg| arg == DIRECT_COMMAND) && kind.args.iter().any(|arg| arg == WSL_FLAG)
+}
 
 /// This executable, as it was when the node started: an update renames a
 /// new binary over it, after which the running one's path reads as deleted.
@@ -98,6 +105,11 @@ static EXE: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
 pub(super) fn direct(kind: &AgentKind) -> Option<AgentKind> {
     if kind.name != "claude" {
         return None;
+    }
+
+    // Already on the bridge, such as Claude Code in WSL.
+    if kind.args.first().is_some_and(|arg| arg == DIRECT_COMMAND) {
+        return Some(kind.clone());
     }
 
     let exe = EXE.as_ref()?;
@@ -354,6 +366,11 @@ pub(super) fn detection(extra: &[AgentKind], node_dir: Option<&Path>) -> Detecti
         detection.record(known, launch(known, &found, own.as_ref()), home.as_deref());
     }
 
+    let claude = detection.kinds.iter().any(|kind| kind.name == "claude");
+    if let Some(kind) = in_wsl().filter(|_| !claude) {
+        detection.kinds.push(kind);
+    }
+
     for kind in extra {
         detection.kinds.retain(|known| known.name != kind.name);
         detection.lacking.retain(|known| known.name != kind.name);
@@ -362,6 +379,43 @@ pub(super) fn detection(extra: &[AgentKind], node_dir: Option<&Path>) -> Detecti
     }
 
     detection
+}
+
+/// Claude Code installed in a WSL distribution of this Windows machine,
+/// which runs it when Windows has none of its own: this executable's bridge
+/// starts its CLI in the distribution, on the Windows checkout.
+fn in_wsl() -> Option<AgentKind> {
+    let (distro, cli) = crate::machine::wsl::agent("claude")?;
+    let exe = EXE.as_ref()?;
+    let known = known("claude")?;
+    log::info!("Claude Code found in WSL {distro} at {}", cli.path);
+
+    Some(AgentKind {
+        name: known.name.to_owned(),
+        program: exe.display().to_string(),
+        args: [DIRECT_COMMAND, "--cli", cli.path.as_ref(), WSL_FLAG, distro.as_ref(), "--"]
+            .map(str::to_owned)
+            .into(),
+        env: env(known),
+        compact: None,
+        compact_models: Vec::new(),
+        default_model: None,
+    })
+}
+
+/// The variables `known` starts with: its own, and those that show its
+/// thinking unless the node's environment sets them.
+fn env(known: &Known) -> BTreeMap<String, String> {
+    let thinking = known
+        .thinking_env
+        .iter()
+        .filter(|(name, _)| std::env::var_os(name).is_none());
+    known
+        .env
+        .iter()
+        .chain(thinking)
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect()
 }
 
 /// `kind` set to start the program where `locate` found it when `PATH` does
@@ -454,21 +508,11 @@ pub(super) fn launch(
             flags.iter().map(|flag| (*flag).to_owned()).collect(),
         ),
     };
-    let thinking = known
-        .thinking_env
-        .iter()
-        .filter(|(name, _)| std::env::var_os(name).is_none());
-    let env = known
-        .env
-        .iter()
-        .chain(thinking)
-        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-        .collect();
     let kind = AgentKind {
         name: known.name.to_owned(),
         program,
         args,
-        env,
+        env: env(known),
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
