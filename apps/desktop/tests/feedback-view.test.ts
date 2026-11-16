@@ -21,12 +21,12 @@ test("feedback control keeps focus and its picker across updates", async () => {
   const props = { setButton, setSlot, onClick: () => { clicked++; }, picker: null };
   const render = (state: FeedbackState) => root.render(createElement(FeedbackControl, { ...props, state }));
   try {
-    await act(() => { render({ kind: "ready", reason: "Machine offline", open: false }); });
+    await act(() => { render({ kind: "ready", label: "Review with agent", hint: "Pick a model", reason: "Machine offline", open: false }); });
     const control = host.querySelector<HTMLButtonElement>("button");
     assert.ok(control);
     assert.equal(control.disabled, true);
     assert.equal(control.title, "Machine offline");
-    await act(() => { render({ kind: "ready", reason: "", open: true }); });
+    await act(() => { render({ kind: "ready", label: "Review with agent", hint: "Pick a model", reason: "", open: true }); });
     assert.equal(host.querySelector("button"), control);
     assert.equal(control.getAttribute("aria-expanded"), "true");
     control.focus();
@@ -36,7 +36,7 @@ test("feedback control keeps focus and its picker across updates", async () => {
     assert.ok(pickerSlot);
     const picker = dom.window.document.createElement("input");
     pickerSlot.append(picker);
-    await act(() => { render({ kind: "running", agent: "Example" }); });
+    await act(() => { render({ kind: "running", agent: "Example", hint: "Open the review" }); });
     assert.equal(host.querySelector("button"), control);
     assert.equal(dom.window.document.activeElement, control);
     assert.equal(pickerSlot.firstElementChild, picker);

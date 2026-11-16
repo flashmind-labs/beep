@@ -26,7 +26,8 @@ import { openUrl } from "../center/openitems.ts";
 import { currentLocation, go, drawTop } from "../center/views.tsx";
 import { openTile } from "./split.tsx";
 import { AG } from "../agents/agents.ts";
-import { barOn, drawProjectComp, workOnIssue, continuePr, reviewPr, earlierReview, fixRun, fixConflict } from "./composer.tsx";
+import { barOn, drawProjectComp, workOnIssue, startIssue, continuePr, reviewPr, startReview, threadButton, earlierReview, fixRun, fixConflict } from "./composer.tsx";
+import type { ProjectPick } from "../agents/agentmodels.ts";
 import { redrawSync } from "./syncpage.ts";
 import { openSyncRepair } from "./loads.tsx";
 import { drawProjects } from "./page.tsx";
@@ -120,8 +121,11 @@ export function redrawProjectsPage() {
 export function repoActs(p: Project): RepoActs {
   return {
     workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
+    startIssue: (issue: IssueRow, pick: ProjectPick) => startIssue(p.name, issue, pick),
     continuePr: (pr: PullRequestRow) => continuePr(p.name, pr),
     reviewPr: (pr: PullRequestRow) => reviewPr(p.name, pr),
+    startReview: (pr: PullRequestRow, pick: ProjectPick) => startReview(p.name, pr, pick),
+    button: start => threadButton(p.name, start),
     reviewOf: (pr: PullRequestRow) => earlierReview(p.name, pr.number),
     openReview: (session: ReviewSession) => go("pane", { agent: session }),
   };

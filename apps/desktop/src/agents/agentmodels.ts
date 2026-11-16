@@ -67,7 +67,8 @@ export class SessionPicks extends Map<string, SessionPick> {
   }
 }
 
-interface ProjectPick extends SessionPick { agent: string }
+/// The harness, model and thinking picked for a project.
+export interface ProjectPick extends SessionPick { agent: string }
 
 const PROJECT_PICKS = "beep.projectModels.v1";
 

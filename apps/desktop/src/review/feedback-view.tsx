@@ -3,10 +3,12 @@ import { Icon } from "../ui/icons.tsx";
 import { Spinner } from "../ui/kit.tsx";
 import type { Feedback } from "./feedback.ts";
 
+/// The agent button: Review with agent in a diff and on a pull request,
+/// Work on it on an issue. `hint` is its tooltip, `reason` why it cannot start.
 export type FeedbackState =
-  | { kind: "running"; agent: string }
+  | { kind: "running"; agent: string; hint: string }
   | { kind: "starting" }
-  | { kind: "ready"; reason: string; open: boolean };
+  | { kind: "ready"; label: string; hint: string; reason: string; open: boolean };
 
 interface FeedbackButtonProps {
   state: FeedbackState;
@@ -35,15 +37,14 @@ export function FeedbackNoteBox({ feedback }: { feedback: Feedback }) {
 
 export function FeedbackControl({ state, setButton, setSlot, onClick, picker }: FeedbackButtonProps) {
   const disabled = state.kind === "starting" || (state.kind === "ready" && !!state.reason);
-  const title = state.kind === "running" ? "Open the review. The reviewer only reads; its findings become comments here"
-    : state.kind === "starting" ? "" : state.reason || "Ask an agent to review these changes. It only reads. Pick a model to start";
+  const title = state.kind === "running" ? state.hint : state.kind === "starting" ? "" : state.reason || state.hint;
   const expanded = state.kind === "ready" && !state.reason ? state.open : undefined;
   return <>
     <button ref={setButton} type="button" className="dv-btn dv-fb" disabled={disabled} title={title} aria-expanded={expanded}
       onClick={event => { event.stopPropagation(); onClick(); }}>
       {state.kind === "running" ? <><Spinner />Reviewing <small>{state.agent}</small></>
         : state.kind === "starting" ? <><Spinner />Starting</>
-        : <>Review with agent<span style={{ display: "grid" }}><Icon name="caretDown" size={12} /></span></>}
+        : <>{state.label}<span style={{ display: "grid" }}><Icon name="caretDown" size={12} /></span></>}
     </button>
     <div ref={setSlot}>{picker}</div>
   </>;
