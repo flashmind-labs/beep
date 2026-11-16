@@ -58,6 +58,10 @@ export function skinId(): string {
   return SKINS.some(s => s.id === kept) ? kept : DEFAULT_SKIN;
 }
 
+/// Called when this window takes another skin: what draws in its colours
+/// outside CSS, such as a terminal, draws again.
+export const skinChanged = new Set<() => void>();
+
 /// The tokens this window set from a plugin skin, to clear them on the next pick.
 let pluginTokens: readonly string[] = [];
 
@@ -72,6 +76,7 @@ function apply() {
   for (const token of pluginTokens) if (!tokens.has(token)) root.removeProperty(token);
   for (const [token, value] of tokens) root.setProperty(token, value);
   pluginTokens = [...tokens.keys()];
+  for (const draw of skinChanged) draw();
 
   // Windows and Linux draw the title bar: it takes the skin's light or dark.
   if (APPLE || onPhone()) return;

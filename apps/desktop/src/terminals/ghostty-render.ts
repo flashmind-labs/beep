@@ -121,7 +121,8 @@ export class GridRenderer {
   readonly canvas: HTMLCanvasElement;
   private readonly gl: WebGL2RenderingContext;
   private readonly font: FontSpec;
-  private readonly theme: Theme;
+  /// Changed when the skin changes; the next full redraw shows it.
+  theme: Theme;
   private dpr = 1;
   private cell: CellSize = { width: 1, height: 1 };
   private baseline = 0;

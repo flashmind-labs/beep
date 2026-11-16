@@ -6,25 +6,16 @@
 // Output is parsed in frames, at most a few milliseconds each, so a flood of
 // output never stalls the window; the rest waits for the next frame.
 import { DESKTOP_LIMITS, Ghostty, loadGhostty, PHONE_LIMITS, RenderState, Terminal, type CellSize } from "./ghostty.ts";
-import { GridRenderer, type FontSpec } from "./ghostty-render.ts";
+import { GridRenderer, type FontSpec, type Theme } from "./ghostty-render.ts";
 import { TerminalInput, type KeyInput, type MouseButton } from "./ghostty-input.ts";
 import { cellAt, fitGrid, routeKey, SYMBOLS_FONT, wheelAction, withSymbols, type Grid } from "./screen-state.ts";
 import { isTouchDevice, makeTouchBar } from "./touchbar.tsx";
 import { ZOOMED } from "../ui/zoom-state.ts";
 import { APPLE, onPhone } from "../ui/platform.ts";
+import { skinChanged } from "../ui/skin.ts";
 import { logError } from "../ui/tauri.ts";
 import type { Screen } from "./terminals.tsx";
 
-/// The terminal's colours, as the mock's terminal pane.
-const THEME = {
-  background: 0x0b0f0d,
-  foreground: 0xcfe3d8,
-  cursor: 0x6fcf97,
-  selection: 0x6fcf97,
-  selectionAlpha: 0.3,
-  /// Palette entries the pane changes: green, yellow and bright black.
-  palette: new Map([[2, 0x6fcf97], [3, 0xe9b949], [8, 0x6b7d73]]),
-};
 const FONT_SIZE = 12;
 const LINE_HEIGHT = 1.2;
 /// Time given to parsing output per frame.
@@ -115,6 +106,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
   let blinkOn = true;
   let selecting = false;
   let disposed = false;
+  let theme = skinTheme();
 
   let onData: (data: string) => void = () => {};
   let onReply: (data: string) => void = () => {};
@@ -152,11 +144,21 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
       bell: () => {},
       titleChanged: () => {},
     }, onPhone() ? PHONE_LIMITS : DESKTOP_LIMITS);
-    term.setColors(THEME);
+    term.setColors(theme);
     parts = { term, state: new RenderState(g), input: new TerminalInput(g, term) };
     fitNow();
     schedule();
   }).catch(e => logError(`terminal engine unavailable: ${e instanceof Error ? e.stack ?? e.message : e}`));
+
+  // A new skin: the screen takes its colours and draws again.
+  const reskin = () => {
+    theme = skinTheme();
+    parts?.term.setColors(theme);
+    if (renderer) renderer.theme = theme;
+    fullRedraw = true;
+    schedule();
+  };
+  skinChanged.add(reskin);
 
   /// Draws on the next animation frame, once. A hidden page has no frames,
   /// so there output is still parsed, on a timer: queries get their replies
@@ -234,7 +236,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
       }
       canvasUsed = true;
       try {
-        renderer = new GridRenderer(canvas, font, THEME);
+        renderer = new GridRenderer(canvas, font, theme);
         fullRedraw = true;
       } catch (e) {
         logError(`terminal GPU rendering unavailable: ${e instanceof Error ? e.message : e}`);
@@ -509,6 +511,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     },
     dispose: () => {
       disposed = true;
+      skinChanged.delete(reskin);
       cancelAnimationFrame(frame);
       clearTimeout(parseTimer);
       clearTimeout(animation);
@@ -528,4 +531,56 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
       }
     },
   };
+}
+
+/// The terminal's colours, from the skin's tokens: the pane's background and
+/// text, the accent for the cursor and selection, and the status colours for
+/// red, green, yellow, blue and bright black. On a light skin white turns grey,
+/// so text a program writes in it stays readable.
+function skinTheme(): Theme & Parameters<Terminal["setColors"]>[0] {
+  return withSkinColors(color => {
+    const background = color("--deep");
+    const accent = color("--accent");
+    const palette = new Map([[1, color("--err")], [2, color("--ok")], [3, color("--warn")], [4, color("--link")], [8, color("--muted")]]);
+    if (luminance(background) > 0.5) {
+      palette.set(7, color("--muted"));
+      palette.set(15, color("--dim"));
+    }
+
+    return { background, foreground: color("--fg"), cursor: accent, selection: accent, selectionAlpha: 0.3, palette };
+  });
+}
+
+/// Reads the skin's colour tokens as 0xRRGGBB: a probe resolves each to a
+/// colour and a one-pixel canvas turns it into bytes, whatever CSS colour
+/// syntax the skin writes it in. Black without a canvas.
+function withSkinColors<T>(use: (color: (token: string) => number) => T): T {
+  const probe = document.createElement("i");
+  probe.hidden = true;
+  document.documentElement.append(probe);
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const pen = canvas.getContext("2d", { willReadFrequently: true });
+
+  const color = (token: string) => {
+    if (!pen) return 0;
+    probe.style.color = `var(${token})`;
+    pen.clearRect(0, 0, 1, 1);
+    pen.fillStyle = getComputedStyle(probe).color;
+    pen.fillRect(0, 0, 1, 1);
+    const [r, g, b] = pen.getImageData(0, 0, 1, 1).data;
+    return (r << 16) | (g << 8) | b;
+  };
+
+  try {
+    return use(color);
+  } finally {
+    probe.remove();
+  }
+}
+
+/// Relative luminance of 0xRRGGBB, from 0 (black) to 1 (white), close enough
+/// to tell a light background from a dark one.
+function luminance(color: number) {
+  return (0.2126 * ((color >> 16) & 0xff) + 0.7152 * ((color >> 8) & 0xff) + 0.0722 * (color & 0xff)) / 255;
 }
