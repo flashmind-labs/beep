@@ -85,6 +85,7 @@ sysinfo = { workspace = true, features = ["system"] }
 tauri = { workspace = true, default-features = true, features = ["macos-private-api", "compression", "common-controls-v6", "x11", "dbus"] }
 tauri-plugin-autostart.workspace = true
 tauri-plugin-updater.workspace = true
+tauri-plugin-window-state.workspace = true
 
 # Android scans the pairing QR code with zxing's capture screen.
 [target.'cfg(target_os = "android")'.dependencies]
