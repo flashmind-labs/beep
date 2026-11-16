@@ -1047,7 +1047,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .ag-tasks, .ag-plan { display: inline-flex; align-items: center; gap: 8px; margin: 6px 16px 0; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font: inherit; font-size: 12px; color: var(--muted); cursor: default }
 .ag-tasks:hover, .ag-plan:hover, .ag-steps button.it:hover { color: var(--fg) }
 /* The plan is one line above the field, which opens to its steps; a step opens to its subagents. */
-.ag-plan > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left }
+.ag-plan > span:not(.ddot) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left }
 .ag-plan b { margin-left: 8px; font-weight: 400; color: var(--fg) }
 .ag-plan > svg, .ag-steps .it > svg { flex: none; width: 12px; height: 12px; color: var(--dim) }
 :is(.ag-plan, .ag-steps .it)[aria-expanded="true"] > svg { transform: rotate(90deg) }
