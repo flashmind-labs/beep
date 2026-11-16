@@ -2,10 +2,10 @@
 //
 // Each test opens one representative state through the browser harness with
 // fixed fixture data and a frozen clock, then compares two things against the
-// committed baselines in `ui-baseline.spec.ts-snapshots/`:
+// baselines in `ui-baseline.spec.ts-snapshots/`:
 //   - a normalized DOM snapshot of the window (tags, sorted classes, ids,
-//     roles, aria and other stable attributes, text, focus), and
-//   - a screenshot with a small tolerance.
+//     roles, aria and other stable attributes, text, focus), committed, and
+//   - a screenshot with a small tolerance, recorded locally and never committed.
 // Generated ids, `data-sig`, inline style values and other volatile details
 // are left out of the DOM snapshot.
 //
