@@ -93,10 +93,11 @@ body.cbody
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
-        h2#title "Coding agents"
+        h2#title "Assistant"
         span#scope
-        small#date "Follow it and answer it here"
+        small#date "It works across your machines and projects"
         span#tools.tools
+          button.dbtn.small [type="button"] "All sessions"
         span#usage.us [hidden]
         span#bell.nt
           button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]

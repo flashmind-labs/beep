@@ -3,10 +3,10 @@
 import { invoke, listen } from "../ui/tauri.ts";
 import { bar, type View } from "../bar/core.ts";
 import { pane } from "../bar/pane.ts";
-import { AG } from "../agents/agents.ts";
 import type { CenterTarget } from "../project/projectwindow.ts";
 import { type CenterView, type ViewHead, state } from "./state.ts";
-import { currentLocation, go } from "./views.tsx";
+import { currentLocation, drawTop, go } from "./views.tsx";
+import { shell } from "./window-shell.tsx";
 import { drawSide, paneOn } from "./sidebar.tsx";
 import { ensureHome } from "./refresh.ts";
 import { showNotices } from "./notices.tsx";
@@ -31,10 +31,11 @@ const ASSISTANT_TITLE: [string, string] = ["Assistant", "It works across your ma
 
 function paneTitle(): ViewHead {
   const on = paneOn();
-  const [title, sub] = on.view === "agentnew" && AG.form.assistant ? ASSISTANT_TITLE : on.view ? PANE_TITLES[on.view] : ["Beep", ""];
+  // The Assistant page keeps its header with a chat open too.
+  const [title, sub] = shell.getState().assistant ? ASSISTANT_TITLE : on.view ? PANE_TITLES[on.view] : ["Beep", ""];
   // The phone hides the list's own header, so New sits in the page header there.
   if (on.view === "agents") return { title, sub, reactTools: <button type="button" className="dbtn small ag-new-top" onClick={() => go("projects", { project: null })}>New</button> };
-  if (on.view === "agentnew") return { title, sub, reactTools: <button type="button" className="dbtn small" onClick={() => go("pane", "agents")}>All sessions</button> };
+  if (on.view === "agentnew" || shell.getState().assistant) return { title, sub, reactTools: <button type="button" className="dbtn small" onClick={() => go("pane", "agents")}>All sessions</button> };
   return { title, sub };
 }
 
@@ -42,7 +43,7 @@ export const paneView: CenterView<"pane"> = {
   title: paneTitle,
   mount(_el, arg) {
     pane.mounted(true);
-    return Promise.resolve(pane.open(arg)).then(() => { syncAssistantPage(); });
+    return Promise.resolve(pane.open(arg)).then(() => { syncAssistantPage(); drawTop(); });
   },
   unmount() {
     pane.mounted(false);
@@ -55,6 +56,7 @@ bar.dataset.view = pane.current().view;
 pane.onChange(now => {
   bar.dataset.view = now.view;
   syncAssistantPage();
+  drawTop();
   drawSide();
 });
 placeWindowParts({ assistant: <AssistantList /> });
