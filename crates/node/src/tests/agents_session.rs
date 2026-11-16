@@ -1184,14 +1184,21 @@ fn prompts(log: &Path) -> Vec<String> {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn a_full_window_is_compacted_before_the_next_prompt() {
+async fn a_full_window_is_compacted_as_soon_as_its_turn_ends() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", COMPACTING_ADAPTER, &log);
     let session = Session::start(start_on(&kind, dir, None)).unwrap();
     settle(&session).await;
-    assert_eq!(prompts(&log), ["go"], "nothing is compacted mid-turn");
+    // Nothing waits: the compaction goes before the next message comes, so
+    // that message does not wait for it.
+    until(&session, |live| {
+        live.info.context.is_some_and(|context| context.used == 12_000)
+            && live.status() == Status::Idle
+    })
+    .await;
+    assert_eq!(prompts(&log), ["go", COMPACT_PROMPT]);
     session
         .order(Command::Prompt(Prompt::from("next".to_owned())))
         .await
