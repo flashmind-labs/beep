@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-const responses = { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false }, mac_control: { id: "one", name: "build-box", enabled: false, status: "off", error: null, permissions: { screen_recording: false, accessibility: false } }, list_machines: [], skill_sync_get: true, project_sync_get: true };
+const responses = { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false, developer: false }, mac_control: { id: "one", name: "build-box", enabled: false, status: "off", error: null, permissions: { screen_recording: false, accessibility: false } }, list_machines: [], skill_sync_get: true, project_sync_get: true };
 test("skill sync preserves state and serializes a save across Settings reopening", async ({ page }) => {
   await openDesktop(page, false, responses);
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
@@ -29,6 +29,8 @@ test("general settings use their native commands and retain focus on refresh", a
   await toggle.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "set_agent_notices" && call.args.enabled === true))).toBe(true);
   await expect(toggle).toBeEnabled();
+  await settings.getByRole("switch", { name: "Developer mode" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "set_developer_mode" && call.args.enabled === true))).toBe(true);
   const skill = settings.getByRole("switch", { name: "Sync coding agent skills" });
   await expect(skill).toBeEnabled();
   await skill.focus();
@@ -58,7 +60,7 @@ test("phone General hides what belongs to desktops", async ({ page }) => {
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
   await expect(settings.getByRole("button", { name: "Report…" })).toBeVisible();
-  for (const name of ["Launch at login", "Sync coding agent skills", "Project sync", "Always use Beep sync over Syncthing"]) {
+  for (const name of ["Launch at login", "Sync coding agent skills", "Project sync", "Always use Beep sync over Syncthing", "Developer mode"]) {
     await expect(settings.getByRole("switch", { name })).toHaveCount(0);
   }
   await expect(settings.getByRole("button", { name: "Show…" })).toHaveCount(0);

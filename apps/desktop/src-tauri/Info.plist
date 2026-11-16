@@ -5,7 +5,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://releases.flashmind.com/beep/macos/appcast.xml</string>
+	<string>https://releases.flashmind.com/beep/macos/appcast-minor.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>FngKNNWKoL668elFXKs0q5FISZkd353iGdLZt3Q42to=</string>
 	<key>SUEnableAutomaticChecks</key>

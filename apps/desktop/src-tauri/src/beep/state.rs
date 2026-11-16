@@ -62,6 +62,10 @@ pub struct Saved {
     /// The folder saves go to, picked in Settings; Downloads without one.
     #[serde(default)]
     pub save_folder: Option<PathBuf>,
+    /// Developer mode: updates to every release, patches included, instead
+    /// of minor releases only.
+    #[serde(default)]
+    pub developer: bool,
 }
 
 fn on() -> bool {
@@ -97,6 +101,7 @@ impl Default for Saved {
             agent_notices: true,
             zoom: Zoom::default(),
             save_folder: None,
+            developer: false,
         }
     }
 }
@@ -177,6 +182,15 @@ impl Prefs {
 
     pub fn set_save_folder(&self, folder: Option<PathBuf>) {
         self.update(|s| s.save_folder = folder);
+    }
+
+    /// Whether this desktop updates to every release, patches included.
+    pub fn developer(&self) -> bool {
+        self.saved().developer
+    }
+
+    pub fn set_developer(&self, on: bool) {
+        self.update(|s| s.developer = on);
     }
 
     /// The page zoom of every window.
