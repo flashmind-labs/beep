@@ -784,7 +784,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .cc-pjc { flex: none; margin: 0 max(16px, calc((100% - 760px) / 2)) 14px; display: grid; gap: 6px }
 .cc-pjc .box { position: relative; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--elev) 92%, transparent); padding: 10px 10px 8px 12px; display: grid; gap: 8px }
 .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
-.cc-pjc textarea { display: block; width: 100%; resize: none; min-height: 21px; max-height: 200px; line-height: 21px; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin }
+.cc-pjc textarea { display: block; width: 100%; resize: none; min-height: 1.25em; max-height: 200px; line-height: 1.25; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin }
 .cc-pjc input, .cc-pjc textarea { border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--accent); padding: 0; min-width: 0; -webkit-user-select: text; user-select: text }
 .cc-pjc input::placeholder, .cc-pjc textarea::placeholder { color: var(--dim) }
 .cc-pjc .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
