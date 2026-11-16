@@ -87,7 +87,8 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
     : !AG.sig && p.entries.length ? { text: connectingNote(s.machine_name || "the machine"), tone: "connecting" } : null;
   const retry = !!(AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone");
   const subs = paneSubs(p);
-  const shell = { why, starting: s.status === "starting", log: !!units,
+  const latestReply = p.entries.findLastIndex(entry => entry.kind === "agent");
+  const shell = { latestReply: latestReply < 0 ? null : String(p.earlier + latestReply), why, starting: s.status === "starting", log: !!units,
     question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
     questionKey: question ? questionKey(question, openOf(s)) : null,
     answering: !!question && question.id === AG.answering,

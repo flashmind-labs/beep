@@ -213,6 +213,8 @@ body.cbody
                             div style(display)
                               div.agent.dcoderen [data-row="1"]
                                 div.reply-body "Cloned example/widget into ~/Projects/example/widget and imported it."
+                                button.dbtn.quiet.reply-copy.small [aria-label="Copy" title="Copy" type="button"]
+                                  svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                             div style(display)
                               div.dlive.dthink.live
                                 span.lb [title="cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"] "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"

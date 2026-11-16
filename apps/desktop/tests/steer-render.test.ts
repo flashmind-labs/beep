@@ -136,6 +136,28 @@ test("streaming agent replies keep their element across updates", t => {
   assert.match(reply.textContent ?? "", /First update/);
 });
 
+test("copy moves to the latest reply while earlier replies stay mounted", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
+  page.session.status = "idle";
+  page.entries = [{ kind: "user", text: "Explain" }, { kind: "agent", text: "First" }];
+  drawAgentBody();
+  const first = bar.querySelector(".dcoderen.agent");
+  assert.ok(first);
+  assert.ok(first.querySelector(".reply-copy"));
+
+  page.entries.push({ kind: "user", text: "Continue" });
+  drawAgentBody(undefined, true);
+  assert.ok(first.querySelector(".reply-copy"));
+
+  page.entries.push({ kind: "agent", text: "Second" });
+  drawAgentBody(undefined, true);
+  assert.equal(bar.querySelector(".dcoderen.agent"), first);
+  assert.equal(first.querySelector(".reply-copy"), null);
+  assert.equal(bar.querySelectorAll(".reply-copy").length, 1);
+  assert.equal(bar.querySelector(".reply-copy")?.closest(".dcoderen.agent")?.textContent, "Second");
+});
+
 test("attachment updates preserve the file-count control and upload choices", async t => {
   setup();
   MN.redraw = drawAgentAttached;
