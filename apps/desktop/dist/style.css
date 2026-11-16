@@ -430,7 +430,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agartframe { flex: 1; border: 0; background: #fff }
 .agartimg { flex: 1; min-height: 0; display: grid; place-items: center; padding: 10px; background: var(--deep) }
 .agartimg img { max-width: 100%; max-height: 100%; object-fit: contain }
-.agartmd { padding: 12px 16px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere }
+.agartmd { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere }
 .agartmd :is(h1, h2) { font-size: 15px; margin: 12px 0 6px; font-weight: 600 } .agartmd :is(h3, h4, h5, h6) { font-size: 14px; margin: 10px 0 4px; font-weight: 600 }
 .agartmd p { margin: 0 0 8px } .agartmd :is(ul, ol) { margin: 0 0 8px; padding-left: 18px }
 .agartmd a { color: var(--accent) }
