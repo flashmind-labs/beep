@@ -15,7 +15,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://releases.flashmind.com/beep/windows/latest.json"
+        "https://releases.flashmind.com/beep/windows/minor.json"
       ]
     }
   }

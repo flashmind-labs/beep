@@ -251,6 +251,7 @@ pub fn run() {
             bar::app::open_url,
             bar::app::quit,
             bar::app::set_agent_notices,
+            bar::app::set_developer_mode,
             bar::app::choose_save_folder,
             bar::app::use_downloads,
             bar::app::set_autostart,

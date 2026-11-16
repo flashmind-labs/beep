@@ -125,7 +125,7 @@ class ReleaseNotes(unittest.TestCase):
 
     def test_feed_preserves_markdown_and_escapes_xml(self):
         info = {"CFBundleVersion": "0.2.0", "CFBundleShortVersionString": "0.2.0",
-                "SUFeedURL": f"{appcast.BASE_URL}/appcast.xml"}
+                "SUFeedURL": f"{appcast.BASE_URL}/appcast-minor.xml"}
         body = "### Fixed\n\n- Keep <notes> & release details."
 
         with tempfile.TemporaryDirectory() as directory:
