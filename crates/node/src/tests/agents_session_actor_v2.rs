@@ -218,3 +218,25 @@ async fn a_steer_waits_for_the_turn_the_user_stopped() {
     })
     .await;
 }
+
+#[test]
+fn a_dropped_server_tool_call_does_not_fail_the_turn() {
+    let failed = |message: &str, kind: Option<&str>| {
+        let mut e = agent_client_protocol::Error::internal_error();
+        e.message = message.to_owned();
+        e.data = kind.map(|kind| json!({"errorKind": kind}));
+        e
+    };
+    let stuck = |ids: &str| {
+        failed(
+            &format!("Internal error: Claude ended the turn without returning results for tool calls: {ids}"),
+            Some("incomplete_tool_call"),
+        )
+    };
+
+    assert!(lost_server_tools(&stuck("srvtoolu_01a")));
+    assert!(lost_server_tools(&stuck("srvtoolu_01a, srvtoolu_01b")));
+    assert!(!lost_server_tools(&stuck("srvtoolu_01a, toolu_01c")));
+    assert!(!lost_server_tools(&stuck("")));
+    assert!(!lost_server_tools(&failed("Internal error: srvtoolu_01a", None)));
+}
