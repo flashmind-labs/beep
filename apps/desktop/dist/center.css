@@ -864,7 +864,7 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .pj-step.bad { color: var(--warn) }
 .pj-step.skip { color: var(--dim) }
 .pj-log small { color: var(--muted); font-size: 11px }
-.pj-log pre { margin: 4px 0 0; padding: 8px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--shade) 25%, transparent); font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto }
+.pj-log pre { margin: 4px 0 0; padding: 8px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--shade) 25%, transparent); font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere }
 .pj-run .acts { display: flex; gap: 6px }
 
 /* A list as tall as its first rows, the rest scrolls (fitRows). The script sets the exact
