@@ -4,12 +4,14 @@ import { invoke } from "../ui/tauri.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.tsx";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.tsx";
-import { projectsWithOpen, reviewStart, type GitItemRow, type GitItemsView, type Hosts, type StartProject } from "./openitems-state.ts";
-import { agentButtons, startTask } from "../project/composer.tsx";
+import { projectStart, projectsWithOpen, type GitItemRow, type GitItemsView, type Hosts, type StartProject } from "./openitems-state.ts";
+import { agentButtons, earlierReview, startReview } from "../project/composer.tsx";
+import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
+import { agentLabel } from "../project/projects-state.ts";
 import type { AgentButtonItem } from "../review/feedback-view.tsx";
 import { state } from "./state.ts";
 import { draw } from "./home.tsx";
-import { currentLocation } from "./views.tsx";
+import { currentLocation, go } from "./views.tsx";
 import { loadFound } from "./sidebar.tsx";
 import { refresh } from "./refresh.ts";
 import { single } from "../ui/active.ts";
@@ -21,13 +23,19 @@ export function openUrl(url: string) {
 const homeButtons = agentButtons(() => draw());
 
 /// Review with agent on a PR of `project`: starts the reviewer at once in
-/// the project's checkout, on an online machine with it. It posts only
-/// after the user approves.
+/// the project's checkout, on an online machine with it. Review again goes
+/// to the session that reviewed it before, which the button opens while it
+/// works.
 export function reviewButton(item: GitItemRow, project: StartProject, machines: Hosts): AgentButtonItem {
-  const { prompt, at } = reviewStart(item, project, machines);
+  const machine = projectStart(project, machines).machine;
+  const earlier = earlierReview(project.name, item.number);
+  const pr = { number: item.number, title: item.title, url: item.url, mine: item.authored };
   return homeButtons(`review ${item.url}`, {
-    project: project.name, machine: at.machine, label: "Review with agent", hint: "Pick a model: an agent reviews this PR and posts only after you approve",
-    running: null, start: pick => startTask(project.name, { prompt, target: null }, pick, at.machine),
+    project: project.name, machine,
+    label: earlier ? "Review again" : "Review with agent",
+    hint: earlier ? "Reviews what changed in the chat that reviewed this PR before" : "Pick a model: an agent reviews this PR and posts its comments on it",
+    running: earlier && AGENT_ACTIVE.has(earlier.status) ? { agent: agentLabel(earlier.agent), open: () => go("pane", { agent: earlier }) } : null,
+    start: pick => startReview(project.name, pr, pick, machine),
   });
 }
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { newestFirst, projectsWithOpen, reviewStart, waitsOnYou } from "../src/center/openitems-state.ts";
+import { newestFirst, projectStart, projectsWithOpen, waitsOnYou } from "../src/center/openitems-state.ts";
 import type { GitItemRow } from "../src/center/openitems-state.ts";
 
 const item = (over: Partial<GitItemRow> = {}): GitItemRow => ({
@@ -39,16 +39,11 @@ test("items group by project, waiting ones first, with counts", () => {
   assert.deepEqual(widget.items.map(i => i.number), [3, 2]);
 });
 
-test("Review starts in the project, on an online machine with its checkout when one has it", () => {
-  const pr = item();
+test("an agent starts in the project, on an online machine with its checkout when one has it", () => {
   const project = { name: "acme/widget", machines: [{ id: "m1", folder: "/srv/project/widget" }, { id: "m2", folder: "/path/to/work/widget" }] };
   const machines = [{ id: "m1", online: false }, { id: "m2", online: true }];
-  const start = reviewStart(pr, project, machines);
-  assert.deepEqual(start.at, { machine: "m2", cwd: "/path/to/work/widget", places: [{ machine: "m1", cwd: "/srv/project/widget" }, { machine: "m2", cwd: "/path/to/work/widget" }], project: "acme/widget" });
-  assert.match(start.prompt, /^Review PR https:\/\/github\.com\/acme\/widget\/pull\/1\. Read the diff with gh,/);
-  assert.match(start.prompt, /only after I approve it/);
-  assert.deepEqual(reviewStart(pr, project, []).at, { machine: null, cwd: null, places: project.machines.map(m => ({ machine: m.id, cwd: m.folder })), project: "acme/widget" });
-  assert.match(reviewStart(item({ host: "git.example.com" }), project, []).prompt, /with teacli/);
+  assert.deepEqual(projectStart(project, machines), { machine: "m2", cwd: "/path/to/work/widget", places: [{ machine: "m1", cwd: "/srv/project/widget" }, { machine: "m2", cwd: "/path/to/work/widget" }], project: "acme/widget" });
+  assert.deepEqual(projectStart(project, []), { machine: null, cwd: null, places: project.machines.map(m => ({ machine: m.id, cwd: m.folder })), project: "acme/widget" });
 });
 
 test("open items sort by the latest activity, whatever waits on the user", () => {
