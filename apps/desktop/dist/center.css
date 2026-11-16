@@ -1057,7 +1057,8 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .bd-rows > .pj button { all: unset; cursor: default }
 .bd-rows > .pj button:hover, .bd-rows > .pj button:focus-visible { text-decoration: underline }
 /* A cell shows about two cards and scrolls to the rest. */
-.bd-rows > .bd-lane:not(.hd) { max-height: 236px; overflow-y: auto; scrollbar-width: thin; padding-bottom: 12px }
+.bd-rows > .bd-lane:not(.hd) { max-height: 236px; overflow-y: auto; scrollbar-width: none; padding-bottom: 12px }
+.bd-rows > .bd-lane:not(.hd)::-webkit-scrollbar { display: none }
 
 @container (max-width: 760px) {
   .bd-lanes { flex-wrap: wrap }
