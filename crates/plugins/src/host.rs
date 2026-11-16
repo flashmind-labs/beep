@@ -22,7 +22,7 @@ use crate::meter::{BUDGET, Meter};
 use crate::sandbox::locked;
 use crate::status::{Info, Lifecycle, PluginState, PluginStatus, Registry};
 use crate::store::DATA_DIR;
-use crate::style::{ResolvedStyle, Style};
+use crate::style::Style;
 use crate::tool::{MAX_JSON_BYTES, TIMEOUT, ToolCall, ToolError, ToolName};
 use crate::topic::{Delivery, Inbox, Publication, Topic, TopicError};
 use crate::ui::Placement;
@@ -222,12 +222,6 @@ impl Host {
     /// Every plugin's state, CPU time over the last minute and pending timers.
     pub fn status(&self) -> Vec<PluginStatus> {
         locked(&self.published.registry).list(Instant::now())
-    }
-
-    /// The style tokens of the enabled plugins allowed to restyle the app, and
-    /// the tokens more than one of them sets. It changes with the status.
-    pub fn style(&self) -> ResolvedStyle {
-        locked(&self.published.registry).style()
     }
 
     /// Hands an update to every plugin that follows its topic. The host keeps the
@@ -968,7 +962,6 @@ impl Supervisor {
                         tools: manifest.tools,
                         style: manifest.style,
                         enabled: assessed.enabled,
-                        order: assessed.order,
                     },
                     lifecycle,
                     None,
@@ -1003,7 +996,6 @@ impl Supervisor {
                             .map_or(Origin::Local, |record| record.origin.clone()),
                         tools: Vec::new(),
                         style: Style::new(),
-                        order: record.as_ref().map_or(0, |record| record.order),
                         enabled: record.is_none_or(|record| record.enabled),
                     },
                     Lifecycle::Stopped(error.to_string()),

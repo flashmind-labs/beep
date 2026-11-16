@@ -1,10 +1,8 @@
 ### Added
 
-- Desktop: plugins can restyle the app. With the new "Restyle the app"
-  permission, a plugin sets the skin's colours, fonts, corners, glass and
-  paintings in every window, with no code needed. If two plugins set the
-  same thing, the one turned on last wins, and the Plugins page in Settings
-  warns about both.
+- Desktop: plugins can be skins. A plugin with the new "Restyle the app"
+  permission sets colours, fonts, corners, glass and paintings, with no code
+  needed, and shows in Settings, Appearance to pick like any other skin.
 
 ### Changed
 

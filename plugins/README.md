@@ -182,8 +182,10 @@ beep.tool<{ session: string }>("get_note", ({ session }) => ({ note: notes.get()
 
 ## Style
 
-A plugin restyles every window by setting style tokens, the CSS custom properties
-the skins set. It cannot add CSS rules.
+A plugin with a `style` is a skin: it shows in Settings, Appearance next to the
+built-in skins, and picking it sets its style tokens, the CSS custom properties the
+skins set, over the default skin in every window. One skin is picked at a time. A
+plugin cannot add CSS rules.
 
 ```json
 { "id": "flat", "name": "Flat", "version": "0.1.0", "api": 2, "permissions": ["style"],
@@ -201,9 +203,8 @@ the skins set. It cannot add CSS rules.
 
 An unknown token fails the load. A value is at most 200 bytes and may not contain
 `url(`, `src(`, `image`, `@`, `\`, `;`, `{`, `}`, `<` or `>`, so a style loads
-nothing. The tokens apply over the picked skin while the plugin is on and allowed.
-When two plugins set a token, the one turned on last wins, and Settings shows the
-clash on both rows. `examples/flat` is a style-only plugin.
+nothing. A skin is offered while the plugin is on and allowed; when it goes, the
+window falls back to the default skin. `examples/flat` is a skin with no code.
 
 ## Slots
 
@@ -332,8 +333,7 @@ change. The `plugins_status` command lists each plugin's id, name, version, desc
 `permissions` asked for, `approved` permissions, the `tools` it declares, `source` (`local`, `git`, `dev` or `builtin`),
 `enabled`, `state` (`waiting`, `running`, `paused`, `disabled`, `needs-approval` with
 the `missing` permissions, or `stopped` with a `reason`), `usedMs` (CPU time) over the last minute,
-`pendingTimers` and the `style` it sets. `plugins_style` gives the `tokens` every window
-applies and the `conflicts`, each `token` with the `plugins` that set it, the winner last. The desktop emits `plugins-status` when a plugin is added, removed
+`pendingTimers` and the `style` it sets. The desktop emits `plugins-status` when a plugin is added, removed
 or changes state.
 
 ## Topics
@@ -388,7 +388,7 @@ BEEP_PLUGINS_DIR=$PWD/plugins/examples just desktop-dev
 
 `examples/session-notes` puts a note on each session's row, set from an input
 and a button in the open session's header, and keeps the notes in its store.
-`examples/flat` makes corners square and floating layers flat and opaque.
+`examples/flat` is a skin with square corners and flat, opaque floating layers.
 `examples/composer-cat` follows `ui.composer` and `session.turn`: it types while the
 turn runs, asks while the session asks, and reacts once to each way a turn ends.
 

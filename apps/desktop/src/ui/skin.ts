@@ -1,9 +1,10 @@
-// The skin every window draws in: a set of style tokens (dist/skins.css). The
-// pick is kept in localStorage, which all of the app's windows share, so a
-// change in one shows in the others at once. Plugins with the style permission
-// set tokens over the skin. Also the layout picked for Home and a project's
-// front page.
-import { parsePluginStyle } from "../settings/plugins-settings-state.ts";
+// The skin every window draws in: a set of style tokens (dist/skins.css), or
+// the tokens of a skin plugin over the default. The pick is kept in
+// localStorage, which all of the app's windows share, so a change in one shows
+// in the others at once. Also the layout picked for Home and a project's front
+// page.
+import { createStore } from "zustand";
+import { parseRows, pluginSkins, type PluginSkin } from "../settings/plugins-settings-state.ts";
 import { APPLE, onPhone } from "./platform.ts";
 import { invoke, listen } from "./tauri.ts";
 
@@ -37,23 +38,60 @@ export const SKINS: readonly Skin[] = [
 
 const DEFAULT_SKIN = "linear";
 const KEY = "beep.skin";
+/// The picked plugin skin's tokens, so a window shows them before the plugins are read.
+const TOKENS_KEY = "beep.skin.tokens";
+/// A plugin skin's id in the pick.
+const PLUGIN = "plugin:";
+
+/// The skins installed plugins offer, read from the desktop. Empty on a phone.
+export const skinPlugins = createStore<{ skins: readonly PluginSkin[] }>(() => ({ skins: [] }));
+let pluginsRead = false;
+
+export const pluginSkinId = (plugin: string) => `${PLUGIN}${plugin}`;
 
 /// The picked skin's id, the default when none or an unknown one is kept.
 export function skinId(): string {
   let kept: string | null = null;
   try { kept = localStorage.getItem(KEY); } catch {}
-  return SKINS.some(s => s.id === kept) ? kept! : DEFAULT_SKIN;
+  if (kept === null) return DEFAULT_SKIN;
+  if (kept.startsWith(PLUGIN)) return !pluginsRead || skinPlugins.getState().skins.some(s => pluginSkinId(s.id) === kept) ? kept : DEFAULT_SKIN;
+  return SKINS.some(s => s.id === kept) ? kept : DEFAULT_SKIN;
 }
+
+/// The tokens this window set from a plugin skin, to clear them on the next pick.
+let pluginTokens: readonly string[] = [];
 
 function apply() {
   const id = skinId();
-  if (id === DEFAULT_SKIN) delete document.documentElement.dataset.skin;
-  else document.documentElement.dataset.skin = id;
+  const builtin = id.startsWith(PLUGIN) ? DEFAULT_SKIN : id;
+  if (builtin === DEFAULT_SKIN) delete document.documentElement.dataset.skin;
+  else document.documentElement.dataset.skin = builtin;
+
+  const tokens = id.startsWith(PLUGIN) ? pluginTokensOf(id) : new Map<string, string>();
+  const root = document.documentElement.style;
+  for (const token of pluginTokens) if (!tokens.has(token)) root.removeProperty(token);
+  for (const [token, value] of tokens) root.setProperty(token, value);
+  pluginTokens = [...tokens.keys()];
 
   // Windows and Linux draw the title bar: it takes the skin's light or dark.
   if (APPLE || onPhone()) return;
-  const light = SKINS.find(s => s.id === id)?.light ?? false;
+  const light = SKINS.find(s => s.id === builtin)?.light ?? false;
   window.__TAURI__.webviewWindow.getCurrentWebviewWindow().setTheme?.(light ? "light" : "dark").catch(() => {});
+}
+
+/// A plugin skin's tokens: from the plugins once read, and kept for the next launch.
+function pluginTokensOf(id: string): Map<string, string> {
+  const skin = skinPlugins.getState().skins.find(s => pluginSkinId(s.id) === id);
+  if (skin !== undefined) {
+    try { localStorage.setItem(TOKENS_KEY, JSON.stringify([...skin.tokens])); } catch {}
+    return new Map(skin.tokens);
+  }
+
+  try {
+    const kept: unknown = JSON.parse(localStorage.getItem(TOKENS_KEY) ?? "[]");
+    if (Array.isArray(kept)) return new Map(kept.filter((pair): pair is [string, string] => Array.isArray(pair) && typeof pair[0] === "string" && pair[0].startsWith("--") && typeof pair[1] === "string"));
+  } catch {}
+  return new Map();
 }
 
 /// Picks skin `id` for every window.
@@ -62,29 +100,26 @@ export function setSkin(id: string) {
   apply();
 }
 
-/// Draws this window in the picked skin with the plugins' tokens over it, and follows
-/// picks made in others and plugins turned on or off.
+/// Draws this window in the picked skin, and follows picks made in others and skin
+/// plugins turned on, off or changed.
 export function followSkin() {
   apply();
   addEventListener("storage", e => { if (e.key === KEY) apply(); });
 
-  void listen("plugins-status", () => { void applyPluginStyle(); }).catch(() => {});
-  void applyPluginStyle();
+  void listen("plugins-status", () => { void readPluginSkins(); }).catch(() => {});
+  void readPluginSkins();
 }
 
-/// The tokens plugins set on this window, to clear the ones they stop setting.
-let pluginTokens: readonly string[] = [];
-let styleReads = 0;
+let skinReads = 0;
 
-async function applyPluginStyle() {
-  const mine = ++styleReads;
-  const style = parsePluginStyle(await invoke<unknown>("plugins_style").catch(() => null));
-  if (style === null || mine !== styleReads) return;
+async function readPluginSkins() {
+  const mine = ++skinReads;
+  const rows = parseRows(await invoke<unknown>("plugins_status").catch(() => null));
+  if (rows === null || mine !== skinReads) return;
 
-  const root = document.documentElement.style;
-  for (const token of pluginTokens) if (!style.tokens.has(token)) root.removeProperty(token);
-  for (const [token, value] of style.tokens) root.setProperty(token, value);
-  pluginTokens = [...style.tokens.keys()];
+  pluginsRead = true;
+  skinPlugins.setState({ skins: pluginSkins(rows) });
+  apply();
 }
 
 /// How Home and a project's front page lay out, each on its own: the board, or the

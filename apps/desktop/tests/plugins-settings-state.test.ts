@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   IDLE, UNEXPECTED, consentAction, consentTitle, consentVersions, flowStep, isNewPermission, openStage, parseFailure, parsePreview,
-  parsePluginStyle, parseRows, parseSource, parseStaged, parseUpdateCheck, permissionLabel, permissionMeaning, repositoryName, rowOffers, runLine, sourceLabel, sourceSentence, styleClashLine,
+  parseRows, pluginSkins, parseSource, parseStaged, parseUpdateCheck, permissionLabel, permissionMeaning, repositoryName, rowOffers, runLine, sourceLabel, sourceSentence,
   updateLine, type Flow, type PluginPreview, type PluginRow, type StagedPlugin,
 } from "../src/settings/plugins-settings-state.ts";
 
@@ -81,7 +81,7 @@ test("the state line says what the user sees", () => {
   assert.deepEqual(runLine({ state: "disabled" }, true), { text: "Off", tone: "off" });
   assert.deepEqual(runLine({ state: "needs-approval", missing: ["ui.add"] }, false), { text: "Needs approval", tone: "warn" });
   assert.deepEqual(runLine({ state: "waiting" }, false), { text: "Waiting for its slot", tone: "off" });
-  assert.deepEqual(runLine({ state: "waiting" }, true), { text: "On", tone: "ok" });
+  assert.deepEqual(runLine({ state: "waiting" }, true), { text: "Pick it in Appearance", tone: "ok" });
   assert.deepEqual(runLine({ state: "paused" }, false), { text: "Paused", tone: "off" });
   assert.deepEqual(runLine({ state: "stopped", reason: "used 600 ms" }, false), { text: "Stopped: used 600 ms", tone: "err" });
 });
@@ -206,21 +206,18 @@ test("events that do not fit the flow change nothing", () => {
   assert.equal(UNEXPECTED.kind, "unexpected");
 });
 
-test("plugin style reads tokens and conflicts and refuses anything else", () => {
-  const style = parsePluginStyle({ tokens: { "--radius": "0", "--accent": "#f80" }, conflicts: [{ token: "--radius", plugins: ["sharp", "round"] }] });
-  assert.deepEqual(style && [...style.tokens], [["--radius", "0"], ["--accent", "#f80"]]);
-  assert.deepEqual(style?.conflicts, [{ token: "--radius", plugins: ["sharp", "round"] }]);
+test("a plugin is a skin while it sets tokens, is on and may restyle the app", () => {
+  const row = (id: string, extra: Record<string, unknown>) => ({
+    id, name: id.toUpperCase(), version: "0.1.0", description: "", permissions: ["style"], approved: ["style"],
+    source: { kind: "local" }, enabled: true, state: "waiting", style: { "--radius": "0", "--surface": "#123" }, ...extra,
+  });
+  const rows = parseRows([
+    row("flat", {}),
+    row("off", { enabled: false, state: "disabled" }),
+    row("asks", { approved: [], state: "needs-approval", missing: ["style"] }),
+    row("plain", { style: {}, permissions: [], approved: [] }),
+  ]);
 
-  assert.equal(parsePluginStyle({ tokens: { color: "red" }, conflicts: [] }), null);
-  assert.equal(parsePluginStyle({ tokens: { "--radius": 0 }, conflicts: [] }), null);
-  assert.equal(parsePluginStyle({ tokens: {} }), null);
-});
-
-test("a style clash names the other plugins and says who wins", () => {
-  const conflicts = [{ token: "--radius", plugins: ["sharp", "round"] }, { token: "--accent", plugins: ["round", "sharp", "calm"] }];
-  const names = (id: string) => ({ sharp: "Sharp", round: "Round", calm: "Calm" })[id] ?? id;
-
-  assert.equal(styleClashLine("sharp", conflicts, names), "Sets --radius, --accent like Round, Calm. The plugin turned on last wins.");
-  assert.equal(styleClashLine("calm", conflicts, names), "Sets --accent like Round, Sharp. The plugin turned on last wins.");
-  assert.equal(styleClashLine("other", conflicts, names), null);
+  assert.deepEqual(pluginSkins(rows ?? []).map(skin => [skin.id, skin.name, skin.swatch, [...skin.tokens]]), [["flat", "FLAT", "#123", [["--radius", "0"], ["--surface", "#123"]]]]);
+  assert.equal(parseRows([row("bad", { style: { color: "red" } })]), null);
 });

@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
 use thiserror::Error;
 
-use crate::manifest::PluginId;
-
 /// A style token a plugin may set: the custom properties a skin sets in
 /// `apps/desktop/dist/skins.css`.
 #[derive(
@@ -146,53 +144,8 @@ impl AsRef<str> for StyleValue {
     }
 }
 
-/// The tokens one plugin sets, from its manifest.
+/// The tokens a skin plugin sets, from its manifest.
 pub type Style = BTreeMap<StyleToken, StyleValue>;
-
-/// The tokens every window applies: each enabled plugin's style in the order
-/// the plugins were turned on, so the last one turned on wins a token.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct ResolvedStyle {
-    pub tokens: Style,
-    pub conflicts: Vec<StyleConflict>,
-}
-
-/// A token two or more plugins set. The last plugin listed wins.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct StyleConflict {
-    pub token: StyleToken,
-    pub plugins: Vec<PluginId>,
-}
-
-/// One enabled plugin's style and when it was turned on.
-pub(crate) struct Layer<'a> {
-    pub id: &'a PluginId,
-    pub order: u64,
-    pub style: &'a Style,
-}
-
-/// Lays the styles over each other in the order the plugins were turned on,
-/// by id when two share an order.
-pub(crate) fn resolve(mut layers: Vec<Layer<'_>>) -> ResolvedStyle {
-    layers.sort_by(|a, b| (a.order, a.id).cmp(&(b.order, b.id)));
-
-    let mut tokens = Style::new();
-    let mut setters: BTreeMap<StyleToken, Vec<PluginId>> = BTreeMap::new();
-    for layer in layers {
-        for (token, value) in layer.style {
-            tokens.insert(*token, value.clone());
-            setters.entry(*token).or_default().push(layer.id.clone());
-        }
-    }
-
-    let conflicts = setters
-        .into_iter()
-        .filter(|(_, plugins)| plugins.len() > 1)
-        .map(|(token, plugins)| StyleConflict { token, plugins })
-        .collect();
-
-    ResolvedStyle { tokens, conflicts }
-}
 
 #[cfg(test)]
 #[path = "tests/style.rs"]

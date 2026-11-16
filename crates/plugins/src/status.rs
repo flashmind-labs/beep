@@ -8,7 +8,7 @@ use serde::Serialize;
 use crate::managed::Origin;
 use crate::manifest::{Permission, PluginId};
 use crate::meter::Meter;
-use crate::style::{Layer, ResolvedStyle, Style, resolve};
+use crate::style::Style;
 use crate::tool::ToolSpec;
 
 /// Where a plugin stands, as the page and agent tools read it.
@@ -82,8 +82,6 @@ pub(crate) struct Info {
     pub tools: Vec<ToolSpec>,
     pub style: Style,
     pub enabled: bool,
-    /// When the user turned it on, as the record counts it.
-    pub order: u64,
 }
 
 struct Entry {
@@ -173,28 +171,6 @@ impl Registry {
                 missing: missing.clone(),
             },
         }
-    }
-
-    /// The styles of the plugins that are on and allowed to restyle the app.
-    pub(crate) fn style(&self) -> ResolvedStyle {
-        let layers = self
-            .entries
-            .iter()
-            .filter(|(_, entry)| {
-                let on = !matches!(
-                    entry.lifecycle,
-                    Lifecycle::Disabled | Lifecycle::NeedsApproval(_)
-                );
-                on && entry.info.enabled && entry.info.approved.contains(&Permission::Style)
-            })
-            .map(|(id, entry)| Layer {
-                id,
-                order: entry.info.order,
-                style: &entry.info.style,
-            })
-            .collect();
-
-        resolve(layers)
     }
 
     pub(crate) fn list(&self, now: Instant) -> Vec<PluginStatus> {

@@ -1710,54 +1710,22 @@ fn write_theme(dir: &std::path::Path, id: &str, radius: &str) {
 }
 
 #[test]
-fn the_theme_turned_on_last_sets_a_shared_token() {
-    let root = tempfile::tempdir().unwrap();
-    write_theme(root.path(), "sharp", "0");
-    write_theme(root.path(), "round", "12px");
-    let (host, _rx) = start_with(root.path(), Policy::Dev);
-    let radius = |host: &Host| {
-        host.style()
-            .tokens
-            .get(&StyleToken::Radius)
-            .map(|value| value.as_ref().to_owned())
-    };
-
-    // Neither was turned on yet, so the ids decide.
-    assert_eq!(radius(&host).as_deref(), Some("0"));
-    assert_eq!(host.style().conflicts.len(), 1);
-
-    host.set_enabled(&plugin_id("round"), false).unwrap();
-    assert_eq!(radius(&host).as_deref(), Some("0"));
-    assert!(host.style().conflicts.is_empty());
-
-    host.set_enabled(&plugin_id("round"), true).unwrap();
-    assert_eq!(radius(&host).as_deref(), Some("12px"));
-    assert_eq!(
-        host.style().conflicts[0].plugins,
-        [plugin_id("sharp"), plugin_id("round")]
-    );
-}
-
-#[test]
-fn a_theme_waiting_for_approval_sets_nothing() {
+fn a_skin_needs_no_code_and_waits_for_approval() {
     let root = tempfile::tempdir().unwrap();
     write_theme(root.path(), "sharp", "0");
     let (host, _rx) = start_with(root.path(), Policy::Managed);
 
-    assert!(host.style().tokens.is_empty());
+    let status = status_of(&host, "sharp").unwrap();
+    assert_eq!(
+        status.state,
+        PluginState::NeedsApproval {
+            missing: vec![Permission::Style]
+        }
+    );
+    assert_eq!(status.style[&StyleToken::Radius].as_ref(), "0");
 
     host.approve(&plugin_id("sharp")).unwrap();
-    assert_eq!(host.style().tokens[&StyleToken::Radius].as_ref(), "0");
-
-    // A newer version asks for style again: allowing it turns it on last.
-    write_theme(root.path(), "round", "12px");
-    host.refresh(&plugin_id("round"));
-    host.approve(&plugin_id("round")).unwrap();
-    assert_eq!(host.style().tokens[&StyleToken::Radius].as_ref(), "12px");
-    host.set_enabled(&plugin_id("sharp"), false).unwrap();
-    host.set_enabled(&plugin_id("sharp"), true).unwrap();
-    assert_eq!(host.style().tokens[&StyleToken::Radius].as_ref(), "0");
-
-    let record = host.record(&plugin_id("round")).unwrap();
-    assert!(record.order > 0);
+    let status = status_of(&host, "sharp").unwrap();
+    assert_eq!(status.state, PluginState::Waiting);
+    assert_eq!(status.approved, [Permission::Style]);
 }
