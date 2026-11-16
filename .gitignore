@@ -36,3 +36,6 @@ admin.sock
 /plugins/examples/.*
 # Written by the qr-scan plugin build.
 /apps/desktop/src-tauri/qr-scan/permissions/
+
+# UI screenshots are recorded locally and never committed.
+apps/desktop/tests/browser/*-snapshots/*.png
