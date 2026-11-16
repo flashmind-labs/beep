@@ -26,6 +26,8 @@ body.mobile .mb-back:not([hidden]) + h2 { margin-left: -6px }
 body.mobile .nt-bell { width: 44px; height: 44px; border: 0 }
 body.mobile :is(.mb-set, .nt-bell) svg { width: 22px; height: 22px; stroke-width: 1.7 }
 body.mobile .nt-n { top: 4px; right: 4px }
+/* The bell's and usage's popovers span the screen under the top bar instead of hanging off its left edge. */
+body.mobile :is(.nt-pop, .us-pop) { position: fixed; left: calc(env(safe-area-inset-left) + 8px); right: calc(env(safe-area-inset-right) + 8px); top: calc(env(safe-area-inset-top) + 54px); width: auto; max-width: none }
 
 /* Bottom tabs. */
 body.mobile .mb-tabs { flex: none; display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--border); background: var(--surface); padding-bottom: env(safe-area-inset-bottom) }

@@ -66,3 +66,16 @@ test("a swipe right from the left edge goes back on the phone", async ({ page })
   await swipe(8, 200);
   await expect(projects).toHaveAttribute("aria-current", "true");
 });
+
+test("on a phone, the notifications panel stays on screen under the top bar", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openDesktop(page);
+  await page.locator(".nt-bell").click();
+  const pop = await page.locator(".nt-pop").boundingBox();
+  const top = await page.locator(".cc-top").boundingBox();
+  expect(pop && top).toBeTruthy();
+  if (!pop || !top) return;
+  expect(pop.x).toBeGreaterThanOrEqual(0);
+  expect(pop.x + pop.width).toBeLessThanOrEqual(390);
+  expect(pop.y).toBeGreaterThanOrEqual(top.y + top.height);
+});
