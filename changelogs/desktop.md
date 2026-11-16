@@ -7,6 +7,44 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.25] - 2026-11-16
+
+### Added
+
+- Desktop: Home's open pull requests list and Home's board cards offer
+  Continue on your own pull requests.
+
+### Changed
+
+- Desktop: On Home, a pull request that an agent already reviewed now
+  shows "Review again", and the new review goes to that same chat,
+  resuming it if it has ended. While that review is still running, the
+  button opens the chat.
+- Desktop: A review started from Home now posts its comment-only review
+  on the pull request, as a review started from the project page does,
+  instead of waiting for approval.
+- Desktop: Home's board is now a Needs you queue across the top, above
+  three lanes: Working, Ready to review and Done today. Project rows are
+  gone from Home. Each card shows its project's coloured dot and name.
+- Desktop: an agent's question can be answered from Home with the buttons
+  it offers, such as Allow or Deny, without opening the chat.
+- Desktop: Working cards show what the agent is doing right now.
+- Desktop: a Ready to review card has a Close button that ends the
+  session. It shows when you point at the card.
+- Desktop: the Home "Sort projects" menu and the Home Board/List choice
+  under Settings > Appearance are removed. The Projects Board/List choice
+  stays.
+- Desktop: Continue on a pull request now goes on in the agent chat
+  already on that PR's branch, resuming it if it has ended, instead of
+  starting a new chat each time. While that chat is still working,
+  Continue opens it.
+- Desktop: only boards scroll a card at a time. Other pages, such as a project's Actions and Home's pull requests and issues, follow the trackpad freely.
+
+### Fixed
+
+- Desktop: Pressing Esc on the Assistant page now goes back to Home.
+- Desktop: scrolling the Actions page with a run open no longer gets stuck in the run's log.
+
 ## [0.9.24] - 2026-11-16
 
 ### Added
