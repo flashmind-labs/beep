@@ -32,9 +32,15 @@ export function onKey(v: Viewer, e: KeyboardEvent) {
     e.preventDefault();
     if (i != null) jump(v, list[i].path);
   } else if (e.key === "x") {
-    const f = list[at] ?? list[topFile(v, v.files?.scrollTop ?? 0)];
+    // The file holding the focus, else the one clicked or stepped to, else the one at the top.
+    const focused = t.closest<HTMLElement>(".dv-file")?.dataset.path;
+    const path = focused ?? list[at]?.path ?? list[topFile(v, v.files?.scrollTop ?? 0)]?.path;
     e.preventDefault();
-    if (f) toggle(v, f.path);
+
+    if (path) {
+      v.store.setState({ cur: path });
+      toggle(v, path);
+    }
   } else if (e.key === "/") {
     e.preventDefault();
     find?.focus();
