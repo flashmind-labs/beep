@@ -22,7 +22,8 @@ export function PaneTabs({ tabs, selected, dragging, actions }: { tabs: readonly
 /// One tab of a strip, or with no actions the ghost of one being dragged.
 export function PaneTab({ tab, className, selected, actions, ref }: { tab: PaneTabItem; className: string; selected: boolean; actions?: PaneTabActions; ref?: Ref<HTMLButtonElement> }) {
   return <button ref={ref} type="button" className={className} role="tab" aria-selected={selected} data-mtab={tab.id} title={tab.name}
-    onClick={actions && (() => actions.pick(tab.id))} onContextMenu={actions && (event => actions.menu(event, tab.id))} onPointerDown={actions && (event => actions.down(event, tab.id))}>
+    onClick={actions && (() => actions.pick(tab.id))} onContextMenu={actions && (event => actions.menu(event, tab.id))} onPointerDown={actions && (event => actions.down(event, tab.id))}
+    onMouseDown={event => { if (event.button === 1) event.preventDefault(); }} onAuxClick={actions && tab.closeIcon !== null ? (event => { if (event.button === 1) actions.close(tab.id); }) : undefined}>
     <i style={{ display: "contents" }}><Icon name={tab.icon} /></i><span>{tab.name}</span>{tab.count !== null && <small>{tab.count}</small>}{tab.closeIcon !== null && <em data-mclose={tab.id} aria-label={`Close ${tab.name}`} title="Close (⌘W)"
       onClick={actions && (event => { event.stopPropagation(); actions.close(tab.id); })} onPointerDown={event => event.stopPropagation()}><Icon name={tab.closeIcon} /></em>}
   </button>;
