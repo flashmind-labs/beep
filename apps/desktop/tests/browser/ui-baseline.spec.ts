@@ -707,7 +707,7 @@ test("agent artifacts", async ({ page }) => {
 // Popovers
 
 test("notices popover", async ({ page }) => {
-  const note = (id: string, kind: string, title: string, ago: number) => ({ id, at: NOW - ago, kind, title, text: "", source: machineId, read: false, done: false, target: null });
+  const note = (id: string, kind: string, title: string, ago: number) => ({ id, at: NOW - ago, kind, title, text: "", source: machineId, read: false, done: false, target: null, allow_deny: true });
   await openDesktop(page, false, { notes_list: [note("first", "finished", "Codex finished", 60_000), note("second", "asks", "Permission required", 120_000), note("third", "finished", "Claude Code finished", 3_600_000)] });
   await page.getByRole("button", { name: /Notifications/ }).click();
   await expect(page.locator('.nt-row[data-id="third"]')).toBeVisible();

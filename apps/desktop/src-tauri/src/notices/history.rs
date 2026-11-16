@@ -83,6 +83,9 @@ pub struct Note {
     /// Each copy of a skill conflict, to keep one.
     #[serde(default)]
     pub(crate) held: Vec<Held>,
+    /// Allow and Deny answer its question; any other question opens its chat.
+    #[serde(default)]
+    pub(crate) allow_deny: bool,
 }
 
 impl Note {
@@ -110,6 +113,7 @@ impl Note {
             target: None,
             here: Vec::new(),
             held: Vec::new(),
+            allow_deny: false,
         }
     }
 }
@@ -278,6 +282,7 @@ impl Notes {
         &self,
         key: &AgentNoticeKey,
         notice: &Notice,
+        allow_deny: bool,
         seen: bool,
         reviewer: bool,
     ) -> Noted {
@@ -298,6 +303,7 @@ impl Notes {
             text: notice.body.clone(),
             read: seen,
             target: Some(CenterTarget::Agent(target)),
+            allow_deny: allow_deny && key.question.is_some(),
             ..Note::new(
                 kind,
                 key.to_string(),
@@ -409,12 +415,13 @@ pub(crate) fn agent_notice(
     app: &AppHandle,
     key: &AgentNoticeKey,
     notice: &Notice,
+    allow_deny: bool,
     seen: bool,
     reviewer: bool,
 ) -> Option<Read> {
     let notes = notes(app);
     take_reads(app, &notes);
-    let noted = notes.agent_notice(key, notice, seen, reviewer);
+    let noted = notes.agent_notice(key, notice, allow_deny, seen, reviewer);
 
     if noted.changed {
         changed(app, notes);

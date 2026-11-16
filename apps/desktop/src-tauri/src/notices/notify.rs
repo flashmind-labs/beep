@@ -11,7 +11,10 @@ use crate::{
     notices::history,
     tray::waiting::WaitingList,
 };
-use beep_proto::{AgentNoticeKey, ApiError, Notice};
+use beep_proto::{
+    AgentNoticeKey, ApiError, Notice,
+    node::agent::{AnswerOption, OptionKind},
+};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 #[cfg(not(target_os = "macos"))]
@@ -92,34 +95,47 @@ fn notification_icon(app: &AppHandle) -> Option<String> {
 }
 
 /// Shows `notice`, which opens its session when clicked and, when it asks a
-/// question, answers it from Allow or Deny.
+/// question `allow_deny` says Allow or Deny answers, answers it from them.
 /// A reviewer's opens beside the diff it reviewed.
-pub fn notice(app: &AppHandle, notice: &Notice, reviewer: bool) {
+pub fn notice(app: &AppHandle, notice: &Notice, allow_deny: bool, reviewer: bool) {
     let target = match click_target(notice) {
         CenterTarget::Agent(target) if reviewer => CenterTarget::Agent(target.reviewing()),
         target => target,
     };
-    show(app, notice, target);
-}
-
-/// A notification with nothing to answer that opens `target` when clicked.
-pub(crate) fn opening(app: &AppHandle, title: &str, body: &str, target: CenterTarget) {
-    let notice = Notice {
-        title: title.to_owned(),
-        body: body.to_owned(),
-        session_id: String::new(),
-    };
-    show(app, &notice, target);
-}
-
-fn show(app: &AppHandle, notice: &Notice, target: CenterTarget) {
+    let buttons = ask(notice)
+        .filter(|_| allow_deny)
+        .map(|key| Buttons::Answer(key.to_string()));
     send(
         app,
         &notice.title,
         &notice.body,
         Route {
             target: Some(target),
-            buttons: ask(notice).map(|key| Buttons::Answer(key.to_string())),
+            buttons,
+        },
+    );
+}
+
+/// Whether Allow and Deny answer a question with `options`, as the machine
+/// reads them: one option allows once, one rejects once, and every option is
+/// a permission. A choice among answers opens the chat instead.
+pub(crate) fn allow_deny(options: &[AnswerOption]) -> bool {
+    let count = |kind: OptionKind| options.iter().filter(|o| o.kind == kind).count();
+
+    count(OptionKind::AllowOnce) == 1
+        && count(OptionKind::RejectOnce) == 1
+        && options.iter().all(|o| o.kind != OptionKind::Other)
+}
+
+/// A notification with nothing to answer that opens `target` when clicked.
+pub(crate) fn opening(app: &AppHandle, title: &str, body: &str, target: CenterTarget) {
+    send(
+        app,
+        title,
+        body,
+        Route {
+            target: Some(target),
+            buttons: None,
         },
     );
 }

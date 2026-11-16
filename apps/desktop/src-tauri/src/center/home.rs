@@ -13,7 +13,9 @@ use crate::{
         Fleet, alerts,
         projects::{FleetState, desk},
     },
+    notices::history,
     projects::ProjectRow,
+    tray::waiting::WaitingList,
 };
 use beep_proto::{
     AgentNoticeKey, AgentQuestion, AgentStatus, ApiError, ImportedProject, Machine, MachineApp,
@@ -33,7 +35,8 @@ use std::{
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tokio::join;
 
-/// Answers a question an agent session asks.
+/// Answers a question an agent session asks. Its notice is answered too, as
+/// is one the session no longer asks, and the tray looks again.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn center_answer_agent(
@@ -46,14 +49,46 @@ pub async fn center_answer_agent(
     question: u32,
     reply: String,
 ) -> Result<()> {
-    if !alerts::reaches(&fleet, &machine_id) {
+    let key = AgentNoticeKey {
+        machine_id,
+        agent,
+        session,
+        question: Some(question),
+        machine_name: String::new(),
+    };
+    let answered = answer_agent(&window, &events, &fleet, &key, reply).await;
+
+    if let Ok(()) | Err(DesktopError::Api(ApiError::Conflict { .. } | ApiError::NotFound {})) =
+        answered
+    {
+        history::answered(window.app_handle(), &key);
+    }
+
+    window.state::<WaitingList>().poke();
+    answered
+}
+
+/// Sends `reply` to the question `key` names, over the open event link when
+/// the machine has one.
+async fn answer_agent(
+    window: &WebviewWindow,
+    events: &crate::fleet::events::Events,
+    fleet: &Arc<Fleet>,
+    key: &AgentNoticeKey,
+    reply: String,
+) -> Result<()> {
+    let Some(question) = key.question else {
+        return Ok(());
+    };
+
+    if !alerts::reaches(fleet, &key.machine_id) {
         return Err(DesktopError::NotInMesh);
     }
 
-    if let Some(machine) = fleet.member(&machine_id) {
+    if let Some(machine) = fleet.member(&key.machine_id) {
         let operation = beep_proto::node::events::Operation::Agent {
-            agent: agent.clone(),
-            session: session.clone(),
+            agent: key.agent.clone(),
+            session: key.session.clone(),
             request: beep_proto::node::agent::Request::Answer {
                 question,
                 reply: reply.clone(),
@@ -69,14 +104,7 @@ pub async fn center_answer_agent(
         }
     }
 
-    let key = AgentNoticeKey {
-        machine_id,
-        agent,
-        session,
-        question: Some(question),
-        machine_name: String::new(),
-    };
-    alerts::answer(&fleet, &key, &reply).await
+    alerts::answer(fleet, key, &reply).await
 }
 
 /// What Home shows. A section is `None` when it cannot be listed.

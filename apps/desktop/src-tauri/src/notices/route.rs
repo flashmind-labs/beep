@@ -31,10 +31,12 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
 
     while let Some(direct) = direct.recv().await {
         match direct {
-            Direct::Notice(notice) => match notice.session_id.parse::<AgentNoticeKey>() {
-                Ok(key) => agent_notice(&app, &key, *notice, settle),
-                Err(_) => log::debug!("a machine sent a notice for no agent session"),
-            },
+            Direct::Notice { notice, allow_deny } => {
+                match notice.session_id.parse::<AgentNoticeKey>() {
+                    Ok(key) => agent_notice(&app, &key, *notice, allow_deny, settle),
+                    Err(_) => log::debug!("a machine sent a notice for no agent session"),
+                }
+            }
             Direct::Presence { machine, sessions } => {
                 app.state::<Arc<Fleet>>().note_presence(machine, sessions);
                 app.state::<Arc<AgentSessions>>().stale();
@@ -74,7 +76,14 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
 /// what waits again, the bell keeps it, and the notice shows unless agent
 /// notices are off, the session is on screen or any app read it.
 /// A child's finished turn tells nothing, but a reviewer's means its review is in.
-fn agent_notice(app: &AppHandle, key: &AgentNoticeKey, notice: Notice, settle: Instant) {
+/// A question Allow and Deny cannot answer only opens its chat.
+fn agent_notice(
+    app: &AppHandle,
+    key: &AgentNoticeKey,
+    notice: Notice,
+    allow_deny: bool,
+    settle: Instant,
+) {
     let fleet = app.state::<Arc<Fleet>>();
     let reviewer = fleet.is_reviewer(&key.machine_id, &key.session);
 
@@ -95,7 +104,7 @@ fn agent_notice(app: &AppHandle, key: &AgentNoticeKey, notice: Notice, settle: I
     let shown = app
         .state::<center::AgentsShown>()
         .shows(&on_screen, key, Instant::now());
-    let unread = history::agent_notice(app, key, &notice, shown, reviewer);
+    let unread = history::agent_notice(app, key, &notice, allow_deny, shown, reviewer);
 
     if !app.state::<Prefs>().agent_notices() || shown {
         return;
@@ -103,7 +112,7 @@ fn agent_notice(app: &AppHandle, key: &AgentNoticeKey, notice: Notice, settle: I
 
     if let Some(read) = unread {
         show_unread(app, read, settle, move |app| {
-            notify::notice(app, &notice, reviewer)
+            notify::notice(app, &notice, allow_deny, reviewer)
         });
     }
 }

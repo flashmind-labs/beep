@@ -34,7 +34,12 @@ pub(crate) enum Direct {
     /// A stream to a machine opened: what the app shows from machines may
     /// have changed while it was closed.
     Connected,
-    Notice(Box<Notice>),
+    /// A question or a turn that ended; `allow_deny` when Allow and Deny
+    /// answer the question.
+    Notice {
+        notice: Box<Notice>,
+        allow_deny: bool,
+    },
     /// A CI run the user started ended, told by the machine that watches
     /// its project.
     Run(Box<RunNews>),
@@ -105,7 +110,12 @@ async fn follow(fleet: Arc<Fleet>, out: mpsc::Sender<Direct>) {
 fn direct(told: Told) -> Direct {
     match told {
         Told::Connected => Direct::Connected,
-        Told::Notice { notice, .. } => Direct::Notice(notice),
+        Told::Notice {
+            notice, options, ..
+        } => Direct::Notice {
+            notice,
+            allow_deny: crate::notices::notify::allow_deny(&options),
+        },
         Told::Run(news) => Direct::Run(news),
     }
 }
