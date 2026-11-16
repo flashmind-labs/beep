@@ -14,7 +14,7 @@ body.cbody
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Search"
-            kbd "⌘K"
+            kbd [data-key="⌘K"]
           button.cc-si [aria-current="true" aria-label="Home" title="Home" type="button"]
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
@@ -40,7 +40,7 @@ body.cbody
             button [aria-label="Add a machine" title="Add a machine" type="button"]
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
           div style(display)
-            button.cc-si [aria-label="build-box" title="build-box: 2 agents running" type="button"]
+            button.cc-si [aria-label="build-box 2" title="build-box: 2 agents running" type="button"]
               span.busy.ddot [title="Online · 2 agents running"]
               span.tt "build-box"
               span.n "2"
@@ -54,7 +54,7 @@ body.cbody
               span.sidebar-icon style(display)
                 svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
               span.tt "Settings"
-              kbd "⌘,"
+              kbd [data-key="⌘,"]
         div.cc-foot
           span "of 2 machines online"
             span.ddot
