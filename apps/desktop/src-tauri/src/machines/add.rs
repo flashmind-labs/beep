@@ -8,7 +8,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
 };
-use beep_mesh::{DeviceKind, JoinTicket, MeshError, PhoneTicket, machine};
+use beep_mesh::{DeviceKind, Invitation, MeshError, ShortTicket, machine};
 use beep_proto::SecretText;
 use iroh_tickets::Ticket;
 use qrcode::{EcLevel, QrCode, render::svg::Color};
@@ -23,7 +23,7 @@ pub struct TokenView {
     token: String,
     /// What to copy: `beep-node mesh join <ticket>` for a node, the ticket for another Mac.
     command: String,
-    /// QR code for a phone ticket.
+    /// QR code of the ticket, for a phone.
     qr_svg: Option<String>,
     /// In milliseconds since the Unix epoch.
     expires_at: u64,
@@ -57,13 +57,14 @@ pub async fn mesh_invite(
             _ => fleet.invite(kind).await?,
         }
     };
-    let token = ticket.encode_string();
+    let code = ShortTicket::from(&ticket);
+    let token = code.encode_string();
     let command = match kind {
         DeviceKind::Node => format!("beep-node mesh join {token}"),
         DeviceKind::Desktop => token.clone(),
     };
     let qr_svg = if phone.unwrap_or(false) {
-        Some(qr_svg(&PhoneTicket::from(&ticket))?)
+        Some(qr_svg(&code)?)
     } else {
         None
     };
@@ -82,9 +83,11 @@ const USED: &str = "This ticket expired or was already used. Ask for a new one."
 /// alone in its own mesh leaves it and brings its settings along.
 #[tauri::command]
 pub async fn mesh_join(fleet: State<'_, Arc<Fleet>>, ticket: String) -> Result<()> {
-    let ticket = JoinTicket::parse(&ticket).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
+    let invite = ticket
+        .parse::<Invitation>()
+        .map_err(|e| DesktopError::BadRequest(e.to_string()))?;
 
-    match fleet.join(&ticket, &computer_name()).await {
+    match fleet.join(invite, &computer_name()).await {
         Err(DesktopError::Mesh(MeshError::Refused(_))) => {
             Err(DesktopError::BadRequest(USED.into()))
         }
@@ -94,7 +97,7 @@ pub async fn mesh_join(fleet: State<'_, Arc<Fleet>>, ticket: String) -> Result<(
 
 /// `code` as a QR code for a phone to scan: in capitals, which a QR code packs smaller, at the
 /// lowest error correction, so its modules stay large enough to read off a screen.
-fn qr_svg(code: &PhoneTicket) -> Result<String> {
+fn qr_svg(code: &ShortTicket) -> Result<String> {
     let data = code.encode_string().to_ascii_uppercase();
     let qr = QrCode::with_error_correction_level(data, EcLevel::L)
         .map_err(|e| DesktopError::BadRequest(e.to_string()))?;
@@ -113,8 +116,10 @@ pub async fn ticket_machine(
     fleet: State<'_, Arc<Fleet>>,
     ticket: String,
 ) -> Result<Option<String>> {
-    let ticket = JoinTicket::parse(&ticket).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
-    let joined = fleet.ready().await?.joined_with(&ticket).await?;
+    let invite = ticket
+        .parse::<Invitation>()
+        .map_err(|e| DesktopError::BadRequest(e.to_string()))?;
+    let joined = fleet.ready().await?.joined_with(&invite).await?;
     Ok(joined.map(|id| id.to_string()))
 }
 
@@ -147,7 +152,7 @@ pub async fn add_wsl_machine(
 ) -> Result<()> {
     let client = fleet.client(fleet.machine(&machine_id)?).await?;
     let ticket = fleet.invite(DeviceKind::Node).await?;
-    let ticket = SecretText::new(ticket.encode_string());
+    let ticket = SecretText::new(ShortTicket::from(&ticket).encode_string());
     let step = |text: String| {
         if let Err(e) = on_step.send(text) {
             log::debug!("the window did not hear a WSL step: {e}");

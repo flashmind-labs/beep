@@ -2,9 +2,9 @@
 //! and outer timeouts; nothing sleeps.
 
 use beep_mesh::{
-    DEADLINE, DeviceKind, InUse, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError, MeshProtocol,
-    OPEN_TIMEOUT, PEER_ALPN, PeerClient, PeerStream, SessionFn, StreamHandler, transport_config,
-    with_deadline,
+    DEADLINE, DeviceKind, InUse, Invitation, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError,
+    MeshProtocol, OPEN_TIMEOUT, PEER_ALPN, PeerClient, PeerStream, SessionFn, ShortTicket,
+    StreamHandler, transport_config, with_deadline,
 };
 use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link};
 use beep_proto::watched;
@@ -12,6 +12,7 @@ use futures::StreamExt;
 use iroh::endpoint::{Connection, presets};
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
 use iroh::{Endpoint, EndpointId, SecretKey};
+use iroh_tickets::Ticket;
 use std::fs::{copy, create_dir_all, read_dir};
 use std::future::pending as never;
 use std::path::Path;
@@ -389,6 +390,26 @@ async fn a_removed_device_rejoins_with_a_fresh_ticket_and_its_key() {
     assert_eq!(mesh.me(), key.public());
     assert!(mesh.is_member(mesh.me()));
     until(&studio.mesh, |m| m.is_member(key.public())).await;
+}
+
+#[tokio::test]
+async fn the_short_ticket_names_the_device_that_joined_with_it() {
+    let studio = create("Studio").await;
+    let ticket = studio
+        .mesh
+        .invite(DeviceKind::Node, Duration::from_secs(3600))
+        .await
+        .expect("ticket");
+    let invite: Invitation = ShortTicket::from(&ticket)
+        .encode_string()
+        .parse()
+        .expect("reads");
+    assert_eq!(studio.mesh.joined_with(&invite).await.expect("asks"), None);
+    let node = join_with(&ticket, "Box").await.expect("joins");
+    assert_eq!(
+        studio.mesh.joined_with(&invite).await.expect("asks"),
+        Some(node.id())
+    );
 }
 
 #[tokio::test]
@@ -1152,7 +1173,7 @@ async fn forgetting_also_removes_a_mesh_folder_from_before_the_move() {
 
 /// Ticket text, with no network.
 mod tickets {
-    use beep_mesh::{DeviceKind, JoinSecret, JoinTicket, TicketError};
+    use beep_mesh::{DeviceKind, Invitation, JoinSecret, JoinTicket, ShortTicket, TicketError};
     use iroh::{EndpointAddr, SecretKey};
     use iroh_tickets::Ticket;
 
@@ -1217,6 +1238,23 @@ mod tickets {
         );
         let text = ticket().encode_string();
         assert!(JoinTicket::parse(&format!(" {text}\n")).is_ok());
+    }
+
+    #[test]
+    fn an_invitation_reads_a_short_or_a_full_ticket() {
+        let full = ticket().encode_string();
+        let short = ShortTicket::from(&ticket()).encode_string();
+        assert!(short.starts_with("beepjoin3"));
+        assert!(short.len() < full.len());
+
+        for text in [&short, &short.to_ascii_uppercase(), &full] {
+            assert!(text.parse::<Invitation>().is_ok(), "{text}");
+        }
+
+        assert!(matches!(
+            "hello".parse::<Invitation>(),
+            Err(TicketError::Unreadable)
+        ));
     }
 
     #[test]
