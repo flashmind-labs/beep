@@ -22,7 +22,7 @@ for (const width of [1280, 390]) {
     await expect(error.locator("b")).toHaveText("Conversation blocked");
     await expect(error.locator("span")).toContainText("Potentially unintended activity");
     await expect(error.locator("span")).toHaveCSS("color", "rgb(235, 87, 87)");
-    await expect(page.locator(".dcoderen.agent")).toHaveText("The changes are committed.");
+    await expect(page.locator(".dcoderen.agent .reply-body")).toHaveText("The changes are committed.");
     await expect(page.locator(".dcoderen.agent strong")).toHaveText("committed");
     expect(errors).toEqual([]);
   });

@@ -1264,6 +1264,13 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 .md blockquote + .dquote-copy:active { transform: scale(.98) }
 
 .md blockquote + .dquote-copy:hover, .md blockquote + .dquote-copy:active { background: transparent; box-shadow: none }
+/* A reply's copy button sits at the right of its last line and shows on hover once the reply is finished. A quote ending a reply still streaming may grow, so its copy button waits too. */
+.dcoderen.agent:has(> .reply-copy) { position: relative }
+.dcoderen.agent > .reply-copy { position: absolute; bottom: 0; right: 0; min-height: 0; height: 21px; padding: 0 4px; opacity: 0; pointer-events: none }
+.dcoderen.agent:has(> .reply-copy) > .reply-body > :is(p, ul, ol):last-child { padding-right: 28px }
+.dcoderen.agent:hover > .reply-copy, .dcoderen.agent > .reply-copy:focus-visible { opacity: 1; pointer-events: auto }
+@media (hover: none) { .dcoderen.agent > .reply-copy { position: static; display: flex; margin: 4px 0 0 auto; opacity: 1; pointer-events: auto } }
+.agturn > div:has(+ div > .dlive.live) > .dcoderen.agent > .reply-copy, .agturn > div:has(+ div > .dlive.live) > .dcoderen.agent > .reply-body > .dquote-copy:last-child { display: none }
 
 /* The folded group of ended coding agent sessions. */
 .dagfold { display: flex; width: 100%; align-items: center; gap: 6px; margin-top: 8px; padding: 8px 10px 6px; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--dim); font-size: 12px; font-weight: 600; text-align: left; cursor: default }
@@ -1315,7 +1322,7 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 
 /* Select conversation text and editable fields, keeping controls inert. */
 .dcoderlog, input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text }
-:is(button, [role="button"], summary, select), :is(button, [role="button"], summary, select) * { -webkit-user-select: none !important; user-select: none !important }
+:is(button, [role="button"], summary, select), :is(button, [role="button"], summary, select) *:not([data-tool-content], [data-tool-content] *) { -webkit-user-select: none !important; user-select: none !important }
 
 .entry-time { color: var(--dim); font-size: 10px; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; margin-inline-start: 6px; }
 .dcoderen.agent > .entry-time { float: right; margin: 0 0 0 12px; line-height: inherit; }

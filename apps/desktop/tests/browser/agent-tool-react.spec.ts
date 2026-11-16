@@ -90,3 +90,53 @@ test("folded activity retains its image tile", async ({ page }) => {
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "idle", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await expect(page.locator(".dfoldpics img.pic")).toHaveCount(1);
 });
+
+test("an opened command's output can be selected", async ({ page }) => {
+  await openDesktop(page);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const value = await invoke<T>(command, args);
+      if (command !== "agent_view" || !value || typeof value !== "object") return value;
+      return { ...value, entries: [{ kind: "user", text: "Check" }, { kind: "tool", text: "Run the tests [completed]\n```\nall tests passed\n```", tool: { name: "Bash", input: '{"command":"npm test"}', input_truncated: false, result: "all tests passed", result_truncated: false } }] } as T;
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  const row = page.locator('.dcoderen.tool[data-at="1"]');
+  await row.click();
+  const output = row.locator(".call-details pre").last();
+  await expect(output).toHaveCSS("user-select", "text");
+  await output.dblclick({ position: { x: 12, y: 10 } });
+  expect(await page.evaluate(() => getSelection()?.toString())).toBe("all");
+  await expect(row).toHaveAttribute("aria-expanded", "true");
+});
+
+test("a reply shows its copy buttons once it is finished", async ({ page }) => {
+  await openDesktop(page);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const value = await invoke<T>(command, args);
+      if (command !== "agent_view" || !value || typeof value !== "object") return value;
+      const session = Reflect.get(value, "session");
+      const status = Reflect.get(window, "replyStatus");
+      return { ...value, session: { ...session, status }, entries: [{ kind: "user", text: "Draft it" }, { kind: "agent", text: "> First\n\n> Second", html: "<blockquote><p>First</p></blockquote><blockquote><p>Second</p></blockquote>" }] } as T;
+    };
+  });
+  await page.evaluate(() => Reflect.set(window, "replyStatus", "working"));
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  const copies = page.locator(".dcoderen.agent .dquote-copy");
+  await expect(copies).toHaveCount(2);
+  await expect(copies.first()).toBeVisible();
+  await expect(copies.last()).toBeHidden();
+  const reply = page.locator(".dcoderen.agent .reply-copy");
+  await expect(reply).toBeHidden();
+
+  await page.evaluate(() => Reflect.set(window, "replyStatus", "idle"));
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "idle", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await expect(copies.last()).toBeVisible();
+  await page.locator(".dcoderen.agent").hover();
+  await expect(reply).toHaveCSS("opacity", "1");
+  await reply.click();
+  await expect(reply).toHaveAttribute("aria-label", "Copied");
+});

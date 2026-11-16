@@ -4,6 +4,7 @@
 import { cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
 import parse from "html-react-parser";
 import { copy } from "./parts.tsx";
+import { Icon } from "./icons.tsx";
 
 /// Sanitized HTML as React elements keyed by place, so a block that stays keeps its
 /// element: the reader's selection, and a diagram drawn next to it, survive an update.
@@ -153,7 +154,8 @@ export function useLazyCount<F extends HTMLElement>(total: number, initial: numb
 }
 
 /// A button that copies `text` and reads "Copied" for a moment, then `label` again.
-export function CopyButton({ text, label = "Copy", look = "secondary", small = false, id }: { text: string; label?: ReactNode; look?: ButtonLook; small?: boolean; id?: string }) {
+/// With `icon` it shows the copy icon, then a check.
+export function CopyButton({ text, label = "Copy", look = "secondary", small = false, icon = false, id, className }: { text: string; label?: ReactNode; look?: ButtonLook; small?: boolean; icon?: boolean; id?: string; className?: string }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -161,5 +163,8 @@ export function CopyButton({ text, label = "Copy", look = "secondary", small = f
     return () => clearTimeout(timer);
   }, [copied]);
 
-  return <Button look={look} small={small} id={id} onClick={() => { void copy(text).then(() => setCopied(true), error => console.warn("copying:", error)); }}>{copied ? "Copied" : label}</Button>;
+  const onClick = () => { void copy(text).then(() => setCopied(true), error => console.warn("copying:", error)); };
+  if (icon) return <Button look={look} small={small} id={id} className={className} aria-label={copied ? "Copied" : "Copy"} title={copied ? "Copied" : "Copy"} onClick={onClick}><Icon name={copied ? "check" : "copy"} /></Button>;
+
+  return <Button look={look} small={small} id={id} className={className} onClick={onClick}>{copied ? "Copied" : label}</Button>;
 }

@@ -508,7 +508,7 @@ test("conversation blocks stay separate from formatted partial output and surviv
   page.entries = [{ kind: "user", text: "Push the changes" }, { kind: "agent", text: `The fixes are committed.${safetyBlock}`, html: `<p>The fixes are <strong>committed</strong>.${safetyBlock}</p>` }];
   drawAgentBody();
   assert.equal(bar.querySelector(".dcoderen.agent strong")?.textContent, "committed");
-  assert.equal(bar.querySelector(".dcoderen.agent")?.textContent, "The fixes are committed.");
+  assert.equal(bar.querySelector(".dcoderen.agent .reply-body")?.textContent, "The fixes are committed.");
   assert.equal(bar.querySelector('[role="alert"] b')?.textContent, "Conversation blocked");
   assert.equal(bar.querySelector('[role="alert"] span')?.textContent, safetyBlock);
   drawAgentBody(undefined, true);
