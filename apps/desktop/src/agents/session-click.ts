@@ -159,7 +159,7 @@ export function agentClick(e: MouseEvent) {
     const unread = () => { AG.note = "Could not read the whole picture."; drawAgentBody(); };
 
     if (!pic.closest(".dcoderen.user")) {
-      fullPic(o, pic).then(url => { if (isOpen(o)) url ? openPicture(url, name) : unread(); });
+      fullPic(o, pic).then(url => { if (isOpen(o)) url ? openPicture(url, name) : unread(); }).catch(() => { if (isOpen(o)) unread(); });
       return;
     }
 
@@ -171,7 +171,7 @@ export function agentClick(e: MouseEvent) {
       const at = read.findIndex(r => r.img === pic);
       if (at < 0) return unread();
       openViewer(read.map(({ img: i, url }) => ({ url, name: i.dataset.name || i.alt, caption: "", saves: url.startsWith("data:") })), at);
-    });
+    }).catch(() => { if (isOpen(o)) unread(); });
     return;
   }
 

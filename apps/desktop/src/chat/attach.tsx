@@ -2,7 +2,6 @@ import { agentMessage } from "../agents/session-frame.tsx";
 import { showFieldDrop } from "../agents/composer-ui.tsx";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
-import { bytesOf } from "../agentpane/media-state.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
 import { bar, S } from "../bar/core.ts";
 import { createDocumentScope } from "../ui/document-root.tsx";
@@ -10,9 +9,9 @@ import { ICON } from "../ui/icons.tsx";
 
 // ---------- Images and files dropped or pasted on a session ----------
 
-/// The longest side of the preview a coding agent gets of a picture; the
-/// picture itself goes as a file.
-const PREVIEW_SIDE = 512;
+// Match the node's per-image and per-message byte limits.
+export const AGENT_IMAGE_BYTES = 5 * 1024 * 1024;
+export const AGENT_IMAGES_BYTES = 7 * 1024 * 1024;
 
 /// `file`'s bytes in base64. A folder fails to read.
 export function fileBase64(file: Blob) {
@@ -24,24 +23,38 @@ export function fileBase64(file: Blob) {
   });
 }
 
-/// A small JPEG of the picture `file`, for an agent to see at once. Fails
-/// for a picture that cannot be drawn.
-export async function picPreview(file: File) {
-  const img = await createImageBitmap(file);
-  const scale = Math.min(1, PREVIEW_SIDE / Math.max(img.width, img.height, 1));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(img.width * scale));
-  canvas.height = Math.max(1, Math.round(img.height * scale));
-  const cx = canvas.getContext("2d")!;
-  // JPEG has no transparency; a screenshot's clear parts become white, not black.
-  cx.fillStyle = "#fff";
-  cx.fillRect(0, 0, canvas.width, canvas.height);
-  cx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  img.close();
+/// Preserve supported images byte for byte. Only oversized or unsupported
+/// images are encoded, shrinking dimensions until they fit the byte budget.
+export async function picPreview(file: File, maxBytes = AGENT_IMAGE_BYTES) {
+  if (file.size <= maxBytes && ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type)) return file;
 
-  const data = canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
-  const name = (file.name || "image").replace(/\.[^.]*$/, "");
-  return new File([bytesOf(data)], `${name}.jpg`, { type: "image/jpeg" });
+  const img = await createImageBitmap(file);
+
+  try {
+    const canvas = document.createElement("canvas");
+    let scale = 1;
+
+    for (;;) {
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const cx = canvas.getContext("2d");
+      if (!cx) throw new Error("Could not prepare the image");
+      cx.fillStyle = "#fff";
+      cx.fillRect(0, 0, canvas.width, canvas.height);
+      cx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>(done => canvas.toBlob(done, "image/jpeg", 0.92));
+      if (!blob) throw new Error("Could not encode the image");
+      if (blob.size <= maxBytes) {
+        const name = (file.name || "image").replace(/\.[^.]*$/, "");
+        return new File([blob], `${name}.jpg`, { type: "image/jpeg" });
+      }
+
+      if (canvas.width === 1 && canvas.height === 1) throw new Error("The image cannot fit in this message");
+      scale *= Math.min(0.85, Math.sqrt(maxBytes / blob.size) * 0.95);
+    }
+  } finally {
+    img.close();
+  }
 }
 
 /// Whether the agent view's message field is on screen, to take what is
@@ -57,7 +70,7 @@ document.addEventListener("paste", e => {
 });
 
 /// Files pasted or dropped on a coding agent session upload to its machine
-/// and are mentioned; a picture also attaches a small preview to the message.
+/// and are mentioned; a picture also attaches inline to the message.
 export async function agentDrop(files: Iterable<File>) {
   await uploadDropped([...files], null, paneSession()?.cwd ?? "", true);
 }

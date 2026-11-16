@@ -68,8 +68,7 @@ const PICTURE = /\.(?:png|jpe?g|gif|webp|heic|bmp|tiff?)$/i;
 
 /// A prompt's Markdown HTML without its standalone file-reference
 /// paragraphs, and the files they named. The stored prompt is unchanged.
-/// With `pictured`, the message shows its pictures itself, so their files are left out.
-export function promptAttachments(html: string, pictured = false): { html: string; files: string[] } {
+export function promptAttachments(html: string): { html: string; files: string[] } {
   if (!html.includes("@")) return { html, files: [] };
 
   const template = document.createElement("template");
@@ -83,9 +82,16 @@ export function promptAttachments(html: string, pictured = false): { html: strin
     if (!references.length || text.replace(/@(?:"[^"\n]+"|[^\s"]+)/g, "").trim()) continue;
     const named = references.map(match => match[1] ?? match[2]);
     if (named.some(path => !/[\\/.]/.test(path))) continue;
-    files.push(...pictured ? named.filter(path => !PICTURE.test(path)) : named);
+    files.push(...named);
     paragraph.remove();
   }
 
   return { html: template.innerHTML, files };
+}
+
+/// Only pair pictures with file references when every picture has a path.
+/// Otherwise keep the files visible instead of guessing which one to open.
+export function attachmentPictures(files: string[], count: number): string[] {
+  const pictures = files.filter(path => PICTURE.test(path));
+  return pictures.length === count ? pictures : [];
 }

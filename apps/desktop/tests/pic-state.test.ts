@@ -26,3 +26,9 @@ test("a picture that keeps failing is asked for less often", () => {
   assert.equal(retryIn(2), 4_000);
   assert.equal(retryIn(20), 60_000);
 });
+
+test("original paths survive thumbnail rendering with HTML attributes escaped", () => {
+  const tile = picTile(name, undefined, undefined, '/srv/project/a "quoted" & detailed.png');
+  assert.ok(tile.includes('data-original="/srv/project/a &quot;quoted&quot; &amp; detailed.png"'));
+  assert.ok(tile.includes('data-key="0123456789abcdef"'));
+});

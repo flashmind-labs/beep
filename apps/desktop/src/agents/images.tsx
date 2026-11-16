@@ -1,6 +1,6 @@
 // Images for a coding agent: attached to a message, and shown in its log.
 import type { Attached } from "./agentqueue.ts";
-import { fileBase64, picPreview } from "../chat/attach.tsx";
+import { AGENT_IMAGE_BYTES, AGENT_IMAGES_BYTES, fileBase64, picPreview } from "../chat/attach.tsx";
 import { S } from "../bar/core.ts";
 import { GONE } from "../chat/media.tsx";
 import { MN } from "./workdrop.ts";
@@ -11,6 +11,8 @@ import { redrawAgentHints } from "./session-head.tsx";
 import { gonePic, retryIn } from "./pic-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { fillInlineImages } from "./inline-images.ts";
+import { readFile } from "../agentpane/read.ts";
+import { bytesOf } from "../agentpane/media-state.ts";
 import type { Preview } from "./composer-ui.tsx";
 
 let pastedCount = 0;
@@ -33,23 +35,53 @@ export function agentAttachError(text: string) {
   AG.attTimer = setTimeout(() => { AG.attError = ""; drawAgentAttached(); }, 5000);
 }
 
-/// Adds a small preview of the picture `file` to `list`, the images of one
-/// message. One that cannot be drawn, or past what a message takes, goes as
-/// its file alone.
-export async function attachPreview(list: Attached[], file: File, original: string | File) {
+const attachmentWork = new WeakMap<Attached[], Promise<void>>();
+
+/// Preserve readable images within the prompt limits. Serialize batches
+/// sharing a composer so their combined bytes stay within the budget.
+export function attachPreview(list: Attached[], file: File, original: string | File) {
+  const work = (attachmentWork.get(list) ?? Promise.resolve()).then(() => prepareAttachment(list, file, original));
+  attachmentWork.set(list, work);
+  return work;
+}
+
+async function prepareAttachment(list: Attached[], file: File, original: string | File) {
   if (list.length >= AGENT_MAX_IMAGES) return;
 
   try {
     const preview = await picPreview(file);
     const data = await fileBase64(preview);
-    if (list.length < AGENT_MAX_IMAGES) list.push({ name: agentImageName(preview, list), mime: preview.type, size: preview.size, data, url: `data:${preview.type};base64,${data}`, original });
+    const image = { name: agentImageName(preview, list), mime: preview.type, size: preview.size, data, url: `data:${preview.type};base64,${data}`, original };
+    const before = [...list];
+    const fitted = await fitAttachedImages([...before, image]);
+    const replacements = new Map(before.map((image, i) => [image, fitted[i]]));
+    if (list.length >= AGENT_MAX_IMAGES) return;
+
+    for (let i = 0; i < list.length; i++) list[i] = replacements.get(list[i]) ?? list[i];
+    const added = fitted[before.length];
+    if (added) list.push(added);
   } catch {
     // The file is still mentioned.
   }
 }
 
+/// A send can combine completed attachments with a batch still uploading.
+/// Apply the same limits after combining them, keeping every file reference.
+export async function fitAttachedImages(images: Attached[]): Promise<Attached[]> {
+  const kept = images.slice(0, AGENT_MAX_IMAGES);
+  if (kept.every(image => image.size <= AGENT_IMAGE_BYTES) && kept.reduce((n, image) => n + image.size, 0) <= AGENT_IMAGES_BYTES) return kept;
+  const budget = Math.min(AGENT_IMAGE_BYTES, Math.floor(AGENT_IMAGES_BYTES / kept.length));
+
+  return Promise.all(kept.map(async image => {
+    if (image.size <= budget) return image;
+    const smaller = await picPreview(new File([bytesOf(image.data)], image.name, { type: image.mime }), budget);
+    const data = await fileBase64(smaller);
+    return { ...image, mime: smaller.type, size: smaller.size, data, url: `data:${smaller.type};base64,${data}` };
+  }));
+}
+
 /// The previews of `list` for its chips. Opening one shows the picture the
-/// user attached, not the small preview that goes inline.
+/// user attached, including when the inline image was resized.
 export function previewsOf(list: Attached[]): Preview[] {
   return list.map(image => ({ url: image.url, name: image.name, full: () => fullOf(image) }));
 }
@@ -105,7 +137,15 @@ const loadAgentImage = (o: OpenAgent, key: string) => loadOnce(agentImages, "age
 
 /// The picture a tile of the log stands for, whole: what opens, saves or
 /// copies, as the tile itself may show a thumbnail. Null when it cannot be read.
-export const fullPic = (o: OpenAgent, img: HTMLImageElement) => img.dataset.key ? loadAgentImage(o, img.dataset.key) : Promise.resolve(img.src);
+export async function fullPic(o: OpenAgent, img: HTMLImageElement) {
+  if (img.dataset.original) {
+    const { bytes, mime } = await readFile(o.machine_id, img.dataset.original, o.session, () => {});
+    if (!mime.startsWith("image/")) throw new Error("The file is not an image");
+    return `data:${mime};base64,${await fileBase64(new Blob([bytes], { type: mime }))}`;
+  }
+
+  return img.dataset.key ? loadAgentImage(o, img.dataset.key) : img.src;
+}
 
 /// A picture of `key` already here: whole, or its thumbnail.
 function picHere(key: string) {
