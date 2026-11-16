@@ -11,7 +11,7 @@ import { SubIcon } from "./activity-view.tsx";
 /// Replies already contain the sanitized Markdown produced by the node.
 export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string; sentAt?: number | null }
 export interface BlockedRow { kind: "blocked"; id: string; message: string }
-export interface PromptRow { kind: "prompt"; row: string; html: string; pictures: string; sentAt?: number | null }
+export interface PromptRow { kind: "prompt"; row: string; html: string; files: string[]; pictures: string; sentAt?: number | null }
 export type ContextRow = { kind: "context"; id: string; type: "context"; text: string } | { kind: "context"; id: string; type: "session"; name: string; project: string | null; html: string } | { kind: "context"; id: string; type: "child"; part: Extract<PromptPart, { kind: "child" }>; body: string; agent: string | null; name: string; project: string | null };
 
 export const AgentReply = memo(function AgentReply({ reply }: { reply: ReplyRow }) {
@@ -23,8 +23,16 @@ export function AgentError({ message }: { message: string }) {
 }
 
 export const AgentPrompt = memo(function AgentPrompt({ prompt }: { prompt: PromptRow }) {
-  return <div className="dcoderen user md" data-at={prompt.row}><b>You <EntryTime at={prompt.sentAt ?? null} /></b>{prompt.html && <div className="said" dangerouslySetInnerHTML={{ __html: prompt.html }} />}{prompt.pictures && <span className="pics" dangerouslySetInnerHTML={{ __html: prompt.pictures }} />}</div>;
+  return <div className="dcoderen user md" data-at={prompt.row}><b>You <EntryTime at={prompt.sentAt ?? null} /></b>{prompt.html && <div className="said" dangerouslySetInnerHTML={{ __html: prompt.html }} />}{prompt.files.length > 0 && <AttachedFiles paths={prompt.files} />}{prompt.pictures && <span className="pics" dangerouslySetInnerHTML={{ __html: prompt.pictures }} />}</div>;
 });
+
+/// The files a prompt named, by file name. More than five fold under a
+/// count. A click opens the file (`session-click.ts`).
+function AttachedFiles({ paths }: { paths: string[] }) {
+  const items = <div className="attachment-items">{paths.map((path, i) => <button type="button" key={i} className="attachment-file" data-attachment-path={path} title={path}>{path.split(/[\\/]/).filter(Boolean).pop() ?? path}</button>)}</div>;
+
+  return paths.length > 5 ? <details className="attachment-batch"><summary>{paths.length} attachments</summary>{items}</details> : items;
+}
 
 export const AgentContext = memo(function AgentContext({ row }: { row: ContextRow }) {
   if (row.type === "context") return <details className="dcoderen beepctx"><summary>Beep context</summary><pre>{row.text}</pre></details>;

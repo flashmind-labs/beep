@@ -62,12 +62,15 @@ export function sessionMessageTitle(name: string): string {
 
 const PICTURE = /\.(?:png|jpe?g|gif|webp|heic|bmp|tiff?)$/i;
 
-/// Fold standalone file-reference paragraphs without changing the stored prompt.
-/// With `pictured`, the message shows its pictures itself, so their files get no chip.
-export function compactPromptAttachments(html: string, pictured = false): string {
-  if (!html.includes("@")) return html;
+/// A prompt's Markdown HTML without its standalone file-reference
+/// paragraphs, and the files they named. The stored prompt is unchanged.
+/// With `pictured`, the message shows its pictures itself, so their files are left out.
+export function promptAttachments(html: string, pictured = false): { html: string; files: string[] } {
+  if (!html.includes("@")) return { html, files: [] };
+
   const template = document.createElement("template");
   template.innerHTML = html;
+  const files: string[] = [];
 
   for (const paragraph of template.content.querySelectorAll("p")) {
     if (paragraph.closest("pre, code, details, blockquote") || paragraph.querySelector("code, img")) continue;
@@ -76,33 +79,9 @@ export function compactPromptAttachments(html: string, pictured = false): string
     if (!references.length || text.replace(/@(?:"[^"\n]+"|[^\s"]+)/g, "").trim()) continue;
     const named = references.map(match => match[1] ?? match[2]);
     if (named.some(path => !/[\\/.]/.test(path))) continue;
-    const paths = pictured ? named.filter(path => !PICTURE.test(path)) : named;
-    if (!paths.length) { paragraph.remove(); continue; }
-
-    const items = document.createElement("div");
-    items.className = "attachment-items";
-
-    for (const path of paths) {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.dataset.attachmentPath = path;
-      chip.className = "attachment-file";
-      chip.title = path;
-      chip.textContent = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
-      items.append(chip);
-    }
-
-    if (paths.length > 5) {
-      const batch = document.createElement("details");
-      batch.className = "attachment-batch";
-      const summary = document.createElement("summary");
-      summary.textContent = `${paths.length} attachments`;
-      batch.append(summary, items);
-      paragraph.replaceWith(batch);
-    } else {
-      paragraph.replaceWith(items);
-    }
+    files.push(...pictured ? named.filter(path => !PICTURE.test(path)) : named);
+    paragraph.remove();
   }
 
-  return template.innerHTML;
+  return { html: template.innerHTML, files };
 }

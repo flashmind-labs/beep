@@ -1,4 +1,4 @@
-import { compactPromptAttachments } from "./promptparts-state.ts";
+import { promptAttachments } from "./promptparts-state.ts";
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
 import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkImagePaths, markWarnings, mediaPaths, parseTool, sentFiles, subagent, tailLines } from "./agentlog.ts";
@@ -483,7 +483,7 @@ function userRows(en: AgentEntry, at: number): (PromptRow | ContextRow)[] {
   // A message just sent has no HTML until the next read: its text shows meanwhile.
   const html = en.html ?? (words ? words.split(/\n\s*\n/).map(part => `<p>${esc(part).replace(/\n/g, "<br>")}</p>`).join("") : "");
   const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
-  const prompt: PromptRow = { sentAt: en.sent_at ?? null, kind: "prompt", row: String(at), html: compactPromptAttachments(said, names.length > 0), pictures: names.map(entryPic).join("") };
+  const prompt: PromptRow = { sentAt: en.sent_at ?? null, kind: "prompt", row: String(at), ...promptAttachments(said, names.length > 0), pictures: names.map(entryPic).join("") };
   return [...others, prompt];
 }
 

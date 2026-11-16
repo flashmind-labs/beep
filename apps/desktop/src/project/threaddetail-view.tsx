@@ -1,14 +1,19 @@
-import { useLayoutEffect, useRef } from "react";
+import { cloneElement, isValidElement, useMemo } from "react";
+import parse from "html-react-parser";
 import { formatAgo } from "../ui/format.ts";
-import { patchHtml } from "../ui/patch.ts";
 import { forgeLabel, type ThreadDetailRow, type ThreadStub } from "./threaddetail.tsx";
 import { Button, Chip, EmptyPanel } from "../ui/kit.tsx";
 
 const CHECKS: Record<string, [string, string]> = { failed: ["blocked", "checks failing"], passed: ["done", "checks passing"], running: ["running", "checks running"], queued: ["running", "checks queued"], waiting: ["running", "checks waiting"] };
 function Markdown({ html, open }: { html: string; open(url: string): void }) {
-  const node = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => { if (node.current) patchHtml(node.current, html); }, [html]);
-  return <div ref={node} className="pj-md" onClick={event => { const target = event.target; if (!(target instanceof Element)) return; const link = target.closest<HTMLAnchorElement>("a"); if (link) { event.preventDefault(); if (link.href) open(link.href); } }} />;
+  // Keyed by place, so a paragraph that stays keeps its element (and the reader's selection).
+  const body = useMemo(() => {
+    const nodes = parse(html);
+    return (Array.isArray(nodes) ? nodes : [nodes]).map((node, i) => isValidElement(node) ? cloneElement(node, { key: i }) : node);
+  }, [html]);
+
+
+  return <div className="pj-md" onClick={event => { const target = event.target; if (!(target instanceof Element)) return; const link = target.closest<HTMLAnchorElement>("a"); if (link) { event.preventDefault(); if (link.href) open(link.href); } }}>{body}</div>;
 }
 export interface ThreadActions { buttons: { key: string; label: string; primary: boolean; disabled: boolean; title: string; run(): void }[]; error: string | null }
 export function ThreadDetailView({ stub, data, error, acts, text, posting, draftError, edit, post, open }: { stub: ThreadStub; data: ThreadDetailRow | null | undefined; error: string | undefined; acts: ThreadActions; text: string; posting: boolean; draftError: string | undefined; edit(value: string): void; post(): void; open(url: string): void }) {
