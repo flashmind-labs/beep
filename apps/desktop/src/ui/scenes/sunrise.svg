@@ -1,0 +1,55 @@
+<!-- A sunrise over a harbour, after Monet's "Impression, Sunrise".
+     `class="rise"`: the sun and its glow. They climb `data-rise` of the height into the place
+     drawn here as the painting fills in, and show only above `data-level`. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="900" viewBox="-400 0 2400 900" data-level="0.58" data-rise="0.3">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="522" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#32405c" />
+      <stop offset="0.6" stop-color="#5e6275" />
+      <stop offset="0.85" stop-color="#7e7280" />
+      <stop offset="1" stop-color="#9e7a79" />
+    </linearGradient>
+    <radialGradient id="glow" cx="912" cy="306" r="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#de845c" stop-opacity="0.7" />
+      <stop offset="0.4" stop-color="#de845c" stop-opacity="0.35" />
+      <stop offset="1" stop-color="#de845c" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="water" x1="0" y1="522" x2="0" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#586678" />
+      <stop offset="1" stop-color="#26384e" />
+    </linearGradient>
+    <radialGradient id="hazeOnWater" cx="912" cy="522" r="300" gradientUnits="userSpaceOnUse" gradientTransform="translate(912 522) scale(0.55 1) translate(-912 -522)">
+      <stop offset="0" stop-color="#ba7c6e" stop-opacity="0.4" />
+      <stop offset="1" stop-color="#ba7c6e" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect x="-400" width="2400" height="522" fill="url(#sky)" />
+  <rect x="-400" y="522" width="2400" height="378" fill="url(#water)" />
+  <rect x="-400" y="522" width="2400" height="378" fill="url(#hazeOnWater)" />
+  <path class="glint" fill="#f4642e" opacity="0.9" d="M897 525 L927 525 L981 843 L843 843 Z" />
+
+  <g class="rise">
+    <rect x="-400" width="2400" height="900" fill="url(#glow)" />
+    <circle cx="912" cy="306" r="38" fill="#f4642e" />
+  </g>
+
+  <!-- Drawn sharp over the strokes as the painting fills in: masts in the haze along the
+       horizon, then two boats and their shadows on the water. -->
+  <g class="ink" fill="none" stroke-linecap="round">
+    <g stroke="#425066" opacity="0.5">
+      <path stroke-width="3" d="M160 522V378M256 522V432M368 522V405M1232 522V441M1344 522V387M1440 522V423" />
+      <path stroke-width="6" d="M145 524H175M241 524H271M353 524H383M1217 524H1247M1329 524H1359M1425 524H1455" />
+    </g>
+    <g stroke="#14202e">
+      <path stroke-width="8" d="M677 720L731 718" />
+      <path stroke-width="6" d="M698 698V716" />
+      <path stroke-width="5" d="M547 614L579 613" />
+      <path stroke-width="4" d="M559 600V611" />
+    </g>
+    <g stroke="#19283a" stroke-width="4">
+      <path d="M692 728H723M690 737H713M690 746H703" />
+      <path stroke-width="2.4" d="M553 619H572M552 624H566M552 630H560" />
+    </g>
+  </g>
+</svg>

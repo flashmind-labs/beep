@@ -1,0 +1,63 @@
+<!-- After Friedrich: a wanderer on a rock above a sea of fog, with ridges running down into it
+     and far mountains standing out of it. -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="900" viewBox="0 0 1600 900" data-level="0.44">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="423" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#70829a" />
+      <stop offset="0.5" stop-color="#a6a4a6" />
+      <stop offset="1" stop-color="#c8beac" />
+    </linearGradient>
+    <linearGradient id="near" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#42526c" />
+      <stop offset="0.6" stop-color="#4c5a72" />
+      <stop offset="1" stop-color="#c0beba" />
+    </linearGradient>
+    <linearGradient id="far" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#85888c" />
+      <stop offset="0.6" stop-color="#8e9092" />
+      <stop offset="1" stop-color="#c0beba" />
+    </linearGradient>
+    <!-- The tops of the ridges that run down into the fog, each drawn as a dark band fading below. -->
+    <path id="ridges" d="M0 477 L200 503 L400 529 L600 555 L813 583 M864 565 L1050 534 L1250 500 L1450 466 L1600 441 M954 516 L1024 498 L1094 516 M445 529 L496 517 L547 529" />
+  </defs>
+
+  <rect width="1600" height="423" fill="url(#sky)" />
+  <path fill="url(#far)" d="M640 405 C760 390 880 340 976 225 C1072 340 1192 390 1312 405 Z" />
+  <path fill="url(#near)" d="M0 405 L0 330 C100 315 220 306 320 306 C420 306 560 330 720 405 Z" />
+  <path fill="url(#near)" d="M1208 405 L1258 338 L1398 338 L1448 405 Z" />
+
+  <!-- The sea of fog. -->
+  <rect y="405" width="1600" height="495" fill="#b5b6ba" />
+  <g fill="#70829a" opacity="0.15">
+    <path d="M0 470 C400 455 900 490 1600 460 L1600 480 C900 510 400 475 0 490 Z" />
+    <path d="M0 610 C500 595 1000 630 1600 600 L1600 622 C1000 652 500 617 0 632 Z" />
+    <path d="M0 760 C450 745 1100 780 1600 750 L1600 770 C1100 800 450 765 0 780 Z" />
+  </g>
+  <g fill="none" stroke="#343238">
+    <use href="#ridges" xlink:href="#ridges" stroke-width="18" opacity="0.85" transform="translate(0 9)" />
+    <use href="#ridges" xlink:href="#ridges" stroke-width="18" opacity="0.5" transform="translate(0 27)" />
+    <use href="#ridges" xlink:href="#ridges" stroke-width="18" opacity="0.18" transform="translate(0 45)" />
+  </g>
+
+  <!-- The crag climbs slowly from the left and drops steeply to the right, where a lower one stands. -->
+  <path fill="#221c1c" d="M0 906 L200 840 L400 790 L600 722 L700 700 L800 666 L860 690 L920 740 L980 778 L1050 810 L1110 777 L1160 749 L1196 729 L1240 752 L1295 793 L1349 828 L1600 820 L1600 900 L0 900 Z" />
+  <path class="glint" fill="none" stroke="#544238" stroke-width="14" opacity="0.7" d="M0 913 L200 847 L400 797 L600 729 L700 707 L800 673 L860 697 L920 747 L980 785 L1050 817 L1110 784 L1160 756 L1196 736 L1240 759 L1295 800 L1349 835 L1600 827" />
+
+  <!-- Drawn sharp over the strokes as the painting fills in: the wanderer, his back to us, one
+       foot up on the rock, a long coat, wind in his hair and a cane. Points are across and up
+       from his feet, in his height. -->
+  <g class="ink" transform="translate(800 675.7) scale(324 -324)">
+    <polygon fill="#221c1c" points="-0.36,-0.05 -0.2,0.012 -0.04,0.012 0.01,0.07 0.16,0.07 0.19,0.035 0.25,0.03 0.33,-0.06 0.42,-0.22 -0.5,-0.22" />
+    <polygon fill="#182220" points="-0.07,0.5 -0.115,0.03 -0.15,0 -0.055,0 -0.045,0.03 -0.005,0.5" />
+    <polygon fill="#182220" points="0.005,0.5 0.045,0.3 0.04,0.1 0.025,0.06 0.14,0.06 0.105,0.1 0.11,0.31 0.08,0.5" />
+    <polygon fill="#0e1a18" points="-0.04,0.865 -0.115,0.83 -0.125,0.7 -0.085,0.61 -0.125,0.4 -0.03,0.385 0,0.46 0.03,0.385 0.125,0.41 0.085,0.61 0.115,0.7 0.115,0.83 0.04,0.865" />
+    <polygon fill="#1c2e28" points="0.04,0.865 0.115,0.83 0.115,0.7 0.085,0.61 0.125,0.41 0.085,0.4 0.055,0.61 0.08,0.72 0.07,0.82" />
+    <polygon fill="#0e1a18" points="-0.115,0.83 -0.15,0.67 -0.15,0.51 -0.115,0.5 -0.105,0.67" />
+    <polygon fill="#0e1a18" points="0.115,0.83 0.165,0.68 0.17,0.51 0.135,0.5 0.125,0.66 0.09,0.73" />
+    <polygon fill="#96705c" points="-0.15,0.51 -0.15,0.475 -0.118,0.47 -0.115,0.5" />
+    <polygon fill="#96705c" points="0.135,0.5 0.137,0.465 0.172,0.47 0.17,0.51" />
+    <polygon fill="#604630" points="0.148,0.5 0.164,0.5 0.215,0.03 0.203,0.03" />
+    <polygon fill="#96705c" points="-0.028,0.905 -0.028,0.855 0.028,0.855 0.028,0.905" />
+    <polygon fill="#b0703a" points="-0.052,0.93 -0.05,0.985 -0.01,1.005 0.045,0.995 0.08,0.965 0.052,0.955 0.05,0.9 -0.042,0.89" />
+  </g>
+</svg>

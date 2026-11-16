@@ -1,0 +1,58 @@
+<!-- Parliament in the evening fog, after Monet: towers against the sky, the low sun beside
+     them, and the river that carries both. -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="2400" height="900" viewBox="-400 0 2400 900" data-level="0.57">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="513" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#463e6c" />
+      <stop offset="0.5" stop-color="#6c4c68" />
+      <stop offset="1" stop-color="#aa6058" />
+    </linearGradient>
+    <radialGradient id="gold" cx="736" cy="252" r="280" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0a654" stop-opacity="0.75" />
+      <stop offset="0.45" stop-color="#f0a654" stop-opacity="0.35" />
+      <stop offset="1" stop-color="#f0a654" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="towers" x1="0" y1="103" x2="0" y2="513" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#403a65" />
+      <stop offset="0.5" stop-color="#493e63" />
+      <stop offset="1" stop-color="#664860" />
+    </linearGradient>
+    <linearGradient id="river" x1="0" y1="513" x2="0" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#966060" />
+      <stop offset="0.35" stop-color="#5c4062" />
+      <stop offset="1" stop-color="#282852" />
+    </linearGradient>
+    <linearGradient id="goldInRiver" x1="0" y1="513" x2="0" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0a654" stop-opacity="0.3" />
+      <stop offset="1" stop-color="#f0a654" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="mirrored" x1="0" y1="513" x2="0" y2="126" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#343666" stop-opacity="0.6" />
+      <stop offset="1" stop-color="#343666" stop-opacity="0" />
+    </linearGradient>
+    <!-- The skyline: the long roof with its pinnacles, running down into the fog at its left
+         end, under Victoria Tower, a spire, the clock tower and a lower spire. -->
+    <path id="skyline" d="M800 513 L856 400 L896 382 L896 360 L904 360 L904 382 L963 382 L963 360 L971 360 L971 382 L1030 382 L1030 360 L1038 360 L1038 382 L1097 382 L1097 360 L1105 360 L1105 382 L1164 382 L1164 360 L1172 360 L1172 382 L1231 382 L1231 360 L1239 360 L1239 382 L1298 382 L1298 360 L1306 360 L1306 382 L1365 382 L1365 360 L1373 360 L1373 382 L1432 382 L1432 360 L1440 360 L1440 382 L1499 382 L1499 360 L1507 360 L1507 382 L1566 382 L1566 360 L1574 360 L1574 382 L2000 382 L2000 513 Z
+      M838 380 L856 324 L874 380 Z
+      M931 351 L944 234 L957 351 Z
+      M1011 382 L1011 103 L1028 103 L1028 135 L1148 135 L1148 103 L1165 103 L1165 382 Z
+      M1301 382 L1301 261 L1328 189 L1355 261 L1355 382 Z" />
+  </defs>
+
+  <rect x="-400" width="2400" height="513" fill="url(#sky)" />
+  <g fill="#463e6c" opacity="0.2">
+    <path d="M-400 70 C200 50 900 100 2000 60 L2000 88 C900 125 200 80 -400 98 Z" />
+    <path d="M-400 190 C300 175 1000 215 2000 180 L2000 202 C1000 235 300 198 -400 212 Z" />
+  </g>
+  <rect x="-400" width="2400" height="513" fill="url(#gold)" />
+  <circle cx="736" cy="252" r="31" fill="#fcce70" />
+  <use href="#skyline" xlink:href="#skyline" fill="url(#towers)" />
+
+  <rect x="-400" y="513" width="2400" height="387" fill="url(#river)" />
+  <rect x="594" y="513" width="284" height="387" fill="url(#goldInRiver)" />
+  <use href="#skyline" xlink:href="#skyline" fill="url(#mirrored)" transform="matrix(1 0 0 -1 0 1026)" />
+  <path class="glint" fill="#fcce70" opacity="0.85" d="M721 520 L751 520 L805 842 L667 842 Z" />
+
+  <!-- Drawn sharp over the strokes as the painting fills in, so the towers hold in the fog. -->
+  <use class="ink" href="#skyline" xlink:href="#skyline" fill="#343666" opacity="0.5" />
+</svg>

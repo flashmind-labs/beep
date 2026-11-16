@@ -1,0 +1,125 @@
+<!-- The lily pond under its footbridge, after Monet. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" data-level="0.43">
+  <defs>
+    <pattern id="willow" width="72" height="900" patternUnits="userSpaceOnUse">
+      <rect x="10" width="16" height="900" fill="#8e9658" />
+    </pattern>
+    <pattern id="reflected" width="214" height="900" patternUnits="userSpaceOnUse">
+      <rect x="20" width="70" height="900" fill="#325846" />
+    </pattern>
+    <linearGradient id="pond" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e3c44" />
+      <stop offset="1" stop-color="#22404c" />
+    </linearGradient>
+    <linearGradient id="skyInPond" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5c6c8e" stop-opacity="0.2" />
+      <stop offset="0.14" stop-color="#5c6c8e" stop-opacity="0.6" />
+      <stop offset="0.4" stop-color="#5c6c8e" stop-opacity="0.15" />
+      <stop offset="0.6" stop-color="#5c6c8e" stop-opacity="0" />
+      <stop offset="0.85" stop-color="#5c6c8e" stop-opacity="0.15" />
+      <stop offset="1" stop-color="#5c6c8e" stop-opacity="0.5" />
+    </linearGradient>
+    <linearGradient id="deeper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#000" stop-opacity="0.35" />
+      <stop offset="1" stop-color="#000" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Trees and willow behind the bridge. -->
+  <rect width="1600" height="387" fill="#1a322c" />
+  <g fill="#5c7e50" opacity="0.45">
+    <ellipse cx="120" cy="80" rx="140" ry="60" />
+    <ellipse cx="420" cy="190" rx="120" ry="50" />
+    <ellipse cx="700" cy="60" rx="160" ry="45" />
+    <ellipse cx="980" cy="160" rx="130" ry="60" />
+    <ellipse cx="1260" cy="70" rx="150" ry="50" />
+    <ellipse cx="1500" cy="220" rx="120" ry="55" />
+    <ellipse cx="260" cy="320" rx="110" ry="40" />
+    <ellipse cx="1120" cy="320" rx="120" ry="40" />
+  </g>
+  <rect class="glint" width="1600" height="387" fill="url(#willow)" opacity="0.6" />
+
+  <!-- The pond, with the trees and the sky standing in it, and drifts of pads. -->
+  <rect y="387" width="1600" height="513" fill="url(#pond)" />
+  <rect class="glint" y="387" width="1600" height="513" fill="url(#reflected)" opacity="0.6" />
+  <rect y="387" width="1600" height="513" fill="url(#skyInPond)" />
+  <rect y="387" width="1600" height="200" fill="url(#deeper)" />
+  <g fill="#4e7e60">
+    <ellipse cx="183" cy="433" rx="30" ry="10" />
+    <ellipse cx="271" cy="454" rx="32" ry="10" />
+    <ellipse cx="357" cy="505" rx="38" ry="12" />
+    <ellipse cx="148" cy="485" rx="36" ry="11" />
+    <ellipse cx="180" cy="507" rx="38" ry="12" />
+    <ellipse cx="340" cy="488" rx="36" ry="12" />
+    <ellipse cx="1274" cy="488" rx="36" ry="12" />
+    <ellipse cx="1172" cy="452" rx="32" ry="10" />
+    <ellipse cx="1249" cy="447" rx="32" ry="10" />
+    <ellipse cx="1462" cy="462" rx="33" ry="11" />
+    <ellipse cx="1174" cy="445" rx="32" ry="10" />
+    <ellipse cx="1286" cy="485" rx="36" ry="11" />
+    <ellipse cx="1348" cy="435" rx="30" ry="10" />
+    <ellipse cx="1001" cy="594" rx="48" ry="15" />
+    <ellipse cx="1061" cy="549" rx="43" ry="14" />
+    <ellipse cx="930" cy="563" rx="44" ry="14" />
+    <ellipse cx="856" cy="547" rx="43" ry="14" />
+    <ellipse cx="970" cy="540" rx="42" ry="13" />
+    <ellipse cx="870" cy="546" rx="42" ry="14" />
+    <ellipse cx="942" cy="601" rx="48" ry="16" />
+    <ellipse cx="1138" cy="592" rx="47" ry="15" />
+    <ellipse cx="774" cy="539" rx="42" ry="13" />
+    <ellipse cx="485" cy="722" rx="62" ry="20" />
+    <ellipse cx="273" cy="728" rx="62" ry="20" />
+    <ellipse cx="684" cy="722" rx="62" ry="20" />
+    <ellipse cx="628" cy="682" rx="57" ry="18" />
+    <ellipse cx="627" cy="729" rx="62" ry="20" />
+    <ellipse cx="286" cy="715" rx="61" ry="19" />
+    <ellipse cx="559" cy="668" rx="56" ry="18" />
+    <ellipse cx="384" cy="714" rx="61" ry="19" />
+    <ellipse cx="505" cy="682" rx="57" ry="18" />
+    <ellipse cx="1336" cy="727" rx="62" ry="20" />
+    <ellipse cx="1238" cy="792" rx="69" ry="22" />
+    <ellipse cx="1281" cy="732" rx="63" ry="20" />
+    <ellipse cx="1384" cy="756" rx="65" ry="21" />
+    <ellipse cx="1359" cy="752" rx="65" ry="21" />
+    <ellipse cx="1170" cy="773" rx="67" ry="21" />
+    <ellipse cx="1471" cy="796" rx="70" ry="22" />
+    <ellipse cx="1340" cy="789" rx="69" ry="22" />
+    <ellipse cx="770" cy="854" rx="76" ry="24" />
+    <ellipse cx="903" cy="819" rx="72" ry="23" />
+    <ellipse cx="771" cy="803" rx="70" ry="23" />
+    <ellipse cx="773" cy="871" rx="78" ry="25" />
+    <ellipse cx="961" cy="802" rx="70" ry="22" />
+    <ellipse cx="974" cy="867" rx="77" ry="25" />
+  </g>
+
+  <!-- Drawn sharp over the strokes as the painting fills in: the footbridge, a deck and a
+       handrail in one arc on posts, and the flowers on their pads. -->
+  <g class="ink" fill="none" stroke-linecap="round">
+    <path stroke="#3a6262" stroke-width="7" d="M160 365 Q800 122 1440 365" />
+    <path stroke="#80aa9a" stroke-width="4" d="M160 302 Q800 59 1440 302" />
+    <path stroke="#80aa9a" stroke-width="3" d="M160 302V365M240 273V336M320 248V311M400 227V290M480 210V273M560 197V260M640 188V251M720 182V245M800 180V243M880 182V245M960 188V251M1040 197V260M1120 210V273M1200 227V290M1280 248V311M1360 273V336M1440 302V365" />
+    <g stroke="none">
+      <ellipse fill="#e896ac" cx="183" cy="430" rx="10" ry="5" />
+      <ellipse fill="#eee4d6" cx="357" cy="501" rx="14" ry="5" />
+      <ellipse fill="#eee4d6" cx="180" cy="504" rx="14" ry="5" />
+      <ellipse fill="#eee4d6" cx="1249" cy="444" rx="12" ry="5" />
+      <ellipse fill="#e896ac" cx="1174" cy="442" rx="12" ry="5" />
+      <ellipse fill="#eee4d6" cx="1286" cy="482" rx="14" ry="5" />
+      <ellipse fill="#e896ac" cx="1348" cy="433" rx="10" ry="5" />
+      <ellipse fill="#e896ac" cx="1001" cy="590" rx="16" ry="6" />
+      <ellipse fill="#e896ac" cx="970" cy="537" rx="15" ry="6" />
+      <ellipse fill="#eee4d6" cx="942" cy="597" rx="16" ry="6" />
+      <ellipse fill="#eee4d6" cx="1138" cy="588" rx="16" ry="6" />
+      <ellipse fill="#eee4d6" cx="684" cy="717" rx="21" ry="8" />
+      <ellipse fill="#eee4d6" cx="627" cy="724" rx="21" ry="8" />
+      <ellipse fill="#e896ac" cx="286" cy="710" rx="21" ry="8" />
+      <ellipse fill="#e896ac" cx="559" cy="663" rx="20" ry="8" />
+      <ellipse fill="#eee4d6" cx="384" cy="709" rx="21" ry="8" />
+      <ellipse fill="#e896ac" cx="505" cy="678" rx="20" ry="8" />
+      <ellipse fill="#e896ac" cx="1471" cy="791" rx="22" ry="10" />
+      <ellipse fill="#e896ac" cx="770" cy="847" rx="26" ry="10" />
+      <ellipse fill="#eee4d6" cx="771" cy="797" rx="22" ry="10" />
+      <ellipse fill="#eee4d6" cx="773" cy="865" rx="26" ry="10" />
+    </g>
+  </g>
+</svg>

@@ -6,7 +6,7 @@ import * as esbuild from "esbuild";
 
 /// The modules of `entry` in the order they run, following static imports.
 async function runOrder(entry: string) {
-  const { metafile } = await esbuild.build({ entryPoints: [entry], bundle: true, write: false, metafile: true, format: "esm", outdir: "unused", splitting: true, logLevel: "silent" });
+  const { metafile } = await esbuild.build({ entryPoints: [entry], bundle: true, write: false, metafile: true, format: "esm", outdir: "unused", splitting: true, loader: { ".svg": "text" }, logLevel: "silent" });
   const seen = new Set<string>(), order: string[] = [];
   const visit = (file: string) => {
     if (seen.has(file)) return;

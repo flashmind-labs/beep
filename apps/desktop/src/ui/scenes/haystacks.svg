@@ -1,0 +1,68 @@
+<!-- Haystacks at dusk, after Monet. The brush strokes take their colours from this picture.
+     `data-level`: where the field begins, down the height. Strokes lie level below it and rows sway widest.
+     `class="glint"`: drawn only in the strokes that catch the light. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="900" viewBox="-400 0 2400 900" data-level="0.4">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#383e64" />
+      <stop offset="0.6" stop-color="#5e4c74" />
+      <stop offset="1" stop-color="#966264" />
+    </linearGradient>
+    <radialGradient id="afterglow" cx="875" cy="324" r="460" gradientUnits="userSpaceOnUse" gradientTransform="translate(0 259) scale(1 0.2)">
+      <stop offset="0" stop-color="#ec9654" stop-opacity="0.9" />
+      <stop offset="0.5" stop-color="#ec9654" stop-opacity="0.45" />
+      <stop offset="1" stop-color="#ec9654" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#966854" />
+      <stop offset="0.35" stop-color="#6c5258" />
+      <stop offset="1" stop-color="#3c3642" />
+    </linearGradient>
+    <linearGradient id="shadow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c2a4a" stop-opacity="0.85" />
+      <stop offset="1" stop-color="#2c2a4a" stop-opacity="0.3" />
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#de7c3e" stop-opacity="0.5" />
+      <stop offset="0.14" stop-color="#de7c3e" stop-opacity="0" />
+      <stop offset="0.86" stop-color="#de7c3e" stop-opacity="0" />
+      <stop offset="1" stop-color="#de7c3e" stop-opacity="0.5" />
+    </linearGradient>
+  </defs>
+
+  <!-- Dusk sky over far hills, burning where the sun has set behind the stacks. The picture is
+       wide, so a wide window shows all its height: the land is stretched to the sides. -->
+  <g transform="translate(-400 0) scale(1.5 1)">
+  <rect width="1600" height="900" fill="url(#sky)" />
+  <g fill="#383e64" opacity="0.22">
+    <path d="M0 60 C400 40 900 90 1600 50 L1600 75 C900 115 400 70 0 85 Z" />
+    <path d="M0 150 C500 135 1000 175 1600 140 L1600 160 C1000 195 500 155 0 170 Z" />
+    <path d="M0 235 C450 225 1100 255 1600 228 L1600 243 C1100 268 450 240 0 248 Z" />
+  </g>
+  <rect width="1600" height="400" fill="url(#afterglow)" />
+
+  <path fill="#564864" d="M0 296 C200 284 380 316 600 300 C820 284 1000 306 1200 294 C1380 284 1500 300 1600 292 L1600 362 L0 362 Z" />
+  <rect y="290" width="1600" height="72" fill="url(#afterglow)" opacity="0.5" />
+  <path fill="#2c3242" d="M0 342 C60 334 110 346 180 338 C260 330 320 348 400 340 C500 332 560 346 660 337 C760 330 840 347 940 339 C1040 332 1120 346 1220 338 C1320 331 1400 347 1500 339 C1550 335 1580 340 1600 338 L1600 362 L0 362 Z" />
+
+  <!-- The field, with long shadows falling toward us and to the left. -->
+  <rect y="360" width="1600" height="540" fill="url(#field)" />
+  <path class="glint" fill="#ec9654" opacity="0.25" d="M0 360 L1600 360 L1600 470 C1100 440 500 460 0 480 Z" />
+  </g>
+  <path fill="url(#shadow)" d="M747 392 L901 392 L820 464 L706 464 Z" />
+  <path fill="url(#shadow)" d="M891 412 L1157 412 L1013 540 L817 540 Z" />
+
+  <!-- Two stacks: walls leaning out as they rise, under a cone of thatch with its eaves past them. -->
+  <g>
+    <path fill="#3e2030" d="M754 396 L743 328 L905 328 L894 396 Z" />
+    <path fill="#924c32" d="M737 330 C752 285 790 262 824 261 C858 262 896 285 911 330 Z" />
+    <path fill="url(#rim)" d="M754 396 L743 328 L737 330 C752 285 790 262 824 261 C858 262 896 285 911 330 L905 328 L894 396 Z" />
+    <path class="glint" fill="none" stroke="#de7c3e" stroke-width="6" d="M754 396 L743 328 L737 330 C752 285 790 262 824 261 C858 262 896 285 911 330 L905 328 L894 396" />
+  </g>
+  <g>
+    <path fill="#3e2030" d="M904 418 L884 296 L1164 296 L1144 418 Z" />
+    <path fill="#924c32" d="M873 299 C900 220 970 178 1024 175 C1078 178 1148 220 1175 299 Z" />
+    <path fill="url(#rim)" d="M904 418 L884 296 L873 299 C900 220 970 178 1024 175 C1078 178 1148 220 1175 299 L1164 296 L1144 418 Z" />
+    <path class="glint" fill="none" stroke="#de7c3e" stroke-width="8" d="M904 418 L884 296 L873 299 C900 220 970 178 1024 175 C1078 178 1148 220 1175 299 L1164 296 L1144 418" />
+  </g>
+</svg>
