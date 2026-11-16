@@ -2,6 +2,38 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.13] - 2026-11-16
+
+### Added
+
+- Node: assistant chats get instructions for being the Beep assistant and
+  project tools: `projects_hosts` lists Git hosts, `projects_create` creates
+  a project (private repository unless asked), `projects_clone` clones a URL,
+  `projects_found` lists the projects found on your machines and
+  `projects_import` imports them.
+- Node: the project tools need a desktop to be online. Agents that the
+  assistant starts do not get them.
+- Node: an assistant chat stays one after beep-node restarts. A chat moved
+  to another machine keeps its title, model and thinking level.
+- Node: on a Windows machine without Claude Code installed on Windows,
+  the node now runs the Claude Code installed in a WSL distribution as
+  that machine's Claude Code. Sessions work on the project's Windows
+  folder, seen from WSL under `/mnt/`. The machine's Claude Code sign-in
+  is passed into WSL, and Beep tools work there. The WSL distribution no
+  longer needs to be added as a separate machine.
+- Node: with a Meshy API key saved, coding agents can animate, retexture,
+  remesh, convert, resize, UV unwrap, split and prepare 3D models for
+  printing, and make reliefs and Meshy images.
+
+### Fixed
+
+- Node: a skill library whose skills sit in an agent's folder, such as
+  `.claude/skills` or `.cursor/skills`, now lists those skills and they can
+  be installed. Before, the library showed 0 skills.
+- Node: in a Claude Code session run by a node, clicking the card of a
+  subagent started with the default agent opens that subagent's
+  conversation. Before, the click only expanded the card's result.
+
 ## [0.7.12] - 2026-11-15
 
 ### Added

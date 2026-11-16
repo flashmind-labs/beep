@@ -7,6 +7,75 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.16] - 2026-11-16
+
+### Added
+
+- Desktop: an Assistant page under Home in the sidebar lists the assistant's
+  chats, running ones first and ended ones under a fold, beside the open
+  chat. The assistant is an agent chat with no project that runs in a
+  machine's home folder. New chat, or Cmd+N on Home, opens its composer.
+- Desktop: Settings has an Assistant page to pick the assistant's harness,
+  model and thinking level. The choice applies to every desktop and phone.
+- Desktop: with no projects yet, Home shows the assistant with an "Import my
+  projects" suggestion and the projects found on your machines, each with
+  Import.
+- Desktop: the assistant starts on this computer when it offers the harness,
+  unless you pick a machine. Other machines need a newer beep-node.
+- Desktop: the start screen and empty pages, such as Home with nothing
+  running, show one of four paintings that changes each day: the sunrise,
+  haystacks at dusk, the lily pond with its footbridge, or Parliament at
+  sunset. The first run keeps the sunrise.
+- Desktop: a Developer mode switch in Settings > General. With it on, the
+  desktop updates to every release, patch releases included.
+
+### Changed
+
+- Desktop: a project page's board always shows Needs you, Working, Ready
+  to review and Done today, so the lanes keep their place when a session
+  finishes or asks something. The painting beside the lanes shows only in
+  a wide window and no longer comes and goes with the cards.
+- Desktop: Home sorts its project rows once after the app starts and keeps
+  that order, also when you leave Home and come back, so a session
+  finishing, asking or working no longer moves the rows; picking another
+  sort sorts them again.
+- Desktop: when a session window is too narrow for the chat beside the right
+  pane, the pane folds to a strip at the right edge instead of squeezing the
+  chat. The sidebar stays open.
+- Desktop: the folded strip lists every tab (Files, Changes, Subagents, Device
+  and others), not only Files. Picking one opens the pane over the chat; the
+  fold button goes back to the chat.
+- Desktop: widening the window again puts the pane back beside the chat as it
+  was.
+- Desktop: dimmed text, such as the board lane headers "Needs you" and
+  "Working" and secondary details, is brighter and meets the WCAG 4.5:1
+  contrast minimum.
+- Desktop: in Add a project, clicking anywhere on a found project's row
+  selects or deselects it, not only its checkbox.
+- Desktop: without Developer mode, the desktop updates only to minor releases
+  (such as 0.13.0) and skips patch releases.
+
+### Fixed
+
+- Desktop: the sidebar icons (Search, Home, Terminals, Settings) sit level
+  with their labels instead of slightly low.
+- Desktop: the notifications bell is centred in its button.
+- Desktop: a board card's title is as far from the card's top edge as from
+  its side.
+- Desktop: screen readers and voice control announce sidebar items, project
+  rows, machine rows, sort menus and the session title with the same names
+  you see on screen.
+- Desktop: typing `/` in the new agent field, on the start screen and in
+  the project bar, lists the agent's slash commands even on a machine that
+  has no running session of that coding agent. The list comes from a running
+  session of the same agent on another machine.
+- Desktop: a subagent card's result keeps its line breaks and sits under the
+  card's title instead of running together as one block.
+- Desktop: right-click menus, such as a file tab's menu in the side
+  panel, stay open when the panel updates and restores its scroll
+  position. They still close when you scroll with the mouse wheel or
+  a touch drag.
+
 ## [0.9.15] - 2026-11-15
 
 ### Added
