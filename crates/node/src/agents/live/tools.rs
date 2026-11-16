@@ -215,7 +215,8 @@ impl Live {
         // it, not in the transcript.
         let parent = parent_tool(call.meta.as_ref()).filter(|id| self.tools.contains_key(id));
         self.note_folder(call.kind, &call.locations, call.raw_input.as_ref());
-        let mut subagent = Subagent::of_call(&call.title, call.raw_input.as_ref());
+        let name = tool_name(call.name.as_deref(), call.meta.as_ref());
+        let mut subagent = Subagent::of_call(name.as_deref(), &call.title, call.raw_input.as_ref());
         let mut tool = ToolCall {
             title: call.title.clone(),
             kind: call.kind,
@@ -229,7 +230,7 @@ impl Live {
                 },
             ),
             details: AgentToolCall {
-                name: tool_name(call.name.as_deref(), call.meta.as_ref()),
+                name,
                 ..AgentToolCall::default()
             },
             ..Default::default()
@@ -426,7 +427,11 @@ impl Live {
         }
 
         if call.subagent.is_none() {
-            call.subagent = Subagent::of_call(&call.title, fields.raw_input.as_ref());
+            call.subagent = Subagent::of_call(
+                call.details.name.as_deref(),
+                &call.title,
+                fields.raw_input.as_ref(),
+            );
         }
 
         if let Some(subagent) = call.subagent.as_mut().filter(|sub| sub.codex) {

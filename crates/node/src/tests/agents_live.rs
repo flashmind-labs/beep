@@ -1259,6 +1259,22 @@ fn a_background_claude_subagent_stops_counting_when_its_task_ends() {
 }
 
 #[test]
+fn a_default_claude_subagent_is_linked_to_its_conversation() {
+    let mut live = live();
+    live.prompted("write the issue");
+    // Claude Code leaves out `subagent_type` for its default agent.
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "agent1", "title": "Write the issue",
+        "kind": "think", "status": "in_progress",
+        "_meta": {"claudeCode": {"toolName": "Agent"}},
+        "rawInput": {"description": "Write the issue", "prompt": "Open it", "model": "haiku"}
+    })));
+
+    assert_eq!(live.info.state.subagents, 1);
+    assert_eq!(live.claude_children(0, 2), [(1, "agent1".to_owned())]);
+}
+
+#[test]
 fn a_cancelled_turn_closes_the_subagent_calls_it_interrupted() {
     let mut live = live();
     live.prompted("research this");
