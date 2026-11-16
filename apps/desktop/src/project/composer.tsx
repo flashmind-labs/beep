@@ -427,9 +427,14 @@ export async function reviewPr(name: string, pr: PullRequestRow) {
   fillBar(name, task.prompt, task.target);
 }
 
-/// Review with agent on the PR's page: starts the reviewer at once.
-export async function startReview(name: string, pr: ReviewedPr, pick: ProjectPick) {
-  await startTask(name, await reviewTask(name, pr), pick);
+/// Review with agent on the PR's page and on Home: starts the reviewer at
+/// once, on `machine` when it can, or reviews again in the session that
+/// reviewed the PR before.
+export async function startReview(name: string, pr: ReviewedPr, pick: ProjectPick, machine: string | null = null) {
+  const task = await reviewTask(name, pr);
+  const earlier = task.target?.review?.earlier;
+  if (earlier) return steerReview(pr.number, earlier, task.prompt, []);
+  await startTask(name, task, pick, machine);
 }
 
 /// A review of `pr`. A fork's branch is not on `origin`, so that review
@@ -703,7 +708,10 @@ export function agentButtons(redraw: () => void) {
 /// The session that last reviewed PR `number` of `project`, found by its
 /// name among the project's sessions on every machine, as it is now.
 export function earlierReview(project: string, number: number): ReviewSession | null {
-  const found = reviewSession(state.sessions.get(project) ?? [], number);
+  // Home reads no project's sessions: those in the project's checkouts stand in.
+  const places = projectOf(project)?.places ?? [];
+  const inside = (s: ReviewSession) => places.some(p => p.machine === s.machine_id && `${s.cwd}/`.startsWith(`${p.cwd.replace(/\/+$/, "")}/`));
+  const found = reviewSession([...(state.sessions.get(project) ?? []), ...sessions.filter(inside)], number);
   return found && (sameSession(found) ?? found);
 }
 
@@ -715,38 +723,42 @@ function nameReview(s: ReviewSession, number: number) {
     .catch(e => console.warn("review title:", e));
 }
 
-/// Sends the review to the session that reviewed the PR before, resuming it
-/// when it ended, and opens it.
+/// Sends the bar's review to the session that reviewed the PR before.
 async function continueReview(number: number, earlier: ReviewSession, text: string) {
   const c = projectComp;
-  const listed = sameSession(earlier);
-  const at = { machineId: earlier.machine_id, agent: earlier.agent, session: earlier.id };
   c.update({ error: "" });
   pc.starting = true;
   redrawProjects();
 
   try {
-    const root = listed?.cwd ?? barProject()?.places.find(p => p.machine === earlier.machine_id)?.cwd ?? "";
+    const root = sameSession(earlier)?.cwd ?? barProject()?.places.find(p => p.machine === earlier.machine_id)?.cwd ?? "";
     const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root);
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
-    let session = listed;
-
-    if (!session || session.status === "ended") {
-      session = (await invoke<Started>("agent_resume", { ...at, prompt: "" })).session;
-      if (session.id !== earlier.id) nameReview(session, number);
-    }
-
-    await invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer: { prompt: { text: prompt, images } } });
+    await steerReview(number, earlier, prompt, images);
     barAttachments.clear();
     c.setText("");
     pc.target = null;
-    go("pane", { agent: session });
   } catch (e) {
     c.update({ error: reason(e) });
   } finally {
     pc.starting = false;
     redrawProjects();
   }
+}
+
+/// Sends `prompt` to the session that reviewed PR `number` before, resuming
+/// it when it ended, and opens it.
+async function steerReview(number: number, earlier: ReviewSession, prompt: string, images: Image[]) {
+  const at = { machineId: earlier.machine_id, agent: earlier.agent, session: earlier.id };
+  let session = sameSession(earlier);
+
+  if (!session || session.status === "ended") {
+    session = (await invoke<Started>("agent_resume", { ...at, prompt: "" })).session;
+    if (session.id !== earlier.id) nameReview(session, number);
+  }
+
+  await invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer: { prompt: { text: prompt, images } } });
+  go("pane", { agent: session });
 }
 
 /// Adds `project` to machine `m` as its machine row's Add does, in the folder
