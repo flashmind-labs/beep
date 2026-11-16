@@ -501,7 +501,6 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
     machine: { id: host.machine_id, name: host.machine_name },
     noMachine: "",
     anchor: () => projectComp.harness,
-    bounds: () => projectComp.form.closest<HTMLElement>(".agconv") ?? projectComp.form.parentElement,
     changed: what => {
       if (what !== "models") {
         // A model found under another harness keeps with it.
@@ -622,7 +621,6 @@ export function pickButton(name: string, start: (pick: ProjectPick) => void, mac
     picked,
     machine: () => { const h = host(); return h && { id: h.machine_id, name: h.machine_name, agents: [...h.agents].sort(byPreference) }; },
     everywhere: () => [...new Set((pc.hosts ?? []).flatMap(m => m.agents))],
-    bounds: box => box.closest<HTMLElement>(".pj-det, .pj-actions"),
     opening: () => {
       const offered = host()?.agents ?? [];
       const saved = lastProjectPick(name);

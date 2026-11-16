@@ -66,7 +66,6 @@ export function diffView(src: DiffSource): DiffViewHandle {
     uncommitted: () => v.state.uncommitted,
     load: async uncommitted => (await src.load([], false, uncommitted)).files,
     add: comments => addAgentComments(v, comments),
-    bounds: () => v.root,
     say: text => say(v, text),
   });
 

@@ -198,8 +198,6 @@ interface FeedbackOpts {
   load: (uncommitted: boolean) => Promise<DiffFile[]>;
   /// Adds comments to the diff's draft; says how many were new.
   add: (comments: ReviewComment[]) => number;
-  /// What the picker stays inside.
-  bounds: () => HTMLElement;
   /// A short line in the diff's header.
   say: (text: string) => void;
 }
@@ -244,7 +242,6 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     picked,
     machine: () => { const h = host(); return h && o.machine ? { ...o.machine, agents: h.agents } : null; },
     everywhere: () => [...new Set((hosts ?? []).flatMap(m => m.agents))],
-    bounds: o.bounds,
     opening: () => {
       if (disposed || runs.has(o.key)) return false;
       pickDefaults();
