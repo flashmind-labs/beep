@@ -30,6 +30,8 @@ use tauri::ActivationPolicy;
 use tauri::{App, AppHandle, Manager, RunEvent, WindowEvent};
 #[cfg(desktop)]
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+#[cfg(desktop)]
+use tauri_plugin_window_state::StateFlags;
 use tokio::time::timeout;
 
 /// How long quitting waits for what saves state: the node's sync and
@@ -83,6 +85,15 @@ pub fn run() {
         MacosLauncher::LaunchAgent,
         Some(vec![LOGIN_ARG]),
     ));
+    // Command center windows open where they were last, on a screen still
+    // attached; the bar places itself.
+    #[cfg(desktop)]
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::new()
+            .with_state_flags(StateFlags::POSITION | StateFlags::SIZE | StateFlags::MAXIMIZED)
+            .with_filter(center::is_center)
+            .build(),
+    );
     // The camera that scans the pairing QR code.
     #[cfg(target_os = "ios")]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
