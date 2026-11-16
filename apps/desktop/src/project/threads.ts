@@ -22,6 +22,8 @@ export interface IssueRow {
   opened_at: number;
   comments: number;
   url: string;
+  /// A pull request is linked to it, to close it. Missing from a list kept by an older app.
+  linked_pr?: boolean;
 }
 
 /// An open pull request of the project's, anyone's (PullRequestRow).

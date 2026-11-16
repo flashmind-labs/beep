@@ -21,7 +21,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use beep_proto::{ProjectIssue, ProjectPullRequest};
 use iroh::EndpointId;
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use thiserror::Error;
 use url::Url;
 
@@ -187,7 +187,7 @@ pub async fn list_open(
     let Some(sources) = issue_sources(store, machines).await? else {
         return Ok(Vec::new());
     };
-    let (_, mut open) = read_any(
+    let (source, mut open) = read_any(
         machines,
         &sources,
         store.name(),
@@ -195,6 +195,27 @@ pub async fn list_open(
         parse_open_issues,
     )
     .await?;
+
+    if matches!(source.host, IssueHost::Github) {
+        // Asked on the machine that listed them. Without it the issues still list, untagged.
+        let linked = run_source(
+            machines,
+            source,
+            store.name(),
+            HostCommand::ListLinkedIssues,
+        )
+        .await
+        .and_then(|out| Ok(serde_json::from_str::<HashSet<u64>>(out.trim())?));
+        match linked {
+            Ok(linked) => {
+                for issue in &mut open {
+                    issue.linked_pr = linked.contains(&issue.number);
+                }
+            }
+            Err(error) => log::info!("projects: issues linked to a PR are unknown: {error:#}"),
+        }
+    }
+
     open.sort_by(|a, b| {
         b.opened_at
             .cmp(&a.opened_at)
@@ -332,6 +353,7 @@ pub fn issue_view(issue: OpenIssue) -> ProjectIssue {
         opened_at: issue.opened_at.into(),
         comments: issue.comments,
         url: issue.url,
+        linked_pr: issue.linked_pr,
     }
 }
 

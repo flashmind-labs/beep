@@ -25,9 +25,13 @@ fn can_push_reads_gh_and_teacli_output() {
     assert!(parse_can_push(admin).expect("an admin can write"));
     assert!(parse_can_push("null").is_err());
     assert!(parse_can_push("HTTP 404").is_err());
-    let gh = HostCommand::CanPush.render(&github(), &repo());
+    let gh = HostCommand::CanPush
+        .render(&github(), &repo())
+        .expect("gh answers it");
     assert!(gh.contains("gh api repos/acme/widget"), "{gh}");
-    let tea = HostCommand::CanPush.render(&forgejo(), &repo());
+    let tea = HostCommand::CanPush
+        .render(&forgejo(), &repo())
+        .expect("teacli answers it");
     assert!(tea.contains("teacli api repos/acme/widget"), "{tea}");
 }
 
@@ -138,6 +142,7 @@ fn open_issues_parse_from_gh_and_teacli() {
                 .with_timezone(&Utc),
             comments: 2,
             url: "https://github.com/acme/widget/issues/12".into(),
+            linked_pr: false,
         }]
     );
     let tea = r#"[
@@ -169,8 +174,11 @@ fn gh_runs_as_the_account_for_the_owner() {
             number: 1,
             body: "hi"
         }
-        .render(&github(), &repo),
-        "GH_TOKEN=\"${BEEP_GH_TOKEN_OCTO_TWO:-$GH_TOKEN}\" gh pr comment 1 -R octo-two/tool --body hi"
+        .render(&github(), &repo)
+        .as_deref(),
+        Some(
+            "GH_TOKEN=\"${BEEP_GH_TOKEN_OCTO_TWO:-$GH_TOKEN}\" gh pr comment 1 -R octo-two/tool --body hi"
+        )
     );
     // A name GitHub would not give an owner gets no account var.
     let odd = RepoName::from_str("my.org/tool").unwrap();
@@ -179,8 +187,9 @@ fn gh_runs_as_the_account_for_the_owner() {
             number: 1,
             body: "hi"
         }
-        .render(&github(), &odd),
-        "gh pr comment 1 -R my.org/tool --body hi"
+        .render(&github(), &odd)
+        .as_deref(),
+        Some("gh pr comment 1 -R my.org/tool --body hi")
     );
     // Forgejo is untouched.
     assert!(
@@ -189,7 +198,19 @@ fn gh_runs_as_the_account_for_the_owner() {
             body: "hi"
         }
         .render(&forgejo(), &repo)
-        .starts_with("teacli ")
+        .is_some_and(|line| line.starts_with("teacli "))
+    );
+}
+
+#[test]
+fn only_github_lists_issues_linked_to_a_pr() {
+    let gh = HostCommand::ListLinkedIssues
+        .render(&github(), &repo())
+        .expect("gh answers it");
+    assert!(gh.contains("--search linked:pr"), "{gh}");
+    assert_eq!(
+        HostCommand::ListLinkedIssues.render(&forgejo(), &repo()),
+        None
     );
 }
 

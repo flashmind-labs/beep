@@ -32,6 +32,8 @@ pub struct IssueRow {
     opened_at: u64,
     comments: u32,
     url: String,
+    /// A pull request is linked to it, to close it.
+    linked_pr: bool,
 }
 
 impl From<ProjectIssue> for IssueRow {
@@ -44,6 +46,7 @@ impl From<ProjectIssue> for IssueRow {
             opened_at: epoch_ms(i.opened_at),
             comments: i.comments,
             url: i.url,
+            linked_pr: i.linked_pr,
         }
     }
 }

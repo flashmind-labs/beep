@@ -223,6 +223,9 @@ wire_structs! {
         pub comments: u32,
         /// Its web page.
         pub url: String,
+        /// A pull request is linked to it, to close it. GitHub only.
+        #[serde(default)]
+        pub linked_pr: bool,
     }
 
     /// An open pull request on a project's host, anyone's.

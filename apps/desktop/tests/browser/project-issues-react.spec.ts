@@ -47,3 +47,14 @@ test("issue selection, controls and scroll survive project redraws", async ({ pa
   await detail.getByRole("button", { name: "bug", exact: true }).click();
   await expect(detail.locator('.pj-li[title="Issue 2"]')).toBeVisible();
 });
+
+test("an issue with a linked pull request shows a PR tag", async ({ page }) => {
+  const now = Date.now();
+  const issue = (number: number, linked_pr: boolean) => ({ number, title: `Issue ${number}`, url: `https://example.test/issues/${number}`, author: "Example", opened_at: now - number * 1000, comments: 0, labels: [], linked_pr });
+  await openDesktop(page, false, { center_project_lists: { issues: [issue(1, true), issue(2, false)], prs: [], issues_error: null, prs_error: null, synced_at: now } });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "2 issues" }).click();
+  const detail = page.locator(".pj-split > .pj-det");
+  await expect(detail.locator('.pj-li[title="Issue 1"] .chip.wait')).toHaveText("PR");
+  await expect(detail.locator('.pj-li[title="Issue 2"] .chip')).toHaveCount(0);
+});
