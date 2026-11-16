@@ -2,8 +2,10 @@
 // harbour ("Impression, Sunrise"), the dawn haze of its sky alone, haystacks at dusk, the lily
 // pond under its footbridge and Parliament in the evening fog, and after Friedrich a
 // wanderer on a rock above a sea of fog. A scene paints
-// itself once after the app opens and is still from then on; with Reduce motion on it is drawn
-// finished.
+// itself once after the app opens. From then on it stays alive while it is on screen: at each
+// beat its rows of pixels sway, most on water and open ground, and a few short runs of them take
+// a new light. The dawn haze lies behind lists and stays still, and with Reduce motion on every
+// scene is drawn finished and still.
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 /// The sunrise: it rises once after the app opens, wherever it shows first.
@@ -45,24 +47,54 @@ function PaintedArt({ scene }: { scene: Scene }) {
     const target = canvas.current;
     if (!target) return;
 
-    let frame = 0, strokes: Stroke[] = [], last = 0;
+    // `life` is the finished painting, kept to move it; it is dropped when the strokes are laid again.
+    let frame = 0, strokes: Stroke[] = [], last = 0, seen = false, life: Life | null = null;
     const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const alive = !still && scene !== "haze";
     const paint = (now: number) => {
+      frame = 0;
       if (!began.has(scene)) began.set(scene, now);
       const done = still ? 1 : Math.min(1, (now - (began.get(scene) ?? now)) / PLAY_MS[scene]);
 
-      if (done === 1 || now - last >= FRAME_MS) {
+      if (life) {
+        if (now - last >= BEAT_MS) {
+          last = now;
+          beat(target, life, now);
+        }
+      } else if (done === 1 || now - last >= FRAME_MS) {
         last = now;
         draw(target, strokes, done, scene);
+        if (done === 1 && alive) life = hold(target, scene);
       }
-      frame = done < 1 ? requestAnimationFrame(paint) : 0;
+
+      if (done < 1 || (life && seen && !document.hidden)) frame = requestAnimationFrame(paint);
     };
+    const wake = () => { if (!frame) frame = requestAnimationFrame(paint); };
+
     const resized = new ResizeObserver(() => {
       strokes = layStrokes(target.clientWidth, target.clientHeight, scene);
-      if (!frame) frame = requestAnimationFrame(paint);
+      life = null;
+      wake();
     });
     resized.observe(target);
-    return () => { resized.disconnect(); if (frame) cancelAnimationFrame(frame); };
+    // A canvas that only touches the edge of its scroller is reported as crossing it with no area:
+    // the second threshold tells that apart from one that comes into view.
+    const watch = new IntersectionObserver(entries => {
+      seen = entries[entries.length - 1].intersectionRatio > 0;
+      if (seen) wake();
+    }, { threshold: [0, 0.001] });
+    const shown = () => { if (!document.hidden) wake(); };
+    if (alive) {
+      watch.observe(target);
+      document.addEventListener("visibilitychange", shown);
+    }
+
+    return () => {
+      resized.disconnect();
+      watch.disconnect();
+      document.removeEventListener("visibilitychange", shown);
+      if (frame) cancelAnimationFrame(frame);
+    };
   }, [scene]);
 
   return <canvas ref={canvas} className={`painted-art ${scene}`} aria-hidden="true" />;
@@ -70,6 +102,12 @@ function PaintedArt({ scene }: { scene: Scene }) {
 
 /// How long each scene takes to paint itself, and the time between two painted frames.
 const PLAY_MS: Record<Scene, number> = { sunrise: 9000, haze: 2600, wanderer: 4200, haystacks: 4200, lilies: 4200, parliament: 4200 }, FRAME_MS = 33;
+/// A living painting: the time between two beats, the share of its pixels that take a new light at
+/// each, the longest run that changes together and how far its light moves either way.
+const BEAT_MS = 100, BEAT_SHARE = 0.03, RUN = 4, SWING = 0.13;
+/// How far a row sways to either side, in painted pixels: everywhere, and at the near edge of water
+/// and open ground, where the waves are widest.
+const SWAY = 1.1, SWAY_NEAR = 3;
 /// The brush of each scene. The haze is a narrow picture and the others have small shapes: they take a finer one.
 const BRUSH: Record<Scene, number> = { sunrise: 1, haze: 0.55, wanderer: 0.7, haystacks: 0.65, lilies: 0.7, parliament: 0.65 };
 /// The side of one painted pixel in CSS pixels: the scenes are painted in blocks.
@@ -405,4 +443,48 @@ function draw(target: HTMLCanvasElement, strokes: Stroke[], done: number, scene:
     stroke(x - 6 * size, y - 12 * size, 18 * size, 6 * size, Math.PI / 2, BOAT, light);
     for (let i = 1; i <= 3; i++) stroke(x + i * 3, y + i * 9 * size, (40 - i * 9) * size, 4 * size, 0, BOAT, light * 1.25);
   }
+}
+
+/// A finished painting kept to move it: its own pixels, the ones on the canvas, each pixel's light
+/// (128 is its own) and how far each row sways.
+interface Life { base: Uint8ClampedArray; live: ImageData; glow: Uint8Array; reach: Float32Array }
+
+function hold(target: HTMLCanvasElement, scene: Scene): Life | null {
+  const context = target.getContext("2d"), width = target.width, height = target.height;
+  if (!context || !width || !height) return null;
+
+  const base = context.getImageData(0, 0, width, height).data;
+  // Waves widen toward the viewer from where the water or the ground begins. The wanderer stands
+  // in his fog, so it only sways as the rest does.
+  let shore = height;
+  if (scene !== "wanderer") for (let y = height - 1; y >= 0 && level(scene, y / height); y--) shore = y;
+
+  return {
+    base,
+    live: new ImageData(new Uint8ClampedArray(base), width, height),
+    glow: new Uint8Array(width * height).fill(128),
+    reach: Float32Array.from({ length: height }, (_, y) => y < shore ? SWAY : SWAY + (SWAY_NEAR - SWAY) * Math.min(1, (y - shore) / (height * 0.3))),
+  };
+}
+
+/// One beat: a few runs of pixels take a new light, then every row is laid where it has swayed to.
+function beat(target: HTMLCanvasElement, { base, live, glow, reach }: Life, now: number) {
+  const width = live.width, height = live.height, pixels = live.data, count = width * height, time = now / 1000;
+  for (let runs = Math.round(count * BEAT_SHARE / (RUN / 2 + 0.5)); runs > 0; runs--) {
+    const from = Math.floor(Math.random() * count), to = Math.min(count, from + 1 + Math.floor(Math.random() * RUN));
+    glow.fill(128 * (1 + (Math.random() * 2 - 1) * SWING), from, to);
+  }
+
+  // Short waves on the water, a long slow one over everything.
+  for (let y = 0, i = 0; y < height; y++) {
+    const shift = Math.round((reach[y] - SWAY) * Math.sin(y * 0.6 + time * 2.6) + SWAY * Math.sin(y * 0.11 - time * 0.9));
+    for (let x = 0; x < width; x++, i++) {
+      const from = (y * width + Math.min(width - 1, Math.max(0, x + shift))) * 4, light = glow[i] / 128, to = i * 4;
+      pixels[to] = base[from] * light;
+      pixels[to + 1] = base[from + 1] * light;
+      pixels[to + 2] = base[from + 2] * light;
+    }
+  }
+
+  target.getContext("2d")?.putImageData(live, 0, 0);
 }
