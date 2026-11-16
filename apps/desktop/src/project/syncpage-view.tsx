@@ -12,10 +12,14 @@ function DiffHost({ node }: { node: HTMLElement }) {
   useLayoutEffect(() => { const el = host.current; if (!el) return; el.append(node); return () => { node.remove(); }; }, [node]);
   return <div ref={host} style={{ display: "contents" }} />;
 }
+/// Whether a machine's sync header offers to fix its Git sync with an agent.
+export function gitFixOffered(sync: Sync, machine: MachineDetail): boolean {
+  return !!sync.fixGit && !machine.paused && !!gitSyncWarning(machine);
+}
 export function SyncMachine({ sync, project, machine, extra = null }: { sync: Sync; project: string; machine: MachineDetail; extra?: ReactNode }) {
   const chip = stateChip(machine), pct = machine.paused ? null : syncPct(machine), clock = clockWarning(machine.machine_id, null), note = stateNote(machine);
   return <div className="fs-row pm-sync">
-    <div className="fs-h"><b>{machine.git_only ? "Git sync" : "File sync"}</b><Chip kind={chip.wait ? "wait" : ""} text={chip.text} title={machine.error || ""} />{sync.fixGit && !machine.paused && gitSyncWarning(machine) && <Button small title="Opens a draft with both checkouts and recent session references" onClick={() => sync.fixGit?.(project, machine)}>Fix with an agent</Button>}{extra}</div>
+    <div className="fs-h"><b>{machine.git_only ? "Git sync" : "File sync"}</b><Chip kind={chip.wait ? "wait" : ""} text={chip.text} title={machine.error || ""} />{gitFixOffered(sync, machine) && <Button small title="Opens a draft with both checkouts and recent session references" onClick={() => sync.fixGit?.(project, machine)}>Fix with an agent</Button>}{extra}</div>
     {pct !== null && <div className="fs-bar"><i style={{ width: `${pct}%` }} /></div>}{!machine.git_only && <div className="fs-m">{machineMeta(machine).map((part, i) => <span key={i}>{part}</span>)}</div>}
     {clock && <div className="fs-m"><span className="clockoff" title={clock.title}>{clock.text}</span></div>}{note && <div className={machine.status === "syncthing" ? "fs-m" : "cc-err"} title={machine.error || ""}>{note}</div>}
     {machine.can_start_over && !machine.paused && <div className="fs-m"><Button small title="Syncs the folder now at this path from nothing; nothing is deleted on other machines" onClick={() => void sync.startOver(project, machine)}>Start over with this folder</Button></div>}{machine.hint && <div className="fs-m">Rescanned instead of watched. To watch it, run {machine.hint}</div>}
