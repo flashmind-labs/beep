@@ -11,6 +11,7 @@ let draws = 0;
 let parsed = 0;
 let unavailable = false;
 let lost = false;
+let colored = 0;
 const visibility = new Set<() => void>();
 
 class GridRenderer {
@@ -27,7 +28,7 @@ class GridRenderer {
 class Terminal {
   resize() {}
   write() { parsed++; }
-  setColors() {}
+  setColors() { colored++; }
   scrollBy() {}
   scrollToBottom() {}
   tickAnimations() { return null; }
@@ -42,7 +43,7 @@ const PHONE_LIMITS = {};
 function element(): Record<string, unknown> {
   return {
     isConnected: true, clientWidth: 800, clientHeight: 400, style: {}, className: "",
-    append() {}, setAttribute() {}, addEventListener() {}, contains: () => false, replaceWith() { replaced++; },
+    append() {}, remove() {}, getContext: () => null, setAttribute() {}, addEventListener() {}, contains: () => false, replaceWith() { replaced++; },
     getBoundingClientRect: () => ({ left: 0, top: 0 }),
   };
 }
@@ -55,7 +56,7 @@ Object.assign(globalThis, {
     createElement: element,
     addEventListener: (_name: string, handler: () => void) => visibility.add(handler),
     removeEventListener: (_name: string, handler: () => void) => visibility.delete(handler),
-    documentElement: {},
+    documentElement: { append() {} },
     body: { append() {} },
   },
   getComputedStyle: () => ({ getPropertyValue: () => "monospace", paddingLeft: "0", paddingRight: "0", paddingTop: "0", paddingBottom: "0" }),
@@ -90,6 +91,7 @@ const hooks = registerHooks({
   },
 });
 const { makeScreen } = await import("../src/terminals/termview.ts");
+const { skinChanged } = await import("../src/ui/skin.ts");
 hooks.deregister();
 
 /// A screen whose engine has loaded.
@@ -104,7 +106,7 @@ function runFrames() {
 }
 
 test.beforeEach(() => {
-  made = disposed = draws = replaced = parsed = 0;
+  made = disposed = draws = replaced = parsed = colored = 0;
   unavailable = lost = false;
   frames.length = 0;
   (globalThis as unknown as { document: { hidden: boolean } }).document.hidden = false;
@@ -187,4 +189,20 @@ test("a hidden page still parses output, without frames", async () => {
   assert.equal(parsed, 1);
   assert.equal(frames.length, 0);
   s.dispose();
+});
+
+test("a new skin colours the screen again and redraws it", async () => {
+  const s = await screen();
+  s.fit();
+  runFrames();
+  const drawn = draws;
+  assert.equal(colored, 1);
+
+  for (const reskin of skinChanged) reskin();
+  runFrames();
+  assert.equal(colored, 2);
+  assert.ok(draws > drawn);
+
+  s.dispose();
+  assert.equal(skinChanged.size, 0);
 });

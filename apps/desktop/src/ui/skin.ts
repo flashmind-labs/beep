@@ -42,10 +42,15 @@ export function skinId(): string {
   return SKINS.some(s => s.id === kept) ? kept! : DEFAULT_SKIN;
 }
 
+/// Called when this window takes another skin: what draws in its colours
+/// outside CSS, such as a terminal, draws again.
+export const skinChanged = new Set<() => void>();
+
 function apply() {
   const id = skinId();
   if (id === DEFAULT_SKIN) delete document.documentElement.dataset.skin;
   else document.documentElement.dataset.skin = id;
+  for (const draw of skinChanged) draw();
 
   // Windows and Linux draw the title bar: it takes the skin's light or dark.
   if (APPLE || onPhone()) return;
