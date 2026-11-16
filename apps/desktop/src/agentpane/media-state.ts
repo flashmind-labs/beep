@@ -293,6 +293,7 @@ export function isCloseKey(e: Pick<KeyboardEvent, "key" | "metaKey" | "shiftKey"
 
 /// Runs `toggle` on ⇧esc while `allowed`, ahead of every other Esc handler
 /// (the capture phase), and keeps the key from them. Held keys do not repeat it.
+/// A focused HTML preview keeps its keys, so its page posts `beep:zoom` instead.
 export function onZoomKey(allowed: () => boolean, toggle: () => void) {
   window.addEventListener("keydown", e => {
     if (!isZoomKey(e) || !allowed()) return;
@@ -300,4 +301,10 @@ export function onZoomKey(allowed: () => boolean, toggle: () => void) {
     e.stopImmediatePropagation();
     if (!e.repeat) toggle();
   }, true);
+
+  window.addEventListener("message", e => {
+    if (e.data !== "beep:zoom" || !allowed()) return;
+    const frames = document.querySelectorAll<HTMLIFrameElement>("iframe.agartframe");
+    if ([...frames].some(frame => frame.contentWindow === e.source)) toggle();
+  });
 }

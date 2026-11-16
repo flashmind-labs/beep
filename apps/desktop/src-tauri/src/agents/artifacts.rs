@@ -16,6 +16,9 @@
 //! a bounded number of files and bytes per page. File previews use the
 //! project root as their asset boundary and keep the entry path in the URL,
 //! allowing parent-relative dependencies within the project.
+//!
+//! A focused frame keeps its keys from the window, so every HTML response
+//! starts with [`ZOOM_KEY`], which hands Shift+Esc to the pane.
 
 use crate::{
     agents::files::read_part,
@@ -72,6 +75,10 @@ const PAGE_CSP: &str = "default-src 'none'; \
     font-src data: https: beepview:; media-src data: blob: https: beepview:; \
     connect-src https: beepview:; frame-src 'none'; form-action 'none'; \
     base-uri 'none'; sandbox allow-scripts";
+
+/// Posts `beep:zoom` to the window on Shift+Esc, which the pane's own
+/// handler cannot see while the frame has focus.
+const ZOOM_KEY: &[u8] = br#"<script>addEventListener("keydown",e=>{if(e.key==="Escape"&&e.shiftKey&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();if(!e.repeat)parent.postMessage("beep:zoom","*")}},true)</script>"#;
 
 /// The HTML pages ready to serve, by the token in their URL.
 pub struct Pages {
@@ -430,7 +437,7 @@ pub fn route(pages: &Pages, request: &Request<Vec<u8>>) -> Route {
                 .header(header::CONTENT_SECURITY_POLICY, PAGE_CSP)
                 .header(header::REFERRER_POLICY, "no-referrer")
                 .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
-                .body(page.html.as_ref().clone()),
+                .body(with_zoom_key(&page.html)),
         ));
     }
 
@@ -476,6 +483,12 @@ impl FileRead {
             return status(StatusCode::PAYLOAD_TOO_LARGE);
         }
 
+        let body = if self.mime.starts_with("text/html") {
+            with_zoom_key(&data)
+        } else {
+            data
+        };
+
         respond(
             Response::builder()
                 .status(StatusCode::OK)
@@ -485,7 +498,7 @@ impl FileRead {
                 // The sandboxed page's origin is opaque; its module
                 // scripts and fonts load with CORS.
                 .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-                .body(data),
+                .body(body),
         )
     }
 }
@@ -494,6 +507,33 @@ impl FileRead {
 pub async fn read_sibling(fleet: &Fleet, file: Sibling) -> Result<Vec<u8>> {
     let (data, _) = read_whole(fleet, file.machine_id, file.root, file.path).await?;
     Ok(data)
+}
+
+/// `html` with [`ZOOM_KEY`] after its doctype, so the page stays in
+/// standards mode, or at its start (after a byte order mark) without one.
+fn with_zoom_key(html: &[u8]) -> Vec<u8> {
+    let start = if html.starts_with(b"\xEF\xBB\xBF") {
+        3
+    } else {
+        0
+    };
+    let lead = html[start..]
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .map_or(html.len(), |at| start + at);
+    let doctype = html[lead..]
+        .get(..9)
+        .is_some_and(|head| head.eq_ignore_ascii_case(b"<!doctype"));
+    let at = if doctype {
+        html[lead..]
+            .iter()
+            .position(|&byte| byte == b'>')
+            .map_or(start, |end| lead + end + 1)
+    } else {
+        start
+    };
+
+    [&html[..at], ZOOM_KEY, &html[at..]].concat()
 }
 
 /// The media type a file beside a page is served as, by its extension.
