@@ -406,6 +406,9 @@ body.cbody
                               code "main"
                           input.dv-find [aria-label="Filter files and lines" placeholder="Filter files and lines" spellcheck="false" value] value=""
                           span.dv-tools
+                            button.dv-btn.dv-filesbtn.icon [aria-label="Hide files" aria-pressed="true" title="Hide files" type="button"]
+                              span style(display)
+                                svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                             button.dv-btn.icon [aria-label="Uncommitted only" aria-pressed="false" title="Uncommitted only: hide the branch's commits" type="button"]
                               span style(display)
                                 svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
@@ -428,7 +431,7 @@ body.cbody
                           button.dbtn.pri.small [hidden title="Send 0 comments to the agent as one message" type="button"] "Send review"
                             span.dv-n "0"
                         div.dv-fbnote [hidden]
-                        div.dv-body style(--dv-tree-width)
+                        div.dv-body.files style(--dv-tree-width)
                           nav.dv-tree [aria-label="Changed files"]
                             div.dv-tree-rows style(height)
                           div.dv-resize [aria-label="Resize changed files" aria-orientation="vertical" aria-valuemax="487" aria-valuemin="180" aria-valuenow="250" role="separator" tabindex="0" title="Drag to resize, double-click to reset"]

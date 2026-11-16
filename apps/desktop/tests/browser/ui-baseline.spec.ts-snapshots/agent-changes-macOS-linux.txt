@@ -406,6 +406,9 @@ body.cbody
                               code "main"
                           input.dv-find [aria-label="Filter files and lines" placeholder="Filter files and lines" spellcheck="false" value] value=""
                           span.dv-tools
+                            button.dv-btn.dv-filesbtn.icon [aria-label="Show files full size (Shift+Esc)" aria-pressed="false" title="Show files full size (Shift+Esc)" type="button"]
+                              span style(display)
+                                svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                             button.dv-btn.icon [aria-label="Uncommitted only" aria-pressed="false" title="Uncommitted only: hide the branch's commits" type="button"]
                               span style(display)
                                 svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
