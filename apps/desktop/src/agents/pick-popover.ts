@@ -16,8 +16,6 @@ export interface PickPopoverOpts {
   machine: () => { id: string; name: string; agents: readonly string[] } | null;
   /// The harnesses any machine has.
   everywhere: () => readonly string[];
-  /// The area the picker stays inside, around `box`.
-  bounds: (box: HTMLElement) => HTMLElement | null;
   /// Sets the pick's defaults as the picker opens; false keeps it shut.
   opening: () => boolean;
   /// A model was picked and the picker closed.
@@ -29,8 +27,8 @@ export interface PickPopoverOpts {
 export interface PickPopover {
   readonly open: boolean;
   readonly view: ReactElement | null;
-  /// The elements the view renders: the box the picker stays in, its
-  /// button and the slot the picker draws into.
+  /// The elements the view renders: the box clicks inside keep the picker
+  /// open, its button and the slot the picker draws into.
   setBox: (box: HTMLElement | null) => void;
   setButton: (button: HTMLButtonElement | null) => void;
   setSlot: (slot: HTMLDivElement | null) => void;
@@ -89,7 +87,6 @@ export function pickPopover(o: PickPopoverOpts): PickPopover {
       machine: { id: machine.id, name: machine.name },
       noMachine: "",
       anchor: () => currentButton,
-      bounds: () => box && o.bounds(box),
       changed: what => {
         if (what === "model") { close(); o.draw(true); o.start(); return; }
         if (what === "agent") o.picked.effort = keepEffort(o.picked.agent, o.picked.effort);

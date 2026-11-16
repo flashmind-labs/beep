@@ -48,7 +48,6 @@ export function AssistantView() {
       machine: machineFor(hosts, own, picked.agent),
       noMachine: "No machine is online to list models.",
       anchor: () => pill.current,
-      bounds: () => document.body,
       changed: what => {
         if (what === "models") return listed(n => n + 1);
         const next = { agent: picked.agent, model: picked.model || null, effort: picked.effort, fast: picked.agent === "codex" ? picked.fast : null };

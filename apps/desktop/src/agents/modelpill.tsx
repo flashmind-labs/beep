@@ -6,7 +6,6 @@ import type { SessionPick } from "./agentmodels.ts";
 import { isNativeSession } from "./native-session-state.ts";
 import { modelId } from "./agentpick.ts";
 import { closedPicker, knownModels, modelsOn, drawPicker, type Picked, pillContent } from "./agentpicker.tsx";
-import { bar } from "../bar/core.ts";
 import { type AgentRow, AG, agentKind, canTakeOver } from "./agents.ts";
 import { SWITCHES, sessionPicks } from "./session.tsx";
 import { drawAgentBody } from "./logview.tsx";
@@ -80,7 +79,6 @@ function drawModelPicker() {
     machine: { id: s.machine_id, name: s.machine_name },
     noMachine: "",
     anchor: () => modelPill.current,
-    bounds: () => bar,
     changed: what => {
       if (what === "models") return drawModelPill();
       if (what === "agent") return;

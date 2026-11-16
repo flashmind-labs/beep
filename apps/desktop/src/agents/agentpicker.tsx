@@ -115,9 +115,8 @@ export interface PickerOpts {
   machine: { id: string; name: string } | null;
   /// What the model column says without a machine.
   noMachine: string;
-  /// The pill the picker opens from, and the area it stays inside.
+  /// The pill the picker opens from.
   anchor: () => HTMLElement | null;
-  bounds: () => HTMLElement | null;
   /// After a pick, or once the models are read ("models"); the caller
   /// redraws. A model pick is meant to close the picker.
   changed: (what: "agent" | "model" | "effort" | "fast" | "models") => void;
@@ -183,7 +182,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
       }}
       onFast={(fast: boolean) => { p.fast = fast; o.changed("fast"); }}
       onEffort={(next: string | null) => { p.effort = next; o.changed("effort"); }}
-      anchor={o.anchor} bounds={o.bounds} search={field}
+      anchor={o.anchor} search={field}
     />,
   );
 }

@@ -16,7 +16,7 @@ import { ensureSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks, startedWith } from "./session.tsx";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.tsx";
 import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, baseRows, type CheckoutPick, type CheckoutPlan, DEFAULT_CHECKOUT, folderPill, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, startPlace, tildePath } from "./agentpick.ts";
-import { type AgentReturn, bar, PANE, S } from "../bar/core.ts";
+import { type AgentReturn, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
 import { folderOn, type MachineFolder } from "../project/projects-state.ts";
 import { addHosts, barCheckout, barPlace, nextBarMachine } from "../project/projectbar.ts";
@@ -254,7 +254,6 @@ function drawPicker(c: StartComposer) {
     machine: machine && name ? { id: machine, name: host?.machine_name ?? name } : null,
     noMachine: "Pick a machine to list its models.",
     anchor: () => c.harness.isConnected ? c.harness : null,
-    bounds: () => bar,
     changed: what => {
       if (what === "models") return drawPill(c, false);
       Object.assign(f, { agent: picked.agent, model: picked.model, effort: picked.effort, fast: picked.agent === "codex" ? picked.fast : null, query: picked.query });
@@ -279,7 +278,7 @@ function drawUnder(c: StartComposer) {
   const co = barCheckout(f.checkout ?? DEFAULT_CHECKOUT, baseFor(f.base, formBranches()));
   drawExtras(c);
   c.update({ choiceContents: { machine: host ? <><span className="ddot on" />{host.machine_name}</> : "Pick a machine", folder: <FolderChoice checkout={checkout} label={checkout ? co.label : shown.label} detail={checkout ? co.sub : shown.path} /> } });
-  c.update({ under: <ChoiceMenuView menu={hostMenu() ?? folderMenu(checkout) ?? baseMenu()} anchor={menuAnchor} bounds={menuBounds} pick={pickChoice} /> });
+  c.update({ under: <ChoiceMenuView menu={hostMenu() ?? folderMenu(checkout) ?? baseMenu()} anchor={menuAnchor} pick={pickChoice} /> });
 }
 
 const baseButton = createRef<HTMLButtonElement>();
@@ -302,7 +301,6 @@ function menuAnchor() {
   return c && (open === "host" || open === "folder") ? c.choice(open) : null;
 }
 
-function menuBounds() { return bar; }
 
 /// The Base menu: the project's branches, the default first, and a row to
 /// type any branch, tag or commit.

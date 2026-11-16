@@ -25,9 +25,8 @@ interface PickerProps {
   onModel: (row: PickRow) => void;
   onEffort: (effort: string | null) => void;
   onFast: (fast: boolean) => void;
-  /// The pill the picker opens from, and the area it stays inside.
+  /// The pill the picker opens from.
   anchor: () => HTMLElement | null;
-  bounds: () => HTMLElement | null;
   search: RefObject<HTMLInputElement | null>;
 }
 
@@ -39,28 +38,27 @@ interface Lit {
   by: "keys" | "pointer";
 }
 
-/// Puts the picker above its pill, right edges lined up, whole and inside its
-/// bounds: below the pill when it does not fit above, else cut to the roomier
+/// Puts the picker above its pill, right edges lined up, whole and inside the
+/// window: below the pill when it does not fit above, else cut to the roomier
 /// side, where its columns scroll. It is measured unplaced first, then placed,
 /// both before the frame paints.
-function usePlacement(content: string, anchor: () => HTMLElement | null, bounds: () => HTMLElement | null) {
+function usePlacement(content: string, anchor: () => HTMLElement | null) {
   const node = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<Placement | null>(null);
-  const where = useRef({ anchor, bounds });
-  where.current = { anchor, bounds };
+  const where = useRef(anchor);
+  where.current = anchor;
 
   useLayoutEffect(() => { setPlace(null); }, [content]);
   useLayoutEffect(() => {
-    const pick = node.current, pill = where.current.anchor(), area = where.current.bounds();
-    if (place || !pick || !pill || !area) return;
-    const pane = area.getBoundingClientRect(), a = pill.getBoundingClientRect();
+    const pick = node.current, pill = where.current();
+    if (place || !pick || !pill) return;
+    const a = pill.getBoundingClientRect();
     // The unplaced picker sits at the fixed origin. With an iPhone's keyboard up the window
     // is scrolled, and client rects are off from that origin by the scroll.
     const origin = pick.getBoundingClientRect();
-    const top = Math.max(origin.top, pane.top), left = Math.max(origin.left, pane.left);
-    const view = { width: Math.min(pane.right, origin.left + window.innerWidth) - left, height: Math.min(pane.bottom, origin.top + window.innerHeight) - top };
-    const at = placePopover({ top: a.top - top, left: a.left - left, width: a.width, height: a.height }, { width: pick.offsetWidth, height: pick.offsetHeight }, view);
-    setPlace({ ...at, top: at.top + top - origin.top, left: at.left + left - origin.left });
+    const view = { width: window.innerWidth, height: window.innerHeight };
+    const at = placePopover({ top: a.top - origin.top, left: a.left - origin.left, width: a.width, height: a.height }, { width: pick.offsetWidth, height: pick.offsetHeight }, view);
+    setPlace(at);
   }, [place]);
   useEffect(() => {
     const again = () => setPlace(null);
@@ -84,7 +82,7 @@ export function AgentPillContent({ agent, detail }: { agent: string; detail: str
   return <><HarnessIcon agent={agent}/>{detail}<Icon name="caretDown" size={12} /></>;
 }
 
-export function AgentPicker({ picked, model, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, onFast, anchor, bounds, search }: PickerProps) {
+export function AgentPicker({ picked, model, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, onFast, anchor, search }: PickerProps) {
   const name = agentKind(picked.agent).name;
   const levels = effortsOf(picked.agent).filter(level => !model?.efforts?.length || model.efforts.includes(level.value));
   // The highlighted row is kept by its model, so a list that streams in
@@ -103,7 +101,7 @@ export function AgentPicker({ picked, model, offered, everywhere, machineName, m
   // size, and only up to the most its unplaced height shows: past that,
   // typing a search places it again for nothing.
   const sized = Math.min(rows.length, Math.ceil(PICK_HEIGHT / MODEL_ROW));
-  const { node, style } = usePlacement(JSON.stringify([machineId, picked.agent, sized, note, loading, failed, levels.length]), anchor, bounds);
+  const { node, style } = usePlacement(JSON.stringify([machineId, picked.agent, sized, note, loading, failed, levels.length]), anchor);
   const dialog = useDialogRef(node);
   const list = useRef<HTMLDivElement>(null);
   return <div className="agc-pick" role="dialog" aria-label="Harness, model and thinking" ref={dialog} style={style}>

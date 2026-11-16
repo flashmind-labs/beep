@@ -16,7 +16,9 @@ test("Home lists the sessions that ended today under Done today", async ({ page 
 test("Home's board gives each project a row, and a review is opened on its host or handed to an agent", async ({ page }) => {
   const pull = { host: "example.test", repo: "other/site", number: 12, kind: "pull_request", title: "Move the blog", url: "https://example.test/other/site/pull/12",
     updated_at: 1, authored: false, assigned: false, review_requested: true, draft: false, review: "none", checks_failing: false, comments: 0 };
-  await openDesktop(page, false, { git_items: { items: [pull], hosts: [] } });
+  await openDesktop(page, false, { git_items: { items: [pull, { ...pull, repo: projectName, number: 13, title: "Fix the feed", url: `https://example.test/${projectName}/pull/13` }], hosts: [] },
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
+    agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] } });
 
   // The project that waits on the user comes first.
   await expect(page.locator(".bd-rows > .pj")).toHaveText(["other/site", projectName]);
@@ -25,8 +27,15 @@ test("Home's board gives each project a row, and a review is opened on its host 
   expect(name?.width).toBe(board?.width);
   // The heading names the project, so the card does not.
   await expect(page.locator(".bd-card", { hasText: "#12 Move the blog" }).locator(".sub")).toHaveText("your review");
-  await page.locator(".bd-card", { hasText: "#12 Move the blog" }).getByRole("button", { name: "Review with agent" }).click();
-  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toBeVisible();
+  await page.locator(".bd-card", { hasText: "#13 Fix the feed" }).getByRole("button", { name: "Review with agent" }).click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  await expect(picker).toBeVisible();
+  // Placed whole inside the window, by its button.
+  await expect.poll(() => picker.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight && element.style.top !== "" && !!hit && element.contains(hit);
+  })).toBe(true);
 });
 
 test("a row's project name opens the project, and a full cell scrolls", async ({ page }) => {
