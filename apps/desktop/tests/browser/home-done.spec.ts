@@ -39,6 +39,14 @@ test("a row's project name opens the project, and a full cell scrolls", async ({
   const cell = page.locator(".bd-rows > .bd-lane:not(.hd)").first();
   await expect(cell.locator(".bd-card")).toHaveCount(4);
   expect(await cell.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+  // A wheel notch moves one card, whatever its size.
+  await cell.hover();
+  await page.mouse.wheel(0, 40);
+  const second = await cell.evaluate(el => {
+    const [first, next] = el.querySelectorAll<HTMLElement>(".bd-card");
+    return next.offsetTop - first.offsetTop;
+  });
+  await expect.poll(() => cell.evaluate(el => el.scrollTop)).toBe(second);
 
   await page.locator(".bd-rows > .pj").getByRole("button", { name: projectName }).click();
   await expect(page.locator(".pj-board")).toBeVisible();
