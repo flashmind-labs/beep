@@ -108,11 +108,12 @@ server features, and nodes do not connect to it.
 
 ## UI
 
-Change the app's UI directly; there are no mockups. The committed screenshots
-of `apps/desktop/tests/browser/ui-baseline.spec.ts` are the visual record:
-update them with the change and add one for a screen that has none. Check the
-result in the real app too: WebKit lays some things out differently from the
-test browser.
+Change the app's UI directly; there are no mockups. Never commit or push
+screenshots: the PNGs of `apps/desktop/tests/browser/ui-baseline.spec.ts` are
+gitignored and each machine records its own on the first run. The text
+snapshots next to them stay committed: update them with the change and add a
+test for a screen that has none. Check the result in the real app too: WebKit
+lays some things out differently from the test browser.
 
 ### The desktop's style
 

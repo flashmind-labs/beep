@@ -7,6 +7,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
+  // Screenshots are never committed: a machine records its own on the first run.
+  updateSnapshots: "missing",
   use: {
     browserName: "chromium",
     viewport: { width: 1280, height: 900 },
