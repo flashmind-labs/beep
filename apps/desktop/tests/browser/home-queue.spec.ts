@@ -71,3 +71,45 @@ test("on a phone a question shows no answer buttons and keeps its text readable"
   await expect(row.getByRole("button", { name: "Allow", exact: true })).toBeHidden();
   expect((await row.locator(".t b").boundingBox())?.width).toBeGreaterThan(250);
 });
+
+test("the session's next question gets working buttons", async ({ page }) => {
+  await openDesktop(page, false, { center_home: home, projects_sessions: [] });
+  const queue = page.locator("#sec-needs");
+  await queue.getByRole("button", { name: "Allow", exact: true }).click();
+  await expect(queue.getByRole("button", { name: "Allow", exact: true })).toBeDisabled();
+  const next = { ...home, needs_you: [{ ...home.needs_you[0], question: { ...question, id: 8, text: "Restart the cache too?" } }] };
+  await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, next);
+  await expect(queue).toContainText("Restart the cache too?");
+  await expect(queue.getByRole("button", { name: "Allow", exact: true })).toBeEnabled();
+});
+
+test("a question with no option to allow opens the chat to answer", async ({ page }) => {
+  const text = { ...question, text: "Which port should it use?", detail: null, options: [{ id: "skip", name: "Skip", allow: false }] };
+  await openDesktop(page, false, { center_home: { ...home, needs_you: [{ ...home.needs_you[0], question: text }] }, projects_sessions: [] });
+  const queue = page.locator("#sec-needs");
+  await expect(queue.getByRole("button", { name: "Skip" })).toHaveCount(0);
+  await expect(queue.getByRole("button", { name: "Answer" })).toBeVisible();
+});
+
+test("long option names leave the question room", async ({ page }) => {
+  const long = { ...question, options: ["Allow this command once for this session", "Always allow commands like this one here", "Allow for every project on this machine", "Deny and tell the agent what to do instead"].map((name, index) => ({ id: `o${index}`, name, allow: index < 3 })) };
+  await openDesktop(page, false, { center_home: { ...home, needs_you: [{ ...home.needs_you[0], question: long }] }, projects_sessions: [] });
+  expect((await page.locator("#sec-needs .cc-row .t b").boundingBox())?.width).toBeGreaterThan(250);
+});
+
+test("Done today rows keep to one line", async ({ page }) => {
+  const ended = { ...row("old", "Fix the login test", "ended"), reviewer: false, parent: null, last_activity: Date.now() };
+  await openDesktop(page, false, { center_home: home, projects_sessions: [ended], session_moves: [], session_copies: [] });
+  const done = page.locator("#sec-running .bd-log .cc-row", { hasText: "Fix the login test" });
+  await expect(done).toBeVisible();
+  await expect(done.locator(".cc-pdot")).toHaveCount(0);
+});
+
+test.describe("on a touch screen without hover", () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 1180, height: 820 } });
+  test("Close shows on a review card", async ({ page }) => {
+    await openDesktop(page, false, { center_home: home, projects_sessions: [] });
+    await expect(page.locator("body")).not.toHaveClass(/mobile/);
+    await expect(page.locator("#sec-running .bd-card", { hasText: "Lazy-load charts" }).getByRole("button", { name: "Close" })).toBeVisible();
+  });
+});

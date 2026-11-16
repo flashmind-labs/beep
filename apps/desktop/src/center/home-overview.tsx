@@ -1,9 +1,8 @@
 import { useEffect } from "react";
-import { closeSession, visibleRunning } from "../agents/closing.ts";
+import { closeSession, sessionVisible, visibleRunning } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
 import { byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
-import { sessionVisible } from "../agents/closing.ts";
 import { Board, CardRow, type BoardCard } from "./lanes-view.tsx";
 import { LANES, endedToday, laneOf } from "./lanes-state.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
@@ -57,7 +56,9 @@ function needsCards(home: HomeView): BoardCard[] {
       project, color: projectColor(project),
       key: runningKey({ machine_id: need.machine_id, id: need.session }), lane: "needs", session: true,
       lead: <HarnessIcon agent={need.agent} />, title: details.title, sub: [project, details.sub].filter(Boolean).join(" · "), foot: null,
-      action: { kind: "answer", question: need.question, answer: reply => answerNeed(need, reply) }, dim: false, hint: null, open, menu: null,
+      // A question answered in words, with nothing to allow, is answered in its chat.
+      action: need.question.options.some(option => option.allow) ? { kind: "answer", question: need.question, answer: reply => answerNeed(need, reply) } : { kind: "run", label: "Answer", primary: true, run: open },
+      dim: false, hint: null, open, menu: null,
     });
   }
 

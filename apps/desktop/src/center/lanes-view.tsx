@@ -50,7 +50,7 @@ function ActionButton({ action, title }: { action: CardAction; title: string }) 
     // Clicks in its picker stay off the card.
     case "agent": return <span style={{ display: "contents" }} onClick={event => event.stopPropagation()}><AgentButton item={action.item} /></span>;
     case "run": return <Button {...action.windowProps?.clicks} {...action.windowProps?.menu} look={action.primary ? "primary" : "secondary"} small onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</Button>;
-    case "answer": return <Answers question={action.question} answer={action.answer}/>;
+    case "answer": return <Answers key={action.question.id} question={action.question} answer={action.answer}/>;
     case "close": return <Button look="quiet" small className="bd-close" onClick={event => { event.stopPropagation(); action.run(); }}>Close</Button>;
   }
 }
@@ -70,7 +70,7 @@ function Answers({ question, answer }: { question: AgentQuestion; answer(reply: 
     });
   };
 
-  return <span className="bd-answers">{question.options.map((option, index) => <Button key={option.id} small disabled={sending} look={index === allow ? "primary" : "secondary"} danger={!option.allow}
+  return <span className="bd-answers">{question.options.map((option, index) => <Button key={option.id} small title={option.name} disabled={sending} look={index === allow ? "primary" : "secondary"} danger={!option.allow}
     onClick={event => { event.stopPropagation(); pick(option.id); }}>{option.name}</Button>)}</span>;
 }
 
@@ -108,7 +108,7 @@ export function Board({ cards, more, lanes: drawn = LANES, beside = null }: { ca
   return <div className="bd-lanes" ref={box}>{drawn.map(({ lane, title }) => lane === "done"
     ? <div className="bd-lane log" key={lane}>
       {heading(lane, title)}
-      <div className="bd-log">{lanes.done.slice(0, DONE_SHOWN).map(card => <CardRow key={card.key} card={{ ...card, sub: "" }}/>)}</div>
+      <div className="bd-log">{lanes.done.slice(0, DONE_SHOWN).map(card => <CardRow key={card.key} card={{ ...card, sub: "", color: null }}/>)}</div>
       {lanes.done.length > DONE_SHOWN && more.done && <Button look="quiet" small onClick={more.done}>All {lanes.done.length}</Button>}
     </div>
     : <div className={lanes[lane].length > CROWDED_FROM ? "bd-lane many" : "bd-lane"} key={lane}>

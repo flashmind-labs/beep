@@ -1,5 +1,5 @@
 // Home: its tabs and the board.
-import { invoke } from "../ui/tauri.ts";
+import { conflicted, invoke } from "../ui/tauri.ts";
 import { isMobile } from "../ui/platform.ts";
 import { Button } from "../ui/kit.tsx";
 import { Icon } from "../ui/icons.tsx";
@@ -18,7 +18,6 @@ import { onPlaces } from "../agents/place.ts";
 import { ensureSessions, sessionsChanged, sessionsRead } from "../agents/sessions.ts";
 import type { SessionRow } from "../project/projects-state.ts";
 import { ambient } from "../ui/active.ts";
-import { layoutChanged } from "../ui/skin.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { onClosing } from "../agents/closing.ts";
 import { placeWindowParts } from "./window-root.tsx";
@@ -43,7 +42,7 @@ export async function answerNeed(n: NeedsYou, reply: string) {
   try {
     await invoke("center_answer_agent", { machineId: n.machine_id, agent: n.agent, session: n.session, question: n.question.id, reply });
   } catch (e) {
-    if (!/^conflict/i.test(String(e))) throw e;
+    if (!conflicted(e)) throw e;
   }
 }
 
@@ -127,7 +126,6 @@ const readSessions = ambient(() => {
 }, DONE_REREAD_MS, () => currentLocation()?.view === "home");
 sessionsChanged.add(() => { sessionsStale = true; readSessions(); });
 sessionsRead.add(() => draw());
-layoutChanged.add(() => draw());
 onPlaces(() => draw());
 onMoves(() => draw());
 onClosing(() => draw());

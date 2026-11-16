@@ -1053,9 +1053,8 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .pj-board { overflow: auto; min-height: 0; padding: 0 16px 130px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
 .bd-pick { display: inline-flex; align-items: center; gap: 3px }
 .bd-pick svg { width: 12px; height: 12px }
-/* Home: a row for each project under the lanes' titles, named above its cards. */
-/* A cell shows whole cards and scrolls to the rest one card at a time (itemScroll): two on Home, a
-   title line each, and as many as the page has room for in a project. The view sets its height from the cards. */
+/* A cell shows whole cards and scrolls to the rest one card at a time (itemScroll): as many as the
+   project's page has room for. The view sets its height from the cards. */
 .bd-lane.cell { overflow-y: auto; scrollbar-width: none }
 .bd-lane.cell::-webkit-scrollbar { display: none }
 

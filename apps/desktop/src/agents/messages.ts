@@ -17,7 +17,7 @@ import { redrawAgentHints } from "./session-head.tsx";
 import { drawAgentAttached, fitAttachedImages, keepSentImages, keepAgentPics } from "./images.tsx";
 import { drawAgentBody } from "./logview.tsx";
 import { sameSession } from "./running-state.ts";
-import { invoke, listen } from "../ui/tauri.ts";
+import { conflicted, invoke, listen } from "../ui/tauri.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 import { shownQuestionsIn } from "./mode-view.tsx";
 import { closeMove } from "./move.ts";
@@ -289,7 +289,7 @@ export async function answerAgentQuestion(i: number, shown: string) {
     }
   } catch (e) {
     // A conflict means it was answered already, so it stays answered.
-    const conflict = /^conflict/i.test(String(e));
+    const conflict = conflicted(e);
     if (!conflict && AG.answering === q.id) AG.answering = null;
     if (isOpen(o)) AG.note = conflict ? "" : String(e);
   }
