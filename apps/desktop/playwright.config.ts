@@ -19,6 +19,6 @@ export default defineConfig({
     { name: "macOS", use: { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/145.0.0.0 Safari/537.36" } },
     { name: "Windows", use: { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/145.0.0.0 Safari/537.36" } },
     // Input and selection in WebKit, the engine of the app on macOS, iOS and Linux.
-    { name: "WebKit", testMatch: /(?:terminal|selection-feedback|device-react|session-model-scroll|session-header)\.spec\.ts/, use: { browserName: "webkit" } },
+    { name: "WebKit", testMatch: /(?:terminal|selection-feedback|device-react|session-model-scroll|session-header|compose-pills)\.spec\.ts/, use: { browserName: "webkit" } },
   ],
 });

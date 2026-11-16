@@ -1,7 +1,7 @@
 import { keepProjectPick, lastProjectPick } from "../agents/agentmodels.ts";
 import { StashBar } from "../chat/stash-hints.tsx";
 import { ComposerChoices, type ComposerChoicesState } from "./composer-choices.tsx";
-import { composeField, composeMessage } from "../chat/compose.tsx";
+import { composeMessage } from "../chat/compose.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, latest, STALE } from "../ui/active.ts";
 // The bar under a project page: its prompt, harness picker and checkout, and
@@ -47,7 +47,7 @@ let finishCopy: (() => void) | undefined;
 export const projectComp = (() => {
   const composer = makeStartComposer({
     presentation: "compact", externalChoices: true, title: "Enter starts, Shift+Enter adds a line, Shift+Tab switches machines",
-    actions: { submit: () => void startFromBar(), harness: toggleBarPicker, keyDown: switchMachine, files: files => barAttachments.take(files) },
+    actions: { submit: () => void startFromBar(), harness: toggleBarPicker, keyDown: switchMachine, files: files => barAttachments.take(files), images: files => barAttachments.add(files), removeLast: () => barAttachments.removeLast() },
     place: barMenuPlace,
   });
   const { form, harness, pick } = composer;
@@ -140,7 +140,6 @@ const barAttachments = startAttachments(projectComp, error => projectComp.update
   projectComp.update({ sendDisabled: pc.starting || barAttachments.reading || !p || !barPlace(p.places, pc.hosts ?? [], pc.machine) || !!pc.adding });
 });
 
-composeField(projectComp.input, { images: files => barAttachments.add(files), removeLast: () => barAttachments.removeLast() });
 barAttachments.bindStash(() => pc.project);
 
 function closeBarPicker() {

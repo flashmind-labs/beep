@@ -108,7 +108,8 @@ body.cbody
               div.home-assistant
                 form.cc-pjc
                   div.box
-                    textarea [aria-label="Message for the assistant" autocomplete="off" placeholder="Ask the assistant." rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] value=""
+                    div.cx-layer [aria-hidden="true" hidden]
+                    textarea.cx-field [aria-label="Message for the assistant" autocomplete="off" placeholder="Ask the assistant." rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] value=""
                     div.row
                       span.choices
                       span.sp

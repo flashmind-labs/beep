@@ -11,7 +11,6 @@ import { agentDrop } from "../chat/attach.tsx";
 import { fileLinkMenu } from "./filelinks.ts";
 import { agentKey, conversationHistory, conversationKey, retitle, sessionKey, type Retitled } from "./conversation-state.ts";
 import { syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
-import { composeField } from "../chat/compose.tsx";
 import { $, type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
 import { showFailure } from "../ui/failbanner-view.tsx";
 import { readRunning } from "../agentpane/running.ts";
@@ -160,7 +159,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     await retitleOpen({ ...openOf(s), title: title || null });
   };
   const head = <SessionHead agent={s.agent} {...headText(s)} openProject={project?.open ?? null} cwd={s.cwd} machine={s.machine_name} machineId={s.machine_id} session={s.id} usage={shownUsage(s)} moveKey={agentKey(s)} saveTitle={saveTitle} />;
-  const field = <SessionField mode={mode} name={k.name} banner={banner} moveKey={agentKey(s)} machine={s.machine_id} session={s.id} continueHere={continueHere} attach={agentDrop} send={submitAgentMessage} stop={() => void interruptAgent()} openParent={openParent} />;
+  const field = <SessionField mode={mode} name={k.name} banner={banner} moveKey={agentKey(s)} machine={s.machine_id} session={s.id} continueHere={continueHere} attach={agentDrop} draft={conversationKey(s)} removeLast={removeLastAttachment} send={submitAgentMessage} stop={() => void interruptAgent()} openParent={openParent} />;
   showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
   activateMentions(s);
   drawAgentHeading();
@@ -172,7 +171,6 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const msg = agentMessage.current;
 
   if (msg) {
-    composeField(msg, { images: agentDrop, removeLast: removeLastAttachment, grow: 156, draft: conversationKey(s) });
     bindMentionMenu(msg);
     bindSessionStash(msg);
     showUploadPending(currentMentions().sending);

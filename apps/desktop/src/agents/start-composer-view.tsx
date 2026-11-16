@@ -1,3 +1,4 @@
+import { ComposeField } from "../chat/compose.tsx";
 import { DailyArt } from "../ui/painted-art.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import { createPortal } from "react-dom";
@@ -36,6 +37,10 @@ export interface StartComposerActions {
   input?(value: string): void;
   /// Files pasted or dropped on the composer.
   files?(files: File[]): void;
+  /// A picture whose path was pasted in the task field.
+  images?(files: File[]): void;
+  /// Takes the last attachment off: a Backspace at the start of the task field.
+  removeLast?(): void;
 }
 
 const FIELD_MAX = 200;
@@ -82,7 +87,7 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
   const heading = state.words.title ?? state.welcome;
   return <>{state.centered && <section className="agc-intro"><DailyArt /><h3 aria-label={heading}><span aria-hidden="true">{heading.split(" ").map((word, index) => <Fragment key={index}>{index > 0 && " "}<span className="agc-word" style={{ "--word": index } as CSSProperties}>{word}</span></Fragment>)}</span></h3><p>{state.words.line}</p></section>}
     <div className={`box${state.invalid ? " err" : ""}${state.dropping ? " dropping" : ""}`} id={id("agbox")} ref={refs.box}>
-      <textarea ref={refs.input} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label={state.words.label} title={title} placeholder={state.placeholder}
+      <ComposeField ref={refs.input} images={actions.images} removeLast={actions.removeLast} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label={state.words.label} title={title} placeholder={state.placeholder}
         onInput={event => { grow(); actions.input?.(event.currentTarget.value); }}
         onPaste={paste}
         onKeyDown={event => { actions.keyDown?.(event.nativeEvent); if (event.currentTarget.readOnly || event.key !== "Enter" || event.shiftKey || isMobile() || event.nativeEvent.isComposing || event.defaultPrevented) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.form?.requestSubmit(); }} />

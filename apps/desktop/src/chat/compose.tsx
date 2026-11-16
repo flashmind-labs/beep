@@ -1,4 +1,4 @@
-import { createDocumentScope } from "../ui/document-root.tsx";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Ref, type TextareaHTMLAttributes } from "react";
 import { ComposeOverlay, ComposePopup } from "./compose-overlay.tsx";
 import { composeMessage as compose, expandPills, fenceSpans, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, snapCaret, snapSelection } from "./compose-text.ts";
 import { bytesOf } from "../agentpane/media-state.ts";
@@ -33,46 +33,9 @@ interface ComposeOptions {
   removeLast?: () => void;
 }
 
-interface Field {
-  layer: HTMLDivElement;
-  opts: ComposeOptions;
-  /// The caret before the last move, to skip a pill in the direction it went.
-  caret: number;
-  composing: boolean;
-  pop: HTMLDivElement | null;
-  closePop: (() => void) | null;
-  drawing: number;
-  slot: string;
-  shown: boolean;
-  active: boolean;
-}
+type ComposeFieldProps = ComposeOptions & Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "defaultValue"> & { ref?: Ref<HTMLTextAreaElement> };
 
-const fields = new WeakMap<HTMLTextAreaElement, Field>();
-const overlay = createDocumentScope<string>();
-let nextSlot = 0;
-// Cached fields may leave the document and return, and hidden ones show nothing.
-// Release portal ownership while a field is out of view and draw it again when
-// it returns. Fields are held weakly, so discarded ones are not retained.
-function seen(entries: IntersectionObserverEntry[]) {
-  for (const { target, isIntersecting } of entries) {
-    if (!(target instanceof HTMLTextAreaElement)) continue;
-    const state = fields.get(target);
-    if (!state || state.shown === isIntersecting) continue;
-
-    state.shown = isIntersecting;
-    if (state.shown) { onScreen.add(target); draw(target); }
-    else {
-      onScreen.delete(target);
-      closePop(target);
-      if (state.active) { overlay.remove([state.slot]); state.active = false; }
-    }
-  }
-}
-/// Made with the first composer, so the module loads without a DOM. A DOM
-/// without layout has none, and its overlays stay as drawn.
-let views: IntersectionObserver | null = null;
-const VALUE = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!;
-
+const VALUE = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
 const draftKeyOf = (draft: string) => `beep.promptDraft.v1.${draft}`;
 
 /// Puts `text` in front of the draft kept for a field not on screen, as `ComposeOptions.draft`
@@ -84,109 +47,118 @@ export function prependDraft(draft: string, text: string) {
   } catch { /* Storage can be unavailable. */ }
 }
 
-/// Makes `field` a composer. Calling it again on the same field does nothing.
-export function composeField(field: HTMLTextAreaElement, opts: ComposeOptions = {}) {
-  if (fields.has(field)) return;
-  const draftKey = opts.draft === undefined ? null : draftKeyOf(opts.draft);
+/// A composer's field: a textarea with the layer behind it that draws its
+/// pills and code outlines, and the preview of a clicked pill. A caller that
+/// shows another conversation gives another `draft` and a `key` with it.
+export function ComposeField({ draft, images, grow, removeLast, ref, className, onInput, onFocus, onScroll, onPaste, onKeyDown, onClick, onSelect, onKeyUp, onMouseUp, onCompositionStart, onCompositionEnd, ...rest }: ComposeFieldProps) {
+  const field = useRef<HTMLTextAreaElement | null>(null), layer = useRef<HTMLDivElement>(null), pillNodes = useRef(new Map<number, HTMLSpanElement>());
+  const draftKey = draft === undefined ? null : draftKeyOf(draft);
+  const [initial] = useState(() => { try { return draftKey ? localStorage.getItem(draftKey) ?? "" : ""; } catch { return ""; } });
+  const [value, setValue] = useState(initial);
+  const [box, setBox] = useState<CSSProperties | null>(null);
+  const [size, setSize] = useState(0);
+  const [pop, setPop] = useState<number | null>(null);
+  /// The caret before the last move, to skip a pill in the direction it went.
+  const caret = useRef(0), composing = useRef(false);
+  const pills = pillsIn(value), fences = fenceSpans(value, pastes), shown = pills.length > 0 || fences.length > 0;
 
-  if (draftKey) {
-    try { field.value = localStorage.getItem(draftKey) ?? field.value; } catch { /* Storage can be unavailable. */ }
-  }
-
-  const saveDraft = () => {
+  const saveDraft = (text: string) => {
     if (!draftKey) return;
 
     try {
       // Pill IDs only live in this window. Keep their text without changing
       // whitespace or adding the code fences that sending would add.
-      const text = expandPills(field.value, pastes);
-      if (text) localStorage.setItem(draftKey, text);
+      const kept = expandPills(text, pastes);
+      if (kept) localStorage.setItem(draftKey, kept);
       else localStorage.removeItem(draftKey);
     } catch { /* Keep the field usable when storage is full or unavailable. */ }
   };
-  const layer = document.createElement("div");
-  layer.className = "cx-layer";
-  layer.setAttribute("aria-hidden", "true");
-  layer.hidden = true;
-  field.before(layer);
-  field.classList.add("cx-field");
-  const parent = field.parentElement;
-  if (parent && getComputedStyle(parent).position === "static") parent.style.position = "relative";
-  fields.set(field, { layer, opts, caret: field.selectionStart, composing: false, pop: null, closePop: null, drawing: 0, slot: String(++nextSlot), shown: true, active: false });
-  if (typeof IntersectionObserver === "function") views ??= new IntersectionObserver(seen);
-  views?.observe(field);
-  onScreen.add(field);
-  // Text set from code (sending, a queued message put back) draws too.
-  Object.defineProperty(field, "value", {
-    configurable: true,
-    get() { return VALUE.get!.call(this); },
-    set(v: string) { VALUE.set!.call(this, v); saveDraft(); later(field); },
+  const changed = (text: string) => { saveDraft(text); setValue(text); };
+
+  // Text set from code (sending, a queued message put back, the mention menu)
+  // draws and saves too. Callers set `value` directly; until they all go
+  // through props, the field reports those writes here.
+  const attach = useCallback((node: HTMLTextAreaElement | null) => {
+    field.current = node;
+    if (typeof ref === "function") ref(node); else if (ref) ref.current = node;
+    if (!node || !VALUE?.get || !VALUE.set) return;
+
+    const { get, set } = VALUE;
+    Object.defineProperty(node, "value", { configurable: true, get() { return get.call(this); }, set(text: string) { set.call(this, text); changed(text); } });
+  // `changed` reads only `draftKey`, which a new draft remounts the field for.
+  }, [ref]);
+  const closePop = useCallback(() => setPop(null), []);
+
+  useLayoutEffect(() => {
+    const node = field.current;
+    if (!node || !grow) return;
+
+    // Collapsing the field to measure it makes the log above taller for a
+    // moment, which moves a log scrolled to its end.
+    const log = sessionBody(), top = log?.scrollTop ?? 0;
+    node.style.height = "auto";
+    node.style.height = `${Math.min(node.scrollHeight, grow)}px`;
+    if (log && log.scrollTop !== top) log.scrollTop = top;
+  }, [value, grow, size]);
+
+  // The layer takes the field's place and type, so the same text lays out the same way.
+  useLayoutEffect(() => {
+    const node = field.current;
+    if (!node || !shown) return;
+
+    const cs = getComputedStyle(node);
+    const next: CSSProperties = { left: node.offsetLeft + node.clientLeft, top: node.offsetTop + node.clientTop, width: node.clientWidth, height: node.clientHeight };
+    for (const k of COPIED) next[k] = cs[k];
+    setBox(old => old && COPIED_BOX.every(k => old[k] === next[k]) ? old : next);
+    if (layer.current) layer.current.scrollTop = node.scrollTop;
   });
-  field.addEventListener("input", () => { saveDraft(); closePop(field); draw(field); });
-  field.addEventListener("focus", () => draw(field));
-  field.addEventListener("scroll", () => { layer.scrollTop = field.scrollTop; });
-  field.addEventListener("paste", e => paste(field, e));
-  field.addEventListener("keydown", e => key(field, e));
-  field.addEventListener("click", e => click(field, e));
-  for (const name of ["selectionchange", "select", "keyup", "mouseup"]) field.addEventListener(name, () => snap(field));
-  field.addEventListener("compositionstart", () => { fields.get(field)!.composing = true; });
-  field.addEventListener("compositionend", () => { fields.get(field)!.composing = false; });
-  draw(field);
-}
 
-function later(field: HTMLTextAreaElement) {
-  const f = fields.get(field);
-  if (!f || f.drawing) return;
-  f.drawing = requestAnimationFrame(() => { f.drawing = 0; draw(field); });
-}
+  // A resize, of the window or of the field moved to another host, lays it out again.
+  useEffect(() => {
+    const node = field.current;
+    if (!node || typeof ResizeObserver !== "function") return;
 
-// ----- Drawing -----
+    const seen = new ResizeObserver(() => setSize(n => n + 1));
+    seen.observe(node);
+    return () => seen.disconnect();
+  }, []);
+
+  const snapNow = () => {
+    const node = field.current;
+    if (node && !composing.current) caret.current = snap(node, caret.current);
+  };
+
+  return <>
+    <div ref={layer} className="cx-layer" aria-hidden="true" hidden={!shown} style={box ?? undefined}>{shown && <ComposeOverlay value={value} pills={pills} fences={fences} pillNode={(id, node) => { if (node) pillNodes.current.set(id, node); else pillNodes.current.delete(id); }} />}</div>
+    <textarea ref={attach} defaultValue={initial} className={className ? `${className} cx-field` : "cx-field"} {...rest}
+      onInput={event => { changed(event.currentTarget.value); setPop(null); onInput?.(event); }}
+      onFocus={event => { setSize(n => n + 1); onFocus?.(event); }}
+      onScroll={event => { if (layer.current) layer.current.scrollTop = event.currentTarget.scrollTop; onScroll?.(event); }}
+      onPaste={event => { paste(event.currentTarget, event.nativeEvent, images); onPaste?.(event); }}
+      onKeyDown={event => {
+        const node = event.currentTarget;
+        if (event.key === "Escape" && pop !== null) { event.preventDefault(); event.stopPropagation(); setPop(null); return; }
+        caret.current = key(node, event.nativeEvent, caret.current, removeLast);
+        onKeyDown?.(event);
+      }}
+      onClick={event => {
+        // The pills lie under the field; a click on one shows its text.
+        const at = [...pillNodes.current].find(([, span]) => [...span.getClientRects()].some(r => event.clientX >= r.left - 2 && event.clientX <= r.right + 2 && event.clientY >= r.top && event.clientY <= r.bottom));
+        if (at) setPop(at[0]);
+        onClick?.(event);
+      }}
+      onSelect={event => { snapNow(); onSelect?.(event); }}
+      onKeyUp={event => { snapNow(); onKeyUp?.(event); }}
+      onMouseUp={event => { snapNow(); onMouseUp?.(event); }}
+      onCompositionStart={event => { composing.current = true; onCompositionStart?.(event); }}
+      onCompositionEnd={event => { composing.current = false; onCompositionEnd?.(event); }} />
+    {pop !== null && field.current && <PillPreview field={field.current} id={pop} close={closePop} />}
+  </>;
+}
 
 const COPIED = ["fontFamily", "fontSize", "fontWeight", "fontStyle", "fontStretch", "letterSpacing", "wordSpacing", "lineHeight", "textTransform", "textIndent", "tabSize",
   "paddingTop", "paddingRight", "paddingBottom", "paddingLeft"] as const;
-
-function draw(field: HTMLTextAreaElement) {
-  const f = fields.get(field);
-  if (!f || !field.isConnected) return;
-
-  if (f.opts.grow) {
-    // Collapsing the field to measure it makes the log above taller for a
-    // moment, which moves a log scrolled to its end.
-    const log = sessionBody(), top = log?.scrollTop;
-    field.style.height = "auto";
-    field.style.height = `${Math.min(field.scrollHeight, f.opts.grow)}px`;
-    if (log && log.scrollTop !== top) log.scrollTop = top!;
-  }
-
-  const value = field.value, pills = pillsIn(value), fences = fenceSpans(value, pastes), layer = f.layer;
-
-  if (!pills.length && !fences.length) {
-    layer.hidden = true;
-    if (f.active) { overlay.remove([f.slot]); f.active = false; }
-    return;
-  }
-
-  layer.hidden = false;
-  const cs = getComputedStyle(field);
-  for (const k of COPIED) layer.style[k] = cs[k];
-  layer.style.left = `${field.offsetLeft + field.clientLeft}px`;
-  layer.style.top = `${field.offsetTop + field.clientTop}px`;
-  layer.style.width = `${field.clientWidth}px`;
-  layer.style.height = `${field.clientHeight}px`;
-  overlay.set([{ slot: f.slot, host: layer, content: <ComposeOverlay value={value} pills={pills} fences={fences} /> }]);
-  f.active = true;
-  layer.scrollTop = field.scrollTop;
-}
-
-/// The composers on screen, which a resize lays out again.
-const onScreen = new Set<HTMLTextAreaElement>();
-addEventListener("resize", () => {
-  for (const field of onScreen) {
-    // A field that left the page is added again when it shows.
-    if (field.isConnected) later(field);
-    else onScreen.delete(field);
-  }
-});
+const COPIED_BOX = [...COPIED, "left", "top", "width", "height"] as const;
 
 // ----- Pills -----
 
@@ -199,17 +171,17 @@ function insert(field: HTMLTextAreaElement, text: string) {
   field.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-function paste(field: HTMLTextAreaElement, e: ClipboardEvent) {
-  const data = e.clipboardData, f = fields.get(field)!;
+function paste(field: HTMLTextAreaElement, e: ClipboardEvent, images: ComposeOptions["images"]) {
+  const data = e.clipboardData;
   // Files go to the attachments, as before.
   if (!data || [...data.items].some(i => i.kind === "file")) return;
   const text = data.getData("text/plain");
   if (!text) return;
-  const image = f.opts.images ? imagePath(text) : null;
+  const image = images ? imagePath(text) : null;
 
-  if (image) {
+  if (images && image) {
     e.preventDefault();
-    readImage(image.path).then(file => f.opts.images!([file])).catch(err => {
+    readImage(image.path).then(file => images([file])).catch(err => {
       // Not a picture that can be read: the path goes in as typed.
       console.warn("pasted picture:", err);
       insert(field, text);
@@ -230,86 +202,67 @@ async function readImage(path: string) {
   return new File([bytesOf(got.data)], got.name, { type: got.mime });
 }
 
-function key(field: HTMLTextAreaElement, e: KeyboardEvent) {
-  const f = fields.get(field)!;
-
-  if (e.key === "Escape" && f.pop) {
-    e.preventDefault();
-    e.stopPropagation();
-    closePop(field);
-    return;
-  }
-
+/// Steps over a pill, or removes it whole. Returns where the caret is.
+function key(field: HTMLTextAreaElement, e: KeyboardEvent, caret: number, removeLast: ComposeOptions["removeLast"]) {
   if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey) {
-    // Over a pill in one step.
     const at = field.selectionStart, back = e.key === "ArrowLeft";
     const p = at === field.selectionEnd ? pillAt(pillsIn(field.value), at, back) : null;
-    if (!p) return;
+    if (!p) return caret;
     e.preventDefault();
     const to = back ? p.start : p.end;
     field.setSelectionRange(to, to);
-    f.caret = to;
-    return;
+    return to;
   }
 
-  if ((e.key !== "Backspace" && e.key !== "Delete") || e.isComposing) return;
+  if ((e.key !== "Backspace" && e.key !== "Delete") || e.isComposing) return caret;
   const at = field.selectionStart;
-  if (at !== field.selectionEnd) return;
+  if (at !== field.selectionEnd) return caret;
 
   if (at === 0 && e.key === "Backspace") {
-    f.opts.removeLast?.();
-    return;
+    removeLast?.();
+    return caret;
   }
 
   const p = pillAt(pillsIn(field.value), at, e.key === "Backspace");
-  if (!p) return;
+  if (!p) return caret;
   e.preventDefault();
   field.setSelectionRange(p.start, p.end);
   insert(field, "");
+  return caret;
 }
 
-// The caret never stops inside a pill, and a selection holds pills whole.
-// Browsers fire `selectionchange` at the field or at the document; keys
-// and clicks check too.
-document.addEventListener("selectionchange", () => {
-  if (document.activeElement instanceof HTMLTextAreaElement) snap(document.activeElement);
-});
-
-function snap(field: HTMLTextAreaElement) {
-  const f = fields.get(field);
-  if (!f || f.composing) return;
+/// The caret never stops inside a pill, and a selection holds pills whole.
+/// Returns where the caret is.
+function snap(field: HTMLTextAreaElement, caret: number) {
   const a = field.selectionStart, b = field.selectionEnd, pills = pillsIn(field.value);
 
   if (a === b) {
-    const to = snapCaret(pills, a, f.caret);
-    f.caret = to;
+    const to = snapCaret(pills, a, caret);
     if (to !== a) field.setSelectionRange(to, to);
-    return;
+    return to;
   }
 
   const s = snapSelection(pills, a, b);
   if (s.start !== a || s.end !== b) field.setSelectionRange(s.start, s.end, field.selectionDirection);
+  return caret;
 }
 
 // ----- Preview -----
 
-/// A click on a pill shows its text, to expand into the field or remove.
-function click(field: HTMLTextAreaElement, e: MouseEvent) {
-  const f = fields.get(field)!;
-
-  for (const span of f.layer.querySelectorAll<HTMLElement>(".cx-pill")) {
-    for (const r of span.getClientRects()) {
-      if (e.clientX >= r.left - 2 && e.clientX <= r.right + 2 && e.clientY >= r.top && e.clientY <= r.bottom) return openPop(field, Number(span.dataset.id));
-    }
-  }
-}
-
 const PREVIEW_LINES = 200;
 
-function openPop(field: HTMLTextAreaElement, id: number) {
-  const f = fields.get(field)!, text = pastes.get(id);
-  closePop(field);
-  if (text == null) return;
+/// A pill's text, to expand into the field or remove. A press outside closes it.
+function PillPreview({ field, id, close }: { field: HTMLTextAreaElement; id: number; close(): void }) {
+  const pop = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const away = (e: MouseEvent) => { if (!(e.target instanceof Node && pop.current?.contains(e.target))) close(); };
+    addEventListener("mousedown", away, true);
+    return () => removeEventListener("mousedown", away, true);
+  }, [close]);
+
+  const text = pastes.get(id);
+  if (text == null) return null;
+
   // The pill's place now: typing may have moved it since the click.
   const select = () => {
     const p = pillsIn(field.value).find(p => p.id === id);
@@ -318,24 +271,8 @@ function openPop(field: HTMLTextAreaElement, id: number) {
   };
   const shown = text.split("\n");
   const preview = shown.length > PREVIEW_LINES ? `${shown.slice(0, PREVIEW_LINES).join("\n")}\n…` : text;
-  const parent = field.parentElement;
-  if (!parent) return;
-  overlay.set([{ slot: `popup:${f.slot}`, host: parent, content: <ComposePopup
-    text={preview} lines={lineCount(text)} node={element => { f.pop = element; }}
-    expand={() => { if (select()) insert(field, text); closePop(field); }}
-    remove={() => { if (select()) insert(field, ""); closePop(field); }} /> }]);
-  const pop = f.pop;
-  if (!pop) return;
-  const away = (e: MouseEvent) => { if (!pop.contains(e.target as Node)) closePop(field); };
-  addEventListener("mousedown", away, true);
-  f.closePop = () => removeEventListener("mousedown", away, true);
-}
 
-function closePop(field: HTMLTextAreaElement) {
-  const f = fields.get(field);
-  if (!f?.pop) return;
-  overlay.remove([`popup:${f.slot}`]);
-  f.closePop?.();
-  f.pop = null;
-  f.closePop = null;
+  return <ComposePopup text={preview} lines={lineCount(text)} node={element => { pop.current = element; }}
+    expand={() => { if (select()) insert(field, text); close(); }}
+    remove={() => { if (select()) insert(field, ""); close(); }} />;
 }

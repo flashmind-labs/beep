@@ -883,6 +883,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agkeys.away { visibility: hidden }
 /* Composers (chat/compose.ts): a long paste is a pill, the part sent as code
    has a dim outline. Both are drawn on a layer behind the field's own text. */
+:has(> .cx-field) { position: relative }
 .cx-field { position: relative; z-index: 1 }
 .cx-layer { position: absolute; z-index: 0; box-sizing: border-box; margin: 0; border: 0; overflow: hidden; pointer-events: none; color: transparent; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal }
 .cx-pill { border-radius: 5px; background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent), 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent) }
