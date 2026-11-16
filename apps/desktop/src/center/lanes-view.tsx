@@ -127,8 +127,10 @@ function Cell({ shown, children }: { shown: Shown; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState<number | null>(null);
 
-  // The cell is as tall as its shown cards, so none shows cut at the bottom.
-  useLayoutEffect(() => { if (ref.current) setFit(shownHeight(ref.current, shown)); });
+  // The cell is as tall as its shown cards, so none shows cut at the bottom. It measures
+  // when its cards change, not on its own update: its height feeds back into the
+  // measure, and measuring after every render could loop until React gives up.
+  useLayoutEffect(() => { if (ref.current) setFit(shownHeight(ref.current, shown)); }, [shown, children]);
 
   // A cell that fills the page fits again when the page changes size.
   useEffect(() => {
