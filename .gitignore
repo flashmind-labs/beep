@@ -37,5 +37,15 @@ admin.sock
 # Written by the qr-scan plugin build.
 /apps/desktop/src-tauri/qr-scan/permissions/
 
-# UI screenshots are recorded locally and never committed.
-apps/desktop/tests/browser/*-snapshots/*.png
+# No images in git: screenshots, renders and exports stay local. UI baseline
+# PNGs are recorded on each machine. Only the app's own art is tracked.
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+*.tiff
+!apps/desktop/src-tauri/icons/**
+!apps/desktop/dist/hermes.png
+!plugins/examples/composer-cat/art/**
