@@ -141,9 +141,9 @@
    whose blur is on a layer behind it. */
 .fr-scrim { position: fixed; inset: 0; z-index: 40; display: grid; align-items: center; justify-items: start; padding: 0 max(6vw, 40px); background: var(--ink); overflow: hidden }
 .fr-scrim.under { z-index: 30 }
-.fr-scrim.fr-scrim > .painted-art { display: block; position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; opacity: 1; transform: none; -webkit-mask-image: none; mask-image: none }
+.fr-scrim.fr-scrim > .painted-art { display: var(--paintings); position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; opacity: 1; transform: none; -webkit-mask-image: none; mask-image: none }
 .fr-card { position: relative; isolation: isolate; width: min(440px, 100%); padding: 24px 26px; border-radius: var(--radius); display: grid; gap: 16px }
-.fr-card::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: color-mix(in srgb, var(--ink) 80%, transparent); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent), 0 24px 70px -12px color-mix(in srgb, var(--shade, #000) 60%, transparent) }
+.fr-card::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: color-mix(in srgb, var(--ink) max(80%, var(--glass-solid)), transparent); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent), 0 24px 70px -12px color-mix(in srgb, var(--shade, #000) 60%, transparent) }
 .fr-setup { width: min(480px, 100%) }
 .fr-head { display: grid; gap: 12px }
 .fr-head svg { width: 26px; height: 26px }
@@ -219,18 +219,18 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .conversation-switcher header { display: flex; justify-content: space-between; gap: 16px; padding: 4px 8px 12px; font-size: 12px; }
 .conversation-switcher small, .conversation-switcher footer { color: var(--muted); font-size: 12px; line-height: 16px; }
 .conversation-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; min-height: 0; overflow-y: auto; outline: none; }
-.conversation-choice { flex: none; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 2px solid transparent; border-radius: 8px; color: var(--fg); background: transparent; text-align: left; cursor: default; }
+.conversation-choice { flex: none; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 2px solid transparent; border-radius: var(--radius); color: var(--fg); background: transparent; text-align: left; cursor: default; }
 .conversation-choice[aria-selected="true"] { border-color: var(--accent); background: var(--deep); }
 .conversation-choice:hover { background: var(--deep); }
 .conversation-choice:active { transform: scale(.98); }
 .conversation-choice.sub { grid-template-columns: 24px minmax(0, 1fr) auto; padding: 4px 8px; }
-.conversation-choice.sub .conversation-mark { width: 24px; height: 24px; border-radius: 6px; }
+.conversation-choice.sub .conversation-mark { width: 24px; height: 24px; border-radius: var(--radius); }
 .conversation-choice.sub .conversation-label b { font-size: 13px; line-height: 18px; }
 .conversation-label { display: grid; min-width: 0; }
 .conversation-label b { font-size: 14px; line-height: 20px; font-weight: 500; }
 .conversation-label b, .conversation-label small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-state { display: grid; color: var(--muted); font-size: 12px; line-height: 16px; text-align: right; }
-.conversation-mark { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: var(--deep); border: 1px solid var(--border); font-size: 12px; font-weight: 600; }
+.conversation-mark { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius); background: var(--deep); border: 1px solid var(--border); font-size: 12px; font-weight: 600; }
 .conversation-icon { display: grid; place-items: center; width: 100%; height: 100%; }
 .conversation-icon svg { display: block; width: 58%; height: 58%; }
 .conversation-dot { position: absolute; right: -4px; bottom: -4px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--surface); background: var(--muted); }
@@ -244,7 +244,7 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 
 .ap-sheet .am-head { margin-bottom: 12px }
 .ap-sheet .ap-bar { margin: 8px 0; min-height: 28px }
-.ap-results { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--elev) }
+.ap-results { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--elev) }
 .ap-sheet .ap-list { border: 0; padding: 0 12px; max-height: none; overflow: visible; border-radius: 0 }
 .ap-sheet .ap-remote .am-label { margin: 0; padding: 8px 12px; background: var(--surface) }
 .ap-sheet .ap-row { padding: 8px 0; gap: 2px 12px }

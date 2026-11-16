@@ -164,7 +164,10 @@ same look, sized for touch, in `mobile.css`.
   height for everything inside a container; `--ctl-fill` and `--ctl-fill-hi`
   are the control fills; `--lit` is the lit edge; `--mono` and `--body` are
   the faces; `--ink`, `--fg`, `--muted`, `--dim` and `--accent` are the
-  colours, so a skin changes them all at once.
+  colours; `--radius` and `--radius-sm` are the corners; `--glass` and
+  `--glass-solid` are the frost and fill of floating layers; `--paintings`
+  shows or hides the paintings. A skin (`dist/skins.css`) sets them, so it
+  changes them all at once.
 - Stylesheets in `apps/desktop/dist`: structure that the phone shares goes in
   `style.css`, `center.css` or `sheets.css`, unscoped. The desktop's look goes
   in `native.css` under `body:not(.mobile)`; the phone's in `mobile.css`.

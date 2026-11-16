@@ -27,7 +27,7 @@ button { font: inherit; color: inherit; cursor: default }
 .dbody p { margin: 0 0 8px } .dbody p:last-child { margin: 0 }
 .dbody strong { font-weight: 600 }
 .dbody a { color: var(--accent); overflow-wrap: anywhere }
-.dbody code { font-family: var(--mono); font-size: 12.5px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
+.dbody code { font-family: var(--mono); font-size: 12.5px; background: var(--elev); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 4px }
 .dbody pre, .agartmd pre { margin: 0 0 8px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--elev); border: 1px solid var(--border); overflow: auto }
 .dbody pre code, .agartmd pre code { border: 0; padding: 0; background: none }
 .dbody table { border-collapse: collapse; font-size: 13px; margin-bottom: 8px }
@@ -48,7 +48,7 @@ button { font: inherit; color: inherit; cursor: default }
 .dhints .win { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 0; font: inherit; color: inherit; cursor: default }
 .dhints .win:hover { color: var(--fg) }
 .dhints .st { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 0; font: inherit; color: var(--fg) }
-kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 18px; text-align: center; padding: 0 5px; border-radius: 4px; background: var(--elev);
+kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 18px; text-align: center; padding: 0 5px; border-radius: var(--radius-sm); background: var(--elev);
   border: 1px solid var(--border); color: var(--fg); display: inline-flex; align-items: center; gap: 2px; justify-content: center }
 .ddot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block; flex: none }
 .ddot.off { background: var(--dim) } .ddot.bad { background: var(--err) }
@@ -267,7 +267,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dmag .out { background: var(--err) }
 .dmt .none { grid-row: 2; grid-column: 1 / -2; font-size: 12px; color: var(--dim) }
 .dmt .l3 { grid-row: 3; grid-column: 1 / -2; display: flex; gap: 4px; overflow: hidden; white-space: nowrap; min-width: 0 }
-.dmt-t { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: var(--elev); border-radius: 5px; padding: 0 6px; line-height: 17px }
+.dmt-t { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: var(--elev); border-radius: var(--radius-sm); padding: 0 6px; line-height: 17px }
 .dmt .ask { grid-column: 1 / -1 }
 .dmt .dmad { grid-column: 1 / -2 }
 .dmad { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); min-width: 0; white-space: nowrap }
@@ -329,7 +329,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agtab svg { flex: none }
 .agtab span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono) }
 .agtab small { color: var(--dim) }
-.agtab em { display: grid; opacity: 0; padding: 2px; border-radius: 4px } .agtab em svg { width: 10px; height: 10px }
+.agtab em { display: grid; opacity: 0; padding: 2px; border-radius: var(--radius-sm) } .agtab em svg { width: 10px; height: 10px }
 .agtab:hover em, .agtab.on em { opacity: .7 } .agtab em:hover { opacity: 1; background: color-mix(in srgb, var(--fg) 8%, transparent) }
 .agtab:hover { color: var(--fg) } .agtab.on { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg) }
 .agpbtn { all: unset; cursor: default; flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--radius-sm); color: var(--muted) }
@@ -395,7 +395,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agtree { flex: 1; min-height: 0; overflow: auto; padding: 4px; outline: 0 }
 .agtrows { position: relative } .agtrows > .agtr { position: absolute; top: 0; left: 0; right: 0 }
 .agtree.dropping { outline: 1px dashed var(--accent); outline-offset: -4px }
-.agtr { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px calc(8px + var(--d) * 16px); border-radius: 5px; font: 12px var(--mono); color: var(--fg); cursor: default; user-select: none }
+.agtr { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px calc(8px + var(--d) * 16px); border-radius: var(--radius-sm); font: 12px var(--mono); color: var(--fg); cursor: default; user-select: none }
 .agtr:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) } .agtr.on { background: color-mix(in srgb, var(--fg) 9%, transparent) }
 .agtr.drop { background: color-mix(in srgb, var(--ok) 14%, transparent); box-shadow: inset 0 0 0 1px var(--accent) }
 .agtr.ign { opacity: .5 } .agtr svg { flex: none; color: var(--muted) }
@@ -405,7 +405,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agtr .gm { font-size: 10.5px; font-weight: 600 }
 .gm.modified { color: var(--warn) } .gm.added { color: var(--accent) } .gm.untracked { color: #6FA8DC } .gm.conflicted { color: var(--hot) }
 .agctx { position: absolute; z-index: 5; min-width: 180px; padding: 4px; border-radius: var(--radius-sm); background: var(--elev, var(--elev)); border: 1px solid var(--border); box-shadow: 0 8px 24px color-mix(in srgb, var(--shade) 40%, transparent) }
-.agctx :is(button, [role="menuitem"]) { all: unset; display: block; box-sizing: border-box; width: 100%; cursor: default; padding: 5px 10px; border-radius: 5px; font-size: 12px; color: var(--fg) }
+.agctx :is(button, [role="menuitem"]) { all: unset; display: block; box-sizing: border-box; width: 100%; cursor: default; padding: 5px 10px; border-radius: var(--radius-sm); font-size: 12px; color: var(--fg) }
 .agctx :is(button, [role="menuitem"]):hover, .agctx :is(button, [role="menuitem"]):focus { background: color-mix(in srgb, var(--fg) 8%, transparent) }
 .agctx :is(hr, [role="separator"]) { border: 0; border-top: 1px solid var(--border); margin: 4px 2px }
 /* The Artifacts tab: what the agent published or wrote, newest first, then the picked one rendered. */
@@ -416,7 +416,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agpview.arts.folded .agartlist { flex: 1; max-height: none; border-bottom: 0 }
 .agart { all: unset; cursor: default; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--radius-sm) }
 .agart:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) } .agart.on { background: color-mix(in srgb, var(--fg) 9%, transparent) }
-.agart .k { flex: none; width: 62px; text-align: center; padding: 1px 0; border-radius: 4px; font-size: 10.5px; font-weight: 600; border: 1px solid var(--border); color: var(--muted) }
+.agart .k { flex: none; width: 62px; text-align: center; padding: 1px 0; border-radius: var(--radius-sm); font-size: 10.5px; font-weight: 600; border: 1px solid var(--border); color: var(--muted) }
 .agart .k.html { color: var(--warn) } .agart .k.md { color: #6FA8DC } .agart .k.svg { color: var(--accent) }
 .agart .t { flex: 1; min-width: 0; display: grid }
 .agart .t b { font: 600 12px var(--mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
@@ -434,7 +434,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agartmd :is(h1, h2) { font-size: 15px; margin: 12px 0 6px; font-weight: 600 } .agartmd :is(h3, h4, h5, h6) { font-size: 14px; margin: 10px 0 4px; font-weight: 600 }
 .agartmd p { margin: 0 0 8px } .agartmd :is(ul, ol) { margin: 0 0 8px; padding-left: 18px }
 .agartmd a { color: var(--accent) }
-.agartmd code, .agc-help code { font-family: var(--mono); font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
+.agartmd code, .agc-help code { font-family: var(--mono); font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 4px }
 .agartmd table { border-collapse: collapse; margin-bottom: 8px; font-size: 12.5px } .agartmd :is(th, td) { border: 1px solid var(--border); padding: 3px 8px; text-align: left }
 .agartmd img { max-width: 100% }
 .dcoderen.tool.artifact .tt { text-decoration: underline dotted var(--dim); text-underline-offset: 3px }
@@ -510,7 +510,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dsubrow .t { display: grid; min-width: 0; line-height: 20px }
 .dsubrow .t b { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dsubrow .t small { font-size: 11.5px; line-height: 16px; color: var(--muted) }
-.dsubrow .t b .kind { margin-left: 6px; padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; font: 500 11px/16px var(--mono, monospace); color: var(--muted) }
+.dsubrow .t b .kind { margin-left: 6px; padding: 0 5px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 500 11px/16px var(--mono, monospace); color: var(--muted) }
 .dsubprompt { display: grid; min-width: 0 }
 .dsubprompt .prompt-toggle { justify-self: start; display: flex; align-items: center; gap: 4px; margin: 0 0 4px 32px; padding: 0; background: none; border: 0; color: var(--muted); font: inherit; cursor: default }
 .dsubprompt .prompt-toggle:hover { color: var(--fg) }
@@ -576,7 +576,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 /* Code blocks in replies, with a copy button; tables. */
 .dcoderen.agent.md pre.dcode { position: relative; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); overflow: hidden }
 .dcoderen.agent.md pre.dcode > code { display: block; overflow-x: auto; scrollbar-width: none; white-space: pre; overflow-wrap: normal }
-.dcoderen.agent.md pre.dcode .dcopy { all: unset; position: absolute; top: 5px; right: 6px; padding: 0 7px; border-radius: 5px; border: 1px solid var(--border); background: var(--elev); font: 11px/18px var(--body); color: var(--muted); cursor: default; opacity: 0; transition: opacity .15s }
+.dcoderen.agent.md pre.dcode .dcopy { all: unset; position: absolute; top: 5px; right: 6px; padding: 0 7px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); font: 11px/18px var(--body); color: var(--muted); cursor: default; opacity: 0; transition: opacity .15s }
 .dcoderen.agent.md pre.dcode:hover .dcopy, .dcoderen.agent.md pre.dcode .dcopy:focus-visible { opacity: 1 }
 .dcoderen.agent.md pre.dcode .dcopy:hover { color: var(--fg) }
 .dcoderen.agent.md table { border-collapse: collapse; font-size: 13px; margin: 6px 0; display: block; overflow-x: auto; max-width: 100% }
@@ -591,7 +591,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 /* A thought: one line, "Thinking" with a sweep while it arrives, "Thought for 12s" once done; a click opens its text. */
 .dthink { display: grid; min-width: 0 }
 .dthink > button { all: unset; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 1px 0; font-size: 12.5px; color: var(--muted); cursor: default }
-.dthink > button:hover { color: var(--fg) } .dthink > button:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; border-radius: 4px }
+.dthink > button:hover { color: var(--fg) } .dthink > button:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; border-radius: var(--radius-sm) }
 .dthink .lb { flex: none; font-size: 12.5px; color: var(--muted) }
 /* One light passes over the whole dim line, however long it is, in 15 frames a
    second: it reads as a sweep and repaints a quarter as often. */
@@ -628,7 +628,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .ag-queue .it { min-width: 0 }
 .ag-queue .w { flex: none; font-size: 11px; color: var(--dim) }
 .ag-queue .it.failed .w { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--err) } .ag-queue button:disabled { cursor: default; opacity: .5 }
-.ag-queue .qatt { flex: 0 1 auto; min-width: 40px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; font: 11px/16px var(--mono); color: var(--fg) }
+.ag-queue .qatt { flex: 0 1 auto; min-width: 40px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 11px/16px var(--mono); color: var(--fg) }
 #agstop[disabled] { opacity: .6; cursor: default }
 /* Enter sends on a desktop; the phone layout shows a button. */
 #agsend { display: none }
@@ -648,7 +648,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoderen.agent a.imgl { font-family: var(--mono); font-size: 12.5px; color: var(--accent); text-decoration: underline; cursor: default }
 .dcoderen code.fref { cursor: default; text-decoration: underline dotted; text-underline-offset: 2px }
 .dcoderen code.fref:hover, .dcoderen code.fref:focus-visible { color: var(--accent) }
-.dcoderen.tool .pics .pic, .dfoldpics .pic { height: 44px; max-height: 44px; width: auto; border-radius: 5px; opacity: .6 }
+.dcoderen.tool .pics .pic, .dfoldpics .pic { height: 44px; max-height: 44px; width: auto; border-radius: var(--radius-sm); opacity: .6 }
 .dcoderen.tool .pics img.pic:not([src]), .dfoldpics img.pic:not([src]) { width: 66px }
 .dfoldpics { margin-top: -6px; padding-left: 24px }
 .dhints.slim { padding: 2px 16px 6px; border-top: 0; background: none; font-size: 11px; color: var(--dim); gap: 4px 12px }
@@ -665,13 +665,13 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoderen.user b { font-size: 11.5px; font-weight: 600; color: var(--muted) }
 .dcoderen.user a { color: var(--accent); overflow-wrap: anywhere }
 /* Session messages keep attribution separate from their content. */
-.dcoderen.sessioncard { display: grid; min-width: 0; border: 1px solid var(--border); border-radius: 8px; white-space: normal }
+.dcoderen.sessioncard { display: grid; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); white-space: normal }
 .sessioncard .kh { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 12px 16px; color: var(--muted); text-align: left }
-.sessioncard button.kh { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 12px; min-width: 0; padding: 12px 16px; color: var(--muted); text-align: left; cursor: default; border-radius: 8px }
+.sessioncard button.kh { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 12px; min-width: 0; padding: 12px 16px; color: var(--muted); text-align: left; cursor: default; border-radius: var(--radius) }
 .sessioncard button.kh:hover { background: var(--elev) }
 .sessioncard button.kh:active { background: var(--surface) }
 .sessioncard button.kh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
-.sessioncard .kh > .dcoderav { width: 24px; height: 24px; border-radius: 4px; flex: none }
+.sessioncard .kh > .dcoderav { width: 24px; height: 24px; border-radius: var(--radius-sm); flex: none }
 .sessioncard .kh > svg { flex: none }
 .sessioncard .kt { display: grid; gap: 4px; flex: 1; min-width: 0 }
 .sessioncard .kl, .sessioncard .m { color: var(--muted); font-size: 12px; line-height: 16px }
@@ -684,7 +684,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .kidreply .md :is(p, ul, ol) { margin: 0 0 12px }
 .kidreply .md > :last-child { margin-bottom: 0 }
 .kidreply .md :is(ul, ol) { padding-left: 24px }
-.kidreply .md :not(pre) > code { font-family: var(--mono); font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
+.kidreply .md :not(pre) > code { font-family: var(--mono); font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 4px }
 .kidreply .md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px }
 .kidreply .dcoderen.agent.md pre.dcode { display: flex; align-items: flex-start; gap: 8px; overflow: hidden }
 .kidreply .dcoderen.agent.md pre.dcode .dcopy { position: static; order: 1; flex: none; opacity: 1 }
@@ -723,7 +723,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dbody .dcoderen.tool.beep .tt.bp { display: flex; align-items: center; gap: 6px; min-width: 0; font-family: inherit }
 .dcoderen.tool.beep .bi { flex: none; display: grid; color: var(--accent) }
 .dcoderen.tool.beep .v { flex: none; color: var(--fg) }
-.dcoderen.tool.beep .mc { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: 4px; font-size: 11.5px; line-height: 17px; color: var(--fg) }
+.dcoderen.tool.beep .mc { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 11.5px; line-height: 17px; color: var(--fg) }
 .dcoderen.tool.beep .bp code { min-width: 0; font: 12px var(--mono); color: var(--muted); background: none; border: 0; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .dcoderen.tool.beep .bs { font-size: 11px; line-height: 20px; color: var(--dim); white-space: nowrap }
 .dcoderen.tool.beep.failed .bs { color: var(--hot) }
@@ -756,7 +756,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoderturn button.hd { cursor: default } .dcoderturn button.hd:hover { color: var(--fg) }
 .dcoderturn button.hd svg { transition: transform .15s var(--ease) } .dcoderturn button.hd.open svg { transform: rotate(90deg) }
 .dcoderturn .when { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums }
-.dprogress-collapse { all: unset; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 4px; color: var(--muted); cursor: default }
+.dprogress-collapse { all: unset; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--radius-sm); color: var(--muted); cursor: default }
 .dprogress-collapse svg { transform: rotate(-90deg) }
 .dprogress-collapse:hover { color: var(--fg); background: var(--elev) }
 .dprogress-collapse:active { transform: scale(.98) }
@@ -764,7 +764,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 /* Images waiting to go to a coding agent, and those sent, as in the mock. */
 .ag-att { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px 12px; align-items: center }
 .ag-att .att { position: relative; display: flex; align-items: center; gap: 8px; max-width: 240px; padding: 4px 26px 4px 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); font-size: 12px; color: var(--muted) }
-.ag-att .att img { display: block; width: 36px; height: 26px; border-radius: 5px; object-fit: cover; flex: none }
+.ag-att .att img { display: block; width: 36px; height: 26px; border-radius: var(--radius-sm); object-fit: cover; flex: none }
 .ag-att .att .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .ag-att .att button { position: absolute; right: 5px; border: 0; background: transparent; color: var(--muted); padding: 2px; display: grid }
 .ag-att .att button:hover { color: var(--fg) }
@@ -777,7 +777,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoderen .pic.none svg { width: 14px; height: 14px }
 /* Rows standing in for a part of a page not read yet. */
 .dskel-rows { display: grid; gap: 12px; padding: 10px 0 12px }
-.dskel { height: 10px; border-radius: 5px; background: var(--elev) }
+.dskel { height: 10px; border-radius: var(--radius-sm); background: var(--elev) }
 
 /* At most 760px wide, centered; a narrow window keeps the 16px gutter. */
 .cc-pjc { flex: none; margin: 0 max(16px, calc((100% - 760px) / 2)) 14px; display: grid; gap: 6px }
@@ -795,7 +795,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .cc-pjc .pill:hover { background: color-mix(in srgb, var(--fg) 6%, transparent) }
 .cc-pjc .pill[disabled] { color: var(--dim); cursor: default; background: transparent }
 .cc-pjc .pill small { color: var(--muted); font-size: 12px }
-.cc-pjc .pill .cc-ag { display: grid; place-items: center; border: 1px solid var(--border); background: var(--elev); width: 18px; height: 18px; border-radius: 5px; font-size: 8.5px; flex: none }
+.cc-pjc .pill .cc-ag { display: grid; place-items: center; border: 1px solid var(--border); background: var(--elev); width: 18px; height: 18px; border-radius: var(--radius-sm); font-size: 8.5px; flex: none }
 .cc-pjc .pill svg { color: var(--muted); flex: none }
 .cc-pjc .pill .cc-ag.claude { color: #F2A27A }
 .cc-pjc .pill .cc-ag.codex svg { color: inherit }
@@ -884,7 +884,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
    has a dim outline. Both are drawn on a layer behind the field's own text. */
 .cx-field { position: relative; z-index: 1 }
 .cx-layer { position: absolute; z-index: 0; box-sizing: border-box; margin: 0; border: 0; overflow: hidden; pointer-events: none; color: transparent; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal }
-.cx-pill { border-radius: 5px; background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent), 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent) }
+.cx-pill { border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent), 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent) }
 .cx-code { position: absolute; left: 2px; right: 2px; border: 1px dashed color-mix(in srgb, var(--fg) 16%, transparent); border-radius: var(--radius-sm) }
 .cx-code::after { content: "sends as code"; position: absolute; right: 8px; top: -8px; padding: 0 4px; background: var(--surface); color: var(--dim); font-size: 10.5px; line-height: 14px }
 .cx-pop { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 20; width: min(480px, 100%); border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); box-shadow: 0 10px 30px color-mix(in srgb, var(--shade) 35%, transparent); font-size: 12.5px; line-height: 18px; color: var(--muted) }
@@ -1060,8 +1060,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agwtw[hidden] { display: none }
 .agwt { display: inline-flex; align-items: center; gap: 4px; width: auto; padding: 0 6px; max-width: 150px }
 .agwt code { font: 11.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.agwtm { position: absolute; top: calc(100% + 4px); right: 0; z-index: 9; width: 250px; padding: 4px; display: grid; gap: 1px; border: 1px solid var(--border); border-radius: 8px; background: var(--elev); box-shadow: 0 10px 30px color-mix(in srgb, var(--shade) 40%, transparent) }
-.agwtm button { all: unset; cursor: default; position: relative; display: grid; gap: 1px; padding: 5px 8px; border-radius: 5px; font-size: 12.5px; color: var(--fg) }
+.agwtm { position: absolute; top: calc(100% + 4px); right: 0; z-index: 9; width: 250px; padding: 4px; display: grid; gap: 1px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); box-shadow: 0 10px 30px color-mix(in srgb, var(--shade) 40%, transparent) }
+.agwtm button { all: unset; cursor: default; position: relative; display: grid; gap: 1px; padding: 5px 8px; border-radius: var(--radius-sm); font-size: 12.5px; color: var(--fg) }
 .agwtm button:hover, .agwtm button:focus-visible { background: color-mix(in srgb, var(--fg) 8%, transparent) }
 .agwtm button[aria-checked="true"]::after { content: "\2713"; position: absolute; right: 8px; top: 6px; color: var(--muted) }
 .agwtm code { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
@@ -1069,7 +1069,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agwtm hr { border: 0; border-top: 1px solid var(--border); margin: 3px 0 }
 .cm-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 20; max-height: 264px; overflow: auto; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); box-shadow: 0 10px 30px color-mix(in srgb, var(--shade) 35%, transparent); font-size: 13px; line-height: 18px; scrollbar-width: thin }
 .cm-menu[hidden] { display: none }
-.cm-row { display: flex; align-items: baseline; gap: 10px; padding: 4px 8px; border-radius: 6px; cursor: default; min-width: 0 }
+.cm-row { display: flex; align-items: baseline; gap: 10px; padding: 4px 8px; border-radius: var(--radius); cursor: default; min-width: 0 }
 .cm-row.on, .cm-row:hover { background: color-mix(in srgb, var(--accent) 16%, transparent) }
 .cm-row .n { flex: none; color: var(--fg); font-weight: 500 }
 .cm-row .d { flex: 1; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
@@ -1077,7 +1077,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 
 /* Moving a session to another machine: the machine menu in the head, the steps above the composer. */
 .dhead { position: relative }
-.mvb { all: unset; cursor: default; display: inline-flex; align-items: center; gap: 4px; padding: 0 5px; margin-left: -5px; border-radius: 5px; font-size: 12px; color: var(--muted) }
+.mvb { all: unset; cursor: default; display: inline-flex; align-items: center; gap: 4px; padding: 0 5px; margin-left: -5px; border-radius: var(--radius-sm); font-size: 12px; color: var(--muted) }
 .mvb:hover:not(:disabled), .mvb[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg) }
 .mvb:disabled { cursor: default }
 .mvb svg { opacity: .7 }
@@ -1087,7 +1087,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .mvm button[disabled]:hover { background: none }
 .mvm b { font-weight: 500 }
 #agmovebox { position: relative }
-.mvwarning { position: absolute; bottom: 0; left: 16px; right: 16px; z-index: 3; padding: 10px 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 6px; color: var(--fg); font-size: 12px }
+.mvwarning { position: absolute; bottom: 0; left: 16px; right: 16px; z-index: 3; padding: 10px 12px; background: var(--elev); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-size: 12px }
 .mvs { flex: none; display: grid; gap: 5px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 12.5px }
 .mvs .h { display: flex; align-items: center; gap: 8px; min-height: 24px }
 .mvs .h b { font-weight: 500 }
@@ -1177,9 +1177,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 #agdraft > .cc-pjc.centered { margin: auto }
 #agdraft .agc-intro h3 { font-size: 36px; line-height: 40px }
 
-#agtitle { cursor: text; border-radius: 4px }
+#agtitle { cursor: text; border-radius: var(--radius-sm) }
 #agtitle:focus-visible { outline: 2px solid var(--emerald) }
-.agtitle-input { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; font-size: 14px; font-weight: 600; line-height: 20px; color: var(--fg); background: var(--surface); border: 1px solid var(--emerald); border-radius: 4px; padding: 0 4px; outline: 2px solid var(--emerald) }
+.agtitle-input { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; font-size: 14px; font-weight: 600; line-height: 20px; color: var(--fg); background: var(--surface); border: 1px solid var(--emerald); border-radius: var(--radius-sm); padding: 0 4px; outline: 2px solid var(--emerald) }
 .dhead .tt .agtitle-error { color: var(--coral); white-space: normal }
 
 /* Project prompt stash. */
@@ -1191,7 +1191,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agkeys-list section > button { all: unset; display: flex; gap: 6px; align-items: center; cursor: default }
 .agkeys-list section > button:hover { color: var(--fg) }
 .agkeys-list section > button:focus-visible { outline: 2px solid var(--accent) }
-.prompt-stash-panel { position: fixed; z-index: 2000; overflow: auto; box-sizing: border-box; background: var(--surface); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; line-height: 16px }
+.prompt-stash-panel { position: fixed; z-index: 2000; overflow: auto; box-sizing: border-box; background: var(--surface); color: var(--fg); border: 1px solid var(--border); border-radius: var(--radius); font-size: 12px; line-height: 16px }
 .prompt-stash-panel header { display: flex; justify-content: space-between; align-items: center; padding: 16px }
 .prompt-stash-panel header b { display: block; font-size: 14px; line-height: 20px; font-weight: 600 }
 .prompt-stash-panel header small { display: block; margin-top: 4px; color: var(--dim) }
@@ -1201,7 +1201,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .prompt-stash-items p { margin: 0 0 8px; font-size: 14px; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden }
 .prompt-stash-files { display: flex; flex-wrap: wrap; gap: 8px; color: var(--dim); overflow-wrap: anywhere }
 .prompt-stash-panel footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px }
-.prompt-stash-panel button { background: none; border: 0; border-radius: 4px; color: var(--dim); font: inherit; padding: 4px 8px; cursor: default }
+.prompt-stash-panel button { background: none; border: 0; border-radius: var(--radius-sm); color: var(--dim); font: inherit; padding: 4px 8px; cursor: default }
 .prompt-stash-panel button:hover { background: var(--elev); color: var(--fg) }
 .prompt-stash-panel button:focus-visible { outline: 2px solid var(--accent) }
 .prompt-stash-panel button:disabled { opacity: .4; cursor: default }
@@ -1211,7 +1211,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .call-details dt, .call-details h4 { color: var(--dim); font-size: 12px; line-height: 16px; font-weight: 400 }
 .call-details dd { margin: 0; overflow-wrap: anywhere }
 .call-details h4 { margin: 8px 0 4px }
-.call-details pre { margin: 0; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font: 12px/16px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto }
+.call-details pre { margin: 0; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 12px/16px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto }
 .dcoderen.tool.row[tabindex]:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px }
 
 .chat-find-layer{position:relative;flex:none;height:0;z-index:10}
@@ -1239,7 +1239,7 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 .agwtm [hidden] { display: none }
 .agwt-find { display: flex; align-items: center; gap: 8px }
 .agwt-all { display: inline-flex; align-items: center; gap: 5px; flex: none; font: 11px var(--mono); color: var(--muted); white-space: nowrap }
-.agwt-search { box-sizing: border-box; flex: 1; min-width: 0; width: 100%; padding: 5px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); font: inherit; font-size: 12.5px; line-height: 18px }
+.agwt-search { box-sizing: border-box; flex: 1; min-width: 0; width: 100%; padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--fg); font: inherit; font-size: 12.5px; line-height: 18px }
 .agwt-search:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
 .agwt-empty { padding: 8px }
 
@@ -1302,7 +1302,7 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 .attachment-window .attachment-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; overflow: auto; min-height: 0; padding: 0; align-items: stretch; scrollbar-width: thin }
 .attachment-gallery > :is(.att, .agment) { box-sizing: border-box; max-width: 100%; min-width: 0; padding: 8px; padding-right: 30px; align-items: start }
 .attachment-gallery .att .preview { display: flex; flex-direction: column; align-items: stretch; width: 100%; gap: 8px }
-.attachment-gallery .att img { width: 100%; height: 112px; object-fit: contain; border-radius: 4px; background: var(--elev) }
+.attachment-gallery .att img { width: 100%; height: 112px; object-fit: contain; border-radius: var(--radius-sm); background: var(--elev) }
 .attachment-gallery .att .nm { width: 100% }
 .agc .row > .ag-att { padding: 0 }
 

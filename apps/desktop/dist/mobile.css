@@ -75,7 +75,7 @@ body.mobile .cc-tabs.pj-tabs { margin: 0; padding: 2px }
 body.mobile .cc-cols { grid-template-columns: minmax(0, 1fr) }
 body.mobile .cc-panel { background: var(--surface) }
 body.mobile .cc-row { padding: 9px 11px; grid-template-columns: 24px minmax(0, 1fr) auto }
-body.mobile .cc-ag { width: 24px; height: 24px; border-radius: 6px; font-size: 9px; border: 0 }
+body.mobile .cc-ag { width: 24px; height: 24px; border-radius: var(--radius); font-size: 9px; border: 0 }
 body.mobile .cc-sec h4 { font-size: 12px }
 
 /* Agents and the other lists the pane draws: full width, no floating panel. */
@@ -282,7 +282,7 @@ body.mobile .cc-tabs { background: color-mix(in srgb, var(--fg) 4%, transparent)
 body.mobile .cc-tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 9%, transparent) }
 body.mobile .pj-org ~ .pj-add { display: none }
 body.mobile .cc-view:has(.painted-art.haze) { position: relative; isolation: isolate }
-body.mobile .cc-view .painted-art.haze { display: block; position: absolute; z-index: -1; top: 0; left: 0; width: 100%; height: 130px; opacity: .4; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent); mask-image: linear-gradient(#000, transparent) }
+body.mobile .cc-view .painted-art.haze { display: var(--paintings); position: absolute; z-index: -1; top: 0; left: 0; width: 100%; height: 130px; opacity: .4; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent); mask-image: linear-gradient(#000, transparent) }
 
 /* While typing in a session the keyboard leaves little room: the top bar keeps only the safe
    area, the head only its title, and the tab strip goes, so the chat has what is left. */
