@@ -7,6 +7,22 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.18] - 2026-11-16
+
+### Added
+
+- Desktop: the PRs and issues tab on Home has a sort menu. Default keeps
+  them by repository; Recent activity and Newest list open pull requests
+  and issues from all repositories in one run, each row naming its
+  repository. Your choice is remembered.
+
+### Fixed
+
+- Desktop: on light skins the instructions editor, reply box, version history preview and terminal screen show a light background instead of a gray one.
+- Desktop: 0.9.17 did not ship for Linux because its build failed. The
+  two built-in skins were missing from the Linux build. This version ships
+  the Linux packages again, with the skins.
+
 ## [0.9.17] - 2026-11-16
 
 ### Added
