@@ -159,7 +159,10 @@ body.cbody
                 span.agc-word style(--word) "we"
                 span.agc-word style(--word) "building"
                 span.agc-word style(--word) "today?"
-            p "A fresh idea. A tricky bug. A place to start."
+            p.agc-where
+              b "example/widget"
+              button.pill [data-composer="machine" title="The machine it runs on (Shift+Tab in the task field)" type="button"] "build-box"
+                span.ddot.on
           div.box
             div.cx-layer [aria-hidden="true" hidden]
             textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="Describe the task." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value=""
@@ -177,7 +180,6 @@ body.cbody
                 svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="16"]
             div.pick
           span.choices
-            button.pill [data-composer="machine" title="The machine it runs on (Shift+Tab in the task field)" type="button"] "build-box"
             button.pill [data-composer="folder" title="The checkout, a new worktree, or an existing worktree" type="button"] "Current checkout"
               small "as it is"
             span.choices [data-composer="extra"]

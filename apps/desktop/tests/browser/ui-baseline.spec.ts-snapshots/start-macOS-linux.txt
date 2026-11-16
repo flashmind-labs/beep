@@ -190,7 +190,9 @@ body.cbody
                       span.agc-word style(--word) "we"
                       span.agc-word style(--word) "building"
                       span.agc-word style(--word) "today?"
-                  p "A fresh idea. A tricky bug. A place to start."
+                  p.agc-where
+                    b "example/widget"
+                    button#aghostb.pill [aria-expanded="false" title="The machine it runs on (Shift+Tab in the field)" type="button"] "Pick a machine"
                 div#agbox.box
                   div.cx-layer [aria-hidden="true" hidden]
                   textarea#agprompt.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="Describe the task." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] style(height,overflow-y) value="" (focused)
@@ -206,7 +208,6 @@ body.cbody
                   div#agpick.pick
                   div#agunder
                 span#agchoices.choices
-                  button#aghostb.pill [aria-expanded="false" title="The machine it runs on (Shift+Tab in the field)" type="button"] "Pick a machine"
                   button#agfoldb.pill [aria-expanded="false" title="/srv/project" type="button"]
                     svg [fill="none" height="13" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                     span.mono "/srv/project"

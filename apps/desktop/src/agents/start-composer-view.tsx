@@ -14,6 +14,8 @@ type ComposerOpen = "pick" | "host" | "folder" | "base" | null;
 
 export interface StartComposerState {
   centered: boolean; busy: boolean; welcome: string;
+  /// The project the agent starts in, named under the heading by the machine pill.
+  project: string | null;
   /// The line under the field: an error, else the start's progress.
   error: string; progress: string; placeholder: string; invalid: boolean; dropping: boolean;
   /// What it says: for a coding agent's task, or for the assistant.
@@ -23,7 +25,8 @@ export interface StartComposerState {
   stashLocked: boolean;
   harness: ReactNode; harnessDisabled: boolean; open: ComposerOpen;
   folderHidden: boolean; folderTitle: string | null;
-  choiceView: ReactNode; choiceContents: ChoiceContents | null; attachmentView: ReactNode; uploadPicker: ReactNode;
+  /// The machine pill a caller draws itself, with `externalChoices`.
+  choiceView: ReactNode; machineView: ReactNode; choiceContents: ChoiceContents | null; attachmentView: ReactNode; uploadPicker: ReactNode;
   notes: ReactNode; footer: ReactNode; under: ReactNode; extras: ReactNode; picker: ReactNode;
 }
 
@@ -85,7 +88,9 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
   const expanded = (which: ComposerOpen) => state.open === which;
   const sendLabel = state.centered ? state.busy ? "Starting" : "Start" : undefined;
   const heading = state.words.title ?? state.welcome;
-  return <>{state.centered && <section className="agc-intro"><DailyArt /><h3 aria-label={heading}><span aria-hidden="true">{heading.split(" ").map((word, index) => <Fragment key={index}>{index > 0 && " "}<span className="agc-word" style={{ "--word": index } as CSSProperties}>{word}</span></Fragment>)}</span></h3><p>{state.words.line}</p></section>}
+  // Centered, the machine sits under the heading with the project; compact, it leads the choices.
+  const machine = externalChoices ? state.machineView : <button ref={refs.machine} id={id("aghostb")} className="pill" type="button" title="The machine it runs on (Shift+Tab in the field)" aria-expanded={expanded("host")} onClick={choice("host")}>{state.choiceContents?.machine}</button>;
+  return <>{state.centered && <section className="agc-intro"><DailyArt /><h3 aria-label={heading}><span aria-hidden="true">{heading.split(" ").map((word, index) => <Fragment key={index}>{index > 0 && " "}<span className="agc-word" style={{ "--word": index } as CSSProperties}>{word}</span></Fragment>)}</span></h3><p className="agc-where">{state.project && <b>{state.project}</b>}{machine}</p></section>}
     <div className={`box${state.invalid ? " err" : ""}${state.dropping ? " dropping" : ""}`} id={id("agbox")} ref={refs.box}>
       <ComposeField ref={refs.input} images={actions.images} removeLast={actions.removeLast} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label={state.words.label} title={title} placeholder={state.placeholder}
         onInput={event => { grow(); actions.input?.(event.currentTarget.value); }}
@@ -96,7 +101,7 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
     <span className={state.error ? "cc-err" : "cc-err cc-progress"} id={id("agerr")} role="status">{state.error || state.progress}</span>
     {state.notes}
     {state.footer}
-    {createPortal(externalChoices ? state.choiceView : <><button ref={refs.machine} id={id("aghostb")} className="pill" type="button" title="The machine it runs on (Shift+Tab in the field)" aria-expanded={expanded("host")} onClick={choice("host")}>{state.choiceContents?.machine}</button><button ref={refs.folder} id={id("agfoldb")} className="pill" type="button" title={state.folderTitle ?? "The checkout, a new worktree, or an existing worktree"} hidden={state.folderHidden} aria-expanded={expanded("folder")} onClick={choice("folder")}>{state.choiceContents?.folder}</button><span className="choices">{state.extras}</span></>, choices)}
+    {createPortal(<>{!state.centered && machine}{externalChoices ? state.choiceView : <><button ref={refs.folder} id={id("agfoldb")} className="pill" type="button" title={state.folderTitle ?? "The checkout, a new worktree, or an existing worktree"} hidden={state.folderHidden} aria-expanded={expanded("folder")} onClick={choice("folder")}>{state.choiceContents?.folder}</button><span className="choices">{state.extras}</span></>}</>, choices)}
   </>;
 }
 

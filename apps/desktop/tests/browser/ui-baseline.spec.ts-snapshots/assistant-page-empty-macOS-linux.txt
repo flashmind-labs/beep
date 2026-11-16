@@ -190,7 +190,9 @@ body.cbody
                       span.agc-word style(--word) "I"
                       span.agc-word style(--word) "help"
                       span.agc-word style(--word) "with?"
-                  p "Ask about your machines and projects."
+                  p.agc-where
+                    button#aghostb.pill [aria-expanded="false" title="The machine it runs on (Shift+Tab in the field)" type="button"] "build-box"
+                      span.ddot.on
                 div#agbox.box
                   div.cx-layer [aria-hidden="true" hidden]
                   textarea#agprompt.cx-field [aria-label="Message for the assistant" autocomplete="off" data-prompt-stash placeholder="Ask the assistant." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] style(height,overflow-y) value="" (focused)
@@ -209,7 +211,6 @@ body.cbody
                   div#agpick.pick
                   div#agunder
                 span#agchoices.choices
-                  button#aghostb.pill [aria-expanded="false" title="The machine it runs on (Shift+Tab in the field)" type="button"] "build-box"
                   button#agfoldb.pill [aria-expanded="false" hidden title="The machine's workspace" type="button"] "Workspace"
                     svg [fill="none" height="13" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                     small.mono "~"

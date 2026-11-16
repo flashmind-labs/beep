@@ -4,7 +4,7 @@ import { pickPopover } from "../agents/pick-popover.ts";
 import type { ThreadButton } from "./threaddetail-view.tsx";
 import type { Picked } from "../agents/agentpicker.tsx";
 import { StashBar } from "../chat/stash-hints.tsx";
-import { ComposerChoices, type ComposerChoicesState } from "./composer-choices.tsx";
+import { ComposerChoices, type ComposerChoicesState, ComposerMachine } from "./composer-choices.tsx";
 import { composeMessage } from "../chat/compose.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, latest, STALE } from "../ui/active.ts";
@@ -62,8 +62,11 @@ export const projectComp = (() => {
     branch: (value: string) => { if (pc.target?.kind === "issue") pc.target.branch = value; },
     clear: () => { pc.target = null; composer.setText(""); redrawProjects(); },
   };
-  const renderChoices = (value: ComposerChoicesState) => composer.setChoices(<ComposerChoices value={value} actions={actions} />);
-  renderChoices({ machine: "Machine", adding: false, machineDisabled: true, folder: "Current checkout", folderSub: "as it is", folderDisabled: true, branch: "", showBranch: false, showClear: false });
+  const renderChoices = (value: ComposerChoicesState) => {
+    composer.setMachine(<ComposerMachine value={value} open={actions.machine} />);
+    composer.setChoices(<ComposerChoices value={value} actions={actions} />);
+  };
+  renderChoices({ machine: "Machine", on: false, adding: false, machineDisabled: true, folder: "Current checkout", folderSub: "as it is", folderDisabled: true, branch: "", showBranch: false, showClear: false });
   // Esc or a click outside closes the picker.
   form.addEventListener("keydown", e => {
     // ⇧⌘M opens the model picker, as on the agent start page. ⌘M minimizes on macOS.
@@ -270,7 +273,7 @@ export function drawProjectComp(name: string) {
   const co = t ? targetCheckout(t) : barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
   c.renderChoices({
     machine: pc.adding?.machine_name ?? (place ? place.machine_name : readiness.kind === "no agent" ? "Install a coding agent" : pc.hosts ? "Add to a machine" : "Machine"),
-    adding: !!pc.adding, machineDisabled: !!pc.adding || !!pc.starting,
+    on: !!place && !pc.adding, adding: !!pc.adding, machineDisabled: !!pc.adding || !!pc.starting,
     folder: co.label, folderSub: co.sub, folderDisabled: !place || !!pc.starting,
     branch: t?.kind === "issue" ? t.branch : "", showBranch: t?.kind === "issue" && !t.review?.earlier,
     showClear: !!t,
@@ -287,6 +290,7 @@ export function drawProjectComp(name: string) {
   if (!agent) pc.open = false;
   c.update({
     placeholder: c.centered() && readiness.kind === "ready" ? TASK_WORDS.placeholder : barPrompt(name, pc.adding ? { kind: "no checkout" } : readiness),
+    project: name,
     harnessDisabled: !agent || !!pc.starting, open: pc.open ? "pick" : null,
     sendDisabled: !!pc.starting || barAttachments.reading || !place || !!pc.adding, busy: !!pc.starting,
     notes: readiness.kind === "no agent" ? <NoAgentHelp openAgents={openAgents} openMachines={openMachines} />
