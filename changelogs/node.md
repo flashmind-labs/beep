@@ -2,6 +2,20 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.14] - 2026-11-16
+
+### Added
+
+- Node: beep-node can replace a text file in a working folder when the
+  desktop's editor saves it, keeping the file's permissions. Older nodes
+  refuse this, so update the node to save edits.
+
+### Fixed
+
+- Node: a message sent to a session that has ended opens the session
+  again and goes to it, instead of failing with "session is no longer on
+  the machine". This covers messages held while offline and sent later.
+
 ## [0.7.13] - 2026-11-16
 
 ### Added

@@ -7,6 +7,55 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.17] - 2026-11-16
+
+### Added
+
+- Desktop: plugins can be skins. A plugin with the new "Restyle the app"
+  permission sets colours, fonts, corners, glass and paintings, with no code
+  needed, and shows in Settings, Appearance to pick like any other skin.
+- Desktop: two skins ship as plugins, Dot matrix and Hardware dark. They
+  start off. Turn one on in Settings, Plugins, then pick it in Appearance.
+- Desktop: text files in the side pane's file tabs can now be edited.
+  Edit opens an editor with syntax highlighting. Save or Cmd/Ctrl+S
+  writes the file back to the machine. If the file changed since it was
+  opened, saving stops and offers Reload or Overwrite. Closing the tab or
+  pressing Done with unsaved changes asks first.
+- Desktop: the back and forward buttons on a mouse go one page back or
+  forward, the same as Cmd+[ and Cmd+].
+
+### Changed
+
+- Desktop: buttons, chips, inputs, menus and cards take their corner rounding from the skin you pick, so rounder skins such as Classic round them too. The default Linear skin looks the same as before.
+- Desktop: the assistant's message field on Home, shown on first start,
+  before any projects, works like the other agent message fields. A
+  paste of more than 10 lines becomes one "Pasted text" pill that you
+  can preview, expand or remove. Text after a blank line is outlined as
+  code.
+- Desktop: the plan usage card shows when a limit resets as a
+  countdown, such as "resets in 4h 12m" or "resets in 2d 8h",
+  instead of a clock time or weekday.
+- Desktop: the button that copies a file to the save folder is now
+  called Download.
+- Desktop: the Changes tab of a coding agent session no longer opens
+  its changed-files list beside the chat on a wide screen. The new
+  Files button in the diff toolbar fills the session with the pane,
+  as Shift+Esc does, and shows the list.
+- Desktop: with the Changes pane at full size, the Files button hides
+  and shows the changed-files list, and the choice is remembered. In
+  history and file sync diffs the list stays beside the diff on wide
+  screens, and the same button hides it.
+- Desktop: the project lanes on Home scroll without showing a scrollbar.
+
+### Fixed
+
+- Desktop: the plan line above the message field shows its status as a dot again instead of a long blue streak.
+- Desktop: Mermaid diagrams in an agent's reply no longer flicker while
+  the reply streams. A diagram draws once its block is complete and
+  stays put as more text arrives.
+- Desktop: a diagram no longer shows an empty strip along its right
+  side.
+
 ## [0.9.16] - 2026-11-16
 
 ### Added
