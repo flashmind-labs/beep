@@ -69,6 +69,19 @@ export function keepMachine(project: string | null | undefined, machine: string)
   }
 }
 
+/// The machine the assistant last ran on, so the next one starts there.
+const ASSISTANT_MACHINE = "beep.assistantMachine.v1";
+
+export const lastAssistantMachine = () => localStorage.getItem(ASSISTANT_MACHINE) ?? "";
+
+function keepAssistantMachine(machine: string) {
+  try {
+    localStorage.setItem(ASSISTANT_MACHINE, machine);
+  } catch {
+    // Only a convenience: the assistant then starts where Auto puts it.
+  }
+}
+
 /// Every machine of the user's, online or not, for the Machine menu; null
 /// until read.
 let KNOWN: Machine[] | null = null;
@@ -181,10 +194,10 @@ function drawParts() {
 
   // With no machine picked, or one that no longer runs agents: the project's
   // first machine with a checkout and an agent, else the first with an agent.
-  // The assistant's is the first that offers its harness.
+  // The assistant's is the one it last ran on, else the first that offers its harness.
   if (AG.hosts && !formHost()) {
     const harness = f.assistant ? formPick()?.agent ?? null : null;
-    const offering = harness ? assistantHost(addHosts(AG.hosts), null, harness) : null;
+    const offering = harness ? assistantHost(addHosts(AG.hosts), lastAssistantMachine(), harness) : null;
     f.machine = offering?.machine_id || (f.places && barPlace(f.places, AG.hosts, "")?.machine_id) || addHosts(AG.hosts)[0]?.machine_id || "";
     if (f.machine) f.cwd = folderOn(f.cwd, f.machine, f.places);
   }
@@ -388,7 +401,7 @@ function pickChoice(action: ChoiceAction, value: string) {
     case "agm":
       f.machine = value;
       f.machinePicked = true;
-      keepMachine(f.project, f.machine);
+      if (f.assistant) keepAssistantMachine(f.machine); else keepMachine(f.project, f.machine);
       f.cwd = folderOn(f.cwd, f.machine, f.places);
       break;
     case "agf": f.cwd = value; f.checkout = DEFAULT_CHECKOUT; break;
@@ -609,10 +622,17 @@ export async function startAgent() {
 
 /// Starts the Home assistant in a machine's home folder with `pick`, the
 /// setting as `loadAssistant` reads it, resolved against `hosts`: on `machine`
-/// when the user picked one, else on the one Auto picks, this computer first.
-export function startAssistant(prompt: string, pick: AssistantPick, hosts: readonly AgentHost[], machine: string | null, images: readonly SentImage[] = []): Promise<Started> {
+/// when the user picked one, else on the one it last ran on while that offers
+/// the harness, else on the one Auto picks, this computer first. Remembers
+/// where it ran.
+export async function startAssistant(prompt: string, pick: AssistantPick, hosts: readonly AgentHost[], machine: string | null, images: readonly SentImage[] = []): Promise<Started> {
   const resolved = resolveAssistant(pick, hosts);
-  return start({ machine, agent: resolved.agent, cwd: null, prompt, images, model: resolved.model, effort: resolved.effort, checkout: null, assistant: true });
+  const last = hosts.find(host => host.machine_id === lastAssistantMachine());
+  const lastOffers = !!resolved.agent && !!last?.assistant && last.agents.includes(resolved.agent);
+  const started = await start({ machine: machine ?? (lastOffers ? last.machine_id : null), agent: resolved.agent, cwd: null, prompt, images, model: resolved.model, effort: resolved.effort, checkout: null, assistant: true });
+  keepAssistantMachine(started.session.machine_id);
+
+  return started;
 }
 
 /// What `agent_start` takes.
