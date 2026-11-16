@@ -475,7 +475,6 @@ impl Agents {
 
                 Some(SessionInfo {
                     reviewer: s.reviewer,
-                    assistant: s.assistant,
                     ..s.info()
                 })
             })

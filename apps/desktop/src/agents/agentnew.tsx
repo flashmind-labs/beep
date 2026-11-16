@@ -19,7 +19,7 @@ import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, baseRows, type C
 import { type AgentReturn, bar, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
 import { folderOn, type MachineFolder } from "../project/projects-state.ts";
-import { addHosts, barCheckout, barPlace } from "../project/projectbar.ts";
+import { addHosts, barCheckout, barPlace, nextBarMachine } from "../project/projectbar.ts";
 import { composeMessage } from "../chat/compose.tsx";
 import type { Machine } from "../machines/machines.tsx";
 import { invoke } from "../ui/tauri.ts";
@@ -141,7 +141,7 @@ function drawFrame() {
   const c = composer = makeStartComposer({
     ids: true,
     actions: {
-      submit: () => void startAgent(), harness: () => { if (!AG.busy) togglePicker(); }, choice: toggleChoice, files: files => attachments.take(files), images: files => attachments.add(files), removeLast: () => attachments.removeLast(),
+      submit: () => void startAgent(), harness: () => { if (!AG.busy) togglePicker(); }, choice: toggleChoice, keyDown: switchMachine, files: files => attachments.take(files), images: files => attachments.add(files), removeLast: () => attachments.removeLast(),
       input: value => { AG.form.prompt = value; if (AG.error === "prompt") { AG.error = ""; drawParts(); } },
     },
     place: () => {
@@ -344,6 +344,19 @@ function folderMenu(checkout: boolean): ChoiceMenu | null {
     { kind: "button", action: "agtype", value: "1", label: "Type a folder…", detail: "" },
   ];
   return { style: "folder", rows };
+}
+
+/// Shift+Tab in the prompt moves the form to the next machine that can start it: one that runs
+/// the assistant for the assistant, one with a checkout for a project.
+function switchMachine(e: KeyboardEvent) {
+  const f = AG.form;
+  if (e.key !== "Tab" || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || AG.busy) return;
+  const hosts = (AG.hosts ?? []).filter(h => !f.assistant || h.assistant);
+  const next = nextBarMachine(f.places ?? null, hosts, f.machine);
+  if (!next) return;
+
+  e.preventDefault();
+  pickChoice("agm", next.machine_id);
 }
 
 /// Opens or closes the machine or folder menu.
@@ -620,5 +633,6 @@ async function start(s: Start): Promise<Started> {
   const resolved = s.model ?? knownModels(s.machine, s.agent)?.current ?? "";
   sessionPicks.set(started.session.id, { model: resolved.toLowerCase() === "default" ? "" : resolved, effort: s.effort });
 
-  return started;
+  // A released node's reply leaves out that the session is the assistant.
+  return s.assistant ? { ...started, session: { ...started.session, assistant: true } } : started;
 }

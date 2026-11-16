@@ -38,9 +38,9 @@ export function addHosts<T extends BarHost>(hosts: readonly T[]): T[] {
   return hosts.filter(h => h.agents.length).sort(byName);
 }
 
-/// The next machine with both an agent and a checkout, in menu order.
-export function nextBarMachine(places: readonly { machine: string; cwd: string }[], hosts: readonly BarHost[], machine: string): BarHost | null {
-  const able = addHosts(hosts).filter(h => places.some(p => p.machine === h.machine_id && p.cwd));
+/// The next machine with an agent, and a checkout when `places` lists them, in menu order.
+export function nextBarMachine<T extends BarHost>(places: readonly { machine: string; cwd: string }[] | null, hosts: readonly T[], machine: string): T | null {
+  const able = addHosts(hosts).filter(h => !places || places.some(p => p.machine === h.machine_id && p.cwd));
   if (able.length < 2) return null;
   const current = able.findIndex(h => h.machine_id === machine);
   return able[(current + 1) % able.length];

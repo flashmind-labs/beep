@@ -365,6 +365,7 @@ impl Session {
             parent,
             model: initial_model,
             worktrees,
+            assistant,
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);

@@ -3,7 +3,7 @@
 // elements through `windowHost`.
 import { useLayoutEffect, type ReactNode } from "react";
 import { createStore, useStore } from "zustand";
-import { SideGrip } from "./sidewidth.tsx";
+import { SIDEBAR, WidthGrip } from "../ui/width-grip.tsx";
 import { HazeArt } from "../ui/painted-art.tsx";
 import type { ViewName } from "./state.ts";
 
@@ -59,7 +59,7 @@ export function CenterWindow() {
 
   return <>
     <aside className="cc-side" id="side" ref={refs.side}><HazeArt />{parts.sidebar}</aside>
-    <SideGrip />
+    <WidthGrip column={SIDEBAR} id="side-grip" />
     <div className="cc-main" id="main" ref={refs.main}>
       <div className="cc-top" data-tauri-drag-region="" ref={refs.top}>
         {parts["mobile-back"]}{parts["project-back"]}
