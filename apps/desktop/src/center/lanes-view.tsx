@@ -112,11 +112,15 @@ function Card({ card, open }: { card: BoardCard; open(): void }) {
   </div>;
 }
 
-/// A project's lane on Home, which shows about two cards. A wheel notch or a
+/// A project's lane on Home, which shows two whole cards. A wheel notch or a
 /// swipe moves one card, gliding there. At either end the cell holds the next
 /// few steps, so a swipe that ran out of cards does not scroll the page.
 function Cell({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState<number | null>(null);
+
+  // The cell is as tall as its shown cards, so none shows cut at the bottom.
+  useLayoutEffect(() => { if (ref.current) setFit(shownHeight(ref.current)); });
 
   useEffect(() => {
     const cell = ref.current;
@@ -150,7 +154,19 @@ function Cell({ children }: { children: ReactNode }) {
     return () => cell.removeEventListener("wheel", wheel);
   }, []);
 
-  return <div className="bd-lane" ref={ref}>{children}</div>;
+  return <div className="bd-lane" ref={ref} style={fit === null ? undefined : { maxHeight: fit }}>{children}</div>;
+}
+
+/// How many cards a cell shows at once.
+const SHOWN = 2;
+
+/// The height of `SHOWN` cards and the gaps between them, or null when the cell holds no more.
+function shownHeight(cell: HTMLElement) {
+  const cards = [...cell.children].flatMap(card => card instanceof HTMLElement ? [card.offsetHeight] : []);
+  if (cards.length <= SHOWN) return null;
+  const gap = Number.parseFloat(getComputedStyle(cell).rowGap) || 0;
+
+  return SHOWN * Math.max(...cards) + (SHOWN - 1) * gap;
 }
 
 /// How far the wheel travels for a step, the pixels of a wheel line, how long
