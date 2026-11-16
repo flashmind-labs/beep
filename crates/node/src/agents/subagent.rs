@@ -58,6 +58,8 @@ impl std::fmt::Display for Conversation<'_> {
 
 /// The title codex-acp gives the call that starts subagents.
 const CODEX_SPAWN: &str = "spawnAgent";
+/// Claude Code's tools that start a subagent, the older name last.
+pub(crate) const CLAUDE_SPAWNS: [&str; 2] = ["Agent", "Task"];
 /// The longest name or title taken from a call.
 const MAX_NAME: usize = 120;
 
@@ -81,8 +83,9 @@ pub(crate) struct Subagent {
 }
 
 impl Subagent {
-    /// The subagent the call `title` with `input` starts, if it starts one.
-    pub(crate) fn of_call(title: &str, input: Option<&Value>) -> Option<Self> {
+    /// The subagent the call `title` of tool `tool` with `input` starts, if
+    /// it starts one.
+    pub(crate) fn of_call(tool: Option<&str>, title: &str, input: Option<&Value>) -> Option<Self> {
         let input = input?;
 
         if title == CODEX_SPAWN {
@@ -111,9 +114,14 @@ impl Subagent {
             });
         }
 
-        let name = text(input, "subagent_type")?;
+        // Claude Code leaves out `subagent_type` for its default agent.
+        let name = text(input, "subagent_type");
+        if name.is_none() && !tool.is_some_and(|tool| CLAUDE_SPAWNS.contains(&tool)) {
+            return None;
+        }
+
         Some(Self {
-            name: Some(name),
+            name,
             model: text(input, "model"),
             ..Self::default()
         })

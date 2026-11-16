@@ -23,7 +23,7 @@ fn conversation_ids_are_bounded_store_ids_not_paths() {
 #[test]
 fn a_codex_spawn_names_its_threads_once_it_has_them() {
     let started = json!({"prompt": "sleep", "receiverThreadIds": []});
-    let mut found = Subagent::of_call(CODEX_SPAWN, Some(&started)).expect("a subagent");
+    let mut found = Subagent::of_call(None, CODEX_SPAWN, Some(&started)).expect("a subagent");
     assert!(found.threads.is_empty());
     assert_eq!(found.title.as_deref(), Some("sleep"));
     let done = json!({"prompt": "sleep", "receiverThreadIds": ["t1", " "]});
@@ -31,7 +31,7 @@ fn a_codex_spawn_names_its_threads_once_it_has_them() {
     found.update(Some(&done));
     assert_eq!(found.threads, ["t1"]);
     // Waiting on a subagent starts none.
-    assert!(Subagent::of_call("wait", Some(&done)).is_none());
+    assert!(Subagent::of_call(None, "wait", Some(&done)).is_none());
 }
 
 #[test]
@@ -46,7 +46,7 @@ fn spawn_calls_preserve_the_requested_model() {
             json!({"prompt": "Check files", "model": "sonnet"}),
         ),
     ] {
-        let sub = Subagent::of_call(title, Some(&input)).expect("a spawn");
+        let sub = Subagent::of_call(None, title, Some(&input)).expect("a spawn");
         assert_eq!(sub.model.as_deref(), Some("sonnet"));
     }
 }

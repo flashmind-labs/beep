@@ -507,6 +507,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dchat.kid { margin-left: calc(var(--depth, 1) * 22px); width: calc(100% - var(--depth, 1) * 22px); border-left: 1px solid var(--border); border-radius: 0 var(--radius-sm) var(--radius-sm) 0 }
 .dsubrow:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .dsubrow .mk { height: 20px; display: grid; place-items: center } .dsubrow .mk .dspin { width: 11px; height: 11px }
+.dsubgrp .res { padding: 0 8px 6px 32px; white-space: pre-wrap; overflow-wrap: anywhere }
 .dsubrow .t { display: grid; min-width: 0; line-height: 20px }
 .dsubrow .t b { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dsubrow .t small { font-size: 11.5px; line-height: 16px; color: var(--muted) }
