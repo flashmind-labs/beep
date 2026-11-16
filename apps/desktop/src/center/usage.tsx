@@ -138,9 +138,11 @@ export function windowName(w: Pick<UsageWindow, "minutes" | "scope">) {
 
 /// "14:30" for a reset within a day, else the weekday ("Mon").
 export function resetName(at: number, now: number) {
-  const d = new Date(at);
-  if (at - now < DAY * 60_000) return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  return d.toLocaleDateString("en-US", { weekday: "short" });
+  const min = Math.max(1, Math.ceil((at - now) / 60_000));
+  const days = Math.floor(min / DAY), hours = Math.floor((min % DAY) / HOUR), mins = min % HOUR;
+  const parts: [number, string][] = days > 0 ? [[days, "d"], [hours, "h"]] : hours > 0 ? [[hours, "h"], [mins, "m"]] : [[mins, "m"]];
+
+  return `in ${parts.filter(([n]) => n > 0).map(([n, unit]) => `${n}${unit}`).join(" ")}`;
 }
 
 /// "as of 4 min ago".

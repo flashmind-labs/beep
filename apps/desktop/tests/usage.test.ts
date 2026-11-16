@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hasUsage, harnessLine, harnessName, modelTotals, pillPlans, projectExtra, showsDollars, todayLine, windowUsed } from "../src/center/usage.tsx";
+import { hasUsage, harnessLine, harnessName, modelTotals, pillPlans, projectExtra, resetName, showsDollars, todayLine, windowUsed } from "../src/center/usage.tsx";
 import { creditAmount, creditScope } from "../src/ui/credits.ts";
 import { tokenCount } from "../src/ui/format.ts";
 
@@ -76,4 +76,14 @@ test("the note on dollars shows only when a row shows dollars", () => {
   assert.equal(showsDollars({ total, tokens: 5_000, projects: [], harnesses: [covered] }), false);
   assert.equal(showsDollars({ total, tokens: 5_000, projects: [], harnesses: [{ ...covered, cost_usd: 61 }] }), true);
   assert.equal(showsDollars({ total: { ...total, cost_usd: 1.5 }, tokens: 0, projects: [], harnesses: [] }), true);
+});
+
+test("a reset reads as a countdown down to the minute", () => {
+  const min = 60_000;
+  assert.equal(resetName(0, 0), "in 1m");
+  assert.equal(resetName(37 * min - 1, 0), "in 37m");
+  assert.equal(resetName(4 * 60 * min, 0), "in 4h");
+  assert.equal(resetName((4 * 60 + 12) * min, 0), "in 4h 12m");
+  assert.equal(resetName((56 * 60 + 30) * min, 0), "in 2d 8h");
+  assert.equal(resetName(2 * 24 * 60 * min, 0), "in 2d");
 });
