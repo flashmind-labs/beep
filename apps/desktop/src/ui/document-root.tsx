@@ -1,6 +1,7 @@
 import { Fragment, memo, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { Guarded } from "./kit.tsx";
 
 interface Entry<Slot extends string> { slot: Slot; host: HTMLElement | null; content: ReactNode; identity?: string }
 interface Scope { id: number; render(): ReactNode; subscribe(listener: () => void): () => void; snapshot(): number }
@@ -11,7 +12,7 @@ let hosted: { revision: number; listeners: Set<() => void> } | null = null;
 
 const Scoped = memo(function Scoped({ scope }: { scope: Scope }) {
   useSyncExternalStore(scope.subscribe, scope.snapshot, scope.snapshot);
-  return scope.render();
+  return <Guarded>{scope.render()}</Guarded>;
 });
 
 function renderScopes() {

@@ -4,16 +4,22 @@ import { createRoot } from "react-dom/client";
 import { createDocumentScope, documentScopes } from "../ui/document-root.tsx";
 import { RouterContextProvider, RouterProvider } from "@tanstack/react-router";
 import { windowHistory } from "./window-router.ts";
+import { Guarded } from "../ui/kit.tsx";
 import { CenterWindow, shell, type ShellPart } from "./window-shell.tsx";
 
 // The window's one React tree. It renders synchronously as this module loads, so the
 // modules after it find the window's elements in place. Tests load modules without it.
 const container = typeof document === "undefined" ? null : document.querySelector(".cwin");
 if (container) {
-  const root = createRoot(container);
+  // A caught error fires no `error` event, so it is logged here with where it came from.
+  // The page's bridge loads on demand: tests load this module without one.
+  const root = createRoot(container, {
+    onCaughtError: (error, info) => void import("../ui/tauri.ts").then(({ logError }) =>
+      logError(`caught: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}${info.componentStack ?? ""}`)),
+  });
   flushSync(() => root.render(
     <RouterContextProvider router={windowHistory.router}>
-      <Fragment><RouterProvider router={windowHistory.router} /><CenterWindow />{documentScopes()}</Fragment>
+      <Fragment><Guarded><RouterProvider router={windowHistory.router} /></Guarded><Guarded><CenterWindow /></Guarded>{documentScopes()}</Fragment>
     </RouterContextProvider>));
 }
 

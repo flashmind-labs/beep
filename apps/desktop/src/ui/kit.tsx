@@ -3,6 +3,7 @@
 // `dspin`), so a view can switch to it without a visible change.
 import { cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
 import parse from "html-react-parser";
+import { ErrorBoundary } from "react-error-boundary";
 import { copy } from "./parts.tsx";
 import { Icon } from "./icons.tsx";
 
@@ -55,6 +56,12 @@ export function EndedFold({ count, open, onToggle }: { count: number; open: bool
 /// an `error`), after a spinner while it `spin`s.
 export function EmptyPanel({ title = null, text = null, error = false, spin = false }: { title?: ReactNode; text?: ReactNode; error?: boolean; spin?: boolean }) {
   return <div className="cc-panel cc-empty">{spin && <Spinner />}{title !== null && <b>{title}</b>}{text !== null && <span className={error ? "cc-err" : undefined}>{text}</span>}</div>;
+}
+
+/// Keeps a render error inside its part of the window: the rest stays up and this part
+/// offers another try. React reports the error to the root's `onCaughtError`.
+export function Guarded({ children }: { children: ReactNode }) {
+  return <ErrorBoundary fallbackRender={({ resetErrorBoundary }) => <><EmptyPanel title="This part failed to draw" /><Button small onClick={resetErrorBoundary}>Try again</Button></>}>{children}</ErrorBoundary>;
 }
 
 /// A status chip: `kind` colors it (`run`, `wait`, `bad`, `done`, ...), with
