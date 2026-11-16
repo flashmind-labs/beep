@@ -145,7 +145,7 @@ export function itemChips(item: Item & Pick<GitItemRow, "draft" | "assigned">) {
 
 /// A project for Review and Reply: its name and checkouts.
 export interface StartProject { name: string; machines?: readonly { id: string; folder: string }[] }
-type Hosts = readonly { id: string; online: boolean }[] | null | undefined;
+export type Hosts = readonly { id: string; online: boolean }[] | null | undefined;
 
 /// What Review prefills in Start a coding agent: the prompt and the
 /// project, on an online machine that has a checkout of it when one does.

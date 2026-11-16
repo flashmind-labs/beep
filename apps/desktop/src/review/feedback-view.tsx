@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { Icon } from "../ui/icons.tsx";
 import { Spinner } from "../ui/kit.tsx";
 import type { Feedback } from "./feedback.ts";
@@ -54,4 +54,37 @@ export function FeedbackNote({ text, onDismiss }: { text: string; onDismiss: () 
   return <><b>The review did not finish</b><pre>{text}</pre><div className="a">
     <button type="button" className="dv-btn" onClick={onDismiss}>Dismiss</button>
   </div></>;
+}
+
+/// The agent button as its owner has it; the picker adds whether it is open.
+export type AgentState =
+  | { kind: "ready"; label: string; hint: string }
+  | { kind: "starting" }
+  | { kind: "running"; agent: string; hint: string; open(): void };
+
+/// The agent button's picker, kept per button across draws.
+export interface PickButton {
+  snapshot: () => { open: boolean; picker: ReactElement | null };
+  subscribe: (listener: () => void) => () => void;
+  setBox: (box: HTMLElement | null) => void;
+  setButton: (button: HTMLButtonElement | null) => void;
+  setSlot: (slot: HTMLDivElement | null) => void;
+  click: () => void;
+  /// Why it cannot start, or "".
+  why: () => string;
+}
+
+/// An agent button as its owner draws it, and why its last start failed.
+export interface AgentButtonItem { button: PickButton; state: AgentState; error: string }
+
+/// The agent button outside a diff, and why its last start failed: its
+/// picker's pick starts a session.
+export function AgentButton({ item }: { item: AgentButtonItem }) {
+  const { button, state } = item;
+  const { open, picker } = useSyncExternalStore(button.subscribe, button.snapshot);
+  const shown: FeedbackState = state.kind === "ready" ? { ...state, reason: button.why(), open }
+    : state.kind === "running" ? { kind: "running", agent: state.agent, hint: state.hint } : state;
+  return <><span className="dv-fbw" ref={button.setBox}>
+    <FeedbackControl state={shown} setButton={button.setButton} setSlot={button.setSlot} onClick={state.kind === "running" ? state.open : button.click} picker={picker} />
+  </span>{item.error && <span className="cc-err">{item.error}</span>}</>;
 }

@@ -1,5 +1,8 @@
 import type { LiveMode } from "./projectlive.ts";
 import { RunsView } from "./runs-view.tsx";
+import type { AgentButtonOpts } from "./composer.tsx";
+import type { AgentButtonItem } from "../review/feedback-view.tsx";
+import type { ProjectPick } from "../agents/agentmodels.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS } from "../ui/active.ts";
 import { snapshotView } from "../ui/snapshot-state.ts";
@@ -247,13 +250,15 @@ export function runTarget(r: Pick<RunRow, "number" | "branch">, base: string | n
   return { kind: "run", number: r.number, branch: r.branch };
 }
 
-/// What the page hands `makeRuns`. `fix(name, detail)` fills the start
-/// form for Fix this.
+/// What the page hands `makeRuns`: `fix` fills the bar for Fix this in the
+/// menu, `startFix` starts it at once from the agent `button`.
 interface RunDeps {
   invoke: typeof Invoke;
   redraw: () => void;
   openUrl: (url: string) => unknown;
   fix: (detail: RunDetail) => void;
+  startFix: (project: string, detail: RunDetail, pick: ProjectPick) => Promise<void>;
+  button: (key: string, o: AgentButtonOpts) => AgentButtonItem;
   /// The chip saying whether the project is live or polling.
   mode?: (id: string) => LiveMode | null;
   /// Where the runs are kept between windows; in memory only without it.
@@ -450,6 +455,14 @@ export function makeRuns(deps: RunDeps) {
     return s.openRun ? details.get(detailKey(id, s.openRun))?.data ?? null : null;
   }
 
+  /// Fix this on an opened failed run: its agent button, which starts on
+  /// the run's details as last read.
+  function fixer(agent: ProjectRef, detail: RunDetail): AgentButtonItem {
+    const key = detailKey(agent.project_id, detail.run);
+    const start = (pick: ProjectPick) => deps.startFix(agent.name, details.get(key)?.data ?? detail, pick);
+    return deps.button(`fix ${key}`, { project: agent.name, machine: null, label: "Fix this", hint: "Pick a model: an agent starts on this run's branch with the failure in its prompt", running: null, start });
+  }
+
   /// The Actions section. Its key is the project, so its rows stay while live updates arrive.
   function section(agent: ProjectRef) {
     const id = agent.project_id, s = of(id);
@@ -471,7 +484,7 @@ export function makeRuns(deps: RunDeps) {
         openMenu(e, `${run.workflow} #${run.number}`, items);
       }}
       detail={(run: RunRow) => ({ data: details.get(detailKey(id, run))?.data ?? null, error: detailErrors.get(detailKey(id, run)) ?? "" })}
-      fix={(detail: RunDetail) => fix(openDetail(id) ?? detail)} openUrl={openUrl}
+      fix={(detail: RunDetail) => fixer(agent, detail)} openUrl={openUrl}
     /></div>;
   }
 

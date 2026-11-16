@@ -75,7 +75,7 @@ test("Work on it picks a model under the button and starts the issue's agent at 
   await expect(page.locator(".cc-pjc:visible").getByRole("textbox", { name: "Task for a coding agent" })).toHaveCount(0);
 });
 
-test("Review with agent on a pull request starts a named reviewer on its branch", async ({ page }) => {
+test("Review with agent and Continue on a pull request start on its branch", async ({ page }) => {
   const now = Date.now(), pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, updated_at: now, labels: [] };
   const detail = { kind: "pr", number: 9, title: pr.title, url: pr.url, author: pr.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null };
   await openDesktop(page, false, {
@@ -94,4 +94,14 @@ test("Review with agent on a pull request starts a named reviewer on its branch"
   const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_start")?.args);
   expect(args).toMatchObject({ agent: "codex", model: "alpha", checkout: { branch_worktree: { branch: "example-change" } } });
   expect(String(args?.prompt)).toContain("Review PR #9");
+  // The review opened its session; back on the PR, Continue starts on its branch.
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "1 PR" }).click();
+  await page.locator('.pj-split:not(.gh-layout) > .pj-list .pj-li[title="Example change"] .t > b').click();
+  await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("dialog", { name: "Harness, model and thinking" }).locator('[data-agmo="alpha"]').click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").length)).toBe(2);
+  const next = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start")[1]?.args);
+  expect(next).toMatchObject({ agent: "codex", checkout: { branch_worktree: { branch: "example-change" } } });
+  expect(String(next?.prompt)).toContain("Continue PR #9");
 });

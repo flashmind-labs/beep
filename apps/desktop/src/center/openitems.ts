@@ -4,7 +4,9 @@ import { invoke } from "../ui/tauri.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.tsx";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.tsx";
-import { projectsWithOpen, type GitItemsView } from "./openitems-state.ts";
+import { projectsWithOpen, reviewStart, type GitItemRow, type GitItemsView, type Hosts, type StartProject } from "./openitems-state.ts";
+import { agentButtons, startTask } from "../project/composer.tsx";
+import type { AgentButtonItem } from "../review/feedback-view.tsx";
 import { state } from "./state.ts";
 import { draw } from "./home.tsx";
 import { currentLocation } from "./views.tsx";
@@ -14,6 +16,19 @@ import { single } from "../ui/active.ts";
 
 export function openUrl(url: string) {
   invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
+}
+
+const homeButtons = agentButtons(() => draw());
+
+/// Review with agent on a PR of `project`: starts the reviewer at once in
+/// the project's checkout, on an online machine with it. It posts only
+/// after the user approves.
+export function reviewButton(item: GitItemRow, project: StartProject, machines: Hosts): AgentButtonItem {
+  const { prompt, at } = reviewStart(item, project, machines);
+  return homeButtons(`review ${item.url}`, {
+    project: project.name, machine: at.machine, label: "Review with agent", hint: "Pick a model: an agent reviews this PR and posts only after you approve",
+    running: null, start: pick => startTask(project.name, { prompt, target: null }, pick, at.machine),
+  });
 }
 
 

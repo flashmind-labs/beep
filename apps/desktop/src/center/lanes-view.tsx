@@ -4,6 +4,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Icon } from "../ui/icons.tsx";
+import { AgentButton, type AgentButtonItem } from "../review/feedback-view.tsx";
 import { Button, LineRow, onRowKey } from "../ui/kit.tsx";
 import { openMenu, type MenuAction } from "../ui/menu.tsx";
 import { heroCard, motionAllowed, movePlaying, setHeroCard, withMove } from "../ui/motion.ts";
@@ -29,17 +30,20 @@ export interface BoardCard {
   menu: ((event: MouseEvent) => void) | null;
 }
 
-/// What a card's button does: one thing, or a menu of them.
+/// What a card's button does: one thing, a menu of them, or an agent
+/// button whose model pick starts a session.
 type CardAction =
   | { kind: "run"; label: string; primary: boolean; run(): void }
-  | { kind: "menu"; label: string; items: readonly MenuAction[] };
+  | { kind: "menu"; label: string; items: readonly MenuAction[] }
+  | { kind: "agent"; item: AgentButtonItem };
 
 function ActionButton({ action, title }: { action: CardAction; title: string }) {
-  if (action.kind === "menu") {
-    return <Button small className="bd-pick" aria-haspopup="menu" onClick={event => { event.stopPropagation(); openMenu(event.nativeEvent, title, action.items); }}>{action.label}<Icon name="caretDown"/></Button>;
+  switch (action.kind) {
+    case "menu": return <Button small className="bd-pick" aria-haspopup="menu" onClick={event => { event.stopPropagation(); openMenu(event.nativeEvent, title, action.items); }}>{action.label}<Icon name="caretDown"/></Button>;
+    // Clicks in its picker stay off the card.
+    case "agent": return <span style={{ display: "contents" }} onClick={event => event.stopPropagation()}><AgentButton item={action.item} /></span>;
+    case "run": return <Button look={action.primary ? "primary" : "secondary"} small onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</Button>;
   }
-
-  return <Button look={action.primary ? "primary" : "secondary"} small onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</Button>;
 }
 
 /// Home's rows, a project each: its dot's color, and what its name opens; null when it has neither.

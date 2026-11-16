@@ -6,6 +6,9 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { PageCache } from "../src/ui/pagecache.ts";
 import { invoke } from "../src/ui/tauri.ts";
+import type { PickButton } from "../src/review/feedback-view.tsx";
+
+const button: PickButton = { snapshot: () => ({ open: false, picker: null }), subscribe: () => () => {}, setBox() {}, setButton() {}, setSlot() {}, click() {}, why: () => "" };
 
 test("unchanged Actions redraws keep the visible run rows", () => {
   const kept = new PageCache(null).section<RunsRow>("runs");
@@ -15,7 +18,7 @@ test("unchanged Actions redraws keep the visible run rows", () => {
       finished_at: null, progress: null, pull_requests: [] }],
     checks: [], synced_at: null, error: null, rate_limited_until: null,
   });
-  const runs = makeRuns({ invoke, kept, redraw() {}, openUrl() {}, fix() {} });
+  const runs = makeRuns({ invoke, kept, redraw() {}, openUrl() {}, fix() {}, startFix: async () => {}, button: () => ({ button, state: { kind: "starting" }, error: "" }) });
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);

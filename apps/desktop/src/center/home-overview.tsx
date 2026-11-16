@@ -17,8 +17,8 @@ import { syncProjects } from "../project/syncpage.ts";
 import { HarnessIcon, Icon, PROJECT_COLORS } from "../ui/icons.tsx";
 import { type HomeView, needsLine } from "./home-state.ts";
 import { homeSessions, openAsking } from "./home.tsx";
-import { itemChips, newestFirst, projectsWithOpen, reviewStart, waitsOnYou } from "./openitems-state.ts";
-import { openUrl } from "./openitems.ts";
+import { itemChips, newestFirst, projectsWithOpen, waitsOnYou } from "./openitems-state.ts";
+import { openUrl, reviewButton } from "./openitems.ts";
 import { loadFound, projectRows } from "./sidebar.tsx";
 import { HomeAssistant } from "./home-assistant.tsx";
 import { state } from "./state.ts";
@@ -65,10 +65,10 @@ function needsCards(home: HomeView): BoardCard[] {
     const open = () => openUrl(item.url);
     const project = repos.get(`${item.host} ${item.repo}`)?.project ?? null;
     // A review can be read on the host, or in a project handed to an agent.
-    const review = project && (() => { go("pane", { agentnew: { ...reviewStart(item, project, home.machines?.filter(m => m.can_host !== false)), assistant: false } }); });
+
     cards.push({ key: item.url, lane: "needs", project: project?.name ?? item.repo, session: false, lead: <span style={{ display: "contents" }}><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>,
       title: `#${item.number} ${item.title}`, sub: [item.repo, itemChips(item).map(c => c.text).join(", ")].filter(Boolean).join(" · "), foot: null,
-      action: item.review_requested && review ? { kind: "menu", label: "Review", items: [{ label: "Open", on: open }, { label: "Review with agent", on: review }] } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
+      action: item.review_requested && project ? { kind: "agent", item: reviewButton(item, project, home.machines?.filter(m => m.can_host !== false)) } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
   }
 
   // A project's conflicts share one card: its Machines section lists them.
