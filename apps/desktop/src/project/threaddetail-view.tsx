@@ -1,17 +1,10 @@
-import { cloneElement, isValidElement, useMemo } from "react";
-import parse from "html-react-parser";
 import { formatAgo } from "../ui/format.ts";
 import { forgeLabel, type ThreadDetailRow, type ThreadStub } from "./threaddetail.tsx";
-import { Button, Chip, EmptyPanel } from "../ui/kit.tsx";
+import { Button, Chip, EmptyPanel, useHtml } from "../ui/kit.tsx";
 
 const CHECKS: Record<string, [string, string]> = { failed: ["blocked", "checks failing"], passed: ["done", "checks passing"], running: ["running", "checks running"], queued: ["running", "checks queued"], waiting: ["running", "checks waiting"] };
 function Markdown({ html, open }: { html: string; open(url: string): void }) {
-  // Keyed by place, so a paragraph that stays keeps its element (and the reader's selection).
-  const body = useMemo(() => {
-    const nodes = parse(html);
-    return (Array.isArray(nodes) ? nodes : [nodes]).map((node, i) => isValidElement(node) ? cloneElement(node, { key: i }) : node);
-  }, [html]);
-
+  const body = useHtml(html);
 
   return <div className="pj-md" onClick={event => { const target = event.target; if (!(target instanceof Element)) return; const link = target.closest<HTMLAnchorElement>("a"); if (link) { event.preventDefault(); if (link.href) open(link.href); } }}>{body}</div>;
 }

@@ -10,6 +10,9 @@ interface DiffToolbarProps {
   split: boolean;
   uncommitted: boolean;
   showUncommitted: boolean;
+  /// The file list shows; `filesZoom` when opening it fills the session first.
+  files: boolean;
+  filesZoom: boolean;
   allFolded: boolean;
   flash: string;
   comments: number;
@@ -19,6 +22,7 @@ interface DiffToolbarProps {
   feedback: ReactNode;
   findRef: Ref<HTMLInputElement>;
   onFilter: (value: string) => void;
+  onFiles: () => void;
   onSplit: () => void;
   onUncommitted: () => void;
   onFold: () => void;
@@ -29,6 +33,7 @@ interface DiffToolbarProps {
 export function DiffToolbar(props: DiffToolbarProps) {
   const none = !props.view?.files.length;
   const foldTitle = props.allFolded ? "Expand all" : "Collapse all";
+  const filesTitle = props.files ? "Hide files" : props.filesZoom ? "Show files full size (Shift+Esc)" : "Show files";
   const sendTitle = `Send ${props.comments} ${props.comments === 1 ? "comment" : "comments"} to the agent as one message`;
   return <>
     <span className="dv-sum" title={props.view ? baseTitle(props.view, props.uncommitted) : ""}>
@@ -37,6 +42,12 @@ export function DiffToolbar(props: DiffToolbarProps) {
     <input ref={props.findRef} className="dv-find" placeholder="Filter files and lines" aria-label="Filter files and lines" spellCheck={false} disabled={none}
       value={props.filter} onChange={event => props.onFilter(event.currentTarget.value)} />
     <span className="dv-tools">
+      <button type="button" className="dv-btn icon dv-filesbtn" title={filesTitle} aria-label={filesTitle} aria-pressed={props.files}
+        onClick={event => { event.stopPropagation(); props.onFiles(); }}>
+        <span style={{ display: "grid" }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>
+        </svg></span>
+      </button>
       {props.showUncommitted && <button type="button" className="dv-btn icon"
         title="Uncommitted only: hide the branch's commits" aria-label="Uncommitted only" aria-pressed={props.uncommitted}
         onClick={event => { event.stopPropagation(); props.onUncommitted(); }}>

@@ -159,6 +159,19 @@ test("route changes and history preserve retained scroll", async ({ page }, info
   expect(await page.evaluate(() => (window as any).__routeScrolls)).toBe(0);
 });
 
+test("mouse side buttons go back and forward", async ({ page }) => {
+  const side = (button: number) => page.evaluate(button => {
+    for (const type of ["mousedown", "mouseup"]) document.body.dispatchEvent(new MouseEvent(type, { button, bubbles: true, cancelable: true }));
+  }, button);
+  const path = () => page.evaluate(() => (window as any).__TSR_ROUTER__?.state.resolvedLocation?.pathname);
+  await openProject(page);
+  await expect.poll(path).toBe("/projects");
+  await side(3);
+  await expect.poll(path).toBe("/");
+  await side(4);
+  await expect.poll(path).toBe("/projects");
+});
+
 test("collapsed sidebar retains project colors and folder navigation", async ({ page }) => {
   const project = page.locator("#side .projects").getByRole("button", { name: new RegExp(`^${projectName}\\b`) });
   const folder = page.locator("#side .projects .cc-org").first();

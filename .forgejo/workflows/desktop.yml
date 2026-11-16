@@ -189,6 +189,11 @@ jobs:
             --arg url "https://releases.flashmind.com/beep/macos/$archive" \
             '{version: $version, notes: $notes, pub_date: $date, platforms: {"darwin-aarch64": {signature: $signature, url: $url}}}' \
             > "$manifest/latest.json"
+          # Apps outside Developer mode read the minor feeds, so they skip patches.
+          if [[ "$VERSION" == *.0 ]]; then
+            cp "$manifest/appcast.xml" "$manifest/appcast-minor.xml"
+            cp "$manifest/latest.json" "$manifest/minor.json"
+          fi
           echo "files=$files" >> "$GITHUB_OUTPUT"
           echo "manifest=$manifest" >> "$GITHUB_OUTPUT"
 
@@ -222,7 +227,8 @@ jobs:
           CF_ACCESS_KEY_ID: ${{ secrets.CF_ACCESS_KEY_ID }}
           CF_SECRET_ACCESS_KEY: ${{ secrets.CF_SECRET_ACCESS_KEY }}
           CF_BUCKET: ${{ secrets.CF_BUCKET }}
-        run: python3 scripts/r2-prune.py beep/macos "$VERSION"
+        # Keeps this minor's earlier releases: the minor feed points at its .0.
+        run: python3 scripts/r2-prune.py beep/macos "${VERSION%.*}.0"
 
   linux:
     runs-on: host
@@ -373,6 +379,10 @@ jobs:
           set -euo pipefail
           file="$RUNNER_TEMP/desktop-release-${{ github.run_id }}-${{ matrix.platform }}/manifest/latest.json"
           bash scripts/r2.sh put "$file" "beep/$PLATFORM/latest.json" application/json
+          # Apps outside Developer mode read the minor feed, so they skip patches.
+          if [[ "$GITHUB_REF_NAME" == *.0 ]]; then
+            bash scripts/r2.sh put "$file" "beep/$PLATFORM/minor.json" application/json
+          fi
 
       - name: Remove earlier versions from R2
         if: steps.r2.outputs.account != ''
@@ -382,4 +392,7 @@ jobs:
           CF_ACCESS_KEY_ID: ${{ secrets.CF_ACCESS_KEY_ID }}
           CF_SECRET_ACCESS_KEY: ${{ secrets.CF_SECRET_ACCESS_KEY }}
           CF_BUCKET: ${{ secrets.CF_BUCKET }}
-        run: python3 scripts/r2-prune.py "beep/$PLATFORM" "${GITHUB_REF_NAME#desktop-v}"
+        # Keeps this minor's earlier releases: the minor feed points at its .0.
+        run: |
+          version="${GITHUB_REF_NAME#desktop-v}"
+          python3 scripts/r2-prune.py "beep/$PLATFORM" "${version%.*}.0"

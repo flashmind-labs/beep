@@ -507,6 +507,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dchat.kid { margin-left: calc(var(--depth, 1) * 22px); width: calc(100% - var(--depth, 1) * 22px); border-left: 1px solid var(--border); border-radius: 0 var(--radius-sm) var(--radius-sm) 0 }
 .dsubrow:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .dsubrow .mk { height: 20px; display: grid; place-items: center } .dsubrow .mk .dspin { width: 11px; height: 11px }
+.dsubgrp .res { padding: 0 8px 6px 32px; white-space: pre-wrap; overflow-wrap: anywhere }
 .dsubrow .t { display: grid; min-width: 0; line-height: 20px }
 .dsubrow .t b { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dsubrow .t small { font-size: 11.5px; line-height: 16px; color: var(--muted) }
@@ -882,6 +883,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agkeys.away { visibility: hidden }
 /* Composers (chat/compose.ts): a long paste is a pill, the part sent as code
    has a dim outline. Both are drawn on a layer behind the field's own text. */
+:has(> .cx-field) { position: relative }
 .cx-field { position: relative; z-index: 1 }
 .cx-layer { position: absolute; z-index: 0; box-sizing: border-box; margin: 0; border: 0; overflow: hidden; pointer-events: none; color: transparent; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal }
 .cx-pill { border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent), 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent) }
@@ -1046,7 +1048,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .ag-tasks, .ag-plan { display: inline-flex; align-items: center; gap: 8px; margin: 6px 16px 0; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font: inherit; font-size: 12px; color: var(--muted); cursor: default }
 .ag-tasks:hover, .ag-plan:hover, .ag-steps button.it:hover { color: var(--fg) }
 /* The plan is one line above the field, which opens to its steps; a step opens to its subagents. */
-.ag-plan > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left }
+.ag-plan > span:not(.ddot) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left }
 .ag-plan b { margin-left: 8px; font-weight: 400; color: var(--fg) }
 .ag-plan > svg, .ag-steps .it > svg { flex: none; width: 12px; height: 12px; color: var(--dim) }
 :is(.ag-plan, .ag-steps .it)[aria-expanded="true"] > svg { transform: rotate(90deg) }

@@ -27,6 +27,8 @@ pub struct Settings {
     save_folder: Option<PathBuf>,
     /// Whether that folder was picked rather than Downloads.
     save_folder_picked: bool,
+    /// Updates to every release, patches included.
+    developer: bool,
 }
 
 #[tauri::command]
@@ -41,6 +43,7 @@ pub fn settings(app: AppHandle, prefs: State<'_, Prefs>) -> Settings {
         agent_notices: prefs.agent_notices(),
         save_folder: crate::platform::saves_dir(&app).ok(),
         save_folder_picked: prefs.save_folder().is_some(),
+        developer: prefs.developer(),
     }
 }
 
@@ -78,6 +81,13 @@ pub fn use_downloads(prefs: State<'_, Prefs>) {
 #[tauri::command]
 pub fn set_agent_notices(prefs: State<'_, Prefs>, enabled: bool) {
     prefs.set_agent_notices(enabled);
+}
+
+/// Developer mode: updates to every release instead of minor releases only.
+#[tauri::command]
+pub fn set_developer_mode(app: AppHandle, prefs: State<'_, Prefs>, enabled: bool) {
+    prefs.set_developer(enabled);
+    crate::platform::update::follow_feed(&app);
 }
 
 #[cfg(mobile)]

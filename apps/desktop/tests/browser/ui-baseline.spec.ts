@@ -421,7 +421,7 @@ test("terminals", async ({ page }) => {
   await baseline(page, "terminals");
 });
 
-const settingsResponses = { settings: { name: machineId, version: "0.9.0", autostart: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [], skill_sync_get: true, project_sync_get: true };
+const settingsResponses = { settings: { name: machineId, version: "0.9.0", autostart: false, agent_notices: false, developer: false }, list_machines: [], list_credentials: [], list_github_accounts: [], skill_sync_get: true, project_sync_get: true };
 test("settings machines", async ({ page }) => {
   const tool = (name: string, version: string) => ({ name, version, path: `/usr/bin/${name}` });
   const env = (os_version: string, tools: string[]) => ({ os: "linux", os_version, arch: "x86_64", cpus: 16, memory_mb: 65536, tools: [tool("claude", "2.1.0"), tool("codex", "0.60.0"), ...tools.map(name => tool(name, "1.0.0"))], logins: [{ tool: "claude", signed_in: true, account: null }, { tool: "codex", signed_in: false, account: null }] });
@@ -570,6 +570,24 @@ test("agent changes", async ({ page }) => {
   await page.getByRole("tab", { name: "Changes", exact: true }).click();
   await expect(page.locator('.dv-file[data-path="sample.ts"]')).toBeVisible();
   await baseline(page, "agent-changes");
+});
+
+test("the changed files list shows only with the pane full size, and folds", async ({ page }) => {
+  await page.setViewportSize({ width: 2400, height: 900 });
+  await openAgent(page);
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  const tree = page.locator(".dv-tree"), shell = page.locator("#agshell");
+  await expect(page.locator('.dv-file[data-path="sample.ts"]')).toBeVisible();
+  await expect(tree).toBeHidden();
+
+  await page.getByRole("button", { name: "Show files full size (Shift+Esc)" }).click();
+  await expect(shell).toHaveClass(/zoomed/);
+  await expect(tree).toBeVisible();
+
+  await page.getByRole("button", { name: "Hide files" }).click();
+  await expect(tree).toBeHidden();
+  await page.getByRole("button", { name: "Show files", exact: true }).click();
+  await expect(tree).toBeVisible();
 });
 
 test("another screen keeps its title after a session was open", async ({ page }) => {

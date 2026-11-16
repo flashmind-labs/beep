@@ -1,3 +1,4 @@
+import { ComposeField } from "../chat/compose.tsx";
 import { FilePicker } from "./file-picker.tsx";
 import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
@@ -148,6 +149,9 @@ interface SessionFieldProps {
   machine: string; session: string;
   continueHere: ContinueHereProps | null;
   attach(files: File[]): unknown;
+  /// The key the field's draft is kept under; another conversation's field starts afresh.
+  draft: string;
+  removeLast(): void;
   send(input: HTMLTextAreaElement): void;
   stop(): void;
   openParent(): void;
@@ -199,11 +203,11 @@ function FieldGrip() {
   return <span ref={grip} className="agfield-grip" role="separator" aria-orientation="horizontal" aria-label="Resize the message field" title="Drag to resize, double-click to reset" onPointerDown={drag} onDoubleClick={() => keep(0)} />;
 }
 
-export function SessionField({ mode, name, banner, moveKey, machine, session, continueHere, attach, send, stop, openParent }: SessionFieldProps) {
+export function SessionField({ mode, name, banner, moveKey, machine, session, continueHere, attach, draft, removeLast, send, stop, openParent }: SessionFieldProps) {
   const input = agentMessage, dropping = useFieldDrop(), uploading = useUploadPending();
   if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel"><FieldControl slot="model" /></span><Button id="agnativeparent" onClick={openParent}>Open parent</Button></div>;
   if (mode === "readonly") return continueHere ? <div className="dmuted dbanner dtakeover"><span>{banner}</span><ContinueHere {...continueHere} /></div> : <div className="dmuted dblock dbanner">{banner}</div>;
-  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><FieldControl slot="steps" /><div id="agtasks"><FieldControl slot="tasks" /></div><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><ComposerPresence machine={machine} session={session} /><PluginSlot name="composer" /><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><FieldGrip /><FilePicker attach={attach} /><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><textarea ref={input} id="agmsg" rows={1} readOnly={uploading} aria-busy={uploading} style={uploading ? { opacity: 0.5, cursor: "wait" } : undefined} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" disabled={uploading} onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
+  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><FieldControl slot="steps" /><div id="agtasks"><FieldControl slot="tasks" /></div><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><ComposerPresence machine={machine} session={session} /><PluginSlot name="composer" /><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><FieldGrip /><FilePicker attach={attach} /><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><ComposeField key={draft} ref={input} draft={draft} images={attach} removeLast={removeLast} grow={156} id="agmsg" rows={1} readOnly={uploading} aria-busy={uploading} style={uploading ? { opacity: 0.5, cursor: "wait" } : undefined} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" disabled={uploading} onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
 }
 
 // A draft and the session it starts share the same dock nodes. Their terminals

@@ -4,7 +4,15 @@ import { readFile } from "node:fs/promises";
 import { build } from "esbuild";
 import { chromium, webkit } from "playwright";
 
-const bundle = await build({ entryPoints: [new URL("../../desktop/src/chat/diagrams.ts", import.meta.url).pathname], bundle: true, format: "esm", write: false });
+// The diagram scanner, and a reply row that `streamReply` renders the way a streamed turn does.
+const bundle = await build({ stdin: { contents: `import "./chat/diagrams.tsx";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
+import { AgentReply } from "./agents/reply-view.tsx";
+let root = null;
+window.streamReply = (host, html) => flushSync(() => (root ??= createRoot(host)).render(createElement(AgentReply, { reply: { kind: "reply", row: "r", markdown: true, html } })));`,
+  resolveDir: new URL("../../desktop/src", import.meta.url).pathname, loader: "tsx" }, bundle: true, format: "esm", jsx: "automatic", write: false });
 const engine = process.env.DIAGRAM_ENGINE === "webkit" ? webkit : chromium;
 
 test("desktop renders through streamed updates, caches, expands and exports", async t => {
@@ -18,7 +26,7 @@ test("desktop renders through streamed updates, caches, expands and exports", as
     const path = new URL(route.request().url()).pathname;
     if (path === "/") return route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><style>pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms } @keyframes diagram-found { from { opacity: .99 } }</style></head><body>
       <div id="bar"><div id="reply"><pre><code class="language-mermaid-pending">flowchart LR\n A--&gt;B</code></pre></div></div>
-      <script>window.calls=[];window.__TAURI__={core:{invoke:async(name,args)=>{calls.push({name,args});return name==='save_picture'?'/downloads/'+args.name:null},Channel:class{}},event:{listen:async()=>()=>{}}};</script>
+      <script>window.calls=[];window.__TAURI__={core:{invoke:async(name,args)=>{calls.push({name,args});return name==='save_picture'?'/downloads/'+args.name:null},Channel:class{}},event:{listen:async()=>()=>{}},webviewWindow:{getCurrentWebviewWindow:()=>new Proxy({},{get:()=>async()=>()=>{}})}};</script>
       <script type="module">await import('/app.js');window.ready=true;</script></body></html>` });
     if (path === "/app.js") return route.fulfill({ contentType: "text/javascript", body: bundle.outputFiles[0].text });
     if (path === "/diagrams/mermaid.min.js") loads++;
@@ -83,6 +91,23 @@ test("desktop renders through streamed updates, caches, expands and exports", as
   await page.waitForFunction(() => calls.some(c => c.args?.name === "diagram.png"));
   await expanded.locator("#expand").click();
   await page.locator("dialog").waitFor({ state: "detached" });
+  // A streamed reply keeps a finished diagram's frame while the text after it grows.
+  await page.evaluate(() => {
+    const host = document.createElement("div"); host.id = "streamed"; document.getElementById("bar").append(host);
+    streamReply(host, `<p>Intro</p><pre><code class="language-mermaid-pending">flowchart LR\n C--&gt;</code></pre>`);
+    streamReply(host, `<p>Intro</p><pre><code class="language-mermaid">flowchart LR\n C--&gt;D</code></pre>`);
+  });
+  const streamed = page.locator('#streamed iframe[title="Mermaid diagram"]');
+  await page.frameLocator('#streamed iframe[title="Mermaid diagram"]').locator("#export:not(:disabled)").waitFor();
+  await streamed.evaluate(frame => { frame.dataset.first = "true"; });
+  await page.evaluate(async () => {
+    for (let i = 0; i < 12; i++) {
+      streamReply(document.getElementById("streamed"), `<p>Intro</p><pre><code class="language-mermaid">flowchart LR\n C--&gt;D</code></pre><p>${"word ".repeat(i)}</p>`);
+      await new Promise(requestAnimationFrame);
+    }
+  });
+  assert.equal(await streamed.count(), 1);
+  assert.equal(await streamed.getAttribute("data-first"), "true");
   assert.equal(loads, 1);
   assert.deepEqual(errors, []);
 });

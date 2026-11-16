@@ -14,14 +14,14 @@ test("diff toolbar preserves review controls and sends the current draft", async
   }
   const host = dom.window.document.getElementById("root");
   assert.ok(host);
-  let sent = 0, opened = 0, toggled = 0;
+  let sent = 0, opened = 0, toggled = 0, files = 0;
   const feedback = createElement("button", { className: "dv-fb", onClick: () => { opened++; } });
   const props: Parameters<typeof DiffToolbar>[0] = {
     view: { root: "/srv/project", base: "main", merge_base: "", working_tree: false, additions: 0, deletions: 0, more: 0,
       files: [{ path: "sample.ts", old_path: null, status: "modified", additions: 0, deletions: 0, left_out: null, hunks: [] }] },
-    loading: false, filter: "", split: false, uncommitted: false, showUncommitted: true, allFolded: false,
+    loading: false, filter: "", split: false, files: false, filesZoom: true, uncommitted: false, showUncommitted: true, allFolded: false,
     flash: "", comments: 2, sending: false, readOnly: false, feedback, findRef: null,
-    onFilter() {}, onSplit() {}, onUncommitted: () => { toggled++; }, onFold() {}, onRefresh() {}, onSend: () => { sent++; },
+    onFilter() {}, onFiles: () => { files++; }, onSplit() {}, onUncommitted: () => { toggled++; }, onFold() {}, onRefresh() {}, onSend: () => { sent++; },
   };
   const root = createRoot(host);
   try {
@@ -37,6 +37,11 @@ test("diff toolbar preserves review controls and sends the current draft", async
     assert.equal(opened, 1);
     assert.equal(toggled, 1);
     assert.equal(sent, 1);
+    const list = host.querySelector<HTMLButtonElement>("button.dv-filesbtn");
+    assert.ok(list);
+    assert.equal(list.title, "Show files full size (Shift+Esc)");
+    await act(() => { list.click(); });
+    assert.equal(files, 1);
     await act(() => { root.render(createElement(DiffToolbar, { ...props, sending: true, flash: "Sending" })); });
     assert.equal(host.querySelector("button.dbtn"), send);
     assert.equal(send.disabled, true);

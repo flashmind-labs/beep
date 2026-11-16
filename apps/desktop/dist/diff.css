@@ -19,6 +19,7 @@
 .dv-head > .dv-sp { flex: 1 1 0; min-width: 0 }
 .dv-tools { display: inline-flex; gap: 2px }
 .dv-tools .dv-btn.icon { border-color: transparent }
+.dv-filesbtn { display: none } .dv.wide .dv-filesbtn { display: inline-grid }
 .dv-tools .dv-btn.icon[aria-pressed="true"] { background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg) }
 .dv-pm { display: inline-block; width: 14px; text-align: center; font-size: 15px; line-height: 14px; font-weight: 500 }
 .dv-head .dv-n { margin-left: 2px; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--on-accent) 25%, transparent); font-size: 11px; font-variant-numeric: tabular-nums }
@@ -41,11 +42,11 @@
 .dv-btn:disabled { opacity: .45; cursor: default }
 .dv-btn.icon { width: 26px; padding: 0; display: inline-grid; place-items: center; color: var(--muted) }
 .dv-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) }
-.dv.wide .dv-body { grid-template-columns: var(--dv-tree-width, 250px) 1px minmax(0, 1fr) }
+.dv.wide .dv-body.files { grid-template-columns: var(--dv-tree-width, 250px) 1px minmax(0, 1fr) }
 .dv-tree { display: none; min-width: 0; min-height: 0; overflow: auto; padding: 6px; scrollbar-width: thin }
-.dv.wide .dv-tree { display: block }
+.dv.wide .dv-body.files .dv-tree { display: block }
 .dv-resize { display: none; position: relative; width: 9px; margin: 0 -4px; z-index: 3; cursor: col-resize; touch-action: none; outline: 0 }
-.dv.wide .dv-resize { display: block }
+.dv.wide .dv-body.files .dv-resize { display: block }
 .dv-resize::after { content: ""; position: absolute; inset: 0 4px; background: var(--border) }
 .dv-resize:hover::after, .dv-resize:focus-visible::after, .dv-body.resizing .dv-resize::after { inset: 0 3px; background: var(--accent) }
 .dv-body.resizing, .dv-body.resizing * { cursor: col-resize; user-select: none }

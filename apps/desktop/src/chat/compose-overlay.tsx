@@ -3,7 +3,7 @@ import type { Pill } from "./compose-text.ts";
 import { Button } from "../ui/kit.tsx";
 import { plural } from "../ui/format.ts";
 
-export function ComposeOverlay({ value, pills, fences }: { value: string; pills: Pill[]; fences: { start: number; end: number }[] }) {
+export function ComposeOverlay({ value, pills, fences, pillNode }: { value: string; pills: Pill[]; fences: { start: number; end: number }[]; pillNode(id: number, node: HTMLSpanElement | null): void }) {
   const code = useRef<(HTMLSpanElement | null)[]>([]);
   const [outlines, setOutlines] = useState<{ top: number; height: number }[]>([]);
   useLayoutEffect(() => {
@@ -22,7 +22,7 @@ export function ComposeOverlay({ value, pills, fences }: { value: string; pills:
     for (const pill of pills) {
       if (pill.start < start || pill.end > end) continue;
       result.push(value.slice(at, pill.start));
-      result.push(<span key={`${pill.id}:${pill.start}`} className="cx-pill" data-id={pill.id}>{value.slice(pill.start, pill.end)}</span>);
+      result.push(<span key={`${pill.id}:${pill.start}`} className="cx-pill" ref={node => { pillNode(pill.id, node); }}>{value.slice(pill.start, pill.end)}</span>);
       at = pill.end;
     }
     result.push(value.slice(at, end));

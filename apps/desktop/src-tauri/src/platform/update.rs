@@ -1,9 +1,10 @@
 //! Updates from the release bucket: checked shortly
 //! after launch and then every few hours, downloaded quietly, and offered
 //! as "Restart to Update Beep" in the tray menu. Quitting installs a
-//! downloaded update too.
+//! downloaded update too. The configured feed has minor releases only;
+//! Developer mode reads the feed of every release beside it.
 
-use crate::{notices::notify, tray};
+use crate::{beep::state::Prefs, notices::notify, tray};
 use std::{
     sync::{Mutex, MutexGuard, PoisonError},
     time::Duration,
@@ -13,6 +14,11 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 
 const FIRST_CHECK: Duration = Duration::from_secs(60);
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+
+#[cfg(target_os = "windows")]
+const EVERY_RELEASE: &str = "https://releases.flashmind.com/beep/windows/latest.json";
+#[cfg(not(target_os = "windows"))]
+const EVERY_RELEASE: &str = "https://releases.flashmind.com/beep/linux/latest.json";
 
 /// A downloaded update waiting for a restart or quit.
 struct Ready {
@@ -80,7 +86,13 @@ pub async fn check(app: &AppHandle, asked: bool) {
 }
 
 async fn download(app: &AppHandle) -> tauri_plugin_updater::Result<Option<String>> {
-    let Some(update) = app.updater()?.check().await? else {
+    let mut updater = app.updater_builder();
+
+    if app.state::<Prefs>().developer() {
+        updater = updater.endpoints(vec![EVERY_RELEASE.parse()?])?;
+    }
+
+    let Some(update) = updater.build()?.check().await? else {
         return Ok(None);
     };
     let bytes = update.download(|_, _| {}, || {}).await?;
@@ -89,6 +101,9 @@ async fn download(app: &AppHandle) -> tauri_plugin_updater::Result<Option<String
     *app.state::<Updates>().lock() = Some(Ready { update, bytes });
     Ok(Some(version))
 }
+
+/// Each check reads Developer mode, so a change needs nothing here.
+pub fn follow_feed(_app: &AppHandle) {}
 
 /// Installs the downloaded update, if any; the next launch runs it.
 pub fn install(app: &AppHandle) {

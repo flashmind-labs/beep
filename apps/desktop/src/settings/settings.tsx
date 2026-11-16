@@ -34,6 +34,8 @@ export interface MacSettings {
   save_folder: string | null;
   /// That folder was picked in Settings rather than Downloads.
   save_folder_picked: boolean;
+  /// Updates to every release, patches included, not just minor releases.
+  developer: boolean;
 }
 
 /// Settings: drawn at once from what this Mac knows (its own settings and the
@@ -319,6 +321,7 @@ function localView(kind: LocalView): ReactNode {
       settings={local.set} phone={onPhone()} busy={generalPending}
       autostart={(enabled: boolean) => void change(generalPending, "autostart", "set_autostart", { enabled })}
       notices={(enabled: boolean) => void change(generalPending, "notices", "set_agent_notices", { enabled })}
+      developer={(enabled: boolean) => void change(generalPending, "developer", "set_developer_mode", { enabled })}
       chooseSaves={() => void change(generalPending, "saves", "choose_save_folder", {})}
       useDownloads={() => void change(generalPending, "saves", "use_downloads", {})}
       shortcuts={() => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts()}

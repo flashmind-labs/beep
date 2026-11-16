@@ -14,7 +14,7 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://releases.flashmind.com/beep/linux/latest.json"]
+      "endpoints": ["https://releases.flashmind.com/beep/linux/minor.json"]
     }
   }
 }

@@ -55,7 +55,7 @@ def appcast(info: dict, version: str, dmg: Path, signature: str, body: str) -> b
 
     if arch not in {"arm64", "x86_64"} or info.get("CFBundleShortVersionString") != version:
         raise ValueError("Disk image or app version does not match the release")
-    if info.get("SUFeedURL") != f"{BASE_URL}/appcast.xml":
+    if info.get("SUFeedURL") != f"{BASE_URL}/appcast-minor.xml":
         raise ValueError("App update feed does not match the release")
 
     root = ET.Element("rss", {"version": "2.0"})

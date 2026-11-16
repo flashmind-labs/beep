@@ -26,6 +26,9 @@ export interface DiffSource {
   load: (only: string[], lockfiles: boolean, uncommitted: boolean, context?: number) => Promise<DiffView>;
   /// Offers the Uncommitted only toggle, off to begin with.
   uncommitted?: boolean;
+  /// A side pane that ⇧esc fills the session with: its file list shows only
+  /// then, and the Files button zooms it first.
+  zoom?: { zoomed: () => boolean; subscribe: (changed: () => void) => () => void; enter: () => void };
   /// Opens a file of the diff, when something can show it.
   open?: { label: string; run: (path: string) => void };
   /// More lines for a file's right-click menu, read once it is open; none for a file that has no more.

@@ -115,9 +115,6 @@ pub(super) struct Spawn {
     pub(super) failed: bool,
 }
 
-/// The tools that start a subagent.
-const SPAWN_TOOLS: [&str; 2] = ["Agent", "Task"];
-
 /// Where a published artifact's link starts.
 const ARTIFACT_LINK: &str = "https://claude.ai/";
 
@@ -374,7 +371,7 @@ impl Digest {
                     }
                     if block["name"]
                         .as_str()
-                        .is_some_and(|name| SPAWN_TOOLS.contains(&name))
+                        .is_some_and(|name| crate::agents::subagent::CLAUDE_SPAWNS.contains(&name))
                     {
                         let input = &block["input"];
                         self.spawns.insert(

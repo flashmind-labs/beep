@@ -82,6 +82,17 @@ fn agent_notices_are_on_until_turned_off() {
 }
 
 #[test]
+fn developer_mode_is_off_until_turned_on() {
+    assert!(!parse("{}").developer);
+    let saved = Saved {
+        developer: true,
+        ..Saved::default()
+    };
+    let json = serde_json::to_string(&saved).expect("the state serializes");
+    assert!(parse(&json).developer);
+}
+
+#[test]
 fn an_older_file_with_server_fields_still_loads() {
     let file = state_file("older");
     fs::write(

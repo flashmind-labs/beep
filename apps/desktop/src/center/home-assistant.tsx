@@ -1,3 +1,4 @@
+import { composeMessage } from "../chat/compose.tsx";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { makeStartComposer } from "../agents/start-composer.tsx";
 import { startAssistant } from "../agents/agentnew.tsx";
@@ -86,7 +87,7 @@ async function showHarness() {
 
 /// Starts the assistant with the task and opens its session.
 async function send() {
-  const text = composer.input.value.trim();
+  const text = composeMessage(composer.input.value).trim();
   if (!text) { composer.update({ invalid: true }); composer.input.focus(); return; }
   if (sending) return;
   sending = true;

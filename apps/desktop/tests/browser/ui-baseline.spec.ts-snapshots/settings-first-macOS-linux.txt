@@ -236,6 +236,11 @@ body.cbody
                 button#openShortcuts.dbtn [type="button"] "Show…"
               div.dtoggle
                 span
+                  b "Developer mode"
+                  small "Updates to minor releases only"
+                button#developerMode.dswitch [aria-checked="false" aria-label="Developer mode" role="switch" type="button"]
+              div.dtoggle
+                span
                   b "Report a problem"
                   small "Collect logs from your machines and send them to us"
                 button#openReport.dbtn [type="button"] "Report…"

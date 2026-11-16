@@ -20,7 +20,7 @@ import { type AgentReturn, bar, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
 import { folderOn, type MachineFolder } from "../project/projects-state.ts";
 import { addHosts, barCheckout, barPlace } from "../project/projectbar.ts";
-import { composeField, composeMessage } from "../chat/compose.tsx";
+import { composeMessage } from "../chat/compose.tsx";
 import type { Machine } from "../machines/machines.tsx";
 import { invoke } from "../ui/tauri.ts";
 
@@ -141,7 +141,7 @@ function drawFrame() {
   const c = composer = makeStartComposer({
     ids: true,
     actions: {
-      submit: () => void startAgent(), harness: () => { if (!AG.busy) togglePicker(); }, choice: toggleChoice, files: files => attachments.take(files),
+      submit: () => void startAgent(), harness: () => { if (!AG.busy) togglePicker(); }, choice: toggleChoice, files: files => attachments.take(files), images: files => attachments.add(files), removeLast: () => attachments.removeLast(),
       input: value => { AG.form.prompt = value; if (AG.error === "prompt") { AG.error = ""; drawParts(); } },
     },
     place: () => {
@@ -153,7 +153,6 @@ function drawFrame() {
   c.setText(f.prompt);
   const page = shellPage = openBarPage(() => { shellPage = null; closedPicker(c.pick); started.discard(); c.dispose(); stopOutside(); });
   showForm(page, c);
-  composeField(c.input, { images: files => attachments.add(files), removeLast: () => attachments.removeLast() });
   attachments.bindStash(() => AG.form.project ?? null);
   stopOutside();
   document.addEventListener("click", closeOutside);
