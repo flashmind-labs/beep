@@ -23,6 +23,8 @@ const options = {
     center: "src/center/center.ts",
   },
   outdir: "dist",
+  // Painted scenes kept as SVG files are bundled as their text.
+  loader: { ".svg": "text" },
   bundle: true,
   format: "esm",
   target: "safari16",
