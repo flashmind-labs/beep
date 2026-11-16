@@ -199,6 +199,7 @@ function drawParts() {
   const words = f.assistant ? ASSISTANT_WORDS : TASK_WORDS;
   c.update({
     invalid: missing, placeholder: missing ? PROMPT_MISSING : words.placeholder, words, error: missing ? PROMPT_MISSING : AG.error,
+    project: f.project ?? null,
     sendDisabled: AG.busy || attachments.reading || !hosts.length || !f.machine,
     sendTitle: !f.machine ? "Pick a machine first" : "Start (⌘↩)",
     busy: AG.busy, open: f.open ?? null,
@@ -264,7 +265,7 @@ function drawUnder(c: StartComposer) {
   const shown = folderPill(f.cwd, host?.workspace, host?.home);
   const co = barCheckout(f.checkout ?? DEFAULT_CHECKOUT, baseFor(f.base, formBranches()));
   drawExtras(c);
-  c.update({ choiceContents: { machine: host ? host.machine_name : "Pick a machine", folder: <FolderChoice checkout={checkout} label={checkout ? co.label : shown.label} detail={checkout ? co.sub : shown.path} /> } });
+  c.update({ choiceContents: { machine: host ? <><span className="ddot on" />{host.machine_name}</> : "Pick a machine", folder: <FolderChoice checkout={checkout} label={checkout ? co.label : shown.label} detail={checkout ? co.sub : shown.path} /> } });
   c.update({ under: <ChoiceMenuView menu={hostMenu() ?? folderMenu(checkout) ?? baseMenu()} anchor={menuAnchor} bounds={menuBounds} pick={pickChoice} /> });
 }
 

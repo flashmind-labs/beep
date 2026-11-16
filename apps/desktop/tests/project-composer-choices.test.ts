@@ -15,7 +15,7 @@ test("branch edits survive updates while focused and reconcile after blur", asyn
   const host = dom.window.document.getElementById("root");
   assert.ok(host);
   const root = createRoot(host);
-  const value: ComposerChoicesState = { machine: "machine", adding: false, machineDisabled: false, folder: "folder", folderSub: "", folderDisabled: false, branch: "first", showBranch: true, showClear: true };
+  const value: ComposerChoicesState = { machine: "machine", on: false, adding: false, machineDisabled: false, folder: "folder", folderSub: "", folderDisabled: false, branch: "first", showBranch: true, showClear: true };
   const actions = { machine: () => {}, folder: () => {}, branch: () => {}, clear: () => {} };
   const render = () => root.render(createElement(ComposerChoices, { value: { ...value }, actions }));
   try {

@@ -32,10 +32,10 @@ export function makeStartComposer({ externalChoices = false, presentation = "cen
   const nodes: StartComposerNodes = { input: null, machine: null, folder: null, harness: null, pick: null, att: null, box: null, grow: () => {} };
   const root = createDocumentView(form);
   let state: StartComposerState = {
-    centered: presentation === "centered", busy: false, welcome: presentation === "centered" ? nextSessionIntro() : "",
+    centered: presentation === "centered", busy: false, welcome: presentation === "centered" ? nextSessionIntro() : "", project: null,
     error: "", progress: "", placeholder: "", words: TASK_WORDS, invalid: false, dropping: false, sendDisabled: false, sendTitle: null, stashLocked: false,
     harness: null, harnessDisabled: false, open: null, folderHidden: false, folderTitle: null,
-    choiceView: null, choiceContents: null, attachmentView: null, uploadPicker: null, notes: null, footer: null, under: null, extras: null, picker: null,
+    choiceView: null, machineView: null, choiceContents: null, attachmentView: null, uploadPicker: null, notes: null, footer: null, under: null, extras: null, picker: null,
   };
   const draw = () => {
     form.classList.toggle("centered", state.centered);
@@ -78,13 +78,14 @@ export function makeStartComposer({ externalChoices = false, presentation = "cen
   draw();
   if (nodes.input) bindMentionMenu(nodes.input, place);
   const required = <T,>(value: T | null): T => { if (!value) throw new Error("Start composer did not mount"); return value; };
-  const view = (key: "choiceView" | "footer" | "picker" | "harness") => (node: ReactNode) => update({ [key]: node });
+  const view = (key: "choiceView" | "machineView" | "footer" | "picker" | "harness") => (node: ReactNode) => update({ [key]: node });
 
   return {
     update,
     setPresentation,
     setBusy: (busy: boolean) => update({ busy }),
     setChoices: view("choiceView"),
+    setMachine: view("machineView"),
     setFooter: view("footer"),
     setPicker: view("picker"),
     setHarness: view("harness"),
