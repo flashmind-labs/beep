@@ -412,9 +412,10 @@ body:not(.mobile) .ap-sheet .ap-remote summary:hover, body:not(.mobile) .ap-sync
 
 /* ----- Home and Projects with cards: a band of dawn haze along the top (src/ui/painted-art.tsx),
    gone before the first cards; project rows and groups labelled in quiet mono ----- */
-/* A wide board: the wanderer above the sea of fog in the room beside its lanes, never behind a card. */
+/* A wide board: the wanderer above the sea of fog in the room beside its lanes, never behind a card.
+   A lane full enough for two columns takes that room for wider cards instead. */
 @container (min-width: 1200px) {
-  body:not(.mobile) .bd-art { display: var(--paintings); flex: 1 1 0; min-width: 0; height: min(820px, 62vh); margin-left: 24px }
+  body:not(.mobile) .bd-lanes:not(:has(> .many)) > .bd-art { display: var(--paintings); flex: 1 1 0; min-width: 0; height: min(820px, 62vh); margin-left: 24px }
   body:not(.mobile) .bd-art > .painted-art { display: var(--paintings); width: 100%; height: 100%; opacity: .8; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(transparent, #000 14%, #000 84%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(transparent, #000 14%, #000 84%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect }
 }
 body:not(.mobile) .cc-view:has(.painted-art.haze) { position: relative; isolation: isolate }
