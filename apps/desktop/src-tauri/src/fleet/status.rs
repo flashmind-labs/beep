@@ -65,6 +65,8 @@ struct Sampled<T> {
 struct Peer {
     device: Device,
     online: bool,
+    /// A phone: it controls the mesh and this desktop never dials it.
+    observer: bool,
     /// When it last reported, or its link went.
     seen_at: Option<SystemTime>,
     /// Since when the mesh is trying to reach it: from the mesh opening or
@@ -86,6 +88,7 @@ impl Peer {
         Self {
             device,
             online: false,
+            observer: false,
             seen_at: None,
             connecting_since: None,
             version: None,
@@ -105,6 +108,7 @@ impl Peer {
     /// since it opened, or since the link went.
     fn connecting(&self) -> bool {
         !self.online
+            && !self.observer
             && self
                 .connecting_since
                 .is_some_and(|since| since.elapsed() < CONNECT_WAIT)
@@ -143,9 +147,12 @@ impl Shared {
         let mut changed = peers.len() != before;
 
         for status in devices {
-            changed |= peers
-                .get(&status.device.id)
-                .is_none_or(|peer| peer.device != status.device || peer.online != status.online);
+            let observer = mesh.is_observer(status.device.id);
+            changed |= peers.get(&status.device.id).is_none_or(|peer| {
+                peer.device != status.device
+                    || peer.online != status.online
+                    || peer.observer != observer
+            });
             let new = !peers.contains_key(&status.device.id);
             let peer = peers
                 .entry(status.device.id)
@@ -158,11 +165,12 @@ impl Shared {
                 peer.connecting_since = None;
             } else if new || peer.online {
                 peer.connecting_since = Some(Instant::now());
-                connecting = true;
+                connecting |= !observer;
             }
 
             peer.device = status.device;
             peer.online = status.online;
+            peer.observer = observer;
         }
 
         drop(peers);
