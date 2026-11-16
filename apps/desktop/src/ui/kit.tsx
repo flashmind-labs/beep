@@ -1,8 +1,18 @@
 // Shared command-center building blocks. Each one draws the exact markup the
 // views wrote by hand (`cc-sec`, `cc-panel cc-empty`, `cc-line`, `chip`,
 // `dspin`), so a view can switch to it without a visible change.
-import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
+import { cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
+import parse from "html-react-parser";
 import { copy } from "./parts.tsx";
+
+/// Sanitized HTML as React elements keyed by place, so a block that stays keeps its
+/// element: the reader's selection, and a diagram drawn next to it, survive an update.
+export function useHtml(html: string) {
+  return useMemo(() => {
+    const nodes = parse(html);
+    return (Array.isArray(nodes) ? nodes : [nodes]).map((node, i) => isValidElement(node) ? cloneElement(node, { key: i }) : node);
+  }, [html]);
+}
 
 /// A section: its head (title, count, then `action`) over a panel of `children`.
 export function Section({ id, title, count = 0, action, children }: { id?: string; title: ReactNode; count?: number | string; action?: ReactNode; children: ReactNode }) {
