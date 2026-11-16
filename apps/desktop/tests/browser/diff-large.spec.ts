@@ -187,7 +187,7 @@ test("x folds and opens the file last clicked, not the one at the top", async ({
   await expect(files.locator(".dv-file .dv-l").first()).toBeVisible();
   // Scroll so the second file starts mid screen, below the one at the top.
   const second = files.locator(".dv-file").nth(1);
-  await files.evaluate((el, top) => { el.scrollTop = top - el.clientHeight / 2; }, await second.evaluate(el => el.offsetTop));
+  await files.evaluate((el, top) => { el.scrollTop = top - el.clientHeight / 2; }, await second.evaluate(el => el instanceof HTMLElement ? el.offsetTop : 0));
   const path = await second.getAttribute("data-path");
   const target = files.locator(`.dv-file[data-path="${path}"]`);
   const top = files.locator(".dv-file").first();
