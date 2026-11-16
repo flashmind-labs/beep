@@ -332,6 +332,42 @@ test("a text file edits in the pane, saves with the shortcut and stops when it c
   expect(await writes()).toHaveLength(1);
 });
 
+test("a double click on a text file edits it from there, with a selection that shows on a light skin", async ({ page }) => {
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await openDesktop(page, true, { agent_tree: listing(["notes.txt"]), agent_tree_text: { size: 18, text: "first\nlet value = 1\n", cut: false, binary: false, editable: true }, agent_tree_edit: null });
+  await page.evaluate(() => { document.documentElement.dataset.skin = "warm"; });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await page.locator('[data-fpath="notes.txt"]').click();
+
+  // The middle of "value", on the second line.
+  const at = await page.locator(".agcode pre").evaluate(pre => {
+    const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const start = node.textContent?.indexOf("value") ?? -1;
+      if (start < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, start + 2); range.setEnd(node, start + 3);
+      const box = range.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    }
+    return null;
+  });
+  if (!at) throw new Error("The code view does not show the text.");
+  await page.mouse.dblclick(at.x, at.y);
+
+  const editor = page.locator(".agcm .cm-content");
+  await expect(editor).toBeFocused();
+  await page.keyboard.type("my");
+  await page.keyboard.press(`${modifier}+s`);
+  const writes = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_tree_edit").map(call => call.args));
+  await expect.poll(writes).toEqual([{ machineId: "build-box", root: "/srv/project", action: { Write: { path: "notes.txt", text: "first\nlet myvalue = 1\n" } } }]);
+
+  await page.keyboard.press(`${modifier}+a`);
+  const selected = await page.locator(".agcm .cm-selectionBackground").first().evaluate(box => getComputedStyle(box).backgroundColor);
+  expect(selected).not.toBe("rgb(34, 51, 51)");
+});
+
 test("a middle click closes a file tab and leaves fixed tabs open", async ({ page }) => {
   await openDesktop(page, true, { agent_tree: listing(["notes.txt"]), agent_tree_text: { size: 6, text: "hello\n", cut: false, binary: false, editable: true } });
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));

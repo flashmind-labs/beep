@@ -19,6 +19,15 @@ export default function CodeEditor({ edit, rel, changed, save }: { edit: FileEdi
     const state = edit.state ?? EditorState.create({ doc: edit.base, extensions: setup(edit.base, changed, save) });
     const view = new EditorView({ parent, state });
     edit.view = view;
+
+    // A new editor opened at a place puts the cursor there.
+    if (!edit.state && edit.at) {
+      const { doc } = view.state, line = doc.line(Math.min(edit.at.line + 1, doc.lines));
+      const anchor = line.from + Math.min(edit.at.column, line.length);
+      view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
+      edit.at = null;
+    }
+
     view.focus();
 
     // The language's parser loads on its own, after the text shows.
@@ -57,7 +66,8 @@ const theme = EditorView.theme({
   ".cm-cursor": { borderLeftColor: "var(--fg)" },
   ".cm-gutters": { backgroundColor: "transparent", color: "var(--dim)", border: "none" },
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "var(--ctl-fill)" },
-  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": { backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent)" },
+  // As specific as the base theme's selection, which is dark and hides the text on a light skin.
+  "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionLayer .cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent)" },
 }, { dark: true });
 
 function setup(text: string, changed: () => void, save: () => void) {

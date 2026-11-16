@@ -3,7 +3,7 @@ import { addMention } from "../agents/workdrop.ts";
 import { invoke } from "../ui/tauri.ts";
 import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
 import { hasPreview } from "./html-preview-state.ts";
-import { type MediaTab, type TreeText, discardSheet, P, saveWorkFile } from "./media.ts";
+import { type MediaTab, type TextPlace, type TreeText, discardSheet, P, saveWorkFile } from "./media.ts";
 import { noteTab, touchTab } from "./media-draw.ts";
 import { fileError, readError } from "./read.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
@@ -34,11 +34,24 @@ export async function togglePreview(tab: MediaTab) {
   }
 }
 
-/// Starts editing a text tab's file, from the text it shows.
-function startEdit(tab: MediaTab) {
+/// Starts editing a text tab's file, from the text it shows, with the cursor `at` a place.
+function startEdit(tab: MediaTab, at: TextPlace | null = null) {
   if (!tab.text?.editable) return;
-  tab.edit = { base: tab.text.text, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false };
+  tab.edit = { base: tab.text.text, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false, at };
   touchTab(tab);
+}
+
+/// The place in the code view that the selection starts at, as a double click leaves it.
+function selectedPlace(pre: HTMLPreElement): TextPlace | null {
+  const selection = getSelection();
+  if (!selection?.rangeCount || !pre.contains(selection.anchorNode)) return null;
+  const range = document.createRange();
+  range.setStart(pre, 0);
+  range.setEnd(selection.anchorNode ?? pre, selection.anchorOffset);
+  const before = range.toString().split("\n"), line = before.length - 1;
+
+  // Each line starts with its number.
+  return { line, column: Math.max(0, (before.at(-1)?.length ?? 0) - String(line + 1).length) };
 }
 
 /// Stops editing, asking first when there are unsaved changes.
@@ -106,7 +119,7 @@ const readScrolled = (key: string): Scrolled | null => {
 };
 
 export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
-  const code = useRef<HTMLDivElement>(null);
+  const code = useRef<HTMLDivElement>(null), pre = useRef<HTMLPreElement>(null);
   const rel = tab.rel ?? "", lang = languageOf(rel);
   const scrollKey = P.session ? `${viewKey(P.session.machine_id, P.session.id)}:file:${tab.id}` : null;
   const { about, style, html } = useMemo(() => {
@@ -121,6 +134,7 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
   }, [text, rel, lang, tab.line]);
   const preview = tab.preview;
   const source = !preview?.active && !text.binary;
+  const editable = text.editable && !onPhone();
 
   // The code scrolls back to where it was the last time the file showed.
   useLayoutEffect(() => {
@@ -156,10 +170,10 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
     : preview.html ? <div className="agartmd" dangerouslySetInnerHTML={{ __html: preview.html }} />
     : <div className="agartframe-box"><iframe className="agartframe" sandbox="allow-scripts" referrerPolicy="no-referrer" title={`Preview of ${tab.name}`} src={preview.src || undefined} /></div>
     : text.binary ? <div className="agpmsg">{tab.name} is not text ({shortSize(text.size)}). Save it to open it on this computer.</div>
-    : <div className="agcode" style={style} ref={code} onScroll={scrolled}><pre dangerouslySetInnerHTML={{ __html: html }} /></div>}
+    : <div className="agcode" style={style} ref={code} onScroll={scrolled} onDoubleClick={() => { if (editable && pre.current) startEdit(tab, selectedPlace(pre.current)); }}><pre ref={pre} dangerouslySetInnerHTML={{ __html: html }} /></div>}
     <div className="agpacts"><span className="meta mono" title={rel}>{tab.note ?? about}</span><span className="sp" />
       {!text.binary && hasPreview(rel) && <Button data-preview="1" onClick={() => void togglePreview(tab)}>{preview?.active ? "Source" : "Preview"}</Button>}
-      {text.editable && !preview?.active && !onPhone() && <Button data-tedit="1" onClick={() => startEdit(tab)}>Edit</Button>}
+      {editable && !preview?.active && <Button data-tedit="1" onClick={() => startEdit(tab)}>Edit</Button>}
       <Button data-tment="1" onClick={() => addMention(mentioned(tab.root ?? P.session?.cwd ?? "", P.session?.cwd ?? "", rel))}>Mention</Button>
       <Button data-tdownload="1" onClick={() => saveWorkFile(rel, text => noteTab(tab, text), tab.root)}>Download</Button>
     </div></>;

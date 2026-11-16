@@ -61,7 +61,12 @@ export interface FileEdit {
   saving: boolean;
   /// A save found the file changed since `base`; Overwrite or Reload decide.
   conflict: boolean;
+  /// Where the cursor starts, such as the place double-clicked to edit.
+  at: TextPlace | null;
 }
+
+/// A place in a text by its 0-based line and column.
+export interface TextPlace { line: number; column: number }
 
 /// What a tab shows: a media file, a file of the Files tab as text, or a
 /// terminal.
