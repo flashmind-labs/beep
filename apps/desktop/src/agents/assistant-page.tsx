@@ -15,6 +15,7 @@ import { Row, RunningStatus } from "../project/split-view.tsx";
 import { Button, EndedFold } from "../ui/kit.tsx";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { formatAgo } from "../ui/format.ts";
+import { CHATS, WidthGrip } from "../ui/width-grip.tsx";
 
 /// What the Assistant page opens on: its chats (the phone shows only the list), or a new chat.
 export type AssistantOpen = "chats" | "new";
@@ -78,7 +79,8 @@ function subscribeSessions(change: () => void) {
 let read = 0;
 sessionsRead.add(() => { read += 1; });
 
-/// The assistant's chats: New chat, then the running ones, then the ended ones under their fold.
+/// The assistant's chats: New chat, then the running ones, then the ended ones under their fold,
+/// with a grip on their right edge.
 export function AssistantList() {
   const on = useStore(shell, s => !!s.assistant), chat = useStore(openChat, s => s.key);
   useSyncExternalStore(subscribeSessions, () => read);
@@ -104,12 +106,15 @@ export function AssistantList() {
     open: () => goChat(session),
   }} />;
 
-  return <div className="pj-list asst-list">
-    <div className="asst-head"><h4>Chats{!!running.length && <span className="n">{running.length}</span>}</h4><Button small onClick={() => goChat(null)}>New chat</Button></div>
-    {running.map(row)}
-    {!!ended.length && <EndedFold count={ended.length} open={endedOpen} onToggle={() => setEndedOpen(!endedOpen)} />}
-    {endedOpen && ended.map(row)}
-  </div>;
+  return <>
+    <div className="pj-list asst-list">
+      <div className="asst-head"><h4>Chats{!!running.length && <span className="n">{running.length}</span>}</h4><Button small onClick={() => goChat(null)}>New chat</Button></div>
+      {running.map(row)}
+      {!!ended.length && <EndedFold count={ended.length} open={endedOpen} onToggle={() => setEndedOpen(!endedOpen)} />}
+      {endedOpen && ended.map(row)}
+    </div>
+    <WidthGrip column={CHATS} />
+  </>;
 }
 
 /// Opens `session`'s chat on the page, or a new chat.

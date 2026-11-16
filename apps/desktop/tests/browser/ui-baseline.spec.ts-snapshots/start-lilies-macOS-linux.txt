@@ -206,7 +206,7 @@ body.cbody
                   div#agpick.pick
                   div#agunder
                 span#agchoices.choices
-                  button#aghostb.pill [aria-expanded="false" title="The machine it runs on" type="button"] "Pick a machine"
+                  button#aghostb.pill [aria-expanded="false" title="The machine it runs on (Shift+Tab in the field)" type="button"] "Pick a machine"
                   button#agfoldb.pill [aria-expanded="false" title="/srv/project" type="button"]
                     svg [fill="none" height="13" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                     span.mono "/srv/project"

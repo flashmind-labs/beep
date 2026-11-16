@@ -96,3 +96,55 @@ test("the first start's harness shows the assistant setting saved in Settings", 
   await page.getByRole("dialog", { name: "Harness, model and thinking" }).getByText("Example Model B").click();
   await expect(page.locator(".painted-empty .pill .codex")).toBeVisible();
 });
+
+test("a chat started from Home's composer opens on the Assistant page", async ({ page }) => {
+  await openDesktop(page, false, {
+    center_home: { machines: [], projects: [], running: [], needs_you: [] },
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null },
+    // A released node's start reply leaves out that the session is the assistant.
+    agent_start: { session: { ...session, assistant: false }, why: "" },
+    agent_view: view(session, "Hello."),
+  });
+  const prompt = page.locator(".painted-empty textarea");
+  await prompt.fill("hello");
+  await prompt.press("Enter");
+
+  await expect(page.getByText("Hello.", { exact: true })).toBeVisible();
+  await expect(page.locator(".asst-list")).toBeVisible();
+  await expect(page.locator("#title")).toContainText("Assistant");
+});
+
+test("Shift+Tab in the assistant's composer moves to the next machine that runs it", async ({ page }) => {
+  const other = { ...host, machine_id: "gpu-box", machine_name: "gpu-box" };
+  const old = { ...host, machine_id: "old-box", machine_name: "old-box", assistant: false };
+  await openDesktop(page, false, { agent_hosts: [host, other, old], agent_sessions: [], assistant_settings_get: { agent: "flsh", model: null, effort: null } });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  const prompt = page.locator("#agprompt");
+  await expect(page.locator("#aghostb")).toHaveText("build-box");
+
+  await prompt.press("Shift+Tab");
+  await expect(page.locator("#aghostb")).toHaveText("gpu-box");
+  await expect(prompt).toBeFocused();
+  await prompt.press("Shift+Tab");
+  await expect(page.locator("#aghostb")).toHaveText("build-box");
+});
+
+test("the chats' grip resizes them and keeps the width", async ({ page }) => {
+  await openDesktop(page, false, { agent_hosts: [host], agent_sessions: [session], assistant_settings_get: { agent: "flsh", model: null, effort: null } });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  const list = page.locator(".asst-list"), grip = page.getByRole("separator", { name: "Resize the chats" });
+  await expect(list).toBeVisible();
+  const before = (await list.boundingBox())?.width ?? 0;
+
+  const at = await grip.boundingBox();
+  if (!at) throw new Error("The grip is not on screen");
+  await page.mouse.move(at.x + at.width / 2, at.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(at.x + at.width / 2 + 100, at.y + 200, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => Math.round((await list.boundingBox())?.width ?? 0)).toBe(Math.round(before + 100));
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("beep.chatsWidth"))).toBe(String(Math.round(before + 100)));
+
+  await grip.dblclick();
+  await expect.poll(async () => Math.round((await list.boundingBox())?.width ?? 0)).toBe(300);
+});

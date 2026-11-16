@@ -176,7 +176,7 @@ body.cbody
                   span.ft "10m ago"
                     span.sp
               div.bd-lane
-      div#pane-box.cc-box.picked.pj-split
+      div#pane-box.cc-box.picked.pj-split style(--asst-w)
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="agent"]
           div [data-bar-page] style(display)
             div.ag-head.dhead
@@ -417,6 +417,7 @@ body.cbody
           button.dagfold [aria-expanded="false" type="button"] "Ended"
             span.chev [aria-hidden="true"] "▸"
             span.n "1"
+        div.cc-grip [aria-label="Resize the chats" aria-orientation="vertical" aria-valuemax="560" aria-valuemin="200" aria-valuenow="300" role="separator" tabindex="0"]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

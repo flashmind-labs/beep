@@ -182,8 +182,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 /* The sidebar's right edge: drag it, or focus it and use the arrow keys. */
 .cc-grip { position: absolute; top: 0; bottom: 0; left: calc(var(--side-w) - 3px); width: 6px; z-index: 5; cursor: col-resize; outline: 0 }
 .cc-grip::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: transparent; transition: background .12s }
-.cc-grip:hover::after, .cc-grip:focus-visible::after, .cwin.resizing .cc-grip::after { background: var(--accent) }
-.cwin.resizing { cursor: col-resize; user-select: none }
+.cc-grip:hover::after, .cc-grip:focus-visible::after, .resizing > .cc-grip::after { background: var(--accent) }
+.resizing:has(> .cc-grip) { cursor: col-resize; user-select: none }
 
 /* Adding machines and projects: the empty groups' rows, the + buttons. */
 .cc-foot > button { margin-left: auto; min-height: 22px; padding: 0 5px; display: grid; place-items: center }
@@ -428,6 +428,8 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .pj-list .note { padding: 4px 14px 6px; font-size: 12px; color: var(--muted) }
 /* The Assistant page: its chats before the pane's bar (which the window appends first), New
    chat by their heading, the Ended fold in line. */
+#pane-box.pj-split { position: relative; grid-template-columns: var(--asst-w, 300px) minmax(0, 1fr) }
+#pane-box > .cc-grip { left: calc(var(--asst-w, 300px) - 3px) }
 .asst-list { order: -1 }
 /* An assistant chat has no files, changes or terminals beside it. */
 #pane-box.pj-split #agshell :is(.agdiv, .agpane, .agpstrip, .agdropzone) { display: none }

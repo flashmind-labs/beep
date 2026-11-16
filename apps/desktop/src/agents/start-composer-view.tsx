@@ -96,7 +96,7 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
     <span className={state.error ? "cc-err" : "cc-err cc-progress"} id={id("agerr")} role="status">{state.error || state.progress}</span>
     {state.notes}
     {state.footer}
-    {createPortal(externalChoices ? state.choiceView : <><button ref={refs.machine} id={id("aghostb")} className="pill" type="button" title="The machine it runs on" aria-expanded={expanded("host")} onClick={choice("host")}>{state.choiceContents?.machine}</button><button ref={refs.folder} id={id("agfoldb")} className="pill" type="button" title={state.folderTitle ?? "The checkout, a new worktree, or an existing worktree"} hidden={state.folderHidden} aria-expanded={expanded("folder")} onClick={choice("folder")}>{state.choiceContents?.folder}</button><span className="choices">{state.extras}</span></>, choices)}
+    {createPortal(externalChoices ? state.choiceView : <><button ref={refs.machine} id={id("aghostb")} className="pill" type="button" title="The machine it runs on (Shift+Tab in the field)" aria-expanded={expanded("host")} onClick={choice("host")}>{state.choiceContents?.machine}</button><button ref={refs.folder} id={id("agfoldb")} className="pill" type="button" title={state.folderTitle ?? "The checkout, a new worktree, or an existing worktree"} hidden={state.folderHidden} aria-expanded={expanded("folder")} onClick={choice("folder")}>{state.choiceContents?.folder}</button><span className="choices">{state.extras}</span></>, choices)}
   </>;
 }
 

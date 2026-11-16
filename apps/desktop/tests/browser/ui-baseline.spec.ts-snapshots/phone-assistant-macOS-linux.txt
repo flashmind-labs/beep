@@ -163,7 +163,7 @@ body.cbody.mobile
                   button [type="button"] "Done today"
                   span
                 div.bd-log
-      div#pane-box.cc-box.pj-split
+      div#pane-box.cc-box.pj-split style(--asst-w)
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="agentnew"]
           div [data-bar-page] style(display)
             div#agcomposer.agc-wrap
@@ -196,7 +196,7 @@ body.cbody.mobile
                   div#agpick.pick
                   div#agunder
                 span#agchoices.choices
-                  button#aghostb.pill [aria-expanded="false" title="The machine it runs on" type="button"] "build-box"
+                  button#aghostb.pill [aria-expanded="false" title="The machine it runs on (Shift+Tab in the field)" type="button"] "build-box"
                   button#agfoldb.pill [aria-expanded="false" hidden title="The machine's workspace" type="button"] "Workspace"
                     svg [fill="none" height="13" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                     small.mono "~"
@@ -246,6 +246,7 @@ body.cbody.mobile
           button.dagfold [aria-expanded="false" type="button"] "Ended"
             span.chev [aria-hidden="true"] "▸"
             span.n "1"
+        div.cc-grip [aria-label="Resize the chats" aria-orientation="vertical" aria-valuemax="560" aria-valuemin="200" aria-valuenow="300" role="separator" tabindex="0"]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
