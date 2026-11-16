@@ -27,6 +27,10 @@ pub(crate) fn after_interruption(text: &str) -> Option<&str> {
 const CONTEXT: &str = "beep-context";
 const FROM_SESSION: &str = "from-session";
 const CHILD: &str = "beep-child";
+/// What another Claude Code session sends with its own `SendMessage`, and
+/// what one of its agents sends, as Claude Code tags them.
+const CLAUDE_SESSION: &str = "cross-session-message";
+const CLAUDE_AGENT: &str = "agent-message";
 /// The most of a context a log entry keeps: the user's words come first.
 #[cfg(feature = "host")]
 const MAX_CONTEXT: usize = 4096;
@@ -109,7 +113,7 @@ pub fn parts(text: &str) -> Vec<Part<'_>> {
     let mut rest = text;
 
     loop {
-        let next = [CONTEXT, FROM_SESSION, CHILD]
+        let next = [CONTEXT, FROM_SESSION, CHILD, CLAUDE_SESSION, CLAUDE_AGENT]
             .into_iter()
             .filter_map(|tag| open_at(rest, tag).map(|at| (at, tag)))
             .min_by_key(|(at, _)| *at);
@@ -139,9 +143,14 @@ pub fn parts(text: &str) -> Vec<Part<'_>> {
                 state: attribute(head, "state"),
                 text: inner,
             },
-            _ => Part::Session {
+            FROM_SESSION => Part::Session {
                 id: attribute(head, "id"),
                 name: attribute(head, "name"),
+                text: inner,
+            },
+            _ => Part::Session {
+                id: attribute(head, "from"),
+                name: attribute(head, "from-name"),
                 text: inner,
             },
         });

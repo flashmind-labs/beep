@@ -137,3 +137,25 @@ fn automatic_titles_are_short_unicode_safe_and_stable() {
         Some(format!("{}...", "a".repeat(77)))
     );
 }
+
+#[test]
+fn claude_code_messages_read_as_another_sessions() {
+    let text = "<cross-session-message from=\"uds:/srv/one.sock\" from-name=\"build-42\" from-mode=\"bypass\">\nRebase first.\n</cross-session-message>\n<agent-message from=\"a1\">\nDone.\n</agent-message>\nthanks";
+    assert_eq!(
+        parts(text),
+        [
+            Part::Session {
+                id: "uds:/srv/one.sock".into(),
+                name: "build-42".into(),
+                text: "Rebase first.",
+            },
+            Part::Session {
+                id: "a1".into(),
+                name: String::new(),
+                text: "Done.",
+            },
+            Part::User("thanks"),
+        ]
+    );
+    assert_eq!(own_words(text), "thanks");
+}

@@ -30,3 +30,12 @@ test("session message titles unwrap imported prompts without showing protocol ta
   assert.equal(sessionMessageTitle('<beep-context>Tools</beep-context>'), '');
   assert.equal(sessionMessageTitle('<from-session id="source">Hello</from-session>'), '');
 });
+
+test("Claude Code's own messages from sessions and agents are another session's", () => {
+  const text = `<cross-session-message from="uds:/srv/one.sock" from-name="build-42" from-mode="bypass">\nRebase first.\n</cross-session-message>\n<agent-message from="a1">\nDone.\n</agent-message>\nthanks`;
+  assert.deepEqual(promptParts(text), [
+    { kind: "session", id: "uds:/srv/one.sock", name: "build-42", text: "Rebase first." },
+    { kind: "session", id: "a1", name: "", text: "Done." },
+    { kind: "user", text: "thanks" },
+  ]);
+});

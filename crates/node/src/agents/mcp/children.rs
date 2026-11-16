@@ -529,8 +529,8 @@ impl Reach<'_> {
         let text = Self::tagged(parent, &self.who.session, &text);
 
         match found {
-            Found::Here(child) => match child.order(Command::Prompt(text.into())).await {
-                Ok(()) => ok("Sent. It reads it after its current turn."),
+            Found::Here(child) => match child.order(Command::Steer(text.into())).await {
+                Ok(()) => ok("Sent. It reads it at its next step."),
                 Err(e) => fail(e),
             },
             Found::There(kid) => {
@@ -581,7 +581,7 @@ impl Reach<'_> {
         };
 
         match sent {
-            Ok(()) => ok("Sent. It reads it after its current turn and answers only if it \
+            Ok(()) => ok("Sent. It reads it at its next step and answers only if it \
                  sends one back."),
             Err(e) => fail(e),
         }
@@ -938,11 +938,11 @@ async fn serve_peer(
             };
 
             match agents.child_of(&who, &call.id) {
-                Ok(child) => child.order(Command::Prompt(text.into())).await?,
+                Ok(child) => child.order(Command::Steer(text.into())).await?,
                 Err(_) => agents.message(&who.session, &call.id, text).await?,
             }
 
-            Ok(ok("Sent. It reads it after its current turn."))
+            Ok(ok("Sent. It reads it at its next step."))
         }
         Tool::AgentStatus | Tool::StopAgent => {
             let call: PeerCall = parse(&request.args)?;

@@ -2,7 +2,9 @@
 // what Beep told the agent in <beep-context>, what another session sent in
 // <from-session id=".." name="..">, what a child it started came to in
 // <beep-child id=".." name=".." state="finished|asking">, and the user's own
-// words around them.
+// words around them. Claude Code's own messages from another session
+// (<cross-session-message from=".." from-name="..">) or one of its agents
+// (<agent-message from="..">) count as another session's.
 
 export type PromptPart =
   | { kind: "user"; text: string }
@@ -10,7 +12,7 @@ export type PromptPart =
   | { kind: "session"; id: string; name: string; text: string }
   | { kind: "child"; id: string; name: string; state: string; text: string };
 
-const OPEN = /<(beep-context|from-session|beep-child)([ >])/g;
+const OPEN = /<(beep-context|from-session|beep-child|cross-session-message|agent-message)([ >])/g;
 
 const unescape = (s: string) => s.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 
@@ -42,7 +44,9 @@ export function promptParts(text: string): PromptPart[] {
       ? { kind: "context", text: inner }
       : tag === "beep-child"
         ? { kind: "child", id: attribute(head, "id"), name: attribute(head, "name"), state: attribute(head, "state"), text: inner }
-        : { kind: "session", id: attribute(head, "id"), name: attribute(head, "name"), text: inner });
+        : tag === "from-session"
+          ? { kind: "session", id: attribute(head, "id"), name: attribute(head, "name"), text: inner }
+          : { kind: "session", id: attribute(head, "from"), name: attribute(head, "from-name"), text: inner });
   }
 }
 

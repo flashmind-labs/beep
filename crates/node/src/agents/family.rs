@@ -257,7 +257,7 @@ impl Agents {
             .ok_or_else(|| format!("No agent {id} runs there. Use list_agents to find one."))?;
 
         session.take_peer_message()?;
-        session.order(Command::Prompt(text.into())).await
+        session.order(Command::Steer(text.into())).await
     }
 
     /// Starts the child `link` describes, here. The node that starts it
