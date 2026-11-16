@@ -481,6 +481,7 @@ impl Status {
 
     /// The machines `updatable` names whose beep-node is older than
     /// `latest`. This Mac's node is the desktop's build, so it is left out.
+    #[cfg(desktop)]
     pub fn behind(&self, latest: &semver::Version) -> Vec<Device> {
         self.shared
             .peers()
