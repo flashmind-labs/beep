@@ -24,7 +24,7 @@ test("a live session reads existing children and follows starts and exits", asyn
   await expect(page.locator(".agrunningrow")).toContainText("sleep 301");
   await page.locator('.agpane:visible [data-pact="fold"]').click();
   await page.evaluate(() => window.__navigation.processes([]));
-  await page.locator(".agpstrip:visible").click();
+  await page.locator(".agpstrip:visible").getByRole("tab", { name: "Files" }).click();
   await expect(running).toHaveCount(0);
   expect(errors).toEqual([]);
 });

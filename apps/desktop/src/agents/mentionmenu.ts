@@ -78,30 +78,35 @@ async function readFiles(key: string, machine: string, root: string, again: () =
   if (walking === key) walking = "";
 }
 
-/// Where a field's menus look: the session whose commands are offered (none
-/// offers no commands), and the folder whose files are, under `cwd`.
+/// Where a field's menus look: the folder on `machine` whose files are
+/// offered, under `cwd`, and the running session whose commands are, on its
+/// own machine (null offers no commands).
 export interface MenuPlace {
   machine: string;
-  session: string | null;
   root: string;
   cwd: string;
+  commands: { machine: string; session: string } | null;
 }
 
 /// The open session page's place, while its pane shows.
 function sessionPlace(): MenuPlace | null {
   if (S.view !== "agent" || !paneShown()) return null;
   const s = AG.page?.session;
-  return s && !s.external ? { machine: s.machine_id, session: s.id, root: paneRoot() || s.cwd, cwd: s.cwd } : null;
+  return s && !s.external ? { machine: s.machine_id, root: paneRoot() || s.cwd, cwd: s.cwd, commands: { machine: s.machine_id, session: s.id } } : null;
 }
 
-/// The Beep session whose commands an agent `agent` about to start in `cwd`
-/// on `machine` is offered: the latest there, else the latest on the machine.
-/// A harness reports its commands only once a session runs.
+/// The menus for an agent `agent` about to start in `cwd` on `machine`. A
+/// harness reports its commands only while a session runs, and a node
+/// answers only for the sessions it runs, so the commands are those of the
+/// latest running Beep session of that harness: in `cwd`, else on `machine`,
+/// else on any machine. Another machine's list is a best effort: the
+/// built-in commands match, its skills may not.
 export function menuPlaceFor(machine: string, agent: string, cwd: string): MenuPlace {
   const latest = (rows: AgentSession[]) => rows.reduce<AgentSession | null>((best, s) => !best || s.last_activity > best.last_activity ? s : best, null);
-  const same = sessions.filter(s => s.machine_id === machine && s.agent === agent && !s.external);
-  const session = latest(same.filter(s => s.cwd === cwd)) ?? latest(same);
-  return { machine, session: session?.id ?? null, root: cwd, cwd };
+  const running = sessions.filter(s => s.agent === agent && !s.external && s.status !== "ended" && s.status !== "closing");
+  const here = running.filter(s => s.machine_id === machine);
+  const session = latest(here.filter(s => s.cwd === cwd)) ?? latest(here) ?? latest(running);
+  return { machine, root: cwd, cwd, commands: session && { machine: session.machine_id, session: session.id } };
 }
 
 /// Makes `field` offer commands and files as it is typed in, for the place
@@ -134,10 +139,10 @@ export function bindMentionMenu(field: HTMLTextAreaElement, place: () => MenuPla
     const opening = !open || trigger?.kind !== t.kind;
 
     if (t.kind === "command") {
-      const session = at.session;
-      if (!session) return close();
-      const key = `${at.machine}\n${session}`;
-      if (opening && (commands?.key !== key || Date.now() - commands.at > COMMANDS_FRESH_MS)) void readCommands(key, at.machine, session, update);
+      const from = at.commands;
+      if (!from) return close();
+      const key = `${from.machine}\n${from.session}`;
+      if (opening && (commands?.key !== key || Date.now() - commands.at > COMMANDS_FRESH_MS)) void readCommands(key, from.machine, from.session, update);
       const list = commands?.key === key ? commands.value : [];
       const found = filterCommands(list, t.query);
       return found.length ? draw(found, t) : close();

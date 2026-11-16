@@ -1,4 +1,4 @@
-import { SunriseArt } from "../ui/painted-art.tsx";
+import { DailyArt } from "../ui/painted-art.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import { createPortal } from "react-dom";
 import { Fragment, useLayoutEffect, useMemo, useRef, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
@@ -80,7 +80,7 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
   const expanded = (which: ComposerOpen) => state.open === which;
   const sendLabel = state.centered ? state.busy ? "Starting" : "Start" : undefined;
   const heading = state.words.title ?? state.welcome;
-  return <>{state.centered && <section className="agc-intro"><SunriseArt /><h3 aria-label={heading}><span aria-hidden="true">{heading.split(" ").map((word, index) => <Fragment key={index}>{index > 0 && " "}<span className="agc-word" style={{ "--word": index } as CSSProperties}>{word}</span></Fragment>)}</span></h3><p>{state.words.line}</p></section>}
+  return <>{state.centered && <section className="agc-intro"><DailyArt /><h3 aria-label={heading}><span aria-hidden="true">{heading.split(" ").map((word, index) => <Fragment key={index}>{index > 0 && " "}<span className="agc-word" style={{ "--word": index } as CSSProperties}>{word}</span></Fragment>)}</span></h3><p>{state.words.line}</p></section>}
     <div className={`box${state.invalid ? " err" : ""}${state.dropping ? " dropping" : ""}`} id={id("agbox")} ref={refs.box}>
       <textarea ref={refs.input} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label={state.words.label} title={title} placeholder={state.placeholder}
         onInput={event => { grow(); actions.input?.(event.currentTarget.value); }}

@@ -16,7 +16,7 @@ const mark = (page: Page) => page.evaluate(() => window.__navigation.calls().len
 
 async function round(page: Page) {
   const side = page.locator("#side");
-  await side.getByRole("button", { name: "Terminals", exact: true }).click();
+  await side.getByRole("button", { name: /^Terminals\b/ }).click();
   await expect(page.locator(".tl-list").getByRole("button", { name: /shell-one/ })).toBeVisible();
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await expect(page.locator(".cc-view:visible .pj-board .bd-lanes")).toBeVisible();

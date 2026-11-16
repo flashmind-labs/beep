@@ -20,13 +20,14 @@
 
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, openStartForm, projectName } from "./harness.ts";
+import { audit, auditing } from "./ui-audit.ts";
 
 /// The frozen wall clock every state renders at.
 const NOW = Date.UTC(2026, 0, 15, 12, 0, 0);
 const PHONE = { width: 375, height: 812 };
 
 test.describe.configure({ mode: "parallel" });
-test.use({ timezoneId: "UTC", locale: "en-US" });
+test.use({ timezoneId: "UTC", locale: "en-US", deviceScaleFactor: auditing ? 2 : 1 });
 test.beforeEach(async ({ page, browserName }, info) => {
   test.skip(!process.env.WK && (browserName !== "chromium" || info.project.name !== "macOS"), "The baseline is recorded once, on Chromium");
   await page.clock.setFixedTime(NOW);
@@ -134,6 +135,8 @@ async function baseline(page: Page, name: string, root = "body") {
     previous = current;
     return same;
   }, { intervals: [100, 150, 200, 250], timeout: 10_000 }).toBe(true);
+
+  if (auditing) return audit(page, name);
 
   expect(previous).toMatchSnapshot(`${name}.txt`);
   await expect(page).toHaveScreenshot(`${name}.png`, { maxDiffPixelRatio: 0.002, animations: "disabled", caret: "hide" });
@@ -520,30 +523,28 @@ for (const section of [null, "Agent accounts", "Appearance"] as const) {
 
 // Agent session
 
-test("narrow window: the sidebar folds and the session shows chat or a pane", async ({ page }) => {
-  await page.setViewportSize({ width: 740, height: 832 });
+test("narrow window folds the right pane to its tabs, which open it over the conversation", async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 832 });
   await openAgent(page);
-  await expect(page.locator(".cwin")).toHaveClass(/side-collapsed/);
-  await expect(page.locator("#agshell")).toHaveClass(/narrow/);
-  const strip = page.locator("#agmnav");
-  await expect(strip.locator("[aria-selected=true]")).toHaveText("Chat");
-  await expect(page.locator("#agpane-bottom")).toBeHidden();
-  expect((await page.locator("#agtitle").boundingBox())?.width ?? 0).toBeGreaterThan(150);
+  const strip = page.locator("#agpstrip-right"), pane = page.locator("#agpane-right");
+  await expect(strip.getByRole("tab", { name: "Changes" })).toBeVisible();
+  await expect(strip.getByRole("tab", { name: "Files" })).toBeVisible();
+  await expect(pane).toBeHidden();
   await baseline(page, "narrow-session");
 
-  await strip.getByRole("button", { name: /^Changes/ }).click();
+  await strip.getByRole("tab", { name: "Changes" }).click();
   await expect(page.locator('.dv-file[data-path="sample.ts"]')).toBeVisible();
-  await expect(page.locator(".agconv")).toBeHidden();
+  await expect(page.locator("#agshell")).toHaveClass(/zoomed/);
   await baseline(page, "narrow-session-changes");
 
-  await strip.getByRole("button", { name: "Chat" }).click();
-  await expect(page.locator(".agconv")).toBeVisible();
+  await pane.getByTitle("Hide the pane").click();
+  await expect(pane).toBeHidden();
+  await expect(strip).toBeVisible();
 
-  // Wide again, the sidebar opens and the pane sits beside the conversation.
-  await page.setViewportSize({ width: 1280, height: 832 });
-  await expect(page.locator(".cwin")).not.toHaveClass(/side-collapsed/);
-  await expect(strip).toHaveCount(0);
-  await expect(page.locator("#agpane-right")).toBeVisible();
+  // Wide again, the pane is back beside the conversation as it was.
+  await page.setViewportSize({ width: 1600, height: 832 });
+  await expect(pane).toBeVisible();
+  await expect(page.locator("#agshell")).not.toHaveClass(/zoomed/);
 });
 
 test("agent session transcript", async ({ page }) => {
@@ -841,6 +842,25 @@ test("home with nothing running", async ({ page }) => {
   await expect(page.locator(".painted-empty")).toBeVisible();
   await baseline(page, "home-empty");
 });
+
+// The frozen clock is on a day of the sunrise. The paintings of the three days after it:
+for (const [day, scene] of [[1, "haystacks"], [2, "lilies"], [3, "parliament"]] as const) {
+  test(`home with nothing running, under the ${scene}`, async ({ page }) => {
+    await page.clock.setFixedTime(NOW + day * 86_400_000);
+    await openDesktop(page, false, { center_home: { ...home, running: [], needs_you: [] }, agent_sessions: [], project_sessions: [], projects_sessions: [] });
+    await expect(page.locator(`.painted-empty > .painted-art.${scene}`)).toBeVisible();
+    await baseline(page, `home-empty-${scene}`);
+  });
+
+  test(`start screen under the ${scene}`, async ({ page }) => {
+    await page.clock.setFixedTime(NOW + day * 86_400_000);
+    await openDesktop(page, false, { center_home: home });
+    await page.evaluate(() => { Math.random = () => 0; });
+    await openStartForm(page);
+    await expect(page.locator(`.agc-intro > .painted-art.${scene}`)).toBeVisible();
+    await baseline(page, `start-${scene}`);
+  });
+}
 
 test("add a project", async ({ page }) => {
   const place = (folder: string) => ({ machine_id: machineId, machine_name: machineId, folder });

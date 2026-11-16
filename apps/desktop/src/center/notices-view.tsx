@@ -9,7 +9,7 @@ interface Props {
   items: Note[]; open: boolean; shown: Note | null; answering: ReadonlySet<string>; failed: ReadonlyMap<string, string>; keeping: ReadonlyMap<string, { hash: string; was: string }>;
   toggle(): void; back(): void; dismiss(ids: string[]): void; openItem(item: Note): void; answer(item: Note, allow: boolean): void; keep(item: Note, held: Held): void;
 }
-const BELL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/></svg>';
+const BELL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15V10a6 6 0 0 1 12 0v5l2 2H4zM10 20h4"/></svg>';
 export function NoticesView(p: Props) {
   const count = badge(p.items), shown = p.shown;
   return <><button type="button" className="nt-bell" title="Notifications (⌘B)" aria-label={bellLabel(p.items)} aria-expanded={p.open} onClick={p.toggle}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: BELL }} />{count && <span className="nt-n">{count}</span>}</button>{p.open && (shown ? <Skill key={shown.id} item={shown} p={p} /> : <List p={p} />)}</>;

@@ -1,18 +1,17 @@
 // The session's shell and the pane's docks, drawn from the model in
 // media-layout.ts: each dock's divider, tab strip, controls and views, its
-// strip while folded, the drop zone and ghost of a tab drag, and the one-pane
-// strip of a phone or a narrow window.
+// strip while folded, the drop zone and ghost of a tab drag, and the phone's
+// tab strip.
 import { memo, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "zustand";
-import { Icon } from "../ui/icons.tsx";
 import { dragHandle } from "../ui/drag.ts";
 import type { Dock } from "./media-state.ts";
-import { type DockModel, type DockView, dividerDrag, dividerKey, mainRef, paneModel, paneRefs, resetDivider, shellRef, stripRefs } from "./media-layout.ts";
-import { foldDock, moveDock, pickSingleTab, pickTab, tabMenu } from "./media-draw.ts";
+import { type DockView, dividerDrag, dividerKey, mainRef, paneModel, paneRefs, resetDivider, shellRef, stripRefs } from "./media-layout.ts";
+import { foldDock, moveDock, pickPhoneTab, pickTab, tabMenu } from "./media-draw.ts";
 import { closeTab, newTerminal, P, type MediaTab } from "./media.ts";
 import { ghostRef, tabDown } from "./drag.ts";
-import { PaneTab, PaneTabs, SinglePaneTabs, type PaneTabActions } from "./tabs-view.tsx";
+import { PaneTab, PaneTabs, PhonePaneTabs, type PaneTabActions } from "./tabs-view.tsx";
 import { WorktreeMenu } from "./worktree-view.tsx";
 import { FilesView } from "./files-tree.tsx";
 import { ArtifactsView } from "./artifacts-list.tsx";
@@ -27,15 +26,15 @@ import { TermView } from "./term-footer.tsx";
 
 /// The session's shell: the conversation with the bottom dock under it, and the right dock.
 export function PaneShell({ children }: { children: ReactNode }) {
-  const { narrow, zoomed, resizing, drag, single, log } = useStore(paneModel);
-  const classes = ["agshell", narrow && "narrow", zoomed && "zoomed", resizing && `resizing resizing-${resizing}`, drag && "tabdrag", single && log && "log-only"];
+  const { narrow, zoomed, resizing, drag, phone, log } = useStore(paneModel);
+  const classes = ["agshell", narrow && "narrow", zoomed && "zoomed", resizing && `resizing resizing-${resizing}`, drag && "tabdrag", phone && log && "mb-log"];
   return <div className={classes.filter(Boolean).join(" ")} id="agshell" ref={shellRef}>{children}</div>;
 }
 
-/// The conversation and the bottom dock under it, led by the one-pane strip when too narrow for both.
+/// The conversation and the bottom dock under it, led on a phone by its tab strip.
 export function PaneMain({ children }: { children: ReactNode }) {
-  const single = useStore(paneModel, s => s.single);
-  return <div className="agmain" id="agmain" ref={mainRef}>{single && <nav id="agmnav" className="agmnav"><SinglePaneTabs tabs={single.tabs} selected={single.selected} select={pickSingleTab} /></nav>}{children}</div>;
+  const phone = useStore(paneModel, s => s.phone);
+  return <div className="agmain" id="agmain" ref={mainRef}>{phone && <nav id="agmnav" className="agmnav"><PhonePaneTabs tabs={phone.tabs} selected={phone.selected} select={pickPhoneTab} /></nav>}{children}</div>;
 }
 
 const DOCK_RIGHT = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>;
@@ -50,8 +49,9 @@ const tabActions = (d: Dock): PaneTabActions => ({
   down: (event, id) => tabDown(event.nativeEvent, id, event.currentTarget),
 });
 const ACTIONS: Record<Dock, PaneTabActions> = { right: tabActions("right"), bottom: tabActions("bottom") };
-/// A folded bottom dock keeps its tabs in a row: picking one opens the dock on it.
-const UNFOLD: PaneTabActions = { ...ACTIONS.bottom, pick: id => { foldDock("bottom", false); pickTab("bottom", id); } };
+/// A folded dock keeps its tabs in its strip: picking one opens the dock on it.
+const unfold = (d: Dock): PaneTabActions => ({ ...ACTIONS[d], pick: id => { foldDock(d, false); pickTab(d, id); } });
+const UNFOLD: Record<Dock, PaneTabActions> = { right: unfold("right"), bottom: unfold("bottom") };
 
 /// Dock `dock`: its divider, the pane with its head and views, and its strip while folded.
 export function PaneDock({ dock }: { dock: Dock }) {
@@ -82,13 +82,7 @@ export function PaneDock({ dock }: { dock: Dock }) {
         <button className="agpbtn" data-pact="fold" title="Hide the pane" onClick={() => foldDock(dock, true)}>{model && <span style={{ display: "contents" }}>{bottom ? FOLD_DOWN : FOLD_RIGHT}</span>}</button>
       </div><div className="agpviews">{model?.views.map(view => <PaneView key={view.kind === "tab" ? view.tab.id : view.kind} view={view} />)}</div></div>
     </aside>
-    {dock === "bottom"
-      ? <div ref={el => { stripRefs[dock].current = el; }} className="agpstrip tabs" id={`agpstrip-${dock}`} data-dock={dock} role="tablist" hidden={!model?.strip}>{model?.strip && <PaneTabs tabs={model.tabs} selected={model.on} dragging={dragging} actions={UNFOLD} />}</div>
-      : <button ref={el => { stripRefs[dock].current = el; }} className="agpstrip" id={`agpstrip-${dock}`} data-dock={dock} hidden={!model?.strip} title="Show the pane" onClick={() => foldDock(dock, false)}>{model && <DockStrip model={model} />}</button>}</>;
-}
-
-function DockStrip({ model }: { model: DockModel }) {
-  return <><span style={{ display: "contents" }}><Icon name={model.icon} /></span><span>{model.label}</span><small>{model.tabs.length}</small></>;
+    <div ref={el => { stripRefs[dock].current = el; }} className="agpstrip tabs" id={`agpstrip-${dock}`} data-dock={dock} role="tablist" aria-orientation={bottom ? "horizontal" : "vertical"} hidden={!model?.strip}>{model?.strip && <PaneTabs tabs={model.tabs} selected={model.on} dragging={dragging} actions={UNFOLD[dock]} />}</div></>;
 }
 
 function PaneView({ view }: { view: DockView }) {

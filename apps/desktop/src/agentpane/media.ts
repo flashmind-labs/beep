@@ -23,7 +23,7 @@ import { readError, loadText, startTerminal, load } from "./read.ts";
 import { togglePreview } from "./text-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
-import { draw, flipTab, noteTab, pickSingleTab } from "./media-draw.ts";
+import { draw, flipTab, noteTab, pickPhoneTab } from "./media-draw.ts";
 import { dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 import { savedIn } from "../ui/platform.ts";
 
@@ -139,8 +139,10 @@ export const P = {
   dragged: false,
   /// The dock zoomed over the whole session by ⇧esc, remembered per session.
   zoom: null as Dock | null,
-  /// The session drew one pane at a time, which shows the conversation first.
-  singleShown: false,
+  /// The wide layout's fold of the right pane while a narrow window keeps it folded.
+  wideFolded: null as boolean | null,
+  /// The session drew on a phone, which shows the conversation first.
+  phoneShown: false,
 };
 
 /// Starts the pane for session `s`, closing what the last one had open.
@@ -157,11 +159,12 @@ export function startPane(s: PaneSession) {
   P.subCount = 0;
   P.moved.clear();
   P.zoom = null;
-  P.singleShown = false;
+  P.wideFolded = null;
+  P.phoneShown = false;
   const el = shell();
   if (!el) return;
   P.watch?.disconnect();
-  // Too narrow for a right dock, its tabs join the bottom one, and back.
+  // Too narrow for the conversation beside it, the right pane folds to its strip, and back.
   P.watch = frameResize(() => {
     shellResized();
     if (paneModel.getState().narrow !== (dockWidth() < SIDE_BY_SIDE_MIN)) draw(); else place();
@@ -198,8 +201,8 @@ export function startPane(s: PaneSession) {
     foldInBar();
     if ("zoom" in saved && (saved.zoom === "right" || saved.zoom === "bottom")) P.zoom = saved.zoom;
   }
-  // Each tab reopened above took the one-pane screen; a session still opens on its chat.
-  P.singleShown = false;
+  // Each tab reopened above took the phone's screen; a session still opens on its chat.
+  P.phoneShown = false;
   draw();
   paneReleased = false;
   rememberPane();
@@ -282,9 +285,9 @@ export function focusTab(id: string) {
   paneOf(d)?.focus({ preventScroll: true });
 }
 
-/// Shown one pane at a time, a tab being shown takes the screen from the log.
+/// On a phone, which shows one pane at a time, a tab being shown takes the screen from the log.
 function leaveLog() {
-  if (paneModel.getState().single) setPaneModel({ log: false });
+  if (paneModel.getState().phone) setPaneModel({ log: false });
 }
 
 /// ⌘2 to ⌘9: the pane's tab `n` (from 0), counting the right strip's tabs
@@ -404,11 +407,8 @@ export function newTerminal(d?: Dock, zoom = false, like?: Omit<TermPlace, "name
   const root = like?.cwd ?? paneRoot();
   const name = terminalName(root, terms.map(t => t.name));
   const id = `term:${name}`;
-  // While the window is too narrow for a right dock, every tab shows at
-  // the bottom and a new one keeps the dock it would have.
-  const narrow = !!shell() && dockWidth() < SIDE_BY_SIDE_MIN;
   const newest = terms.at(-1);
-  const to = d && !narrow ? d : newest ? tabDock(P.layout, newest.id) : tabDock(P.layout, id);
+  const to = d ? d : newest ? tabDock(P.layout, newest.id) : tabDock(P.layout, id);
   if (to !== tabDock(P.layout, id)) P.layout = moveTab(P.layout, id, to);
   const at = like ?? { machine_id: s.machine_id, machine_name: s.machine_name, cwd: root, project: s.project ?? "" };
   open({ id, kind: "term", name, path: null, url: null, at, error: at.machine_id ? "" : "No machine has a checkout of this project to open a terminal in." });
@@ -497,7 +497,7 @@ export const showSubagents = () => showList(SUBS);
 
 function showList(id: typeof RUNNING | typeof SUBS) {
   if (!shell() || !tabIds().includes(id)) return;
-  if (paneModel.getState().single) return pickSingleTab(id);
+  if (paneModel.getState().phone) return pickPhoneTab(id);
 
   const d = dockOf(id);
   P.layout.hidden[d] = false;
@@ -508,7 +508,7 @@ function showList(id: typeof RUNNING | typeof SUBS) {
 /// Turns the Device tab's dock to it, unfolded, without taking the keys
 /// from the conversation. A phone keeps its screen.
 export function showDevice() {
-  if (!shell() || paneModel.getState().single || !tabIds().includes(DEVICE)) return;
+  if (!shell() || paneModel.getState().phone || !tabIds().includes(DEVICE)) return;
   const d = dockOf(DEVICE);
   P.layout.hidden[d] = false;
   saveLayout();
@@ -584,7 +584,7 @@ export function rememberPane() {
   const key = viewKey(P.session.machine_id, P.session.id);
   const pending = P.tabs.filter(t => t.kind === "term" && !t.term && !t.existing && !t.closed);
   if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
-  writeView(key, { on: P.on, layout: P.layout, zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed).map(savedTab) });
+  writeView(key, { on: P.on, layout: keptLayout(), zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed).map(savedTab) });
 }
 
 function savedTab(t: MediaTab) {
@@ -639,7 +639,12 @@ function loadLayout(): PaneLayout {
   try { return readLayout(localStorage.getItem(KEY)); } catch { return readLayout(null); }
 }
 
+/// The layout to keep: a narrow window's fold of the right pane is not kept.
+function keptLayout(): PaneLayout {
+  return P.wideFolded === null ? P.layout : { ...P.layout, hidden: { ...P.layout.hidden, right: P.wideFolded } };
+}
+
 export function saveLayout() {
-  try { localStorage.setItem(KEY, JSON.stringify(P.layout)); } catch { /* kept while the window is open */ }
+  try { localStorage.setItem(KEY, JSON.stringify(keptLayout())); } catch { /* kept while the window is open */ }
   rememberPane();
 }

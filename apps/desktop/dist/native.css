@@ -177,15 +177,15 @@ body:not(.mobile) .dbtn.quiet.warn { color: var(--err) }
 /* Chosen. */
 body:not(.mobile) :is(.dchip, .dskin)[aria-pressed="true"], body:not(.mobile) .dbtn.on { border-color: transparent; background: var(--ctl-fill-hi); color: var(--fg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 30%, transparent) }
 body:not(.mobile) .dchip { border-radius: var(--radius-sm) }
-body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin, .agpbtn, .nt-bell, .mvb, .agtab, .agmnav button):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin, .agpbtn, .nt-bell, .mvb, .agtab):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
 
 /* Tabs: words in a row, the open one filled, wherever they are. */
 body:not(.mobile) .cc-tabs { gap: 2px; padding-block: 6px; border-bottom: 0 }
 body:not(.mobile) .cc-tabs button { height: var(--ctl-h); padding: 0 9px; border: 0; border-radius: var(--radius-sm); font-weight: 500 }
 body:not(.mobile) .cc-tabs button:hover { background: var(--ctl-fill) }
 body:not(.mobile) .cc-tabs button[aria-selected="true"] { background: var(--ctl-fill-hi); font-weight: 500 }
-body:not(.mobile) :is(.agtab, .agmnav button) { height: var(--ctl-h); padding-block: 0; box-sizing: border-box }
-body:not(.mobile) :is(.agtab.on, .agmnav button[aria-selected="true"]) { background: var(--ctl-fill-hi) }
+body:not(.mobile) .agtab { height: var(--ctl-h); padding-block: 0; box-sizing: border-box }
+body:not(.mobile) .agtab.on { background: var(--ctl-fill-hi) }
 body:not(.mobile) .hv-seg { padding: 0; gap: 0; border: 0; background: var(--ctl-fill) }
 body:not(.mobile) .hv-seg button { height: var(--ctl-h); line-height: var(--ctl-h) }
 body:not(.mobile) .hv-seg button:is([aria-pressed="true"], [data-selected]) { background: var(--ctl-fill-hi); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 30%, transparent) }
@@ -223,8 +223,8 @@ body:not(.mobile) .cwin::after { content: ""; position: absolute; z-index: -1; l
 
 /* Mono chrome. */
 body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-pal h5, .cc-set .dset-h, .agc-think h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
-body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .cc-tabs button, .agtab, .agmnav button, .hv-seg button, .us-pill, .mvb, .agc-pill) { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0 }
-body:not(.mobile) :is(.cc-tabs button, .agtab, .agmnav button) { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase }
+body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .cc-tabs button, .agtab, .hv-seg button, .us-pill, .mvb, .agc-pill) { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0 }
+body:not(.mobile) :is(.cc-tabs button, .agtab) { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) .agtab span { font: inherit }
 body:not(.mobile) :is(.cc-si .n, .pv-row .m, .pv-row .ago, .dcoderturn .hd, .dcoderturn .when, .aglocation, .cc-top small, .cc-pal .it .t small, .cc-pal .foot, .dhead .tt small, .dchat .t small, .dchat .w, .dchat .run, .dhints, .agkeys, .cc-foot, .bd-card small, .mac-state) { font-family: var(--mono); font-size: 11px }
 body:not(.mobile) .cc-brand b { font-family: var(--mono); font-weight: 600; font-size: 16px; letter-spacing: -.02em }
@@ -257,8 +257,8 @@ body:not(.mobile) .dcard.dcoder:has(> .q) { border-color: color-mix(in srgb, var
    the top and gone by the foot, faint enough for the rows over it to read. */
 body:not(.mobile) .cc-side > .painted-art { display: block; position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; opacity: .5; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent 82%); mask-image: linear-gradient(#000, transparent 82%) }
 
-/* ----- The start screen: a painted sunrise behind the headline (src/ui/painted-art.tsx), with the
-   composer as frosted glass over its water. It is no wider than the draft area, which clips it,
+/* ----- The start screen: the day's painting behind the headline (src/ui/painted-art.tsx), with the
+   composer as frosted glass over its lower half. It is no wider than the draft area, which clips it,
    so its mask fades out before the edges instead of being cut. ----- */
 .painted-art { display: none; image-rendering: pixelated }
 .cc-pjc.centered { position: relative; isolation: isolate }
@@ -331,9 +331,10 @@ body.mobile .aguse > span + span { margin-left: 10px }
 .aguse .ctx[data-level="full"] i { background: linear-gradient(90deg, var(--err) var(--pct), color-mix(in srgb, var(--fg) 12%, transparent) 0) }
 
 /* Pane tabs, a step smaller. */
-body:not(.mobile) :is(.agphead, .agdevhead, .agmnav) { --ctl-h: 20px }
-body:not(.mobile) :is(.agtab, .agmnav button) { gap: 4px; padding-inline: 6px 5px; font-size: 9.5px; letter-spacing: .05em }
+body:not(.mobile) :is(.agphead, .agdevhead, .agpstrip) { --ctl-h: 20px }
+body:not(.mobile) .agtab { gap: 4px; padding-inline: 6px 5px; font-size: 9.5px; letter-spacing: .05em }
 body:not(.mobile) .agtab > svg { width: 12px; height: 12px }
+body:not(.mobile) .agpstrip[data-dock="right"] .agtab { width: var(--ctl-h); height: auto; padding: 8px 0 }
 
 /* ----- Boards, the projects page and lists: lit cards without rules, mono labels and details ----- */
 body:not(.mobile) .cc-mstrip { gap: 4px; border: 0; background: none; overflow: visible }
@@ -373,8 +374,8 @@ body:not(.mobile) .pl-row.it .t { overflow: hidden }
 body:not(.mobile) :is(.fs-row + .fs-row, .fs-conflict + .fs-conflict, .fs-wait + .fs-wait) { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) .fs-note { color: var(--dim) }
 
-/* ----- An empty Home or Projects: the sunrise across the page, with what to do next on a glass
-   card beside the sun (src/ui/painted-art.tsx) ----- */
+/* ----- An empty Home or Projects: the day's painting across the page, with what to do next on a
+   glass card over its quiet side (src/ui/painted-art.tsx) ----- */
 body:not(.mobile) .painted-empty { position: relative; isolation: isolate; display: grid; align-items: center; justify-items: start; min-height: min(520px, 64vh); padding: 0 7%; overflow: hidden }
 body:not(.mobile) .painted-empty > .painted-art { display: block; position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent), linear-gradient(transparent, #000 16%, #000 78%, transparent); mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent), linear-gradient(transparent, #000 16%, #000 78%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect }
 body:not(.mobile) .painted-empty > .cc-empty { position: relative; isolation: isolate; width: min(340px, 100%); justify-items: start; gap: 8px; padding: 20px 22px; border: 0; border-radius: var(--radius); background: none; text-align: left }
@@ -410,8 +411,8 @@ body:not(.mobile) .ap-sheet .ap-remote summary:hover, body:not(.mobile) .ap-sync
 
 /* ----- Home and Projects with cards: a band of dawn haze along the top (src/ui/painted-art.tsx),
    gone before the first cards; project rows and groups labelled in quiet mono ----- */
-/* A quiet board: the wanderer above the sea of fog in the room beside its lanes, never behind a card. */
-@container (min-width: 1000px) {
+/* A wide board: the wanderer above the sea of fog in the room beside its lanes, never behind a card. */
+@container (min-width: 1200px) {
   body:not(.mobile) .bd-art { display: block; flex: 1 1 0; min-width: 0; height: min(820px, 62vh); margin-left: 24px }
   body:not(.mobile) .bd-art > .painted-art { display: block; width: 100%; height: 100%; opacity: .8; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(transparent, #000 14%, #000 84%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(transparent, #000 14%, #000 84%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect }
 }
