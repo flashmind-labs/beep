@@ -908,6 +908,10 @@ impl Actor {
                 self.live.send_modify(|live| live.spent(tokens));
                 let (stop, error) = match result {
                     Ok(done) => (stop_reason(&done), None),
+                    Err(e) if lost_server_tools(&e) => {
+                        log::warn!("the turn ended with server tool calls that never ran: {e}");
+                        (StopReason::EndTurn, None)
+                    }
                     Err(e) => (StopReason::Failed, Some(e.to_string())),
                 };
                 self.turn_done(cx, stop, error);
@@ -1237,6 +1241,20 @@ pub(super) fn stop_reason(done: &PromptResponse) -> StopReason {
     acp::wire_name(&done.stop_reason)
         .parse()
         .unwrap_or(StopReason::Other)
+}
+
+/// Whether a prompt failed only because claude-agent-acp found server tool
+/// calls (`srvtoolu_` ids, run by the Anthropic API) without results. A
+/// server tool in the same message as a client tool never runs; Claude Code
+/// drops it and the turn goes on to end normally.
+pub(super) fn lost_server_tools(e: &agent_client_protocol::Error) -> bool {
+    let incomplete = e
+        .data
+        .as_ref()
+        .is_some_and(|data| data["errorKind"] == "incomplete_tool_call");
+    let ids = e.message.rsplit_once(": ").map_or("", |(_, ids)| ids);
+
+    incomplete && !ids.is_empty() && ids.split(", ").all(|id| id.starts_with("srvtoolu_"))
 }
 
 /// `first`, then `then`.
