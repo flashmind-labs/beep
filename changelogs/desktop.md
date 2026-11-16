@@ -7,6 +7,15 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.23] - 2026-11-16
+
+### Fixed
+
+- Desktop: SVG files open in the image viewer and can be previewed from Files.
+- Desktop: a project board stops flickering during agent activity in a wide window. The painting beside the lanes no longer vanishes as they switch between wide and narrow.
+- Desktop: coding agent updates grant Homebrew trust only to the installed formula when required, then retry the upgrade instead of hiding the failure behind the agent updater.
+- Desktop: image attachments no longer become conversation titles when a session has no name.
+
 ## [0.9.22] - 2026-11-16
 
 ### Fixed
