@@ -3,7 +3,7 @@ import { openDesktop } from "./harness.ts";
 
 const machine = { id: "one", name: "Build box", online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
 const home = { machines: [machine], projects: [], running: [], needs_you: [] };
-const folder = { path: "/srv", parent: "/", exists: true, folders: ["projects", "public"], more: 0, empty: false, origin: null };
+const folder = { path: "/srv", parent: "/", exists: true, folders: ["projects", "public"], more: 0, empty: false, origin: null, repos: [] };
 async function openImport(page: Page) {
   await openDesktop(page, false, { center_home: home, list_machine_folder: folder, preview_import: null, find_import_fork: null });
   await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
@@ -24,7 +24,8 @@ test("repository and folder controls retain focus across preview and completion"
   await path.press("Enter");
   await expect(path).toHaveValue("/srv/public/");
   await expect(path).toBeFocused();
-  await expect(sheet.getByRole("checkbox", { name: "Keep Syncthing file sync" })).toBeVisible();
+  // No machine shares the folder through Syncthing, so its choice stays out.
+  await expect(sheet.getByRole("checkbox", { name: "Keep Syncthing file sync" })).toHaveCount(0);
 });
 
 test("closed import result does not replace a later import sheet", async ({ page }) => {
@@ -52,25 +53,27 @@ test("branch choices and selected folder reach the import command", async ({ pag
   await sheet.getByRole("button", { name: "Build box", exact: true }).click();
   await expect(sheet.getByRole("button", { name: "Choose…" })).toBeEnabled();
   await sheet.getByRole("button", { name: "Choose…" }).click();
-  await expect(sheet.locator(".ip-browse")).toBeVisible();
-  await sheet.getByRole("button", { name: "Use this folder" }).click();
+  await page.getByRole("dialog", { name: "Choose a folder" }).getByRole("option", { name: /^Use this folder/ }).click();
   await expect(sheet.getByRole("combobox", { name: "Folder" })).toHaveValue("/srv");
   await page.evaluate(() => window.__navigation.hold("import_project"));
   await sheet.getByRole("button", { name: "Import", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").map(call => call.args))).toEqual([{ repo: "example/project", machineId: "one", folder: "/srv", worktrees: [{ branch: "feature", machine_id: null }], parent: null, syncthingFiles: null }]);
 });
 
-test("folder browser and import progress restore keyboard focus", async ({ page }) => {
+test("the folder picker and import progress restore keyboard focus", async ({ page }) => {
   const sheet = await openImport(page);
-  const repo = sheet.getByRole("textbox", { name: "Repository" });
-  await repo.fill("example/project");
+  await sheet.getByRole("textbox", { name: "Repository" }).fill("example/project");
   await sheet.getByRole("button", { name: "Build box", exact: true }).click();
-  await sheet.getByRole("button", { name: "Choose…" }).click();
-  await sheet.locator(".ip-browse").getByRole("button", { name: "Cancel" }).click();
-  await expect(repo).toBeFocused();
-  await sheet.getByRole("button", { name: "Choose…" }).click();
-  await sheet.getByRole("button", { name: "Use this folder" }).click();
-  await expect(repo).toBeFocused();
+  const choose = sheet.getByRole("button", { name: "Choose…" });
+  await choose.click();
+  const picker = page.getByRole("dialog", { name: "Choose a folder" });
+  await expect(picker.getByRole("combobox")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+  await expect(choose).toBeFocused();
+  await choose.click();
+  await picker.getByRole("option", { name: /^Use this folder/ }).click();
+  await expect(choose).toBeFocused();
   await page.evaluate(() => window.__navigation.hold("import_project"));
   await sheet.getByRole("button", { name: "Import", exact: true }).click();
   await expect(sheet.getByRole("button", { name: "Close", exact: true })).toBeFocused();
@@ -83,7 +86,7 @@ test("Syncthing choice follows the folder and keeps an explicit choice", async (
   await page.evaluate(() => window.__navigation.respond("project_syncthing_files", { available: true, enabled: false, label: "Projects" }));
   await sheet.getByRole("button", { name: "Build box", exact: true }).click();
   await sheet.getByRole("button", { name: "Choose…" }).click();
-  await sheet.getByRole("button", { name: "Use this folder" }).click();
+  await page.getByRole("dialog", { name: "Choose a folder" }).getByRole("option", { name: /^Use this folder/ }).click();
   const checkbox = sheet.getByRole("checkbox", { name: "Keep Syncthing file sync" });
   await expect(checkbox).not.toBeChecked();
   await checkbox.check();
@@ -95,85 +98,70 @@ test("Syncthing choice follows the folder and keeps an explicit choice", async (
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").map(call => call.args.syncthingFiles))).toEqual([true]);
 });
 
-test("shared Syncthing controls mount and clean up in the other project sheets", async ({ page }) => {
+const checkout = { ...folder, origin: "https://example.test/example/project.git" };
+
+/// Opens Add a folder from Add a project.
+async function openAddFolder(page: Page, responses: Record<string, unknown>) {
+  await openDesktop(page, false, { center_home: home, machine_search: "/srv", list_machine_folder: checkout, ...responses });
+  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Choose folder" }).click();
+  return page.getByRole("dialog", { name: "Add a folder" });
+}
+
+test("Sync options show only when a machine runs Syncthing", async ({ page }) => {
   await openDesktop(page, false, { center_home: home, list_machine_folder: folder });
   await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Add a project" }).getByText("Choose folder")).toBeVisible();
+  await expect(page.getByText("Sync options")).toHaveCount(0);
+});
+
+test("shared Syncthing controls mount and clean up in the other project sheets", async ({ page }) => {
+  const sheet = await openAddFolder(page, { syncthing_in_use: true, project_syncthing_files: { available: true, enabled: true, label: "Projects" } });
+  await expect(sheet.getByRole("checkbox", { name: "Keep Syncthing file sync" })).toBeChecked();
+  await sheet.getByRole("checkbox", { name: "Keep Syncthing file sync" }).uncheck();
+  await sheet.getByRole("combobox").press("Escape");
   const add = page.getByRole("dialog", { name: "Add a project" });
-  await add.getByText("Sync options").click();
-  const choice = add.getByRole("checkbox", { name: "Keep Syncthing file sync" });
-  await expect(choice).toBeVisible();
-  await choice.uncheck();
-  await expect(choice).not.toBeChecked();
-  await add.getByRole("button", { name: "Choose folder" }).click();
-  const folderSheet = page.getByRole("dialog", { name: "Add a folder" });
-  await expect(folderSheet.getByRole("checkbox", { name: "Keep Syncthing file sync" })).toBeVisible();
-  await folderSheet.getByRole("button", { name: "Back" }).click();
   await add.getByText("Sync options").click();
   await expect(add.getByRole("checkbox", { name: "Keep Syncthing file sync" })).toBeChecked();
 });
 
-test("add folder keeps the selected checkout and submits its sync preference", async ({ page }) => {
-  await openDesktop(page, false, { center_home: home, list_machine_folder: { ...folder, origin: "https://example.test/example/project.git" }, folder_branch: "main", project_syncthing_files: { available: true, enabled: true, label: "Projects" } });
-  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
-  await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Choose folder" }).click();
-  const sheet = page.getByRole("dialog", { name: "Add a folder" });
-  await sheet.getByRole("button", { name: "Choose…" }).click();
-  await sheet.getByRole("button", { name: "Use this folder" }).click();
-  await expect(sheet.getByText(/Branch main/)).toBeVisible();
+test("add folder takes the checkout shown and submits its sync preference", async ({ page }) => {
+  const sheet = await openAddFolder(page, { project_syncthing_files: { available: true, enabled: true, label: "Projects" } });
+  await expect(sheet.getByRole("option", { name: /^Add / })).toContainText("/srv");
   await sheet.getByRole("checkbox", { name: "Keep Syncthing file sync" }).uncheck();
   await page.evaluate(() => window.__navigation.hold("import_project"));
-  await sheet.getByRole("button", { name: "Add project" }).click();
+  await sheet.getByRole("option", { name: /^Add / }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").map(call => call.args))).toEqual([{ repo: "https://example.test/example/project.git", machineId: "one", folder: "/srv", worktrees: [], parent: null, syncthingFiles: false }]);
 });
 
-
 test("with project sync on, a shared folder starts off Syncthing and an untouched add follows the setting", async ({ page }) => {
-  await openDesktop(page, false, { center_home: home, list_machine_folder: { ...folder, origin: "https://example.test/example/project.git" }, folder_branch: "main", project_sync_get: true, project_syncthing_files: { available: true, enabled: true, label: "Projects" } });
-  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
-  await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Choose folder" }).click();
-  const sheet = page.getByRole("dialog", { name: "Add a folder" });
-  await sheet.getByRole("button", { name: "Choose…" }).click();
-  await sheet.getByRole("button", { name: "Use this folder" }).click();
-  await expect(sheet.getByText(/Branch main/)).toBeVisible();
+  const sheet = await openAddFolder(page, { project_sync_get: true, project_syncthing_files: { available: true, enabled: true, label: "Projects" } });
   await expect(sheet.getByRole("checkbox", { name: "Keep Syncthing file sync" })).not.toBeChecked();
   await page.evaluate(() => window.__navigation.hold("import_project"));
-  await sheet.getByRole("button", { name: "Add project" }).click();
+  await sheet.getByRole("combobox").press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").map(call => call.args.syncthingFiles))).toEqual([null]);
 });
 
-test("add folder restores focus and ignores an older branch read", async ({ page }) => {
-  await openDesktop(page, false, { center_home: home, list_machine_folder: { ...folder, origin: "https://example.test/example/project.git" }, folder_branch: "old" });
-  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
-  await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Choose folder" }).click();
-  const sheet = page.getByRole("dialog", { name: "Add a folder" });
-  const choose = sheet.getByRole("button", { name: "Choose…" });
-  await choose.click();
-  await sheet.locator(".ip-browse").getByRole("button", { name: "Cancel" }).click();
-  await expect(choose).toBeFocused();
-  await page.evaluate(() => window.__navigation.holdNext("folder_branch"));
-  await choose.click();
-  await sheet.getByRole("button", { name: "Use this folder" }).click();
-  await expect(choose).toBeFocused();
-  await page.evaluate(() => window.__navigation.respond("folder_branch", "new"));
-  await choose.click();
-  await sheet.getByRole("button", { name: "Use this folder" }).click();
-  await expect(sheet.getByText(/Branch new/)).toBeVisible();
-  await page.evaluate(() => { window.__navigation.respond("folder_branch", "old"); window.__navigation.release("folder_branch"); });
-  await expect(sheet.getByText(/Branch new/)).toBeVisible();
+test("add folder takes a typed path, offers nothing for a plain folder, and says nothing of Syncthing without it", async ({ page }) => {
+  const plain = { ...folder, path: "/srv/notes", parent: "/srv" };
+  const sheet = await openAddFolder(page, { machine_folders: { "/srv/notes": plain } });
+  const field = sheet.getByRole("combobox");
+  await expect(field).toBeFocused();
+  await field.fill("/srv/notes");
+  await page.keyboard.press("Enter");
+  await expect(sheet.getByRole("option", { name: "projects" })).toBeVisible();
+  await expect(sheet.getByRole("option", { name: /^Add / })).toHaveCount(0);
+  await expect(sheet.getByText(/Syncthing/)).toHaveCount(0);
 });
 
-test("add folder only opens the local picker when requested", async ({ page }) => {
+test("add folder starts on this computer and follows the machine picked", async ({ page }) => {
   const local = { ...machine, id: "local", name: "Local machine" };
-  await openDesktop(page, false, { center_home: { ...home, machines: [local, machine] }, mac_control: { id: "local" }, list_machine_folder: folder, pick_folder: null });
+  await openDesktop(page, false, { center_home: { ...home, machines: [local, machine] }, mac_control: { id: "local" }, machine_search: "/srv", list_machine_folder: folder });
   await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
   await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Choose folder" }).click();
   const sheet = page.getByRole("dialog", { name: "Add a folder" });
-  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "pick_folder").length)).toBe(0);
-  await sheet.getByRole("button", { name: "Choose…" }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "pick_folder").length)).toBe(1);
+  const listed = () => page.evaluate(() => [...new Set(window.__navigation.calls().filter(call => call.command === "list_machine_tree").map(call => call.args.machineId))]);
+  await expect.poll(listed).toEqual(["local"]);
   await sheet.getByRole("button", { name: "Build box", exact: true }).click();
-  await sheet.getByRole("button", { name: "Choose…" }).click();
-  await expect(sheet.locator(".ip-browse")).toBeVisible();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "list_machine_folder").map(call => call.args))).toEqual([{ machineId: "one", path: null }]);
-  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "pick_folder").length)).toBe(1);
+  await expect.poll(listed).toEqual(["local", "one"]);
 });

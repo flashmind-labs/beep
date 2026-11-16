@@ -273,9 +273,3 @@ body.cbody
                 span.n "example/quill"
                 span.m "2 h ago"
                 button.dbtn.small [type="button"] "Clone"
-      details.ap-sync
-        summary "Sync options"
-        div
-          label.am-line "Keep Syncthing file sync"
-            input.dcheck [checked type="checkbox"] value="on" checked
-          div.am-sub "If Syncthing manages this folder, turn this off to use Beep on all machines. Git projects sync commits; uncommitted edits need a handoff. Other projects keep syncing."

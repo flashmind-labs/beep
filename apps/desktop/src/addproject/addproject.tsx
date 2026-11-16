@@ -130,6 +130,7 @@ export async function importFound(row: FoundRow, syncthingFiles: boolean | null 
 export function openAddProject(options: AddProjectOptions = {}) {
   if (root) return;
   syncthing = syncthingImportChoice();
+  void syncthing.anywhere();
   opts = options;
   found = null;
   hosts = null;

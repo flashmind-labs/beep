@@ -48,7 +48,9 @@ export function openAddToMachine(o: AddToMachine) {
   };
 
   /// Beep takes a folder Syncthing keeps out of its share; the picker says so before it does.
-  const noteFor = async (offer: FolderOffer) => {
+  const noteFor = async (_: unknown, offer: FolderOffer | null) => {
+    if (!offer) return null;
+
     const files = await invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine.id, folder: offer.path });
     if (!files.available || !files.enabled) return null;
     const share = files.label ? `Syncthing's "${files.label}" folder` : "a Syncthing folder";

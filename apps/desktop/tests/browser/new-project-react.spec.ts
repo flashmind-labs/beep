@@ -109,3 +109,13 @@ test("creation is disabled when no machine is online", async ({ page }) => {
   await expect(sheet.getByText("None of your machines is online.")).toBeVisible();
   await expect(sheet.getByRole("button", { name: "Create", exact: true })).toBeDisabled();
 });
+
+test("Choose… picks a machine's folder in the palette", async ({ page }) => {
+  const folder = { path: "/srv/work", parent: "/srv", exists: true, folders: [], more: 0, empty: true, origin: null, repos: [] };
+  await openDesktop(page, false, { center_home: home, project_forges: [forge], list_machine_folder: folder });
+  const sheet = await add(page);
+  await sheet.getByRole("textbox", { name: "Name" }).fill("project");
+  await sheet.getByRole("button", { name: "Choose…", exact: true }).click();
+  await page.getByRole("option", { name: /Use this folder/ }).click();
+  await expect(sheet.getByRole("combobox", { name: "Folder on Build box" })).toHaveValue("/srv/work");
+});

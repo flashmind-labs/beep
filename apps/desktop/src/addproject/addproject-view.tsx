@@ -1,4 +1,5 @@
 import { Fragment, useLayoutEffect, useState, type RefObject } from "react";
+import { useStore } from "zustand";
 import { SyncthingChoice } from "../project/syncthing-choice.tsx";
 import type { SyncthingImportChoice } from "../project/syncthing.ts";
 import { agentLabel, foundSessions, lookingText, type FoundRow } from "../project/projects-state.ts";
@@ -13,7 +14,7 @@ interface Props {
   search(value: string): void; toggle(name: string): void; toggleAll(): void; importPicked(): void; importOne(row: FoundRow): void; choose(): void; clone(repo?: string): void; create(): void;
 }
 export function AddProjectView(p: Props) {
-  const [browseOpen, setBrowseOpen] = useState(false);
+  const [browseOpen, setBrowseOpen] = useState(false), syncthing = useStore(p.sync.state).available;
   const still = lookingOn(p.looking), any = !!p.found?.length;
   const remote = !!p.hosts?.some(h => h.repos.length), names = p.shown.map(row => row.name);
   const open = names.filter(name => tickable(p.status.get(name))), ready = toImport(names, p.picked, p.status).length;
@@ -31,7 +32,7 @@ export function AddProjectView(p: Props) {
     <div className="ap-bar" hidden={!any}><label><Checkbox checked={checked} mixed={!checked && open.some(name => p.picked.has(name))} disabled={p.batch || !open.length} change={p.toggleAll} />Select all shown</label><span>{p.query.trim() ? `${p.shown.length} of ${p.found?.length ?? 0} shown` : `${p.found?.length ?? 0} found`}</span><Button look="primary" small disabled={!!p.importing || p.batch || !ready} onClick={p.importPicked}>{p.batch ? "Importing…" : `Import ${ready}`}<kbd>⌘↵</kbd></Button></div>
     <div className="am-wait ap-look" hidden={!still || !any}><Spinner />{still}</div><div className="ap-results"><div className="ap-box" ref={p.rowBox}>{p.found === null ? <div className="am-wait"><Spinner />{lookingText(p.machines)}</div> : !any ? (() => { const empty = emptyText(p.looking, p.unread, p.error); return empty ? <div className="am-sub">{empty}</div> : <div className="am-wait"><Spinner />{still}</div>; })() : !p.shown.length ? <div className="am-sub">Nothing found matches “{p.query.trim()}”.</div> : <div className="ap-list">{p.shown.map(row => <FoundRowView key={row.name} row={row} state={p.status.get(row.name)} error={p.failed.get(row.name) ?? null} busy={p.importing ?? (p.batch ? "" : null)} selected={p.picked.has(row.name)} toggle={() => p.toggle(row.name)} onImport={() => p.importOne(row)} />)}</div>}{any && !!p.unread.length && <div className="am-sub">{p.unread.join(" ")}</div>}</div>
     <div className="ap-remote">{!!sections.length && <details open={!!p.query.trim() || browseOpen} onToggle={e => setBrowseOpen(e.currentTarget.open)}><summary>Browse repositories on connected hosts</summary>{sections.map(({ host, repos }) => <Fragment key={host.host}><div className="am-label">On {host.github ? "GitHub" : host.host}</div>{host.error ? <div className="am-sub">{host.error}</div> : <div className="ap-list">{repos.map(repo => <div className="ap-rm" key={repo.url}><span className="n">{repo.name}</span><span className="m">{formatAgo(repo.updated_at, "long")}</span><Button small onClick={() => p.clone(repo.url)}>Clone</Button></div>)}</div>}</Fragment>)}</details>}</div></div>
-    <details className="ap-sync"><summary>Sync options</summary><SyncthingChoice choice={p.sync} /></details></>;
+    {syncthing && <details className="ap-sync"><summary>Sync options</summary><SyncthingChoice choice={p.sync} /></details>}</>;
 }
 /// One way to add a project: its name, and on the desktop a line saying when to pick it.
 function Way({ name, hint, run }: { name: string; hint: string; run(): void }) {

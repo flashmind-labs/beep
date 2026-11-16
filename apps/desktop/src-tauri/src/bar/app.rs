@@ -47,28 +47,18 @@ pub fn settings(app: AppHandle, prefs: State<'_, Prefs>) -> Settings {
     }
 }
 
-/// Asks for the folder saves go to; a cancel keeps the current one.
-#[cfg(desktop)]
+/// Saves go to `folder`, one picked on this computer.
 #[tauri::command]
-pub async fn choose_save_folder(app: AppHandle, prefs: State<'_, Prefs>) -> Result<()> {
-    let start = crate::platform::saves_dir(&app).ok();
-    let picked = crate::projects::import::pick(&app, "Save files to", start).await?;
-
-    if let Some(folder) = picked {
-        let folder = folder
-            .into_path()
-            .map_err(|e| DesktopError::BadRequest(format!("That folder cannot be used: {e}")))?;
-        prefs.set_save_folder(Some(folder));
+pub fn set_save_folder(prefs: State<'_, Prefs>, folder: PathBuf) -> Result<()> {
+    if !folder.is_absolute() || !folder.is_dir() {
+        return Err(DesktopError::BadRequest(format!(
+            "{} is not a folder on this computer.",
+            folder.display()
+        )));
     }
-    Ok(())
-}
 
-#[cfg(mobile)]
-#[tauri::command]
-pub async fn choose_save_folder() -> Result<()> {
-    Err(DesktopError::BadRequest(
-        "On a phone, Share picks where a file goes.".into(),
-    ))
+    prefs.set_save_folder(Some(folder));
+    Ok(())
 }
 
 /// Saves go to Downloads again.

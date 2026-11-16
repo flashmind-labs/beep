@@ -480,6 +480,15 @@ impl Desk {
         }
     }
 
+    /// Whether Syncthing keeps a folder in step on any machine that reported.
+    pub async fn syncthing_in_use(&self) -> bool {
+        self.seen().await.iter().any(|seen| {
+            seen.env
+                .as_ref()
+                .is_some_and(|env| !env.syncthing.is_empty())
+        })
+    }
+
     /// The machines Syncthing keeps a folder of `project` in step on.
     pub async fn syncthing(&self, name: &str) -> Vec<SyncthingPlace> {
         let Some(record) = find_project(&self.mesh, name) else {

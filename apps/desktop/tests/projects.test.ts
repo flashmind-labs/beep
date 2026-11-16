@@ -69,11 +69,8 @@ test("choosing a checkout fills the field; another machine drops the choice", ()
   let s = next(START, { type: "choose", listing: listing() });
   assert.equal(s, START, "Auto has no folder to choose");
   s = next(s, { type: "pick", machine: "a" });
-  s = next(s, { type: "browse", listing: listing() });
-  assert.equal(s.browsing!.path, "/w/code");
   s = next(s, { type: "choose", listing: listing({ origin: "git@github.com:org/app.git" }) });
   assert.equal(s.repo, "org/app");
-  assert.equal(s.browsing, null);
   assert.equal(s.chosen!.path, "/w/code");
   s = next(s, { type: "submit" });
   assert.equal(progressText(s, [{ id: "a", name: "box" }]), "Importing org/app onto box…");
