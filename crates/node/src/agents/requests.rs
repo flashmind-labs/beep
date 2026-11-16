@@ -470,6 +470,21 @@ pub async fn serve_sessions(
                 .await
                 .map_or_else(failed, |present| SessionsReply::Present { present })
         }
+        SessionsRequest::HashFiles { root, mut paths } => {
+            paths.truncate(agent::MAX_HASH_PATHS);
+
+            work_request(&agents, &root, reach::Access::Read, move |real| {
+                let root = work_folder::WorkRoot::at(&real)?;
+                let hashes = work_folder::hashes(&root, &paths);
+                Ok(SessionsReply::Hashes {
+                    hashes: hashes
+                        .into_iter()
+                        .map(|hash| hash.map(serde_bytes::ByteArray::new))
+                        .collect(),
+                })
+            })
+            .await
+        }
         SessionsRequest::StartReview { order } => match agents.start_review(order).await {
             Ok(run) => SessionsReply::Review { run },
             Err(message) => SessionsReply::Error { message },

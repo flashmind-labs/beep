@@ -10,7 +10,7 @@ use crate::{
 };
 use beep_mesh::{Key, Mesh};
 #[cfg(desktop)]
-use beep_node::agents::{local_read, local_tree};
+use beep_node::agents::{local_hashes, local_read, local_tree};
 use beep_proto::{
     AgentFileChunk, ListWorkTree, WorkTree,
     node::mesh_state::{StateValue, SyncSpec},
@@ -32,6 +32,12 @@ fn local_read(
     _len: u32,
 ) -> anyhow::Result<Option<AgentFileChunk>> {
     Ok(None)
+}
+
+/// A phone keeps no project folders, so it has no copy to hash.
+#[cfg(mobile)]
+fn local_hashes(_root: &Path, _paths: &[String]) -> anyhow::Result<Vec<Option<[u8; 32]>>> {
+    anyhow::bail!("a phone keeps no project folders")
 }
 
 /// A phone keeps no project folders, so it has no copy to list.
@@ -387,6 +393,38 @@ pub(crate) async fn tree(fleet: &Fleet, ask: &ListWorkTree) -> Option<WorkTree> 
         }
         Err(e) => {
             log::warn!("listing {root} from the node: {e}");
+            None
+        }
+    }
+}
+
+/// The hashes of `paths` in `root` from the copy here, which reads come
+/// from too; `None` when the node has to give them.
+pub(crate) async fn hashes(
+    fleet: &Fleet,
+    machine_id: &str,
+    root: &str,
+    paths: Vec<String>,
+) -> Option<Vec<Option<[u8; 32]>>> {
+    let copy = copy_of(fleet, machine_id, root).await?;
+    let local = copy.local.join(under(root, &copy.remote)?);
+    let found = spawn_blocking(move || {
+        if !stays_inside(&copy.local, &local) {
+            return Ok(None);
+        }
+
+        local_hashes(&local, &paths).map(Some)
+    })
+    .await;
+
+    match found {
+        Ok(Ok(hashes)) => hashes,
+        Ok(Err(e)) => {
+            log::debug!("hashing in {root} from the node: {e:#}");
+            None
+        }
+        Err(e) => {
+            log::warn!("hashing in {root} from the node: {e}");
             None
         }
     }

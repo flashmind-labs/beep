@@ -98,6 +98,9 @@ struct Page {
     files: AtomicU32,
     /// Bytes of those files read so far.
     bytes: AtomicU64,
+    /// Where in its root each file it asked for is, once each, so the pane
+    /// can tell the page changed when one of them did.
+    loaded: Mutex<Vec<String>>,
 }
 
 /// Where a page was read from, so the files beside it are read there too.
@@ -181,6 +184,7 @@ impl Pages {
             place,
             files: AtomicU32::new(0),
             bytes: AtomicU64::new(0),
+            loaded: Mutex::default(),
         }));
 
         while kept.len() > KEPT_PAGES {
@@ -202,6 +206,30 @@ impl Pages {
         let kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
         kept.iter().find(|page| page.token == token).cloned()
     }
+
+    /// The files the page served at `src` asked for, by their path in its
+    /// root; none for a page no longer kept.
+    fn loaded(&self, src: &str) -> Vec<String> {
+        let token = url::Url::parse(src)
+            .ok()
+            .and_then(|url| url.path_segments()?.next()?.parse::<Uuid>().ok());
+        token
+            .and_then(|token| self.get(token))
+            .map(|page| {
+                page.loaded
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone()
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// The files the HTML page shown at `src` loaded from beside it, by their
+/// path in the root it was read from, for the pane to watch with it.
+#[tauri::command]
+pub fn agent_page_files(pages: State<'_, Pages>, src: String) -> Vec<String> {
+    pages.loaded(&src)
 }
 
 /// How an artifact shows, by its extension.
@@ -442,8 +470,15 @@ pub fn route(pages: &Pages, request: &Request<Vec<u8>>) -> Route {
         return Route::Done(status(StatusCode::TOO_MANY_REQUESTS));
     }
 
+    let file = page.place.file(&rel);
+    let mut loaded = page.loaded.lock().unwrap_or_else(|e| e.into_inner());
+    if !loaded.contains(&file.path) {
+        loaded.push(file.path.clone());
+    }
+    drop(loaded);
+
     Route::Read(FileRead {
-        file: page.place.file(&rel),
+        file,
         mime: mime_of(&rel.0),
         page,
         reads: pages.reads.clone(),

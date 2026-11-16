@@ -113,6 +113,31 @@ pub async fn present<S: Sessions + ?Sized>(
     }
 }
 
+/// The BLAKE3 hash of each of `paths` inside the session folder `root` on
+/// the node, in order, `None` for one it does not have; `None` in all from a
+/// node from before the question, or one that refused it.
+pub async fn hashes<S: Sessions + ?Sized>(
+    node: &S,
+    root: &str,
+    paths: Vec<String>,
+) -> Result<Option<Vec<Option<[u8; 32]>>>, MeshError> {
+    let request = SessionsRequest::HashFiles {
+        root: root.to_owned(),
+        paths,
+    };
+
+    match once(node, request).await? {
+        SessionsReply::Hashes { hashes } => Ok(Some(
+            hashes
+                .into_iter()
+                .map(|hash| hash.map(serde_bytes::ByteArray::into_array))
+                .collect(),
+        )),
+        SessionsReply::Error { .. } => Ok(None),
+        other => Err(unexpected(&other)),
+    }
+}
+
 /// The folder `path` inside the session folder `root` on the node.
 pub async fn folder<S: Sessions + ?Sized>(
     node: &S,

@@ -137,6 +137,24 @@ async fn a_relative_image_is_read_from_beside_the_page() {
     );
 }
 
+#[tokio::test]
+async fn a_page_lists_the_files_it_loaded_once_each() {
+    let pages = Pages::default();
+    let src = pages.keep(b"<img src=\"chart.png\">".to_vec(), place(), String::new());
+    assert!(pages.loaded(&src).is_empty());
+    fetch(&pages, &format!("{src}chart.png")).await;
+    fetch(&pages, &format!("{src}chart.png")).await;
+    fetch(&pages, &format!("{src}css/site.css")).await;
+    assert_eq!(
+        pages.loaded(&src),
+        [
+            "/srv/project/reports/chart.png",
+            "/srv/project/reports/css/site.css"
+        ]
+    );
+    assert!(pages.loaded("beepview://localhost/not-a-token/").is_empty());
+}
+
 #[test]
 fn a_path_out_of_the_folder_is_refused() {
     let pages = Pages::default();

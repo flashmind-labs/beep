@@ -1,6 +1,7 @@
 //! A session's working folder for the apps' Files tab (`WorkRoot`): `list`,
-//! `tree`, `read` a part at a time and `write` dropped files. The Mac app
-//! reads a synced project's copy through `local_tree` and `local_read`.
+//! `tree`, `read` a part at a time, `hashes` of files on show and `write`
+//! dropped files. The Mac app reads a synced project's copy through
+//! `local_tree`, `local_read` and `local_hashes`.
 
 mod actions;
 pub(super) use actions::edit;
@@ -19,6 +20,8 @@ use std::{
     io::{ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
     process::Stdio,
+    sync::{LazyLock, Mutex},
+    time::SystemTime,
 };
 
 /// What a file being written is called until its last part is in, beside
@@ -422,6 +425,84 @@ pub(super) fn read(root: &WorkRoot, path: &str, offset: u64, len: u32) -> Result
         mime: media_mime(path).unwrap_or("application/octet-stream"),
         data,
     }))
+}
+
+/// The BLAKE3 hash of each of `paths` inside `root`, found as `read` finds
+/// them, in order: `None` for one that is not there or is not a file. A file
+/// whose size and modification time are as they were is not read again.
+/// Blocks on the file system.
+pub(super) fn hashes(root: &WorkRoot, paths: &[String]) -> Vec<Option<[u8; 32]>> {
+    paths
+        .iter()
+        .map(|path| match hash(root, path) {
+            Ok(hash) => hash,
+            Err(e) => {
+                log::debug!("could not hash {path}: {e:#}");
+                None
+            }
+        })
+        .collect()
+}
+
+/// The hashes of `paths` inside the folder `root` on this machine, as
+/// `hashes` gives them. Blocks on the file system.
+pub fn local_hashes(root: &Path, paths: &[String]) -> Result<Vec<Option<[u8; 32]>>> {
+    Ok(hashes(&local_root(root)?, paths))
+}
+
+/// Files hashed lately, by their full path, with the size and time they had.
+static HASHED: LazyLock<Mutex<HashMap<PathBuf, Hashed>>> = LazyLock::new(Mutex::default);
+/// How many files `HASHED` keeps before it starts again.
+const MAX_HASHED: usize = 256;
+
+#[derive(Clone, Copy, PartialEq)]
+struct Hashed {
+    size: u64,
+    modified: SystemTime,
+    hash: [u8; 32],
+}
+
+fn hash(root: &WorkRoot, path: &str) -> Result<Option<[u8; 32]>> {
+    let Some(full) = root.find(&names(path)?)? else {
+        return Ok(None);
+    };
+    let mut file = crate::files::fsat::open_read(&full)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Ok(None);
+    }
+
+    let (size, modified) = (meta.len(), meta.modified().ok());
+    let kept = crate::lock(&HASHED).get(&full).copied();
+
+    if let (Some(kept), Some(modified)) = (kept, modified)
+        && kept.size == size
+        && kept.modified == modified
+    {
+        return Ok(Some(kept.hash));
+    }
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update_reader(&mut file)?;
+    let hash = *hasher.finalize().as_bytes();
+
+    // A file whose time cannot be read is hashed each time.
+    if let Some(modified) = modified {
+        let mut held = crate::lock(&HASHED);
+        if held.len() >= MAX_HASHED {
+            held.clear();
+        }
+        held.insert(
+            full,
+            Hashed {
+                size,
+                modified,
+                hash,
+            },
+        );
+    }
+
+    Ok(Some(hash))
 }
 
 /// The folder `path` inside the folder `root` on this machine and those

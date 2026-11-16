@@ -346,7 +346,18 @@ pub enum SessionsRequest {
         limit: u32,
         before: Option<HistoryCursor>,
     },
+    /// The BLAKE3 hash of each of `paths` (at most `MAX_HASH_PATHS`) inside
+    /// `root`, read as `ReadFile` reads them, so a viewer can tell a file it
+    /// shows changed. Answered with `Hashes`; a node from before it answers
+    /// `Error`.
+    HashFiles {
+        root: String,
+        paths: Vec<String>,
+    },
 }
+
+/// The most paths one `HashFiles` asks about.
+pub const MAX_HASH_PATHS: usize = 64;
 
 /// A position in history: newest activity first, then agent and id ascending.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -517,6 +528,7 @@ impl SessionsRequest {
             | Self::MoveCheck { .. }
             | Self::Copies {}
             | Self::Present { .. }
+            | Self::HashFiles { .. }
             | Self::Review { .. }
             | Self::Reviews { .. }
             | Self::Processes { .. }
@@ -723,6 +735,11 @@ pub enum SessionsReply {
     /// The answer to `InFoldersPage`.
     SessionPage {
         page: SessionPage,
+    },
+    /// The answer to `HashFiles`: one per path asked, in order, `None` for
+    /// one that is not there or cannot be read.
+    Hashes {
+        hashes: Vec<Option<serde_bytes::ByteArray<32>>>,
     },
 }
 

@@ -11,6 +11,7 @@ import { openPath, paneSession } from "./media.ts";
 import { writeClipboard } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
+import { followFiles } from "./reload.ts";
 
 /// An artifact made ready to show, as `agent_artifact` gives it.
 type Shown =
@@ -152,6 +153,21 @@ export function pickArtifact(path: string) {
   return true;
 }
 
+/// The picked artifact while the tab is drawn for the pane's session,
+/// whether it can be seen and the URL its page shows at, for live reload
+/// to follow it.
+export function followedArtifact() {
+  const s = paneSession(), a = picked();
+  if (!s || !A.made || A.key !== `${s.machine_id}\n${s.cwd}` || !a || A.gone.has(a.path)) return null;
+  return { artifact: a, shown: isLive(), src: preview?.value.kind === "html" ? preview.value.src : null };
+}
+
+/// Reads the picked artifact again after its file changed, keeping what shows until then.
+export function reloadArtifact() {
+  const a = picked();
+  if (a) load(a);
+}
+
 function picked() {
   return A.list.find(a => a.path === A.picked) ?? null;
 }
@@ -161,6 +177,7 @@ function pick(path: string) {
   render();
   const a = picked();
   if (a) load(a);
+  followFiles();
 }
 
 /// When `a`'s newest version came: when this window saw it written, else
