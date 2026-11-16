@@ -15,12 +15,13 @@ import { Row, RunningStatus } from "../project/split-view.tsx";
 import { Button, EndedFold } from "../ui/kit.tsx";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { formatAgo } from "../ui/format.ts";
+import { isMobile } from "../ui/platform.ts";
 import { CHATS, WidthGrip } from "../ui/width-grip.tsx";
 
 /// What the Assistant page opens on: its chats (the phone shows only the list), or a new chat.
 export type AssistantOpen = "chats" | "new";
 
-/// Where the page's own Back and a chat's Back go.
+/// Where a chat's Back goes, and the page's own on the phone.
 export const ASSISTANT_CHATS: Location = { view: "pane", arg: { assistant: "chats" } };
 
 /// The open chat's key, which its row shows as the current item.
@@ -31,10 +32,11 @@ let listing = false;
 /// The row the pane last opened a chat with, which may not be listed yet.
 let lastRow: AgentRow | null = null;
 
-/// Shows the Assistant page with the assistant's start composer.
+/// Shows the Assistant page with the assistant's start composer. Its Back goes to the list
+/// on the phone, where the composer covers it, and Home on the desktop, which shows both.
 export function openAssistantPage(open: AssistantOpen) {
   listing = open === "chats";
-  renderAgentNew("", ASSISTANT_CHATS, null, true);
+  renderAgentNew("", isMobile() ? ASSISTANT_CHATS : { view: "home", arg: null }, null, true);
   syncAssistantPage();
 }
 
