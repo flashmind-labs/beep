@@ -7,6 +7,75 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.19] - 2026-11-16
+
+### Added
+
+- Desktop: The Assistant page's chats list can be resized by dragging its
+  right edge or with the arrow keys on it. A double-click resets it, and the
+  width is kept.
+- Desktop: Shift+Tab in the assistant's composer, and in the new agent form,
+  moves to the next machine.
+- Desktop: when a newer beep-node release is out and online machines run
+  an older one, the desktop shows a notification naming those machines.
+  It appears once per release each time the app starts.
+- Desktop (macOS): the notification has an Update button that updates
+  every machine behind the new release. Each machine restarts once its
+  agent sessions are idle. Clicking the notification opens Machines in
+  Settings.
+- Desktop: the main window and project windows reopen where you left
+  them, at the same position and size, and come back maximized if they
+  were maximized. A window last seen on a screen that is no longer
+  attached opens in the default place instead.
+- Desktop: a middle mouse click on a closable tab in the right panel
+  (files, terminals, previews) closes it.
+
+### Changed
+
+- Desktop: on a project's pull request page, Review with agent opens the
+  harness and model picker under the button, as the diff's review button
+  does. Pick a model and the reviewer session starts and opens right away.
+  While the review runs, the button reads Reviewing with a spinner.
+- Desktop: on an issue's page, Work on it opens the same picker. Pick a
+  model and a session starts on a new branch for the issue and opens.
+  Right-clicking a pull request or issue row still fills the project's
+  prompt bar, so you can edit the prompt first.
+- Desktop: a new agent session in an empty project, and the Start a
+  coding agent page, now show the project name and the machine picker
+  right under the headline, above the task field. The machine picker
+  moved up from the row under the field. It still shows an online dot
+  and opens the machine menu. Before, the project and machine were only
+  small text at the top left.
+- Desktop: starting a conversation from a project's empty agent view
+  shows your message as the first message at once, with a line saying
+  the agent is starting on its machine. If the start fails, the input
+  comes back with what you typed and the reason.
+- Desktop: a conversation started from the project bar, Home, the
+  assistant, Review with agent or Work on it opens with your message
+  already in it, not an empty log until the machine answers.
+- Desktop: on Home, each project's board lane shows two whole cards
+  with one-line titles. Scrolling moves one card at a time, and at the
+  first or last card the next few scroll steps are held so the page does
+  not scroll by mistake.
+- Desktop: messages that Claude Code sessions send each other with Claude
+  Code's own messaging, and messages from Claude Code's agents, show in
+  the chat as the same small "message from session" card as Beep's own.
+
+### Fixed
+
+- Desktop: terminals now use the colours of the picked skin: background,
+  text, cursor, selection and the main ANSI colours. With a light skin the
+  terminal is light too instead of staying dark, and open terminals change
+  at once when the skin changes.
+- Desktop: A chat started from Home's composer or the Assistant page opens on
+  the Assistant page beside its chats instead of the plain session view.
+- Desktop: a waiting message from another session shows in the composer
+  queue with the sender's name and its words, instead of a "Steer" row
+  with the raw tag.
+- Desktop: a project's machine card showed two Fix with an agent buttons for
+  the same Git sync failure, one by the sync status and one by the Git
+  controls. The card now shows one.
+
 ## [0.9.18] - 2026-11-16
 
 ### Added
