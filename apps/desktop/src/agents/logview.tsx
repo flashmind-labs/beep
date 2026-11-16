@@ -1,4 +1,4 @@
-import { promptAttachments } from "./promptparts-state.ts";
+import { attachmentPictures, promptAttachments } from "./promptparts-state.ts";
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
 import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkImagePaths, markWarnings, mediaPaths, parseTool, sentFiles, subagent, tailLines } from "./agentlog.ts";
@@ -259,7 +259,7 @@ function toolData(en: AgentEntry, at: number, pictures: string): ToolActivity | 
 /// its call showed.
 export function toolRows(en: AgentEntry, at: number): ActivityRow[] {
   const { text, names } = imageLines(en.text);
-  const pictures = names.map(entryPic).join("");
+  const pictures = names.map(n => entryPic(n)).join("");
   const tool = toolData({ ...en, text }, at, pictures);
   if (tool) return [tool];
   return [subActivity([at]), ...(pictures ? [{ kind: "pictures" as const, id: `sub:${at}`, at: null, folded: false, pictures }] : [])];
@@ -421,10 +421,10 @@ function subagentsShown(p: AgentPage) {
 /// An image a user entry carried: the one sent from here, the one read
 /// from the session's machine by its key (an empty tile while it loads),
 /// or its name when neither can be.
-function entryPic(n: string) {
+function entryPic(n: string, original: string | null = null) {
   const key = /^image-([0-9a-f]{16})$/.exec(n)?.[1];
   const sent = (AG.open && agentPics.get(`${AG.open.session}\n${n}`)) || undefined;
-  return picTile(n, sent, key ? agentThumbs.get(key) : undefined);
+  return picTile(n, sent, key ? agentThumbs.get(key) : undefined, original);
 }
 
 /// The thought still arriving, by its place, which shows "Thinking"; set
@@ -483,7 +483,9 @@ function userRows(en: AgentEntry, at: number): (PromptRow | ContextRow)[] {
   // A message just sent has no HTML until the next read: its text shows meanwhile.
   const html = en.html ?? (words ? words.split(/\n\s*\n/).map(part => `<p>${esc(part).replace(/\n/g, "<br>")}</p>`).join("") : "");
   const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
-  const prompt: PromptRow = { sentAt: en.sent_at ?? null, kind: "prompt", row: String(at), ...promptAttachments(said, names.length > 0), pictures: names.map(entryPic).join("") };
+  const attachments = promptAttachments(said);
+  const originals = attachmentPictures(attachments.files, names.length);
+  const prompt: PromptRow = { sentAt: en.sent_at ?? null, kind: "prompt", row: String(at), html: attachments.html, files: attachments.files.filter(path => !originals.includes(path)), pictures: names.map((name, i) => entryPic(name, originals[i] ?? null)).join("") };
   return [...others, prompt];
 }
 
@@ -579,7 +581,7 @@ function rowsOf(p: AgentPage, ats: number[]) {
 
 function agentReply(en: AgentEntry, at: number): (ReplyRow | BlockedRow)[] {
   const { text, names } = imageLines(en.text);
-  const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
+  const pics = names.length ? `<span class="pics">${names.map(n => entryPic(n)).join("")}</span>` : "";
   const linked = (html: string) => markWarnings(linkCodeFiles(linkImagePaths(html).html));
   const html = en.html ?? esc(text);
   const block = blockedReply(text, html);
@@ -707,7 +709,7 @@ function turnUnits(p: AgentPage, news: boolean): Unit[] {
         const stats = progressSummary(p.entries, group, p.earlier);
         const head = turnHeading({ state: "working", start: null, ms: null, stats, turn: key, opened });
         const seen = opened ? [] : folding.flatMap(at => imageLines(entry(at).text).names);
-        const pictures = seen.map(entryPic).join("");
+        const pictures = seen.map(n => entryPic(n)).join("");
         const pics: ActivityRow | null = seen.length ? { kind: "pictures", id: String(folding[0]), at: folding[0], folded: true, pictures } : null;
         const shownRows = rowsOf(p, opened ? section.ats : section.ats.filter(at => kept.has(at)));
         const collapse: ActivityRow | null = opened ? { kind: "note", id: `collapse:${key}`, at: key, value: { kind: "collapse" } } : null;

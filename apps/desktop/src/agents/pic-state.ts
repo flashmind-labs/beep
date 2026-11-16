@@ -14,9 +14,9 @@ export const gonePic = (label: string, message = label) => `<span class="pic non
 /// The tile of a picture read by key has no `src` whether or not it is here
 /// yet (`fillAgentPics` sets it), so the html a log row is drawn from stays
 /// the same as it loads and the row is not drawn again.
-export function picTile(n: string, sent: string | undefined, thumb: PicRead) {
+export function picTile(n: string, sent: string | undefined, thumb: PicRead, original: string | null = null) {
   const key = /^image-([0-9a-f]{16})$/.exec(n)?.[1], label = key ? "Image" : n;
-  const named = `${key ? ` data-key="${key}"` : ""} data-name="${esc(n)}" alt="${esc(label)}" title="${esc(label)}"`;
+  const named = `${original ? ` data-original="${esc(original)}"` : ""}${key ? ` data-key="${key}"` : ""} data-name="${esc(n)}" alt="${esc(label)}" title="${esc(label)}"`;
   if (sent) return `<img class="pic" src="${esc(sent)}"${named}>`;
   if (key && thumb !== null) return `<img class="pic"${named}>`;
   return gonePic(label);
