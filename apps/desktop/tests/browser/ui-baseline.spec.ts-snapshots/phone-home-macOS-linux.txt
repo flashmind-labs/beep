@@ -125,17 +125,8 @@ body.cbody.mb-home.mobile
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
-          div.home-sort
-            button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects Default" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
-              svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-              span "Default"
-              svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
-          div#sec-needs
+          div#sec-running
             div.bd-lanes
-              div.bd-lane
-                h4 "Needs you"
-                  span
-                div.bd-lane.cell
               div.bd-lane
                 h4
                   button [type="button"] "Working"
@@ -147,9 +138,11 @@ body.cbody.mb-home.mobile
                       span.cc-ag.codex.mark
                         svg [aria-hidden="true" viewBox="0 0 24 24"]
                       span "example/widget · build-box"
+                        span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                     span.ft
-                      span.cc-running "now"
+                      span.cc-running
                         span.drun [aria-label="Working" role="img"]
+                        span.doing "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
                       span.sp
               div.bd-lane
                 h4 "Ready to review"
@@ -161,8 +154,10 @@ body.cbody.mb-home.mobile
                       span.cc-ag.codex.mark
                         svg [aria-hidden="true" viewBox="0 0 24 24"]
                       span "example/gadget · build-box"
+                        span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                     span.ft "10m ago"
                       span.sp
+                      button.bd-close.dbtn.quiet.small [type="button"] "Close"
               div.bd-lane.log
                 h4
                   button [type="button"] "Done today"

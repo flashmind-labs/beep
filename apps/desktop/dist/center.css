@@ -1052,18 +1052,9 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .bd-pick { display: inline-flex; align-items: center; gap: 3px }
 .bd-pick svg { width: 12px; height: 12px }
 /* Home: a row for each project under the lanes' titles, named above its cards. */
-.bd-rows { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 12px; align-items: start }
-.bd-rows > * { min-width: 0 }
-.bd-rows > .hd { padding: 0 0 8px }
-.bd-rows > .pj { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px 0 8px; border-top: 1px solid var(--border); font-weight: 600; font-size: 13px; line-height: 18px }
-.bd-rows > .pj > :last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.bd-rows > .pj button { all: unset; cursor: default }
-.bd-rows > .pj button:hover, .bd-rows > .pj button:focus-visible { text-decoration: underline }
 /* A cell shows whole cards and scrolls to the rest one card at a time (itemScroll): two on Home, a
    title line each, and as many as the page has room for in a project. The view sets its height from the cards. */
 .bd-lane.cell { overflow-y: auto; scrollbar-width: none }
-.bd-rows > .bd-lane.cell { max-height: 196px }
-.bd-rows > .bd-lane.cell > .bd-card > b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .bd-lane.cell::-webkit-scrollbar { display: none }
 
 @container (max-width: 760px) {

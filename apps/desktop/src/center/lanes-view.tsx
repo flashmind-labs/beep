@@ -1,8 +1,7 @@
-// The board: Needs you, Working, Ready to review and Done today. Home shows
-// every project's cards, a row for each project, and a project page its own,
-// with the sessions that ended as a list.
+// The board: Needs you, Working, Ready to review and Done today, with the
+// sessions that ended as a list. Home leaves Needs you to its queue.
 import type { ProjectWindowProps } from "../project/projectwindow.ts";
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Icon } from "../ui/icons.tsx";
 import { AgentButton, type AgentButtonItem } from "../review/feedback-view.tsx";
@@ -10,14 +9,17 @@ import { Button, LineRow, onRowKey } from "../ui/kit.tsx";
 import { openMenu, type MenuAction } from "../ui/menu.tsx";
 import { heroCard, motionAllowed, movePlaying, setHeroCard, withMove } from "../ui/motion.ts";
 import { isMobile } from "../ui/platform.ts";
-import { LANES, byLane, byProject, travelled, withoutProject, type Lane } from "./lanes-state.ts";
+import type { AgentQuestion } from "../agents/running-state.ts";
+import { LANES, byLane, travelled, type Lane } from "./lanes-state.ts";
 
 export interface BoardCard {
   windowProps?: ProjectWindowProps;
   key: string;
   lane: Lane;
-  /// The project whose row holds it on Home; null for a card of no project.
+  /// The project it belongs to; null for a card of no project.
   project: string | null;
+  /// Its project's colour, shown as a dot before the muted line; null shows none.
+  color: string | null;
   lead: ReactNode;
   title: string;
   sub: ReactNode;
@@ -32,12 +34,15 @@ export interface BoardCard {
   menu: ((event: MouseEvent) => void) | null;
 }
 
-/// What a card's button does: one thing, a menu of them, or an agent
-/// button whose model pick starts a session.
+/// What a card's button does: one thing, a menu of them, an agent button
+/// whose model pick starts a session, the answers to an agent's question, or
+/// closing the session.
 type CardAction =
   | { kind: "run"; label: string; primary: boolean; run(): void; windowProps?: ProjectWindowProps }
   | { kind: "menu"; label: string; items: readonly MenuAction[] }
-  | { kind: "agent"; item: AgentButtonItem };
+  | { kind: "agent"; item: AgentButtonItem }
+  | { kind: "answer"; question: AgentQuestion; answer(reply: string): Promise<void> }
+  | { kind: "close"; run(): void };
 
 function ActionButton({ action, title }: { action: CardAction; title: string }) {
   switch (action.kind) {
@@ -45,25 +50,47 @@ function ActionButton({ action, title }: { action: CardAction; title: string }) 
     // Clicks in its picker stay off the card.
     case "agent": return <span style={{ display: "contents" }} onClick={event => event.stopPropagation()}><AgentButton item={action.item} /></span>;
     case "run": return <Button {...action.windowProps?.clicks} {...action.windowProps?.menu} look={action.primary ? "primary" : "secondary"} small onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</Button>;
+    case "answer": return <Answers question={action.question} answer={action.answer}/>;
+    case "close": return <Button look="quiet" small className="bd-close" onClick={event => { event.stopPropagation(); action.run(); }}>Close</Button>;
   }
 }
 
-/// Home's rows, a project each: its dot's color, and what its name opens; null when it has neither.
-export type ProjectRows = (project: string) => { color: string | null; open: (() => void) | null; windowProps?: ProjectWindowProps };
+/// A question's options as buttons: the first that allows is the primary one,
+/// and those that deny are marked. They stay disabled while the answer is on
+/// its way, and come back if it fails.
+function Answers({ question, answer }: { question: AgentQuestion; answer(reply: string): Promise<void> }) {
+  const [sending, setSending] = useState(false);
+  const allow = question.options.findIndex(option => option.allow);
+
+  const pick = (reply: string) => {
+    setSending(true);
+    answer(reply).catch(error => {
+      console.warn("answer:", error);
+      setSending(false);
+    });
+  };
+
+  return <span className="bd-answers">{question.options.map((option, index) => <Button key={option.id} small disabled={sending} look={index === allow ? "primary" : "secondary"} danger={!option.allow}
+    onClick={event => { event.stopPropagation(); pick(option.id); }}>{option.name}</Button>)}</span>;
+}
+
+/// The card's muted line, after its project's dot when it has a colour.
+function sub(card: BoardCard) {
+  return card.color === null ? card.sub : <><span className="cc-pdot" style={{ background: card.color }}/>{card.sub}</>;
+}
 
 /// A card as a row of a list section. A session's row opens with the page move.
 export function CardRow({ card }: { card: BoardCard }) {
   const action = card.action;
   const open = card.session ? () => { setHeroCard(null); withMove("open", card.open); } : card.open;
-  return <LineRow events={{ ...card.windowProps?.clicks, ...card.windowProps?.menu }} lead={card.lead} title={card.title} sub={card.sub} dim={card.dim} rowTitle={card.hint ?? undefined} onOpen={open} onContext={card.menu ?? undefined}
+  return <LineRow events={{ ...card.windowProps?.clicks, ...card.windowProps?.menu }} lead={card.lead} title={card.title} sub={sub(card)} dim={card.dim} rowTitle={card.hint ?? undefined} onOpen={open} onContext={card.menu ?? undefined}
     right={action ? <ActionButton action={action} title={card.title}/> : card.foot}/>;
 }
 
-/// `more` makes a lane's title open the full list behind it. `rows` gives
-/// each project a row of its own under the lanes' titles. Without rows, ended
-/// sessions are a short list, and `beside` fills the room beside the lanes in
-/// a wide window. Lanes stay put; only the cards move.
-export function Board({ cards, more, rows, recency = null, beside = null }: { recency?: ReadonlyMap<string, number> | null; cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; rows: ProjectRows | null; beside?: ReactNode }) {
+/// `more` makes a lane's title open the full list behind it, and `lanes`
+/// picks the lanes drawn. Ended sessions are a short list, and `beside` fills
+/// the room beside the lanes in a wide window. Lanes stay put; only the cards move.
+export function Board({ cards, more, lanes: drawn = LANES, beside = null }: { cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; lanes?: typeof LANES; beside?: ReactNode }) {
   const lanes = byLane(cards);
   const box = useTravel(cards);
   const [, redraw] = useState(0);
@@ -78,17 +105,7 @@ export function Board({ cards, more, rows, recency = null, beside = null }: { re
 
   const heading = (lane: Lane, title: string) => <h4>{more[lane] ? <button type="button" onClick={more[lane]}>{title}</button> : title}<span>{lanes[lane].length || ""}</span></h4>;
 
-  if (rows) {
-    return <div className="bd-rows" ref={box}>
-      {LANES.map(({ lane, title }) => <div className="bd-lane hd" key={lane}>{heading(lane, title)}</div>)}
-      {byProject(cards, recency).map(row => { const own = byLane(row.cards), name = row.project ?? "Other", head = row.project === null ? { color: null, open: null, windowProps: null } : rows(row.project); return <Fragment key={row.project ?? ""}>
-        <h3 className="pj" title={name}>{head.color && <span className="cc-pdot" style={{ background: head.color }}/>}{head.open ? <Button look="plain" {...head.windowProps?.clicks} {...head.windowProps?.menu} onClick={head.open}>{name}</Button> : <span>{name}</span>}</h3>
-        {LANES.map(({ lane }) => <Cell key={lane} shown="two">{own[lane].map(card => <Card key={card.key} card={typeof card.sub === "string" ? { ...card, sub: withoutProject(card.sub, row.project) } : card} open={() => open(card)}/>)}</Cell>)}
-      </Fragment>; })}
-    </div>;
-  }
-
-  return <div className="bd-lanes" ref={box}>{LANES.map(({ lane, title }) => lane === "done"
+  return <div className="bd-lanes" ref={box}>{drawn.map(({ lane, title }) => lane === "done"
     ? <div className="bd-lane log" key={lane}>
       {heading(lane, title)}
       <div className="bd-log">{lanes.done.slice(0, DONE_SHOWN).map(card => <CardRow key={card.key} card={{ ...card, sub: "" }}/>)}</div>
@@ -96,7 +113,7 @@ export function Board({ cards, more, rows, recency = null, beside = null }: { re
     </div>
     : <div className={lanes[lane].length > CROWDED_FROM ? "bd-lane many" : "bd-lane"} key={lane}>
       {heading(lane, title)}
-      <Cell shown="page">{lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}</Cell>
+      <Cell>{lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}</Cell>
     </div>)}{beside !== null && <div className="bd-art">{beside}</div>}</div>;
 }
 
@@ -113,37 +130,33 @@ function Card({ card, open }: { card: BoardCard; open(): void }) {
   return <div {...card.windowProps?.clicks} {...card.windowProps?.menu} className="bd-card" data-card={card.key} role="button" tabIndex={0} title={card.hint ?? undefined} style={style}
     onClick={open} onKeyDown={onRowKey(open)} onContextMenu={card.menu ? event => card.menu?.(event.nativeEvent) : card.windowProps?.menu.onContextMenu}>
     <b>{card.title}</b>
-    <span className="sub">{card.lead}<span>{card.sub}</span></span>
+    <span className="sub">{card.lead}<span>{sub(card)}</span></span>
     {(card.foot || action) && <span className="ft">{card.foot}<span className="sp"/>
       {action && <ActionButton action={action} title={card.title}/>}
     </span>}
   </div>;
 }
 
-/// How many whole cards a lane's cell shows: two in a project's row on Home,
-/// or as many as fit above the bottom of a project's page.
-type Shown = "two" | "page";
-
 /// A lane's cards, which scroll a card at a time, as every list of cards does
 /// (`itemScroll`).
-function Cell({ shown, children }: { shown: Shown; children: ReactNode }) {
+function Cell({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState<number | null>(null);
 
   // The cell is as tall as its shown cards, so none shows cut at the bottom. It measures
   // when its cards change, not on its own update: its height feeds back into the
   // measure, and measuring after every render could loop until React gives up.
-  useLayoutEffect(() => { if (ref.current) setFit(shownHeight(ref.current, shown)); }, [shown, children]);
+  useLayoutEffect(() => { if (ref.current) setFit(shownHeight(ref.current)); }, [children]);
 
   // A cell that fills the page fits again when the page changes size.
   useEffect(() => {
-    const cell = ref.current, page = cell && shown === "page" ? pageOf(cell) : null;
+    const cell = ref.current, page = cell ? pageOf(cell) : null;
     if (!cell || !page) return;
-    const observer = new ResizeObserver(() => setFit(shownHeight(cell, shown)));
+    const observer = new ResizeObserver(() => setFit(shownHeight(cell)));
 
     observer.observe(page);
     return () => observer.disconnect();
-  }, [shown]);
+  }, []);
 
   return <div className="bd-lane cell" ref={ref} style={fit === null ? undefined : { maxHeight: fit }}>{children}</div>;
 }
@@ -152,10 +165,10 @@ function Cell({ shown, children }: { shown: Shown; children: ReactNode }) {
 const SHOWN = 2;
 
 /// The height of the shown cards and the gaps between them, or null when the cell holds no more.
-function shownHeight(cell: HTMLElement, shown: Shown) {
+function shownHeight(cell: HTMLElement) {
   const cards = [...cell.children].flatMap(card => card instanceof HTMLElement ? [card.offsetHeight] : []);
   const gap = Number.parseFloat(getComputedStyle(cell).rowGap) || 0, tallest = Math.max(...cards);
-  const count = shown === "page" ? pageFits(cell, tallest + gap) : SHOWN;
+  const count = pageFits(cell, tallest + gap);
   if (count === null || cards.length <= count) return null;
 
   return count * tallest + (count - 1) * gap;

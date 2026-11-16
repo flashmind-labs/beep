@@ -144,7 +144,7 @@ test("route changes and history preserve retained scroll", async ({ page }, info
     Object.defineProperty(window, "scrollTo", { configurable: true, value: (...args: unknown[]) => { (window as any).__routeScrolls++; return Reflect.apply(original, window, args); } });
   });
   const home = page.locator("#view");
-  const top = await home.evaluate(element => { const panel = element.querySelector<HTMLElement>("#sec-needs"); if (panel) panel.style.minHeight = "2000px"; element.scrollTop = 300; return element.scrollTop; });
+  const top = await home.evaluate(element => { const panel = element.querySelector<HTMLElement>("#sec-running"); if (panel) panel.style.minHeight = "2000px"; element.scrollTop = 300; return element.scrollTop; });
   expect(top).toBeGreaterThan(0);
   await openProject(page);
   await expect.poll(() => page.evaluate(() => (window as any).__TSR_ROUTER__?.state.resolvedLocation?.pathname)).toBe("/projects");

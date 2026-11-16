@@ -18,7 +18,7 @@ import { onPlaces } from "../agents/place.ts";
 import { ensureSessions, sessionsChanged, sessionsRead } from "../agents/sessions.ts";
 import type { SessionRow } from "../project/projects-state.ts";
 import { ambient } from "../ui/active.ts";
-import { frontLayout, layoutChanged } from "../ui/skin.ts";
+import { layoutChanged } from "../ui/skin.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { onClosing } from "../agents/closing.ts";
 import { placeWindowParts } from "./window-root.tsx";
@@ -35,6 +35,16 @@ import { HomeMachines } from "../machines/home-machines-view.tsx";
 export function openAsking(n: NeedsYou) {
   const r = state.home?.running?.find(r => r.machine_id === n.machine_id && r.id === n.session);
   go("pane", { agent: r || { kind: "agent", machine_id: n.machine_id, machine_name: n.machine_name, id: n.session, agent: n.agent, title: n.title, cwd: "", status: "asking", external: false } });
+}
+
+/// Answers an agent's question from Home. A conflict means another device
+/// answered it first, which is fine; any other failure is the caller's.
+export async function answerNeed(n: NeedsYou, reply: string) {
+  try {
+    await invoke("center_answer_agent", { machineId: n.machine_id, agent: n.agent, session: n.session, question: n.question.id, reply });
+  } catch (e) {
+    if (!/^conflict/i.test(String(e))) throw e;
+  }
 }
 
 // ---------- Home ----------
@@ -65,7 +75,7 @@ function page(home: HomeView) {
   const { machines, running } = home;
   const projects = projectRows() || [], git = state.git;
   const tabs: { key: HomeTab; label: string; count: number | null; on: boolean }[] = [
-    { key: "overview", label: frontLayout("home") === "list" ? "Overview" : "Board", count: null, on: true },
+    { key: "overview", label: "Board", count: null, on: true },
     { key: "git", label: "PRs and issues", count: git?.items.length ?? 0, on: !!git?.hosts?.length || projects.length > 0 || !!state.gitError },
     { key: "machines", label: "Machines", count: null, on: !!machines },
   ];

@@ -39,9 +39,8 @@ for (const active of [false, true]) {
   });
 }
 
-test("Home project headings and session breadcrumbs keep their current page", async ({ page }) => {
+test("session breadcrumbs keep their current page", async ({ page }) => {
   await openDesktop(page);
-  await gestures(page, page.locator(".bd-rows > .pj").getByRole("button", { name: projectName, exact: true }));
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await gestures(page, page.locator("#agproj"));
 });
@@ -96,7 +95,8 @@ test("the project window back button reuses the project window", async ({ page }
 test("conflict cards and their Resolve buttons support window gestures", async ({ page }) => {
   const machine = { machine_id: "build-box", machine_name: "Build box", folder: "/srv/project", status: "in_sync", files: 18, bytes: 0, pending: 0, conflicts: ["notes (conflict 12345678).txt"], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, can_start_over: false, git_only: false };
   await openDesktop(page, false, { project_sync: [{ project: projectName, machine_id: machine.machine_id, status: "in_sync", files: 18, pending: 0, error: null }], project_sync_detail: { project: projectName, pinned: false, paused: false, machines: [machine] } });
-  const card = page.locator(".bd-card:visible").filter({ hasText: machine.conflicts[0] });
+  // A row of Home's queue, then a card on the project's board.
+  const card = page.locator(":is(#sec-needs .cc-row, .bd-card):visible").filter({ hasText: machine.conflicts[0] });
   await gestures(page, card);
   await gestures(page, card.getByRole("button", { name: "Resolve", exact: true }));
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);

@@ -45,7 +45,7 @@ test("Cmd+N on Home opens the Assistant page and starts the assistant with its h
     assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null },
     ...kept,
   });
-  await expect(page.locator("#sec-needs")).toBeVisible();
+  await expect(page.locator("#sec-running")).toBeVisible();
   await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
 
   const prompt = page.locator("#agprompt");

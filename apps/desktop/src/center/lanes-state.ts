@@ -29,35 +29,6 @@ export function byLane<T extends { lane: Lane }>(cards: readonly T[]): Record<La
   return lanes;
 }
 
-/// Home's rows: the cards of each project together, a project that waits on
-/// the user first by default, or by recency when supplied. Cards of no project stay last.
-export function byProject<T extends { lane: Lane; project: string | null }>(cards: readonly T[], recency: ReadonlyMap<string, number> | null = null): { project: string | null; cards: T[] }[] {
-  const rows = new Map<string | null, T[]>();
-
-  for (const card of cards) {
-    const row = rows.get(card.project) ?? [];
-    row.push(card);
-    rows.set(card.project, row);
-  }
-
-  const rank = (row: { project: string | null; cards: T[] }) => row.project === null ? 2 : row.cards.some(card => card.lane === "needs") ? 0 : 1;
-  return [...rows].map(([project, own]) => ({ project, cards: own })).sort((a, b) => {
-    if (!recency) return rank(a) - rank(b);
-    if (a.project === null) return b.project === null ? 0 : 1;
-    if (b.project === null) return -1;
-    return (recency.get(b.project) ?? 0) - (recency.get(a.project) ?? 0);
-  });
-}
-
-/// `rows` with the projects of `before` kept in that order, so Home's rows stay
-/// put while cards change lane. A new project takes its sorted place.
-export function keepOrder<T extends { project: string | null }>(rows: readonly T[], before: readonly (string | null)[]): T[] {
-  const at = new Map(before.map((project, index) => [project, index]));
-  const kept = rows.filter(row => at.has(row.project)).sort((a, b) => (at.get(a.project) ?? 0) - (at.get(b.project) ?? 0));
-  let next = 0;
-  return rows.map(row => at.has(row.project) ? kept[next++] ?? row : row);
-}
-
 /// A card's muted line under its project's heading, without the project's name.
 export function withoutProject(sub: string, project: string | null) {
   if (project === null) return sub;

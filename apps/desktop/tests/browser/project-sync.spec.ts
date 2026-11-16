@@ -68,7 +68,7 @@ test("conflict cards, the notice and the sidebar lead to the project's machines"
   await expect(side.locator(".cc-chat .n.hot")).toHaveText("1");
 
   // Home's card.
-  await page.locator(".bd-card").filter({ hasText: machine.conflicts[0] }).getByRole("button", { name: "Resolve" }).click();
+  await page.locator("#sec-needs .cc-row").filter({ hasText: machine.conflicts[0] }).getByRole("button", { name: "Resolve" }).click();
   await expect(conflict).toBeVisible();
 
   // The project board's card.

@@ -250,7 +250,7 @@ function light(el: HTMLElement | null, ms: number) {
 /// belongs to the nearest list around it. Reading areas (chat, diffs, files, terminals,
 /// logs) are not here and scroll freely.
 const LISTS = [".cc-view", ".pj-det", ".pj-board", ".pj-scroll", ".pv-scroll", ".bd-lane.cell", ".conversation-list", ".nt-list", ".cc-set .dset-page"].join(", ");
-const ITEMS = [".cc-sec", ".bd-rows > .pj", ".bd-card", ".cc-row", ".mcard", ".pj-card", ".nt-row", ".conversation-choice", ".dset-h", ".dset-row", ".pl-head"].join(", ");
+const ITEMS = [".cc-sec", ".bd-card", ".cc-row", ".mcard", ".pj-card", ".nt-row", ".conversation-choice", ".dset-h", ".dset-row", ".pl-head"].join(", ");
 
 /// The first part of a swipe moves one item and every further stretch one more; a pause
 /// longer than the gap starts a new swipe. A list that reached its end holds the next

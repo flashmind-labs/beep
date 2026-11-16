@@ -8,26 +8,22 @@ test("Home lists the sessions that ended today under Done today", async ({ page 
   const home = { machines: [], projects: [], running: [], needs_you: [] };
   await openDesktop(page, false, { center_home: home, session_moves: [], session_copies: [],
     projects_sessions: [session("today", "ended", now), session("old", "ended", now - 3 * 86_400_000)] });
-  await expect(page.locator(".bd-lane.hd", { hasText: "Done today" })).toHaveText("Done today1");
-  await expect(page.locator(".bd-rows").getByText("Session today")).toBeVisible();
-  await expect(page.locator(".bd-rows").getByText("Session old")).toHaveCount(0);
+  await expect(page.locator("#sec-running .bd-lane.log > h4")).toHaveText("Done today1");
+  await expect(page.locator("#sec-running").getByText("Session today")).toBeVisible();
+  await expect(page.locator("#sec-running").getByText("Session old")).toHaveCount(0);
 });
 
-test("Home's board gives each project a row, and a review is opened on its host or handed to an agent", async ({ page }) => {
+test("Home's queue opens a review on its host or hands it to an agent", async ({ page }) => {
   const pull = { host: "example.test", repo: "other/site", number: 12, kind: "pull_request", title: "Move the blog", url: "https://example.test/other/site/pull/12",
     updated_at: 1, authored: false, assigned: false, review_requested: true, draft: false, review: "none", checks_failing: false, comments: 0 };
   await openDesktop(page, false, { git_items: { items: [pull, { ...pull, repo: projectName, number: 13, title: "Fix the feed", url: `https://example.test/${projectName}/pull/13` }], hosts: [] },
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] } });
 
-  // The project that waits on the user comes first.
-  await expect(page.locator(".bd-rows > .pj")).toHaveText(["other/site", projectName]);
-  // Above its row, the full width of the board.
-  const [name, board] = await Promise.all([page.locator(".bd-rows > .pj").first().boundingBox(), page.locator(".bd-rows").boundingBox()]);
-  expect(name?.width).toBe(board?.width);
-  // The heading names the project, so the card does not.
-  await expect(page.locator(".bd-card", { hasText: "#12 Move the blog" }).locator(".sub")).toHaveText("your review");
-  await page.locator(".bd-card", { hasText: "#13 Fix the feed" }).getByRole("button", { name: "Review with agent" }).click();
+  const queue = page.locator("#sec-needs");
+  await expect(queue.locator(".cc-row", { hasText: "#12 Move the blog" })).toContainText("other/site · your review");
+  await expect(queue.locator(".cc-row", { hasText: "#12 Move the blog" }).getByRole("button", { name: "Open" })).toBeVisible();
+  await queue.locator(".cc-row", { hasText: "#13 Fix the feed" }).getByRole("button", { name: "Review with agent" }).click();
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker).toBeVisible();
   // Placed whole inside the window, by its button.
@@ -36,27 +32,6 @@ test("Home's board gives each project a row, and a review is opened on its host 
     const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
     return box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight && element.style.top !== "" && !!hit && element.contains(hit);
   })).toBe(true);
-});
-
-test("a row's project name opens the project, and a full cell scrolls", async ({ page }) => {
-  const pull = (number: number) => ({ host: "example.test", repo: projectName, number, kind: "pull_request", title: `Pull ${number}`, url: `https://example.test/${projectName}/pull/${number}`,
-    updated_at: number, authored: false, assigned: false, review_requested: true, draft: false, review: "none", checks_failing: false, comments: 0 });
-  await openDesktop(page, false, { git_items: { items: [1, 2, 3, 4].map(pull), hosts: [] } });
-
-  const cell = page.locator(".bd-rows > .bd-lane:not(.hd)").first();
-  await expect(cell.locator(".bd-card")).toHaveCount(4);
-  expect(await cell.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
-  // A wheel notch moves one card, whatever its size.
-  await cell.hover();
-  await page.mouse.wheel(0, 40);
-  const second = await cell.evaluate(el => {
-    const [first, next] = el.querySelectorAll<HTMLElement>(".bd-card");
-    return next.offsetTop - first.offsetTop;
-  });
-  await expect.poll(() => cell.evaluate(el => el.scrollTop)).toBe(second);
-
-  await page.locator(".bd-rows > .pj").getByRole("button", { name: projectName }).click();
-  await expect(page.locator(".pj-board")).toBeVisible();
 });
 
 /// Picks `layout` for `name` in Settings, under Appearance, and closes Settings.
@@ -69,76 +44,23 @@ async function pickLayout(page: Page, name: string, layout: string) {
   await expect(settings).toHaveCount(0);
 }
 
-test("Home scrolls a card at a time, and a cell at its first card leaves the swipe to the page", async ({ page }) => {
-  const projects = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"].map(name => ({ name: `example/${name}`, url: "", machine_id: "build-box", machine_name: "Build box", folder: `/srv/${name}`, cloned: true, imported_at: 1 }));
-  const running = projects.flatMap(project => [1, 2, 3, 4].map(n => ({ kind: "agent", machine_id: "build-box", machine_name: "Build box", id: `${project.name}-${n}`, agent: "codex", title: `Task ${n}`, cwd: project.folder, status: "working", doing: null, started_at: 1, last_activity: n, external: false, question: null })));
-  await openDesktop(page, false, { center_home: { machines: [], projects, running, needs_you: [] }, projects_sessions: [] });
-  const view = page.locator("#view"), cells = page.locator(".bd-rows > .bd-lane:not(.hd)");
-  await expect(cells).toHaveCount(projects.length * 4);
-  const top = () => view.evaluate(el => el.scrollTop);
-
-  // The page steps down a project row, and keeps going while the wheel does.
-  await page.locator(".bd-rows > .pj").first().hover();
-  await page.mouse.wheel(0, 40);
-  await expect.poll(top).toBeGreaterThan(0);
-  const row = await top();
-  await page.waitForTimeout(200);
-  await page.mouse.wheel(0, 40);
-  await expect.poll(top).toBeGreaterThan(row);
-
-  // Over a cell already at its first card, scrolling up moves the page.
-  const cell = page.locator(".bd-rows > .bd-lane:not(.hd)").filter({ has: page.locator(".bd-card") }).last();
-  await cell.hover();
-  const below = await top();
-  expect(below).toBeGreaterThan(0);
-  expect(await cell.evaluate(el => el.scrollTop)).toBe(0);
-  await page.mouse.wheel(0, -40);
-  await expect.poll(top).toBeLessThan(below);
-  expect(await cell.evaluate(el => el.scrollTop)).toBe(0);
-
-  // Swipes that carry a cell to its last card stay with it for the next two, then the page moves.
-  // A key takes the scroll back from a page still settling.
-  await page.keyboard.press("Shift");
-  await view.evaluate(el => { el.scrollTop = 0; });
-  const first = cells.filter({ has: page.locator(".bd-card") }).first();
-  await first.hover();
-  await page.waitForTimeout(250);
-  const room = await first.evaluate(el => el.scrollHeight - el.clientHeight), page0 = await top();
-  expect(room).toBeGreaterThan(0);
-  for (let swipe = 0; swipe < 6 && await first.evaluate(el => el.scrollTop) < room - 1; swipe += 1) {
-    await page.mouse.wheel(0, 40);
-    await page.waitForTimeout(200);
-  }
-  await expect.poll(() => first.evaluate(el => el.scrollTop)).toBeGreaterThanOrEqual(room - 1);
-  // The swipes that count toward the hold start once the cell has arrived.
-  await page.waitForTimeout(100);
-  expect(await top()).toBe(page0);
-  for (const _ of [1, 2]) {
-    await page.mouse.wheel(0, 40);
-    await page.waitForTimeout(200);
-    expect(await top()).toBe(page0);
-  }
-  await page.mouse.wheel(0, 40);
-  await expect.poll(top).toBeGreaterThan(page0);
-});
-
-test("Appearance picks the board or the list for Home and for projects, each on its own", async ({ page }) => {
+test("Appearance picks the board or the list for projects, and Home has no layout to pick", async ({ page }) => {
   await openDesktop(page, false, { settings: { name: "build-box", version: "0.9.0", autostart: false, agent_notices: false },
     list_credentials: [], list_github_accounts: [] });
-  await expect(page.locator("#sec-needs .bd-rows")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
 
-  await pickLayout(page, "Home", "List");
-  expect(await page.evaluate(() => [localStorage.getItem("beep.layout.home"), localStorage.getItem("beep.layout.project")])).toEqual(["list", null]);
-  await page.locator("#side").getByRole("button", { name: "Home", exact: true }).click();
-  await expect(page.locator(".bd-rows")).toHaveCount(0);
-  await expect(page.locator("#sec-running")).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
-  await expect(page.locator("#side").getByRole("button", { name: "Running" })).toBeVisible();
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Appearance", exact: true }).click();
+  await expect(settings.getByRole("radiogroup", { name: "Projects layout" })).toBeVisible();
+  await expect(settings.getByRole("radiogroup", { name: "Home layout" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
 
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await expect(page.locator(".pj-board .bd-lanes")).toBeVisible();
 
   await pickLayout(page, "Projects", "List");
+  expect(await page.evaluate(() => localStorage.getItem("beep.layout.project"))).toBe("list");
   await expect(page.locator(".pj-board")).toHaveCount(0);
   await expect(page.locator(".pj-split .pj-ov")).toBeVisible();
   await expect(page.locator(".pj-list").getByRole("button", { name: "Overview" })).toHaveAttribute("aria-current", "true");

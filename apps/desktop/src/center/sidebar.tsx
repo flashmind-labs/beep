@@ -3,8 +3,7 @@ import { renameProject } from "../project/rename.tsx";
 import { WINDOWS, onPhone } from "../ui/platform.ts";
 // The sidebar: its groups (pinned, views, projects, machines) and the
 // sheets that add a machine or a project.
-import { onClosing, visibleRunning } from "../agents/closing.ts";
-import { frontLayout, layoutChanged } from "../ui/skin.ts";
+import { onClosing } from "../agents/closing.ts";
 import { plural, reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { openPalette } from "./palette.tsx";
@@ -86,8 +85,6 @@ export function drawSide() {
     { svg: IC.home, label: "Home", count: home?.needs_you.length ?? 0, current: location === "home", hot: true, open: () => go("home") },
     { svg: IC.chat, label: "Assistant", count: 0, current: !!shell.getState().assistant, open: () => go("pane", { assistant: "chats" }) },
   ];
-  // The board has every session; the list keeps its own page of them.
-  if (home?.running && frontLayout("home") === "list") links.push({ svg: IC.run, label: "Running", count: visibleRunning(home.running).length, current: paneOn().view === "agents", open: () => go("pane", "agents") });
   const terms = allTerms.list(ALL);
   if (home?.machines && terms) links.push({ svg: IC.term, label: "Terminals", count: terms.length, current: location === "terminals", open: () => go("terminals") });
   const side: ReactNode[] = [];
@@ -376,7 +373,6 @@ registerSidebarGroup("projects", {
 });
 
 onClosing(() => drawSide());
-layoutChanged.add(() => drawSide());
 
 /// A sidebar item's key hint: none on a phone, whose keyboard rarely has the keys.
 function shortcut(windows: string, apple: string): string | undefined {
