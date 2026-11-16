@@ -32,6 +32,23 @@ test("partial selection survives filtering and sync options stay accessible", as
   await expect(sync.getByRole("checkbox")).not.toBeChecked();
 });
 
+test("clicking a row ticks it, its Import button does not", async ({ page }) => {
+  await openDesktop(page, false, { found_projects: found, found_machines: [], host_repos: [] });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  await page.locator("#tools").getByRole("button", { name: "Add a project", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Add a project", exact: true });
+  const box = sheet.getByRole("checkbox", { name: "Select example/app", exact: true });
+  const row = sheet.locator('.ap-row[data-name="example/app"]');
+  await row.locator(".n").click();
+  await expect(box).toBeChecked();
+  await box.click();
+  await expect(box).not.toBeChecked();
+  await row.locator("code").click();
+  await expect(box).toBeChecked();
+  await row.locator(".n").click();
+  await expect(box).not.toBeChecked();
+});
+
 test("refresh preserves search, selected row focus and list scroll", async ({ page }) => {
   const rows = Array.from({ length: 35 }, (_, i) => ({ ...found[0], name: `example/repo-${i}` }));
   await openDesktop(page, false, { found_projects: rows, found_machines: [{ id: "build-box", name: "Build box" }], rescan_found: { rows, problem: null }, host_repos: [] });
