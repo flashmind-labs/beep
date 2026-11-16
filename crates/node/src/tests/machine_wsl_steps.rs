@@ -103,3 +103,20 @@ fn wslenv_adds_each_name_once() {
     );
     assert_eq!(joined_wslenv(None, ["A"].into_iter()), "A");
 }
+
+#[test]
+fn an_agent_runs_on_the_path_the_probe_found_it_on() {
+    let distro: DistroName = "Ubuntu".parse().expect("a name");
+    let cwd: LinuxPath = "/mnt/c/code".parse().expect("a path");
+    let cli: LinuxPath = "/home/sam/.local/bin/claude".parse().expect("a path");
+    let command = agent_command(&distro, &cwd, &cli, &["--print".to_owned()]);
+    let args: Vec<String> = command
+        .as_std()
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+
+    assert_eq!(args[..7], ["-d", "Ubuntu", "--cd", "/mnt/c/code", "--exec", "sh", "-lc"]);
+    assert!(args[7].starts_with(&path_prelude()) && args[7].ends_with("exec \"$0\" \"$@\"\n"));
+    assert_eq!(args[8..], ["/home/sam/.local/bin/claude", "--print"]);
+}

@@ -2,7 +2,7 @@
 //! and inside one, probing it, installing beep-node, running it and joining
 //! it to the mesh. Inside a distribution everything runs in its `sh`.
 
-use super::distro::{self, DistroName, Found, Listed};
+use super::distro::{self, DistroName, Found, LinuxPath, Listed};
 use crate::agents::locate::{HOME_BINS, NODE_VERSIONS, SYSTEM_BINS};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::harness::HARNESSES;
@@ -89,51 +89,50 @@ pub(crate) fn run_command(distro: &DistroName) -> Command {
 }
 
 /// `wsl.exe` running the Linux `program` with `args` in `distro`, in the
-/// folder `cwd` of the distribution, with `forwarded` and the variables a
-/// coding agent reads (`AGENT_VARS`) carried in from Windows.
-pub(crate) fn agent_command(
-    distro: &DistroName,
-    cwd: &str,
-    program: &str,
-    args: &[String],
-    forwarded: &[&str],
-) -> Command {
+/// folder `cwd` of the distribution, with the `PATH` the probe found it on
+/// and the variables a coding agent reads (`AGENT_VARS`) carried in from
+/// Windows.
+pub(crate) fn agent_command(distro: &DistroName, cwd: &LinuxPath, program: &LinuxPath, args: &[String]) -> Command {
     let mut command = crate::run::process::command("wsl.exe");
     let distro: &std::ffi::OsStr = distro.as_ref();
+    let script = format!("{}exec \"$0\" \"$@\"\n", path_prelude());
     command
         .arg("-d")
         .arg(distro)
-        .args(["--cd", cwd, "--exec", program])
+        .args(["--cd", cwd.as_ref(), "--exec", "sh", "-lc", &script, program.as_ref()])
         .args(args)
-        .env("WSLENV", wslenv(forwarded));
+        .env("WSLENV", wslenv());
     command
 }
 
-/// The home folder of `distro`'s default user, as a Linux path, from its
-/// own line among what the login shell's profile may print.
-pub(crate) async fn home(distro: &DistroName) -> Result<String> {
+/// The home folder of `distro`'s default user, from its own line among
+/// what the login shell's profile may print.
+pub(crate) async fn home(distro: &DistroName) -> Result<LinuxPath> {
     let printed = wsl(in_distro(distro, "printf 'home %s\\n' \"$HOME\""), None, RUNNING_LIMIT).await?;
-    printed
+    let home = printed
         .lines()
         .find_map(|line| line.strip_prefix("home "))
-        .map(str::to_owned)
-        .context("the shell in WSL printed no home folder")
+        .context("the shell in WSL printed no home folder")?;
+    Ok(home.parse()?)
 }
 
 /// The variables set in this process that a coding agent reads: its
 /// credentials and settings. `PATH` stays out, as WSL makes its own.
 const AGENT_VARS: &[&str] = &["CLAUDE_", "ANTHROPIC_", "DISABLE_AUTO_COMPACT", "GH_TOKEN"];
+/// Variables among `AGENT_VARS` that hold a Windows path, which means
+/// nothing to the agent in WSL.
+const WINDOWS_PATHS: &[&str] = &["CLAUDE_CONFIG_DIR"];
 
 /// `WSLENV` naming the variables that cross into a distribution: the ones
-/// it already names, `forwarded`, and the `AGENT_VARS` this process has.
-fn wslenv(forwarded: &[&str]) -> String {
+/// it already names and the `AGENT_VARS` this process has.
+fn wslenv() -> String {
     let set: Vec<String> = std::env::vars_os()
         .filter_map(|(name, _)| name.into_string().ok())
         .filter(|name| AGENT_VARS.iter().any(|var| name.starts_with(var)))
+        .filter(|name| !WINDOWS_PATHS.contains(&name.as_str()))
         .collect();
-    let names = forwarded.iter().copied().chain(set.iter().map(String::as_str));
 
-    joined_wslenv(std::env::var("WSLENV").ok().as_deref(), names)
+    joined_wslenv(std::env::var("WSLENV").ok().as_deref(), set.iter().map(String::as_str))
 }
 
 /// `existing` with `names` added once each, `:` between them.
@@ -191,6 +190,22 @@ fn in_distro(distro: &DistroName, script: &str) -> Vec<OsString> {
 /// `node beep-node <version>` and `id <id>` when beep-node is installed.
 fn probe_script() -> String {
     let agents: Vec<&str> = HARNESSES.iter().map(|harness| harness.agent).collect();
+    format!(
+        "{prelude}\
+         for a in {agents}; do p=$(command -v \"$a\") && echo \"agent $a $p\"; done\n\
+         if [ -x {NODE} ]; then\n\
+         \x20 echo \"node $({NODE} version)\"\n\
+         \x20 i=$({NODE} id 2>/dev/null) && echo \"id $i\"\n\
+         fi\n\
+         exit 0\n",
+        prelude = path_prelude(),
+        agents = agents.join(" "),
+    )
+}
+
+/// Adds the install folders the node itself looks in (`locate`) to `PATH`,
+/// so an agent and the `node` it runs on are found.
+fn path_prelude() -> String {
     let home: Vec<String> = HOME_BINS.iter().map(|dir| format!("$HOME/{dir}")).collect();
     let versions: Vec<String> = NODE_VERSIONS
         .iter()
@@ -198,17 +213,10 @@ fn probe_script() -> String {
         .collect();
     format!(
         "PATH=\"$PATH:{home}:{system}\"\n\
-         for d in {versions}; do [ -d \"$d\" ] && PATH=\"$PATH:$d\"; done\n\
-         for a in {agents}; do p=$(command -v \"$a\") && echo \"agent $a $p\"; done\n\
-         if [ -x {NODE} ]; then\n\
-         \x20 echo \"node $({NODE} version)\"\n\
-         \x20 i=$({NODE} id 2>/dev/null) && echo \"id $i\"\n\
-         fi\n\
-         exit 0\n",
+         for d in {versions}; do [ -d \"$d\" ] && PATH=\"$PATH:$d\"; done\n",
         home = home.join(":"),
         system = SYSTEM_BINS.join(":"),
         versions = versions.join(" "),
-        agents = agents.join(" "),
     )
 }
 

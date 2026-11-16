@@ -15,7 +15,7 @@ mod report;
 mod serve;
 mod steps;
 
-pub(crate) use distro::{DistroName, linux_path, windows_path};
+pub(crate) use distro::{DistroName, LinuxPath, linux_path, windows_path};
 pub(crate) use report::{agent, agents_changed, report};
 pub(crate) use steps::{agent_command, home};
 pub use serve::Wsl;

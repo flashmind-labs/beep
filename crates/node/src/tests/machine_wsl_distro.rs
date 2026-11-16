@@ -56,11 +56,11 @@ some line a profile printed
             agents: vec![
                 FoundAgent {
                     name: "claude".into(),
-                    path: "/home/sam/.local/bin/claude".into(),
+                    path: "/home/sam/.local/bin/claude".parse().unwrap(),
                 },
                 FoundAgent {
                     name: "codex".into(),
-                    path: "/home/sam/.npm-global/bin/codex".into(),
+                    path: "/home/sam/.npm-global/bin/codex".parse().unwrap(),
                 },
             ],
             node: Some("0.7.4".into()),
@@ -109,15 +109,18 @@ fn a_windows_drive_path_is_under_mnt_in_wsl() {
         ("/home/sam", None),
     ];
     for (windows, linux) in cases {
-        assert_eq!(linux_path(windows).as_deref(), linux, "{windows}");
+        let mapped = linux_path(Path::new(windows)).map(|path| path.to_string());
+        assert_eq!(mapped.as_deref(), linux, "{windows}");
     }
 }
 
 #[test]
 fn a_linux_path_in_wsl_is_under_the_wsl_share() {
     let distro: DistroName = "Ubuntu".parse().expect("a name");
+    let home: LinuxPath = "/home/sam/".parse().unwrap();
     assert_eq!(
-        windows_path(&distro, "/home/sam/.claude"),
-        r"\\wsl$\Ubuntu\home\sam\.claude"
+        windows_path(&distro, &home.join(".claude")),
+        PathBuf::from(r"\\wsl$\Ubuntu\home\sam\.claude")
     );
+    assert!("home/sam".parse::<LinuxPath>().is_err());
 }

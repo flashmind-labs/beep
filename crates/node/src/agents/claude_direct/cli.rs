@@ -3,7 +3,7 @@
 
 use crate::agents::{Line, LineReader, acp::MAX_MESSAGE};
 use crate::{
-    machine::wsl::{self, DistroName},
+    machine::wsl::{self, DistroName, LinuxPath},
     run::process::command,
 };
 use anyhow::{Context, Result};
@@ -108,8 +108,8 @@ fn file(text: &str) -> Result<NamedTempFile> {
 }
 
 /// `path` on Windows as WSL sees it.
-fn in_wsl(path: &Path) -> Result<String> {
-    wsl::linux_path(&path.to_string_lossy())
+fn in_wsl(path: &Path) -> Result<LinuxPath> {
+    wsl::linux_path(path)
         .with_context(|| format!("WSL does not reach {}, which is on no drive", path.display()))
 }
 
@@ -132,8 +132,9 @@ impl Cli {
         };
         let mut process = match launch.wsl {
             Some(distro) => {
-                let args = launch.args(&files, in_wsl)?;
-                wsl::agent_command(distro, &in_wsl(launch.cwd)?, launch.program, &args, &[])
+                let args = launch.args(&files, |path| Ok(in_wsl(path)?.to_string()))?;
+                let program: LinuxPath = launch.program.parse()?;
+                wsl::agent_command(distro, &in_wsl(launch.cwd)?, &program, &args)
             }
             None => {
                 let mut process = command(launch.program);

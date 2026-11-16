@@ -82,6 +82,13 @@ pub(super) struct Known {
 /// The subcommand of `beep-node` that speaks ACP and drives Claude Code's
 /// CLI itself, in place of its npm adapter.
 pub const DIRECT_COMMAND: &str = "claude-acp";
+/// The argument of `DIRECT_COMMAND` naming the WSL distribution it runs in.
+const WSL_FLAG: &str = "--wsl";
+
+/// `kind` is Claude Code in WSL, which only the bridge can run.
+pub(super) fn in_wsl_bridge(kind: &AgentKind) -> bool {
+    kind.args.first().is_some_and(|arg| arg == DIRECT_COMMAND) && kind.args.iter().any(|arg| arg == WSL_FLAG)
+}
 
 /// This executable, as it was when the node started: an update renames a
 /// new binary over it, after which the running one's path reads as deleted.
@@ -386,7 +393,7 @@ fn in_wsl() -> Option<AgentKind> {
     Some(AgentKind {
         name: known.name.to_owned(),
         program: exe.display().to_string(),
-        args: [DIRECT_COMMAND, "--cli", &cli.path, "--wsl", distro.as_ref(), "--"]
+        args: [DIRECT_COMMAND, "--cli", cli.path.as_ref(), WSL_FLAG, distro.as_ref(), "--"]
             .map(str::to_owned)
             .into(),
         env: env(known),

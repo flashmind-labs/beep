@@ -1,10 +1,10 @@
 //! The machine's WSL distributions, for its report. The routine report
-//! looks into the running distributions, and the default one once, as
-//! looking into a stopped one starts it; `probe_all` looks into every one
-//! when the user asks.
+//! looks into the running distributions, as looking into a stopped one
+//! starts it, and into the default one once in the background;
+//! `probe_all` looks into every one when the user asks.
 
 use super::{
-    distro::{DistroName, Found, FoundAgent},
+    distro::{DistroName, Found, FoundAgent, Listed},
     keeper, steps,
 };
 use anyhow::Result;
@@ -12,7 +12,10 @@ use beep_proto::node::WslDistro;
 use futures::future::join_all;
 use std::{
     collections::HashMap,
-    sync::{LazyLock, Mutex},
+    sync::{
+        LazyLock, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::{sync::Notify, time::timeout};
@@ -24,18 +27,23 @@ const PROBE_ALL_LIMIT: Duration = Duration::from_secs(60);
 
 /// What each distribution had when it was last probed well.
 static FOUND: LazyLock<Mutex<HashMap<DistroName, Found>>> = LazyLock::new(Mutex::default);
+/// The distribution `wsl.exe` starts by default, as last listed.
+static DEFAULT: Mutex<Option<DistroName>> = Mutex::new(None);
 /// Told when a probe finds other agents than before.
 static AGENTS_CHANGED: Notify = Notify::const_new();
+/// The default distribution was looked into once while stopped.
+static DEFAULT_PROBED: AtomicBool = AtomicBool::new(false);
 
-/// The coding agent `name` installed in a distribution, the first by name
-/// when several have it, as last probed.
+/// The coding agent `name` installed in a distribution, in the default one
+/// when it has it, else the first by name, as last probed.
 pub(crate) fn agent(name: &str) -> Option<(DistroName, FoundAgent)> {
+    let default = crate::lock(&DEFAULT).clone();
     let found = crate::lock(&FOUND);
     let mut with: Vec<(&DistroName, &FoundAgent)> = found
         .iter()
         .filter_map(|(distro, found)| Some((distro, found.agents.iter().find(|agent| agent.name == name)?)))
         .collect();
-    with.sort_by_key(|(distro, _)| *distro);
+    with.sort_by_key(|(distro, _)| (default.as_ref() != Some(*distro), *distro));
 
     with.first().map(|(distro, agent)| ((*distro).clone(), (*agent).clone()))
 }
@@ -55,15 +63,26 @@ pub(crate) async fn report() -> Vec<WslDistro> {
             return Vec::new();
         }
     };
+    let default = listed.iter().find(|listed| listed.default);
+    *crate::lock(&DEFAULT) = default.map(|listed| listed.name.clone());
+    forget_gone(&listed);
+
     // The default distribution is looked into once even when stopped, so
-    // the agents in it are found without the user starting it.
-    let unprobed = |name: &DistroName| !crate::lock(&FOUND).contains_key(name);
-    let probed: Vec<&DistroName> = listed
+    // the agents in it are found without the user starting it. Starting it
+    // can take longer than the report waits.
+    if let Some(default) = default.filter(|default| !default.running)
+        && !DEFAULT_PROBED.swap(true, Ordering::Relaxed)
+    {
+        let name = default.name.clone();
+        tokio::spawn(async move { probe(&[&name], PROBE_ALL_LIMIT).await });
+    }
+
+    let running: Vec<&DistroName> = listed
         .iter()
-        .filter(|listed| listed.running || (listed.default && unprobed(&listed.name)))
+        .filter(|listed| listed.running)
         .map(|listed| &listed.name)
         .collect();
-    probe(&probed, PROBES_LIMIT).await;
+    probe(&running, PROBES_LIMIT).await;
 
     let found = crate::lock(&FOUND).clone();
     let mut report: Vec<WslDistro> = listed
@@ -84,6 +103,17 @@ pub(crate) async fn report() -> Vec<WslDistro> {
     }
 
     report
+}
+
+/// Forgets what was found in the distributions WSL no longer lists.
+fn forget_gone(listed: &[Listed]) {
+    let mut found = crate::lock(&FOUND);
+    let before = found.len();
+    found.retain(|name, _| listed.iter().any(|listed| listed.name == *name));
+
+    if found.len() != before {
+        AGENTS_CHANGED.notify_one();
+    }
 }
 
 /// Looks into every distribution, starting the stopped ones.

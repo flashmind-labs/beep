@@ -4,7 +4,12 @@
 use crate::machine::service::from_utf16;
 use beep_proto::node::harness::HARNESSES;
 use serde::{Deserialize, Serialize};
-use std::{ffi::OsStr, fmt, str::FromStr};
+use std::{
+    ffi::OsStr,
+    fmt,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 /// A WSL distribution's name, such as `Ubuntu-24.04`: letters, digits, `.`,
 /// `_` and `-`, the names `wsl.exe` registers.
@@ -135,11 +140,50 @@ fn for_an_app(name: &DistroName) -> bool {
         .any(|app| name.0.starts_with(app))
 }
 
+/// An absolute path inside a WSL distribution, such as `/home/sam`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LinuxPath(String);
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0:?} is not an absolute path in WSL")]
+pub(crate) struct NotLinuxPath(String);
+
+impl FromStr for LinuxPath {
+    type Err = NotLinuxPath;
+
+    fn from_str(path: &str) -> Result<Self, Self::Err> {
+        match path.starts_with('/') {
+            true => Ok(Self(path.to_owned())),
+            false => Err(NotLinuxPath(path.to_owned())),
+        }
+    }
+}
+
+impl LinuxPath {
+    /// `tail`, a relative path, inside this one.
+    pub(crate) fn join(&self, tail: &str) -> Self {
+        Self(format!("{}/{tail}", self.0.trim_end_matches('/')))
+    }
+}
+
+impl fmt::Display for LinuxPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl AsRef<str> for LinuxPath {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 /// `path` on a Windows drive as a distribution sees it, such as
 /// `C:\Users\sam` as `/mnt/c/Users/sam`; `None` for a path on no drive
 /// letter, such as a network share.
-pub(crate) fn linux_path(path: &str) -> Option<String> {
-    let path = path.strip_prefix(r"\\?\").unwrap_or(path);
+pub(crate) fn linux_path(path: &Path) -> Option<LinuxPath> {
+    let path = path.to_string_lossy();
+    let path = path.strip_prefix(r"\\?\").unwrap_or(&path);
     let mut chars = path.chars();
     let (Some(drive), Some(':')) = (chars.next(), chars.next()) else {
         return None;
@@ -152,13 +196,13 @@ pub(crate) fn linux_path(path: &str) -> Option<String> {
 
     let rest = rest.replace('\\', "/");
     let rest = rest.trim_end_matches('/');
-    Some(format!("/mnt/{}{rest}", drive.to_ascii_lowercase()))
+    Some(LinuxPath(format!("/mnt/{}{rest}", drive.to_ascii_lowercase())))
 }
 
-/// The Linux path `path` inside `distro` as Windows reaches it, through
-/// `\\wsl$`, which Windows 10 has too.
-pub(crate) fn windows_path(distro: &DistroName, path: &str) -> String {
-    format!(r"\\wsl$\{distro}{}", path.replace('/', "\\"))
+/// `path` inside `distro` as Windows reaches it, through `\\wsl$`, which
+/// Windows 10 has too.
+pub(crate) fn windows_path(distro: &DistroName, path: &LinuxPath) -> PathBuf {
+    format!(r"\\wsl$\{distro}{}", path.0.replace('/', "\\")).into()
 }
 
 /// A coding agent CLI the probe found inside a distribution.
@@ -167,7 +211,7 @@ pub(crate) struct FoundAgent {
     /// Its name among the harnesses, such as `claude`.
     pub(crate) name: String,
     /// Where it is installed, inside the distribution.
-    pub(crate) path: String,
+    pub(crate) path: LinuxPath,
 }
 
 /// What the probe found inside a distribution.
@@ -193,10 +237,14 @@ pub(crate) fn found(printed: &str) -> Found {
 
         match (words.next(), words.next(), words.next()) {
             (Some("agent"), Some(agent), Some(path)) if !path.starts_with("/mnt/") => {
-                if !found.agents.iter().any(|known| known.name == agent) {
+                let path = path.parse::<LinuxPath>();
+
+                if let Ok(path) = path
+                    && !found.agents.iter().any(|known| known.name == agent)
+                {
                     found.agents.push(FoundAgent {
                         name: agent.to_owned(),
-                        path: path.to_owned(),
+                        path,
                     });
                 }
             }

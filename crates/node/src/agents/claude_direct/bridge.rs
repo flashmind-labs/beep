@@ -27,7 +27,7 @@ use agent_client_protocol::{
 use anyhow::{Context, Result};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use serde_json::{Map, Value, json};
-use crate::machine::wsl::{self, DistroName};
+use crate::machine::wsl::{self, DistroName, LinuxPath};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -87,6 +87,7 @@ pub async fn serve(program: String, args: Vec<String>, wsl: Option<&str>) -> Res
                     program,
                     args,
                     wsl,
+                    home: None,
                     asks: false,
                     session: None,
                     answers: FuturesUnordered::new(),
@@ -198,6 +199,8 @@ struct Bridge {
     args: Vec<String>,
     /// The WSL distribution the CLI runs in, on a Windows machine.
     wsl: Option<DistroName>,
+    /// Its default user's home, once a transcript was looked for in it.
+    home: Option<LinuxPath>,
     /// The client takes forms, for `AskUserQuestion`.
     asks: bool,
     session: Option<Session>,
@@ -346,18 +349,22 @@ impl Bridge {
 
     /// Where Claude Code keeps session `id` it ran in `cwd`: under the
     /// user's home, or in WSL the distribution's.
-    async fn transcript(&self, cwd: &Path, id: &str) -> Option<PathBuf> {
+    async fn transcript(&mut self, cwd: &Path, id: &str) -> Option<PathBuf> {
         let Some(distro) = &self.wsl else {
             return updates::transcript(cwd, id);
         };
-        let cwd = wsl::linux_path(&cwd.to_string_lossy())?;
-        let home = wsl::home(distro)
-            .await
-            .inspect_err(|e| log::warn!("the home folder in WSL {distro} is not known: {e:#}"))
-            .ok()?;
-        let folder = crate::agents::claude::slug(Path::new(&cwd));
+        let cwd = wsl::linux_path(cwd)?;
 
-        Some(wsl::windows_path(distro, &format!("{home}/.claude/projects/{folder}/{id}.jsonl")).into())
+        if self.home.is_none() {
+            self.home = wsl::home(distro)
+                .await
+                .inspect_err(|e| log::warn!("the home folder in WSL {distro} is not known: {e:#}"))
+                .ok();
+        }
+
+        let folder = crate::agents::claude::slug(Path::new(cwd.as_ref()));
+        let transcript = self.home.as_ref()?.join(&format!(".claude/projects/{folder}/{id}.jsonl"));
+        Some(wsl::windows_path(distro, &transcript))
     }
 
     /// Starts the CLI on session `id` in `cwd`, resumed or new; `start` is
@@ -787,14 +794,13 @@ fn mcp_config(servers: &[McpServer], in_wsl: bool) -> Option<String> {
             McpServer::Stdio(stdio) => {
                 let mut env: Vec<(String, String)> =
                     stdio.env.iter().map(|var| (var.name.clone(), var.value.clone())).collect();
-                let command = stdio.command.display().to_string();
-                let command = match in_wsl {
-                    true => {
+                let command = match in_wsl.then(|| wsl::linux_path(&stdio.command)).flatten() {
+                    Some(command) => {
                         let names: Vec<&str> = env.iter().map(|(name, _)| name.as_str()).collect();
                         env.push(("WSLENV".to_owned(), names.join(":")));
-                        wsl::linux_path(&command).unwrap_or(command)
+                        command.to_string()
                     }
-                    false => command,
+                    None => stdio.command.display().to_string(),
                 };
                 (&stdio.name, json!({"command": command, "args": stdio.args, "env": pairs(env)}))
             }
