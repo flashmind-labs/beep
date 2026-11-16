@@ -23,6 +23,7 @@ import { onMoves } from "../agents/move-store.ts";
 import { onClosing } from "../agents/closing.ts";
 import { placeWindowParts } from "./window-root.tsx";
 import { windowHost } from "./window-shell.tsx";
+import { glide, glideTo } from "../ui/motion.ts";
 import { HomeShell, type HomeTab } from "./home-shell.tsx";
 import { HomeOverview } from "./home-overview.tsx";
 import { HomeGit } from "./openitems-view.tsx";
@@ -157,8 +158,7 @@ export function jump(id?: string) {
     if (state.home) draw();
   }
 
-  const view = windowHost("view");
-  if (!id) return view.scrollTo({ top: 0 });
+  if (!id) return glide(windowHost("view"), 0, "snap", { landed: null, done: null });
   scrollTarget = id;
   // Home redraws when it mounts, so the target is also applied after that draw.
   applyScroll();
@@ -167,5 +167,8 @@ export function jump(id?: string) {
 function applyScroll() {
   if (!scrollTarget) return;
   const el = document.getElementById(scrollTarget);
-  if (el) { el.scrollIntoView({ block: "start" }); scrollTarget = null; }
+  if (!el) return;
+  scrollTarget = null;
+  // A section snaps under the tabs and lights its title; a machine lights its card.
+  glideTo(windowHost("view"), el, "snap", { landed: el.querySelector<HTMLElement>(".cc-sec h4") ?? el, done: null });
 }

@@ -29,7 +29,7 @@ import { draw, homeTab, jump } from "./home.tsx";
 import { currentLocation, windowProject, go, goHistory, hasHistory, setWindowProject, goTo } from "./views.tsx";
 import { reloadGroup, paneOn, openProjects, openProjectWindow, addProject } from "./sidebar.tsx";
 import { escUp } from "./escup-state.ts";
-import { setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
+import { itemScroll, setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
 import { openTile } from "../project/split.tsx";
 import { pa } from "../project/sections.ts";
 import { AG } from "../agents/agents.ts";
@@ -64,6 +64,7 @@ initConversationSwitcher({
 
 initMobile();
 trackpadSwipe({ has: to => !dialogOpen() && hasHistory(to === "forward"), go: to => { goHistory(to === "forward"); } });
+itemScroll();
 // A mouse's back (3) and forward (4) side buttons step like ⌘[ and ⌘]; the webview does not navigate itself.
 for (const type of ["mousedown", "mouseup"] as const) document.addEventListener(type, e => {
   if (e.button !== 3 && e.button !== 4) return;

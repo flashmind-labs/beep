@@ -62,6 +62,33 @@ async function pickLayout(page: Page, name: string, layout: string) {
   await expect(settings).toHaveCount(0);
 }
 
+test("Home scrolls a card at a time, and a cell at its first card leaves the swipe to the page", async ({ page }) => {
+  const projects = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"].map(name => ({ name: `example/${name}`, url: "", machine_id: "build-box", machine_name: "Build box", folder: `/srv/${name}`, cloned: true, imported_at: 1 }));
+  const running = projects.flatMap(project => [1, 2, 3, 4].map(n => ({ kind: "agent", machine_id: "build-box", machine_name: "Build box", id: `${project.name}-${n}`, agent: "codex", title: `Task ${n}`, cwd: project.folder, status: "working", doing: null, started_at: 1, last_activity: n, external: false, question: null })));
+  await openDesktop(page, false, { center_home: { machines: [], projects, running, needs_you: [] }, projects_sessions: [] });
+  const view = page.locator("#view"), cells = page.locator(".bd-rows > .bd-lane:not(.hd)");
+  await expect(cells).toHaveCount(projects.length * 4);
+  const top = () => view.evaluate(el => el.scrollTop);
+
+  // The page steps down a project row, and keeps going while the wheel does.
+  await page.locator(".bd-rows > .pj").first().hover();
+  await page.mouse.wheel(0, 40);
+  await expect.poll(top).toBeGreaterThan(0);
+  const row = await top();
+  await page.mouse.wheel(0, 40);
+  await expect.poll(top).toBeGreaterThan(row);
+
+  // Over a cell already at its first card, scrolling up moves the page.
+  const cell = page.locator(".bd-rows > .bd-lane:not(.hd)").filter({ has: page.locator(".bd-card") }).last();
+  await cell.hover();
+  const below = await top();
+  expect(below).toBeGreaterThan(0);
+  expect(await cell.evaluate(el => el.scrollTop)).toBe(0);
+  await page.mouse.wheel(0, -40);
+  await expect.poll(top).toBeLessThan(below);
+  expect(await cell.evaluate(el => el.scrollTop)).toBe(0);
+});
+
 test("Appearance picks the board or the list for Home and for projects, each on its own", async ({ page }) => {
   await openDesktop(page, false, { settings: { name: "build-box", version: "0.9.0", autostart: false, agent_notices: false },
     list_credentials: [], list_github_accounts: [] });

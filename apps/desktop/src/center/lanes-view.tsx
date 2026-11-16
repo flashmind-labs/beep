@@ -1,7 +1,7 @@
 // The board: Needs you, Working, Ready to review and Done today. Home shows
 // every project's cards, a row for each project, and a project page its own,
 // with the sessions that ended as a list.
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Icon } from "../ui/icons.tsx";
 import { Button, LineRow, onRowKey } from "../ui/kit.tsx";
@@ -112,47 +112,14 @@ function Card({ card, open }: { card: BoardCard; open(): void }) {
   </div>;
 }
 
-/// A project's lane on Home, which shows two whole cards. A wheel notch or a
-/// swipe moves one card, gliding there. At either end the cell holds the next
-/// few steps, so a swipe that ran out of cards does not scroll the page.
+/// A project's lane on Home, which shows two whole cards and scrolls to the rest a card
+/// at a time, as every list of cards does (`itemScroll`).
 function Cell({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState<number | null>(null);
 
   // The cell is as tall as its shown cards, so none shows cut at the bottom.
   useLayoutEffect(() => { if (ref.current) setFit(shownHeight(ref.current)); });
-
-  useEffect(() => {
-    const cell = ref.current;
-    if (!cell) return;
-    let travel = 0, held = 0, busy = 0, last = 0;
-
-    const wheel = (event: WheelEvent) => {
-      const dy = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? event.deltaY : event.deltaY * LINE_PX;
-      if (Math.abs(dy) <= Math.abs(event.deltaX) || cell.scrollHeight <= cell.clientHeight) return;
-
-      const now = event.timeStamp;
-      if (now - last > REST_MS) { travel = 0; held = 0; }
-      last = now;
-
-      const to = nextStop(cell, dy > 0);
-      if (to === null && held >= HELD_STEPS) return;
-      event.preventDefault();
-      if (now < busy) return;
-
-      travel += dy;
-      if (Math.abs(travel) < STEP_PX) return;
-      travel = 0;
-      busy = now + GLIDE_MS;
-      if (to === null) { held += 1; return; }
-
-      held = 0;
-      glide(cell, to);
-    };
-
-    cell.addEventListener("wheel", wheel, { passive: false });
-    return () => cell.removeEventListener("wheel", wheel);
-  }, []);
 
   return <div className="bd-lane" ref={ref} style={fit === null ? undefined : { maxHeight: fit }}>{children}</div>;
 }
@@ -167,32 +134,6 @@ function shownHeight(cell: HTMLElement) {
   const gap = Number.parseFloat(getComputedStyle(cell).rowGap) || 0;
 
   return SHOWN * Math.max(...cards) + (SHOWN - 1) * gap;
-}
-
-/// How far the wheel travels for a step, the pixels of a wheel line, how long
-/// a glide takes, the steps an end holds, and the rest that ends a scroll.
-const STEP_PX = 30, LINE_PX = 16, GLIDE_MS = 260, HELD_STEPS = 3, REST_MS = 700;
-
-/// Where the next card up or down starts, or null at that end.
-function nextStop(cell: HTMLElement, down: boolean) {
-  const first = cell.firstElementChild, end = cell.scrollHeight - cell.clientHeight, at = cell.scrollTop;
-  if (!(first instanceof HTMLElement)) return null;
-  const stops = [...cell.children].flatMap(card => card instanceof HTMLElement ? [Math.min(card.offsetTop - first.offsetTop, end)] : []);
-
-  return down
-    ? stops.find(stop => stop > at + 1) ?? null
-    : stops.findLast(stop => stop < at - 1) ?? null;
-}
-
-/// Scrolls `cell` to `to` at once and slides its cards there from where they were.
-function glide(cell: HTMLElement, to: number) {
-  const from = cell.scrollTop;
-  cell.scrollTop = to;
-  if (!motionAllowed()) return;
-
-  for (const card of cell.children) {
-    card.animate([{ transform: `translateY(${cell.scrollTop - from}px)` }, { transform: "none" }], { duration: GLIDE_MS, easing: "cubic-bezier(.2, .8, .2, 1)" });
-  }
 }
 
 type Places = Map<string, { x: number; y: number }>;
