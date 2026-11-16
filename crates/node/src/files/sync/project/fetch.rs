@@ -90,6 +90,8 @@ pub(super) struct Fetcher {
     /// The bytes fetches have received since the node started, for the
     /// progress of a round while one large file comes.
     received: AtomicU64,
+    /// The bytes each running fetch got so far, for the file a round waits on.
+    coming: Mutex<HashMap<Hash, u64>>,
 }
 
 impl Fetcher {
@@ -101,6 +103,7 @@ impl Fetcher {
             down: Mutex::default(),
             unfinished: Mutex::default(),
             received: AtomicU64::new(0),
+            coming: Mutex::default(),
         }
     }
 
@@ -109,9 +112,15 @@ impl Fetcher {
         self.received.load(Ordering::Relaxed)
     }
 
+    /// The bytes of `hash` a running fetch got so far.
+    pub(super) fn coming(&self, hash: &Hash) -> u64 {
+        lock(&self.coming).get(hash).copied().unwrap_or(0)
+    }
+
     /// Forgets what came of the blobs the list no longer wants.
     pub(super) fn keep_only(&self, wanted: &HashSet<Hash>) {
         lock(&self.unfinished).retain(|hash, _| wanted.contains(hash));
+        lock(&self.coming).retain(|hash, _| wanted.contains(hash));
     }
 
     /// Makes sure the store holds `file`'s blob.
@@ -176,12 +185,14 @@ impl Fetcher {
                     let more = bytes.saturating_sub(counted);
                     counted = counted.max(bytes);
                     self.received.fetch_add(more, Ordering::Relaxed);
+                    lock(&self.coming).insert(content.hash, counted);
                 },
             )
             .await;
 
             match fetched {
                 Ok(()) if self.parts.store.blobs().has(content.hash).await? => {
+                    lock(&self.coming).remove(&content.hash);
                     let tag = lock(&self.unfinished).remove(&content.hash);
                     return Ok(Fetched {
                         _tag: tag.context("the file stopped being wanted")?,

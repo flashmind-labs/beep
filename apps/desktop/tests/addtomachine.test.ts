@@ -38,10 +38,18 @@ test("the copy counts against what the other machine holds", () => {
 });
 
 test("while one large file comes, the bytes, rate and time left show", () => {
-  const progress = { files_done: 0, files_total: 11, bytes_done: 12_300_000, bytes_total: 24_700_000, rate: 1_200_000, eta_secs: 10 };
+  const progress = { files_done: 0, files_total: 11, bytes_done: 12_300_000, bytes_total: 24_700_000, rate: 1_200_000, eta_secs: 10, file: null };
   const line = copyLine(detail(row("to", { status: "syncing", pending: 11, progress }), row("from", { files: 11 })), "to", "laptop");
   assert.equal(line.text, "Copying to laptop: 12 MB of 25 MB · 1.2 MB/s · under a minute");
   assert.equal(line.pct, 49);
+  assert.equal(line.file, null);
+});
+
+test("the large file it waits on shows how much of it came", () => {
+  const file = { path: ".git/objects/pack/pack-1a2b.pack", done: 12_300_000, size: 40_000_000 };
+  const progress = { files_done: 250, files_total: 253, bytes_done: 90_000_000, bytes_total: 120_000_000, rate: 0, eta_secs: null, file };
+  const line = copyLine(detail(row("to", { status: "syncing", pending: 3, progress }), row("from", { files: 253 })), "to", "laptop");
+  assert.equal(line.file, "pack-1a2b.pack: 12 MB of 40 MB");
 });
 
 test("a machine that just joined and says it is in sync is not done until it has the files", () => {

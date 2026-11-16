@@ -68,3 +68,19 @@ fn failed_paths_wait_first_and_the_list_is_bounded() {
     assert_eq!(out[0], "bad");
     assert_eq!(out[1], "f0");
 }
+
+#[test]
+fn the_file_it_waits_on_shows_until_it_is_here() {
+    let start = Instant::now();
+    let mut meter = Meter::new(1, 1000, start);
+    let file = FileProgress {
+        path: "data/big.bin".to_owned(),
+        done: 400,
+        size: 1000,
+    };
+    meter.waits_on(Some(file.clone()));
+    assert_eq!(meter.progress().file, Some(file));
+
+    meter.waits_on(None);
+    assert_eq!(meter.progress().file, None);
+}

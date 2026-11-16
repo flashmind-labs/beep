@@ -202,7 +202,7 @@ pub struct ProjectStatus {
 }
 
 /// How far a node is through one round of bringing files in line.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Progress {
     pub files_done: u64,
@@ -213,6 +213,17 @@ pub struct Progress {
     pub rate: u64,
     /// Seconds left at that rate; `None` before it can tell.
     pub eta_secs: Option<u32>,
+    /// The file the round waits on while it comes.
+    pub file: Option<FileProgress>,
+}
+
+/// How much of one file has come.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FileProgress {
+    pub path: String,
+    pub done: u64,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, IntoStaticStr)]

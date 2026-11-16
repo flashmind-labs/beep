@@ -371,16 +371,18 @@ impl Desk {
                 .map(|(sync, seen)| MachineSyncDetail {
                     can_resolve: seen.is_some(),
                     paused: seen.as_ref().is_some_and(|status| status.paused),
-                    progress: seen.as_ref().and_then(|status| status.progress).map(|p| {
-                        SyncProgress {
+                    progress: seen
+                        .as_ref()
+                        .and_then(|status| status.progress.clone())
+                        .map(|p| SyncProgress {
                             files_done: p.files_done,
                             files_total: p.files_total,
                             bytes_done: p.bytes_done,
                             bytes_total: p.bytes_total,
                             rate: p.rate,
                             eta_secs: p.eta_secs,
-                        }
-                    }),
+                            file: p.file,
+                        }),
                     waiting: seen.map(|status| status.waiting).unwrap_or_default(),
                     sync,
                 })

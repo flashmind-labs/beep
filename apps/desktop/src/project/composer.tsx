@@ -780,7 +780,7 @@ async function addToMachine(project: string, m: AgentHost) {
           if (done || !here()) { finish(); break; }
           const line = copyLine(detail, m.machine_id, m.machine_name);
           if (line.done) { finish(); break; }
-          say(line.note ? `${line.text}. ${line.note}` : line.text);
+          say([[line.text, line.file].filter(Boolean).join(" · "), line.note].filter(Boolean).join(". "));
         } while (again && !done);
 
         reading = false;

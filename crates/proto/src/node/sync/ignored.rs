@@ -104,7 +104,7 @@ impl IgnoredSync {
                 .waiting
                 .extend(child.waiting.iter().map(|p| format!("{folder}/{p}")));
             if status.progress.is_none() {
-                status.progress = child.progress;
+                status.progress = child.progress.clone();
             }
             if status.hint.is_none() {
                 status.hint = child.hint.clone();

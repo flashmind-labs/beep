@@ -199,7 +199,7 @@ fn sync_state(project: &Project) -> String {
         State::Paused => "paused".to_owned(),
         _ if status.paused => "paused".to_owned(),
         State::Scanning => "syncing, looking for changes".to_owned(),
-        State::Syncing => match status.progress {
+        State::Syncing => match &status.progress {
             Some(progress) if progress.files_total > 0 => format!(
                 "syncing, {} of {} files",
                 progress.files_done, progress.files_total
