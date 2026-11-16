@@ -198,7 +198,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     key: `issue:${issue.number}`, opened: issue.opened_at, start: { key: `issue:${issue.number}`, project: p.name, number: issue.number, title: issue.title, url: issue.url },
     lead: num(issue.number), title: issue.title, sub: issueMeta(issue, ms => formatAgo(ms, "short")), tags: issue.labels,
     menu: e => thr.issueMenu(e, acts, issue),
-    detail: () => [viewPart("thread", details.pane(pid, { number: issue.number, title: issue.title, url: issue.url, author: issue.author, opened_at: issue.opened_at }, thr.issueButtons(acts, issue)))],
+    detail: () => [viewPart("thread", details.pane(pid, { number: issue.number, title: issue.title, url: issue.url, author: issue.author, opened_at: issue.opened_at }, thr.issueButtons(agent, acts, issue)))],
   }));
   const issueKey = `${p.name}:issues`;
   const issueFilter = labelFilter(issueKey, issueItems, i => i.tags, redrawProjects);

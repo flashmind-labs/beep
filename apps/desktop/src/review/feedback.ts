@@ -18,7 +18,8 @@ import { loadDraft, saveDraft } from "./draftstore.ts";
 import type { DiffFile, ReviewComment } from "./diff-state.ts";
 import type { AgentHost } from "../agents/agents.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
-import { byPreference, keepEffort } from "../agents/agentpick.ts";
+import { byPreference } from "../agents/agentpick.ts";
+import { pickPopover } from "../agents/pick-popover.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import { reason } from "../ui/format.ts";
 /// Calls a Rust command; the Tauri binding loads on first use, so a diff view can be made where there is none.
@@ -219,23 +220,18 @@ export interface Feedback {
   dispose: () => void;
 }
 
+const LABEL = "Review with agent";
+const HINT = "Ask an agent to review these changes. It only reads. Pick a model to start";
+const RUNNING_HINT = "Open the review. The reviewer only reads; its findings become comments here";
+
 export function feedbackButton(o: FeedbackOpts): Feedback {
   let disposed = false;
-  let box: HTMLElement | null = null;
-  let button: HTMLButtonElement | null = null;
-  let slot: HTMLDivElement | null = null;
-  let pickerView: ReactElement | null = null;
-  let open = false;
   let starting = false;
-  let closePickerView: ((el: HTMLElement) => void) | null = null;
   /// When the session's own reviews were last read.
   let tookAt = 0;
   const picked: Picked = { agent: "", model: "", effort: null, query: "" };
   const listeners = new Set<() => void>();
-  /// Set while the header unmounts, when React cannot flush.
-  let committing = false;
-  let current: FeedbackSnapshot = { state: { kind: "ready", reason: "", open: false }, picker: null, note: "" };
-  const connected = () => !!box?.isConnected;
+  let current: FeedbackSnapshot = { state: { kind: "ready", label: LABEL, hint: HINT, reason: "", open: false }, picker: null, note: "" };
 
   const host = () => (o.machine ? hosts?.find(h => h.machine_id === o.machine!.id) ?? null : null);
   const why = () => {
@@ -243,8 +239,21 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     const c: CanStart = { machine: o.machine, root: v ? v.root : null, hosts, hostsFailed, changes: !!v?.files.length };
     return whyNot(c);
   };
+  const pop = pickPopover({
+    picked,
+    machine: () => { const h = host(); return h && o.machine ? { ...o.machine, agents: h.agents } : null; },
+    everywhere: () => [...new Set((hosts ?? []).flatMap(m => m.agents))],
+    bounds: o.bounds,
+    opening: () => {
+      if (disposed || runs.has(o.key)) return false;
+      pickDefaults();
+      return true;
+    },
+    start: () => void start(),
+    draw: drawButton,
+  });
 
-  function pickDefaults(byPreference: (a: string, b: string) => number) {
+  function pickDefaults() {
     const offered = host()?.agents ?? [];
     if (offered.includes(picked.agent)) return;
     const first = lastPick && offered.includes(lastPick.agent) ? lastPick : null;
@@ -254,8 +263,6 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
       const agent = o.prefer && offered.includes(o.prefer) ? o.prefer : [...offered].sort(byPreference)[0] ?? "";
       Object.assign(picked, { agent, model: "", effort: null });
     }
-
-    picked.query = "";
   }
 
   /// Draws the button again. Flushed, as the picker places itself right after
@@ -263,62 +270,11 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   function drawButton(sync = true) {
     if (disposed) return;
     const run = runs.get(o.key);
-    const state: FeedbackState = run ? { kind: "running", agent: agentLabel(run.agent) }
-      : starting ? { kind: "starting" } : { kind: "ready", reason: why(), open };
-    current = { state, picker: pickerView, note: notes.get(o.key) ?? "" };
+    const state: FeedbackState = run ? { kind: "running", agent: agentLabel(run.agent), hint: RUNNING_HINT }
+      : starting ? { kind: "starting" } : { kind: "ready", label: LABEL, hint: HINT, reason: why(), open: pop.open };
+    current = { state, picker: pop.view, note: notes.get(o.key) ?? "" };
     const notify = () => { for (const listener of listeners) listener(); };
     if (sync) flushSync(notify); else notify();
-  }
-
-  function closePicker() {
-    open = false;
-    if (slot) {
-      const closing = slot;
-      closePickerView?.(closing);
-    }
-    document.removeEventListener("pointerdown", outside, true);
-    document.removeEventListener("keydown", onEsc, true);
-  }
-
-  const outside = (e: Event) => {
-    if (!connected() || !(e.target instanceof Node) || !box?.contains(e.target)) { closePicker(); drawButton(); }
-  };
-  const onEsc = (e: KeyboardEvent) => {
-    if (e.key !== "Escape") return;
-    // A diff taken off the page lets the key through.
-    if (!connected()) { closePicker(); drawButton(); return; }
-    e.preventDefault();
-    e.stopPropagation();
-    closePicker();
-    drawButton();
-    button?.focus();
-  };
-
-  async function drawPickerNow() {
-    const h = host();
-    if (!open || !h || !o.machine || !slot || !button || !connected()) return;
-    const { drawPicker, focusSearch, closedPicker } = await picker();
-    closePickerView = closedPicker;
-    if (!open || !slot || !button || !connected()) return;
-    const currentSlot = slot, currentButton = button;
-    const focused = currentSlot.contains(document.activeElement);
-    drawPicker(currentSlot, {
-      render: view => { pickerView = view; drawButton(!committing); },
-      picked,
-      offered: h.agents,
-      everywhere: [...new Set((hosts ?? []).flatMap(m => m.agents))],
-      machine: o.machine,
-      noMachine: "",
-      anchor: () => currentButton,
-      bounds: o.bounds,
-      changed: what => {
-        if (what === "model") { closePicker(); drawButton(); void start(); return; }
-        if (what === "agent") picked.effort = keepEffort(picked.agent, picked.effort);
-        if (what !== "models") void drawPickerNow();
-        if (what === "agent") focusSearch(currentSlot);
-      },
-    });
-    if (focused) focusSearch(currentSlot);
   }
 
   async function start() {
@@ -367,30 +323,19 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     }
   }
 
-  async function onButton() {
-    if (!button || button.disabled) return;
+  function onButton() {
     const run = runs.get(o.key);
     if (run) return openReviewer(run, o.machine?.name ?? "");
-    if (open) { closePicker(); return drawButton(); }
-    readHosts(redraw);
-    const p = await picker();
-    if (disposed || runs.has(o.key) || open || !connected()) return;
-    pickDefaults(byPreference);
-    open = true;
-    document.addEventListener("pointerdown", outside, true);
-    document.addEventListener("keydown", onEsc, true);
-    drawButton();
-    await drawPickerNow();
-    if (slot) p.focusSearch(slot);
+    if (!pop.open) readHosts(redraw);
+    void pop.toggle();
   }
 
   function redraw() {
     if (disposed) return;
     if (Date.now() - tookAt >= HOSTS_MS) { tookAt = Date.now(); void takeSessionReviews(); }
-    if (open && !connected()) closePicker();
     drawButton();
-    if (open && !runs.has(o.key)) void drawPickerNow();
-    else if (open) closePicker();
+    if (pop.open && !runs.has(o.key)) void pop.redraw();
+    else if (pop.open) pop.close();
   }
 
   const attachment: Attached = {
@@ -405,19 +350,15 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   return {
     snapshot: () => current,
     subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    setBox: value => {
-      box = value;
-      // The header went with the picker open.
-      if (!value && open) { committing = true; closePicker(); committing = false; drawButton(false); }
-    },
-    setButton: value => { button = value; },
-    setSlot: value => { slot = value; },
-    click: () => void onButton(),
+    setBox: pop.setBox,
+    setButton: pop.setButton,
+    setSlot: pop.setSlot,
+    click: onButton,
     dismiss: () => { notes.delete(o.key); drawButton(); },
     redraw,
     dispose: () => {
       if (disposed) return;
-      closePicker();
+      pop.close();
       disposed = true;
       if (attached.get(o.key) === attachment) attached.delete(o.key);
     },

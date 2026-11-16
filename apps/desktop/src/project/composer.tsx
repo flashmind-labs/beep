@@ -1,4 +1,8 @@
-import { keepProjectPick, lastProjectPick } from "../agents/agentmodels.ts";
+import { flushSync } from "react-dom";
+import { keepProjectPick, lastProjectPick, type ProjectPick } from "../agents/agentmodels.ts";
+import { pickPopover } from "../agents/pick-popover.ts";
+import type { ThreadButton } from "./threaddetail-view.tsx";
+import type { Picked } from "../agents/agentpicker.tsx";
 import { StashBar } from "../chat/stash-hints.tsx";
 import { ComposerChoices, type ComposerChoicesState } from "./composer-choices.tsx";
 import { composeMessage } from "../chat/compose.tsx";
@@ -15,7 +19,7 @@ import { commandKey, isMobile } from "../ui/platform.ts";
 import { filterProjects } from "./projects-state.ts";
 import { openMenu } from "../ui/menu.tsx";
 import { localProjectId } from "./localid.ts";
-import { addHosts, type BarTarget, barCheckout, barPlace, barPrompt, barReadiness, blockedHosts, forgeOf, nextBarMachine, reviewPrompt, reviewSession, type ReviewSession, reviewTitle, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
+import { addHosts, type BarPlace, type BarTarget, barCheckout, barPlace, barPrompt, barReadiness, blockedHosts, forgeOf, nextBarMachine, reviewPrompt, reviewSession, type ReviewSession, reviewTitle, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine, openAgents, openMachine, openMachines } from "../agents/agentnew.tsx";
 import { TASK_WORDS } from "../agents/assistant-state.ts";
 import type { Machine } from "../machines/machines.tsx";
@@ -168,7 +172,12 @@ function barHarness(place: { machine_id: string } | null) {
 
 /// The bar's project and its checkouts.
 function barProject() {
-  const p = pc.project ? filterProjects(projectRows() || [], pc.project)[0] : null;
+  return pc.project ? projectOf(pc.project) : null;
+}
+
+/// Project `name` and its checkouts.
+function projectOf(name: string) {
+  const p = filterProjects(projectRows() || [], name)[0];
   return p ? { name: p.name, places: projectPlaces(p) } : null;
 }
 
@@ -290,8 +299,7 @@ export function drawProjectComp(name: string) {
 
 /// The newest session of ours in the bar target's worktree on the bar's
 /// machine, or null; none without a target.
-function barExisting(name: string, place: { machine_id: string; cwd: string }) {
-  const t = pc.target;
+function barExisting(name: string, place: { machine_id: string; cwd: string }, t: BarTarget | null) {
   if (!t || !t.branch.trim()) return null;
   // Where the branch list (read on one machine) found its worktree.
   const listed = pc.branches.get(name) as unknown as { machine_id?: string; branches: readonly { name: string; worktree?: string | null }[] } | null | undefined;
@@ -324,9 +332,18 @@ export function pointBar(name: string, machine: string | null) {
 /// Work on it: the bar on a new worktree for the issue, from the default
 /// branch, with the issue's prompt.
 export function workOnIssue(name: string, issue: IssueRow) {
-  const base = baseFor(null, pc.branches.get(name));
-  fillBar(name, issuePrompt(issue), { kind: "issue", number: issue.number, branch: issueBranch(issue.number, issue.title), base });
+  const task = issueTask(name, issue);
+  fillBar(name, task.prompt, task.target);
 }
+
+/// Work on it's task: a new worktree for the issue, from the default branch.
+function issueTask(name: string, issue: IssueRow): ThreadTask {
+  const base = baseFor(null, pc.branches.get(name));
+  return { prompt: issuePrompt(issue), target: { kind: "issue", number: issue.number, branch: issueBranch(issue.number, issue.title), base } };
+}
+
+/// Work on it on the issue's page: starts the agent at once.
+export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick) => startThread(name, issueTask(name, issue), pick);
 
 /// Where each picked issue starts, on the machine and harness the bar has
 /// picked (the one last picked for another project, and the first harness);
@@ -380,19 +397,29 @@ export async function continuePr(name: string, pr: PullRequestRow) {
   fillBar(name, `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, { kind: "pr", number: pr.number, branch: head.branch });
 }
 
-/// Agent review, or Review again: fills the bar with a review prompt, which
-/// goes to the session that reviewed the PR before when there is one. A
-/// fork's branch is not on `origin`, so that review starts on a new worktree
-/// from the default branch and reads the diff through the forge CLI.
+/// Review again from the menu: fills the bar with a review prompt, which
+/// goes to the session that reviewed the PR before when there is one.
 export async function reviewPr(name: string, pr: PullRequestRow) {
+  const task = await reviewTask(name, pr);
+  fillBar(name, task.prompt, task.target);
+}
+
+/// Review with agent on the PR's page: starts the reviewer at once.
+export async function startReview(name: string, pr: PullRequestRow, pick: ProjectPick) {
+  await startThread(name, await reviewTask(name, pr), pick);
+}
+
+/// A review of `pr`. A fork's branch is not on `origin`, so that review
+/// starts on a new worktree from the default branch and reads the diff
+/// through the forge CLI.
+async function reviewTask(name: string, pr: PullRequestRow): Promise<ThreadTask> {
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: localProjectId(name), number: pr.number });
-  const forge = forgeOf(pr.url);
   await ensureSessions().catch(e => console.warn("agent sessions:", e));
   const review = { number: pr.number, earlier: earlierReview(name, pr.number) };
   const target: BarTarget = head.fork
     ? { kind: "issue", number: pr.number, branch: `review-pr-${pr.number}`, base: baseFor(null, pc.branches.get(name)), review }
     : { kind: "pr", number: pr.number, branch: head.branch, review };
-  fillBar(name, reviewPrompt(pr, forge, head.fork, !!review.earlier), target);
+  return { prompt: reviewPrompt(pr, forgeOf(pr.url), head.fork, !!review.earlier), target };
 }
 
 /// Fix this: the bar on the failed run's branch (a new branch when it ran
@@ -451,13 +478,7 @@ async function startFromBar() {
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.update({ error: "Name the branch first." }); return; }
   if (t?.review?.earlier) return continueReview(t.review.number, t.review.earlier, text);
-  const was = barExisting(p.name, place);
   const { agent } = barHarness(place);
-  const model = pc.picked.model.trim() || null, effort = pc.picked.effort;
-  // A session already in the target's worktree: the new one goes beside it.
-  const { cwd, checkout } = was ? { cwd: was.cwd, checkout: null }
-    : t ? { cwd: place.cwd, checkout: targetPlan(t) }
-    : startPlace(pc.checkout, place.cwd, baseFor(null, pc.branches.get(p.name)));
   c.update({ error: "" });
   pc.starting = true;
   pc.open = false;
@@ -467,14 +488,11 @@ async function startFromBar() {
     const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd);
     if (barAttachments.files.pending.length) c.update({ progress: "Starting the agent…" });
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
-    const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt, model, effort, checkout, images });
-    if (model || effort) sessionPicks.set(started.session.id, { model: model ?? "", effort });
+    const session = await startSession(p.name, place, { ...pc.picked, agent: agent ?? "" }, prompt, images, t);
     c.setText("");
     barAttachments.clear();
     pc.target = null;
-    keepMachine(p.name, place.machine_id);
-    if (t?.review) nameReview(started.session, t.review.number);
-    go("pane", { agent: started.session, adopt: true });
+    go("pane", { agent: session, adopt: true });
   } catch (e) {
     c.update({ error: reason(e) });
   } finally {
@@ -483,6 +501,87 @@ async function startFromBar() {
     redrawProjects();
   }
 }
+
+type Image = { name: string; mime: string; data: string };
+
+/// Starts a coding agent of project `name` on `place` with `prompt`: in
+/// `target`'s worktree, beside a session already there, or without a target
+/// in the bar's checkout. Names a review for its PR.
+async function startSession(name: string, place: BarPlace, pick: ProjectPick, prompt: string, images: Image[], target: BarTarget | null) {
+  const was = barExisting(name, place, target);
+  const model = pick.model.trim() || null, effort = pick.effort;
+  const { cwd, checkout } = was ? { cwd: was.cwd, checkout: null }
+    : target ? { cwd: place.cwd, checkout: targetPlan(target) }
+    : startPlace(pc.checkout, place.cwd, baseFor(null, pc.branches.get(name)));
+  const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent: pick.agent, cwd, prompt, model, effort, checkout, images });
+  if (model || effort) sessionPicks.set(started.session.id, { model: model ?? "", effort });
+  keepMachine(name, place.machine_id);
+  if (target?.review) nameReview(started.session, target.review.number);
+
+  return started.session;
+}
+
+/// What Review with agent and Work on it start: the prompt and the worktree.
+export interface ThreadTask { prompt: string; target: BarTarget }
+
+/// The machine thread buttons of project `name` start on, as the bar would.
+function threadPlace(name: string) {
+  const p = projectOf(name);
+  const machine = pc.project === name ? pc.machine : lastMachine(name);
+  return p ? { place: barPlace(p.places, pc.hosts ?? [], machine), why: barPrompt(name, barReadiness(p.places, pc.hosts, machine, pc.blocked)) } : null;
+}
+
+/// Starts `task` of project `name` at once with `pick`, keeps the pick for
+/// the bar, and opens the session.
+async function startThread(name: string, task: ThreadTask, pick: ProjectPick) {
+  const at = threadPlace(name);
+  if (!at?.place) throw new Error(`${at?.why ?? `${name} is not on a machine`}.`);
+  keepProjectPick(name, pick);
+  const session = await startSession(name, at.place, pick, task.prompt, [], task.target);
+  go("pane", { agent: session, adopt: true });
+}
+
+/// Review with agent or Work on it on one thread of project `name`: the
+/// diff's picker under the button, whose model pick runs `start`.
+export function threadButton(name: string, start: (pick: ProjectPick) => void): ThreadButton {
+  const picked: Picked = { agent: "", model: "", effort: null, query: "" };
+  const listeners = new Set<() => void>();
+  let current: ReturnType<ThreadButton["snapshot"]> = { open: false, picker: null };
+  const host = () => {
+    const place = threadPlace(name)?.place;
+    return place ? pc.hosts?.find(h => h.machine_id === place.machine_id) ?? null : null;
+  };
+  const pop = pickPopover({
+    picked,
+    machine: () => { const h = host(); return h && { id: h.machine_id, name: h.machine_name, agents: [...h.agents].sort(byPreference) }; },
+    everywhere: () => [...new Set((pc.hosts ?? []).flatMap(m => m.agents))],
+    bounds: box => box.closest<HTMLElement>(".pj-det"),
+    opening: () => {
+      const offered = host()?.agents ?? [];
+      const saved = lastProjectPick(name);
+      if (saved && offered.includes(saved.agent)) Object.assign(picked, saved);
+      else if (!offered.includes(picked.agent)) Object.assign(picked, { agent: harnessFor(null, [...offered].sort(byPreference), AGENT_ORDER) ?? "", model: "", effort: null });
+      return !!picked.agent;
+    },
+    start: () => start({ agent: picked.agent, model: picked.model, effort: picked.effort }),
+    draw: sync => {
+      current = { open: pop.open, picker: pop.view };
+      const notify = () => { for (const listener of listeners) listener(); };
+      if (sync) flushSync(notify); else notify();
+    },
+  });
+
+  return {
+    snapshot: () => current,
+    subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    setBox: pop.setBox,
+    setButton: pop.setButton,
+    setSlot: pop.setSlot,
+    click: () => void pop.toggle(),
+    why: () => { const at = threadPlace(name); return !pc.hosts ? "" : at?.place ? "" : `${at?.why ?? `${name} is not on a machine`}.`; },
+  };
+}
+
 
 /// The session that last reviewed PR `number` of `project`, found by its
 /// name among the project's sessions on every machine, as it is now.

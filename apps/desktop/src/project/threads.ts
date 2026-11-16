@@ -4,7 +4,10 @@ import type { Ago } from "../ui/format.ts";
 import { plural, reason } from "../ui/format.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
-import type { ThreadActions } from "./threaddetail-view.tsx";
+import type { AgentState, ThreadActions, ThreadButton } from "./threaddetail-view.tsx";
+import type { ProjectPick } from "../agents/agentmodels.ts";
+import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
+import { agentLabel } from "./projects-state.ts";
 import type { ReviewSession } from "./projectbar.ts";
 import type { ProjectRef } from "./localid.ts";
 
@@ -96,11 +99,16 @@ interface ListsRow {
 }
 
 /// What the project page hands the Pull requests and Issues sections: what
-/// Work on it, Continue, Agent review and Open review do.
+/// Work on it, Continue, Review with agent and Open review do. `workOn` and
+/// `reviewPr` fill the bar; the `start` ones start a session at once.
 export interface RepoActs {
   workOn: (issue: IssueRow) => void;
+  startIssue: (issue: IssueRow, pick: ProjectPick) => Promise<void>;
   continuePr: (pr: PullRequestRow) => Promise<void>;
   reviewPr: (pr: PullRequestRow) => Promise<void>;
+  startReview: (pr: PullRequestRow, pick: ProjectPick) => Promise<void>;
+  /// The agent button's picker, whose pick runs `start`.
+  button: (start: (pick: ProjectPick) => void) => ThreadButton;
   /// The session that reviewed the PR before, which Open review opens.
   reviewOf: (pr: PullRequestRow) => ReviewSession | null;
   openReview: (s: ReviewSession) => void;
@@ -129,6 +137,8 @@ interface ProjectThreads {
   prsError: string;
   busy: Set<string>;
   failed: Map<string, string>;
+  /// The agent buttons' pickers, by row key.
+  buttons: Map<string, ThreadButton>;
 }
 
 export function makeThreads(deps: ThreadDeps) {
@@ -142,7 +152,7 @@ export function makeThreads(deps: ThreadDeps) {
 
     if (!s) {
       const k = kept.get(id);
-      s = { issues: k?.issues, prs: k?.prs, issuesError: "", prsError: "", busy: new Set(), failed: new Map() };
+      s = { issues: k?.issues, prs: k?.prs, issuesError: "", prsError: "", busy: new Set(), failed: new Map(), buttons: new Map() };
       all.set(id, s);
     }
 
@@ -214,21 +224,40 @@ export function makeThreads(deps: ThreadDeps) {
     return { buttons, error: keys.map(k => s.failed.get(k)).find(Boolean) ?? null };
   }
 
-  /// A pull request's buttons on the project page: Continue, and Agent review
-  /// or Open review, and why the last one failed.
+  /// A pull request's buttons on the project page: Continue, and Review
+  /// with agent (Reviewing while its review runs) or Open review, and why
+  /// the last one failed.
   function prButtons(project: ProjectRef, ctx: RepoActs, pr: PullRequestRow) {
     const s = of(project.project_id);
     const n = pr.number;
-    const buttons: ThreadActions["buttons"] = [{ key: "continue", label: s.busy.has(`c${n}`) ? "Reading…" : "Continue", primary: true, disabled: s.busy.has(`c${n}`), title: "Start a coding agent on this pull request's branch", run: () => { void act(project.project_id, `c${n}`, () => ctx.continuePr(pr)); } }];
+    const buttons: ThreadActions["buttons"] = [{ kind: "run", key: "continue", label: s.busy.has(`c${n}`) ? "Reading…" : "Continue", primary: true, disabled: s.busy.has(`c${n}`), title: "Start a coding agent on this pull request's branch", run: () => { void act(project.project_id, `c${n}`, () => ctx.continuePr(pr)); } }];
     const reviewed = ctx.reviewOf(pr);
-    if (reviewed) buttons.push({ key: "open-review", label: "Open review", primary: false, disabled: false, title: "Opens the agent's review of this PR. Right-click to review it again.", run: () => ctx.openReview(reviewed) });
-    else buttons.push({ key: "agent-review", label: s.busy.has(`a${n}`) ? "Reading…" : "Agent review", primary: false, disabled: s.busy.has(`a${n}`), title: "Starts an agent that reviews this PR and posts its comments on it", run: () => { void act(project.project_id, `a${n}`, () => ctx.reviewPr(pr)); } });
+    if (reviewed && !AGENT_ACTIVE.has(reviewed.status)) buttons.push({ kind: "run", key: "open-review", label: "Open review", primary: false, disabled: false, title: "Opens the agent's review of this PR. Right-click to review it again.", run: () => ctx.openReview(reviewed) });
+    else {
+      const button = buttonOf(s, `a${n}`, () => ctx.button(pick => void act(project.project_id, `a${n}`, () => ctx.startReview(pr, pick))));
+      const state: AgentState = reviewed ? { kind: "running", agent: agentLabel(reviewed.agent), hint: "Open the review", open: () => ctx.openReview(reviewed) }
+        : s.busy.has(`a${n}`) ? { kind: "starting" }
+        : { kind: "ready", label: "Review with agent", hint: "Pick a model: an agent reviews this PR and posts its comments on it" };
+      buttons.push({ kind: "agent", key: "agent-review", button, state });
+    }
     return actsEl(s, [`c${n}`, `a${n}`], buttons);
   }
 
-  /// An open issue's button: Work on it.
-  function issueButtons(ctx: RepoActs, i: IssueRow): ThreadActions {
-    return { buttons: [{ key: "work", label: "Work on it", primary: true, disabled: false, title: "Start a coding agent on a new branch for this issue", run: () => ctx.workOn(i) }], error: null };
+  /// An open issue's button: Work on it, which starts an agent on a new
+  /// branch for it.
+  function issueButtons(project: ProjectRef, ctx: RepoActs, i: IssueRow): ThreadActions {
+    const s = of(project.project_id);
+    const key = `w${i.number}`;
+    const button = buttonOf(s, key, () => ctx.button(pick => void act(project.project_id, key, () => ctx.startIssue(i, pick))));
+    const state: AgentState = s.busy.has(key) ? { kind: "starting" } : { kind: "ready", label: "Work on it", hint: "Pick a model: an agent starts on a new branch for this issue" };
+    return actsEl(s, [key], [{ kind: "agent", key: "work", button, state }]);
+  }
+
+  /// The agent button of row `key`, made once.
+  function buttonOf(s: ProjectThreads, key: string, make: () => ThreadButton) {
+    let button = s.buttons.get(key);
+    if (!button) s.buttons.set(key, button = make());
+    return button;
   }
 
   /// A pull request row's right-click menu: what its buttons do.

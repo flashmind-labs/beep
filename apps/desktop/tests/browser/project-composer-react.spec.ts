@@ -23,8 +23,8 @@ test("project composer keeps draft, menu choices and issue branch across redraws
   await expect(input).toHaveValue("Keep this draft");
   await expect(machine).toHaveAttribute("data-identity", "kept");
   await page.locator(".pj-strip button").filter({ hasText: "issue" }).click();
-  await page.locator('.pj-det .pj-li[title="Example issue"]').click();
-  await page.getByRole("button", { name: "Work on it", exact: true }).click();
+  await page.locator('.pj-det .pj-li[title="Example issue"]').click({ button: "right" });
+  await page.getByRole("menu", { name: "#7 Example issue" }).getByRole("menuitem", { name: "Work on it" }).click();
   const branch = form.getByRole("textbox", { name: "Branch name" });
   await expect(branch).toHaveValue("issue-7-example-issue");
   await branch.fill("custom-branch");
