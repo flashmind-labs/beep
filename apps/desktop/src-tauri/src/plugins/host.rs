@@ -89,17 +89,32 @@ const COMPOSER_CAT: &[(&str, &[u8])] = &[
     ),
 ];
 
-/// The plugins that ship with the app. The id is checked by a test against the
-/// embedded manifest.
-fn builtins() -> Vec<Builtin> {
-    let cat = "composer-cat".parse::<PluginId>().ok();
+/// The skins that ship with the app. `plugins/skins` is the source.
+const DOT_MATRIX: &[(&str, &[u8])] = &[(
+    "beep-plugin.json",
+    include_bytes!("../../../../../plugins/skins/dot-matrix/beep-plugin.json"),
+)];
+const HARDWARE_DARK: &[(&str, &[u8])] = &[(
+    "beep-plugin.json",
+    include_bytes!("../../../../../plugins/skins/hardware-dark/beep-plugin.json"),
+)];
 
-    cat.into_iter()
-        .map(|id| Builtin {
-            id,
-            files: COMPOSER_CAT,
+/// The plugins that ship with the app, off until the user turns them on. The ids are
+/// checked by a test against the embedded manifests.
+fn builtins() -> Vec<Builtin> {
+    [
+        ("composer-cat", COMPOSER_CAT),
+        ("dot-matrix", DOT_MATRIX),
+        ("hardware-dark", HARDWARE_DARK),
+    ]
+    .into_iter()
+    .filter_map(|(id, files)| {
+        Some(Builtin {
+            id: id.parse::<PluginId>().ok()?,
+            files,
         })
-        .collect()
+    })
+    .collect()
 }
 
 /// Tells the windows what the host reports.
