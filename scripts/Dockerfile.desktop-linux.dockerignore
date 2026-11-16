@@ -16,6 +16,7 @@ target/
 !plugins/
 plugins/*
 !plugins/examples/
+!plugins/skins/
 
 !scripts/
 scripts/*
