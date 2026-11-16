@@ -234,7 +234,7 @@ export function makeThreads(deps: ThreadDeps) {
     const reviewed = ctx.reviewOf(pr);
     if (reviewed && !AGENT_ACTIVE.has(reviewed.status)) buttons.push({ kind: "run", key: "open-review", label: "Open review", primary: false, disabled: false, title: "Opens the agent's review of this PR. Right-click to review it again.", run: () => ctx.openReview(reviewed) });
     else {
-      const button = buttonOf(s, `a${n}`, () => ctx.button(pick => void act(project.project_id, `a${n}`, () => ctx.startReview(pr, pick))));
+      const button = buttonOf(s, `a${n}`, () => ctx.button(pick => void act(project.project_id, `a${n}`, () => ctx.startReview(s.prs?.find(p => p.number === n) ?? pr, pick))));
       const state: AgentState = reviewed ? { kind: "running", agent: agentLabel(reviewed.agent), hint: "Open the review", open: () => ctx.openReview(reviewed) }
         : s.busy.has(`a${n}`) ? { kind: "starting" }
         : { kind: "ready", label: "Review with agent", hint: "Pick a model: an agent reviews this PR and posts its comments on it" };
@@ -248,7 +248,7 @@ export function makeThreads(deps: ThreadDeps) {
   function issueButtons(project: ProjectRef, ctx: RepoActs, i: IssueRow): ThreadActions {
     const s = of(project.project_id);
     const key = `w${i.number}`;
-    const button = buttonOf(s, key, () => ctx.button(pick => void act(project.project_id, key, () => ctx.startIssue(i, pick))));
+    const button = buttonOf(s, key, () => ctx.button(pick => void act(project.project_id, key, () => ctx.startIssue(s.issues?.find(x => x.number === i.number) ?? i, pick))));
     const state: AgentState = s.busy.has(key) ? { kind: "starting" } : { kind: "ready", label: "Work on it", hint: "Pick a model: an agent starts on a new branch for this issue" };
     return actsEl(s, [key], [{ kind: "agent", key: "work", button, state }]);
   }

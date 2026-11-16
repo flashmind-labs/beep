@@ -488,7 +488,7 @@ async function startFromBar() {
     const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd);
     if (barAttachments.files.pending.length) c.update({ progress: "Starting the agent…" });
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
-    const session = await startSession(p.name, place, { ...pc.picked, agent: agent ?? "" }, prompt, images, t);
+    const session = await startSession(p.name, place, { ...pc.picked, agent }, prompt, images, t);
     c.setText("");
     barAttachments.clear();
     pc.target = null;
@@ -507,7 +507,7 @@ type Image = { name: string; mime: string; data: string };
 /// Starts a coding agent of project `name` on `place` with `prompt`: in
 /// `target`'s worktree, beside a session already there, or without a target
 /// in the bar's checkout. Names a review for its PR.
-async function startSession(name: string, place: BarPlace, pick: ProjectPick, prompt: string, images: Image[], target: BarTarget | null) {
+async function startSession(name: string, place: BarPlace, pick: Omit<ProjectPick, "agent"> & { agent: string | null }, prompt: string, images: Image[], target: BarTarget | null) {
   const was = barExisting(name, place, target);
   const model = pick.model.trim() || null, effort = pick.effort;
   const { cwd, checkout } = was ? { cwd: was.cwd, checkout: null }
@@ -577,7 +577,8 @@ export function threadButton(name: string, start: (pick: ProjectPick) => void): 
     setBox: pop.setBox,
     setButton: pop.setButton,
     setSlot: pop.setSlot,
-    click: () => void pop.toggle(),
+    // Without a bar, as on a phone, the machines are read on the first click.
+    click: () => void (pc.hosts ? pop.toggle() : readProjectHosts().then(() => pop.toggle())),
     why: () => { const at = threadPlace(name); return !pc.hosts ? "" : at?.place ? "" : `${at?.why ?? `${name} is not on a machine`}.`; },
   };
 }
