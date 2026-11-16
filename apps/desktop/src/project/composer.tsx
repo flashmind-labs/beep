@@ -1,7 +1,9 @@
 import { flushSync } from "react-dom";
 import { keepProjectPick, lastProjectPick, type ProjectPick } from "../agents/agentmodels.ts";
 import { pickPopover } from "../agents/pick-popover.ts";
-import type { ThreadButton } from "./threaddetail-view.tsx";
+import type { AgentButtonItem, AgentState, PickButton } from "../review/feedback-view.tsx";
+import type { SessionRow } from "./projects-state.ts";
+import { syncRepairPrompt } from "./gitsync-state.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
 import { StashBar } from "../chat/stash-hints.tsx";
 import { ComposerChoices, type ComposerChoicesState, ComposerMachine } from "./composer-choices.tsx";
@@ -45,6 +47,7 @@ import type { SyncDetail } from "./filesync.ts";
 import { projectUnder } from "../addproject/importproject-state.ts";
 import { projectsIn } from "../addproject/importproject.tsx";
 import { refresh } from "../center/refresh.ts";
+import { redrawSync } from "./syncpage.ts";
 import { startAttachments } from "../agents/start-attachments.tsx";
 
 let finishCopy: (() => void) | undefined;
@@ -342,13 +345,13 @@ export function workOnIssue(name: string, issue: IssueRow) {
 }
 
 /// Work on it's task: a new worktree for the issue, from the default branch.
-function issueTask(name: string, issue: IssueRow): ThreadTask {
+function issueTask(name: string, issue: IssueRow): AgentTask {
   const base = baseFor(null, pc.branches.get(name));
   return { prompt: issuePrompt(issue), target: { kind: "issue", number: issue.number, branch: issueBranch(issue.number, issue.title), base } };
 }
 
 /// Work on it on the issue's page: starts the agent at once.
-export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick) => startThread(name, issueTask(name, issue), pick);
+export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick) => startTask(name, issueTask(name, issue), pick);
 
 /// Where each picked issue starts, on the machine and harness the bar has
 /// picked (the one last picked for another project, and the first harness);
@@ -394,13 +397,27 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
   return { started, failed: null, error: null };
 }
 
-/// Continue: reads the pull request's branch, then fills the bar to start
-/// on it. A fork's branch is not on `origin`, so it is refused.
+/// Continue from the menu: fills the bar to start on the PR's branch.
 export async function continuePr(name: string, pr: PullRequestRow) {
+  const task = await continueTask(name, pr);
+  fillBar(name, task.prompt, task.target);
+}
+
+/// Continue on the PR's page: starts the agent at once.
+export async function startContinue(name: string, pr: PullRequestRow, pick: ProjectPick) {
+  await startTask(name, await continueTask(name, pr), pick);
+}
+
+/// Continue's task: the PR's branch. A fork's branch is not on `origin`, so
+/// it is refused.
+async function continueTask(name: string, pr: PullRequestRow): Promise<AgentTask> {
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: localProjectId(name), number: pr.number });
   if (head.fork) throw new Error(`PR #${pr.number} comes from a fork, so its branch ${head.branch} is not in this repository.`);
-  fillBar(name, `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, { kind: "pr", number: pr.number, branch: head.branch });
+  return { prompt: `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, target: { kind: "pr", number: pr.number, branch: head.branch } };
 }
+
+/// The fields of a pull request a review reads.
+type ReviewedPr = Pick<PullRequestRow, "number" | "title" | "url" | "mine">;
 
 /// Review again from the menu: fills the bar with a review prompt, which
 /// goes to the session that reviewed the PR before when there is one.
@@ -410,14 +427,14 @@ export async function reviewPr(name: string, pr: PullRequestRow) {
 }
 
 /// Review with agent on the PR's page: starts the reviewer at once.
-export async function startReview(name: string, pr: PullRequestRow, pick: ProjectPick) {
-  await startThread(name, await reviewTask(name, pr), pick);
+export async function startReview(name: string, pr: ReviewedPr, pick: ProjectPick) {
+  await startTask(name, await reviewTask(name, pr), pick);
 }
 
 /// A review of `pr`. A fork's branch is not on `origin`, so that review
 /// starts on a new worktree from the default branch and reads the diff
 /// through the forge CLI.
-async function reviewTask(name: string, pr: PullRequestRow): Promise<ThreadTask> {
+async function reviewTask(name: string, pr: ReviewedPr): Promise<AgentTask> {
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: localProjectId(name), number: pr.number });
   await ensureSessions().catch(e => console.warn("agent sessions:", e));
   const review = { number: pr.number, earlier: earlierReview(name, pr.number) };
@@ -427,20 +444,47 @@ async function reviewTask(name: string, pr: PullRequestRow): Promise<ThreadTask>
   return { prompt: reviewPrompt(pr, forgeOf(pr.url), head.fork, !!review.earlier), target };
 }
 
-/// Fix this: the bar on the failed run's branch (a new branch when it ran
-/// on the default branch), with the failure and its log in the prompt.
+/// Fix this from the menu: fills the bar with the fix.
 export function fixRun(name: string, detail: RunDetail) {
-  fillBar(name, fixPrompt(detail), runTarget(detail.run, baseFor(null, pc.branches.get(name))));
+  const task = fixTask(name, detail);
+  fillBar(name, task.prompt, task.target);
 }
 
-/// Fix with an agent: the project's bar filled to settle a sync conflict, on
-/// a machine that has it. The user sends it.
+/// Fix this on the run: starts the agent at once.
+export function startFix(name: string, detail: RunDetail, pick: ProjectPick) {
+  return startTask(name, fixTask(name, detail), pick);
+}
+
+/// Fix this's task: the failed run's branch (a new branch when it ran on the
+/// default branch), with the failure and its log in the prompt.
+function fixTask(name: string, detail: RunDetail): AgentTask {
+  return { prompt: fixPrompt(detail), target: runTarget(detail.run, baseFor(null, pc.branches.get(name))) };
+}
+
+/// Fix with an agent from the menu: the project's bar filled to settle a
+/// sync conflict, on a machine that has it. The user sends it.
 export function fixConflict(name: string, c: Conflict) {
   if (!c.holder) return;
   go("projects", { project: name });
   fillBar(name, conflictPrompt(c), null);
   pc.machine = c.holder;
   redrawProjects();
+}
+
+/// Fix with an agent on a conflict: starts the agent at once in the
+/// checkout of the machine that has it.
+export function startConflictFix(name: string, c: Conflict, pick: ProjectPick) {
+  return startTask(name, { prompt: conflictPrompt(c), target: null }, pick, c.holder);
+}
+
+/// Fix with an agent on a blocked Git sync: starts the agent at once in
+/// `machine`'s checkout, with both checkouts and recent sessions in its prompt.
+export async function startSyncRepair(name: string, machine: string, error: string, pick: ProjectPick) {
+  const p = projectRows()?.find(p => p.name === name);
+  if (!p) throw new Error(`${name} is not on a machine.`);
+  const sessions = await invoke<SessionRow[]>("project_sessions", { project: name }).catch(e => { console.warn("repair sessions:", e); return []; });
+  const prompt = syncRepairPrompt({ project: name, machine, error, checkouts: p.machines, git: state.gitsync.get(name) ?? [], sessions });
+  await startTask(name, { prompt, target: null }, pick, machine);
 }
 
 /// The picker above the bar, when open.
@@ -493,7 +537,7 @@ async function startFromBar() {
     const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd);
     if (barAttachments.files.pending.length) c.update({ progress: "Starting the agent…" });
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
-    const session = await startSession(p.name, place, { ...pc.picked, agent }, prompt, images, t);
+    const session = await startSession(p.name, place, { ...pc.picked, agent }, prompt, images, t, pc.checkout);
     c.setText("");
     barAttachments.clear();
     pc.target = null;
@@ -511,16 +555,16 @@ type Image = { name: string; mime: string; data: string };
 
 /// Starts a coding agent of project `name` on `place` with `prompt`: in
 /// `target`'s worktree, beside a session already there, or without a target
-/// in the bar's checkout. This device keeps the start and answers at once with
-/// the session it shows as until its machine names it. A review is named for
-/// its PR then.
-async function startSession(name: string, place: BarPlace, pick: Omit<ProjectPick, "agent"> & { agent: string | null }, prompt: string, images: Image[], target: BarTarget | null) {
+/// in `checkout`. This device keeps the start and answers at once with the
+/// session it shows as until its machine names it. A review is named for its
+/// PR then.
+async function startSession(name: string, place: BarPlace, pick: Omit<ProjectPick, "agent"> & { agent: string | null }, prompt: string, images: Image[], target: BarTarget | null, checkout: CheckoutPick) {
   const was = barExisting(name, place, target);
   const model = pick.model.trim() || null, effort = pick.effort;
-  const { cwd, checkout } = was ? { cwd: was.cwd, checkout: null }
+  const at = was ? { cwd: was.cwd, checkout: null }
     : target ? { cwd: place.cwd, checkout: targetPlan(target) }
-    : startPlace(pc.checkout, place.cwd, baseFor(null, pc.branches.get(name)));
-  const started = await invoke<Started>("agent_begin", { machineId: place.machine_id, agent: pick.agent, cwd, prompt, model, effort, checkout, images });
+    : startPlace(checkout, place.cwd, baseFor(null, pc.branches.get(name)));
+  const started = await invoke<Started>("agent_begin", { machineId: place.machine_id, agent: pick.agent, cwd: at.cwd, prompt, model, effort, checkout: at.checkout, images });
   if (model || effort) sessionPicks.set(started.session.id, { model: model ?? "", effort });
   startedWith(started.session, prompt, images);
   keepMachine(name, place.machine_id);
@@ -539,41 +583,45 @@ listen<AgentStarted>("agent-started", ({ payload: { start, session } }) => {
   nameReview(session, number);
 });
 
-/// What Review with agent and Work on it start: the prompt and the worktree.
-export interface ThreadTask { prompt: string; target: BarTarget }
+/// What an agent button starts: the prompt and the worktree, or the
+/// checkout as it is without one.
+export interface AgentTask { prompt: string; target: BarTarget | null }
 
-/// The machine thread buttons of project `name` start on, as the bar would.
-function threadPlace(name: string) {
+/// The machine agent buttons of project `name` start on: `machine` when it
+/// can, else the one the bar would.
+function threadPlace(name: string, machine: string | null) {
   const p = projectOf(name);
-  const machine = pc.project === name ? pc.machine : lastMachine(name);
+  machine ??= pc.project === name ? pc.machine : lastMachine(name);
   return p ? { place: barPlace(p.places, pc.hosts ?? [], machine), why: barPrompt(name, barReadiness(p.places, pc.hosts, machine, pc.blocked)) } : null;
 }
 
-/// Starts `task` of project `name` at once with `pick`, keeps the pick for
-/// the bar, and opens the session.
-async function startThread(name: string, task: ThreadTask, pick: ProjectPick) {
-  const at = threadPlace(name);
+/// Starts `task` of project `name` at once with `pick`, on `machine` when
+/// it can, keeps the pick for the bar, and opens the session.
+export async function startTask(name: string, task: AgentTask, pick: ProjectPick, machine: string | null = null) {
+  const at = threadPlace(name, machine);
   if (!at?.place) throw new Error(`${at?.why ?? `${name} is not on a machine`}.`);
   keepProjectPick(name, pick);
-  const session = await startSession(name, at.place, pick, task.prompt, [], task.target);
+  const session = await startSession(name, at.place, pick, task.prompt, [], task.target, DEFAULT_CHECKOUT);
   go("pane", { agent: session, adopt: true });
 }
 
-/// Review with agent or Work on it on one thread of project `name`: the
-/// diff's picker under the button, whose model pick runs `start`.
-export function threadButton(name: string, start: (pick: ProjectPick) => void): ThreadButton {
+/// An agent button of project `name` (Continue, Review with agent, Work on
+/// it, Fix this, Fix with an agent): the diff's picker under it, listing
+/// `machine`'s harnesses when it can start there, whose model pick runs
+/// `start`.
+export function pickButton(name: string, start: (pick: ProjectPick) => void, machine: string | null = null): PickButton {
   const picked: Picked = { agent: "", model: "", effort: null, query: "" };
   const listeners = new Set<() => void>();
-  let current: ReturnType<ThreadButton["snapshot"]> = { open: false, picker: null };
+  let current: ReturnType<PickButton["snapshot"]> = { open: false, picker: null };
   const host = () => {
-    const place = threadPlace(name)?.place;
+    const place = threadPlace(name, machine)?.place;
     return place ? pc.hosts?.find(h => h.machine_id === place.machine_id) ?? null : null;
   };
   const pop = pickPopover({
     picked,
     machine: () => { const h = host(); return h && { id: h.machine_id, name: h.machine_name, agents: [...h.agents].sort(byPreference) }; },
     everywhere: () => [...new Set((pc.hosts ?? []).flatMap(m => m.agents))],
-    bounds: box => box.closest<HTMLElement>(".pj-det"),
+    bounds: box => box.closest<HTMLElement>(".pj-det, .pj-actions"),
     opening: () => {
       const offered = host()?.agents ?? [];
       const saved = lastProjectPick(name);
@@ -597,7 +645,58 @@ export function threadButton(name: string, start: (pick: ProjectPick) => void): 
     setSlot: pop.setSlot,
     // Without a bar, as on a phone, the machines are read on the first click.
     click: () => void (pc.hosts ? pop.toggle() : readProjectHosts().then(() => pop.toggle())),
-    why: () => { const at = threadPlace(name); return !pc.hosts ? "" : at?.place ? "" : `${at?.why ?? `${name} is not on a machine`}.`; },
+    why: () => { const at = threadPlace(name, machine); return !pc.hosts ? "" : at?.place ? "" : `${at?.why ?? `${name} is not on a machine`}.`; },
+  };
+}
+
+/// The agent buttons of project pages: Fix this, and Fix with an agent in sync.
+export const projectButtons = agentButtons(() => { redrawProjects(); redrawSync(); });
+
+/// What one agent button starts, as its owner draws it now.
+export interface AgentButtonOpts {
+  project: string;
+  /// The machine it starts on when it can; null for the bar's.
+  machine: string | null;
+  label: string;
+  hint: string;
+  /// The session it started, still working, which the button opens.
+  running: { agent: string; open(): void } | null;
+  start: (pick: ProjectPick) => Promise<void>;
+}
+
+/// Agent buttons kept by key across draws, with the starts going on and why
+/// each last failed. A pick runs the `start` of the latest draw.
+export function agentButtons(redraw: () => void) {
+  const made = new Map<string, PickButton>();
+  const latest = new Map<string, AgentButtonOpts>();
+  const starting = new Set<string>();
+  const failed = new Map<string, string>();
+
+  async function run(key: string, pick: ProjectPick) {
+    const o = latest.get(key);
+    if (!o || starting.has(key)) return;
+    starting.add(key);
+    failed.delete(key);
+    redraw();
+
+    try {
+      await o.start(pick);
+    } catch (e) {
+      failed.set(key, reason(e));
+    } finally {
+      starting.delete(key);
+      redraw();
+    }
+  }
+
+  return (key: string, o: AgentButtonOpts): AgentButtonItem => {
+    latest.set(key, o);
+    let button = made.get(key);
+    if (!button) made.set(key, button = pickButton(o.project, pick => void run(key, pick), o.machine));
+    const state: AgentState = o.running ? { kind: "running", agent: o.running.agent, hint: "Open the session", open: o.running.open }
+      : starting.has(key) ? { kind: "starting" } : { kind: "ready", label: o.label, hint: o.hint };
+
+    return { button, state, error: failed.get(key) ?? "" };
   };
 }
 

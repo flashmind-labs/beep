@@ -1,6 +1,7 @@
 // The diff's keyboard, its current file and its folds: j and k step between
 // files, x folds one, / finds; the current file is marked in the list and its
 // section as the view scrolls.
+import { glide } from "../ui/motion.ts";
 import { currentFile, diffRows, inView, isFolded, estimateHeight, lineKey, matchesFilter, splitRows, stepFile, type DiffFile, type LineMatch } from "./diff-state.ts";
 import { CHUNK, GAP, type Viewer, indexOf, itemAt, keepCurrent, remeasure, remember, shown } from "./diff-viewer.ts";
 
@@ -32,9 +33,15 @@ export function onKey(v: Viewer, e: KeyboardEvent) {
     e.preventDefault();
     if (i != null) jump(v, list[i].path);
   } else if (e.key === "x") {
-    const f = list[at] ?? list[topFile(v, v.files?.scrollTop ?? 0)];
+    // The file holding the focus, else the one clicked or stepped to, else the one at the top.
+    const focused = t.closest<HTMLElement>(".dv-file")?.dataset.path;
+    const path = focused ?? list[at]?.path ?? list[topFile(v, v.files?.scrollTop ?? 0)]?.path;
     e.preventDefault();
-    if (f) toggle(v, f.path);
+
+    if (path) {
+      v.store.setState({ cur: path });
+      toggle(v, path);
+    }
   } else if (e.key === "/") {
     e.preventDefault();
     find?.focus();
@@ -46,10 +53,10 @@ export function jump(v: Viewer, path: string) {
   const index = indexOf(v, path), item = itemAt(v, index), files = v.files;
   if (index < 0 || !item || !files || !v.virtual) return;
   v.store.setState({ cur: path, revealTree: v.state.revealTree + 1, ...revealFolders(v, path) });
-  // A long way is not worth animating; it would draw every file between.
-  const near = Math.abs(item.start - files.scrollTop) < files.clientHeight * 3;
-  const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  v.virtual.scrollToIndex(index, { align: "start", behavior: near && !reduced ? "smooth" : "auto" });
+  // The snap cuts a long way short, so it draws few files between; the list then settles on
+  // the file's measured place.
+  const virtual = v.virtual;
+  glide(files, item.start, "snap", { landed: null, done: () => virtual.scrollToIndex(index, { align: "start" }) });
 }
 
 /// Scrolls line `match` of file `path` to the middle and marks it a moment.

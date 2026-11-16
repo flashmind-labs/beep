@@ -10,14 +10,14 @@ interface DiffFileHeaderProps {
   onCopy: () => void;
   onOpen: () => void;
   folded: boolean;
-  onToggle: (select: boolean) => void;
+  onToggle: () => void;
   onMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 export function DiffFileHeader({ file, count, readOnly, openLabel, onComment, onCopy, onOpen, folded, onToggle, onMenu }: DiffFileHeaderProps) {
   return <div className="dv-fh" tabIndex={0} role="button" aria-expanded={!folded} title="Click or press x to fold" onContextMenu={onMenu}
-    onClick={event => { if (!(event.target instanceof Element) || !event.target.closest(".dv-facts")) onToggle(true); }}
-    onKeyDown={event => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onToggle(false); } }}>
+    onClick={event => { if (!(event.target instanceof Element) || !event.target.closest(".dv-facts")) onToggle(); }}
+    onKeyDown={event => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onToggle(); } }}>
     <span className="dv-chev"><span style={{ display: "grid" }}>
       <Icon name="twist" size={12} />
     </span></span>

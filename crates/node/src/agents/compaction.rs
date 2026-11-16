@@ -1,7 +1,8 @@
 //! How a session gets compacted. An agent with its own auto-compaction is
 //! configured through its environment (`Policy::env`). Only an agent with no
 //! way to configure its own gets the node's `Compactor`: once a turn ends past
-//! the threshold `Policy` sets, it sends `/compact` before the next prompt.
+//! the threshold `Policy` sets, it sends `/compact` at once, ahead of any
+//! prompt waiting.
 //! A token count instead of a percent goes to Codex as its own limit, and to
 //! Claude Code and pi as the node's `/compact` (Claude Code's own trigger is
 //! then turned off).
@@ -176,7 +177,7 @@ impl Route {
 pub(super) struct Compactor {
     policy: Policy,
     route: Route,
-    /// A turn ended past the threshold; `/compact` goes before the next
+    /// A turn ended past the threshold; `/compact` goes before any other
     /// prompt.
     due: bool,
     /// The node's `/compact` is running.
@@ -235,7 +236,7 @@ impl Compactor {
         self.due = policy.due(end.usage) && route.takes_compact(policy, end.commands);
     }
 
-    /// Whether to send `/compact` now, before the next prompt: never while
+    /// Whether to send `/compact` now, before any other prompt: never while
     /// a question waits or a compaction already runs. True marks it sent.
     pub(super) fn start(&mut self, question_open: bool) -> bool {
         if !self.due || self.running || question_open {

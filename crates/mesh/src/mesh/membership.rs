@@ -3,20 +3,20 @@
 use super::{DeviceStatus, Mesh};
 use crate::machine::Device as InventoryDevice;
 use crate::store::TicketPurpose;
-use crate::{DeviceKind, JoinTicket, Key, MeshError};
+use crate::{DeviceKind, Invitation, JoinTicket, Key, MeshError};
 use iroh::EndpointId;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
 impl Mesh {
-    /// The authenticated device that redeemed this ticket on this desktop.
+    /// The authenticated device that redeemed this desktop's invite.
     /// A different ticket's join never counts, even when it happened at the same time.
-    pub async fn joined_with(&self, ticket: &JoinTicket) -> Result<Option<EndpointId>, MeshError> {
-        if ticket.mesh != self.id() {
+    pub async fn joined_with(&self, invite: &Invitation) -> Result<Option<EndpointId>, MeshError> {
+        if invite.addr().id != self.me() {
             return Err(MeshError::OtherMesh);
         }
 
-        let secret = ticket.secret.clone();
+        let secret = invite.secret().clone();
         self.inner
             .store
             .run(move |core| Ok(core.joined_with(&secret)))

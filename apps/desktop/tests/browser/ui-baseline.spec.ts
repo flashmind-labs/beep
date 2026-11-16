@@ -669,6 +669,13 @@ test("agent with commands running and messages queued", async ({ page }) => {
   await baseline(page, "agent-work");
 });
 
+test("agent compacting after its reply, with a command running", async ({ page }) => {
+  const tasks = [{ id: "task-0", name: "npm run dev", description: "npm run dev", state: "running", can_stop: true, output_file: null, summary: null, entry: null }];
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, doing: "Compacting the conversation" } }, agent_tasks: tasks });
+  await expect(page.getByText("Compacting the conversation")).toBeVisible();
+  await expect(page.getByText(/Waiting for/)).toHaveCount(0);
+});
+
 test("agent message of several lines stays inside its field", async ({ page }) => {
   await openAgent(page);
   const area = page.locator("#agfield textarea");

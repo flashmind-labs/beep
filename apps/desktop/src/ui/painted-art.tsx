@@ -48,7 +48,8 @@ function PaintedArt({ scene }: { scene: Scene }) {
     if (!target) return;
 
     // `life` is the finished painting, kept to move it; it is dropped when the strokes are laid again.
-    let frame = 0, strokes: Stroke[] = [], last = 0, seen = false, life: Life | null = null;
+    // A finished painting beats on a timer, so the page wakes once a beat instead of on every display frame.
+    let frame = 0, timer = 0, strokes: Stroke[] = [], last = 0, seen = false, life: Life | null = null;
     const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const alive = !still && scene !== "haze";
     const paint = (now: number) => {
@@ -57,19 +58,21 @@ function PaintedArt({ scene }: { scene: Scene }) {
       const done = still ? 1 : Math.min(1, (now - (began.get(scene) ?? now)) / PLAY_MS[scene]);
 
       if (life) {
-        if (now - last >= BEAT_MS) {
-          last = now;
-          beat(target, life, now);
-        }
+        beat(target, life, now);
       } else if (done === 1 || now - last >= FRAME_MS) {
         last = now;
         draw(target, strokes, done, scene);
         if (done === 1 && alive) life = hold(target, scene);
       }
 
-      if (done < 1 || (life && seen && !document.hidden)) frame = requestAnimationFrame(paint);
+      if (done < 1) frame = requestAnimationFrame(paint);
+      else if (life && seen && !document.hidden) timer = window.setTimeout(wake, BEAT_MS);
     };
-    const wake = () => { if (!frame) frame = requestAnimationFrame(paint); };
+    function wake() {
+      window.clearTimeout(timer);
+      timer = 0;
+      if (!frame) frame = requestAnimationFrame(paint);
+    }
 
     const resized = new ResizeObserver(() => {
       strokes = layStrokes(target.clientWidth, target.clientHeight, scene);
@@ -94,6 +97,7 @@ function PaintedArt({ scene }: { scene: Scene }) {
       watch.disconnect();
       document.removeEventListener("visibilitychange", shown);
       if (frame) cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
     };
   }, [scene]);
 

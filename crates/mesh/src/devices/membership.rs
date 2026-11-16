@@ -37,12 +37,14 @@ pub struct Merged {
 struct Entry {
     device: Device,
     author: EndpointId,
+    genesis: bool,
 }
 
 impl Entry {
-    /// Smaller wins: a desktop beats a node, then the earlier add.
-    fn rank(&self) -> (bool, u64, EndpointId) {
+    /// Smaller wins: the genesis, then a desktop beats a node, then the earlier add.
+    fn rank(&self) -> (bool, bool, u64, EndpointId) {
         (
+            !self.genesis,
             self.device.kind != DeviceKind::Desktop,
             self.device.added_at_ms,
             self.author,
@@ -55,8 +57,10 @@ pub struct Devices {
     mesh: EndpointId,
     ops: Vec<DeviceOp>,
     pending: Vec<DeviceOp>,
-    added: BTreeMap<EndpointId, Entry>,
-    /// Removed key and the earliest `at_ms` of a `Remove` naming it.
+    /// Every `Genesis` and `Add` naming a key.
+    added: BTreeMap<EndpointId, Vec<Entry>>,
+    /// Removed key and the latest `at_ms` of a `Remove` naming it. An `Add`
+    /// stamped later brings the key back.
     removed: BTreeMap<EndpointId, u64>,
 }
 
@@ -117,67 +121,90 @@ impl Devices {
     }
 
     pub fn is_member(&self, id: EndpointId) -> bool {
-        self.added.contains_key(&id) && !self.removed.contains_key(&id)
+        self.current(&id).is_some()
     }
 
-    /// A key that was removed and can never rejoin.
+    /// A key that was removed and not added again since.
     pub fn is_removed(&self, id: EndpointId) -> bool {
-        self.removed.contains_key(&id)
+        self.removed.contains_key(&id) && !self.is_member(id)
     }
 
     pub fn is_desktop(&self, id: EndpointId) -> bool {
-        self.is_member(id)
-            && self
-                .added
-                .get(&id)
-                .is_some_and(|e| e.device.kind == DeviceKind::Desktop)
+        self.current(&id)
+            .is_some_and(|e| e.device.kind == DeviceKind::Desktop)
     }
 
     /// Which entries from `id` may still be taken.
     pub fn write_limit(&self, id: &EndpointId) -> WriteLimit {
-        let Some(entry) = self.added.get(id) else {
-            return WriteLimit::Refused;
-        };
-
-        if entry.device.kind != DeviceKind::Desktop {
-            return WriteLimit::Refused;
+        if let Some(entry) = self.current(id) {
+            return match entry.device.kind {
+                DeviceKind::Desktop => WriteLimit::Always,
+                DeviceKind::Node => WriteLimit::Refused,
+            };
         }
 
+        let was_desktop = self
+            .added
+            .get(id)
+            .is_some_and(|entries| entries.iter().any(|e| e.device.kind == DeviceKind::Desktop));
+
         match self.removed.get(id) {
-            None => WriteLimit::Always,
-            Some(at_ms) => WriteLimit::Until(*at_ms),
+            Some(at_ms) if was_desktop => WriteLimit::Until(*at_ms),
+            _ => WriteLimit::Refused,
         }
     }
 
     pub fn members(&self) -> Vec<Device> {
         self.added
-            .iter()
-            .filter(|(id, _)| !self.removed.contains_key(*id))
-            .map(|(_, entry)| entry.device.clone())
+            .keys()
+            .filter_map(|id| self.current(id))
+            .map(|entry| entry.device.clone())
             .collect()
     }
 
-    /// Signs an `Add` as `key`, which must be a member desktop, and applies it.
-    pub fn add(&mut self, key: &SecretKey, device: Device) -> Result<DeviceOp, MeshError> {
+    /// Signs an `Add` as `key`, which must be a member desktop, and applies
+    /// it. A removed key comes back: the `Add` is stamped after its last
+    /// `Remove`, whatever this clock says.
+    pub fn add(&mut self, key: &SecretKey, mut device: Device) -> Result<DeviceOp, MeshError> {
         self.gate(key.public())?;
 
-        if self.removed.contains_key(&device.id) {
-            return Err(MeshError::Removed(device.id));
+        if let Some(at_ms) = self.removed.get(&device.id) {
+            device.added_at_ms = device.added_at_ms.max(at_ms.saturating_add(1));
         }
 
         self.author(key, OpBody::Add(device))
     }
 
-    /// Signs a `Remove` as `key`, which must be a member desktop, and applies it.
+    /// Signs a `Remove` as `key`, which must be a member desktop, and applies
+    /// it, stamped after every `Add` of `id` so it counts whatever this clock says.
     pub fn remove(&mut self, key: &SecretKey, id: EndpointId) -> Result<DeviceOp, MeshError> {
         self.gate(key.public())?;
+        let last_add = self
+            .added
+            .get(&id)
+            .into_iter()
+            .flatten()
+            .map(|e| e.device.added_at_ms.saturating_add(1))
+            .max()
+            .unwrap_or(0);
         self.author(
             key,
             OpBody::Remove {
                 id,
-                at_ms: now_ms(),
+                at_ms: now_ms().max(last_add),
             },
         )
+    }
+
+    /// The entry that makes `id` a member: the best `Add` stamped after its
+    /// last `Remove`.
+    fn current(&self, id: &EndpointId) -> Option<&Entry> {
+        let removed_at = self.removed.get(id);
+        self.added
+            .get(id)?
+            .iter()
+            .filter(|e| removed_at.is_none_or(|at| e.device.added_at_ms > *at))
+            .min_by_key(|e| e.rank())
     }
 
     fn author(&mut self, key: &SecretKey, body: OpBody) -> Result<DeviceOp, MeshError> {
@@ -252,11 +279,8 @@ impl Devices {
 
     /// Fails unless `author` is a member desktop.
     fn gate(&self, author: EndpointId) -> Result<(), MeshError> {
-        if self.removed.contains_key(&author) {
-            return Err(MeshError::Removed(author));
-        }
-
-        match self.added.get(&author) {
+        match self.current(&author) {
+            None if self.removed.contains_key(&author) => Err(MeshError::Removed(author)),
             None => Err(MeshError::Stranger(author)),
             Some(e) if e.device.kind != DeviceKind::Desktop => Err(MeshError::NotDesktop(author)),
             Some(_) => Ok(()),
@@ -289,21 +313,15 @@ impl Devices {
     fn insert(&mut self, op: DeviceOp) {
         match &op.body {
             OpBody::Genesis(device) | OpBody::Add(device) => {
-                let entry = Entry {
+                self.added.entry(device.id).or_default().push(Entry {
                     device: device.clone(),
                     author: op.author,
-                };
-                let wins = match self.added.get(&device.id) {
-                    None => true,
-                    Some(old) => device.id != self.mesh && entry.rank() < old.rank(),
-                };
-                if wins {
-                    self.added.insert(device.id, entry);
-                }
+                    genesis: matches!(op.body, OpBody::Genesis(_)),
+                });
             }
             OpBody::Remove { id, at_ms } => {
-                let first = self.removed.entry(*id).or_insert(*at_ms);
-                *first = (*first).min(*at_ms);
+                let last = self.removed.entry(*id).or_insert(*at_ms);
+                *last = (*last).max(*at_ms);
             }
         }
 

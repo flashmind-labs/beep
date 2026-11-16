@@ -2,6 +2,28 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.15] - 2026-11-16
+
+### Changed
+
+- Node: `beep-node mesh join` with a fresh ticket brings a removed node
+  back into the mesh.
+
+### Fixed
+
+- Node: A newly started assistant session says it is the assistant from the
+  start, so desktops and phones show it on the Assistant page.
+- Node: a message one agent session sends another with `send_to_agent`
+  reaches a working session at its next step, as a steer, instead of
+  waiting for the turn to end. Pressing Stop on that session no longer
+  deletes these messages. They go out as the next prompt.
+- Node: after a refused join on a removed node, running `beep-node mesh
+  join` again no longer fails with "this directory already belongs to a
+  mesh".
+- Node: a session past its compaction limit compacts as soon as its turn
+  ends, so the next message no longer waits behind a compaction that starts
+  only when the message is sent.
+
 ## [0.7.14] - 2026-11-16
 
 ### Added

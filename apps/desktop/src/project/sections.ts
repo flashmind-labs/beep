@@ -26,10 +26,9 @@ import { openUrl } from "../center/openitems.ts";
 import { currentLocation, go, drawTop } from "../center/views.tsx";
 import { openTile } from "./split.tsx";
 import { AG } from "../agents/agents.ts";
-import { barOn, drawProjectComp, workOnIssue, startIssue, continuePr, reviewPr, startReview, threadButton, earlierReview, fixRun, fixConflict } from "./composer.tsx";
+import { barOn, drawProjectComp, workOnIssue, startIssue, continuePr, startContinue, reviewPr, startReview, pickButton, earlierReview, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
 import { redrawSync } from "./syncpage.ts";
-import { openSyncRepair } from "./loads.tsx";
 import { drawProjects } from "./page.tsx";
 
 /// The row of the project's list picked, null for the first, and a run to
@@ -39,7 +38,16 @@ import { drawProjects } from "./page.tsx";
 export const pa = { tile: null as string | null, run: null as { project: string; id: number; host: string } | null, blank: false };
 
 export const terms = makeTerminals({ invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => redrawProjects(), kept: keptSection("terminals") });
-export const fsync = makeFileSync({ invoke, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, fixGit: (project, machine, error) => void openSyncRepair(project, machine, error), kept: keptSection("filesync") });
+export const fsync = makeFileSync({
+  invoke, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, kept: keptSection("filesync"),
+  fixButton: (project, c) => projectButtons(`conflict ${project}\n${c.path}`, { project, machine: c.holder, label: "Fix with an agent", hint: "Pick a model: an agent merges the two copies on the machine that has them", running: null, start: pick => startConflictFix(project, c, pick) }),
+  repairButton: (project, machine, error) => repairButton(project, machine, error),
+});
+
+/// Fix with an agent on a blocked Git sync of `project` on `machine`.
+export function repairButton(project: string, machine: string, error: string) {
+  return projectButtons(`repair ${project}\n${machine}`, { project, machine, label: "Fix with an agent", hint: "Pick a model: an agent starts here with both checkouts and recent sessions in its prompt", running: null, start: pick => startSyncRepair(project, machine, error, pick) });
+}
 
 export const gitHistory = makeGitHistory({
   invoke,
@@ -77,6 +85,8 @@ export const runs = makeRuns({
   redraw: () => redrawProjects(),
   openUrl,
   fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
+  startFix: (name, detail, pick) => startFix(name, detail, pick),
+  button: (key, o) => projectButtons(key, o),
   mode: liveMode.mode,
   kept: keptSection("runs"),
   hostsChanged: () => redrawProjectsPage(),
@@ -123,9 +133,10 @@ export function repoActs(p: Project): RepoActs {
     workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
     startIssue: (issue: IssueRow, pick: ProjectPick) => startIssue(p.name, issue, pick),
     continuePr: (pr: PullRequestRow) => continuePr(p.name, pr),
+    startContinue: (pr: PullRequestRow, pick: ProjectPick) => startContinue(p.name, pr, pick),
     reviewPr: (pr: PullRequestRow) => reviewPr(p.name, pr),
     startReview: (pr: PullRequestRow, pick: ProjectPick) => startReview(p.name, pr, pick),
-    button: start => threadButton(p.name, start),
+    button: start => pickButton(p.name, start),
     reviewOf: (pr: PullRequestRow) => earlierReview(p.name, pr.number),
     openReview: (session: ReviewSession) => go("pane", { agent: session }),
   };

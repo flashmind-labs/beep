@@ -21,7 +21,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
-    DeviceKind, DeviceStatus, InUse, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerClient,
+    DeviceKind, DeviceStatus, InUse, Invitation, JoinProtocol, Mesh, MeshProtocol, PeerClient,
     PeerStream, SessionFn, StreamHandler,
 };
 use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, report, status::Report};
@@ -453,37 +453,28 @@ impl Peers {
 
     /// Joins the mesh a desktop's ticket names. The ticket is read once and
     /// never logged or put in an error. A node whose mesh removed it has no
-    /// mesh to keep and takes the new one in its place.
+    /// mesh to keep and takes the new one in its place, also after a refused
+    /// try already closed the old one.
     pub(crate) async fn join(&self, ticket: &str) -> Result<()> {
-        let ticket = JoinTicket::parse(ticket)?;
+        let invite: Invitation = ticket.parse()?;
         let old = self.active().map(|active| active.mesh);
 
         if old.as_ref().is_some_and(|mesh| mesh.is_member(mesh.me())) {
             bail!("this node already belongs to a mesh");
         }
 
-        let mesh = match old {
-            Some(old) => {
-                self.leave().await;
-                close_within(old).await?;
-                Mesh::join_replacing_lone(
-                    &self.inner.dir,
-                    self.inner.endpoint.clone(),
-                    &ticket,
-                    &self.inner.name,
-                )
-                .await
-            }
-            None => {
-                Mesh::join(
-                    &self.inner.dir,
-                    self.inner.endpoint.clone(),
-                    &ticket,
-                    &self.inner.name,
-                )
-                .await
-            }
+        if let Some(old) = old {
+            self.leave().await;
+            close_within(old).await?;
         }
+
+        let mesh = Mesh::join_replacing_lone(
+            &self.inner.dir,
+            self.inner.endpoint.clone(),
+            invite,
+            &self.inner.name,
+        )
+        .await
         .context("could not join")?;
         self.install(mesh);
         Ok(())

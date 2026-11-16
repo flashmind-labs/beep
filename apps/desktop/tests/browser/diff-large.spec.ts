@@ -178,3 +178,24 @@ test("the file list marks the files a review commented on", async ({ page }, inf
   await expect(row.locator(".dv-cm")).toHaveAttribute("title", "2 comments");
   await expect(page.locator(".dv-tree .dv-cm")).toHaveCount(1);
 });
+
+test("x folds and opens the file last clicked, not the one at the top", async ({ page }, info) => {
+  test.skip(info.project.name !== "macOS", "one run is enough");
+  await setup(page);
+  await page.evaluate(() => Reflect.get(window, "openLargeDiff")());
+  const files = page.locator(".dv-files");
+  await expect(files.locator(".dv-file .dv-l").first()).toBeVisible();
+  // Scroll so the second file starts mid screen, below the one at the top.
+  const second = files.locator(".dv-file").nth(1);
+  await files.evaluate((el, top) => { el.scrollTop = top - el.clientHeight / 2; }, await second.evaluate(el => el instanceof HTMLElement ? el.offsetTop : 0));
+  const path = await second.getAttribute("data-path");
+  const target = files.locator(`.dv-file[data-path="${path}"]`);
+  const top = files.locator(".dv-file").first();
+  await target.locator(".dv-l").first().click();
+
+  await page.keyboard.press("x");
+  await expect(target).toHaveClass(/closed/);
+  await expect(top).not.toHaveClass(/closed/);
+  await page.keyboard.press("x");
+  await expect(target).not.toHaveClass(/closed/);
+});

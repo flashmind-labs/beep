@@ -280,14 +280,13 @@ const FileSection = memo(function FileSection({ v, file, index, top, folded, cur
   }, [v, path]);
 
   return <section ref={ref} className={`dv-file${folded ? " closed" : ""}${cur ? " cur" : ""}`} data-path={path} data-index={index}
-    style={{ top: `${top}px` }} hidden={hidden}>
+    style={{ top: `${top}px` }} hidden={hidden} onPointerDown={() => { if (v.state.cur !== path) v.store.setState({ cur: path }); }}>
     <div style={{ display: "contents" }}>
       <DiffFileHeader file={file} count={count ? plural(count, "comment", "comments") : ""} readOnly={!!v.src.readOnly}
         openLabel={v.src.open?.label ?? null} folded={folded}
-        onToggle={select => {
-          if (select) v.store.setState({ cur: path });
+        onToggle={() => {
+          v.store.setState({ cur: path });
           toggle(v, path);
-          if (select) markCurrent(v);
         }}
         onMenu={event => fileMenu(v, event.nativeEvent, file)}
         onComment={() => openEditor(v, { path, side: "new", line: null, text: "" }, true)}

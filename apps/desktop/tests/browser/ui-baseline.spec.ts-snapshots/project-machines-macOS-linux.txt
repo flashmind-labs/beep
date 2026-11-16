@@ -298,7 +298,11 @@ body.cbody
                       span "Another copy of notes.txt · on build-box"
                     span.acts
                       button.dbtn.small [title="Shows what differs between notes.txt and this copy" type="button"] "Compare"
-                      button.dbtn.pri.small [title="Fills the bar to merge the two; you send it" type="button"] "Fix with an agent"
+                      span.dv-fbw
+                        button.dv-btn.dv-fb [disabled title="No machine has a coding agent. Install one in Coding agents." type="button"] "Fix with an agent"
+                          span style(display)
+                            svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                        div
                       button.dbtn.small [title="Puts this copy in place of notes.txt on every machine" type="button"] "Keep this copy"
                       button.dbtn.small [title="Keeps notes.txt and deletes this copy on every machine" type="button"] "Keep the original"
                 div.dmuted.fs-note "Builds, ignored files and links stay on each machine."

@@ -7,6 +7,67 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.20] - 2026-11-16
+
+### Added
+
+- Desktop: an agent reply in a coding agent session has a Copy button
+  that copies the reply's text. The button appears once the reply has
+  finished.
+- Desktop: double-click the code of a text file in the file pane to edit
+  it, with the cursor placed where you clicked.
+
+### Changed
+
+- Desktop: cards in lists (Home, project pages, the board's cells,
+  notifications, the conversation switcher and Settings) scroll one card
+  at a time. A short scroll moves one card, and a fast scroll moves
+  several and slows into the card it ends on.
+- Desktop: going to the next find match in a chat, or to the latest
+  message, glides there, and the match lights up.
+- Desktop: Home's section jumps and the diff's next file snap there
+  quickly.
+- Desktop: a machine removed from the mesh can be added back with a new
+  pairing ticket. It keeps its identity instead of being refused with
+  "this key was removed".
+- Desktop: a project board's lanes show as many cards as fit on the page and
+  scroll to the rest one card at a time, as on Home, instead of splitting into
+  two columns. A lane with more cards than it shows hides the wanderer
+  painting, so the cards get wider.
+- Desktop: a painting keeps moving gently after it has painted in. Water and
+  fields sway, and a few spots flicker in the light while the painting is on
+  screen. It rests when it scrolls out of view or the window is hidden. The
+  dawn haze behind the sidebar and lists stays still, and with Reduce motion
+  on, the paintings stay still.
+
+### Fixed
+
+- Desktop: on Home, scrolling up with the pointer over a board cell
+  scrolls the page again.
+- Desktop: the Copy button under a quote at the end of an agent reply
+  appears once the reply finishes, not while the quote is still
+  streaming in.
+- Desktop: the output of an opened tool call can be selected again.
+- Desktop: a notification for a coding agent question that asks you to
+  choose an answer no longer offers Allow and Deny. Clicking it opens the
+  chat so you can pick an answer. This applies to system notifications
+  and the bell.
+- Desktop: answering a question in the chat marks its notification as
+  answered right away, instead of leaving Allow and Deny showing for
+  minutes.
+- Desktop: a session that compacts its conversation shows "Compacting the
+  conversation" instead of "Waiting for 1 command" when a background command
+  is still running.
+- Desktop: A message card in an agent session now reads "From <project>" for the sender's project, so it no longer looks like the session lives in that project.
+- Desktop: in the diff viewer, pressing x folded the file at the top of
+  the scroll instead of the file you clicked. Clicking anywhere in a
+  file now makes it the current file, so x folds or opens that one.
+- Desktop: On macOS, the text cursor in the chat composer and the new-session composer is now the same height as the text instead of taller than it.
+- Desktop: selected code in the file editor is readable on light skins.
+- Desktop: code in the file view can be selected.
+- Desktop: syntax colours for keywords, strings and numbers are readable
+  on light skins.
+
 ## [0.9.19] - 2026-11-16
 
 ### Added

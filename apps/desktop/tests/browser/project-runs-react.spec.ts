@@ -4,7 +4,12 @@ import { openDesktop, projectName } from "./harness.ts";
 test("workflow run retains focus while details update", async ({ page }) => {
   const run = { id: 42, number: 42, workflow: 'Build', title: 'Example run', branch: 'main', event: 'push', actor: 'Example', state: 'failed', url: 'https://example.test/run/42', started_at: 1, finished_at: 2, progress: null, pull_requests: [], host: 'github.com' };
   const detail = { run, jobs: [{ id: 1, name: 'Test', state: 'failed', started_at: 1, finished_at: 2, steps: [{ number: 1, name: 'Run tests', state: 'failed', started_at: 1, finished_at: 2 }], url: 'https://example.test/log' }], log: { job: 'Test', step: 'Run tests', text: 'Example failure', truncated: false }, error: null, rate_limited_until: null };
-  await openDesktop(page, false, { center_project_runs: { runs: [run], checks: [], synced_at: null, error: null, rate_limited_until: null }, center_project_run: detail });
+  await openDesktop(page, false, {
+    agent_hosts: [{ machine_id: 'build-box', machine_name: 'build-box', agents: ['codex'], workspace: null, home: '/srv', capabilities: [] }],
+    agent_models: { pick: 'listed', current: 'alpha', models: [{ id: 'alpha', name: 'Alpha', description: null }] },
+    agent_begin: { session: { machine_id: 'build-box', machine_name: 'build-box', id: 'start:fixer', agent: 'codex', cwd: '/srv/project', status: 'starting', external: false, question: null }, why: '' },
+    center_project_runs: { runs: [run], checks: [], synced_at: null, error: null, rate_limited_until: null }, center_project_run: detail,
+  });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "actions" } }), projectName);
   const header = page.locator('.rr-head').filter({ hasText: 'Build #42' });
   await expect(header).toBeVisible();
@@ -18,9 +23,15 @@ test("workflow run retains focus while details update", async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Fix this' })).toBeVisible();
   await header.click({ button: 'right' });
   await expect(page.getByRole('menuitem', { name: 'Full log' })).toBeVisible();
-  await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Fix this' }).click();
+  // The menu fills the bar to edit the prompt first; the button starts at once.
+  await page.getByRole('menuitem', { name: 'Fix this' }).click();
   await expect(page.getByRole('textbox', { name: 'Task for a coding agent' })).toHaveValue(/Build/);
+  await page.getByRole('button', { name: 'Fix this' }).click();
+  await page.getByRole('dialog', { name: 'Harness, model and thinking' }).locator('[data-agmo="alpha"]').click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'agent_begin').length)).toBe(1);
+  const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === 'agent_begin')?.args);
+  expect(args).toMatchObject({ agent: 'codex', model: 'alpha' });
+  expect(String(args?.prompt)).toContain('Fix the failing Build run #42');
 });
 
 test("workflow filters retain host labels and show read errors", async ({ page }) => {

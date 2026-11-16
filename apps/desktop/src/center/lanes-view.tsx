@@ -4,6 +4,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Icon } from "../ui/icons.tsx";
+import { AgentButton, type AgentButtonItem } from "../review/feedback-view.tsx";
 import { Button, LineRow, onRowKey } from "../ui/kit.tsx";
 import { openMenu, type MenuAction } from "../ui/menu.tsx";
 import { heroCard, motionAllowed, movePlaying, setHeroCard, withMove } from "../ui/motion.ts";
@@ -29,17 +30,20 @@ export interface BoardCard {
   menu: ((event: MouseEvent) => void) | null;
 }
 
-/// What a card's button does: one thing, or a menu of them.
+/// What a card's button does: one thing, a menu of them, or an agent
+/// button whose model pick starts a session.
 type CardAction =
   | { kind: "run"; label: string; primary: boolean; run(): void }
-  | { kind: "menu"; label: string; items: readonly MenuAction[] };
+  | { kind: "menu"; label: string; items: readonly MenuAction[] }
+  | { kind: "agent"; item: AgentButtonItem };
 
 function ActionButton({ action, title }: { action: CardAction; title: string }) {
-  if (action.kind === "menu") {
-    return <Button small className="bd-pick" aria-haspopup="menu" onClick={event => { event.stopPropagation(); openMenu(event.nativeEvent, title, action.items); }}>{action.label}<Icon name="caretDown"/></Button>;
+  switch (action.kind) {
+    case "menu": return <Button small className="bd-pick" aria-haspopup="menu" onClick={event => { event.stopPropagation(); openMenu(event.nativeEvent, title, action.items); }}>{action.label}<Icon name="caretDown"/></Button>;
+    // Clicks in its picker stay off the card.
+    case "agent": return <span style={{ display: "contents" }} onClick={event => event.stopPropagation()}><AgentButton item={action.item} /></span>;
+    case "run": return <Button look={action.primary ? "primary" : "secondary"} small onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</Button>;
   }
-
-  return <Button look={action.primary ? "primary" : "secondary"} small onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</Button>;
 }
 
 /// Home's rows, a project each: its dot's color, and what its name opens; null when it has neither.
@@ -115,9 +119,8 @@ function Card({ card, open }: { card: BoardCard; open(): void }) {
 /// or as many as fit above the bottom of a project's page.
 type Shown = "two" | "page";
 
-/// A lane's cards, which scroll a card at a time. A wheel notch or a swipe
-/// moves one card, gliding there. At either end the cell holds the next few
-/// steps, so a swipe that ran out of cards does not scroll the page.
+/// A lane's cards, which scroll a card at a time, as every list of cards does
+/// (`itemScroll`).
 function Cell({ shown, children }: { shown: Shown; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState<number | null>(null);
@@ -134,38 +137,6 @@ function Cell({ shown, children }: { shown: Shown; children: ReactNode }) {
     observer.observe(page);
     return () => observer.disconnect();
   }, [shown]);
-
-  useEffect(() => {
-    const cell = ref.current;
-    if (!cell) return;
-    let travel = 0, held = 0, busy = 0, last = 0;
-
-    const wheel = (event: WheelEvent) => {
-      const dy = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? event.deltaY : event.deltaY * LINE_PX;
-      if (Math.abs(dy) <= Math.abs(event.deltaX) || cell.scrollHeight <= cell.clientHeight) return;
-
-      const now = event.timeStamp;
-      if (now - last > REST_MS) { travel = 0; held = 0; }
-      last = now;
-
-      const to = nextStop(cell, dy > 0);
-      if (to === null && held >= HELD_STEPS) return;
-      event.preventDefault();
-      if (now < busy) return;
-
-      travel += dy;
-      if (Math.abs(travel) < STEP_PX) return;
-      travel = 0;
-      busy = now + GLIDE_MS;
-      if (to === null) { held += 1; return; }
-
-      held = 0;
-      glide(cell, to);
-    };
-
-    cell.addEventListener("wheel", wheel, { passive: false });
-    return () => cell.removeEventListener("wheel", wheel);
-  }, []);
 
   return <div className={fit === null ? "bd-lane cell" : "bd-lane cell full"} ref={ref} style={fit === null ? undefined : { maxHeight: fit }}>{children}</div>;
 }
@@ -196,32 +167,6 @@ function pageFits(cell: HTMLElement, step: number) {
 /// The project page that scrolls a board's lanes.
 function pageOf(cell: HTMLElement) {
   return cell.closest<HTMLElement>(".pj-board");
-}
-
-/// How far the wheel travels for a step, the pixels of a wheel line, how long
-/// a glide takes, the steps an end holds, and the rest that ends a scroll.
-const STEP_PX = 30, LINE_PX = 16, GLIDE_MS = 260, HELD_STEPS = 3, REST_MS = 700;
-
-/// Where the next card up or down starts, or null at that end.
-function nextStop(cell: HTMLElement, down: boolean) {
-  const first = cell.firstElementChild, end = cell.scrollHeight - cell.clientHeight, at = cell.scrollTop;
-  if (!(first instanceof HTMLElement)) return null;
-  const stops = [...cell.children].flatMap(card => card instanceof HTMLElement ? [Math.min(card.offsetTop - first.offsetTop, end)] : []);
-
-  return down
-    ? stops.find(stop => stop > at + 1) ?? null
-    : stops.findLast(stop => stop < at - 1) ?? null;
-}
-
-/// Scrolls `cell` to `to` at once and slides its cards there from where they were.
-function glide(cell: HTMLElement, to: number) {
-  const from = cell.scrollTop;
-  cell.scrollTop = to;
-  if (!motionAllowed()) return;
-
-  for (const card of cell.children) {
-    card.animate([{ transform: `translateY(${cell.scrollTop - from}px)` }, { transform: "none" }], { duration: GLIDE_MS, easing: "cubic-bezier(.2, .8, .2, 1)" });
-  }
 }
 
 type Places = Map<string, { x: number; y: number }>;

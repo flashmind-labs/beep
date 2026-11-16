@@ -9,6 +9,9 @@ type WaitTarget = { kind: "subagent"; at: number } | { kind: "command" };
 /// window first saw it running.
 export interface BackgroundWork { target: WaitTarget; title: string; start: number }
 
+/// The status a session shows while the node compacts its conversation.
+export const COMPACTING = "Compacting the conversation";
+
 /// "Waiting for 2 subagents and 1 command", with the oldest one's title,
 /// start and target.
 export interface WaitLine { label: string; title: string; start: number; target: WaitTarget }

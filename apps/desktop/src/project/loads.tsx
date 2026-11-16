@@ -23,12 +23,12 @@ import { state, pages, keep, pageFresh } from "../center/state.ts";
 import { openUrl, refreshGit } from "../center/openitems.ts";
 import { currentLocation, go } from "../center/views.tsx";
 import { projectRows, importSheet, addProject, importFromPage, loadFound } from "../center/sidebar.tsx";
-import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage } from "./sections.ts";
+import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage, repairButton } from "./sections.ts";
 import { drawProjects } from "./page.tsx";
 import { refresh, onScreen } from "../center/refresh.ts";
 import { openAddToMachine } from "./addmachine.tsx";
 import type { RunningAgent } from "../agents/running-state.ts";
-import { syncRepairPrompt, agentCanFix, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
+import { agentCanFix, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
 import { openHandoff } from "./handoff.tsx";
 import { perfFresh } from "../ui/perf.ts";
 
@@ -217,7 +217,7 @@ export function gitControls(p: Project, m: WhereRow, online: boolean) {
   }) : [];
   return { line, buttons, failed: line.buttons ? failed : null,
     handoff: line.buttons && p.machines.length > 1 && !m.syncthing ? () => openHandoff(p, m.id, () => { loadGit(p.name); refresh(); }) : null,
-    fix: line.buttons && failed && agentCanFix(failed) ? () => void openSyncRepair(p.name, m.id, failed) : null };
+    fix: line.buttons && failed && agentCanFix(failed) ? repairButton(p.name, m.id, failed) : null };
 }
 
 export function missingMachine(p: Project, m: WhereRow) {
@@ -228,20 +228,6 @@ export function missingMachine(p: Project, m: WhereRow) {
     else if (m.kind === "none" && p.url) { const url = p.url; action = { label: "Clone here", disabled: false, run: () => importSheet(repoFromRemote(url), m.id) }; }
   }
   return { text, title, syncthing: m.kind === "none" ? m.syncthing ?? null : null, action };
-}
-
-/// Opens a reviewable draft; no agent starts until the user sends it.
-export async function openSyncRepair(project: string, machine: string, error: string) {
-  const p = projectRows()?.find(p => p.name === project);
-  const place = p?.machines.find(m => m.id === machine);
-  if (!p || !place) return;
-  let sessions: SessionRow[] = [];
-
-  try { sessions = await invoke<SessionRow[]>("project_sessions", { project }); }
-  catch (e) { console.warn("repair sessions:", e); }
-
-  const prompt = syncRepairPrompt({ project, machine, error, checkouts: p.machines, git: state.gitsync.get(project) ?? [], sessions });
-  go("pane", { agentnew: { prompt, at: { machine, cwd: place.folder, places: projectPlaces(p), project }, assistant: false } });
 }
 
 /// Actions shared by a checkout's machine header and table row.
