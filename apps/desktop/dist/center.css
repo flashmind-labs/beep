@@ -505,7 +505,7 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .pj-post .by b { color: var(--fg); font-weight: 600 }
 .pj-post .pj-md { padding: 10px 12px }
 .pj-reply { display: grid; gap: 6px; justify-items: start }
-.pj-reply textarea { box-sizing: border-box; width: 100%; min-height: 72px; resize: vertical; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: color-mix(in srgb, var(--shade) 25%, transparent); color: var(--fg); font: inherit; font-size: 13px; outline: 0; -webkit-user-select: text; user-select: text }
+.pj-reply textarea { box-sizing: border-box; width: 100%; min-height: 72px; resize: vertical; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; outline: 0; -webkit-user-select: text; user-select: text }
 .pj-reply textarea:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 
 /* Its search, filtering as the user types. */
@@ -571,7 +571,7 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .in-ed { display: grid; gap: 10px; padding: 10px 12px }
 .in-ver { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted) }
 .in-ver b { color: var(--fg); font-weight: 600 }
-.in-ed textarea { min-height: 300px; resize: vertical; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: color-mix(in srgb, var(--shade) 25%, transparent); color: var(--fg); font: 12.5px/1.55 var(--mono, ui-monospace, monospace); outline: 0; -webkit-user-select: text; user-select: text }
+.in-ed textarea { min-height: 300px; resize: vertical; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: 12.5px/1.55 var(--mono, ui-monospace, monospace); outline: 0; -webkit-user-select: text; user-select: text }
 .in-ed textarea:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 .in-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
 .in-acts small { margin-left: auto; color: var(--muted); font-size: 11.5px }
@@ -583,7 +583,7 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .in-layers li small { grid-column: 2; font-size: 11.5px; color: var(--muted) }
 .in-layers li.me { background: color-mix(in srgb, var(--accent) 14%, transparent) }
 .in-layers b { font-weight: 500; color: var(--fg) }
-.in-pre { margin: 4px 0 6px; padding: 8px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--shade) 25%, transparent); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; max-height: 260px; overflow: auto }
+.in-pre { margin: 4px 0 6px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--deep); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; max-height: 260px; overflow: auto }
 .in-hist { padding: 10px 12px; border-bottom: 1px solid var(--border) }
 .in-hist:last-child { border-bottom: 0 }
 .in-hist .h { display: flex; align-items: center; gap: 10px; font-size: 12.5px }
@@ -595,7 +595,7 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .tm-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted) }
 .tm-head b { color: var(--fg); font-weight: 600 }
 .tm-head .tm-st { margin-left: auto }
-.tm-screen { margin: 0; min-height: 280px; max-height: 52vh; overflow: auto; padding: 12px 14px; background: color-mix(in srgb, var(--shade) 35%, transparent); font: 12px/1.6 var(--mono, ui-monospace, monospace); color: color-mix(in srgb, var(--fg) 90%, transparent); white-space: pre-wrap }
+.tm-screen { margin: 0; min-height: 280px; max-height: 52vh; overflow: auto; padding: 12px 14px; background: var(--deep); font: 12px/1.6 var(--mono, ui-monospace, monospace); color: color-mix(in srgb, var(--fg) 90%, transparent); white-space: pre-wrap }
 .tm-screen .tm-cmd { color: var(--muted) }
 .tm-head .small { flex: none }
 .tm-term { height: 52vh; min-height: 280px; padding: 8px 10px; background: var(--deep) }
