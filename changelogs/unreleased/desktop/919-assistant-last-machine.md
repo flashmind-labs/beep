@@ -1,5 +1,5 @@
 ### Changed
 
-- Desktop: the Home assistant remembers the machine it last ran on and
-  starts there next time, while that machine is online. It offers the
-  assistant's agent the same way a project's start form does.
+- Desktop: the Home assistant starts on the machine it last ran on, as a
+  project's start form does, while that machine is online and offers the
+  assistant's agent.
