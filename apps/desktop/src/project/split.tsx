@@ -197,6 +197,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const issueItems: SplitItem[] = (issues || []).map(issue => ({
     key: `issue:${issue.number}`, opened: issue.opened_at, start: { key: `issue:${issue.number}`, project: p.name, number: issue.number, title: issue.title, url: issue.url },
     lead: num(issue.number), title: issue.title, sub: issueMeta(issue, ms => formatAgo(ms, "short")), tags: issue.labels,
+    right: issue.linked_pr ? <Chip kind="wait" text="PR" title="A pull request is linked to it" /> : undefined,
     menu: e => thr.issueMenu(e, acts, issue),
     detail: () => [viewPart("thread", details.pane(pid, { number: issue.number, title: issue.title, url: issue.url, author: issue.author, opened_at: issue.opened_at }, thr.issueButtons(agent, acts, issue)))],
   }));

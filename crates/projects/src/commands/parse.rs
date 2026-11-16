@@ -39,6 +39,8 @@ pub struct OpenIssue {
     pub opened_at: DateTime<Utc>,
     pub comments: u32,
     pub url: String,
+    /// A pull request is linked to it, to close it.
+    pub linked_pr: bool,
 }
 
 /// The issue's web page: Forgejo's `url` is its API address.
@@ -116,6 +118,7 @@ pub fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
                 opened_at,
                 comments: comment_count(item),
                 url: web_url(item),
+                linked_pr: false,
             })
         })
         .collect()

@@ -442,6 +442,34 @@ async fn a_comment_on_a_pull_request_goes_through_gh_pr_comment() {
     );
 }
 
+#[tokio::test]
+async fn issues_a_pull_request_is_linked_to_are_marked() {
+    let issues = r#"[{"number": 12, "title": "Crash", "createdAt": "2026-10-30T09:00:00Z"},
+        {"number": 13, "title": "Slow", "createdAt": "2026-10-29T09:00:00Z"}]"#;
+    let read = |linked: ShellOutput| async move {
+        let fleet = Fleet2(Arc::new(ByCommand(vec![
+            ("linked:pr", linked),
+            ("issue list", ShellOutput::exited(0, issues)),
+        ])));
+        let open = list_open(&github_home(), &fleet)
+            .await
+            .expect("the issues list");
+        open.iter()
+            .map(|issue| (issue.number, issue.linked_pr))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        read(ShellOutput::exited(0, "[12]")).await,
+        [(12, true), (13, false)]
+    );
+    // Without the linked search the issues still list, untagged.
+    assert_eq!(
+        read(ShellOutput::exited(1, "rate limited")).await,
+        [(12, false), (13, false)]
+    );
+}
+
 /// Answers by the first rule whose text the command holds.
 struct ByCommand(Vec<(&'static str, ShellOutput)>);
 

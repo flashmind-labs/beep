@@ -5,7 +5,7 @@ use super::{
     SourceError, Unreachable, gate::is_unreachable,
 };
 use crate::commands::HostCommand;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use std::future::Future;
 
 /// teacli's exit code for a missing resource.
@@ -48,7 +48,9 @@ pub async fn run_source(
     repo: &RepoName,
     command: HostCommand<'_>,
 ) -> Result<String> {
-    let rendered = command.render(&source.host, repo);
+    let rendered = command
+        .render(&source.host, repo)
+        .ok_or_else(|| anyhow!("this host cannot answer {command:?}"))?;
 
     match machines.gates() {
         Some(gates) => gates.run(source, &rendered, command.only_reads()).await,

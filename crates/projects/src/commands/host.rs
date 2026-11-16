@@ -15,6 +15,8 @@ const GH_ISSUE_FIELDS: &str = "number,title,body,url,author,state,labels,created
 pub enum HostCommand<'a> {
     /// The newest open issues, any author's.
     ListOpenIssues,
+    /// The numbers of the open issues a pull request is linked to, to close them. GitHub only.
+    ListLinkedIssues,
     /// The newest open pull requests, any author's.
     ListOpenPrs,
     /// The branch one pull request is made from, and whether it is a fork's.
@@ -64,6 +66,7 @@ impl HostCommand<'_> {
     pub fn only_reads(&self) -> bool {
         match self {
             Self::ListOpenIssues
+            | Self::ListLinkedIssues
             | Self::ListOpenPrs
             | Self::ViewPrHead { .. }
             | Self::ViewThread { .. }
@@ -73,10 +76,11 @@ impl HostCommand<'_> {
         }
     }
 
-    /// The shell command that runs this against `repo` on `host`.
-    pub fn render(&self, host: &IssueHost, repo: &RepoName) -> String {
+    /// The shell command that runs this against `repo` on `host`; `None` when the host has no
+    /// way to answer it.
+    pub fn render(&self, host: &IssueHost, repo: &RepoName) -> Option<String> {
         match host {
-            IssueHost::Github => self.gh(&repo.to_string()),
+            IssueHost::Github => Some(self.gh(&repo.to_string())),
             IssueHost::Forgejo(host) => self.teacli(host.as_ref(), &repo.to_string()),
         }
     }
@@ -116,6 +120,24 @@ impl HostCommand<'_> {
                         "number,title,labels,author,createdAt,comments,url",
                         "--jq",
                         jq,
+                    ],
+                )
+            }
+            Self::ListLinkedIssues => {
+                let limit = GH_OPEN_LIMIT.to_string();
+                gh(
+                    &["issue", "list"],
+                    &[
+                        "--state",
+                        "open",
+                        "--search",
+                        "linked:pr",
+                        "--limit",
+                        &limit,
+                        "--json",
+                        "number",
+                        "--jq",
+                        "[.[].number]",
                     ],
                 )
             }
@@ -174,7 +196,7 @@ impl HostCommand<'_> {
         }
     }
 
-    pub(super) fn teacli(&self, host: &str, repo: &str) -> String {
+    pub(super) fn teacli(&self, host: &str, repo: &str) -> Option<String> {
         let tea = |words: &[&str], positional: &[&str], flags: &[&str]| {
             Parts::new(&["teacli"])
                 .with(words)
@@ -186,8 +208,10 @@ impl HostCommand<'_> {
                 .render()
         };
 
-        match *self {
+        Some(match *self {
             Self::ListOpenIssues => tea(&["issue", "list"], &[], &["-s", "open", "--all"]),
+            // Forgejo cannot search issues by their linked pull requests.
+            Self::ListLinkedIssues => return None,
             Self::ListOpenPrs => tea(&["pr", "list"], &[], &["-s", "open", "--all"]),
             Self::ViewPrHead { number } => tea(&["pr", "get"], &[&number.to_string()], &[]),
             // Forgejo keeps a pull request's conversation as its issue's comments.
@@ -211,7 +235,7 @@ impl HostCommand<'_> {
             Self::CanPush => Parts::new(&["teacli", "api", &format!("repos/{repo}")])
                 .with(&["--host", host])
                 .render(),
-        }
+        })
     }
 }
 
