@@ -7,6 +7,95 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.21] - 2026-11-16
+
+### Added
+
+- Desktop: Codex fast mode and all available thinking levels.
+
+### Changed
+
+- Desktop: a new agent session opens at once when you send its first
+  message from a project, Home, the assistant, Review with agent or
+  Work on it. The app keeps the start on this device and starts the
+  agent in the background. The session shows your message with what
+  it is waiting for or doing under it.
+- Desktop: if the machine is offline, the start waits and runs when
+  the machine comes online, also after the app restarts. A waiting
+  start is listed with your sessions and can be cancelled.
+- Desktop: a start that fails shows the reason, with Retry and Cancel.
+- Desktop: the Add a machine sheet shows a much shorter join ticket
+  (`beepjoin3`) for nodes and other desktops. It is the same ticket the
+  phone QR code holds. Joining another desktop's mesh accepts it too.
+  Tickets from older desktops still work.
+- Desktop: Fix this on a failed Actions run and Continue on a pull request
+  now open the harness and model picker under the button, like Review with
+  agent and Work on it. Picking a model starts the session right away and
+  opens it.
+- Desktop: The right-click menu's Fix this and Continue still fill the
+  project's prompt bar, so you can edit the prompt first.
+- Desktop: the Home assistant starts on the machine it last ran on, as a
+  project's start form does, while that machine is online and offers the
+  assistant's agent.
+- Desktop: Fix with an agent on a file sync conflict and on a blocked Git
+  sync now opens the harness and model picker under the button, like Fix
+  this does. Picking a model starts the session right away. A sync conflict
+  is fixed on the machine that has it, and a blocked Git sync starts with
+  both checkouts and recent sessions in the prompt. It used to open a draft
+  in the start form.
+- Desktop: Review with agent on Home's pull request cards and in Home's pull
+  request list also opens the picker and starts at once in the project's
+  checkout. The review still waits for your approval before it posts
+  anything. Reply on Home still opens the start form.
+- Desktop: Add folder from Add a project, Choose folder, is now a search
+  palette of the machine's folders, the same picker used to add a project
+  to a machine. Type to filter or type a path. The path shows as steps you
+  can click back through. Checkouts have a branch icon, and a checkout with
+  an origin remote offers "Add org/repo". It works the same on this
+  computer and on other machines. Machines to pick from show at the top.
+- Desktop: in Import a project, Choose opens the same folder palette.
+- Desktop: "Keep Syncthing file sync" shows only for a folder inside a
+  Syncthing share. Sync options in Add a project show only when a machine
+  runs Syncthing.
+- Desktop: The three buttons at the top of Add a project no longer have a
+  highlight along their top edge.
+- Desktop: Settings "Save files to" and installing a plugin from a folder now use the same folder picker as the rest of the app, instead of the system dialog.
+- Desktop: The new project folder fields have a Choose button that opens the same folder picker.
+- Desktop: a project opened in its own window for the first time now
+  opens at the size of the last project window. Before, it nearly
+  filled the screen.
+- Desktop: project session history now loads all available sessions.
+- Desktop: Show the copy button only on the latest agent reply.
+
+### Fixed
+
+- Desktop: a conversation just started no longer drops the message you
+  sent and shows "Starting the agent" for a few seconds while its
+  machine sets the model and thinking level.
+- Desktop: a Claude Code turn that finished normally no longer shows
+  "The turn did not finish" when the same step asked for the advisor
+  next to a local command. The advisor request never ran, so that turn
+  now ends normally.
+- Desktop: switching the project on the start screen no longer replays the
+  headline's words or briefly wraps it onto two lines, so the composer under
+  it stays put.
+- Desktop: when a part of the window fails to draw, only that part shows
+  "This part failed to draw" with a Try again button. The rest of the
+  window keeps working. Before, the whole window went blank until you
+  restarted the app.
+- Desktop: adding a project to a machine in a new folder inside a Syncthing share works instead of failing with "the target folder does not exist".
+- Desktop: project links consistently support opening a separate window.
+- Desktop: show files and changes from the agent's linked Git worktree.
+- Desktop: sent images retain their detail and reopen at full quality.
+- Desktop: the sidebar no longer says it is connecting to paired phones, which control the mesh and are never dialed.
+
+### Performance
+
+- Desktop: a finished painting on the start screen and empty pages wakes the
+  app only when it moves, ten times a second, instead of on every screen
+  refresh, so it uses less battery. It looks the same.
+- Desktop: The folder picker reads three levels of folders in one request, so opening a subfolder shows at once. Folders read before show at once and refresh in the background.
+
 ## [0.9.20] - 2026-11-16
 
 ### Added
