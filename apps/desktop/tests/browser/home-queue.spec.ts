@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
 const projects = [{ name: "example/widget", url: "", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 }];
@@ -43,7 +43,10 @@ test("Home's lanes have no project rows or sort", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Sort projects" })).toHaveCount(0);
   const working = page.locator("#sec-running .bd-card", { hasText: "Add rate limits" });
   await expect(working).toContainText("running the tests");
-  await expect(working.locator(".cc-pdot")).toHaveCount(1);
+  // The project's dot is drawn, on a card and on a queue row.
+  const width = (dot: Locator) => dot.evaluate(element => element.getBoundingClientRect().width);
+  expect(await width(working.locator(".cc-pdot"))).toBeGreaterThan(4);
+  expect(await width(page.locator("#sec-needs .cc-row .cc-pdot"))).toBeGreaterThan(4);
 });
 
 test("a review card closes its session", async ({ page }) => {
@@ -59,4 +62,12 @@ test("Close shows without hover on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   await openDesktop(page, false, { center_home: home, projects_sessions: [] });
   await expect(page.locator("#sec-running .bd-card", { hasText: "Lazy-load charts" }).getByRole("button", { name: "Close" })).toBeVisible();
+});
+
+test("on a phone a question shows no answer buttons and keeps its text readable", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  await openDesktop(page, false, { center_home: home, projects_sessions: [] });
+  const row = page.locator("#sec-needs .cc-row").first();
+  await expect(row.getByRole("button", { name: "Allow", exact: true })).toBeHidden();
+  expect((await row.locator(".t b").boundingBox())?.width).toBeGreaterThan(250);
 });

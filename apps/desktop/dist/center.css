@@ -1044,6 +1044,8 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .bd-card > b { font-weight: 500; font-size: 13px; line-height: 18px; overflow-wrap: anywhere }
 .bd-card .sub { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); min-width: 0 }
 .bd-card .sub > span:last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-line .t > span > .cc-pdot { display: inline-block; margin-right: 6px }
+.bd-answers { display: none }
 .bd-card .sub .cc-ag, .bd-log .cc-ag { width: 18px; height: 18px; border-radius: var(--radius-sm); flex: none }
 :is(.bd-card .sub, .bd-log) .cc-ag svg { width: 11px; height: 11px }
 .bd-card .ft { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 22px }

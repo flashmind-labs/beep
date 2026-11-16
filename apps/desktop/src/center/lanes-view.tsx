@@ -57,7 +57,7 @@ function ActionButton({ action, title }: { action: CardAction; title: string }) 
 
 /// A question's options as buttons: the first that allows is the primary one,
 /// and those that deny are marked. They stay disabled while the answer is on
-/// its way, and come back if it fails.
+/// its way, and come back if it fails. A phone leaves them out: its row opens the chat.
 function Answers({ question, answer }: { question: AgentQuestion; answer(reply: string): Promise<void> }) {
   const [sending, setSending] = useState(false);
   const allow = question.options.findIndex(option => option.allow);
@@ -74,16 +74,16 @@ function Answers({ question, answer }: { question: AgentQuestion; answer(reply: 
     onClick={event => { event.stopPropagation(); pick(option.id); }}>{option.name}</Button>)}</span>;
 }
 
-/// The card's muted line, after its project's dot when it has a colour.
-function sub(card: BoardCard) {
-  return card.color === null ? card.sub : <><span className="cc-pdot" style={{ background: card.color }}/>{card.sub}</>;
+/// The dot of the card's project, before its muted line; null without a colour.
+function dot(card: BoardCard) {
+  return card.color === null ? null : <span className="cc-pdot" style={{ background: card.color }}/>;
 }
 
 /// A card as a row of a list section. A session's row opens with the page move.
 export function CardRow({ card }: { card: BoardCard }) {
   const action = card.action;
   const open = card.session ? () => { setHeroCard(null); withMove("open", card.open); } : card.open;
-  return <LineRow events={{ ...card.windowProps?.clicks, ...card.windowProps?.menu }} lead={card.lead} title={card.title} sub={sub(card)} dim={card.dim} rowTitle={card.hint ?? undefined} onOpen={open} onContext={card.menu ?? undefined}
+  return <LineRow events={{ ...card.windowProps?.clicks, ...card.windowProps?.menu }} lead={card.lead} title={card.title} sub={<>{dot(card)}{card.sub}</>} dim={card.dim} rowTitle={card.hint ?? undefined} onOpen={open} onContext={card.menu ?? undefined}
     right={action ? <ActionButton action={action} title={card.title}/> : card.foot}/>;
 }
 
@@ -130,7 +130,7 @@ function Card({ card, open }: { card: BoardCard; open(): void }) {
   return <div {...card.windowProps?.clicks} {...card.windowProps?.menu} className="bd-card" data-card={card.key} role="button" tabIndex={0} title={card.hint ?? undefined} style={style}
     onClick={open} onKeyDown={onRowKey(open)} onContextMenu={card.menu ? event => card.menu?.(event.nativeEvent) : card.windowProps?.menu.onContextMenu}>
     <b>{card.title}</b>
-    <span className="sub">{card.lead}<span>{sub(card)}</span></span>
+    <span className="sub">{card.lead}{dot(card)}<span>{card.sub}</span></span>
     {(card.foot || action) && <span className="ft">{card.foot}<span className="sp"/>
       {action && <ActionButton action={action} title={card.title}/>}
     </span>}

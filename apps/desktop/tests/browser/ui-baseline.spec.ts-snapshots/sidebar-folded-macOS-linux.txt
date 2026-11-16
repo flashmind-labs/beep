@@ -120,8 +120,8 @@ body.cbody
                     span.sub
                       span.cc-ag.codex.mark
                         svg [aria-hidden="true" viewBox="0 0 24 24"]
+                      span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                       span "example/widget · build-box"
-                        span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                     span.ft
                       span.cc-running
                         span.drun [aria-label="Working" role="img"]
@@ -136,8 +136,8 @@ body.cbody
                     span.sub
                       span.cc-ag.codex.mark
                         svg [aria-hidden="true" viewBox="0 0 24 24"]
+                      span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                       span "example/gadget · build-box"
-                        span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                     span.ft "10m ago"
                       span.sp
                       button.bd-close.dbtn.quiet.small [type="button"] "Close"
