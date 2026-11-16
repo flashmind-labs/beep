@@ -51,13 +51,15 @@ fn change_name(change: GitChange) -> &'static str {
 }
 
 /// The start of a file, for the text view: `text` is its first bytes as
-/// UTF-8, `cut` when there is more, `binary` when it does not read as text.
+/// UTF-8, `cut` when there is more, `binary` when it does not read as text,
+/// `editable` when `text` is all of it, unchanged by the reading.
 #[derive(Debug, Serialize)]
 pub struct TreeText {
     size: u64,
     text: String,
     cut: bool,
     binary: bool,
+    editable: bool,
 }
 
 /// One `ReadWorkFile`, with a file the machine no longer has as `GONE`.
@@ -160,17 +162,21 @@ pub async fn agent_tree_text(
     )
     .await?;
     let have = u64::try_from(part.data.len()).map_err(anyhow::Error::from)?;
-    let binary = looks_binary(&part.data);
-    let text = if binary {
-        String::new()
+    let (cut, binary) = (have < part.size, looks_binary(&part.data));
+    let (text, exact) = if binary {
+        (String::new(), false)
     } else {
-        String::from_utf8_lossy(&part.data).into_owned()
+        match String::from_utf8(part.data) {
+            Ok(text) => (text, true),
+            Err(e) => (String::from_utf8_lossy(e.as_bytes()).into_owned(), false),
+        }
     };
     Ok(TreeText {
         size: part.size,
         text,
-        cut: have < part.size,
+        cut,
         binary,
+        editable: exact && !cut,
     })
 }
 

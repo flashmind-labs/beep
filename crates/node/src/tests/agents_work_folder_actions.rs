@@ -195,3 +195,46 @@ fn links_cannot_redirect_mutations_or_copy_reads() {
     .unwrap();
     assert_eq!(fs::read(outside.path().join("keep")).unwrap(), b"kept");
 }
+
+#[test]
+fn write_replaces_a_file_and_keeps_its_mode() {
+    let t = tempfile::tempdir().unwrap();
+    let r = root(&t);
+    let file = t.path().join("run.sh");
+    fs::write(&file, "old").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o750)).unwrap();
+    }
+
+    let write = |path: &str| {
+        edit(
+            &r,
+            &FileAction::Write {
+                path: path.into(),
+                text: "new\r\n".into(),
+            },
+        )
+    };
+    write("run.sh").unwrap();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "new\r\n");
+    assert!(!t.path().join(".run.sh.beep-part").exists());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o750);
+    }
+
+    fs::create_dir(t.path().join("dir")).unwrap();
+    assert!(write("dir").is_err());
+    assert!(write("missing").is_err());
+    assert!(write(".git/config").is_err());
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&file, t.path().join("link")).unwrap();
+        assert!(write("link").is_err());
+        assert_eq!(fs::read_to_string(&file).unwrap(), "new\r\n");
+    }
+}

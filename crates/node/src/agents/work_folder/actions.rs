@@ -1,13 +1,13 @@
 //! File browser mutations, anchored to open directories and never overwriting a destination.
 
-use super::{WorkRoot, names};
+use super::{PART, WorkRoot, names};
 use crate::files::fsat::{self, Dir};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::FileAction;
 use std::{
     collections::HashSet,
-    ffi::OsStr,
-    io,
+    ffi::{OsStr, OsString},
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 
@@ -262,6 +262,45 @@ pub(in crate::agents) fn edit(root: &WorkRoot, action: &FileAction) -> Result<()
                     })?;
             }
         }
+        FileAction::Write { path, text } => {
+            let path = checked(path)?;
+            let (dir, file) = (parent(root, &path)?, name(&path)?);
+            replace(&dir, file, text.as_bytes())
+                .with_context(|| format!("Could not save {}", path.display()))?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Writes `data` beside the regular file `file` with its permissions, then
+/// moves it over the file, so a reader sees the old text or the new.
+fn replace(dir: &Dir, file: &OsStr, data: &[u8]) -> Result<()> {
+    let meta = dir
+        .metadata(file)
+        .context("Links cannot be edited here")?
+        .filter(|meta| meta.is_file())
+        .context("It is no longer a file there")?;
+    let mut temp = OsString::from(".");
+    temp.push(file);
+    temp.push(PART);
+
+    // A save that stopped part way left its part.
+    match dir.remove_file(&temp) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e.into()),
+        _ => {}
+    }
+
+    let written = dir.create_file(&temp, false).and_then(|mut out| {
+        out.write_all(data)?;
+        out.set_permissions(meta.permissions())?;
+        out.sync_all()
+    });
+    let moved = written.and_then(|()| fsat::rename(dir, &temp, dir, file));
+
+    if let Err(e) = moved {
+        let _ = dir.remove_file(&temp);
+        return Err(e.into());
     }
 
     Ok(())
