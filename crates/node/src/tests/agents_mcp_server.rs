@@ -356,10 +356,16 @@ async fn a_saved_key_offers_its_media_tools_and_the_node_runs_them() {
     let folder = tempfile::tempdir().unwrap();
     let mut fake = Fake::new("allow");
     fake.media = Some(folder.path().to_owned());
-    spawn_env::set_vars(vec![EnvSecret {
-        name: "OPENROUTER_API_KEY".into(),
-        value: SecretText::new("sk-or-test"),
-    }]);
+    spawn_env::set_vars(vec![
+        EnvSecret {
+            name: "OPENROUTER_API_KEY".into(),
+            value: SecretText::new("sk-or-test"),
+        },
+        EnvSecret {
+            name: "MESHY_API_KEY".into(),
+            value: SecretText::new("msy-test"),
+        },
+    ]);
     let decision = json!({ "name": "decision", "arguments": {} });
     let out = exchange(
         &fake,
@@ -383,10 +389,20 @@ async fn a_saved_key_offers_its_media_tools_and_the_node_runs_them() {
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();
-    for tool in ["remote_run", "generate_image", "generate_video", "tts", "decision", "list_models"] {
+    for tool in [
+        "remote_run",
+        "generate_image",
+        "generate_video",
+        "tts",
+        "decision",
+        "list_models",
+        "generate_3d",
+        "animate_3d",
+        "remesh_3d",
+    ] {
         assert!(names.contains(&tool), "{tool} missing from {names:?}");
     }
-    for hidden in ["image", "model_3d", "generate_3d"] {
+    for hidden in ["image", "model_3d"] {
         assert!(!names.contains(&hidden), "{names:?}");
     }
     assert_eq!(out[1]["result"]["isError"], true, "{out:?}");
