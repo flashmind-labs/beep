@@ -20,7 +20,7 @@ export type ThreadAction =
 function ActionButton({ action }: { action: ThreadAction }) {
   switch (action.kind) {
     case "run": return <Button look={action.primary ? "primary" : "secondary"} disabled={action.disabled} title={action.title} onClick={action.run}>{action.label}</Button>;
-    case "agent": return <AgentButton button={action.button} state={action.state} />;
+    case "agent": return <AgentButton item={{ button: action.button, state: action.state, error: "" }} />;
   }
 }
 export function ThreadDetailView({ stub, data, error, acts, text, posting, draftError, edit, post, open }: { stub: ThreadStub; data: ThreadDetailRow | null | undefined; error: string | undefined; acts: ThreadActions; text: string; posting: boolean; draftError: string | undefined; edit(value: string): void; post(): void; open(url: string): void }) {

@@ -25,10 +25,8 @@ test("Home's board gives each project a row, and a review is opened on its host 
   expect(name?.width).toBe(board?.width);
   // The heading names the project, so the card does not.
   await expect(page.locator(".bd-card", { hasText: "#12 Move the blog" }).locator(".sub")).toHaveText("your review");
-  await page.locator(".bd-card", { hasText: "#12 Move the blog" }).getByRole("button", { name: "Review" }).click();
-  await expect(page.getByRole("menuitem", { name: "Open", exact: true })).toBeVisible();
-  await page.getByRole("menuitem", { name: "Review with agent" }).click();
-  await expect(page.locator("textarea").first()).toHaveValue(/^Review PR https:\/\/example\.test\/other\/site\/pull\/12/);
+  await page.locator(".bd-card", { hasText: "#12 Move the blog" }).getByRole("button", { name: "Review with agent" }).click();
+  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toBeVisible();
 });
 
 test("a row's project name opens the project, and a full cell scrolls", async ({ page }) => {

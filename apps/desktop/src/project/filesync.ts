@@ -3,6 +3,7 @@
 // Pause/Resume for every machine, and the board's File sync tile.
 import { gitSyncWarning } from "./gitsync-state.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
+import type { AgentButtonItem } from "../review/feedback-view.tsx";
 import type { TileData, TileRow } from "./board.ts";
 import { PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { bytes, plural, reason } from "../ui/format.ts";
@@ -74,8 +75,9 @@ interface FileSyncDeps {
   redraw: () => void;
   /// Fills the bar of `project` to have an agent settle a conflict.
   fix?: (project: string, c: Conflict) => void;
-  /// Opens an agent draft for a blocked Git sync.
-  fixGit?: (project: string, machine: string, error: string) => void;
+  /// The agent buttons that settle a conflict, and a blocked Git sync, at once.
+  fixButton?: (project: string, c: Conflict) => AgentButtonItem;
+  repairButton?: (project: string, machine: string, error: string) => AgentButtonItem;
   /// Opens the sheet that points `project` on machine `m` at another folder.
   /// Where each project's sync is kept between windows; in memory only
   /// without it.
@@ -274,7 +276,8 @@ export function makeFileSync(deps: FileSyncDeps) {
     compared: (name: string, path: string) => compared.get(`${name}\n${path}`),
     pause, startOver, resolve, compare, watch,
     fix: deps.fix ? (name: string, conflict: Conflict) => deps.fix?.(name, conflict) : null,
-    fixGit: deps.fixGit ? (name: string, machine: MachineDetail) => { if (machine.error) deps.fixGit?.(name, machine.machine_id, machine.error); } : null,
+    fixButton: deps.fixButton ?? null,
+    repairButton: deps.repairButton ?? null,
     stop: () => watch(null),
   };
 }

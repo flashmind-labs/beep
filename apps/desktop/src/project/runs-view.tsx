@@ -2,15 +2,12 @@ import type { LiveMode } from "./projectlive.ts";
 import { formatAgo } from "../ui/format.ts";
 import { going, hostCounts, hostLabel, progressText, runChip, runKey, runsCount, runSpan, type RunDetail, type RunRow, type RunsRow } from "./runs.tsx";
 import { Button, EmptyPanel, onRowKey, SectionHead } from "../ui/kit.tsx";
-import { AgentButton, type AgentState, type PickButton } from "../review/feedback-view.tsx";
-
-/// Fix this on a failed run: the agent button and why its last start failed.
-export interface RunFix { button: PickButton; state: AgentState; error: string }
+import { AgentButton, type AgentButtonItem } from "../review/feedback-view.tsx";
 
 export interface RunsViewProps {
   data: RunsRow | undefined; error: string; only: string | null; open: string | null; mode: LiveMode | null;
   refresh(): void; filter(state: string | null): void; toggle(run: RunRow): void; hover(run: RunRow): void; leave(): void; menu(event: MouseEvent, run: RunRow): void;
-  detail(run: RunRow): { data: RunDetail | null; error: string }; fix(detail: RunDetail): RunFix; openUrl(url: string): void;
+  detail(run: RunRow): { data: RunDetail | null; error: string }; fix(detail: RunDetail): AgentButtonItem; openUrl(url: string): void;
 }
 const marks: Record<string, string> = {
   passed: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
@@ -43,9 +40,6 @@ function Detail({ detail, p }: { detail: { data: RunDetail | null; error: string
   const d = detail.data;
   if (!d) return <span className="pj-run">{detail.error ? <span className="cc-err">{detail.error}</span> : <small className="dmuted">Reading the run…</small>}</span>;
   const error = [detail.error, d.error].filter(Boolean).join(" "), shown = d.jobs.find(j => j.state === "failed") || d.jobs.find(j => going(j.state)), job = d.jobs.find(j => j.state === "failed");
-  return <span className="pj-run">{error && <span className="cc-err">{error}</span>}{!d.jobs.length && <small className="dmuted">The host gives no jobs for this run.</small>}{!!d.jobs.length && <span className="pj-jobs">{d.jobs.map((j, i) => <span key={i} style={{ display: "contents" }}><b className={j.state === "failed" ? "bad" : undefined}>{j.name}</b><small>{[runChip(j.state).text, runSpan(j)].filter(Boolean).join(", ")}</small></span>)}</span>}{!!shown?.steps.length && <span className="pj-steps">{shown.steps.map((step, i) => { const cls = step.state === "failed" ? "bad" : going(step.state) ? "run" : step.state === "skipped" || step.state === "cancelled" ? "skip" : "ok"; return <span className={`pj-step ${cls}`} key={i}><span className={step.state === "failed" ? "ddot bad" : going(step.state) ? "ddot" : "ddot off"} /><span>{i + 1}. {step.name}</span><small>{step.state === "skipped" ? "skipped" : runSpan(step)}</small></span>; })}</span>}{d.log && <span className="pj-log"><small>End of the log of {[d.log.job, d.log.step].filter(Boolean).join(", ")}{d.log.truncated ? " (earlier lines left out)" : ""}</small><pre>{d.log.text}</pre></span>}{(d.run.state === "failed" || job?.url) && <span className="acts">{d.run.state === "failed" && <FixButton fix={p.fix(d)} />}{job?.url && <Button onClick={() => { if (job.url) p.openUrl(job.url); }}>Full log</Button>}</span>}</span>;
+  return <span className="pj-run">{error && <span className="cc-err">{error}</span>}{!d.jobs.length && <small className="dmuted">The host gives no jobs for this run.</small>}{!!d.jobs.length && <span className="pj-jobs">{d.jobs.map((j, i) => <span key={i} style={{ display: "contents" }}><b className={j.state === "failed" ? "bad" : undefined}>{j.name}</b><small>{[runChip(j.state).text, runSpan(j)].filter(Boolean).join(", ")}</small></span>)}</span>}{!!shown?.steps.length && <span className="pj-steps">{shown.steps.map((step, i) => { const cls = step.state === "failed" ? "bad" : going(step.state) ? "run" : step.state === "skipped" || step.state === "cancelled" ? "skip" : "ok"; return <span className={`pj-step ${cls}`} key={i}><span className={step.state === "failed" ? "ddot bad" : going(step.state) ? "ddot" : "ddot off"} /><span>{i + 1}. {step.name}</span><small>{step.state === "skipped" ? "skipped" : runSpan(step)}</small></span>; })}</span>}{d.log && <span className="pj-log"><small>End of the log of {[d.log.job, d.log.step].filter(Boolean).join(", ")}{d.log.truncated ? " (earlier lines left out)" : ""}</small><pre>{d.log.text}</pre></span>}{(d.run.state === "failed" || job?.url) && <span className="acts">{d.run.state === "failed" && <AgentButton item={p.fix(d)} />}{job?.url && <Button onClick={() => { if (job.url) p.openUrl(job.url); }}>Full log</Button>}</span>}</span>;
 }
 
-function FixButton({ fix }: { fix: RunFix }) {
-  return <><AgentButton button={fix.button} state={fix.state} />{fix.error && <span className="cc-err">{fix.error}</span>}</>;
-}

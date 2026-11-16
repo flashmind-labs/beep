@@ -1,6 +1,7 @@
 import type { LiveMode } from "./projectlive.ts";
-import { RunsView, type RunFix } from "./runs-view.tsx";
-import type { AgentState, PickButton } from "../review/feedback-view.tsx";
+import { RunsView } from "./runs-view.tsx";
+import type { AgentButtonOpts } from "./composer.tsx";
+import type { AgentButtonItem } from "../review/feedback-view.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS } from "../ui/active.ts";
@@ -257,7 +258,7 @@ interface RunDeps {
   openUrl: (url: string) => unknown;
   fix: (detail: RunDetail) => void;
   startFix: (project: string, detail: RunDetail, pick: ProjectPick) => Promise<void>;
-  button: (project: string, start: (pick: ProjectPick) => void) => PickButton;
+  button: (key: string, o: AgentButtonOpts) => AgentButtonItem;
   /// The chip saying whether the project is live or polling.
   mode?: (id: string) => LiveMode | null;
   /// Where the runs are kept between windows; in memory only without it.
@@ -301,11 +302,6 @@ export function makeRuns(deps: RunDeps) {
   const aheadQueue = new Bounded();
   /// The next poll of a running run opened, or of the list while one goes.
   let watching: string | null = null;
-  /// Fix this per run, by the details' key: its button, the starts going
-  /// on and why the last one failed.
-  const fixButtons = new Map<string, PickButton>();
-  const fixing = new Set<string>();
-  const fixFailed = new Map<string, string>();
   let unfollow: (() => void) | undefined;
   let hover: ReturnType<typeof setTimeout> | null = null;
 
@@ -459,33 +455,12 @@ export function makeRuns(deps: RunDeps) {
     return s.openRun ? details.get(detailKey(id, s.openRun))?.data ?? null : null;
   }
 
-  /// Fix this on an opened failed run: its agent button and why its last
-  /// start failed.
-  function fixer(agent: ProjectRef, detail: RunDetail): RunFix {
+  /// Fix this on an opened failed run: its agent button, which starts on
+  /// the run's details as last read.
+  function fixer(agent: ProjectRef, detail: RunDetail): AgentButtonItem {
     const key = detailKey(agent.project_id, detail.run);
-    let button = fixButtons.get(key);
-    if (!button) fixButtons.set(key, button = deps.button(agent.name, pick => void startFix(key, agent.name, pick)));
-    const state: AgentState = fixing.has(key) ? { kind: "starting" }
-      : { kind: "ready", label: "Fix this", hint: "Pick a model: an agent starts on this run's branch with the failure in its prompt" };
-
-    return { button, state, error: fixFailed.get(key) ?? "" };
-  }
-
-  async function startFix(key: string, name: string, pick: ProjectPick) {
-    const detail = details.get(key)?.data;
-    if (!detail || fixing.has(key)) return;
-    fixing.add(key);
-    fixFailed.delete(key);
-    redraw();
-
-    try {
-      await deps.startFix(name, detail, pick);
-    } catch (e) {
-      fixFailed.set(key, reason(e));
-    } finally {
-      fixing.delete(key);
-      redraw();
-    }
+    const start = (pick: ProjectPick) => deps.startFix(agent.name, details.get(key)?.data ?? detail, pick);
+    return deps.button(`fix ${key}`, { project: agent.name, machine: null, label: "Fix this", hint: "Pick a model: an agent starts on this run's branch with the failure in its prompt", running: null, start });
   }
 
   /// The Actions section. Its key is the project, so its rows stay while live updates arrive.

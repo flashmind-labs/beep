@@ -74,12 +74,17 @@ export interface PickButton {
   why: () => string;
 }
 
-/// The agent button outside a diff: its picker's pick starts a session.
-export function AgentButton({ button, state }: { button: PickButton; state: AgentState }) {
+/// An agent button as its owner draws it, and why its last start failed.
+export interface AgentButtonItem { button: PickButton; state: AgentState; error: string }
+
+/// The agent button outside a diff, and why its last start failed: its
+/// picker's pick starts a session.
+export function AgentButton({ item }: { item: AgentButtonItem }) {
+  const { button, state } = item;
   const { open, picker } = useSyncExternalStore(button.subscribe, button.snapshot);
   const shown: FeedbackState = state.kind === "ready" ? { ...state, reason: button.why(), open }
     : state.kind === "running" ? { kind: "running", agent: state.agent, hint: state.hint } : state;
-  return <span className="dv-fbw" ref={button.setBox}>
+  return <><span className="dv-fbw" ref={button.setBox}>
     <FeedbackControl state={shown} setButton={button.setButton} setSlot={button.setSlot} onClick={state.kind === "running" ? state.open : button.click} picker={picker} />
-  </span>;
+  </span>{item.error && <span className="cc-err">{item.error}</span>}</>;
 }
