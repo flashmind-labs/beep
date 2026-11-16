@@ -75,6 +75,7 @@ test("Home scrolls a card at a time, and a cell at its first card leaves the swi
   await page.mouse.wheel(0, 40);
   await expect.poll(top).toBeGreaterThan(0);
   const row = await top();
+  await page.waitForTimeout(200);
   await page.mouse.wheel(0, 40);
   await expect.poll(top).toBeGreaterThan(row);
 
@@ -87,6 +88,31 @@ test("Home scrolls a card at a time, and a cell at its first card leaves the swi
   await page.mouse.wheel(0, -40);
   await expect.poll(top).toBeLessThan(below);
   expect(await cell.evaluate(el => el.scrollTop)).toBe(0);
+
+  // Swipes that carry a cell to its last card stay with it for the next two, then the page moves.
+  // A key takes the scroll back from a page still settling.
+  await page.keyboard.press("Shift");
+  await view.evaluate(el => { el.scrollTop = 0; });
+  const first = cells.filter({ has: page.locator(".bd-card") }).first();
+  await first.hover();
+  await page.waitForTimeout(250);
+  const room = await first.evaluate(el => el.scrollHeight - el.clientHeight), page0 = await top();
+  expect(room).toBeGreaterThan(0);
+  for (let swipe = 0; swipe < 6 && await first.evaluate(el => el.scrollTop) < room - 1; swipe += 1) {
+    await page.mouse.wheel(0, 40);
+    await page.waitForTimeout(200);
+  }
+  await expect.poll(() => first.evaluate(el => el.scrollTop)).toBeGreaterThanOrEqual(room - 1);
+  // The swipes that count toward the hold start once the cell has arrived.
+  await page.waitForTimeout(100);
+  expect(await top()).toBe(page0);
+  for (const _ of [1, 2]) {
+    await page.mouse.wheel(0, 40);
+    await page.waitForTimeout(200);
+    expect(await top()).toBe(page0);
+  }
+  await page.mouse.wheel(0, 40);
+  await expect.poll(top).toBeGreaterThan(page0);
 });
 
 test("Appearance picks the board or the list for Home and for projects, each on its own", async ({ page }) => {

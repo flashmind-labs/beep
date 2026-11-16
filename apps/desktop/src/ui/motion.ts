@@ -178,7 +178,7 @@ const FEELS: Record<ScrollFeel, { minMs: number; maxMs: number; msPerPx: number;
 const moving = new WeakMap<HTMLElement, () => void>();
 
 /// Scrolls `el` to `goal` with an exponential ease-out: fast at first, settling softly. A
-/// long way jumps most of it first. The wheel or a press stops it. Under reduced motion,
+/// long way jumps most of it first. The wheel, a press or a key stops it. Under reduced motion,
 /// or in a hidden window, it jumps.
 export function glide(el: HTMLElement, goal: ScrollGoal, feel: ScrollFeel, arrival: Arrival) {
   moving.get(el)?.();
@@ -206,7 +206,7 @@ export function glide(el: HTMLElement, goal: ScrollGoal, feel: ScrollFeel, arriv
   const stop = () => {
     cancelAnimationFrame(frame);
     el.removeEventListener("wheel", stop);
-    el.removeEventListener("pointerdown", stop);
+    untilInput(stop, false);
     if (moving.get(el) === stop) moving.delete(el);
   };
   const step = (now: number) => {
@@ -219,7 +219,7 @@ export function glide(el: HTMLElement, goal: ScrollGoal, feel: ScrollFeel, arriv
   };
 
   el.addEventListener("wheel", stop, { passive: true });
-  el.addEventListener("pointerdown", stop);
+  untilInput(stop, true);
   moving.set(el, stop);
   frame = requestAnimationFrame(step);
 }
@@ -231,6 +231,15 @@ export function glideTo(list: HTMLElement, item: HTMLElement, feel: ScrollFeel, 
 }
 
 const easeOut = (t: number) => t >= 1 ? 1 : 1 - 2 ** (-10 * t);
+
+/// Adds or removes `stop` for a press or a key anywhere, which takes the scroll back: a
+/// click elsewhere may change the page under it.
+function untilInput(stop: () => void, on: boolean) {
+  for (const type of ["pointerdown", "keydown"] as const) {
+    if (on) document.addEventListener(type, stop, true);
+    else document.removeEventListener(type, stop, true);
+  }
+}
 
 /// Lights `el` in the accent for a moment, where a jump landed.
 function light(el: HTMLElement | null, ms: number) {
@@ -244,24 +253,29 @@ const LISTS = [".cc-view", ".pj-det", ".pj-board", ".pj-scroll", ".pv-scroll", "
 const ITEMS = [".cc-sec", ".bd-rows > .pj", ".bd-card", ".cc-row", ".mcard", ".pj-card", ".nt-row", ".conversation-choice", ".dset-h", ".dset-row", ".pl-head"].join(", ");
 
 /// The first part of a swipe moves one item and every further stretch one more; a pause
-/// longer than the gap starts a new swipe. The pixels of a wheel line, then the spring
+/// longer than the gap starts a new swipe. A list that reached its end holds the next
+/// swipes its way that follow within the hold. The pixels of a wheel line, then the spring
 /// the list follows its item on, a touch under critical damping so it settles like a click.
-const FIRST_PX = 24, MORE_PX = 140, GESTURE_GAP_MS = 140, LINE_PX = 16, SPRING = 30, DAMPING = 0.75;
+const FIRST_PX = 24, MORE_PX = 140, GESTURE_GAP_MS = 140, HELD_SWIPES = 2, HOLD_MS = 700, LINE_PX = 16, SPRING = 30, DAMPING = 0.75;
 
 /// Lists of cards scroll a card at a time. A small scroll moves one card; a fast one moves
 /// more, and the list carries its speed into the card it ends on. A swipe belongs to the
-/// innermost list that can still move its way, and stays with it to the swipe's end, so a
-/// list that runs out of cards does not hand the rest to the page.
+/// innermost list that can still move its way, and stays with it to the swipe's end. A
+/// list that ran out of cards also keeps the next swipes that follow at once, so scrolling
+/// on through it does not carry the page.
 export function itemScroll() {
   let last = -Infinity, decided = false, owner: HTMLElement | null = null, heading = 0, travel = 0, steps = 0;
+  let held: { list: HTMLElement; sign: number; swipes: number } | null = null;
 
   document.addEventListener("wheel", event => {
     if (document.body.classList.contains("mobile") || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
     const dy = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? event.deltaY : event.deltaY * LINE_PX;
     if (Math.abs(event.deltaX) > Math.abs(dy)) return;
 
-    if (event.timeStamp - last > GESTURE_GAP_MS) decided = false;
+    const gap = event.timeStamp - last;
     last = event.timeStamp;
+    if (gap > GESTURE_GAP_MS) decided = false;
+    if (gap > HOLD_MS) held = null;
     // A trackpad opens a swipe with an empty event; one left to the browser hands it the
     // whole swipe.
     if (dy === 0) {
@@ -275,7 +289,11 @@ export function itemScroll() {
       heading = sign;
       travel = 0;
       steps = 0;
-      owner = listFor(event.target, sign);
+      const keep = held && held.sign === sign && held.swipes < HELD_SWIPES && event.target instanceof Node && held.list.contains(event.target) ? held : null;
+      // Only a swipe after the list has arrived counts toward the hold.
+      if (keep && !springs.has(keep.list)) keep.swipes += 1;
+      if (!keep) held = null;
+      owner = keep?.list ?? listFor(event.target, sign);
     }
     if (!owner || !event.cancelable) return;
 
@@ -283,7 +301,14 @@ export function itemScroll() {
     travel += Math.abs(dy);
     const want = travel < FIRST_PX ? 0 : 1 + Math.floor((travel - FIRST_PX) / MORE_PX);
     for (; steps < want; steps += 1) stepItem(owner, heading);
+    if (!held && atEnd(owner, heading)) held = { list: owner, sign: heading, swipes: 0 };
   }, { passive: false });
+}
+
+/// Whether `list` is at its end, or on its way there, `sign`'s way.
+function atEnd(list: HTMLElement, sign: number) {
+  const at = springs.get(list)?.target ?? list.scrollTop, room = list.scrollHeight - list.clientHeight;
+  return sign > 0 ? at >= room - 1 : at <= 1;
 }
 
 /// The list of cards the pointer is over, if any.
@@ -295,10 +320,7 @@ function listAround(target: EventTarget | null) {
 /// when it is a list of cards. Another scroller in between keeps the swipe for itself.
 function listFor(target: EventTarget | null, sign: number) {
   for (let el = target instanceof HTMLElement ? target : null; el; el = el.parentElement) {
-    const room = el.scrollHeight - el.clientHeight;
-    if (room <= 1 || !/auto|scroll/.test(getComputedStyle(el).overflowY)) continue;
-    const at = springs.get(el)?.target ?? el.scrollTop;
-    if (sign > 0 ? at >= room - 1 : at <= 1) continue;
+    if (el.scrollHeight - el.clientHeight <= 1 || !/auto|scroll/.test(getComputedStyle(el).overflowY) || atEnd(el, sign)) continue;
 
     return el.matches(LISTS) ? el : null;
   }
@@ -330,7 +352,7 @@ function stepItem(list: HTMLElement, sign: number) {
   const stop = () => {
     cancelAnimationFrame(s.frame);
     springs.delete(list);
-    list.removeEventListener("pointerdown", stop);
+    untilInput(stop, false);
     if (moving.get(list) === stop) moving.delete(list);
   };
   const move = (now: number) => {
@@ -339,7 +361,10 @@ function stepItem(list: HTMLElement, sign: number) {
     s.speed += (SPRING * SPRING * (s.target - s.pos) - 2 * DAMPING * SPRING * s.speed) * dt;
     s.pos += s.speed * dt;
     list.scrollTop = s.pos;
-    if (Math.abs(s.target - s.pos) >= 0.5 || Math.abs(s.speed) >= 20) { s.frame = requestAnimationFrame(move); return; }
+    // At an end the list cannot pass its item, so arriving there is the end of the move.
+    const room = list.scrollHeight - list.clientHeight, edge = s.target <= 0 || s.target >= room - 0.5;
+    const passed = (s.target - s.pos) * Math.sign(s.speed) <= 0;
+    if ((Math.abs(s.target - s.pos) >= 0.5 || Math.abs(s.speed) >= 20) && !(edge && passed)) { s.frame = requestAnimationFrame(move); return; }
 
     list.scrollTop = s.target;
     stop();
@@ -347,7 +372,7 @@ function stepItem(list: HTMLElement, sign: number) {
 
   springs.set(list, s);
   moving.set(list, stop);
-  list.addEventListener("pointerdown", stop);
+  untilInput(stop, true);
   s.frame = requestAnimationFrame(move);
 }
 
