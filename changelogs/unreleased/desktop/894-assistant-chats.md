@@ -8,5 +8,5 @@
 
 ### Fixed
 
-- Desktop: A chat started from Home's composer opens on the Assistant page
-  beside its chats instead of the plain session view.
+- Desktop: A chat started from Home's composer or the Assistant page opens on
+  the Assistant page beside its chats instead of the plain session view.
