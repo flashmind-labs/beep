@@ -164,6 +164,18 @@ const assistantSessions = [
 ];
 const assistantHost = { machine_id: machineId, machine_name: machineId, agents: ["claude", "codex", "flsh"], workspace: null, home: "/srv", capabilities: [], assistant: true };
 
+const gitItem = (repo: string, number: number, kind: string, title: string, hours: number, extra = {}) => ({ host: "example.test", repo, number, kind, title, url: `https://example.test/${repo}/${number}`, updated_at: NOW - hours * 3_600_000, authored: true, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [], ...extra });
+const gitItems = [
+  gitItem("agent/plugins", 412, "pull_request", "feat: add background and foreground task switch", 3, { labels: ["plugins"] }),
+  gitItem("agent/plugins", 398, "pull_request", "fix: keep a session's model when it resumes", 24, { checks_failing: true }),
+  gitItem("agent/plugins", 377, "issue", "Tool calls should be shown in one place", 96),
+  gitItem("docs/handbook", 88, "pull_request", "docs: a shorter README and a manual", 30),
+  gitItem("docs/handbook", 85, "pull_request", "docs: sync, explained in one page", 50),
+  gitItem("cli/runner", 31, "pull_request", "fix: timeouts other than the default are honoured", 48),
+  gitItem("cli/runner", 14, "issue", "Exit code is lost in a pipe", 60),
+  gitItem("lib/parser", 12, "issue", "Tables break on nested pipes", 168),
+];
+
 // Desktop window
 
 test("home overview", async ({ page }) => {
@@ -287,6 +299,23 @@ test("home machines", async ({ page }) => {
   await baseline(page, "home-machines");
 });
 
+test("home PRs and issues sorted", async ({ page }) => {
+  const items = gitItems.map(item => ({ ...item, opened_at: NOW - item.number * 3_600_000 }));
+  const sortBy = async (label: string) => {
+    await page.getByRole("button", { name: /Sort PRs and issues/ }).click();
+    await page.getByRole("menuitemradio", { name: label }).click();
+  };
+  await openDesktop(page, false, { center_home: home, git_items: { items, hosts: [] } });
+  await page.getByRole("tab", { name: /PRs and issues/ }).click();
+  await expect(page.locator("#sec-git .pl-row.repo")).toHaveCount(6);
+  await sortBy("Recent activity");
+  await expect(page.locator("#sec-git .pl-row.repo")).toHaveCount(0);
+  await expect(page.locator("#sec-git .pl-row.it.flat .num")).toHaveText(["#412", "#398", "#88", "#31", "#85", "#14", "#377", "#12"]);
+  await baseline(page, "home-git-activity");
+  await sortBy("Newest");
+  await expect(page.locator("#sec-git .pl-row.it.flat .num")).toHaveText(["#31", "#85", "#88", "#398", "#412", "#12", "#14", "#377"]);
+});
+
 test("sidebar groups folded and collapsed", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   const projectsGroup = page.locator("#side .cc-grp.projects");
@@ -315,18 +344,7 @@ test("projects lists", async ({ page }) => {
     { name: "tools/echo", remote: "https://example.test/echo", places: [place("build-box", "build-box", "/srv/tools/echo"), place("studio", "studio", "~/work/echo")], agents: [{ agent: "claude", sessions: 4 }], last_activity: NOW - 7 * 86_400_000 },
     { name: "site/docs", remote: "https://example.test/docs", places: [place("laptop", "laptop", "~/work/docs")], agents: [], last_activity: NOW - 21 * 86_400_000 },
   ];
-  const item = (repo: string, number: number, kind: string, title: string, hours: number, extra = {}) => ({ host: "example.test", repo, number, kind, title, url: `https://example.test/${repo}/${number}`, updated_at: NOW - hours * 3_600_000, authored: true, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [], ...extra });
-  const items = [
-    item("agent/plugins", 412, "pull_request", "feat: add background and foreground task switch", 3, { labels: ["plugins"] }),
-    item("agent/plugins", 398, "pull_request", "fix: keep a session's model when it resumes", 24, { checks_failing: true }),
-    item("agent/plugins", 377, "issue", "Tool calls should be shown in one place", 96),
-    item("docs/handbook", 88, "pull_request", "docs: a shorter README and a manual", 30),
-    item("docs/handbook", 85, "pull_request", "docs: sync, explained in one page", 50),
-    item("cli/runner", 31, "pull_request", "fix: timeouts other than the default are honoured", 48),
-    item("cli/runner", 14, "issue", "Exit code is lost in a pipe", 60),
-    item("lib/parser", 12, "issue", "Tables break on nested pipes", 168),
-  ];
-  await openDesktop(page, false, { center_home: home, found_projects: found, git_items: { items, hosts: [] } });
+  await openDesktop(page, false, { center_home: home, found_projects: found, git_items: { items: gitItems, hosts: [] } });
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
   await expect(page.locator("#sec-found .pl-row")).toHaveCount(3);
   await expect(page.locator("#sec-elsewhere .pl-row.repo")).toHaveCount(4);

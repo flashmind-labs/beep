@@ -75,6 +75,25 @@ export function newestFirst(a: Pick<GitItemRow, "updated_at">, b: Pick<GitItemRo
   return b.updated_at - a.updated_at;
 }
 
+/// How Home orders open items: by repository, or across them by latest
+/// update or by when they opened.
+export const GIT_SORTS = [
+  { id: "default", label: "Default" },
+  { id: "activity", label: "Recent activity" },
+  { id: "created", label: "Newest" },
+] as const;
+export type GitSort = typeof GIT_SORTS[number]["id"];
+
+export function parseGitSort(value: string | null): GitSort {
+  return GIT_SORTS.find(sort => sort.id === value)?.id ?? "default";
+}
+
+/// The time an item sorts and shows by: when it opened for `created`, its
+/// latest update otherwise. A host that does not say when it opened sorts it last.
+export function itemTime(sort: GitSort, item: Pick<GitItemRow, "updated_at" | "opened_at">) {
+  return sort === "created" ? item.opened_at ?? 0 : item.updated_at;
+}
+
 /// The repository's web page from an item's.
 export function repoUrl(url: string | null | undefined) {
   return String(url || "").replace(/\/(pull|pulls|issues)\/\d+([/?#].*)?$/, "");
