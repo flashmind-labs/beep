@@ -116,6 +116,8 @@ export interface SessionRow {
   last_activity: number;
   external: boolean;
   question: AgentQuestion | null;
+  /// The Home assistant.
+  assistant: boolean;
 }
 
 /// Whether `cwd` is `folder` or inside it.

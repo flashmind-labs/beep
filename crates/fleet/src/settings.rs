@@ -15,7 +15,7 @@ use beep_proto::{
     MachineHarnessSettings, check_agent, check_settings, merged_env,
     node::agent::valid_model,
     node::harness::{AutoCompact, HarnessConfig, HarnessDriver, ModelCompact},
-    node::mesh_state::SkillSync,
+    node::mesh_state::{AssistantSettings, SkillSync},
 };
 use iroh::EndpointId;
 use std::collections::HashSet;
@@ -400,6 +400,15 @@ impl Desk {
             .check()
             .map_err(|e| FleetError::refused(e.to_string()))?;
         write(&self.mesh, Key::Flsh, Some(settings)).await
+    }
+
+    /// The harness, model and thinking level the Home assistant starts with.
+    pub fn assistant(&self) -> AssistantSettings {
+        read::<AssistantSettings>(&self.mesh, &Key::Assistant).unwrap_or_default()
+    }
+
+    pub async fn save_assistant(&self, settings: &AssistantSettings) -> Result<()> {
+        write(&self.mesh, Key::Assistant, Some(settings)).await
     }
 
     /// Every saved version with its key, oldest first.

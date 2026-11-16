@@ -29,6 +29,10 @@ export function byOrder(order: readonly string[]) {
   return (a: string, b: string) => rank(a) - rank(b);
 }
 
+/// The harnesses in the order a form prefers them.
+export const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh", "hermes"];
+export const byPreference = byOrder(AGENT_ORDER);
+
 /// The harness the form starts on: the one picked when the machine has
 /// it, else the first the machine has in `order`, else none.
 export function harnessFor(picked: string | null, offered: readonly string[], order: readonly string[]): string | null {
@@ -295,7 +299,7 @@ export function knownWorktrees(sessions: readonly (SessionAt & { last_activity?:
 /// What `agent_start` sends as `checkout`: the node makes a `beep/<slug>`
 /// branch from `base` (the checkout's HEAD when null), in the checkout or
 /// in a new worktree under `.worktrees/`.
-type CheckoutPlan = { new_branch: { base: string | null } } | { new_worktree: { base: string | null } };
+export type CheckoutPlan = { new_branch: { base: string | null } } | { new_worktree: { base: string | null } };
 
 /// Whether the pick makes a new branch, so the form asks for its base.
 export function makesBranch(pick: CheckoutPick): boolean {

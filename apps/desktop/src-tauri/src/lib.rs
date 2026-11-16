@@ -447,6 +447,8 @@ pub fn run() {
             settings::skill_libraries::project_skills_set,
             settings::skill_libraries::skill_libraries_find,
             settings::skill_libraries::skill_libraries_problems,
+            settings::assistant::assistant_settings_get,
+            settings::assistant::assistant_settings_save,
             settings::skill_sync::skill_sync_get,
             settings::skill_sync::skill_sync_set,
             settings::skill_sync::project_sync_get,
@@ -656,7 +658,8 @@ fn setup(
     }
     // This Mac's node, and the mesh it is in, which opens in the background.
     #[cfg(desktop)]
-    let machine = machines::this_mac::Machine::new(&dir.join("node"));
+    let machine =
+        machines::this_mac::Machine::new(&dir.join("node"), Some(projects::agent::tools(&handle)));
     #[cfg(desktop)]
     let fleet = Arc::new(Fleet::new(
         endpoint,

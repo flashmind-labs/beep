@@ -3,7 +3,7 @@
 //! `remote_run` does not hold up the next call.
 
 use super::{
-    catalog::{self, ASK_USER, DEVICE, READ_TRANSCRIPT, REMOTE_RUN},
+    catalog::{self, ASK_USER, DEVICE, PROJECTS, READ_TRANSCRIPT, REMOTE_RUN},
     media::Media,
 };
 use crate::{
@@ -58,6 +58,9 @@ pub(crate) trait Backend: Sync {
     /// Whether `session` is a temporary reviewer, which is offered
     /// `submit_review`.
     fn reviewer(&self, session: &str) -> bool;
+    /// Whether `session` is the home assistant, which hears its brief and is
+    /// offered `projects`.
+    fn assistant(&self, session: &str) -> bool;
     /// Whether the mesh has no other machine to run on, so the tools that
     /// reach one are left out.
     fn alone(&self) -> bool {
@@ -156,6 +159,11 @@ async fn answer<B: Backend>(
             let version = asked
                 .filter(|asked| VERSIONS.contains(asked))
                 .unwrap_or(VERSIONS[0]);
+            let assistant = if backend.assistant(session) {
+                format!("\n\n{}", super::ASSISTANT)
+            } else {
+                String::new()
+            };
             let brief = media.as_deref().and_then(Media::brief).unwrap_or_default();
             success(
                 id,
@@ -163,13 +171,17 @@ async fn answer<B: Backend>(
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": true } },
                     "serverInfo": { "name": super::SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": format!("{}{brief}", super::BRIEF),
+                    "instructions": format!("{}{assistant}{brief}", super::BRIEF),
                 }),
             )
         }
         "ping" => success(id, json!({})),
         "tools/list" => {
-            let mut tools = catalog::tools(backend.reviewer(session), backend.alone());
+            let mut tools = catalog::tools(
+                backend.reviewer(session),
+                backend.alone(),
+                backend.assistant(session),
+            );
 
             if let (Some(listed), Some(media)) = (tools.as_array_mut(), media.as_deref()) {
                 listed.extend(media.listed());
@@ -258,6 +270,11 @@ impl From<Reply> for Called {
 }
 
 async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -> Called {
+    // Only the home assistant creates and imports projects.
+    if name.starts_with(PROJECTS) && !backend.assistant(session) {
+        return Called::failed(format!("There is no tool {name}."));
+    }
+
     if let Err(error) = catalog::validate(name, &args) {
         return Called::failed(error);
     }
@@ -265,7 +282,7 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
     let name = catalog::wire(name);
     let operation = match name {
         ASK_USER | READ_TRANSCRIPT | REMOTE_RUN => name,
-        _ if name.starts_with(DEVICE) => name,
+        _ if name.starts_with(DEVICE) || name.starts_with(PROJECTS) => name,
         _ => name
             .parse::<Tool>()
             .map(<&'static str>::from)
@@ -298,11 +315,21 @@ async fn call_tool<B: Backend>(backend: &B, session: &str, name: &str, args: Val
         return backend.device(session, args).await;
     }
 
-    // `remote_run` goes as `run_on`, its name in `tools/1`.
-    let parsed = match name {
-        REMOTE_RUN => Ok(Tool::RunOn),
-        _ => name.parse::<Tool>().map_err(drop),
+    // The desktop takes the project tools as one, by their action.
+    let mut args = args;
+    let parsed = match name.strip_prefix(PROJECTS) {
+        Some(action) => {
+            if let Some(args) = args.as_object_mut() {
+                args.insert("action".to_owned(), action.into());
+            }
+
+            Ok(Tool::Projects)
+        }
+        // `remote_run` goes as `run_on`, its name in `tools/1`.
+        None if name == REMOTE_RUN => Ok(Tool::RunOn),
+        None => name.parse::<Tool>().map_err(drop),
     };
+
     let tool = match parsed {
         // Only a reviewer hands a review in.
         Ok(Tool::SubmitReview) if !backend.reviewer(session) => {

@@ -5,7 +5,7 @@
 use super::{acp::Prompt, images::Images, usage::UsageHub};
 use agent_client_protocol::v1::schema::{CompactionId, ToolCallId, ToolKind};
 use beep_proto::node::{
-    agent::{AgentCommand, Entry, SessionInfo},
+    agent::{AgentCommand, Effort, Entry, SessionInfo},
     usage::ModelTokens,
 };
 use std::{
@@ -141,6 +141,8 @@ pub(crate) struct Live {
     folder: Option<PathBuf>,
     /// A folder whose checkout the session has not looked up yet.
     pub(crate) place_wanted: Option<PathBuf>,
+    /// The thinking level the agent took, which `SessionInfo` does not carry.
+    pub(crate) effort: Option<Effort>,
 }
 
 /// A thought still arriving.

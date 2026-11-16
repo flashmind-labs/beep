@@ -409,11 +409,10 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
     let stopped = before.open_sessions();
     assert_eq!(stopped[0].model, Some(ModelId::new("deep")));
     // Kept for a take-over after it ended, across the restart note.
-    let kept = before.last_models();
     let noted = Agents::new(Vec::new());
-    noted.keep_models(kept);
-    noted.keep_worktrees(before.last_worktrees());
-    assert_eq!(noted.last_model("held-1"), Some(ModelId::new("deep")));
+    noted.keep_saved(before.saved_sessions());
+    let saved = noted.saved("held-1").expect("saved across the note");
+    assert_eq!(saved.info.model, Some(ModelId::new("deep")));
     assert_eq!(
         noted.created_worktrees("held-1"),
         vec!["/srv/app/.worktrees/fix".to_owned()]
@@ -466,4 +465,250 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
         assert!(crate::agents::tags::own_words(&context.text).is_empty());
     });
     after.shutdown().await;
+}
+
+#[tokio::test]
+async fn begin_assistant_lists_as_assistant() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let kind = adapter(&dir.path().join("log"));
+    let agents = Agents::new(vec![kind.clone()]);
+    let session = agents
+        .start(
+            &kind,
+            Some(&dir.path().to_string_lossy()),
+            Begin {
+                assistant: true,
+                ..begin("hello")
+            },
+        )
+        .expect("the session starts");
+    let mut live = session.live.clone();
+    until(&mut live, |live| live.info.turns == 1).await;
+
+    let listed = agents.list();
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].assistant);
+    assert!(agents.is_assistant(&listed[0].id));
+    agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn assistant_survives_restart() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let log = dir.path().join("log");
+    let kind = adapter(&log);
+    let before = Agents::new(vec![kind.clone()]);
+    let session = before
+        .start(
+            &kind,
+            Some(&dir.path().to_string_lossy()),
+            Begin {
+                assistant: true,
+                ..begin("hello")
+            },
+        )
+        .expect("the session starts");
+    let mut live = session.live.clone();
+    until(&mut live, |live| live.info.turns == 1).await;
+    before.shutdown().await;
+    let stopped = before.open_sessions();
+    assert!(stopped[0].assistant);
+
+    let after = Agents::new(vec![kind]);
+    after.settings_arrived();
+    after.reopen(stopped).await;
+    assert!(after.is_assistant("held-1"));
+    after.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_fresh_start_in_the_home_folder_is_no_assistant() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let kind = adapter(&dir.path().join("log"));
+    let agents = Agents::new(vec![kind.clone()]);
+    // No folder is the home folder; only the flag makes the assistant.
+    let home = agents
+        .start(&kind, None, begin("hello"))
+        .expect("the session starts");
+
+    assert!(!agents.is_assistant(&home.id));
+    agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let kind = adapter(&dir.path().join("log"));
+    // Not the home folder: only the flag makes it the assistant, as on Windows.
+    let before = Agents::new(vec![kind.clone()]);
+    let session = before
+        .start(
+            &kind,
+            Some(&dir.path().to_string_lossy()),
+            Begin {
+                assistant: true,
+                ..begin("hello")
+            },
+        )
+        .expect("the session starts");
+    let mut live = session.live.clone();
+    until(&mut live, |live| live.info.turns == 1).await;
+    session.close().await;
+    until(&mut live, |live| live.status() == Status::Ended).await;
+    let title = session.info().title;
+    let note = Reopen::new(before.open_sessions(), Vec::new(), before.saved_sessions());
+    assert!(note.sessions.is_empty(), "closed, so not reopened");
+    note.save(dir.path()).expect("the note writes");
+    before.shutdown().await;
+
+    let after = Agents::new(vec![kind.clone()]);
+    after.keep_saved(Reopen::read(dir.path()).saved);
+    after.settings_arrived();
+    let resumed = after
+        .resume(&kind, "held-1", None)
+        .await
+        .expect("taken over");
+    assert!(after.is_assistant(&resumed.id));
+    assert_eq!(resumed.info().title, title);
+    after.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let kind = adapter(&dir.path().join("log"));
+    let home = dirs::home_dir().expect("a home folder");
+    let agents = Agents::new(vec![kind.clone()]);
+    agents.keep_saved(vec![SavedSession {
+        info: SessionInfo {
+            id: "held-1".into(),
+            agent: "fake".into(),
+            cwd: home.display().to_string(),
+            ..SessionInfo::default()
+        },
+        effort: None,
+    }]);
+    agents.settings_arrived();
+    let resumed = agents
+        .resume(&kind, "held-1", None)
+        .await
+        .expect("taken over");
+    assert!(!agents.is_assistant(&resumed.id));
+    agents.shutdown().await;
+}
+
+#[test]
+fn a_note_from_before_saved_sessions_reads() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    // `s1` was open; `s2` ended, so nothing but its model is known.
+    let old = r#"{"sessions":[{"agent":"claude","session":"s1","cwd":"/srv/project","held":[]}],
+        "terminals":[],"models":[{"session":"s1","model":"deep"},{"session":"s2","model":"fast"}],
+        "worktrees":[{"session":"s1","worktrees":["/srv/project/.worktrees/fix"]},
+                     {"session":"s2","worktrees":["/srv/other/.worktrees/x"]}]}"#;
+    std::fs::write(dir.path().join("reopen.json"), old).expect("an old note");
+
+    let note = Reopen::read(dir.path());
+    assert_eq!(note.sessions.len(), 1);
+    assert!(!note.sessions[0].assistant);
+    // The open session's model and worktrees are kept with what it is.
+    assert_eq!(note.saved.len(), 1);
+    let saved = &note.saved[0].info;
+    assert_eq!(
+        (saved.id.as_str(), saved.agent.as_str(), saved.cwd.as_str()),
+        ("s1", "claude", "/srv/project")
+    );
+    assert_eq!(saved.model, Some(ModelId::new("deep")));
+    assert_eq!(saved.worktrees, vec!["/srv/project/.worktrees/fix".to_owned()]);
+    assert!(!saved.assistant);
+}
+
+#[test]
+fn a_new_note_reads_as_an_old_node_keeps_it() {
+    /// `Reopen` as beep-node 0.7.12 reads it.
+    #[derive(serde::Deserialize)]
+    struct OldReopen {
+        sessions: Vec<serde_json::Value>,
+        terminals: Vec<serde_json::Value>,
+        #[serde(default)]
+        models: Vec<OldModel>,
+        #[serde(default)]
+        worktrees: Vec<OldWorktrees>,
+    }
+    #[derive(serde::Deserialize)]
+    struct OldModel {
+        session: String,
+        model: ModelId,
+    }
+    #[derive(serde::Deserialize)]
+    struct OldWorktrees {
+        session: String,
+        worktrees: Vec<String>,
+    }
+
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let saved = SavedSession {
+        info: SessionInfo {
+            id: "s1".into(),
+            model: Some(ModelId::new("deep")),
+            worktrees: vec!["/srv/project/.worktrees/fix".into()],
+            ..SessionInfo::default()
+        },
+        effort: None,
+    };
+    Reopen::new(Vec::new(), Vec::new(), vec![saved])
+        .save(dir.path())
+        .expect("the note writes");
+
+    let text = std::fs::read_to_string(dir.path().join("reopen.json")).expect("the note");
+    let old: OldReopen = serde_json::from_str(&text).expect("an old node reads it");
+    assert!(old.sessions.is_empty() && old.terminals.is_empty());
+    assert_eq!(old.models.len(), 1);
+    assert_eq!((old.models[0].session.as_str(), &old.models[0].model), ("s1", &ModelId::new("deep")));
+    assert_eq!(old.worktrees.len(), 1);
+    assert_eq!(old.worktrees[0].session, "s1");
+    assert_eq!(old.worktrees[0].worktrees, vec!["/srv/project/.worktrees/fix".to_owned()]);
+}
+
+#[tokio::test]
+async fn a_saved_session_keeps_what_it_goes_on_with_and_not_its_state() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let kind = adapter(&dir.path().join("log"));
+    let agents = Agents::new(vec![kind.clone()]);
+    let session = agents
+        .start(
+            &kind,
+            Some(&dir.path().to_string_lossy()),
+            Begin {
+                assistant: true,
+                ..begin("hello")
+            },
+        )
+        .expect("the session starts");
+    let mut live = session.live.clone();
+    until(&mut live, |live| live.info.turns == 1).await;
+
+    let saved = agents.saved("held-1").expect("saved");
+    assert_eq!(saved.info.cwd, session.info().cwd);
+    assert!(saved.info.assistant);
+    assert_eq!(saved.info.turns, 0);
+    assert!(saved.info.last_message.is_empty());
+    assert_eq!(saved.info.state, Default::default());
+    agents.shutdown().await;
+}
+
+#[test]
+fn a_reviewer_taken_over_is_never_the_assistant() {
+    let agents = Agents::new(Vec::new());
+    let saved = SavedSession {
+        info: SessionInfo {
+            id: "held-1".into(),
+            reviewer: true,
+            assistant: true,
+            ..SessionInfo::default()
+        },
+        effort: None,
+    };
+
+    assert!(!agents.resumed_begin(None, "held-1", saved).assistant);
 }

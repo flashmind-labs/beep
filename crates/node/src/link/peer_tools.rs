@@ -6,7 +6,7 @@
 use crate::{
     agents::{
         Agents,
-        mcp::{children, harness},
+        mcp::{ProjectTools, answer_projects, children, harness},
     },
     files::transfer::{Incoming, Transfers},
     link::Offers,
@@ -48,6 +48,9 @@ pub(crate) struct Caller {
     /// This node's coding agents, which another node's agents may start
     /// agents among.
     pub agents: Option<Arc<Agents>>,
+    /// This machine's answer to the assistant's project tools, when it is a
+    /// desktop.
+    pub project_tools: Option<Arc<dyn ProjectTools>>,
 }
 
 impl Caller {
@@ -59,6 +62,7 @@ impl Caller {
             commands_off: None,
             transfers: offers.transfers.get(),
             agents: Some(offers.agents.clone()),
+            project_tools: offers.project_tools.clone(),
         }
     }
 }
@@ -85,6 +89,10 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
                 failed: true,
             },
         };
+    }
+
+    if request.tool == Tool::Projects {
+        return answer_projects(caller.project_tools.as_ref(), &request).await;
     }
 
     if matches!(

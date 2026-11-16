@@ -1,6 +1,5 @@
 use super::*;
-use crate::agents::found_sessions::Held;
-use crate::agents::{AgentKind, OpenSession};
+use crate::agents::{AgentKind, OpenSession, SavedSession};
 use beep_proto::node::agent::Request;
 use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path};
@@ -579,11 +578,9 @@ async fn a_resumed_session_goes_on_under_its_parent_in_its_mode() {
     until(&child, |live| live.info.mode.as_deref() == Some("plan")).await;
     let before = child.info();
     child.close().await;
-    let held = Held {
-        parent: before.parent.clone(),
-        mode: before.mode.clone(),
-        model: None,
-        worktrees: Vec::new(),
+    let held = SavedSession {
+        info: before.clone(),
+        effort: None,
     };
     let begin = rig.agents.resumed_begin(None, "agent-id", held);
     assert_eq!(begin.parent, before.parent);

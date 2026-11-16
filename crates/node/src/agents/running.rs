@@ -475,6 +475,7 @@ impl Agents {
 
                 Some(SessionInfo {
                     reviewer: s.reviewer,
+                    assistant: s.assistant,
                     ..s.info()
                 })
             })
@@ -524,6 +525,7 @@ impl Agents {
             !recovering.iter().any(|root| recovery_cwd.starts_with(root)),
             "Git sync is preserving local edits in this checkout; try starting the session again shortly."
         );
+        let assistant = begin.assistant;
         // A reviewer changes nothing, so it needs no git rule.
         let rule = super::session::standing(
             crate::lock(&self.instructions)
@@ -607,6 +609,7 @@ impl Agents {
             brief,
             rule,
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
+            assistant,
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts,
@@ -620,9 +623,26 @@ impl Agents {
         let mut updates = session.live.clone();
         session.keep(tokio::spawn(async move {
             let mut previous = None;
+            let mut saved = None;
 
             loop {
-                let info = watched::read_and_update(&mut updates, |live| live.info.clone());
+                let (info, effort) =
+                    watched::read_and_update(&mut updates, |live| (live.info.clone(), live.effort));
+                // What the saved session keeps, noted as it changes.
+                let keeps = (
+                    info.id.clone(),
+                    info.title.clone(),
+                    info.model.clone(),
+                    effort,
+                    info.mode.clone(),
+                    info.device.clone(),
+                    info.worktrees.clone(),
+                );
+
+                if saved.as_ref() != Some(&keeps) {
+                    crate::link::restart::changed();
+                    saved = Some(keeps);
+                }
                 events.changed(beep_proto::node::events::Topic::keyed("agent", &info.id));
                 let summary = (
                     info.id.clone(),
@@ -708,6 +728,8 @@ pub(super) struct Begin {
     pub(super) follows: Option<watch::Receiver<Live>>,
     /// A temporary reviewer (`agents::reviews`).
     pub(super) review: bool,
+    /// The home assistant, as asked for (Cmd+N on Home) or as saved.
+    pub(super) assistant: bool,
 }
 
 /// The folder a session asked to run in `cwd` runs in, with Beep's brief

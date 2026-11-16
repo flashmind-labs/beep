@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use beep_proto::watched;
 use beep_proto::{
     ModelId,
-    node::agent::{Entry, ParentLink, SessionDevice, Status},
+    node::agent::{Effort, Entry, ParentLink, SessionDevice, SessionInfo, Status},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -35,24 +35,18 @@ pub(super) const CONTINUE: &str = "The node restarted while you were working. Co
 /// does not replay its sessions.
 const KEPT_ENTRIES: usize = 1000;
 
-/// The most session models the note keeps, for sessions taken over later.
-const KEPT_MODELS: usize = 500;
+/// The most sessions the note keeps, for sessions taken over later.
+const KEPT_SAVED: usize = 500;
 
-/// The model a session last ran on, kept so it goes on with it when it is
-/// taken over again after it ended.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct LastModel {
-    /// The agent's own id for the session.
-    session: String,
-    model: ModelId,
-}
-
-/// The linked worktrees a session created, kept for after it ended.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct LastWorktrees {
-    /// The agent's own id for the session.
-    session: String,
-    worktrees: Vec<String>,
+/// What the node keeps of a session, also after it ended, so it goes on as
+/// it was when it is resumed, taken over or moved: its `SessionInfo` as
+/// listed, and the thinking level, which the info does not carry.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SavedSession {
+    /// By the agent's own id.
+    pub(crate) info: SessionInfo,
+    #[serde(default)]
+    pub(crate) effort: Option<Effort>,
 }
 
 /// Why a session is read to start again.
@@ -71,7 +65,7 @@ pub(crate) struct OpenSession {
     /// The agent, such as `claude`.
     agent: String,
     /// The agent's own id for the session.
-    session: String,
+    pub(crate) session: String,
     cwd: PathBuf,
     #[serde(default)]
     started_at: u64,
@@ -103,6 +97,36 @@ pub(crate) struct OpenSession {
     /// The linked worktrees it created, kept as `SessionInfo::worktrees`.
     #[serde(default)]
     worktrees: Vec<String>,
+    /// Whether it is the home assistant.
+    #[serde(default)]
+    assistant: bool,
+    /// The thinking level it ran at.
+    #[serde(default)]
+    effort: Option<Effort>,
+}
+
+impl From<&OpenSession> for SavedSession {
+    /// What a note from before saved sessions knows of open session `open`.
+    fn from(open: &OpenSession) -> Self {
+        let cwd = open.cwd.to_string_lossy().into_owned();
+
+        Self {
+            info: SessionInfo {
+                id: open.session.clone(),
+                agent: open.agent.clone(),
+                cwd,
+                title: open.title.clone(),
+                mode: open.mode.clone(),
+                parent: open.parent.clone(),
+                model: open.model.clone(),
+                device: open.device.clone(),
+                worktrees: open.worktrees.clone(),
+                assistant: open.assistant,
+                ..SessionInfo::default()
+            },
+            effort: open.effort,
+        }
+    }
 }
 
 impl OpenSession {
@@ -169,75 +193,69 @@ impl Agents {
             .collect()
     }
 
-    /// The models sessions here last ran on, the ones running now last,
-    /// added to those kept from before.
-    pub(crate) fn last_models(&self) -> Vec<LastModel> {
+    /// What sessions here were, the ones running now last, added to those
+    /// kept from before. Reviewers are kept too, so one taken over after a
+    /// restart is still known as one.
+    pub(crate) fn saved_sessions(&self) -> Vec<SavedSession> {
         // Copied out, as in `open_sessions`.
         let sessions: Vec<Arc<Session>> = self.lock().values().cloned().collect();
-        let now: Vec<LastModel> = sessions
+        let now: Vec<SavedSession> = sessions
             .iter()
-            .filter_map(|session| {
-                watched::read(&session.live, |live| {
-                    Some(LastModel {
-                        session: live.agent_session.clone()?,
-                        model: live.info.model.clone()?,
-                    })
-                })
-            })
+            .filter_map(|session| Self::saved_of(session))
             .collect();
-        kept_with(&mut crate::lock(&self.last_models), now, |kept| &kept.session)
+        kept_with(&mut crate::lock(&self.saved), now, |kept| &kept.info.id)
     }
 
-    /// The worktrees sessions here created, the ones running now last,
-    /// added to those kept from before.
-    pub(crate) fn last_worktrees(&self) -> Vec<LastWorktrees> {
-        // Copied out, as in `open_sessions`.
-        let sessions: Vec<Arc<Session>> = self.lock().values().cloned().collect();
-        let now: Vec<LastWorktrees> = sessions
-            .iter()
-            .filter_map(|session| {
-                watched::read(&session.live, |live| {
-                    Some(LastWorktrees {
-                        session: live.agent_session.clone()?,
-                        worktrees: live.info.worktrees.clone(),
-                    })
-                    .filter(|kept| !kept.worktrees.is_empty())
-                })
-            })
-            .collect();
-        kept_with(&mut crate::lock(&self.last_worktrees), now, |kept| &kept.session)
+    /// Takes the sessions kept in the note from before the node started.
+    pub(crate) fn keep_saved(&self, saved: Vec<SavedSession>) {
+        *crate::lock(&self.saved) = saved;
     }
 
-    /// Takes the worktrees kept in the note from before the node started.
-    pub(crate) fn keep_worktrees(&self, worktrees: Vec<LastWorktrees>) {
-        *crate::lock(&self.last_worktrees) = worktrees;
-    }
-
-    /// Takes the models kept in the note from before the node started.
-    pub(crate) fn keep_models(&self, models: Vec<LastModel>) {
-        *crate::lock(&self.last_models) = models;
-    }
-
-    /// The model session `id`, by the agent's own id, last ran on here.
-    pub(super) fn last_model(&self, id: &str) -> Option<ModelId> {
-        crate::lock(&self.last_models)
-            .iter()
-            .rfind(|kept| kept.session == id)
-            .map(|kept| kept.model.clone())
-    }
-
-    /// The linked worktrees session `id` created: from its state when it is
-    /// here, else as kept from before the node started.
-    pub(crate) fn created_worktrees(&self, id: &str) -> Vec<String> {
-        if let Some(session) = self.get(id) {
-            return session.info().worktrees;
+    /// What session `id`, by the agent's own id, is: from its state when it
+    /// is here, else as kept from before.
+    pub(crate) fn saved(&self, id: &str) -> Option<SavedSession> {
+        if let Some(saved) = self.get(id).and_then(|session| Self::saved_of(&session)) {
+            return Some(saved);
         }
 
-        crate::lock(&self.last_worktrees)
+        crate::lock(&self.saved)
             .iter()
-            .rfind(|kept| kept.session == id)
-            .map(|kept| kept.worktrees.clone())
+            .rfind(|kept| kept.info.id == id)
+            .cloned()
+    }
+
+    /// The linked worktrees session `id` created, as `saved` gives them.
+    pub(crate) fn created_worktrees(&self, id: &str) -> Vec<String> {
+        self.saved(id)
+            .map(|saved| saved.info.worktrees)
             .unwrap_or_default()
+    }
+
+    /// What `session` is now, once the agent gave it its own id: what it
+    /// goes on with, and whether it is a reviewer or the assistant as
+    /// listings say. Its state, spend and last words are left out.
+    fn saved_of(session: &Session) -> Option<SavedSession> {
+        watched::read(&session.live, |live| {
+            live.agent_session.as_ref()?;
+            let info = &live.info;
+            Some(SavedSession {
+                info: SessionInfo {
+                    id: info.id.clone(),
+                    agent: info.agent.clone(),
+                    cwd: info.cwd.clone(),
+                    title: info.title.clone(),
+                    mode: info.mode.clone(),
+                    parent: info.parent.clone(),
+                    reviewer: session.reviewer,
+                    model: info.model.clone(),
+                    device: info.device.clone(),
+                    worktrees: info.worktrees.clone(),
+                    assistant: session.assistant,
+                    ..SessionInfo::default()
+                },
+                effort: live.effort,
+            })
+        })
     }
 
     /// What it takes to start `session` again, read from its state in one
@@ -282,6 +300,8 @@ impl Agents {
                 title: live.info.title.clone(),
                 device: live.info.device.clone(),
                 worktrees: live.info.worktrees.clone(),
+                assistant: session.assistant,
+                effort: live.effort,
             })
         })
     }
@@ -371,6 +391,8 @@ impl Agents {
                 follows,
                 note: Some(RESUMED.to_owned()),
                 worktrees: open.worktrees,
+                assistant: open.assistant,
+                effort: open.effort,
                 ..Begin::default()
             },
         )?;
@@ -429,11 +451,11 @@ pub(super) async fn to_project(kind: &AgentKind, id: &str, cwd: &Path) {
 mod tests;
 
 /// `kept` with `now` in place of the entries of the same sessions, the
-/// newest `KEPT_MODELS`; a copy of the result.
+/// newest `KEPT_SAVED`; a copy of the result.
 fn kept_with<T: Clone>(kept: &mut Vec<T>, now: Vec<T>, session: impl Fn(&T) -> &String) -> Vec<T> {
     kept.retain(|old| !now.iter().any(|new| session(new) == session(old)));
     kept.extend(now);
-    let over = kept.len().saturating_sub(KEPT_MODELS);
+    let over = kept.len().saturating_sub(KEPT_SAVED);
     kept.drain(..over);
     kept.clone()
 }

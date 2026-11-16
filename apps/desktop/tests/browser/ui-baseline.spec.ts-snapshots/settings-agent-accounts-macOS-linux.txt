@@ -19,6 +19,10 @@ body.cbody
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Home"
+          button.cc-si [aria-label="Assistant" title="Assistant" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Assistant"
           button.cc-si [aria-label="Terminals" title="Terminals" type="button"]
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
@@ -142,6 +146,7 @@ body.cbody
               div.bd-lane
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
+        div.asst-list.pj-list [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
@@ -190,6 +195,8 @@ body.cbody
             span.tt "OpenCode"
           button.cc-si.sub [data-sub="agent:flsh"]
             span.tt "flsh"
+          button.cc-si [data-goto="assistant"]
+            span.tt "Assistant"
           button.cc-si [data-goto="creds"]
             span.tt "Credentials"
           button.cc-si [data-goto="instr"]

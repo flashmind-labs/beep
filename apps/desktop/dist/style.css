@@ -1259,7 +1259,7 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 .md blockquote + .dquote-copy:hover, .md blockquote + .dquote-copy:active { background: transparent; box-shadow: none }
 
 /* The folded group of ended coding agent sessions. */
-.dagfold { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding: 8px 10px 6px; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--dim); font-size: 12px; font-weight: 600; text-align: left; cursor: default }
+.dagfold { display: flex; width: 100%; align-items: center; gap: 6px; margin-top: 8px; padding: 8px 10px 6px; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--dim); font-size: 12px; font-weight: 600; text-align: left; cursor: default }
 .dagfold:hover { color: var(--fg) }
 .dagfold .chev { width: 10px; display: inline-grid; place-items: center }
 .dagfold .n { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums }

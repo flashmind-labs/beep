@@ -11,6 +11,12 @@ pub(super) const REMOTE_RUN: &str = "remote_run";
 /// What every device tool's name starts with, before its action. This node
 /// answers them over `device/1`.
 pub(super) const DEVICE: &str = "device_";
+/// What every tool of the home assistant's projects starts with, before its
+/// action. A desktop answers them, as `Tool::Projects` with the action in
+/// the arguments.
+pub(super) const PROJECTS: &str = "projects_";
+/// The tool that has an agent's changes reviewed.
+const REVIEW: &str = "review";
 
 /// The tools that reach other machines, left out while there are none.
 const ELSEWHERE: [&str; 5] = [
@@ -33,8 +39,9 @@ pub(super) fn wire(name: &str) -> &str {
 
 /// Every tool, in the order agents see them. A reviewer gets
 /// `submit_review` in place of `review`; without other machines, the tools
-/// in `ELSEWHERE` are left out.
-pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
+/// in `ELSEWHERE` are left out. Only the home assistant gets the project
+/// tools, and it has no changes to `review`.
+pub(super) fn tools(reviewer: bool, alone: bool, assistant: bool) -> Value {
     let text = |what: &str| json!({ "type": "string", "description": what });
     let machine = text("A machine by its name in list_machines");
     let id = |of: &str| json!({ "id": text(of) });
@@ -197,6 +204,10 @@ pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
         ),
     ]);
     tools.extend(beep(&machine));
+    if assistant {
+        tools.retain(|tool| tool["name"] != REVIEW);
+        tools.extend(projects());
+    }
 
     tools
         .into_iter()
@@ -285,6 +296,58 @@ fn devices() -> Vec<Value> {
     ]
 }
 
+/// The home assistant's project tools, which the Beep desktop answers.
+fn projects() -> Vec<Value> {
+    let text = json!({ "type": "string" });
+    let machines = json!({ "type": "array", "items": text });
+    let read = |title: &str| json!({ "title": title, "readOnlyHint": true });
+    let acts = |title: &str| json!({ "title": title, "destructiveHint": false, "openWorldHint": true });
+    let named = |action: &str| format!("{PROJECTS}{action}");
+
+    vec![
+        tool(&named("hosts"), "The Git hosts and owners projects_create can make a repository on.", json!({}), &[], read("List Git hosts")),
+        tool(
+            &named("create"),
+            "Make a project on machines, in folder or the default one, with a new repository on \
+             a host and owner from projects_hosts (private unless said).",
+            json!({
+                "name": text,
+                "machines": machines,
+                "folder": text,
+                "repository": {
+                    "type": "object",
+                    "properties": { "host": text, "owner": text, "private": { "type": "boolean" } },
+                    "required": ["host", "owner"],
+                    "additionalProperties": false
+                }
+            }),
+            &["name", "machines"],
+            acts("Create a project"),
+        ),
+        tool(
+            &named("clone"),
+            "Clone a repository url as a project on machines, optionally named and in folder.",
+            json!({ "url": text, "machines": machines, "name": text, "folder": text }),
+            &["url", "machines"],
+            acts("Clone a project"),
+        ),
+        tool(
+            &named("found"),
+            "Checkouts on the machines (or those named) that are no project yet.",
+            json!({ "machines": machines }),
+            &[],
+            read("Find projects"),
+        ),
+        tool(
+            &named("import"),
+            "Make projects of checkouts projects_found gave, by name, optionally only on machines.",
+            json!({ "projects": { "type": "array", "items": text, "minItems": 1 }, "machines": machines }),
+            &["projects"],
+            acts("Import projects"),
+        ),
+    ]
+}
+
 /// The tools for debugging Beep itself; secrets removed.
 fn beep(machine: &Value) -> Vec<Value> {
     let text = |what: &str| json!({ "type": "string", "description": what });
@@ -350,7 +413,7 @@ fn beep(machine: &Value) -> Vec<Value> {
 
 fn review() -> Value {
     let mut review = tool(
-        "review",
+        REVIEW,
         "Have your changes since the merge base with base (default branch when left out, HEAD \
          for uncommitted changes only) reviewed by a read-only reviewer agent; returns its \
          verdict and findings. After about 45 seconds it returns an id while it works: call \
@@ -407,8 +470,8 @@ pub(super) fn validate(name: &str, args: &Value) -> Result<(), String> {
         LazyLock::new(|| {
             let mut validators = HashMap::new();
 
-            for reviewer in [false, true] {
-                let listed = tools(reviewer, false);
+            for (reviewer, assistant) in [(false, false), (true, false), (false, true)] {
+                let listed = tools(reviewer, false, assistant);
                 let Some(listed) = listed.as_array() else {
                     return Err("Invalid tool catalog".to_owned());
                 };

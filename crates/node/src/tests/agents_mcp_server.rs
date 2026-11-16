@@ -13,6 +13,8 @@ struct Fake {
     media: Option<std::path::PathBuf>,
     /// The mesh has no other machine.
     alone: bool,
+    /// The session is the home assistant.
+    assistant: bool,
 }
 
 impl Fake {
@@ -24,6 +26,7 @@ impl Fake {
             reviewer: false,
             media: None,
             alone: false,
+            assistant: false,
         }
     }
 }
@@ -74,6 +77,11 @@ impl Backend for Fake {
     fn reviewer(&self, session: &str) -> bool {
         assert_eq!(session, "a3f9c1");
         self.reviewer
+    }
+
+    fn assistant(&self, session: &str) -> bool {
+        assert_eq!(session, "a3f9c1");
+        self.assistant
     }
 
     fn alone(&self) -> bool {
@@ -438,18 +446,105 @@ async fn without_other_machines_run_and_files_are_left_out() {
     assert_eq!(names, expected);
 }
 
+fn names(tools: &Value) -> Vec<&str> {
+    tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect()
+}
+
+/// The project tools, which only the home assistant gets.
+const PROJECT_TOOLS: [&str; 5] = [
+    "projects_hosts",
+    "projects_create",
+    "projects_clone",
+    "projects_found",
+    "projects_import",
+];
+
+#[test]
+fn assistant_session_lists_the_project_tools_in_place_of_review() {
+    let listed = catalog::tools(false, false, true);
+    let assistant = names(&listed);
+    let expected: Vec<&str> = ALL
+        .into_iter()
+        .filter(|name| *name != "review")
+        .chain(PROJECT_TOOLS)
+        .collect();
+    assert_eq!(assistant, expected);
+    assert_eq!(names(&catalog::tools(false, false, false)), ALL);
+}
+
+#[tokio::test]
+async fn assistant_initialize_has_brief() {
+    let initialize = || [request(1, "initialize", json!({}))];
+    let assistant = Fake {
+        assistant: true,
+        ..Fake::new("allow")
+    };
+    let out = exchange(&assistant, &initialize()).await;
+    let instructions = out[0]["result"]["instructions"].as_str().unwrap();
+    assert!(instructions.contains(super::super::ASSISTANT), "{instructions}");
+
+    let out = exchange(&Fake::new("allow"), &initialize()).await;
+    let instructions = out[0]["result"]["instructions"].as_str().unwrap();
+    assert!(!instructions.contains(super::super::ASSISTANT), "{instructions}");
+}
+
+#[tokio::test]
+async fn project_tools_are_refused_for_other_sessions_before_validation() {
+    let fake = Fake::new("allow");
+    // Invalid arguments too: the refusal comes before the schema is checked.
+    for args in [json!({ "name": "notes", "machines": ["build-box"] }), json!({ "unknown": 1 })] {
+        let result = call(&fake, "a3f9c1", "projects_create", args).await;
+        assert!(
+            result.failed && result.text == "There is no tool projects_create.",
+            "{result:?}"
+        );
+    }
+    let result = call(&fake, "a3f9c1", "projects", json!({ "action": "hosts" })).await;
+    assert!(result.failed, "{result:?}");
+    assert!(fake.calls.lock().unwrap().is_empty(), "nothing is forwarded");
+}
+
+#[tokio::test]
+async fn project_tools_reach_the_desktop_as_projects_with_their_action() {
+    let assistant = Fake {
+        assistant: true,
+        ..Fake::new("allow")
+    };
+    let args = json!({ "name": "notes", "machines": ["build-box"] });
+    call(&assistant, "a3f9c1", "projects_create", args).await;
+    let result = call(&assistant, "a3f9c1", "projects_hosts", json!({ "extra": 1 })).await;
+    assert!(result.failed && result.text.contains("extra"), "{result:?}");
+
+    let calls = assistant.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].tool, Tool::Projects);
+    let sent: Value = serde_json::from_str(&calls[0].args).unwrap();
+    assert_eq!(
+        sent,
+        json!({ "action": "create", "name": "notes", "machines": ["build-box"] })
+    );
+}
+
 /// The tools agents get without API keys stay within a context budget, at
 /// about four bytes a token.
 #[test]
 fn the_tool_definitions_fit_the_budget() {
-    // Includes the constraints that reject fields belonging to other actions.
     const TOKENS: usize = 4_250;
+    // The home assistant's list has the project tools in place of review.
+    const ASSISTANT_TOKENS: usize = 4_500;
 
-    let listed = catalog::tools(false, false).to_string();
-    let tokens = listed.len() / 4;
-    assert!(tokens <= TOKENS, "{tokens} tokens");
-    let brief = (super::super::BRIEF.len()) / 4;
-    assert!(brief <= 500, "the brief is {brief} tokens");
+    for (assistant, budget) in [(false, TOKENS), (true, ASSISTANT_TOKENS)] {
+        let listed = catalog::tools(false, false, assistant).to_string();
+        let tokens = listed.len() / 4;
+        assert!(tokens <= budget, "{tokens} tokens, assistant {assistant}");
+    }
+    let brief = (super::super::BRIEF.len() + super::super::ASSISTANT.len()) / 4;
+    assert!(brief <= 500, "the assistant's brief is {brief} tokens");
 }
 
 #[tokio::test]
@@ -495,10 +590,14 @@ async fn a_meshy_key_offers_the_3d_tools_and_their_models() {
 /// Every tool takes only its own arguments, checked before routing.
 #[tokio::test]
 async fn every_tool_rejects_unknown_arguments() {
-    let fake = Fake::new("allow");
-    let listed = catalog::tools(false, false);
+    let fake = Fake {
+        assistant: true,
+        ..Fake::new("allow")
+    };
+    // The assistant's list has the project tools, the other one has review.
+    let listed = [catalog::tools(false, false, true), catalog::tools(false, false, false)];
 
-    for tool in listed.as_array().unwrap() {
+    for tool in listed.iter().flat_map(|tools| tools.as_array().unwrap()) {
         let name = tool["name"].as_str().unwrap();
         let schema = &tool["inputSchema"];
         assert_eq!(schema["additionalProperties"], false, "{name}");

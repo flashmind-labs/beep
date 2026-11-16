@@ -18,6 +18,10 @@ body.cbody.mb-home.mobile
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Home"
+          button.cc-si [aria-label="Assistant" title="Assistant" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Assistant"
           button.cc-si [aria-label="Terminals" title="Terminals" type="button"]
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
@@ -91,6 +95,9 @@ body.cbody.mb-home.mobile
         span#scope
         small#date "Thursday, January 15"
         span#tools.tools
+          button.dbtn.fab.pj-tool.small [aria-label="New assistant" type="button"] "New assistant"
+            span style(display)
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
         span#usage.us [hidden]
         span#bell.nt
           button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
@@ -158,6 +165,7 @@ body.cbody.mb-home.mobile
                 div.bd-log
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
+        div.asst-list.pj-list [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

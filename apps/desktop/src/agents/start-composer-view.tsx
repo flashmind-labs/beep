@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { Fragment, useLayoutEffect, useMemo, useRef, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
 import { FieldMenu } from "./composer-ui.tsx";
 import { isMobile } from "../ui/platform.ts";
+import type { ComposerWords } from "./assistant-state.ts";
 
 export interface StartComposerNodes { input: HTMLTextAreaElement | null; machine: HTMLButtonElement | null; folder: HTMLButtonElement | null; harness: HTMLButtonElement | null; pick: HTMLDivElement | null; att: HTMLDivElement | null; box: HTMLDivElement | null; grow: () => void }
 interface ChoiceContents { machine: ReactNode; folder: ReactNode }
@@ -14,6 +15,8 @@ export interface StartComposerState {
   centered: boolean; busy: boolean; welcome: string;
   /// The line under the field: an error, else the start's progress.
   error: string; progress: string; placeholder: string; invalid: boolean; dropping: boolean;
+  /// What it says: for a coding agent's task, or for the assistant.
+  words: ComposerWords;
   sendDisabled: boolean; sendTitle: string | null;
   /// A stash restore holds the send button until it is done.
   stashLocked: boolean;
@@ -76,9 +79,10 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
   const choice = (which: "host" | "folder") => () => actions.choice?.(which);
   const expanded = (which: ComposerOpen) => state.open === which;
   const sendLabel = state.centered ? state.busy ? "Starting" : "Start" : undefined;
-  return <>{state.centered && <section className="agc-intro"><DailyArt /><h3 aria-label={state.welcome}><span aria-hidden="true">{state.welcome.split(" ").map((word, index) => <Fragment key={index}>{index > 0 && " "}<span className="agc-word" style={{ "--word": index } as CSSProperties}>{word}</span></Fragment>)}</span></h3><p>A fresh idea. A tricky bug. A place to start.</p></section>}
+  const heading = state.words.title ?? state.welcome;
+  return <>{state.centered && <section className="agc-intro"><DailyArt /><h3 aria-label={heading}><span aria-hidden="true">{heading.split(" ").map((word, index) => <Fragment key={index}>{index > 0 && " "}<span className="agc-word" style={{ "--word": index } as CSSProperties}>{word}</span></Fragment>)}</span></h3><p>{state.words.line}</p></section>}
     <div className={`box${state.invalid ? " err" : ""}${state.dropping ? " dropping" : ""}`} id={id("agbox")} ref={refs.box}>
-      <textarea ref={refs.input} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label="Task for a coding agent" title={title} placeholder={state.placeholder}
+      <textarea ref={refs.input} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label={state.words.label} title={title} placeholder={state.placeholder}
         onInput={event => { grow(); actions.input?.(event.currentTarget.value); }}
         onPaste={paste}
         onKeyDown={event => { actions.keyDown?.(event.nativeEvent); if (event.currentTarget.readOnly || event.key !== "Enter" || event.shiftKey || isMobile() || event.nativeEvent.isComposing || event.defaultPrevented) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.form?.requestSubmit(); }} />

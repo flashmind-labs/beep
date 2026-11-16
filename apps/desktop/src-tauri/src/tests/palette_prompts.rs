@@ -70,6 +70,7 @@ fn session() -> MachineSession {
         question: None,
         subagents: 0,
         model: None,
+        assistant: false,
     }
 }
 

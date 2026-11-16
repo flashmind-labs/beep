@@ -4,6 +4,7 @@ import "./events.ts";
 import { type AgentPlace, renderAgentNew } from "../agents/agentnew.tsx";
 import { type AgentRow, renderAgents } from "../agents/agents.ts";
 import { openAgent } from "../agents/session.tsx";
+import { type AssistantOpen, openAssistantPage, openedChat } from "../agents/assistant-page.tsx";
 import { closePaneTabs, newTerminal, openTerminal, showChanges } from "../agentpane/media.ts";
 import type { TerminalRow } from "../terminals/terminals.tsx";
 import { sessions } from "../agents/sessions.ts";
@@ -23,7 +24,8 @@ export type PaneTarget =
   | null
   | { agent: AgentRow & { kind?: string }; from?: BackTo; adopt?: boolean }
   | { draft: { project: string; machine: string | null; terminal?: true | TerminalRow } }
-  | { agentnew: { prompt?: string; at?: AgentPlace | null }; from?: BackTo };
+  | { agentnew: { prompt?: string; at?: AgentPlace | null; assistant: boolean }; from?: BackTo }
+  | { assistant: AssistantOpen };
 
 export const pane = {
   /// Hands the pane what the window does for it.
@@ -44,7 +46,10 @@ export const pane = {
     if (target && typeof target === "object") {
       // Agent views are not a CenterTarget: Home and the sidebar open them.
       // A notice names a session with no folder: the loaded list has the row, when it has one.
+      if ("assistant" in target) return openAssistantPage(target.assistant);
+
       if ("agent" in target) {
+        openedChat(target.agent);
         const { machine_id, agent, id } = target.agent;
         const row = sessions.find(s => s.machine_id === machine_id && s.agent === agent && s.id === id);
         openAgent(row ?? target.agent, { back: target.from ?? "agents", adopt: target.adopt });
@@ -62,7 +67,7 @@ export const pane = {
         });
       }
 
-      return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null);
+      return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null, target.agentnew.assistant);
     }
 
     if (target === "settings") return renderSettings();

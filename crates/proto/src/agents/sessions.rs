@@ -375,6 +375,9 @@ wire_structs! {
         /// The model it runs on, when its node says.
         #[serde(default)]
         pub model: Option<ModelId>,
+        /// The home assistant; false from an older node.
+        #[serde(default)]
+        pub assistant: bool,
     }
 }
 
@@ -421,7 +424,8 @@ wire_structs! {
 /// in `needs` and those the prompt and folder call for. `model` is an id
 /// from `ListAgentModels`, the agent's default when `None`; `effort` is one
 /// of `node::agent::efforts(agent)`. `checkout` first makes a branch or
-/// worktree in `cwd`'s git checkout, named from the prompt.
+/// worktree in `cwd`'s git checkout, named from the prompt. `assistant`
+/// starts the home assistant, which only newer nodes run.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StartAgentSession {
     pub machine_id: Option<String>,
@@ -432,6 +436,7 @@ pub struct StartAgentSession {
     pub model: Option<String>,
     pub effort: Option<Effort>,
     pub checkout: Option<CheckoutPlan>,
+    pub assistant: bool,
 }
 
 /// The machine `StartAgentSession` without a `machine_id` would start on

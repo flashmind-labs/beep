@@ -588,6 +588,7 @@ async fn a_peer_starts_and_follows_an_agent_session() {
             effort: None,
             checkout: None,
             images: Vec::new(),
+            assistant: false,
         })
         .await
         .expect("the start is sent");
@@ -1076,6 +1077,7 @@ async fn start_refusal(conn: &Link, cwd: &Path) -> Option<String> {
             effort: None,
             checkout: None,
             images: Vec::new(),
+            assistant: false,
         })
         .await
         .expect("the start is sent");
@@ -2951,6 +2953,7 @@ async fn a_running_session_moves_to_the_other_machine_with_its_conversation() {
             effort: None,
             checkout: None,
             images: Vec::new(),
+            assistant: false,
         })
         .await
         .expect("the start is sent");
@@ -3148,6 +3151,7 @@ async fn a_machine_that_cannot_take_the_session_leaves_it_running_where_it_was()
             effort: None,
             checkout: None,
             images: Vec::new(),
+            assistant: false,
         })
         .await
         .expect("the start is sent");
@@ -3256,6 +3260,7 @@ async fn run_session_in(conn: &Link, cwd: &Path) {
             effort: None,
             checkout: None,
             images: Vec::new(),
+            assistant: false,
         })
         .await
         .expect("the start is sent");

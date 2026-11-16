@@ -26,11 +26,12 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
-pub(crate) use super::brief::{BRIEF, CHAT};
+pub(crate) use super::brief::{ASSISTANT, BRIEF, CHAT};
 pub(crate) mod calls;
 mod catalog;
 pub(crate) mod children;
 mod debug;
+mod desktop;
 mod devices;
 pub(crate) mod harness;
 mod machines;
@@ -43,6 +44,9 @@ mod socket;
 mod transcripts;
 
 pub(crate) use machines::over_the_mesh;
+pub use machines::command_name;
+pub(crate) use desktop::answer as answer_projects;
+pub use desktop::ProjectTools;
 pub(crate) use server::Backend;
 use server::Called;
 
@@ -207,6 +211,7 @@ impl Backend for Node {
                 ));
             }
             Tool::HarnessInfo => return Ok(harness::call(&self.offers, request).await),
+            Tool::Projects => return Ok(desktop::call(&self.offers, request).await),
             Tool::Review => return Ok(review::review(&self.offers, request).await),
             Tool::SubmitReview => return Ok(review::submit(&self.offers, request)),
             Tool::StartAgent
@@ -252,6 +257,10 @@ impl Backend for Node {
 
     fn reviewer(&self, session: &str) -> bool {
         self.offers.agents.is_reviewer(session)
+    }
+
+    fn assistant(&self, session: &str) -> bool {
+        self.offers.agents.is_assistant(session)
     }
 
     fn alone(&self) -> bool {

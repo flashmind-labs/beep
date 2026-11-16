@@ -2,7 +2,7 @@
 //! server, and the sessions devices of the mesh open, until it stops.
 
 use crate::{
-    agents::mcp,
+    agents::mcp::{self, ProjectTools},
     agents::{AgentKind, Agents, SESSIONS_ALPN, TRANSCRIPT_PROTOCOL, skills::Skills},
     files::Folders,
     files::search::Searches,
@@ -244,8 +244,7 @@ pub async fn serve(
     // Only then is the note kept to what is open, so a start that dies
     // before leaves it as it was.
     let reopen = Reopen::read(&state.dir);
-    offers.agents.keep_models(reopen.models);
-    offers.agents.keep_worktrees(reopen.worktrees);
+    offers.agents.keep_saved(reopen.saved);
     terminal::reopen(&state.dir, reopen.terminals).await;
     let agents = offers.agents.clone();
     let note_dir = state.dir.clone();
@@ -280,12 +279,11 @@ pub async fn serve(
         log::warn!("the note of what is open was not kept: {e}");
     }
 
-    let reopen = Reopen {
-        sessions: offers.agents.open_sessions(),
+    let reopen = Reopen::new(
+        offers.agents.open_sessions(),
         terminals,
-        models: offers.agents.last_models(),
-        worktrees: offers.agents.last_worktrees(),
-    };
+        offers.agents.saved_sessions(),
+    );
 
     if let Err(e) = reopen.save(&state.dir) {
         log::warn!("what was open will not open again: {e:#}");
@@ -376,6 +374,9 @@ pub struct Offers {
     pub skills: Skills,
     /// The node these offers are served by, once it is made.
     pub(crate) reach: Reach,
+    /// Answers the assistant's project tools, for the desktop app. Other
+    /// nodes send them to a desktop of the mesh.
+    pub project_tools: Option<Arc<dyn ProjectTools>>,
 }
 
 impl Offers {
@@ -408,6 +409,7 @@ impl Offers {
             withheld: Arc::default(),
             skills: Skills::default(),
             reach: Reach::default(),
+            project_tools: None,
         }
     }
 
@@ -589,6 +591,7 @@ pub(super) async fn serve_open(
                         commands_off: commands_off(&offers),
                         transfers: offers.transfers.get(),
                         agents: Some(offers.agents.clone()),
+                        project_tools: offers.project_tools.clone(),
                     },
                 };
                 peer_tools::serve(tx, rx, caller).await

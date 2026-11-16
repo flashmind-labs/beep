@@ -3,13 +3,14 @@
 //! for the node to be idle.
 
 use crate::{
-    agents::{Agents, LastModel, LastWorktrees, OpenSession},
+    agents::{Agents, OpenSession, SavedSession},
     link::local_socket::{Listener, Stream},
     link::note,
     link::watchdog::{self, Step},
     run::terminal::{self, OpenTerminal},
 };
 use anyhow::{Context, Result};
+use beep_proto::ModelId;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
 use tokio::{
@@ -38,30 +39,115 @@ const IDLE: &str = "idle";
 pub(crate) struct Reopen {
     pub(crate) sessions: Vec<OpenSession>,
     pub(crate) terminals: Vec<OpenTerminal>,
-    /// The models sessions last ran on, ended ones too.
+    /// What sessions were, ended ones too.
     #[serde(default)]
-    pub(crate) models: Vec<LastModel>,
-    /// The worktrees sessions created, ended ones too.
+    pub(crate) saved: Vec<SavedSession>,
+    /// The models sessions last ran on, as nodes from before `saved` keep
+    /// them: written beside `saved` so such a node, rolled back to, keeps them.
     #[serde(default)]
-    pub(crate) worktrees: Vec<LastWorktrees>,
+    models: Vec<OldModel>,
+    /// The worktrees sessions created, as `models`.
+    #[serde(default)]
+    worktrees: Vec<OldWorktrees>,
+}
+
+/// A session's model as nodes from before `saved` keep it.
+#[derive(Debug, Serialize, Deserialize)]
+struct OldModel {
+    session: String,
+    model: ModelId,
+}
+
+/// A session's worktrees as nodes from before `saved` keep them.
+#[derive(Debug, Serialize, Deserialize)]
+struct OldWorktrees {
+    session: String,
+    worktrees: Vec<String>,
 }
 
 impl Reopen {
     /// What the node in `dir` had open. The note stays until the next
     /// write, so a start that dies before it took over still finds it.
-    /// Nothing when there is none or it cannot be read.
+    /// Nothing when there is none or it cannot be read. The models and
+    /// worktrees of a note from before `saved` go into the saved session
+    /// they belong to, or one made from the open session; others are left
+    /// out, as nothing else is known of them.
     pub(crate) fn read(dir: &Path) -> Self {
-        note::read(&dir.join(FILE))
+        let mut reopen: Self = note::read(&dir.join(FILE));
+
+        for old in std::mem::take(&mut reopen.models) {
+            if let Some(saved) = reopen.saved_for(&old.session) {
+                saved.info.model.get_or_insert(old.model);
+            }
+        }
+
+        for old in std::mem::take(&mut reopen.worktrees) {
+            if let Some(saved) = reopen.saved_for(&old.session)
+                && saved.info.worktrees.is_empty()
+            {
+                saved.info.worktrees = old.worktrees;
+            }
+        }
+
+        reopen
+    }
+
+    /// What the node has open now, what its sessions were, and the same as
+    /// nodes from before `saved` keep it.
+    pub(crate) fn new(
+        sessions: Vec<OpenSession>,
+        terminals: Vec<OpenTerminal>,
+        saved: Vec<SavedSession>,
+    ) -> Self {
+        let models = saved
+            .iter()
+            .filter_map(|kept| {
+                Some(OldModel {
+                    session: kept.info.id.clone(),
+                    model: kept.info.model.clone()?,
+                })
+            })
+            .collect();
+        let worktrees = saved
+            .iter()
+            .filter(|kept| !kept.info.worktrees.is_empty())
+            .map(|kept| OldWorktrees {
+                session: kept.info.id.clone(),
+                worktrees: kept.info.worktrees.clone(),
+            })
+            .collect();
+
+        Self {
+            sessions,
+            terminals,
+            saved,
+            models,
+            worktrees,
+        }
     }
 
     /// What `agents` and the terminals have open now.
     pub(crate) fn now(agents: &Agents) -> Self {
-        Self {
-            sessions: agents.open_sessions(),
-            terminals: terminal::running(),
-            models: agents.last_models(),
-            worktrees: agents.last_worktrees(),
-        }
+        Self::new(
+            agents.open_sessions(),
+            terminal::running(),
+            agents.saved_sessions(),
+        )
+    }
+
+    /// The saved entry of session `id`: the one there is, else one made
+    /// from its open session; `None` when there is neither.
+    fn saved_for(&mut self, id: &str) -> Option<&mut SavedSession> {
+        let at = match self.saved.iter().position(|saved| saved.info.id == id) {
+            Some(at) => at,
+            None => {
+                let open = self.sessions.iter().find(|open| open.session == id)?;
+                self.saved.push(Into::<SavedSession>::into(open));
+                self.saved.len() - 1
+            }
+        };
+
+        self.saved.get_mut(at)
     }
 
     /// Writes this down in `dir` for the next start, whole or not at all.
@@ -98,8 +184,7 @@ pub(crate) async fn keep(dir: &Path, agents: &Agents) {
 /// Until aborted.
 pub async fn reopen_and_keep(dir: &Path, agents: &Agents) {
     let reopen = Reopen::read(dir);
-    agents.keep_models(reopen.models);
-    agents.keep_worktrees(reopen.worktrees);
+    agents.keep_saved(reopen.saved);
     terminal::reopen(dir, reopen.terminals).await;
     agents.reopen(reopen.sessions).await;
     keep(dir, agents).await;

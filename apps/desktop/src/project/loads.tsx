@@ -241,13 +241,13 @@ export async function openSyncRepair(project: string, machine: string, error: st
   catch (e) { console.warn("repair sessions:", e); }
 
   const prompt = syncRepairPrompt({ project, machine, error, checkouts: p.machines, git: state.gitsync.get(project) ?? [], sessions });
-  go("pane", { agentnew: { prompt, at: { machine, cwd: place.folder, places: projectPlaces(p), project } } });
+  go("pane", { agentnew: { prompt, at: { machine, cwd: place.folder, places: projectPlaces(p), project }, assistant: false } });
 }
 
 /// Actions shared by a checkout's machine header and table row.
 export function checkoutItems(p: Project, m: WhereRow, path: string): MenuItem[] {
   return [
-    { label: "Start an agent here", on: () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path, places: projectPlaces(p), project: p.name } } }) },
+    { label: "Start an agent here", on: () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path, places: projectPlaces(p), project: p.name }, assistant: false } }) },
     ...(m.mac ? [{ label: "Open in Finder", on: () => void invoke("open_folder", { path }).catch(e => console.warn("open folder:", e)) }] : []),
     { label: "Copy path", on: () => void copy(path) },
   ];

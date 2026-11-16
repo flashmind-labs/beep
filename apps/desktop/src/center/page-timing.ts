@@ -4,7 +4,7 @@ export function pageName(name: string, arg: unknown): string {
 
   if (arg && typeof arg === "object") {
     if ("agent" in arg || "draft" in arg) return "agent";
-    if ("agentnew" in arg) return "agentnew";
+    if ("agentnew" in arg || "assistant" in arg) return "agentnew";
   }
 
   if (typeof arg === "string" && ["agent", "agentnew", "agents", "machines", "settings"].includes(arg)) return arg;

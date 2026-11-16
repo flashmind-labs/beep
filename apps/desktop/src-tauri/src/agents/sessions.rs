@@ -61,6 +61,8 @@ pub struct HostRow {
     workspace: Option<String>,
     home: Option<String>,
     capabilities: Vec<&'static str>,
+    /// Its node runs the home assistant.
+    assistant: bool,
 }
 
 impl From<AgentHost> for HostRow {
@@ -76,6 +78,7 @@ impl From<AgentHost> for HostRow {
                 .into_iter()
                 .map(<&'static str>::from)
                 .collect(),
+            assistant: false,
         }
     }
 }
@@ -104,6 +107,8 @@ pub struct SessionRow {
     subagents: u32,
     /// The model it runs on, when its node says.
     model: Option<ModelId>,
+    /// The home assistant.
+    assistant: bool,
 }
 
 impl From<MachineSession> for SessionRow {
@@ -125,6 +130,7 @@ impl From<MachineSession> for SessionRow {
             reviewer: false,
             subagents: session.subagents,
             model: session.model,
+            assistant: session.assistant,
         }
     }
 }
@@ -265,7 +271,13 @@ pub async fn agent_hosts(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<HostRow>> {
             .is_some_and(|config| !config.enabled)
     };
     let hosts = fleet.status().agent_hosts(is_off);
-    Ok(hosts.into_iter().map(HostRow::from).collect())
+    Ok(hosts
+        .into_iter()
+        .map(|host| HostRow {
+            assistant: direct::runs_assistant(&fleet, &host),
+            ..HostRow::from(host)
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -507,7 +519,7 @@ pub(crate) async fn machine_sessions(
 /// Starts a session; no `machine_id` lets the mesh pick. `model`, from
 /// `agent_models`, picks the agent's model, `effort` how hard it thinks and
 /// `checkout` the new branch or worktree it starts on. `images` go with the
-/// prompt.
+/// prompt. `assistant` starts the home assistant.
 // The arguments are the fields of the window's `invoke` call.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
@@ -522,6 +534,7 @@ pub async fn agent_start(
     effort: Option<Effort>,
     checkout: Option<CheckoutPlan>,
     images: Option<Vec<PastedImage>>,
+    assistant: Option<bool>,
 ) -> Result<Started> {
     let images = uploads(images.unwrap_or_default())?;
 
@@ -539,6 +552,7 @@ pub async fn agent_start(
         model,
         effort,
         checkout,
+        assistant: assistant.unwrap_or(false),
     };
     let started = direct::start(&fleet, request, images).await?;
     crate::palette::prompts::sent(&app, started.session.clone(), &indexed_prompt).await;

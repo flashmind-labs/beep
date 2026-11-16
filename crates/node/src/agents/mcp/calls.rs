@@ -28,6 +28,8 @@ pub(crate) const PREFIX: &str = "Beep: ";
 ///   <machine>`
 /// - `Read status`, `Read logs on <machine>`, `Read metrics`, `File a
 ///   report: <description>`
+/// - `List Git hosts`, `Create project: <name>`, `Clone project: <url>`,
+///   `Find projects`, `Import projects`
 ///
 /// A grouped tool of older sessions (`machines`, `run`, `files`, `agent`,
 /// `beep`, `device`) takes the words of the tool its action calls.
@@ -74,6 +76,11 @@ pub(crate) enum Tool {
     BeepMetrics,
     #[strum(to_string = "beep_report", serialize = "file_report")]
     FileReport,
+    ProjectsHosts,
+    ProjectsCreate,
+    ProjectsClone,
+    ProjectsFound,
+    ProjectsImport,
     Machines,
     Run,
     Files,
@@ -278,6 +285,11 @@ impl Tool {
                 None => format!("{PREFIX}Read metrics"),
             },
             Self::FileReport => with("File a report".to_owned(), text("description")),
+            Self::ProjectsHosts => format!("{PREFIX}List Git hosts"),
+            Self::ProjectsCreate => with("Create project".to_owned(), text("name")),
+            Self::ProjectsClone => with("Clone project".to_owned(), text("url")),
+            Self::ProjectsFound => format!("{PREFIX}Find projects"),
+            Self::ProjectsImport => format!("{PREFIX}Import projects"),
             Self::Machines
             | Self::Run
             | Self::Files

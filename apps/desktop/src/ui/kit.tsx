@@ -35,6 +35,11 @@ export function LineRow({ lead, title, sub, right, onOpen, onContext, dim = fals
   </div>;
 }
 
+/// The fold a list keeps its ended rows under, closed until opened.
+export function EndedFold({ count, open, onToggle }: { count: number; open: boolean; onToggle(): void }) {
+  return <button type="button" className="dagfold" aria-expanded={open} onClick={onToggle}><span className="chev" aria-hidden>{open ? "▾" : "▸"}</span>Ended<span className="n">{count}</span></button>;
+}
+
 /// A panel with nothing to list: `title` in bold, then `text` (red when it is
 /// an `error`), after a spinner while it `spin`s.
 export function EmptyPanel({ title = null, text = null, error = false, spin = false }: { title?: ReactNode; text?: ReactNode; error?: boolean; spin?: boolean }) {

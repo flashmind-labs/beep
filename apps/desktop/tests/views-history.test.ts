@@ -122,7 +122,7 @@ test("explicit return targets take priority when opening a conversation", () => 
   register("pane", { mount(_el, arg) { mounted.arg = arg; } });
   go("pane", { draft: { project: "acme/widget", machine: null } });
   const from = { view: "home" as const, arg: null };
-  go("pane", { agentnew: { prompt: "" }, from });
+  go("pane", { agentnew: { prompt: "", assistant: false }, from });
   assert.deepEqual(returnTarget(mounted.arg), from);
 });
 

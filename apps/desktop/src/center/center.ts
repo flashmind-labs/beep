@@ -145,11 +145,13 @@ function projectHere() {
 
 /// ⌘N: in a project (its page, or one of its sessions) the agent
 /// view with an empty conversation and the project's start input, focused;
-/// elsewhere Projects, to pick the project to start in.
+/// on Home the assistant's start form; elsewhere Projects, to pick the
+/// project to start in.
 function newAgentHere() {
   const to = projectHere();
-  if (!to) return void go("projects", { project: null });
-  go("pane", { draft: { project: to.project, machine: to.machine } });
+  if (to) return void go("pane", { draft: { project: to.project, machine: to.machine } });
+  if (currentLocation()?.view === "home") return void go("pane", { assistant: "new" });
+  go("projects", { project: null });
 }
 pane.connect({
   openSettings,

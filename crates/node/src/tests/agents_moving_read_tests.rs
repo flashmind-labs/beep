@@ -691,3 +691,70 @@ async fn a_worktree_asked_while_the_source_restarts_is_not_refused_for_good() {
         "a refusal ends the move: {failed:#}"
     );
 }
+
+/// Serves reads to anyone, of a session leaving the folder it holds.
+#[derive(Clone)]
+struct Leaves(Arc<Agents>, std::path::PathBuf);
+
+impl std::fmt::Debug for Leaves {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Leaves")
+    }
+}
+
+impl ProtocolHandler for Leaves {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        let Ok((send, recv)) = connection.accept_bi().await else {
+            return Ok(());
+        };
+        let (tx, rx) = link(send, recv);
+        let folder = self.1.clone();
+        let leaving = move |_: &str| {
+            Some(Leaving {
+                folder: folder.clone(),
+                worktrees: Vec::new(),
+            })
+        };
+        let access = Access {
+            check: &|_, _| true,
+            updates: None,
+            leaving: &leaving,
+        };
+        let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
+        connection.closed().await;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn the_source_sends_what_it_saved_of_the_session_with_its_checkout() {
+    use crate::agents::SavedSession;
+    use beep_proto::node::agent::SessionInfo;
+
+    let source = source("");
+    source.agents.keep_saved(vec![SavedSession {
+        info: SessionInfo {
+            id: ID.into(),
+            title: Some("Plan the week".into()),
+            assistant: true,
+            ..SessionInfo::default()
+        },
+        effort: None,
+    }]);
+    let folder = TempDir::new().expect("a temp folder");
+    let server = Router::builder(endpoint().await)
+        .accept(ALPN, Leaves(source.agents.clone(), folder.path().to_owned()))
+        .spawn();
+    let client = endpoint().await;
+    let connection = client
+        .connect(server.endpoint().addr(), ALPN)
+        .await
+        .expect("connects");
+    let (send, recv) = connection.open_bi().await.expect("a stream");
+    let (tx, rx) = link(send, recv);
+
+    let checkout = super::read::checkout(tx, rx, ID).await.expect("answered");
+    let saved = checkout.session.expect("the saved session came along");
+    assert_eq!(saved.info.title.as_deref(), Some("Plan the week"));
+    assert!(saved.info.assistant);
+}

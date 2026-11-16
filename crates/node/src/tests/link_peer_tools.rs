@@ -7,6 +7,7 @@ fn caller(table: Table, node_here: bool) -> Caller {
         commands_off: None,
         transfers: None,
         agents: None,
+        project_tools: None,
     }
 }
 
@@ -200,4 +201,41 @@ async fn peer_requests_keep_accepting_extra_fields() {
     assert!(
         parse::<SyncArgs>(serde_json::json!({"project":"example", "future_field":true})).is_ok()
     );
+}
+
+#[tokio::test]
+async fn a_node_gets_a_projects_answer_from_a_desktop_and_a_refusal_otherwise() {
+    struct Projects;
+
+    impl ProjectTools for Projects {
+        fn call(&self, _args: String) -> futures::future::BoxFuture<'_, Reply> {
+            Box::pin(async {
+                Reply::Done {
+                    text: "no hosts".to_owned(),
+                    failed: false,
+                }
+            })
+        }
+    }
+
+    let table = Table::Peer(iroh::SecretKey::generate().public());
+    let request = Request {
+        tool: Tool::Projects,
+        args: r#"{"action":"hosts"}"#.to_owned(),
+        ..run_on()
+    };
+    let with = Caller {
+        project_tools: Some(Arc::new(Projects)),
+        ..caller(table, false)
+    };
+
+    let Reply::Done { text, failed } = answer(request.clone(), with).await else {
+        panic!("not done");
+    };
+    assert!(!failed && text == "no hosts", "{text}");
+
+    let Reply::Done { text, failed } = answer(request, caller(table, false)).await else {
+        panic!("not done");
+    };
+    assert!(failed && text.contains("only the Beep desktop"), "{text}");
 }

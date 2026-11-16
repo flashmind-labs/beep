@@ -154,12 +154,79 @@ async function openProject(page: Page, responses: Record<string, unknown> = {}) 
   await expect(page.locator(".pj-strip")).toBeVisible();
 }
 
+/// Assistant sessions: two that run, one ended.
+const linux = { os: "linux", os_version: "Ubuntu 26.04", arch: "x86_64", hostname: "build-box", cpus: 32, memory_mb: 124_000, home: "/srv", tools: [], logins: [], avds: [], gpus: [] };
+const assistantHome = { ...home, machines: [{ ...home.machines[0], env: linux }, home.machines[1]] };
+const assistantSessions = [
+  { ...agentRow("helper-one", "Set up the widget project", "working", 60_000, "/srv"), agent: "flsh", assistant: true, parent: null },
+  { ...agentRow("helper-two", "Check the open pull requests", "idle", 900_000, "/srv"), agent: "claude", assistant: true, parent: null, external: true },
+  { ...agentRow("helper-old", "Import my projects", "ended", 7_200_000, "/srv"), agent: "flsh", assistant: true, parent: null },
+];
+const assistantHost = { machine_id: machineId, machine_name: machineId, agents: ["claude", "codex", "flsh"], workspace: null, home: "/srv", capabilities: [], assistant: true };
+
 // Desktop window
 
 test("home overview", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
   await baseline(page, "home-overview");
+});
+
+test("assistant page", async ({ page }) => {
+  const chat = assistantSessions[0];
+  const transcript = [
+    { kind: "user", text: "Set up the widget project on build-box." },
+    { kind: "agent", text: "Cloned example/widget into ~/Projects/example/widget and imported it." },
+  ];
+  await openDesktop(page, false, {
+    center_home: assistantHome, agent_sessions: assistantSessions, agent_hosts: [assistantHost],
+    assistant_settings_get: { agent: "flsh", model: null, effort: "high" },
+    agent_view: { ...agentView, session: { ...chat, question: null }, entries: transcript },
+  });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  const list = page.locator(".asst-list");
+  await list.getByRole("button", { name: /Set up the widget project/ }).click();
+  await expect(page.getByText("Cloned example/widget")).toBeVisible();
+  await expect(list.locator('[aria-current="true"]')).toContainText("Set up the widget project");
+  await baseline(page, "assistant-page");
+});
+
+test("assistant page empty", async ({ page }, info) => {
+  await openDesktop(page, false, { center_home: home, agent_sessions: [], agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high" } });
+  await expect(page.locator("#sec-needs")).toBeVisible();
+  // Cmd+N on Home lands on the page with a new chat.
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await expect(page.locator(".asst-list")).toBeVisible();
+  await expect(page.locator("#agpillb .flsh")).toBeVisible();
+  await expect(page.locator("#aghostb")).toHaveText(machineId);
+  await baseline(page, "assistant-page-empty");
+});
+
+test("home first start", async ({ page }) => {
+  const place = (dir: string) => ({ machine_id: machineId, machine_name: machineId, folder: dir });
+  const found = [
+    { name: "example/alpha", remote: "https://example.test/alpha", places: [place("/srv/example/alpha")], agents: [{ agent: "claude", sessions: 12 }], last_activity: NOW - 2 * 86_400_000 },
+    { name: "tools/echo", remote: "https://example.test/echo", places: [place("/srv/tools/echo")], agents: [], last_activity: NOW - 7 * 86_400_000 },
+  ];
+  await openDesktop(page, false, { center_home: { ...home, projects: [], running: [] }, found_projects: found, agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high" } });
+  const prompt = page.getByRole("textbox", { name: "Message for the assistant" });
+  await expect(prompt).toBeVisible();
+  await expect(page.locator("#sec-found .pl-row")).toHaveCount(2);
+  await expect(page.locator("#sec-found").getByRole("button", { name: "Import" })).toHaveCount(2);
+  await expect(page.locator(".painted-empty .pill .flsh")).toBeVisible();
+  await baseline(page, "home-first-start");
+
+  await page.getByRole("button", { name: "Import my projects" }).click();
+  await expect(prompt).toHaveValue("Import my projects");
+
+  await page.evaluate(() => window.__navigation.hold("import_project"));
+  await page.locator("#sec-found").getByRole("button", { name: "Import" }).first().click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").length)).toBe(1);
+
+  await prompt.press("Enter");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").map(call => call.args))).toEqual([
+    { machineId: null, agent: "flsh", cwd: null, prompt: "Import my projects", images: [], model: null, effort: "high", checkout: null, assistant: true },
+  ]);
 });
 
 test("sidebar star prompt", async ({ page }) => {
@@ -393,6 +460,16 @@ test("settings plugins", async ({ page }) => {
   await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Plugins", exact: true }).click();
   await expect(dialog.getByRole("listitem")).toHaveCount(2);
   await baseline(page, "settings-plugins");
+});
+
+test("settings assistant", async ({ page }) => {
+  await openDesktop(page, false, { ...settingsResponses, assistant_settings_get: { agent: null, model: null, effort: null }, mac_control: { id: "build-box" }, agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["claude", "codex"], workspace: null, home: "/srv", capabilities: [], assistant: true }], agent_models: { pick: "listed", current: null, models: [{ id: "model-a", name: "Example Model A", description: null, provider: null }, { id: "model-b", name: "Example Model B", description: null, provider: null }] } });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
+  await dialog.locator("#assistantSetting").getByRole("button").click();
+  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" }).getByText("Example Model B")).toBeVisible();
+  await baseline(page, "settings-assistant");
 });
 
 test("settings claude code", async ({ page }) => {
@@ -648,6 +725,17 @@ test("phone home", async ({ page }) => {
   await expect(page.locator("body")).toHaveClass(/mobile/);
   await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
   await baseline(page, "phone-home");
+});
+
+test("phone assistant", async ({ page }) => {
+  await page.setViewportSize(PHONE);
+  await openDesktop(page, false, { center_home: assistantHome, agent_sessions: assistantSessions, agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high" } });
+  await expect(page.locator("body")).toHaveClass(/mobile/);
+  await page.getByRole("button", { name: "New assistant" }).click();
+  const list = page.locator(".asst-list");
+  await expect(list.locator(".pj-li")).toHaveCount(2);
+  await expect(page.locator("#agprompt")).toBeHidden();
+  await baseline(page, "phone-assistant");
 });
 
 test("phone settings", async ({ page }) => {

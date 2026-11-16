@@ -4,7 +4,7 @@
 //! it through its agent. A session moved here by its source.
 
 use super::{Env, Harness, rewrite, store};
-use crate::agents::{AgentKind, Begin, found::Agent};
+use crate::agents::{AgentKind, Begin, SavedSession, found::Agent};
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use iroh::EndpointId;
@@ -21,6 +21,9 @@ pub(super) struct Arrival<'a> {
     pub(super) worktrees: Vec<String>,
     /// The machine that ran it.
     pub(super) from: EndpointId,
+    /// What the source saved of it; `None` from a source from before saved
+    /// sessions.
+    pub(super) saved: Option<SavedSession>,
 }
 
 use super::folder::Folders;
@@ -75,18 +78,31 @@ pub(super) async fn resume(
         folders.old.display(),
         folders.new.display()
     );
-    env.agents.start(
-        kind,
-        Some(&cwd),
+    env.agents.start(kind, Some(&cwd), arrival.begin(note, brief))?;
+    Ok(())
+}
+
+impl Arrival<'_> {
+    /// How the session begins here: as the source saved it, with its title,
+    /// model, thinking level and whether it is the assistant, and with the
+    /// move record's model and mode from a source from before saved sessions.
+    pub(super) fn begin(&self, note: String, brief: String) -> Begin {
+        let (info, effort) = self
+            .saved
+            .clone()
+            .map_or_else(Default::default, |saved| (saved.info, saved.effort));
+
         Begin {
-            resume: Some(arrival.id.to_owned()),
-            mode: arrival.mode.clone(),
-            model: arrival.model.clone(),
-            worktrees: arrival.worktrees.clone(),
+            resume: Some(self.id.to_owned()),
+            title: info.title,
+            mode: info.mode.or_else(|| self.mode.clone()),
+            model: info.model.or_else(|| self.model.clone()),
+            effort,
+            worktrees: self.worktrees.clone(),
+            assistant: info.assistant,
             note: Some(note),
             brief: Some(Cow::Owned(brief)),
             ..Begin::default()
-        },
-    )?;
-    Ok(())
+        }
+    }
 }

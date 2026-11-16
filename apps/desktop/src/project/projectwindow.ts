@@ -68,6 +68,7 @@ export function route(scope: ProjectScope | null, page: Location): Route {
   const target = page.arg;
   if (!target || typeof target !== "object") return "main";
   if ("agentnew" in target) return "here";
+  if ("assistant" in target) return "main";
   if ("draft" in target) return target.draft.project === scope.project ? "here" : "main";
   return agentInProject(target.agent, scope.folders) ? "here" : "main";
 }

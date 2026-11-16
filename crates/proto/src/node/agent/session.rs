@@ -32,6 +32,10 @@ pub enum Request {
         checkout: Option<CheckoutPlan>,
         #[serde(default)]
         images: Vec<Upload>,
+        /// The home assistant: the session the user talks to about their
+        /// machines. A node from before it runs the session as any other.
+        #[serde(default)]
+        assistant: bool,
     },
     /// The first message: follows a session that already runs.
     Attach { session: String },
@@ -175,6 +179,9 @@ pub struct SessionInfo {
     /// may be gone since.
     #[serde(default)]
     pub worktrees: Vec<String>,
+    /// The home assistant (see `Request::Start`).
+    #[serde(default)]
+    pub assistant: bool,
 }
 
 /// An emulator or simulator a session uses: the machine it runs on and its id there.

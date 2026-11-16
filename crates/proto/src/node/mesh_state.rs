@@ -5,7 +5,7 @@
 //! compact msgpack, read by position, like the node link: a field is added
 //! at the end with `#[serde(default)]`.
 
-use super::{EnvSecret, ForgejoLogin, harness::HarnessConfig};
+use super::{EnvSecret, ForgejoLogin, agent::Effort, harness::HarnessConfig};
 use crate::{AgentSlug, ModelId};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -29,6 +29,19 @@ pub struct SyncSpec {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SkillSync {
     pub enabled: bool,
+}
+
+wire_structs! {
+    /// `settings/assistant`: the harness, model and thinking level the Home assistant starts with.
+    /// `None` leaves each to the app: the first harness offered, that harness's own model and
+    /// thinking level.
+    #[derive(Default)]
+    #[serde(default)]
+    pub struct AssistantSettings {
+        pub agent: Option<String>,
+        pub model: Option<String>,
+        pub effort: Option<Effort>,
+    }
 }
 
 /// `skill-library/<name>`: a library of agent skills from a Git repository, the commit every
@@ -252,6 +265,7 @@ pub trait StateValue: Serialize + DeserializeOwned {
 
 impl StateValue for SyncSpec {}
 impl StateValue for SkillSync {}
+impl StateValue for AssistantSettings {}
 impl StateValue for SkillLibrary {}
 impl StateValue for ProjectSkills {}
 impl StateValue for ProjectSyncSettings {}

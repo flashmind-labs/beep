@@ -175,6 +175,8 @@ pub(super) struct Session {
     /// A temporary reviewer (`agents::reviews`): never listed, never kept
     /// over a restart, offered `submit_review`.
     pub(super) reviewer: bool,
+    /// The home assistant: offered the assistant's brief and tools.
+    pub(super) assistant: bool,
     pub(super) processes: Arc<Processes>,
     /// Dropping the session stops its task and with it the agent, at once.
     _task: AbortOnDropHandle<()>,
@@ -234,6 +236,8 @@ pub(super) struct Start<'a> {
     /// The Beep MCP server for the agent, passed in `session/new` and
     /// `session/load`. With it the brief also says what its tools are.
     pub(super) mcp: Option<McpServer>,
+    /// The home assistant, whose standing text adds the assistant's brief.
+    pub(super) assistant: bool,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
     /// Where what its turns spend goes.
@@ -285,6 +289,7 @@ impl Session {
             brief,
             rule,
             mcp,
+            assistant,
             images,
             usage,
             alerts,
@@ -292,10 +297,9 @@ impl Session {
         } = start;
         let protocol = super::acp::Protocol::from_env(&kind.env)?;
 
-        // Only a new session takes the default model and a thinking level. A
-        // resumed one takes the model it ran on, when the caller kept it.
+        // Only a new session takes the default model. A resumed one takes the
+        // model and thinking level it ran on, when the caller kept them.
         let model = model.or_else(|| kind.default_model.clone().filter(|_| resume.is_none()));
-        let effort = effort.filter(|_| resume.is_none());
         // An agent whose command line picks the model starts on it; the
         // others switch once the session exists.
         let known = known(&kind.name);
@@ -402,7 +406,10 @@ impl Session {
             running: HashSet::new(),
             brief: brief.map(Cow::into_owned),
             standing: actor::joined(
-                actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
+                actor::joined(
+                    actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
+                    (assistant && mcp.is_some()).then_some(super::mcp::ASSISTANT),
+                ),
                 mcp.is_some().then_some(super::mcp::CHAT),
             ),
             mcp_servers: mcp.into_iter().collect(),
@@ -434,6 +441,7 @@ impl Session {
             live,
             moved_cwd: Mutex::new(None),
             reviewer: false,
+            assistant,
             processes,
             _task: AbortOnDropHandle::new(task),
             guards: Mutex::new(guard.into_iter().collect()),

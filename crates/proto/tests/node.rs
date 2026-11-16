@@ -817,6 +817,7 @@ mod tools {
             (Tool::HarnessInfo, "harness_info"),
             (Tool::ListProjects, "list_projects"),
             (Tool::Plugins, "plugins"),
+            (Tool::Projects, "projects"),
         ] {
             assert_eq!(tool.to_string(), name);
             assert_eq!(name.parse::<Tool>(), Ok(tool));
@@ -1312,6 +1313,7 @@ mod agent {
                     mime: "image/png".into(),
                     data: vec![1, 2, 3],
                 }],
+                assistant: false,
             };
             let body = rmp_serde::to_vec_named(&newer).unwrap();
             assert_eq!(
@@ -1335,8 +1337,90 @@ mod agent {
                     effort: None,
                     checkout: None,
                     images: Vec::new(),
+                    assistant: false,
                 }
             );
+        }
+
+        #[test]
+        fn start_without_assistant_reads_false() {
+            #[derive(Serialize)]
+            enum Older {
+                Start {
+                    cwd: Option<String>,
+                    prompt: String,
+                    model: Option<String>,
+                    effort: Option<Effort>,
+                    checkout: Option<CheckoutPlan>,
+                    images: Vec<Upload>,
+                },
+            }
+            let body = rmp_serde::to_vec(&Older::Start {
+                cwd: None,
+                prompt: "go".into(),
+                model: None,
+                effort: None,
+                checkout: None,
+                images: Vec::new(),
+            })
+            .unwrap();
+            let Request::Start { assistant, .. } =
+                beep_proto::lenient::from_slice::<Request>(&body).unwrap()
+            else {
+                panic!("a start")
+            };
+            assert!(!assistant);
+        }
+
+        #[test]
+        fn a_start_with_assistant_reads_on_a_node_from_before_it() {
+            // The node reads frames with `lenient::from_slice` (mesh wire `recv`).
+            #[derive(Debug, PartialEq, Deserialize)]
+            enum Older {
+                Start {
+                    cwd: Option<String>,
+                    prompt: String,
+                    model: Option<String>,
+                    effort: Option<Effort>,
+                    checkout: Option<CheckoutPlan>,
+                    images: Vec<Upload>,
+                },
+            }
+            let body = rmp_serde::to_vec(&Request::Start {
+                cwd: Some("/srv/project".into()),
+                prompt: "go".into(),
+                model: None,
+                effort: None,
+                checkout: None,
+                images: Vec::new(),
+                assistant: true,
+            })
+            .unwrap();
+            assert_eq!(
+                beep_proto::lenient::from_slice::<Older>(&body).unwrap(),
+                Older::Start {
+                    cwd: Some("/srv/project".into()),
+                    prompt: "go".into(),
+                    model: None,
+                    effort: None,
+                    checkout: None,
+                    images: Vec::new(),
+                }
+            );
+        }
+
+        #[test]
+        fn session_info_without_assistant_reads_false() {
+            let mut value = rmp_serde::to_vec(&SessionInfo::default()).unwrap();
+            // Drop the last field, as a node from before it sends the row.
+            let len = rmp_serde::to_vec(&true).unwrap().len();
+            value.truncate(value.len() - len);
+            // More than 15 fields: an array16 header, `0xdc` and a big-endian count.
+            assert_eq!(value[0], 0xdc);
+            let count = u16::from_be_bytes([value[1], value[2]]) - 1;
+            value[1..3].copy_from_slice(&count.to_be_bytes());
+            let read: SessionInfo = beep_proto::lenient::from_slice(&value).unwrap();
+            assert!(!read.assistant);
         }
 
         #[test]
@@ -1953,6 +2037,7 @@ mod agent {
                     base: Some("main".into()),
                 }),
                 images: Vec::new(),
+                assistant: true,
             };
             let body = rmp_serde::to_vec_named(&start).unwrap();
             assert_eq!(rmp_serde::from_slice::<Request>(&body).unwrap(), start);

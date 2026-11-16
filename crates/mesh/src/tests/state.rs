@@ -90,6 +90,7 @@ fn keys_round_trip_through_text() {
         Key::Flsh,
         Key::SkillSync,
         Key::ProjectSync,
+        Key::Assistant,
         Key::InstructionVersion("1793000000000.a".into()),
         Key::Terminal("t1".into()),
         Key::SessionMove("0b1c2d3e".into()),
@@ -107,6 +108,7 @@ fn keys_round_trip_through_text() {
         assert_eq!(key.to_string().parse::<Key>().expect("parses"), key);
     }
 
+    assert_eq!(Key::Assistant.to_string(), "settings/assistant");
     assert_eq!(project("a").to_string(), "project/a");
     assert!("project/".parse::<Key>().is_err());
     assert!("flsh/x".parse::<Key>().is_err());

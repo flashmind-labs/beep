@@ -37,6 +37,7 @@ fn pushed(kind: UpdateKind, earlier: u32, texts: &[&str], status: AgentStatus) -
                 question: None,
                 subagents: 0,
                 model: None,
+                assistant: false,
             },
             plan: Vec::new(),
             files: Vec::new(),

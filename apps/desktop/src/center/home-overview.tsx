@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dropdown } from "../ui/dropdown.tsx";
 import { PROJECT_SORTS, projectSortTime, type ProjectSort } from "../project/overview-state.ts";
 import { lastProjectVisit, readProjectSort, saveProjectSort } from "../project/project-preferences.ts";
@@ -19,7 +19,8 @@ import { type HomeView, needsLine } from "./home-state.ts";
 import { homeSessions, openAsking } from "./home.tsx";
 import { itemChips, newestFirst, projectsWithOpen, reviewStart, waitsOnYou } from "./openitems-state.ts";
 import { openUrl } from "./openitems.ts";
-import { projectRows } from "./sidebar.tsx";
+import { loadFound, projectRows } from "./sidebar.tsx";
+import { HomeAssistant } from "./home-assistant.tsx";
 import { state } from "./state.ts";
 import { go } from "./views.tsx";
 import { formatAgo } from "../ui/format.ts";
@@ -28,6 +29,8 @@ import { isMobile } from "../ui/platform.ts";
 import { Button, Section, EmptyPanel } from "../ui/kit.tsx";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
 import { RunningStatus } from "../project/split-view.tsx";
+import { sessions } from "../agents/sessions.ts";
+import { isAssistant } from "../agents/assistant-state.ts";
 
 /// What a running row says at its end: a move or a close, that it asks, or since when.
 function runningStatus(row: RunningAgent, home: HomeView) {
@@ -62,7 +65,7 @@ function needsCards(home: HomeView): BoardCard[] {
     const open = () => openUrl(item.url);
     const project = repos.get(`${item.host} ${item.repo}`)?.project ?? null;
     // A review can be read on the host, or in a project handed to an agent.
-    const review = project && (() => { go("pane", { agentnew: reviewStart(item, project, home.machines?.filter(m => m.can_host !== false)) }); });
+    const review = project && (() => { go("pane", { agentnew: { ...reviewStart(item, project, home.machines?.filter(m => m.can_host !== false)), assistant: false } }); });
     cards.push({ key: item.url, lane: "needs", project: project?.name ?? item.repo, session: false, lead: <span style={{ display: "contents" }}><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>,
       title: `#${item.number} ${item.title}`, sub: [item.repo, itemChips(item).map(c => c.text).join(", ")].filter(Boolean).join(" · "), foot: null,
       action: item.review_requested && review ? { kind: "menu", label: "Review", items: [{ label: "Open", on: open }, { label: "Review with agent", on: review }] } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
@@ -81,10 +84,10 @@ function needsCards(home: HomeView): BoardCard[] {
   return cards;
 }
 
-/// Everything that runs, the latest first.
-function runningCards(home: HomeView): BoardCard[] {
+/// Everything that runs but the assistant's chats, the latest first.
+function runningCards(home: HomeView, assistants: ReadonlySet<string>): BoardCard[] {
   const projects = home.projects || [];
-  return byRecent(visibleRunning(home.running)).map(row => {
+  return byRecent(visibleRunning(home.running).filter(row => !assistants.has(runningKey(row)))).map(row => {
     const { title, sub } = runningLineAt(row, projects);
     const status = runningStatus(row, home);
     return { key: runningKey(row), lane: laneOf(row.status), project: sessionProject(row, home), session: true, lead: <HarnessIcon agent={row.agent} />,
@@ -95,7 +98,7 @@ function runningCards(home: HomeView): BoardCard[] {
 }
 
 /// Home's board: what waits on the user, then every session once, by its lane.
-function boardCards(home: HomeView, needs: BoardCard[], running: BoardCard[]): BoardCard[] {
+function boardCards(home: HomeView, needs: BoardCard[], running: BoardCard[], assistants: ReadonlySet<string>): BoardCard[] {
   const projects = home.projects || [];
   const shown = new Set(needs.map(card => card.key));
   const cards = [...needs];
@@ -106,7 +109,7 @@ function boardCards(home: HomeView, needs: BoardCard[], running: BoardCard[]): B
     cards.push(card);
   }
 
-  for (const session of endedToday(homeSessions().filter(sessionVisible), Date.now()).slice(0, DONE_SHOWN)) {
+  for (const session of endedToday(homeSessions().filter(s => sessionVisible(s) && !assistants.has(runningKey(s))), Date.now()).slice(0, DONE_SHOWN)) {
     const key = runningKey(session);
     if (shown.has(key)) continue;
     const { title, sub } = runningLine(session, projects);
@@ -132,8 +135,10 @@ export function HomeOverview({ home }: { home: HomeView }) {
   };
 
   const list = frontLayout("home") === "list";
-  const needs = needsCards(home), running = runningCards(home);
-  const cards = list ? [...needs, ...running] : boardCards(home, needs, running);
+  // The assistant's chats have their own page.
+  const assistants = new Set(sessions.filter(isAssistant).map(runningKey));
+  const needs = needsCards(home), running = runningCards(home, assistants);
+  const cards = list ? [...needs, ...running] : boardCards(home, needs, running, assistants);
   const empty = !cards.length;
   // A row's dot matches the project's in the sidebar.
   const listed = projectRows() || [];
@@ -169,9 +174,13 @@ export function HomeOverview({ home }: { home: HomeView }) {
   </>;
 }
 
-/// Nothing to show: nothing runs, or no machine has answered yet.
+/// Nothing to show: nothing runs, or no machine has answered yet. Before any
+/// project, the assistant and the found projects.
 function Empty({ home }: { home: HomeView }) {
+  const first = home.projects?.length === 0;
+  useEffect(() => { if (first && !state.found) void loadFound(); }, [first]);
   const reach = machinesReach(home.machines ?? []);
   if (reach !== "reached") return <EmptyPanel text={reach === "connecting" ? "Connecting to your machines…" : "No machine is online."} />;
+  if (first) return <HomeAssistant found={state.found} />;
   return <PaintedEmpty><b>{state.home ? "Nothing running" : "Start an agent"}</b><span>{state.home ? "Start an agent on this computer, or add a machine to run it there." : "Your machines connect in the background."}</span><Button look="primary" small onClick={() => go("projects", { project: null })}>Start an agent</Button></PaintedEmpty>;
 }

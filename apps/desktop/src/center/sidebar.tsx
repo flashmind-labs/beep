@@ -38,7 +38,7 @@ import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
 import { type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { placeWindowParts } from "./window-root.tsx";
-import { windowHost } from "./window-shell.tsx";
+import { shell, windowHost } from "./window-shell.tsx";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 import { SidebarProjectRow } from "./sidebar-rows.tsx";
 import { single } from "../ui/active.ts";
@@ -77,11 +77,14 @@ export function paneOn(): { view: PaneNow["view"] | null } {
   return currentLocation()?.view === "pane" ? pane.current() : { view: null };
 }
 
+shell.subscribe((now, was) => { if (!now.assistant !== !was.assistant) drawSide(); });
+
 export function drawSide() {
   const home = state.home, location = currentLocation()?.view;
   const links: SideLink[] = [
     { svg: IC.find, label: "Search", count: 0, className: "cc-search", open: openPalette, shortcut: shortcut("Ctrl+K", "⌘K") },
     { svg: IC.home, label: "Home", count: home?.needs_you.length ?? 0, current: location === "home", hot: true, open: () => go("home") },
+    { svg: IC.chat, label: "Assistant", count: 0, current: !!shell.getState().assistant, open: () => go("pane", { assistant: "chats" }) },
   ];
   // The board has every session; the list keeps its own page of them.
   if (home?.running && frontLayout("home") === "list") links.push({ svg: IC.run, label: "Running", count: visibleRunning(home.running).length, current: paneOn().view === "agents", open: () => go("pane", "agents") });
@@ -311,13 +314,19 @@ export const loadFound = single(async () => {
     state.found = state.found || [];
   }
 
-  if (!state.picked) redrawProjects();
+  drawFound();
   await rescanAll(() => {}, (_, after) => {
     if (!after.rows) return;
     state.found = after.rows;
-    if (!state.picked) redrawProjects();
+    drawFound();
   });
 });
+
+/// The Projects overview and a first start Home, which list the found checkouts.
+function drawFound() {
+  if (!state.picked) redrawProjects();
+  draw();
+}
 
 /// Imports a found row from the Projects page and opens it.
 export async function importFromPage(row: FoundRow) {
@@ -325,6 +334,7 @@ export async function importFromPage(row: FoundRow) {
   state.importing = row.name;
   state.foundError = null;
   drawProjects();
+  draw();
 
   try {
     const project = await importFound(row);
@@ -333,7 +343,7 @@ export async function importFromPage(row: FoundRow) {
   } catch (e) {
     state.importing = null;
     state.foundError = { name: row.name, message: reason(e) };
-    redrawProjects();
+    drawFound();
   }
 }
 

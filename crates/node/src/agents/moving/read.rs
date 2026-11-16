@@ -13,7 +13,7 @@ use super::{
     saved::SentTree,
     worktree::{self, Work},
 };
-use crate::agents::{Agents, found::Agent};
+use crate::agents::{Agents, SavedSession, found::Agent};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     AgentSlug,
@@ -160,6 +160,10 @@ pub(crate) enum Reply {
         /// The checkout has uncommitted edits, which stay on the source.
         #[serde(default)]
         edits: bool,
+        /// What the source saved of the session, which it keeps on the
+        /// target. Added after `edits`.
+        #[serde(default)]
+        session: Option<Box<SavedSession>>,
     },
 }
 
@@ -174,11 +178,13 @@ pub(crate) struct MovingWorktree {
 }
 
 /// What `Checkout` answers.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Checkout {
     pub(crate) head: Option<String>,
     pub(crate) worktrees: Vec<MovingWorktree>,
     pub(crate) edits: bool,
+    /// `None` from a source from before saved sessions.
+    pub(crate) session: Option<SavedSession>,
 }
 
 /// What a source keeps of a session that leaves, from its move record: the
@@ -339,11 +345,13 @@ pub(super) async fn serve(
             let Some(leaving) = (access.leaving)(&id) else {
                 return tx.send(&refuse("this machine does not keep the project")).await;
             };
+            let session = agents.saved(&id).map(Box::new);
             let reply = spawn_blocking(move || -> Result<Reply> {
                 Ok(Reply::Checkout {
                     head: worktree::head(&leaving.folder)?,
                     worktrees: worktree::moving(&leaving.folder, &leaving.worktrees),
                     edits: worktree::has_edits(&leaving.folder),
+                    session,
                 })
             })
             .await?;
@@ -655,10 +663,12 @@ pub(crate) async fn checkout(mut tx: LinkTx, mut rx: LinkRx, id: &str) -> Result
             head,
             worktrees,
             edits,
+            session,
         }) => Ok(Checkout {
             head,
             worktrees,
             edits,
+            session: session.map(|session| *session),
         }),
         Some(Reply::Refused { message }) => Err(Refused(message).into()),
         // A node from before worktrees moved again cannot read the request.

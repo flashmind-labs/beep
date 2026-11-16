@@ -3,7 +3,10 @@
 //! the harnesses and sign-ins of each machine.
 
 use super::Fleet;
-use crate::error::{DesktopError, Result};
+use crate::{
+    agents::steer::{BEFORE_ASSISTANT, newer_than},
+    error::{DesktopError, Result},
+};
 use beep_mesh::{
     Key, MeshError, PeerClient,
     machine::{
@@ -438,6 +441,13 @@ pub(crate) async fn start(
                     fleet.name_of(machine)
                 ))
             })?;
+            let host = if start.assistant {
+                for_assistant(vec![host], |host| runs_assistant(fleet, host))?
+                    .pop()
+                    .ok_or(ApiError::Internal {})?
+            } else {
+                host
+            };
             (host, String::new())
         }
         None => pick(fleet, &start, &prompt).await?,
@@ -464,6 +474,7 @@ pub(crate) async fn start(
         effort,
         checkout,
         images,
+        assistant: start.assistant,
     };
     let client = fleet.client(machine).await?;
     let opened = open_agent(&client, &agent, first).await.map_err(|e| {
@@ -479,8 +490,20 @@ async fn pick(
     prompt: &str,
 ) -> Result<(AgentHost, String)> {
     let mut asking = Vec::new();
+    let candidates = if start.assistant {
+        for_assistant(hosts(fleet), |host| runs_assistant(fleet, host))?
+    } else {
+        hosts(fleet)
+    };
 
-    for host in hosts(fleet) {
+    if start.assistant
+        && let Some(here) =
+            this_computer(&candidates, &fleet.id().to_string(), start.agent.as_deref())
+    {
+        return Ok((here, "It is this computer.".to_owned()));
+    }
+
+    for host in candidates {
         let machine = fleet.member(&host.machine_id).ok_or_else(not_found)?;
         asking.push(AutoHost {
             client: fleet.client(machine).await?,
@@ -495,6 +518,49 @@ async fn pick(
         .ok_or(ApiError::Internal {})?
         .host;
     Ok((host, choice.why))
+}
+
+/// This computer among `hosts`, by its machine id `me`, when it offers
+/// `agent`: the assistant starts there before any other machine.
+fn this_computer(hosts: &[AgentHost], me: &str, agent: Option<&str>) -> Option<AgentHost> {
+    hosts
+        .iter()
+        .find(|host| {
+            host.machine_id == me
+                && agent.is_none_or(|agent| host.agents.iter().any(|offered| offered == agent))
+        })
+        .cloned()
+}
+
+/// The hosts whose node runs the home assistant, or, when none does, the
+/// update one of them needs.
+fn for_assistant(
+    hosts: Vec<AgentHost>,
+    runs: impl Fn(&AgentHost) -> bool,
+) -> Result<Vec<AgentHost>> {
+    let (ready, old): (Vec<AgentHost>, Vec<AgentHost>) = hosts.into_iter().partition(runs);
+
+    match (ready.is_empty(), old.first()) {
+        (true, Some(old)) => Err(DesktopError::BadRequest(format!(
+            "Update Beep on {} to use the assistant.",
+            old.machine_name
+        ))),
+        _ => Ok(ready),
+    }
+}
+
+/// Whether `host` runs the home assistant: this computer's own node is this
+/// build, and another node must be newer than `BEFORE_ASSISTANT`.
+pub(crate) fn runs_assistant(fleet: &Fleet, host: &AgentHost) -> bool {
+    let Some(machine) = fleet.member(&host.machine_id) else {
+        return false;
+    };
+
+    machine == fleet.id()
+        || newer_than(
+            fleet.status().version(machine).as_deref(),
+            &BEFORE_ASSISTANT,
+        )
 }
 
 /// Takes over a session started outside Beep; the node refuses one still in
@@ -1030,3 +1096,7 @@ pub(crate) async fn codex_login_cancel(
     let client = fleet.client(machine).await?;
     Ok(codex_login::cancel(&client, task).await?)
 }
+
+#[cfg(test)]
+#[path = "../tests/fleet_agents.rs"]
+mod tests;

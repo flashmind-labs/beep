@@ -98,3 +98,35 @@ fn grouped_calls_take_the_words_of_their_action() {
         "Beep: Boot Pixel 9 on mac-box"
     );
 }
+
+#[test]
+fn project_calls_name_their_action() {
+    let title = |name: &str, args: Value| Tool::of_name(name).unwrap().title(Some(&args));
+    assert_eq!(
+        title("mcp__beep__projects_hosts", json!({})),
+        "Beep: List Git hosts"
+    );
+    assert_eq!(
+        title(
+            "mcp__beep__projects_create",
+            json!({"name": "notes", "machines": ["build-box"]})
+        ),
+        "Beep: Create project: notes"
+    );
+    assert_eq!(
+        title(
+            "mcp__beep__projects_clone",
+            json!({"url": "https://example.com/org/repo"})
+        ),
+        "Beep: Clone project: https://example.com/org/repo"
+    );
+    assert_eq!(
+        title("mcp__beep__projects_found", json!({})),
+        "Beep: Find projects"
+    );
+    assert_eq!(
+        title("mcp__beep__projects_import", json!({"projects": ["org/repo"]})),
+        "Beep: Import projects"
+    );
+    assert_eq!(Tool::of_name("mcp__beep__projects"), None);
+}

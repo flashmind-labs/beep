@@ -19,6 +19,10 @@ body.cbody
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Home"
+          button.cc-si [aria-label="Assistant" title="Assistant" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Assistant"
           button.cc-si [aria-label="Terminals" title="Terminals" type="button"]
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
@@ -407,6 +411,7 @@ body.cbody
                         span.hint "Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting."
               div#agpstrip-right.agpstrip.tabs [aria-orientation="vertical" data-dock="right" hidden role="tablist"]
               div#agdropzone.agdropzone [hidden]
+        div.asst-list.pj-list [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

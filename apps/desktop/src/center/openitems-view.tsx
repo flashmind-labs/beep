@@ -12,7 +12,7 @@ function Column({ kind, title, none, view }: { kind: GitItemRow["kind"]; title: 
   const machines = state.home?.machines?.filter(m => m.can_host !== false);
   const repos = rows.map(row => {
     const importing = rowImports.get(row.key), project = row.project;
-    const start = project && { review: (item: GitItemRow) => go("pane", { agentnew: reviewStart(item, project, machines) }), reply: (item: GitItemRow) => go("pane", { agentnew: replyStart(item, project, machines) }) };
+    const start = project && { review: (item: GitItemRow) => go("pane", { agentnew: { ...reviewStart(item, project, machines), assistant: false } }), reply: (item: GitItemRow) => go("pane", { agentnew: { ...replyStart(item, project, machines), assistant: false } }) };
     return { key: `${kind} ${row.key}`, name: row.repo, failed: importing && importing !== "busy" ? importing.error : null, last: row.last, open: true, items: row.items, start: start || null,
       action: project ? { label: "Open project", run: () => go("projects", { project: project.name }) } : { label: importing === "busy" ? "Importing…" : "Import project", disabled: importing === "busy", run: () => { void quickImport(row); } } };
   });

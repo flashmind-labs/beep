@@ -17,11 +17,12 @@ import { openMenu } from "../ui/menu.tsx";
 import { localProjectId } from "./localid.ts";
 import { addHosts, type BarTarget, barCheckout, barPlace, barPrompt, barReadiness, blockedHosts, forgeOf, nextBarMachine, reviewPrompt, reviewSession, type ReviewSession, reviewTitle, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine, openAgents, openMachine, openMachines } from "../agents/agentnew.tsx";
+import { TASK_WORDS } from "../agents/assistant-state.ts";
 import type { Machine } from "../machines/machines.tsx";
-import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
+import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
 import { BlockedHelp, NoAgentHelp } from "../agents/start-composer-view.tsx";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent, preloadModels } from "../agents/agentpicker.tsx";
-import { AG, AGENT_ORDER, type AgentHost, byPreference } from "../agents/agents.ts";
+import { AG, type AgentHost } from "../agents/agents.ts";
 import { draftPlace } from "../agents/draft.tsx";
 import { S } from "../bar/core.ts";
 import { ensureSessions, sessions } from "../agents/sessions.ts";
@@ -276,7 +277,7 @@ export function drawProjectComp(name: string) {
 
   if (!agent) pc.open = false;
   c.update({
-    placeholder: c.centered() && readiness.kind === "ready" ? "Describe the task." : barPrompt(name, pc.adding ? { kind: "no checkout" } : readiness),
+    placeholder: c.centered() && readiness.kind === "ready" ? TASK_WORDS.placeholder : barPrompt(name, pc.adding ? { kind: "no checkout" } : readiness),
     harnessDisabled: !agent || pc.starting, open: pc.open ? "pick" : null,
     sendDisabled: pc.starting || barAttachments.reading || !place || !!pc.adding, busy: pc.starting,
     notes: readiness.kind === "no agent" ? <NoAgentHelp openAgents={openAgents} openMachines={openMachines} />

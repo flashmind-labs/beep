@@ -107,20 +107,21 @@ body:not(.mobile) .dcoder .q .dups kbd { border: 0; background: color-mix(in srg
    screen shows, so the rules ask for the open pane in its agent view, not for the parts.
    The window's top bar gives up its title here and
    lays its tools over the row's end; the session's own head is the row, and drags the window. ----- */
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top { position: absolute; top: 0; right: 0; z-index: 3; height: 40px; min-height: 0; padding: 0 10px; border: 0; pointer-events: none }
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > * { pointer-events: auto }
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > :not(#tools, #usage, #bell, #pw-back) { display: none }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top { position: absolute; top: 0; right: 0; z-index: 3; height: 40px; min-height: 0; padding: 0 10px; border: 0; pointer-events: none }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > * { pointer-events: auto }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > :not(#tools, #usage, #bell, #pw-back) { display: none }
 /* The plan usage pill is wide: in a narrow session it would leave the title no room. Home keeps it. */
-@container (max-width: 1100px) { body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > #usage { display: none } }
+@container (max-width: 1100px) { body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > #usage { display: none } }
 /* A project window's Back stays, at the row's start: the bar ends at the window's edge, so its
    start is the bar's own width short of the window's (cqw is of .cc-main). */
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > #pw-back:not([hidden]) { position: absolute; top: 6px; left: calc(var(--top-w, 0px) - 100cqw + 6px) }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > #pw-back:not([hidden]) { position: absolute; top: 6px; left: calc(var(--top-w, 0px) - 100cqw + 6px) }
 body:not(.mobile) .cc-main:has(#pw-back:not([hidden])) .dhead.ag-head { padding-left: 64px }
 body:not(.mobile) .nt-bell { border: 0 }
 /* The row keeps clear of the tools laid over its end, whatever their width (--top-w is kept by src/center/window-shell.tsx). */
 body:not(.mobile) .dhead.ag-head { height: 42px; padding: 0 calc(var(--top-w, 104px) + 8px) 0 6px; gap: 8px; border-bottom: 0 }
-/* The quick window has no tools over its row, only its round corner to clear. */
-.dbar:not([data-mode="window"]) { --top-w: 4px }
+/* The quick window and the Assistant page (its header sits above) have no tools over the row,
+   only a round corner to clear. */
+.dbar:not([data-mode="window"]), #pane-box.pj-split > .dbar { --top-w: 4px }
 body:not(.mobile) :is(.ag-head, .dchat) .dcoderav { width: 18px; height: 18px; border: 0; background: none }
 /* The title, with where the session runs on a line of its own under it, so neither is cut short. */
 body:not(.mobile) .ag-head .tt { display: grid; min-width: 10em; line-height: 16px }
@@ -140,8 +141,8 @@ body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
 
 /* ----- Session screen: the title row lies on the window, and the conversation and the side pane
    are two cards set into it with the divider in the gap between them ----- */
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) { border-color: transparent; background: transparent; overflow: visible }
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top { height: 34px; padding-right: 4px }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) { border-color: transparent; background: transparent; overflow: visible }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top { height: 34px; padding-right: 4px }
 body:not(.mobile) .agshell > :is(.agmain, .agpane) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
 body:not(.mobile) .agshell > .agdiv { width: 6px; margin: 0 }
 body:not(.mobile) .agshell > .agdiv::after { inset: 20% 2px; border-radius: 1px; background: transparent }
@@ -378,10 +379,11 @@ body:not(.mobile) .fs-note { color: var(--dim) }
 body:not(.mobile) .painted-empty { position: relative; isolation: isolate; display: grid; align-items: center; justify-items: start; min-height: min(520px, 64vh); padding: 0 7%; overflow: hidden }
 body:not(.mobile) .painted-empty > .painted-art { display: block; position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent), linear-gradient(transparent, #000 16%, #000 78%, transparent); mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent), linear-gradient(transparent, #000 16%, #000 78%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect }
 body:not(.mobile) .painted-empty > .cc-empty { position: relative; isolation: isolate; width: min(340px, 100%); justify-items: start; gap: 8px; padding: 20px 22px; border: 0; border-radius: var(--radius); background: none; text-align: left }
+body:not(.mobile) .painted-empty > .cc-empty:has(> .home-assistant) { width: min(560px, 100%) }
 body:not(.mobile) .painted-empty > .cc-empty::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: color-mix(in srgb, var(--ink) 80%, transparent); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent), 0 24px 70px -12px color-mix(in srgb, var(--shade) 60%, transparent) }
 body:not(.mobile) .painted-empty > .cc-empty b { font-size: 16px; font-weight: 600 }
-body:not(.mobile) .painted-empty > .cc-empty span { font-family: var(--mono); font-size: 11.5px; line-height: 1.5 }
-body:not(.mobile) .painted-empty > .cc-empty :is(.dbtn, .pri) { margin-top: 6px }
+body:not(.mobile) .painted-empty > .cc-empty > span { font-family: var(--mono); font-size: 11.5px; line-height: 1.5 }
+body:not(.mobile) .painted-empty > .cc-empty > :is(.dbtn, .pri) { margin-top: 6px }
 
 /* ----- Add a project: the three ways as tiles, then what the machines found as plain rows whose
    action shows when pointed at ----- */
