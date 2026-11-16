@@ -2,8 +2,8 @@
 //! 3D models, decisions), offered for each API key the user saved. The node
 //! runs them with the keys it holds, so the keys never reach an agent.
 //!
-//! Agents see each flashmind tool as it is, with `list_models` for the
-//! models the configured providers offer.
+//! Agents see each flashmind tool the keys allow as it is, with
+//! `list_models` for the models the configured providers offer.
 
 use crate::machine::provision::spawn_env;
 use flashmind_tools::ToolBuilder;
@@ -11,20 +11,6 @@ use flashmind_types::{ApiKey, ToolCall, ToolRegistry};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
-
-/// The flashmind tools agents get, when the keys allow them.
-const OFFERED: [&str; 10] = [
-    "generate_image",
-    "image_edit",
-    "generate_video",
-    "tts",
-    "transcribe",
-    "list_voices",
-    "generate_3d",
-    "rig_3d",
-    "decision",
-    "list_models",
-];
 
 /// The tools of one session, writing what they make into its folder.
 pub(crate) struct Media {
@@ -95,14 +81,11 @@ impl Media {
         (result.output(), !result.is_success())
     }
 
-    /// The offered tools the keys allow; `list_models` only beside another.
-    fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
-        let any = OFFERED
-            .iter()
-            .any(|name| *name != "list_models" && self.tools.get(name).is_some());
+    /// The tools the keys allow, sorted; `list_models` only beside another.
+    fn names(&self) -> impl Iterator<Item = &str> + '_ {
+        let names = self.tools.list();
+        let any = names.iter().any(|name| *name != "list_models");
 
-        OFFERED
-            .into_iter()
-            .filter(move |name| any && self.tools.get(name).is_some())
+        names.into_iter().filter(move |_| any)
     }
 }
