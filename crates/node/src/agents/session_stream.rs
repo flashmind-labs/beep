@@ -51,10 +51,27 @@ impl Agents {
         id: &str,
         request: Request,
     ) -> Result<SessionInfo, String> {
-        let session = self
-            .get(id)
-            .filter(|session| session.agent == agent)
-            .ok_or_else(|| "session is no longer on the machine".to_owned())?;
+        let found = self.get(id).filter(|session| session.agent == agent);
+        let message = matches!(
+            request,
+            Request::Prompt { .. } | Request::PromptImages { .. } | Request::Steer { .. }
+        );
+        let ended = found
+            .as_ref()
+            .is_none_or(|session| matches!(session.info().state.status, Status::Ended));
+
+        // A message to a session that ended opens it again first.
+        let session = match found {
+            _ if message && ended => {
+                let kind = self.kind_or_refusal(agent)?;
+                self.resume(&kind, id, None)
+                    .await
+                    .map_err(|e| format!("{e:#}"))?
+            }
+            Some(session) => session,
+            None => return Err("session is no longer on the machine".to_owned()),
+        };
+
         if matches!(request, Request::Close {}) {
             session.close().await;
             return Ok(session.info());

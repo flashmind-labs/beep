@@ -15,15 +15,10 @@ use crate::{
         steer::{PastedImage, Steer, SteerError, sent},
     },
     error::{DesktopError, Result},
-    fleet::{
-        Fleet, agents as direct,
-        asked::{ORDER_LIMIT, READ_LIMIT},
-    },
+    fleet::{Fleet, agents as direct, asked::READ_LIMIT},
 };
 use beep_node::link::reconnect::Backoff;
-use beep_proto::{
-    AgentEntry, AgentEntryKind, AgentStatus, ApiError, GetAgentSession, ResumeAgentSession,
-};
+use beep_proto::{AgentEntry, AgentEntryKind, ApiError, GetAgentSession};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -671,8 +666,6 @@ pub(crate) trait Link {
     async fn send(&mut self, message: &Message) -> Result<Vec<String>>;
     /// Whether the session, read again, shows the machine has `message`.
     async fn took(&mut self, message: &Message) -> Result<bool>;
-    /// Resumes the session when it reads back as ended; whether it did.
-    async fn resumed(&mut self, message: &Message) -> Result<bool>;
     /// Returns when the machine may answer again.
     async fn reachable(&mut self);
     /// Tells the windows what the session's outbox holds now.
@@ -712,24 +705,8 @@ pub(crate) async fn flush(outbox: &Outbox, key: &SessionKey, link: &mut impl Lin
 }
 
 /// One try at `message`. One whose last send may have gone is sent again
-/// only once a read of the session shows the machine does not have it. One
-/// refused because its session ended, as when it waited here while the
-/// session stopped, resumes the session and goes again.
+/// only once a read of the session shows the machine does not have it.
 async fn try_once(link: &mut impl Link, message: &Message) -> Tried {
-    let reason = match sent_once(link, message).await {
-        Tried::Refused(reason) => reason,
-        tried => return tried,
-    };
-
-    match link.resumed(message).await {
-        Ok(true) => sent_once(link, message).await,
-        Ok(false) => Tried::Refused(reason),
-        Err(e) if e.is_transport() => Tried::Lost { unsure: false },
-        Err(e) => Tried::Refused(e.to_string()),
-    }
-}
-
-async fn sent_once(link: &mut impl Link, message: &Message) -> Tried {
     if message.unsure {
         match link.took(message).await {
             Ok(true) => return Tried::Sent(Vec::new()),
@@ -803,49 +780,6 @@ impl Link for MeshLink {
             entries: &view.entries,
         };
         Ok(holds(&log, message))
-    }
-
-    async fn resumed(&mut self, message: &Message) -> Result<bool> {
-        let fleet = self.app.state::<Arc<Fleet>>();
-        let request = GetAgentSession {
-            machine_id: message.machine_id.clone(),
-            agent: message.agent.clone(),
-            session: message.session.clone(),
-            last: 1,
-            before: None,
-        };
-        let read = direct::session(&fleet, self.machine, &request);
-        let view = fleet
-            .asked(
-                self.machine,
-                &message.session,
-                "checking a refused send",
-                READ_LIMIT,
-                read,
-            )
-            .await?;
-
-        if !matches!(view.session.status, AgentStatus::Ended {}) {
-            return Ok(false);
-        }
-
-        let request = ResumeAgentSession {
-            machine_id: message.machine_id.clone(),
-            agent: message.agent.clone(),
-            session: message.session.clone(),
-            prompt: None,
-        };
-        let resume = direct::resume(&fleet, self.machine, request);
-        fleet
-            .asked(
-                self.machine,
-                &message.session,
-                "resuming the session",
-                ORDER_LIMIT,
-                resume,
-            )
-            .await?;
-        Ok(true)
     }
 
     async fn reachable(&mut self) {

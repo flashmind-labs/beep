@@ -53,10 +53,8 @@ fn texts(outbox: &Outbox, session: &str) -> Vec<String> {
 struct Fake {
     sends: VecDeque<Result<Vec<String>>>,
     checks: VecDeque<Result<bool>>,
-    resumes: VecDeque<Result<bool>>,
     sent: Vec<String>,
     checked: Vec<String>,
-    resumed: usize,
     waits: usize,
     changes: Vec<Changed>,
 }
@@ -75,16 +73,6 @@ impl Link for Fake {
     async fn took(&mut self, message: &Message) -> Result<bool> {
         self.checked.push(message.text.clone());
         self.checks.pop_front().unwrap_or(Ok(false))
-    }
-
-    async fn resumed(&mut self, _: &Message) -> Result<bool> {
-        let answer = self.resumes.pop_front().unwrap_or(Ok(false));
-
-        if matches!(answer, Ok(true)) {
-            self.resumed += 1;
-        }
-
-        answer
     }
 
     async fn reachable(&mut self) {
@@ -386,45 +374,4 @@ fn an_image_only_message_is_found_by_its_image_lines() {
     assert!(holds(&log(&queued, 0, &[]), &message));
     assert!(holds(&log(&[], 5, &[user("[image: image-abc]")]), &message));
     assert!(!holds(&log(&[], 5, &[user("hello")]), &message));
-}
-
-#[tokio::test]
-async fn a_message_kept_for_a_session_that_ended_resumes_it_and_goes() {
-    let (_dir, _, outbox) = outbox();
-    push(&outbox, "s1", "yes, create it");
-    let mut link = Fake {
-        sends: VecDeque::from([Err(DesktopError::BadRequest(
-            "session is no longer on the machine".into(),
-        ))]),
-        resumes: VecDeque::from([Ok(true)]),
-        ..Fake::default()
-    };
-
-    flush(&outbox, &key("s1"), &mut link).await;
-
-    assert_eq!(link.resumed, 1);
-    assert_eq!(link.sent, ["yes, create it"]);
-    assert!(texts(&outbox, "s1").is_empty());
-}
-
-#[tokio::test]
-async fn a_refused_message_to_a_session_still_open_keeps_its_reason() {
-    let (_dir, _, outbox) = outbox();
-    push(&outbox, "s1", "first");
-    let mut link = Fake {
-        sends: VecDeque::from([Err(DesktopError::BadRequest("too long".into()))]),
-        ..Fake::default()
-    };
-
-    flush(&outbox, &key("s1"), &mut link).await;
-
-    assert_eq!(link.resumed, 0);
-    assert!(link.sent.is_empty());
-    let reasons: Vec<Option<String>> = outbox.read(|held| {
-        held.rows(&key("s1"))
-            .into_iter()
-            .map(|row| row.reason)
-            .collect()
-    });
-    assert_eq!(reasons, [Some("too long".to_owned())]);
 }

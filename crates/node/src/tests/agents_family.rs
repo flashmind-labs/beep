@@ -890,3 +890,24 @@ async fn another_machine_s_agent_lists_and_messages_any_agent_until_the_user_spe
 
     rig.agents.shutdown().await;
 }
+
+/// A prompt to a session that ended opens it again and goes (#883).
+#[tokio::test]
+async fn a_prompt_to_a_session_that_ended_resumes_it() {
+    let rig = Rig::new();
+    let session = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    until(&session, |live| live.info.turns == 1).await;
+    let id = session.info().id;
+    session.close().await;
+
+    let info = rig
+        .agents
+        .send_session("top", &id, Request::Prompt { text: "carry on".into() })
+        .await
+        .expect("the prompt resumes the session");
+    let resumed = rig.agents.get(&info.id).expect("the session runs again");
+    until(&resumed, |live| live.info.turns >= 1).await;
+    assert!(rig.read("top.log").contains("carry on"));
+
+    rig.agents.shutdown().await;
+}
