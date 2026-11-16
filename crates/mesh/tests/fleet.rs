@@ -19,7 +19,7 @@ use beep_proto::{
     TerminalEvent,
     node::{
         Open, Opened,
-        agent::{DiffAsk, Event, FileAction, Request, Status},
+        agent::{DiffAsk, Event, FileAction, RelPath, Request, Status},
         link,
         process::TaskId,
         terminal::{Reply as PtyReply, Request as PtyRequest, Size},
@@ -301,19 +301,19 @@ async fn a_files_diff_tree_and_edits_work_with_no_server() {
     );
     for action in [
         FileAction::CreateFolder {
-            path: "drafts".into(),
+            path: RelPath::try_from("drafts").unwrap(),
         },
         FileAction::Copy {
-            paths: vec!["b.txt".into()],
-            folder: "drafts".into(),
+            paths: vec![RelPath::try_from("b.txt").unwrap()],
+            folder: RelPath::try_from("drafts").unwrap(),
         },
         FileAction::Rename {
-            path: "drafts/b.txt".into(),
-            to: "drafts/copy.txt".into(),
+            path: RelPath::try_from("drafts/b.txt").unwrap(),
+            to: RelPath::try_from("drafts/copy.txt").unwrap(),
         },
         FileAction::Move {
-            paths: vec!["drafts/copy.txt".into()],
-            folder: String::new(),
+            paths: vec![RelPath::try_from("drafts/copy.txt").unwrap()],
+            folder: RelPath::default(),
         },
     ] {
         assert!(matches!(
@@ -332,7 +332,10 @@ async fn a_files_diff_tree_and_edits_work_with_no_server() {
             &node.client,
             root,
             FileAction::Delete {
-                paths: vec!["copy.txt".into(), "drafts".into()]
+                paths: vec![
+                    RelPath::try_from("copy.txt").unwrap(),
+                    RelPath::try_from("drafts").unwrap()
+                ]
             }
         )
         .await

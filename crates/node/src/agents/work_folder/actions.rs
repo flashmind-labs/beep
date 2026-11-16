@@ -1,9 +1,9 @@
 //! File browser mutations, anchored to open directories and never overwriting a destination.
 
-use super::{PART, WorkRoot, names};
+use super::{PART, WorkRoot};
 use crate::files::fsat::{self, Dir};
 use anyhow::{Context, Result, bail};
-use beep_proto::node::agent::FileAction;
+use beep_proto::node::agent::{FileAction, RelPath};
 use std::{
     collections::HashSet,
     ffi::{OsStr, OsString},
@@ -20,22 +20,12 @@ struct CopyBudget {
     bytes: u64,
 }
 
-fn checked(path: &str) -> Result<PathBuf> {
-    if path.starts_with('/') || path.contains('\\') || path.contains(':') {
-        bail!("Use a relative path inside the working folder");
-    }
-
-    let path = names(path)?;
-
-    if path.as_os_str().is_empty()
-        || path
-            .components()
-            .any(|p| p.as_os_str().eq_ignore_ascii_case(".git"))
-    {
+fn checked(path: &RelPath) -> Result<PathBuf> {
+    if path.is_root() || path.parts().any(|p| p.eq_ignore_ascii_case(".git")) {
         bail!("The working folder and Git metadata cannot be changed here");
     }
 
-    Ok(path)
+    Ok(path.into())
 }
 
 fn folder(root: &WorkRoot, rel: &Path) -> Result<Dir> {
@@ -57,14 +47,14 @@ fn name(path: &Path) -> Result<&OsStr> {
 }
 
 /// Removes descendants when their parent is selected, preserving selection order.
-fn roots(paths: &[String]) -> Result<Vec<PathBuf>> {
+fn roots(paths: &[RelPath]) -> Result<Vec<PathBuf>> {
     if paths.is_empty() || paths.len() > MAX_ITEMS {
         bail!("Select between 1 and {MAX_ITEMS} items");
     }
 
     let all = paths
         .iter()
-        .map(|p| checked(p))
+        .map(checked)
         .collect::<Result<Vec<_>>>()?;
     let lookup: HashSet<_> = all.iter().cloned().collect();
     let mut seen = HashSet::new();
@@ -199,7 +189,7 @@ pub(in crate::agents) fn edit(root: &WorkRoot, action: &FileAction) -> Result<()
             folder: dest,
         } => {
             let paths = roots(paths)?;
-            let dest = if dest.is_empty() {
+            let dest = if dest.is_root() {
                 PathBuf::new()
             } else {
                 checked(dest)?

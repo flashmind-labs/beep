@@ -1,5 +1,9 @@
 use super::*;
 use std::fs;
+fn rel(path: &str) -> RelPath {
+    RelPath::try_from(path).unwrap()
+}
+
 fn root(temp: &tempfile::TempDir) -> WorkRoot {
     WorkRoot::at(&fs::canonicalize(temp.path()).unwrap()).unwrap()
 }
@@ -8,11 +12,11 @@ fn root(temp: &tempfile::TempDir) -> WorkRoot {
 fn creates_renames_copies_moves_and_deletes_without_overwriting() {
     let t = tempfile::tempdir().unwrap();
     let r = root(&t);
-    edit(&r, &FileAction::CreateFolder { path: "src".into() }).unwrap();
+    edit(&r, &FileAction::CreateFolder { path: rel("src") }).unwrap();
     edit(
         &r,
         &FileAction::CreateFile {
-            path: "src/a".into(),
+            path: rel("src/a"),
         },
     )
     .unwrap();
@@ -20,16 +24,16 @@ fn creates_renames_copies_moves_and_deletes_without_overwriting() {
     edit(
         &r,
         &FileAction::Rename {
-            path: "src/a".into(),
-            to: "src/b".into(),
+            path: rel("src/a"),
+            to: rel("src/b"),
         },
     )
     .unwrap();
     edit(
         &r,
         &FileAction::Copy {
-            paths: vec!["src/b".into()],
-            folder: "".into(),
+            paths: vec![rel("src/b")],
+            folder: rel(""),
         },
     )
     .unwrap();
@@ -38,8 +42,8 @@ fn creates_renames_copies_moves_and_deletes_without_overwriting() {
         edit(
             &r,
             &FileAction::Move {
-                paths: vec!["b".into()],
-                folder: "src".into()
+                paths: vec![rel("b")],
+                folder: rel("src")
             }
         )
         .is_err()
@@ -47,23 +51,23 @@ fn creates_renames_copies_moves_and_deletes_without_overwriting() {
     edit(
         &r,
         &FileAction::Rename {
-            path: "b".into(),
-            to: "c".into(),
+            path: rel("b"),
+            to: rel("c"),
         },
     )
     .unwrap();
     edit(
         &r,
         &FileAction::Move {
-            paths: vec!["c".into()],
-            folder: "src".into(),
+            paths: vec![rel("c")],
+            folder: rel("src"),
         },
     )
     .unwrap();
     edit(
         &r,
         &FileAction::Delete {
-            paths: vec!["src".into(), "src/b".into()],
+            paths: vec![rel("src"), rel("src/b")],
         },
     )
     .unwrap();
@@ -80,8 +84,8 @@ fn recursive_copy_keeps_contents_and_does_not_repeat_selected_children() {
     edit(
         &r,
         &FileAction::Copy {
-            paths: vec!["src/nested/a".into(), "src".into()],
-            folder: "dest".into(),
+            paths: vec![rel("src/nested/a"), rel("src")],
+            folder: rel("dest"),
         },
     )
     .unwrap();
@@ -93,8 +97,8 @@ fn recursive_copy_keeps_contents_and_does_not_repeat_selected_children() {
         edit(
             &r,
             &FileAction::Copy {
-                paths: vec!["src".into()],
-                folder: "dest".into()
+                paths: vec![rel("src")],
+                folder: rel("dest")
             }
         )
         .is_err()
@@ -109,18 +113,12 @@ fn recursive_copy_keeps_contents_and_does_not_repeat_selected_children() {
 fn refuses_escape_metadata_self_copy_and_batch_collisions() {
     let t = tempfile::tempdir().unwrap();
     let r = root(&t);
-    for path in [
-        "",
-        "..",
-        "../a",
-        "/a",
-        ".git",
-        "a/.GIT/config",
-        "C:/a",
-        "a\\b",
-    ] {
+    for path in ["..", "../a", "a/../b", "/a", "C:/a", "a\\b"] {
+        assert!(RelPath::try_from(path).is_err(), "{path}");
+    }
+    for path in ["", ".git", "a/.GIT/config"] {
         assert!(
-            edit(&r, &FileAction::CreateFile { path: path.into() }).is_err(),
+            edit(&r, &FileAction::CreateFile { path: rel(path) }).is_err(),
             "{path}"
         );
     }
@@ -130,8 +128,8 @@ fn refuses_escape_metadata_self_copy_and_batch_collisions() {
         edit(
             &r,
             &FileAction::Copy {
-                paths: vec!["src".into()],
-                folder: "src".into()
+                paths: vec![rel("src")],
+                folder: rel("src")
             }
         )
         .is_err()
@@ -140,8 +138,8 @@ fn refuses_escape_metadata_self_copy_and_batch_collisions() {
         edit(
             &r,
             &FileAction::Copy {
-                paths: vec!["src/a".into(), "src/missing".into()],
-                folder: "".into()
+                paths: vec![rel("src/a"), rel("src/missing")],
+                folder: rel("")
             }
         )
         .is_err()
@@ -162,7 +160,7 @@ fn links_cannot_redirect_mutations_or_copy_reads() {
         edit(
             &r,
             &FileAction::CreateFile {
-                path: "link/new".into()
+                path: rel("link/new")
             }
         )
         .is_err()
@@ -171,7 +169,7 @@ fn links_cannot_redirect_mutations_or_copy_reads() {
         edit(
             &r,
             &FileAction::Delete {
-                paths: vec!["link/keep".into()]
+                paths: vec![rel("link/keep")]
             }
         )
         .is_err()
@@ -180,8 +178,8 @@ fn links_cannot_redirect_mutations_or_copy_reads() {
         edit(
             &r,
             &FileAction::Copy {
-                paths: vec!["link".into()],
-                folder: "".into()
+                paths: vec![rel("link")],
+                folder: rel("")
             }
         )
         .is_err()
@@ -189,7 +187,7 @@ fn links_cannot_redirect_mutations_or_copy_reads() {
     edit(
         &r,
         &FileAction::Delete {
-            paths: vec!["link".into()],
+            paths: vec![rel("link")],
         },
     )
     .unwrap();
@@ -212,7 +210,7 @@ fn write_replaces_a_file_and_keeps_its_mode() {
         edit(
             &r,
             &FileAction::Write {
-                path: path.into(),
+                path: rel(path),
                 text: "new\r\n".into(),
             },
         )
