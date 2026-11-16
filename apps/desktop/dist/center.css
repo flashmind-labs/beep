@@ -1059,11 +1059,10 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .bd-rows > .pj > :last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .bd-rows > .pj button { all: unset; cursor: default }
 .bd-rows > .pj button:hover, .bd-rows > .pj button:focus-visible { text-decoration: underline }
-/* A cell shows whole cards and scrolls to the rest one card at a time: two on Home, a title line
-   each, and as many as the page has room for in a project. The view sets its height from the cards. */
-.bd-lane.cell { overflow-y: auto; scrollbar-width: none; scroll-snap-type: y mandatory }
+/* A cell shows whole cards and scrolls to the rest one card at a time (itemScroll): two on Home, a
+   title line each, and as many as the page has room for in a project. The view sets its height from the cards. */
+.bd-lane.cell { overflow-y: auto; scrollbar-width: none }
 .bd-rows > .bd-lane.cell { max-height: 196px }
-.bd-lane.cell > * { scroll-snap-align: start; scroll-snap-stop: always }
 .bd-rows > .bd-lane.cell > .bd-card > b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .bd-lane.cell::-webkit-scrollbar { display: none }
 

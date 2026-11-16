@@ -47,6 +47,7 @@ import { showAgentControl, showAgentControlFor, showAgentStop } from "./composer
 import { AgentStatus } from "./mode-view.tsx";
 import type { BlockedRow, ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
 import { sessionBody } from "./session-frame.tsx";
+import { glide } from "../ui/motion.ts";
 
 /// Draws the log again. `keep` finds the row the reader just opened or
 /// folded, which stays where it is on screen. With `older` it is the row in
@@ -164,9 +165,8 @@ export function jumpToLatest() {
   const b = sessionBody();
   if (!b) return;
   b.stuck = true;
-  // From far up it goes at once: a glide would end short of turns measured on the way.
-  const far = b.scrollHeight - b.scrollTop - b.clientHeight > b.clientHeight;
-  b.scrollTo({ top: b.scrollHeight, behavior: far || matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  // A glide to the end follows the end as turns measured on the way grow the log.
+  glide(b, "end", "glide", { landed: null, done: null });
   syncJump(b);
 }
 

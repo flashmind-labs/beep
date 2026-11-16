@@ -1,6 +1,7 @@
 import { createRef } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentView } from "../ui/document-root.tsx";
+import { glide } from "../ui/motion.ts";
 import { FindView } from "./find-view.tsx";
 import { nextMatch, searchPattern, textMatches } from "./find-state.ts";
 
@@ -133,9 +134,10 @@ export function openChatFind(chat: ChatSearch) {
       // Open command output and thoughts can scroll inside the conversation.
       for (let parent = selected.parentElement; parent; parent = parent.parentElement) {
         const rect = selected.getBoundingClientRect(), area = parent.getBoundingClientRect();
-        if (parent === body || /auto|scroll/.test(getComputedStyle(parent).overflowY)) {
-          parent.scrollTop += rect.top - area.top - parent.clientHeight / 2 + rect.height / 2;
-        }
+        const by = rect.top - area.top - parent.clientHeight / 2 + rect.height / 2;
+        // The conversation glides to the match and lights its line; an inner scroller jumps.
+        if (parent === body) glide(body, body.scrollTop + by, "glide", { landed: selected.parentElement, done: null });
+        else if (/auto|scroll/.test(getComputedStyle(parent).overflowY)) parent.scrollTop += by;
 
         if (/auto|scroll/.test(getComputedStyle(parent).overflowX)) {
           if (rect.left < area.left) parent.scrollLeft += rect.left - area.left;
