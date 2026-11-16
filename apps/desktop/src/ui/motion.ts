@@ -246,11 +246,10 @@ function light(el: HTMLElement | null, ms: number) {
   el?.animate([{ backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent)" }, { backgroundColor: "transparent" }], { duration: ms, easing: "ease-out" });
 }
 
-/// The lists of cards that scroll a card at a time, and the items they stop at. An item
-/// belongs to the nearest list around it. Reading areas (chat, diffs, files, terminals,
-/// logs) are not here and scroll freely.
-const LISTS = [".cc-view", ".pj-det", ".pj-board", ".pj-scroll", ".pv-scroll", ".bd-lane.cell", ".conversation-list", ".nt-list", ".cc-set .dset-page"].join(", ");
-const ITEMS = [".cc-sec", ".bd-card", ".cc-row", ".mcard", ".pj-card", ".nt-row", ".conversation-choice", ".dset-h", ".dset-row", ".pl-head"].join(", ");
+/// The scrollers that can hold a board, and the board items they stop at. An item belongs
+/// to the nearest scroller around it. A scroller showing no board item scrolls freely.
+const LISTS = [".cc-view", ".pj-det", ".pj-board", ".bd-lane.cell"].join(", ");
+const ITEMS = [".bd-card"].join(", ");
 
 /// The first part of a swipe moves one item and every further stretch one more; a pause
 /// longer than the gap starts a new swipe. A list that reached its end holds the next
@@ -258,7 +257,7 @@ const ITEMS = [".cc-sec", ".bd-card", ".cc-row", ".mcard", ".pj-card", ".nt-row"
 /// the list follows its item on, a touch under critical damping so it settles like a click.
 const FIRST_PX = 24, MORE_PX = 140, GESTURE_GAP_MS = 140, HELD_SWIPES = 2, HOLD_MS = 700, LINE_PX = 16, SPRING = 30, DAMPING = 0.75;
 
-/// Lists of cards scroll a card at a time. A small scroll moves one card; a fast one moves
+/// A board scrolls a card at a time. A small scroll moves one card; a fast one moves
 /// more, and the list carries its speed into the card it ends on. A swipe belongs to the
 /// innermost list that can still move its way, and stays with it to the swipe's end. A
 /// list that ran out of cards also keeps the next swipes that follow at once, so scrolling
@@ -311,18 +310,26 @@ function atEnd(list: HTMLElement, sign: number) {
   return sign > 0 ? at >= room - 1 : at <= 1;
 }
 
-/// The list of cards the pointer is over, if any.
+/// The board the pointer is over, if any.
 function listAround(target: EventTarget | null) {
-  return target instanceof Element ? target.closest<HTMLElement>(LISTS) : null;
+  const list = target instanceof Element ? target.closest<HTMLElement>(LISTS) : null;
+  return list && boardIn(list) ? list : null;
+}
+
+/// Whether scroller `list` shows a board item of its own.
+function boardIn(list: HTMLElement) {
+  for (const item of list.querySelectorAll<HTMLElement>(ITEMS)) if (item.closest(LISTS) === list && item.getClientRects().length) return true;
+
+  return false;
 }
 
 /// The scroller that takes a swipe `sign`'s way: the innermost one that can still move,
-/// when it is a list of cards. Another scroller in between keeps the swipe for itself.
+/// when it shows a board. Another scroller in between keeps the swipe for itself.
 function listFor(target: EventTarget | null, sign: number) {
   for (let el = target instanceof HTMLElement ? target : null; el; el = el.parentElement) {
     if (el.scrollHeight - el.clientHeight <= 1 || !/auto|scroll/.test(getComputedStyle(el).overflowY) || atEnd(el, sign)) continue;
 
-    return el.matches(LISTS) ? el : null;
+    return el.matches(LISTS) && boardIn(el) ? el : null;
   }
 
   return null;

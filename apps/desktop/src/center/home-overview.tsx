@@ -13,7 +13,7 @@ import { HarnessIcon, Icon, PROJECT_COLORS } from "../ui/icons.tsx";
 import { type HomeView, needsLine } from "./home-state.ts";
 import { answerNeed, homeSessions, openAsking } from "./home.tsx";
 import { itemChips, newestFirst, projectsWithOpen, waitsOnYou } from "./openitems-state.ts";
-import { openUrl, reviewButton } from "./openitems.ts";
+import { continueButton, openUrl, reviewButton } from "./openitems.ts";
 import { loadFound, projectRows, projectWindowProps } from "./sidebar.tsx";
 import { HomeAssistant } from "./home-assistant.tsx";
 import { state } from "./state.ts";
@@ -67,11 +67,16 @@ function needsCards(home: HomeView): BoardCard[] {
   for (const item of (state.git?.items || []).filter(waitsOnYou).sort(newestFirst)) {
     const open = () => openUrl(item.url);
     const project = repos.get(`${item.host} ${item.repo}`)?.project ?? null;
-    // A review can be read on the host, or in a project handed to an agent.
+    // A review can be read on the host, or in a project handed to an agent,
+    // and the user's own PR goes on in a project's agent.
+    const machines = home.machines?.filter(m => m.can_host !== false);
+    const agent = !project || item.kind !== "pull_request" ? null
+      : item.review_requested ? reviewButton(item, project, machines)
+      : item.authored ? continueButton(item, project, machines) : null;
 
     cards.push({ key: item.url, lane: "needs", project: project?.name ?? item.repo, color: projectColor(project?.name ?? null), session: false, lead: <span style={{ display: "contents" }}><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>,
       title: `#${item.number} ${item.title}`, sub: [item.repo, itemChips(item).map(c => c.text).join(", ")].filter(Boolean).join(" · "), foot: null,
-      action: item.review_requested && project ? { kind: "agent", item: reviewButton(item, project, home.machines?.filter(m => m.can_host !== false)) } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
+      action: agent ? { kind: "agent", item: agent } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
   }
 
   // A project's conflicts share one card: its Machines section lists them.

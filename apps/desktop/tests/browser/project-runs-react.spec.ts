@@ -66,3 +66,22 @@ test("showing the window again restarts the project's Actions", async ({ page })
   await expect.poll(following).toBe(true);
   await expect(page.locator('#sec-actions')).toContainText('Build #7');
 });
+
+test("wheeling over an opened run's log scrolls the page", async ({ page }) => {
+  const run = (id: number) => ({ id, number: id, workflow: 'Build', title: `Run ${id}`, branch: 'main', event: 'push', actor: 'Example', state: id === 40 ? 'failed' : 'passed', url: `https://example.test/run/${id}`, started_at: 1, finished_at: 2, progress: null, pull_requests: [], host: 'github.com' });
+  const runs = Array.from({ length: 20 }, (_, i) => run(40 - i));
+  const log = { job: 'Test', step: 'Run tests', text: Array.from({ length: 120 }, (_, i) => `line ${i}`).join("\n"), truncated: true };
+  const detail = { run: runs[0], jobs: [{ id: 1, name: 'Test', state: 'failed', started_at: 1, finished_at: 2, steps: [{ number: 1, name: 'Run tests', state: 'failed', started_at: 1, finished_at: 2 }], url: 'https://example.test/log' }], log, error: null, rate_limited_until: null };
+  await openDesktop(page, false, { center_project_runs: { runs, checks: [], synced_at: null, error: null, rate_limited_until: null }, center_project_run: detail });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "actions" } }), projectName);
+  await page.locator('.rr-head').filter({ hasText: 'Build #40' }).click();
+  const pre = page.locator('.pj-log pre'), scroller = page.locator('.pj-det').filter({ has: page.locator('#sec-actions') });
+  await expect(pre).toContainText('line 119');
+  const box = await pre.boundingBox();
+  if (!box) throw new Error("the log is not laid out");
+  await page.mouse.move(box.x + 40, box.y + 20);
+  await page.mouse.wheel(0, 300);
+  // The page is no board: it follows the wheel instead of stepping a screen at a time.
+  await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBe(300);
+  expect(await pre.evaluate(el => el.scrollTop)).toBe(0);
+});
