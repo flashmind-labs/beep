@@ -6,7 +6,7 @@ import type { AgentQuestion } from "./agents.ts";
 import { Icon } from "../ui/icons.tsx";
 import type { DrawnTurn, KeyedRow, LogWindow, TranscriptRow } from "./logwindow.tsx";
 import { AgentTurnHeading } from "./turn-heading-view.tsx";
-import { AgentContext, AgentError, AgentPrompt, AgentReply } from "./reply-view.tsx";
+import { AgentContext, AgentError, AgentPrompt, AgentReply, LatestReplyRow } from "./reply-view.tsx";
 import { ActivityView } from "./activity-view.tsx";
 import { questionRef } from "./mode-view.tsx";
 
@@ -14,6 +14,7 @@ export interface LogShell {
   why: string | null;
   starting: boolean;
   log: boolean;
+  latestReply: string | null;
   question: AgentQuestion | null;
   questionKey: string | null;
   answering: boolean;
@@ -30,7 +31,7 @@ export function AgentLogShell({ value, log }: { value: LogShell; log: LogWindow 
   const deny = question?.options.findIndex(option => !option.allow) ?? -1;
   return <><div className="dagmain">
     {value.why && <div className="dmuted" data-log-part="why">{value.why}</div>}
-    {value.log ? <div className="dcoderlog" ref={log.attach}><TranscriptLog log={log} /></div> : value.starting && <div className="dmuted" data-log-part="starting"><Spinner /> Starting the agent…</div>}
+    {value.log ? <div className="dcoderlog" ref={log.attach}><LatestReplyRow value={value.latestReply}><TranscriptLog log={log} /></LatestReplyRow></div> : value.starting && <div className="dmuted" data-log-part="starting"><Spinner /> Starting the agent…</div>}
     {question && <div className="dcard dcoder" data-log-part="card">
       <div className="q"><b>{question.text}</b>{question.detail && <code>{question.detail}</code>}<div className="dups" ref={questionRef({ key: value.questionKey ?? "", allows: question.options.map(option => option.allow), disabled: value.answering })}>{question.options.map((option, index) => <Button key={index} look={index === allow ? "primary" : "secondary"} danger={index === deny} data-agopt={index} data-agquestion={value.questionKey ?? ""} data-agallow={String(option.allow)} disabled={value.answering}>{option.name}{index === allow ? <kbd>⌘<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20 5v7a3 3 0 0 1-3 3H5m4-4l-4 4 4 4" /></svg></kbd> : index === deny ? <kbd>⌘D</kbd> : null}</Button>)}</div></div>
     </div>}

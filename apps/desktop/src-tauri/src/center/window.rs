@@ -2,7 +2,7 @@
 //! one per project, labelled by the project's name. Entry points: `open`,
 //! `open_project`, `hide_on_close`, `is_center`.
 
-use crate::{bar, error::Result};
+use crate::{bar, beep::state::Prefs, error::Result};
 use beep_proto::watched;
 use std::{
     collections::HashMap,
@@ -11,8 +11,8 @@ use std::{
 #[cfg(target_os = "macos")]
 use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, Window, WindowEvent,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalSize, Runtime, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder, Window, WindowEvent,
 };
 use tokio::sync::watch;
 
@@ -35,13 +35,13 @@ const CASCADE: f64 = 28.0;
 const HIDDEN_EVENT: &str = "center-hidden";
 const SHOWN_EVENT: &str = "center-shown";
 
-/// Where a window opens: `share` of the screen under the mouse, at least
-/// `min` where the screen allows, centered.
+/// Where a window opens on the screen under the mouse: at `size`, or
+/// `SHARE` of the screen without one, at least the minimum where the
+/// screen allows, centered.
 #[cfg_attr(mobile, allow(dead_code))]
-pub(crate) fn frame<R: Runtime>(
+fn frame<R: Runtime>(
     app: &AppHandle<R>,
-    share: f64,
-    min: LogicalSize<f64>,
+    size: Option<LogicalSize<f64>>,
 ) -> Option<(LogicalPosition<f64>, LogicalSize<f64>)> {
     let cursor = app.cursor_position().ok()?;
     let monitor = app
@@ -55,8 +55,9 @@ pub(crate) fn frame<R: Runtime>(
     let top = f64::from(area.position.y) / scale;
     let full_w = f64::from(area.size.width) / scale;
     let full_h = f64::from(area.size.height) / scale;
-    let width = (full_w * share).max(min.width.min(full_w));
-    let height = (full_h * share).max(min.height.min(full_h));
+    let size = size.unwrap_or(LogicalSize::new(full_w * SHARE, full_h * SHARE));
+    let width = size.width.max(MIN_WIDTH).min(full_w);
+    let height = size.height.max(MIN_HEIGHT).min(full_h);
     let x = left + ((full_w - width) / 2.0).min(full_w - width).max(0.0);
     let y = top + ((full_h - height) / 2.0).min(full_h - height).max(0.0);
     Some((LogicalPosition::new(x, y), LogicalSize::new(width, height)))
@@ -140,9 +141,15 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
     {
         builder = builder.theme(Some(tauri::Theme::Dark));
     }
+    // A project window takes the last one's size; one opened before
+    // comes back where it was (the window-state plugin).
     #[cfg(desktop)]
     {
-        builder = match frame(app, SHARE, LogicalSize::new(MIN_WIDTH, MIN_HEIGHT)) {
+        let size = app
+            .try_state::<Prefs>()
+            .filter(|_| label.starts_with(PROJECT_PREFIX))
+            .and_then(|prefs| prefs.project_window());
+        builder = match frame(app, size) {
             Some((position, size)) => builder
                 .position(position.x + offset, position.y + offset)
                 .inner_size(size.width, size.height),
@@ -468,8 +475,35 @@ pub(crate) fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEven
         }
     }
 
+    #[cfg(desktop)]
+    if let WindowEvent::Resized(size) = event {
+        note_project_size(window, *size);
+    }
+
     if let Some((shown, when)) = shown_after(event, || on_screen(window)) {
         tell(window.app_handle(), window.label(), shown, when);
+    }
+}
+
+/// Notes a project window's size for the next project window, unless it
+/// fills the screen or is minimized.
+#[cfg(desktop)]
+fn note_project_size<R: Runtime>(window: &Window<R>, size: PhysicalSize<u32>) {
+    let filled = || {
+        window.is_maximized().unwrap_or(true)
+            || window.is_fullscreen().unwrap_or(true)
+            || window.is_minimized().unwrap_or(true)
+    };
+
+    if !window.label().starts_with(PROJECT_PREFIX) || size.width == 0 || filled() {
+        return;
+    }
+
+    if let (Some(prefs), Ok(scale)) = (
+        window.app_handle().try_state::<Prefs>(),
+        window.scale_factor(),
+    ) {
+        prefs.note_project_window(size.to_logical(scale));
     }
 }
 
@@ -558,6 +592,13 @@ fn watch_occlusion<R: Runtime>(_: &WebviewWindow<R>) -> Result<()> {
 pub(crate) fn forget<R: Runtime>(app: &AppHandle<R>, label: &str) {
     if let Some(told) = app.try_state::<OnScreen>() {
         told.clear(label);
+    }
+
+    // The next project window opens at the size this one had.
+    if label.starts_with(PROJECT_PREFIX)
+        && let Some(prefs) = app.try_state::<Prefs>()
+    {
+        prefs.save();
     }
 
     #[cfg(target_os = "macos")]

@@ -17,8 +17,8 @@ pub use files::{
 };
 pub use moves::{MoveState, move_progress, worktrees};
 pub use query::{
-    external, external_named, found_folders, in_folders, list, list_all, live, models, transcript,
-    transcript_before,
+    external, external_named, found_folders, in_folders, in_folders_page, list, list_all, live,
+    models, transcript, transcript_before,
 };
 
 use super::{said, timed_out};

@@ -2,7 +2,7 @@
 //! folder, opened read-only; one that is locked or of another shape is
 //! skipped.
 
-use super::{Agent, MAX_FILES, Memos, Seen, prompt_title};
+use super::{Agent, Memos, Seen, prompt_title};
 use std::{
     env,
     ffi::OsStr,
@@ -11,8 +11,6 @@ use std::{
     sync::Arc,
 };
 
-/// The most databases read in one listing.
-const MAX_DATABASES: usize = 8;
 /// The title OpenCode gives a session before it names it; the first prompt
 /// is shown instead.
 const UNNAMED: &str = "New session - ";
@@ -30,8 +28,7 @@ const QUERY: &str = "SELECT s.id, s.title, s.directory, s.time_created, s.time_u
             AND coalesce(json_extract(p.data, '$.synthetic'), 0) = 0)
      FROM session s
      WHERE s.parent_id IS NULL AND s.time_archived IS NULL AND s.directory != ''
-     ORDER BY s.time_updated DESC
-     LIMIT ?1";
+     ORDER BY s.time_updated DESC";
 
 /// Where OpenCode keeps its sessions here: its databases, the one
 /// `OPENCODE_DB` names or every `opencode*.db` in its data folder.
@@ -91,10 +88,6 @@ pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
                 database.display()
             ),
         }
-
-        if seen.len() >= MAX_FILES {
-            break;
-        }
     }
 
     seen
@@ -116,15 +109,13 @@ fn databases(dir: &Path) -> Vec<PathBuf> {
         .filter(|path| path.is_file())
         .collect();
     found.sort();
-    found.truncate(MAX_DATABASES);
     found
 }
 
 fn read(database: &Path) -> rusqlite::Result<Vec<Seen>> {
     let conn = super::open_database(database)?;
     let mut statement = conn.prepare(QUERY)?;
-    let limit = i64::try_from(MAX_FILES).unwrap_or(i64::MAX);
-    let rows = statement.query_map([limit], |row| {
+    let rows = statement.query_map([], |row| {
         let title: Option<String> = row.get(1)?;
         let created: Option<i64> = row.get(3)?;
         let updated: Option<i64> = row.get(4)?;

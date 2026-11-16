@@ -11,7 +11,10 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
-    agent::{ExternalAsk, ExternalSession, MAX_EXTERNAL_NAMED, Presence, SessionFolder, Status},
+    agent::{
+        ExternalAsk, ExternalSession, HistoryCursor, MAX_EXTERNAL_NAMED, Presence, SessionFolder,
+        SessionPage, Status,
+    },
     events::Topic,
 };
 use beep_proto::watched;
@@ -252,6 +255,49 @@ impl Agents {
             .filter(|folder| folder.is_absolute())
             .collect();
         let picked = found::in_folders(self.sightings().await?, &folders, limit);
+        let mut sessions = self.describe_history(picked, &folders).await?;
+        sessions.truncate(limit);
+        Ok(sessions)
+    }
+
+    /// Pages metadata without a total history cap. The cursor follows the
+    /// discovery order, even when a file disappears while describing it.
+    pub async fn sessions_page(
+        &self,
+        folders: Vec<String>,
+        limit: u32,
+        before: Option<HistoryCursor>,
+    ) -> Result<SessionPage> {
+        let limit = match usize::try_from(limit).unwrap_or(MAX_IN_FOLDERS) {
+            0 => DEFAULT_IN_FOLDERS,
+            limit => limit.min(MAX_IN_FOLDERS),
+        };
+        let folders: Vec<PathBuf> = folders
+            .into_iter()
+            .take(MAX_ASKED_FOLDERS)
+            .map(PathBuf::from)
+            .filter(|folder| folder.is_absolute())
+            .collect();
+        let (picked, next) =
+            found::history_page(self.sightings().await?, &folders, limit, before.as_ref());
+        let selected: HashSet<_> = picked
+            .iter()
+            .map(|seen| (seen.agent.to_string(), seen.id.clone()))
+            .collect();
+        let mut sessions = self.describe_history(picked, &folders).await?;
+        sessions.retain(|session| selected.contains(&(session.agent.clone(), session.id.clone())));
+        for session in &mut sessions {
+            session.last_prompt.clear();
+            session.last_message.clear();
+        }
+        Ok(SessionPage { sessions, next })
+    }
+
+    async fn describe_history(
+        &self,
+        picked: Vec<found::Seen>,
+        folders: &[PathBuf],
+    ) -> Result<Vec<ExternalSession>> {
         let (claude, others): (Vec<found::Seen>, Vec<found::Seen>) = picked
             .into_iter()
             .partition(|seen| seen.agent == Agent::Claude);
@@ -290,7 +336,6 @@ impl Agents {
         });
 
         sessions.sort_by_key(|session| Reverse(session.last_activity));
-        sessions.truncate(limit);
         Ok(sessions)
     }
 

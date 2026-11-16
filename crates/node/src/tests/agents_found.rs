@@ -124,3 +124,44 @@ fn tagged_prompts_are_not_titles() {
     assert_eq!(prompt_title(" Fix it "), Some("Fix it".into()));
     assert_eq!(prompt_title(""), None);
 }
+
+#[test]
+fn history_pages_keep_ties_and_ignore_newer_insertions_between_pages() {
+    let folder = PathBuf::from("/srv/project");
+    let mut all: Vec<_> = (0..125)
+        .rev()
+        .map(|i| seen(Agent::Codex, &format!("session-{i:03}"), &folder, 100))
+        .collect();
+    all.push(seen(
+        Agent::Claude,
+        "other-project",
+        Path::new("/srv/other"),
+        200,
+    ));
+    let (first, cursor) = history_page(all.clone(), std::slice::from_ref(&folder), 50, None);
+    assert_eq!(first.len(), 50);
+    assert_eq!(first[0].id, "session-000");
+    all.push(seen(Agent::Claude, "new-session", &folder, 300));
+    let (second, next) = history_page(
+        all.clone(),
+        std::slice::from_ref(&folder),
+        50,
+        cursor.as_ref(),
+    );
+    assert_eq!(second.len(), 50);
+    assert_eq!(second[0].id, "session-050");
+    let (last, end) = history_page(all, &[folder], 50, next.as_ref());
+    assert_eq!(last.len(), 25);
+    assert_eq!(last[0].id, "session-100");
+    assert_eq!(last[24].id, "session-124");
+    assert!(end.is_none());
+}
+
+#[test]
+fn discovery_keeps_files_past_the_former_store_limit() {
+    let root = tempfile::tempdir().unwrap();
+    for i in 0..=MAX_FILES {
+        std::fs::write(root.path().join(format!("session-{i}.jsonl")), "").unwrap();
+    }
+    assert_eq!(newest_files(root.path(), 0, &|_| true).len(), MAX_FILES + 1);
+}

@@ -244,6 +244,9 @@ mod listing {
                             sessions: vec![info],
                         }
                     }
+                    SessionsRequest::InFoldersPage { .. } => {
+                        return Err(MeshError::Link(anyhow::anyhow!("unsupported request")));
+                    }
                     SessionsRequest::InFolders { .. } => SessionsReply::External {
                         sessions: vec![ExternalSession {
                             id: "transcript".into(),
