@@ -94,7 +94,7 @@ export function Board({ cards, more, rows, recency = null, beside = null }: { re
       <div className="bd-log">{lanes.done.slice(0, DONE_SHOWN).map(card => <CardRow key={card.key} card={{ ...card, sub: "" }}/>)}</div>
       {lanes.done.length > DONE_SHOWN && more.done && <Button look="quiet" small onClick={more.done}>All {lanes.done.length}</Button>}
     </div>
-    : <div className="bd-lane" key={lane}>
+    : <div className={lanes[lane].length > CROWDED_FROM ? "bd-lane many" : "bd-lane"} key={lane}>
       {heading(lane, title)}
       <Cell shown="page">{lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}</Cell>
     </div>)}{beside !== null && <div className="bd-art">{beside}</div>}</div>;
@@ -102,6 +102,9 @@ export function Board({ cards, more, rows, recency = null, beside = null }: { re
 
 /// How many ended sessions the done log lists before its "All" button.
 const DONE_SHOWN = 10;
+/// A lane with more cards than this takes the painting's room for wider cards. A count, not
+/// the cell's fit: the fit depends on the lane's width, which the painting changes.
+const CROWDED_FROM = 4;
 
 function Card({ card, open }: { card: BoardCard; open(): void }) {
   const style = { opacity: card.dim ? .55 : undefined, viewTransitionName: heroCard() === card.key ? "board-hero" : undefined };
@@ -142,7 +145,7 @@ function Cell({ shown, children }: { shown: Shown; children: ReactNode }) {
     return () => observer.disconnect();
   }, [shown]);
 
-  return <div className={fit === null ? "bd-lane cell" : "bd-lane cell full"} ref={ref} style={fit === null ? undefined : { maxHeight: fit }}>{children}</div>;
+  return <div className="bd-lane cell" ref={ref} style={fit === null ? undefined : { maxHeight: fit }}>{children}</div>;
 }
 
 /// The fewest cards a cell shows at once.
