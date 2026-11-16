@@ -107,10 +107,15 @@ cat > /dev/null
     assert_eq!(info["default_model"], "fast");
     assert_eq!(
         info["models"][0],
-        json!({"id": "fast", "name": "Fast", "description": "Quick tasks", "context_window": 360000, "max_context_window": 720000, "provider": null})
+        json!({"id": "fast", "name": "Fast", "description": "Quick tasks", "context_window": 360000, "max_context_window": 720000, "provider": null, "efforts": [], "fast": null})
     );
     assert_eq!(info["models"][1]["id"], "careful");
-    assert_eq!(info["effort_levels"], json!(["low", "medium", "high"]));
+    assert_eq!(
+        info["effort_levels"],
+        json!([
+            "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"
+        ])
+    );
     assert!(
         node.offers.agents.lock().is_empty(),
         "discovery starts no coding session"

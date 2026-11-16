@@ -160,7 +160,7 @@ export const pc = {
   starting: false,
   /// The harness, model and thinking picked, and the machine and harness
   /// the model was picked for, as `machine/agent`.
-  picked: { agent: "", model: "", effort: null, query: "" } as Picked,
+  picked: { agent: "", model: "", effort: null, fast: null, query: "" } as Picked,
   modelFor: "",
   /// Whether the picker shows.
   open: false,

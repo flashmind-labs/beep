@@ -31,7 +31,7 @@ test("an imported session with an unknown model can choose before continuing", a
   const calls = await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_resume" || c.command === "agent_steer"));
   expect(calls.map(c => c.command)).toEqual(["agent_resume", "agent_steer", "agent_steer"]);
   expect(calls[0].args.prompt).toBeNull();
-  expect(calls[1].args).toMatchObject({ session: "resumed-session", steer: { configure: { model: "test-model", effort: null } } });
+  expect(calls[1].args).toMatchObject({ session: "resumed-session", steer: { configure: { model: "test-model", effort: null, fast: null } } });
   expect(calls[2].args).toMatchObject({ session: "resumed-session", steer: { prompt: { text: "Continue with this model" } } });
 });
 
@@ -226,4 +226,24 @@ test("a failed background upload restores the prompt when returning to its conve
   await expect(page.locator("#agmsg")).toHaveValue("Keep this prompt if uploading fails");
   await expect(page.locator("#agmsg")).toHaveJSProperty("readOnly", false);
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").length)).toBe(0);
+});
+
+test("fast mode alone is applied before continuing an ended session", async ({ page }) => {
+  const resumed = { ...session, id: "resumed-speed", external: false, status: "idle" };
+  await openDesktop(page, false, {
+    agent_view: view(), agent_resume: { session: resumed, why: "" }, agent_steer: [],
+    agent_models: { pick: "listed", current: "model-a", models: [{ id: "model-a", name: "Example model", description: null, fast: true, efforts: ["low", "ultra"] }] },
+  });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
+  await page.locator("#agmodelb").click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  await picker.getByRole("switch", { name: "Fast mode", exact: true }).click();
+  await page.locator("#agmsg").click();
+  await page.locator("#agmsg").fill("Continue at fast speed");
+  await page.locator("#agmsg").press("Enter");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer").length)).toBe(2);
+  const calls = await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_resume" || c.command === "agent_steer"));
+  expect(calls[0].args.prompt).toBeNull();
+  expect(calls[1].args).toMatchObject({ steer: { configure: { fast: true } } });
+  expect(calls[2].args).toMatchObject({ steer: { prompt: { text: "Continue at fast speed" } } });
 });

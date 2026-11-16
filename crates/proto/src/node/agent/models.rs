@@ -32,6 +32,8 @@ pub enum Effort {
     High,
     Xhigh,
     Max,
+    None,
+    Ultra,
 }
 
 /// The thinking levels the agent `agent` takes at start; none for an agent
@@ -39,7 +41,7 @@ pub enum Effort {
 /// ACP adapter offers the same levels as a `thought_level` option:
 ///
 /// - `claude`: `claude --effort` (low, medium, high, xhigh, max).
-/// - `codex`: `codex -c model_reasoning_effort=` (low, medium, high).
+/// - `codex`: `codex -c model_reasoning_effort=` (none, minimal, low, medium, high, xhigh, max, ultra).
 /// - `pi`: `pi --thinking` (off, minimal, low, medium, high, xhigh, max).
 /// - `flsh`: ACP `thought_level` (off, low, medium, high), from 0.2.7.
 ///
@@ -49,7 +51,7 @@ pub fn efforts(agent: &str) -> &'static [Effort] {
 
     match agent {
         "claude" => &[Low, Medium, High, Xhigh, Max],
-        "codex" => &[Low, Medium, High],
+        "codex" => &[None, Minimal, Low, Medium, High, Xhigh, Max, Ultra],
         "pi" => &[Off, Minimal, Low, Medium, High, Xhigh, Max],
         "flsh" => &[Off, Low, Medium, High],
         _ => &[],
@@ -95,6 +97,10 @@ pub struct ModelOption {
     /// name leaves it out.
     #[serde(default)]
     pub provider: Option<String>,
+    #[serde(default)]
+    pub efforts: Vec<Effort>,
+    #[serde(default)]
+    pub fast: Option<bool>,
 }
 
 #[cfg(test)]

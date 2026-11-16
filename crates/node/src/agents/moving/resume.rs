@@ -78,7 +78,8 @@ pub(super) async fn resume(
         folders.old.display(),
         folders.new.display()
     );
-    env.agents.start(kind, Some(&cwd), arrival.begin(note, brief))?;
+    env.agents
+        .start(kind, Some(&cwd), arrival.begin(note, brief))?;
     Ok(())
 }
 
@@ -87,10 +88,9 @@ impl Arrival<'_> {
     /// model, thinking level and whether it is the assistant, and with the
     /// move record's model and mode from a source from before saved sessions.
     pub(super) fn begin(&self, note: String, brief: String) -> Begin {
-        let (info, effort) = self
-            .saved
-            .clone()
-            .map_or_else(Default::default, |saved| (saved.info, saved.effort));
+        let (info, effort, fast) = self.saved.clone().map_or_else(Default::default, |saved| {
+            (saved.info, saved.effort, saved.fast)
+        });
 
         Begin {
             resume: Some(self.id.to_owned()),
@@ -98,6 +98,7 @@ impl Arrival<'_> {
             mode: info.mode.or_else(|| self.mode.clone()),
             model: info.model.or_else(|| self.model.clone()),
             effort,
+            fast,
             worktrees: self.worktrees.clone(),
             assistant: info.assistant,
             note: Some(note),

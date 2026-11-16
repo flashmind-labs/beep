@@ -192,7 +192,7 @@ test("assistant page", async ({ page }) => {
   ];
   await openDesktop(page, false, {
     center_home: assistantHome, agent_sessions: assistantSessions, agent_hosts: [assistantHost],
-    assistant_settings_get: { agent: "flsh", model: null, effort: "high" },
+    assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null },
     agent_view: { ...agentView, session: { ...chat, question: null }, entries: transcript },
   });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
@@ -204,7 +204,7 @@ test("assistant page", async ({ page }) => {
 });
 
 test("assistant page empty", async ({ page }, info) => {
-  await openDesktop(page, false, { center_home: home, agent_sessions: [], agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high" } });
+  await openDesktop(page, false, { center_home: home, agent_sessions: [], agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null } });
   await expect(page.locator("#sec-needs")).toBeVisible();
   // Cmd+N on Home lands on the page with a new chat.
   await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
@@ -220,7 +220,7 @@ test("home first start", async ({ page }) => {
     { name: "example/alpha", remote: "https://example.test/alpha", places: [place("/srv/example/alpha")], agents: [{ agent: "claude", sessions: 12 }], last_activity: NOW - 2 * 86_400_000 },
     { name: "tools/echo", remote: "https://example.test/echo", places: [place("/srv/tools/echo")], agents: [], last_activity: NOW - 7 * 86_400_000 },
   ];
-  await openDesktop(page, false, { center_home: { ...home, projects: [], running: [] }, found_projects: found, agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high" } });
+  await openDesktop(page, false, { center_home: { ...home, projects: [], running: [] }, found_projects: found, agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null } });
   const prompt = page.getByRole("textbox", { name: "Message for the assistant" });
   await expect(prompt).toBeVisible();
   await expect(page.locator("#sec-found .pl-row")).toHaveCount(2);
@@ -481,7 +481,7 @@ test("settings plugins", async ({ page }) => {
 });
 
 test("settings assistant", async ({ page }) => {
-  await openDesktop(page, false, { ...settingsResponses, assistant_settings_get: { agent: null, model: null, effort: null }, mac_control: { id: "build-box" }, agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["claude", "codex"], workspace: null, home: "/srv", capabilities: [], assistant: true }], agent_models: { pick: "listed", current: null, models: [{ id: "model-a", name: "Example Model A", description: null, provider: null }, { id: "model-b", name: "Example Model B", description: null, provider: null }] } });
+  await openDesktop(page, false, { ...settingsResponses, assistant_settings_get: { agent: null, model: null, effort: null, fast: null }, mac_control: { id: "build-box" }, agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["claude", "codex"], workspace: null, home: "/srv", capabilities: [], assistant: true }], agent_models: { pick: "listed", current: null, models: [{ id: "model-a", name: "Example Model A", description: null, provider: null }, { id: "model-b", name: "Example Model B", description: null, provider: null }] } });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Settings" });
   await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
@@ -765,7 +765,7 @@ test("phone home", async ({ page }) => {
 
 test("phone assistant", async ({ page }) => {
   await page.setViewportSize(PHONE);
-  await openDesktop(page, false, { center_home: assistantHome, agent_sessions: assistantSessions, agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high" } });
+  await openDesktop(page, false, { center_home: assistantHome, agent_sessions: assistantSessions, agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null } });
   await expect(page.locator("body")).toHaveClass(/mobile/);
   await page.getByRole("button", { name: "New assistant" }).click();
   const list = page.locator(".asst-list");
@@ -944,4 +944,25 @@ test("agent sign-in", async ({ page }) => {
   await settings.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Sign in to Claude Code on test-box", exact: true }).getByRole("button", { name: "Open in browser" })).toBeVisible();
   await baseline(page, "agent-sign-in");
+});
+
+test("settings codex fast thinking", async ({ page }) => {
+  await openDesktop(page, false, { ...settingsResponses,
+    assistant_settings_get: { agent: "codex", model: "model-a", effort: "ultra", fast: true },
+    mac_control: { id: "build-box" },
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [], assistant: true }],
+    agent_models: { pick: "listed", current: "model-a", models: [{ id: "model-a", name: "Example Model", description: null, provider: null, efforts: ["low", "medium", "high", "xhigh", "max", "ultra"], fast: true }] },
+  });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
+  await settings.locator("#assistantSetting").getByRole("button").click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  await expect(picker.getByRole("button", { name: "Ultra", exact: true })).toBeVisible();
+  await expect(picker.getByRole("button", { name: "None", exact: true })).toHaveCount(0);
+  const fast = picker.getByRole("switch", { name: "Fast mode", exact: true });
+  await expect(fast).toHaveAttribute("aria-checked", "true");
+  await baseline(page, "settings-codex-fast-thinking");
+  await fast.click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "assistant_settings_save").at(-1)?.args.settings)).toMatchObject({ agent: "codex", effort: "ultra", fast: false });
 });

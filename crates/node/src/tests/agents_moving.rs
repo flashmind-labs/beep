@@ -116,7 +116,10 @@ fn flsh_changes_the_header_folder_only_and_files_under_flshs_names() {
 
 #[test]
 fn paths_in_the_project_follow_the_destination_for_every_harness() {
-    let (from, to) = (Path::new("/srv/source/project"), Path::new("/srv/target/project"));
+    let (from, to) = (
+        Path::new("/srv/source/project"),
+        Path::new("/srv/target/project"),
+    );
     let old = from.join(".worktrees/fix/src");
     let new = to.join(".worktrees/fix/src");
     let file = format!("rollout-2026-11-04T09-30-00-{ID}.jsonl");
@@ -156,7 +159,7 @@ fn paths_in_the_project_follow_the_destination_for_every_harness() {
             &Folders {
                 old: from.to_owned(),
                 new: to.to_owned(),
-                },
+            },
         );
         assert!(
             text(&out).contains(new.to_str().unwrap()),
@@ -190,6 +193,7 @@ fn a_moved_session_begins_as_its_source_saved_it() {
             ..SessionInfo::default()
         },
         effort: Some(Effort::High),
+        fast: Some(true),
     };
     let arrival = Arrival {
         id: "held-1",
@@ -204,6 +208,7 @@ fn a_moved_session_begins_as_its_source_saved_it() {
     assert_eq!(begin.model, Some(ModelId::new("deep")));
     assert_eq!(begin.mode.as_deref(), Some("plan"));
     assert_eq!(begin.effort, Some(Effort::High));
+    assert_eq!(begin.fast, Some(true));
     assert!(begin.assistant);
 
     // A source from before saved sessions sends only the move record's.

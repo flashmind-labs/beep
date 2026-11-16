@@ -35,7 +35,7 @@ export function assistantAgents(hosts: readonly Pick<AgentHost, "agents" | "assi
 /// the harness it was picked for, and a thinking level that harness takes.
 export function resolveAssistant(pick: AssistantPick, hosts: readonly Pick<AgentHost, "agents" | "assistant">[]): AssistantPick {
   const agent = harnessFor(pick.agent, assistantAgents(hosts), AGENT_ORDER);
-  return { agent, model: agent === pick.agent ? pick.model : null, effort: keepEffort(agent, pick.effort) };
+  return { agent, model: agent === pick.agent ? pick.model : null, effort: keepEffort(agent, pick.effort), fast: agent === "codex" ? pick.fast ?? null : null };
 }
 
 /// The machine to start `agent` on, or list its models from, among those that run the

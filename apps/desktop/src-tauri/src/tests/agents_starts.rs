@@ -19,6 +19,7 @@ fn start(stage: Stage) -> Start {
         prompt: "Fix the build".into(),
         model: Some("opus".into()),
         effort: None,
+        fast: None,
         checkout: None,
         images: Vec::new(),
         assistant: false,

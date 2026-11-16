@@ -641,7 +641,7 @@ impl Agents {
         id: &str,
         before: SavedSession,
     ) -> Begin {
-        let SavedSession { info, effort } = before;
+        let SavedSession { info, effort, fast } = before;
         let follows = info
             .parent
             .as_ref()
@@ -653,6 +653,7 @@ impl Agents {
             mode: info.mode,
             model: info.model,
             effort,
+            fast,
             parent: info.parent,
             follows,
             worktrees: info.worktrees,

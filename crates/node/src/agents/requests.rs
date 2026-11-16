@@ -181,10 +181,10 @@ pub async fn serve_sessions(
     let _slow = watch_slow(&request, caller);
     let mut reply = match request {
         SessionsRequest::List {} => SessionsReply::Sessions {
-            sessions: agents.list(),
+            sessions: agents.listed_with_places(false).await,
         },
         SessionsRequest::ListAll {} => SessionsReply::Sessions {
-            sessions: agents.listed(true),
+            sessions: agents.listed_with_places(true).await,
         },
         SessionsRequest::Transcript {
             session,

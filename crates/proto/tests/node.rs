@@ -1237,7 +1237,10 @@ mod agent {
         fn each_agent_takes_the_thinking_levels_its_cli_does() {
             use Effort::*;
             assert_eq!(efforts("claude"), [Low, Medium, High, Xhigh, Max]);
-            assert_eq!(efforts("codex"), [Low, Medium, High]);
+            assert_eq!(
+                efforts("codex"),
+                [None, Minimal, Low, Medium, High, Xhigh, Max, Ultra]
+            );
             assert_eq!(efforts("pi"), [Off, Minimal, Low, Medium, High, Xhigh, Max]);
             assert_eq!(efforts("flsh"), [Off, Low, Medium, High]);
 
@@ -1307,6 +1310,7 @@ mod agent {
                 prompt: "go".into(),
                 model: Some("m".into()),
                 effort: Some(Effort::High),
+                fast: Some(true),
                 checkout: Some(CheckoutPlan::NewBranch { base: None }),
                 images: vec![Upload {
                     name: "shot.png".into(),
@@ -1335,6 +1339,7 @@ mod agent {
                     prompt: "go".into(),
                     model: None,
                     effort: None,
+                    fast: None,
                     checkout: None,
                     images: Vec::new(),
                     assistant: false,
@@ -1391,6 +1396,7 @@ mod agent {
                 prompt: "go".into(),
                 model: None,
                 effort: None,
+                fast: None,
                 checkout: None,
                 images: Vec::new(),
                 assistant: true,
@@ -2055,6 +2061,7 @@ mod agent {
                 prompt: "go".into(),
                 model: Some("openai:gpt-test".into()),
                 effort: Some(Effort::Xhigh),
+                fast: None,
                 checkout: Some(CheckoutPlan::NewWorktree {
                     base: Some("main".into()),
                 }),

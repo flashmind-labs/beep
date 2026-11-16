@@ -912,3 +912,83 @@ async fn project_history_pages_metadata_without_preview_text() {
     }
     assert_eq!(ids.len(), 125);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn owned_claude_sessions_report_the_native_cwd_after_relative_shell_edits() {
+    use super::checkout::tests::run;
+    use std::io::Write;
+
+    let root = tempfile::tempdir().expect("a temp folder");
+    let repo = root.path().join("project");
+    std::fs::create_dir(&repo).expect("a checkout folder");
+    run(&repo, &["init", "-q", "-b", "main"]);
+    run(&repo, &["commit", "-q", "--allow-empty", "-m", "start"]);
+    run(
+        &repo,
+        &["worktree", "add", "-q", "-b", "fix", ".worktrees/fix"],
+    );
+    let tree = repo.join(".worktrees/fix");
+    let projects = root
+        .path()
+        .join("claude/projects")
+        .join(super::claude::slug(&repo));
+    std::fs::create_dir_all(&projects).expect("a transcript folder");
+    let path = projects.join(format!("{CLAUDE_ID}.jsonl"));
+    let append = |cwd: &Path| {
+        let line = serde_json::json!({
+            "type": "assistant", "sessionId": CLAUDE_ID, "cwd": cwd,
+            "message": {"content": [{"type": "tool_use", "id": "t1", "name": "Bash",
+                "input": {"command": "python3 edit.py"}}]}
+        });
+        writeln!(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .unwrap(),
+            "{line}"
+        )
+        .unwrap();
+    };
+    append(&repo);
+    let agents = agents_at(&root.path().join("claude"));
+    let script = r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+read -r line
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line
+reply '{"sessionId":"SESSION_ID"}'
+while read -r line; do :; done
+"#
+    .replace("SESSION_ID", CLAUDE_ID);
+    let session = agents
+        .start(
+            &sh_agent("claude", &script),
+            Some(repo.to_str().unwrap()),
+            Begin::default(),
+        )
+        .unwrap();
+    let mut live = session.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        watched::wait_for(&mut live, |live| live.agent_session.is_some()),
+    )
+    .await
+    .expect("the session starts")
+    .expect("still running");
+
+    append(&tree);
+    let listed = agents.listed_with_places(false).await;
+    let place = listed[0].place.as_ref().expect("a reported checkout");
+    assert_eq!(place.folder, tree.to_string_lossy());
+    assert!(place.linked);
+    assert_eq!(place.branch.as_deref(), Some("fix"));
+    assert_eq!(listed[0].cwd, repo.to_string_lossy());
+
+    append(&repo);
+    let listed = agents.listed_with_places(false).await;
+    assert!(!listed[0].place.as_ref().unwrap().linked);
+    session.close().await;
+}

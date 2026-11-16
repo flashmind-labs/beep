@@ -586,6 +586,7 @@ async fn a_peer_starts_and_follows_an_agent_session() {
             prompt: "go".to_owned(),
             model: None,
             effort: None,
+            fast: None,
             checkout: None,
             images: Vec::new(),
             assistant: false,
@@ -1075,6 +1076,7 @@ async fn start_refusal(conn: &Link, cwd: &Path) -> Option<String> {
             prompt: "go".to_owned(),
             model: None,
             effort: None,
+            fast: None,
             checkout: None,
             images: Vec::new(),
             assistant: false,
@@ -1722,7 +1724,12 @@ async fn an_agent_queries_models_on_its_own_machine_and_a_peer() {
     assert_eq!(info["model_selection"], "Listed");
     assert_eq!(info["default_model"], "fast");
     assert_eq!(info["models"][0]["id"], "fast");
-    assert_eq!(info["effort_levels"], json!(["low", "medium", "high"]));
+    assert_eq!(
+        info["effort_levels"],
+        json!([
+            "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"
+        ])
+    );
     let remote = fs::read_to_string(remote_sent).expect("the remote adapter was queried");
     assert!(remote.contains("session/new"));
     assert!(
@@ -2956,6 +2963,7 @@ async fn a_running_session_moves_to_the_other_machine_with_its_conversation() {
             prompt: "go".to_owned(),
             model: None,
             effort: None,
+            fast: None,
             checkout: None,
             images: Vec::new(),
             assistant: false,
@@ -3154,6 +3162,7 @@ async fn a_machine_that_cannot_take_the_session_leaves_it_running_where_it_was()
             prompt: "go".to_owned(),
             model: None,
             effort: None,
+            fast: None,
             checkout: None,
             images: Vec::new(),
             assistant: false,
@@ -3263,6 +3272,7 @@ async fn run_session_in(conn: &Link, cwd: &Path) {
             prompt: "go".to_owned(),
             model: None,
             effort: None,
+            fast: None,
             checkout: None,
             images: Vec::new(),
             assistant: false,

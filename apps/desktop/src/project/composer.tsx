@@ -255,7 +255,7 @@ export function drawProjectComp(name: string) {
     pc.project = name;
     pc.machine = lastMachine(name);
     const saved = lastProjectPick(name);
-    pc.picked = { agent: saved?.agent ?? "", model: saved?.model ?? "", effort: saved?.effort ?? null, query: "" };
+    pc.picked = { agent: saved?.agent ?? "", model: saved?.model ?? "", effort: saved?.effort ?? null, fast: saved?.fast ?? null, query: "" };
     pc.modelFor = "";
     pc.open = false;
     pc.adding = null;
@@ -384,8 +384,9 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
 
     try {
       const effort = same ? pc.picked.effort : null;
-      const session = await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), model, effort, checkout });
-      if (model || effort) sessionPicks.set(session.session.id, { model: model ?? "", effort });
+      const fast = same && agent === "codex" ? pc.picked.fast : null;
+      const session = await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), model, effort, fast, checkout });
+      if (model || effort || fast !== null) sessionPicks.set(session.session.id, { model: model ?? "", effort, fast });
     } catch (e) {
       return { started, failed: row, error: reason(e) };
     }
@@ -560,12 +561,12 @@ type Image = { name: string; mime: string; data: string };
 /// PR then.
 async function startSession(name: string, place: BarPlace, pick: Omit<ProjectPick, "agent"> & { agent: string | null }, prompt: string, images: Image[], target: BarTarget | null, checkout: CheckoutPick) {
   const was = barExisting(name, place, target);
-  const model = pick.model.trim() || null, effort = pick.effort;
+  const model = pick.model.trim() || null, effort = pick.effort, fast = pick.agent === "codex" ? pick.fast : null;
   const at = was ? { cwd: was.cwd, checkout: null }
     : target ? { cwd: place.cwd, checkout: targetPlan(target) }
     : startPlace(checkout, place.cwd, baseFor(null, pc.branches.get(name)));
-  const started = await invoke<Started>("agent_begin", { machineId: place.machine_id, agent: pick.agent, cwd: at.cwd, prompt, model, effort, checkout: at.checkout, images });
-  if (model || effort) sessionPicks.set(started.session.id, { model: model ?? "", effort });
+  const started = await invoke<Started>("agent_begin", { machineId: place.machine_id, agent: pick.agent, cwd: at.cwd, prompt, model, effort, fast, checkout: at.checkout, images });
+  if (model || effort || fast !== null) sessionPicks.set(started.session.id, { model: model ?? "", effort, fast });
   startedWith(started.session, prompt, images);
   keepMachine(name, place.machine_id);
   if (target?.review) reviewStarts.set(started.session.id, target.review.number);
@@ -610,7 +611,7 @@ export async function startTask(name: string, task: AgentTask, pick: ProjectPick
 /// `machine`'s harnesses when it can start there, whose model pick runs
 /// `start`.
 export function pickButton(name: string, start: (pick: ProjectPick) => void, machine: string | null = null): PickButton {
-  const picked: Picked = { agent: "", model: "", effort: null, query: "" };
+  const picked: Picked = { agent: "", model: "", effort: null, fast: null, query: "" };
   const listeners = new Set<() => void>();
   let current: ReturnType<PickButton["snapshot"]> = { open: false, picker: null };
   const host = () => {
@@ -626,10 +627,10 @@ export function pickButton(name: string, start: (pick: ProjectPick) => void, mac
       const offered = host()?.agents ?? [];
       const saved = lastProjectPick(name);
       if (saved && offered.includes(saved.agent)) Object.assign(picked, saved);
-      else if (!offered.includes(picked.agent)) Object.assign(picked, { agent: harnessFor(null, [...offered].sort(byPreference), AGENT_ORDER) ?? "", model: "", effort: null });
+      else if (!offered.includes(picked.agent)) Object.assign(picked, { agent: harnessFor(null, [...offered].sort(byPreference), AGENT_ORDER) ?? "", model: "", effort: null, fast: null });
       return !!picked.agent;
     },
-    start: () => start({ agent: picked.agent, model: picked.model, effort: picked.effort }),
+    start: () => start({ agent: picked.agent, model: picked.model, effort: picked.effort, fast: picked.fast }),
     draw: sync => {
       current = { open: pop.open, picker: pop.view };
       const notify = () => { for (const listener of listeners) listener(); };

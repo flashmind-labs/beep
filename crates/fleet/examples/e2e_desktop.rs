@@ -173,6 +173,7 @@ impl Driver {
                         prompt,
                         model: None,
                         effort: None,
+                        fast: None,
                         checkout: None,
                         images: Vec::new(),
                         assistant: false,

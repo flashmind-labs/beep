@@ -2,7 +2,7 @@
 import { invoke } from "../ui/tauri.ts";
 
 /// A null field is left to the app: the first harness, its own model and thinking level.
-export interface AssistantPick { agent: string | null; model: string | null; effort: string | null }
+export interface AssistantPick { agent: string | null; model: string | null; effort: string | null; fast: boolean | null }
 
 export function loadAssistant(): Promise<AssistantPick> {
   return invoke<AssistantPick>("assistant_settings_get");

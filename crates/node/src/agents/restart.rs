@@ -3,9 +3,9 @@
 
 use super::{
     AgentKind, Agents, Begin, Command, Prompt, checkout,
+    family::RemoteKid,
     found::Agent,
     moving,
-    family::RemoteKid,
     session::{NODE_STOPPED, Session},
 };
 use anyhow::{Context, Result};
@@ -47,6 +47,8 @@ pub(crate) struct SavedSession {
     pub(crate) info: SessionInfo,
     #[serde(default)]
     pub(crate) effort: Option<Effort>,
+    #[serde(default)]
+    pub(crate) fast: Option<bool>,
 }
 
 /// Why a session is read to start again.
@@ -103,6 +105,8 @@ pub(crate) struct OpenSession {
     /// The thinking level it ran at.
     #[serde(default)]
     effort: Option<Effort>,
+    #[serde(default)]
+    fast: Option<bool>,
 }
 
 impl From<&OpenSession> for SavedSession {
@@ -125,6 +129,7 @@ impl From<&OpenSession> for SavedSession {
                 ..SessionInfo::default()
             },
             effort: open.effort,
+            fast: open.fast,
         }
     }
 }
@@ -254,6 +259,7 @@ impl Agents {
                     ..SessionInfo::default()
                 },
                 effort: live.effort,
+                fast: live.fast,
             })
         })
     }
@@ -302,6 +308,7 @@ impl Agents {
                 worktrees: live.info.worktrees.clone(),
                 assistant: session.assistant,
                 effort: live.effort,
+                fast: live.fast,
             })
         })
     }
@@ -311,9 +318,12 @@ impl Agents {
     pub(super) async fn settings_came(&self) -> bool {
         let mut settled = self.settled.subscribe();
 
-        timeout(SETTINGS_WAIT, watched::wait_for(&mut settled, |settled| *settled))
-            .await
-            .is_ok()
+        timeout(
+            SETTINGS_WAIT,
+            watched::wait_for(&mut settled, |settled| *settled),
+        )
+        .await
+        .is_ok()
     }
 
     /// Resumes `sessions`, once the user's settings for the agents came or
@@ -393,6 +403,7 @@ impl Agents {
                 worktrees: open.worktrees,
                 assistant: open.assistant,
                 effort: open.effort,
+                fast: open.fast,
                 ..Begin::default()
             },
         )?;

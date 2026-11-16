@@ -99,6 +99,7 @@ async fn run_review(offers: &Offers, session: &str, args: ReviewArgs) -> Reply {
                     .unwrap_or(info.agent),
                 model: args.model,
                 effort: None,
+                fast: None,
                 base: args.base.unwrap_or_default(),
                 focus: args.focus.unwrap_or_default(),
                 parent: Some(caller.id.clone()),
