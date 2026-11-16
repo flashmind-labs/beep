@@ -99,6 +99,9 @@ pub(crate) struct Live {
     /// The turn Claude Code runs on its own now, by its task id: one starts
     /// when a background subagent ends after its turn was stopped.
     autonomous_turn: Option<String>,
+    /// An interrupt closed subagent calls the adapter may still run: they
+    /// no longer count, so `StopAll` ends the agent for them anyway.
+    pub(crate) orphaned_subagents: bool,
     /// The last agent message is still arriving in chunks.
     in_message: bool,
     /// The first replayed prompt is still arriving in chunks and names a
