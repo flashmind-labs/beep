@@ -23,6 +23,7 @@ Object.assign(globalThis, {
   requestAnimationFrame: () => 0,
   // jsdom lays nothing out, so nothing is ever resized.
   ResizeObserver: class { observe() {} disconnect() {} },
+  IntersectionObserver: class { observe() {} disconnect() {} },
 });
 const page = (exports: string) => `const v = globalThis.navigationTest.view; ${exports}`;
 const stubs = new Map(Object.entries({

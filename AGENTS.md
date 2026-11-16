@@ -142,13 +142,16 @@ same look, sized for touch, in `mobile.css`.
   half, clear of the headline), the dawn haze down the sidebar and as a faint band along
   the top of Home and Projects, gone before the first cards, and a wanderer
   above a sea of fog beside the lanes of a project board in a wide window. A
-  scene paints itself once after the app opens and is still from then on. Words sit on a
+  scene paints itself once after the app opens; from then on its pixels sway
+  and flicker gently while it is on screen. The haze stays still, and with
+  Reduce motion every scene is drawn finished and still. Words sit on a
   glass card or a clear patch, not on the strokes. A painting belongs on an
   empty screen, above the content or in the room beside it, never behind cards
   or reading text.
 - **Motion.** A spinner turns for work in progress and pauses when the window
-  is hidden. Short transitions on navigation. Nothing else moves: no ambient
-  animation, and nothing takes over the user's desktop.
+  is hidden. Short transitions on navigation. A finished painting moves
+  while it is on screen and rests when hidden. Nothing else moves, and nothing
+  takes over the user's desktop.
 - **Empty and loading.** Say what to do next and offer the one action. No
   placeholder rows such as "None running": leave the section out.
 

@@ -248,6 +248,7 @@ export function runFrames() {
 }
 g.addEventListener = () => {};
 g.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+g.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
 g.MutationObserver = class { observe() {} };
 g.HTMLTextAreaElement = FakeElement;
 g.__TAURI__ = {
