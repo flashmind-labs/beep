@@ -7,6 +7,14 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.22] - 2026-11-16
+
+### Fixed
+
+- Desktop: the project board no longer loops while it measures its lanes.
+  Before, the whole window could go blank after the laptop woke up
+  offline or after a session view closed.
+
 ## [0.9.21] - 2026-11-16
 
 ### Added
