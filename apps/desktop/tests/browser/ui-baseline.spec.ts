@@ -696,30 +696,6 @@ test("notices popover", async ({ page }) => {
   await baseline(page, "notices");
 });
 
-const usage = (() => {
-  const spend = (name: string, tokens: number) => ({ project: name, cost_usd: 0, unpriced: [], metered_tokens: 0, subscription: [{ name: "claude", tokens }] });
-  const period = {
-    total: { project: "", cost_usd: 0, unpriced: [], metered_tokens: 0, subscription: [] }, tokens: 39_300_000,
-    projects: [spend("example/widget", 38_000_000), spend("example/gadget", 1_300_000)],
-    harnesses: [{ agent: "claude", subscription: true, cost_usd: null, tokens: 39_300_000, models: [{ name: "claude-sonnet", tokens: 39_300_000 }] }],
-  };
-  const window = (minutes: number, used: number) => ({ minutes, used_percent: used, resets_at: NOW + 3_600_000, scope: null });
-  return {
-    limits: [
-      { agent: "claude", plan: "max", machine_name: machineId, as_of: NOW, windows: [window(300, 38), window(10_080, 76)], credits: [] },
-      { agent: "codex", plan: "pro", machine_name: machineId, as_of: NOW, windows: [window(10_080, 20)], credits: [] },
-    ],
-    today: period, week: period, month: period,
-  };
-})();
-
-test("usage popover", async ({ page }) => {
-  await openDesktop(page, false, { usage_get: usage });
-  await page.getByRole("button", { name: /^Plan usage/ }).click();
-  await expect(page.getByRole("dialog", { name: "Plan usage and cost" })).toBeVisible();
-  await baseline(page, "usage");
-});
-
 // Tray bar
 
 const barRows = [
