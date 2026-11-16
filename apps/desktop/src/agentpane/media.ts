@@ -349,14 +349,14 @@ export function openWorkFile(rel: string) {
   openIn(paneRoot(), rel);
 }
 
-/// Opens an HTML or Markdown file directly in its preview.
+/// Opens an image, HTML or Markdown file directly in its preview.
 export function previewWorkFile(rel: string) {
   const tab = openIn(paneRoot(), rel);
   if (tab) previewTab(tab);
 }
 
 export function previewTab(t: MediaTab) {
-  if (t.preview?.active) return;
+  if (t.kind !== "text" || t.preview?.active) return;
   if (!t.text) { t.previewQueued = true; return; }
   void togglePreview(t);
 }

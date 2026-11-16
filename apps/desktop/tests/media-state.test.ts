@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, baseName, isCloseKey, leavesTerminal, moveTab, pinchStep, readLayout, resolvePath, splitTabs, tabDock, zoomAt, type Touches } from "../src/agentpane/media-state.ts";
+import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, MEDIA_EXTENSIONS, mediaKind, baseName, isCloseKey, leavesTerminal, moveTab, pinchStep, readLayout, resolvePath, splitTabs, tabDock, zoomAt, type Touches } from "../src/agentpane/media-state.ts";
 
 test("a relative path is the session folder's", () => {
   assert.equal(resolvePath("/srv/project", "out/a.glb"), "/srv/project/out/a.glb");
@@ -90,4 +90,11 @@ test("two fingers spreading apart zoom about their midpoint; one finger does not
   touches.set(2, { x: 100, y: 0 });
   assert.deepEqual(pinchStep(touches, 2, 200, 0), { factor: 2, x: 100, y: 0, dx: 50, dy: 0 });
   assert.equal(pinchStep(touches, 3, 0, 0), null);
+});
+
+test("SVG files use the image viewer and appear among media links", () => {
+  assert.equal(mediaKind("out/diagram.svg"), "image");
+  assert.equal(mediaKind("out/diagram.SVG"), "image");
+  assert.equal(mediaKind("out/diagram.svg.txt"), null);
+  assert.ok(MEDIA_EXTENSIONS.includes("svg"));
 });
