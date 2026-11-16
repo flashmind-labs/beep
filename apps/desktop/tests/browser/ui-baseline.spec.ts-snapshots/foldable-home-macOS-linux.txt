@@ -144,8 +144,8 @@ body.cbody
               h3.pj [title="example/widget"]
                 span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                 button [type="button"] "example/widget"
-              div.bd-lane
-              div.bd-lane
+              div.bd-lane.cell
+              div.bd-lane.cell
                 div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
                   b "Fix the login redirect"
                   span.sub
@@ -156,14 +156,14 @@ body.cbody
                     span.cc-running "now"
                       span.drun [aria-label="Working" role="img"]
                     span.sp
-              div.bd-lane
-              div.bd-lane
+              div.bd-lane.cell
+              div.bd-lane.cell
               h3.pj [title="example/gadget"]
                 span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                 button [type="button"] "example/gadget"
-              div.bd-lane
-              div.bd-lane
-              div.bd-lane
+              div.bd-lane.cell
+              div.bd-lane.cell
+              div.bd-lane.cell
                 div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
                   b "Update the changelog"
                   span.sub
@@ -172,7 +172,7 @@ body.cbody
                     span "build-box"
                   span.ft "10m ago"
                     span.sp
-              div.bd-lane
+              div.bd-lane.cell
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
         div.asst-list.pj-list [hidden]

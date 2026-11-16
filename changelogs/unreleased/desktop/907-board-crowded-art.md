@@ -1,5 +1,6 @@
 ### Changed
 
-- Desktop: on a project board in a wide window, the wanderer painting
-  beside the lanes is hidden once a lane is full enough to split into two
-  columns, so the cards get wider.
+- Desktop: a project board's lanes show as many cards as fit on the page and
+  scroll to the rest one card at a time, as on Home, instead of splitting into
+  two columns. A lane with more cards than it shows hides the wanderer
+  painting, so the cards get wider.

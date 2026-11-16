@@ -148,8 +148,8 @@ body.cbody
               h3.pj [title="example/widget"]
                 span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                 button [type="button"] "example/widget"
-              div.bd-lane
-              div.bd-lane
+              div.bd-lane.cell
+              div.bd-lane.cell
                 div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
                   b "Fix the login redirect"
                   span.sub
@@ -160,14 +160,14 @@ body.cbody
                     span.cc-running "now"
                       span.drun [aria-label="Working" role="img"]
                     span.sp
-              div.bd-lane
-              div.bd-lane
+              div.bd-lane.cell
+              div.bd-lane.cell
               h3.pj [title="example/gadget"]
                 span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                 button [type="button"] "example/gadget"
-              div.bd-lane
-              div.bd-lane
-              div.bd-lane
+              div.bd-lane.cell
+              div.bd-lane.cell
+              div.bd-lane.cell
                 div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
                   b "Update the changelog"
                   span.sub
@@ -176,7 +176,7 @@ body.cbody
                     span "build-box"
                   span.ft "10m ago"
                     span.sp
-              div.bd-lane
+              div.bd-lane.cell
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
         div.asst-list.pj-list [hidden]
@@ -206,24 +206,27 @@ body.cbody
               div.bd-lane
                 h4 "Needs you"
                   span
+                div.bd-lane.cell
               div.bd-lane
                 h4
                   button [type="button"] "Working"
                   span "1"
-                div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
-                  b "Fix the login redirect"
-                  span.sub
-                    span.cc-ag.codex.mark
-                      svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "build-box"
-                  span.ft
-                    span.cc-running
-                      span.drun [aria-label="Working" role="img"]
-                      span.doing "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
-                    span.sp
+                div.bd-lane.cell
+                  div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
+                    b "Fix the login redirect"
+                    span.sub
+                      span.cc-ag.codex.mark
+                        svg [aria-hidden="true" viewBox="0 0 24 24"]
+                      span "build-box"
+                    span.ft
+                      span.cc-running
+                        span.drun [aria-label="Working" role="img"]
+                        span.doing "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
+                      span.sp
               div.bd-lane
                 h4 "Ready to review"
                   span
+                div.bd-lane.cell
               div.bd-lane.log
                 h4
                   button [type="button"] "Done today"
