@@ -13,7 +13,7 @@ import { AG, agentKind, type AgentHost, hostChanges, loadAgentHosts, renderAgent
 import { ASSISTANT_WORDS, TASK_WORDS, assistantHost, resolveAssistant } from "./assistant-state.ts";
 import { loadAssistant, type AssistantPick } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
-import { openAgent, sessionPicks } from "./session.tsx";
+import { openAgent, sessionPicks, startedWith } from "./session.tsx";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.tsx";
 import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, baseRows, type CheckoutPick, type CheckoutPlan, DEFAULT_CHECKOUT, folderPill, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, startPlace, tildePath } from "./agentpick.ts";
 import { type AgentReturn, bar, PANE, S } from "../bar/core.ts";
@@ -627,11 +627,13 @@ interface Start {
   assistant: boolean;
 }
 
-/// Starts a session and keeps the model and thinking level it started on for its pill.
+/// Starts a session and keeps the model and thinking level it started on for its pill, and its
+/// first message for its log.
 async function start(s: Start): Promise<Started> {
   const started = await invoke<Started>("agent_start", { machineId: s.machine, agent: s.agent, cwd: s.cwd, prompt: s.prompt, images: s.images, model: s.model, effort: s.effort, checkout: s.checkout, assistant: s.assistant });
   const resolved = s.model ?? knownModels(s.machine, s.agent)?.current ?? "";
   sessionPicks.set(started.session.id, { model: resolved.toLowerCase() === "default" ? "" : resolved, effort: s.effort });
+  startedWith(started.session, s.prompt, s.images);
 
   // A released node's reply leaves out that the session is the assistant.
   return s.assistant ? { ...started, session: { ...started.session, assistant: true } } : started;

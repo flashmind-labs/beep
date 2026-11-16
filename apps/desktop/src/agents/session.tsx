@@ -3,6 +3,7 @@
 // in session-head.ts and what a click in it does in session-click.ts.
 import { showUploadPending } from "./composer-ui.tsx";
 import { SessionPicks } from "./agentmodels.ts";
+import { sentText } from "./agentlog.ts";
 import { agentMessage, SessionField, SessionHead, sessionBody, showSessionFrame } from "./session-frame.tsx";
 import { disposeLogShell } from "./log-shell.tsx";
 import { bindSessionStash } from "./stash.ts";
@@ -47,6 +48,15 @@ import { feed, flushDraw, keptTranscript, offScreen, transcripts } from "./sessi
 import { drawAgentHeading, headText, readUsage, redrawAgentHints, agentHints, shownUsage } from "./session-head.tsx";
 import { agentClick, openParent, toolKey } from "./session-click.ts";
 import { askContinueHere, continueAfterTurn, keepContinuing } from "./continue-here.ts";
+
+/// The first message of each session started from here, by session, until the session opens.
+const firstMessages = new Map<string, string>();
+
+/// Session `s` was started with `prompt` and `images`: its log opens with them,
+/// before its machine is read.
+export function startedWith(s: AgentRow, prompt: string, images: readonly { name: string }[]) {
+  firstMessages.set(sessionKey(s), sentText(prompt, images));
+}
 
 /// Opens session `s` (a session row) and follows it while it is on screen. With `adopt`,
 /// the empty view that started it becomes the session in place: its pane, terminal
@@ -99,9 +109,11 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   const open: OpenAgent = openOf(s);
   const log = inPlace ? null : keptLogs.get(sessionKey(s)) ?? null;
   const held = keptPage(log, transcripts.get(transcriptKey(open))?.page ?? null);
+  const first = firstMessages.get(sessionKey(s));
+  firstMessages.delete(sessionKey(s));
   Object.assign(AG, {
     open,
-    page: held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+    page: held ?? { session: s, plan: [], files: [], entries: first ? [{ kind: "user", text: first }] : [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
     attError: "", opened: new Set(), steps: new Map(), all: new Set(),
     queue: steerQueues.get(transcriptKey(open)) ?? [],

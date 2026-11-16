@@ -1,7 +1,8 @@
 // The agent view with no session yet (⌘N, ⌘T in a project): a session's layout,
 // header and side pane, with the shared new-agent composer centered in the
-// empty conversation. Sending from it starts the session in place (session.ts
-// openAgent with `adopt`); the pane and its terminals stay.
+// empty conversation. Sending from it shows the message as the conversation's
+// first at once, and the session its machine starts takes the view over in
+// place (session.ts openAgent with `adopt`); the pane and its terminals stay.
 import { createStore } from "zustand/vanilla";
 import { S, windowHooks } from "../bar/core.ts";
 import { rebindPane, startPane } from "../agentpane/media.ts";
@@ -10,8 +11,11 @@ import type { BarPlace } from "../project/projectbar.ts";
 import { pc } from "../project/sections.ts";
 import { AG } from "./agents.ts";
 import type { ChatBody } from "../ui/turn.ts";
-import { DraftHead, draftMessage, showSessionFrame } from "./session-frame.tsx";
-import { draftCwd } from "./draft-state.ts";
+import { DraftHead, draftMessage, removeSessionPortal, setSessionPortal, showSessionFrame } from "./session-frame.tsx";
+import { draftCwd, type Starting } from "./draft-state.ts";
+import { userRows } from "./logview.tsx";
+import { TurnRows } from "./log-shell-view.tsx";
+import type { TranscriptRow } from "./logwindow.tsx";
 import { agentHints, drawEditors } from "./session-head.tsx";
 import { stopAgentFollow } from "./session-follow.ts";
 import { leaveLog } from "./session.tsx";
@@ -21,6 +25,8 @@ import { leaveLog } from "./session.tsx";
 let bound = "";
 /// The empty conversation the composer sits in, while the draft shows.
 let host: HTMLDivElement | null = null;
+/// The message sent, above the hidden composer, while its machine starts the agent.
+let turn: HTMLDivElement | null = null;
 /// The machine the head names.
 const machine = createStore<string>(() => "");
 const shown = () => !!host?.isConnected;
@@ -52,11 +58,42 @@ function drawFrame(project: string) {
   const draft = host = document.createElement("div"); draft.id = "agdraft"; body.append(draft);
   const openProject = () => windowHooks?.goBack({ view: "projects", arg: { project } }, true);
   machine.setState("", true);
-  showSessionFrame({ head: <DraftHead project={project} openProject={openProject} machine={machine} />, field: null, body, hints: agentHints() }, false, () => { draftMessage.current = null; });
+  showSessionFrame({ head: <DraftHead project={project} openProject={openProject} machine={machine} />, field: null, body, hints: agentHints() }, false, () => { draftMessage.current = null; dropTurn(); });
   draftMessage.current = projectComp.input;
   draft.append(projectComp.form);
   bound = "";
   drawProjectComp(project);
+}
+
+/// The message sent shows as the conversation's first, with what its machine
+/// does under it, in place of the input. The session takes the view over when
+/// it starts; when it cannot, the input comes back as it was.
+export function draftSent(starting: Starting | null) {
+  if (!host?.isConnected || !!starting === !!turn) return;
+  host.hidden = !!starting;
+
+  if (!starting) {
+    dropTurn();
+    projectComp.input.focus();
+    return;
+  }
+
+  turn = document.createElement("div");
+  host.before(turn);
+  setSessionPortal(turn, <SentTurn {...starting} />);
+}
+
+function dropTurn() {
+  if (!turn) return;
+  removeSessionPortal(turn);
+  turn.remove();
+  turn = null;
+}
+
+/// A message as a session's log shows it, then the line a running turn has.
+function SentTurn({ text, line }: Starting) {
+  const rows: TranscriptRow[] = [...userRows({ kind: "user", text }, 0), { kind: "live", id: "starting", state: "working", thinking: false, start: null, doing: line }];
+  return <div className="dagmain"><div className="dcoderlog"><div className="agturn"><TurnRows rows={rows.map((row, at) => ({ key: String(at), row }))} /></div></div></div>;
 }
 
 /// The start input points at `place` (and the checkout it picked): the pane's

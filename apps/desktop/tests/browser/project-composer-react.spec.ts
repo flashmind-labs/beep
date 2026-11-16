@@ -64,6 +64,41 @@ test("project composer submits keyboard draft and attached image with the chosen
   expect(args?.images).toEqual([expect.objectContaining({ name: "example.jpg", mime: "image/jpeg" })]);
 });
 
+test("a draft shows its first message at once, and the session it starts opens with it", async ({ page }, info) => {
+  const session = { machine_id: "build-box", machine_name: "build-box", id: "started", agent: "codex", title: null, cwd: "/srv/project", status: "working", external: false, question: null };
+  await openDesktop(page, false, {
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: "/srv/project", home: "/srv", capabilities: [] }],
+    agent_start: { session },
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await expect(page.locator(".pj-strip")).toBeVisible();
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  const draft = page.locator("#agdraft textarea"), sent = page.locator("#agbody .dcoderen.user");
+  await expect(draft).toBeFocused();
+
+  // The machine refuses: the input comes back with the task and why.
+  await page.evaluate(() => window.__navigation.rejectOnce("agent_start"));
+  await draft.fill("Inspect the project");
+  await draft.press("Enter");
+  await expect(page.locator("#agdraft .cc-err")).not.toBeEmpty();
+  await expect(sent).toHaveCount(0);
+  await expect(draft).toHaveValue("Inspect the project");
+  await expect(draft).toBeFocused();
+
+  // While the machine starts the agent, the message shows as sent.
+  await page.evaluate(() => { window.__navigation.hold("agent_start"); window.__navigation.hold("agent_view"); });
+  await draft.press("Enter");
+  await expect(sent).toContainText("Inspect the project");
+  await expect(page.locator("#agbody .dlive")).toHaveText("Starting Codex on build-box");
+  await expect(draft).toBeHidden();
+
+  // The session opens with it, before its machine is read.
+  await page.evaluate(() => window.__navigation.release("agent_start"));
+  await expect(page.locator("#agmsg")).toBeVisible();
+  await expect(sent).toContainText("Inspect the project");
+  await expect(page.locator("#agdraft")).toHaveCount(0);
+});
+
 test("project composer closes and reopens its model picker", async ({ page }) => {
   await openDesktop(page, false, { agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }] });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
