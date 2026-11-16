@@ -64,6 +64,12 @@ initConversationSwitcher({
 
 initMobile();
 trackpadSwipe({ has: to => !dialogOpen() && hasHistory(to === "forward"), go: to => { goHistory(to === "forward"); } });
+// A mouse's back (3) and forward (4) side buttons step like ⌘[ and ⌘]; the webview does not navigate itself.
+for (const type of ["mousedown", "mouseup"] as const) document.addEventListener(type, e => {
+  if (e.button !== 3 && e.button !== 4) return;
+  e.preventDefault();
+  if (type === "mouseup" && !dialogOpen()) goHistory(e.button === 4);
+}, true);
 mountUsage(refresh => invoke<UsageView | null>("usage_get", { refresh }));
 mountNotices();
 
