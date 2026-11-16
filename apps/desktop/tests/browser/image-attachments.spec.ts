@@ -104,3 +104,30 @@ test("saved prompts open original uploads instead of degraded transcript images"
   const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_file").map(call => call.args.path));
   expect(reads).toEqual([path]);
 });
+
+for (const entry of ["link", "files", "preview"]) {
+  test(`SVG opened through ${entry} renders as an image`, async ({ page }) => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="red"/></svg>';
+    const name = "diagram.SVG";
+    const message = { kind: "agent", text: `[Diagram](${name})`, html: `<p><a href="${name}">Diagram</a></p>` };
+    await openSession(page, [message], {
+      agent_file: { size: Buffer.byteLength(svg), mime: "image/svg+xml", data: Buffer.from(svg).toString("base64") },
+      agent_tree: { folders: [{ path: "", entries: [{ name, folder: false, size: svg.length, ignored: false, change: null }], more: 0, git: true }], truncated: false },
+    });
+    if (entry === "link") {
+      await page.getByRole("link", { name: "Diagram", exact: true }).click();
+    } else {
+      await page.getByRole("tab", { name: "Files", exact: true }).click();
+      const row = page.locator(`[data-fpath="${name}"]`);
+      if (entry === "preview") {
+        await row.click({ button: "right" });
+        await page.locator('[data-fact="preview"]').click();
+      } else await row.dblclick();
+    }
+    const image = page.locator(".agpstage.img img");
+    await expect(image).toBeVisible();
+    await expect(image).toHaveAttribute("alt", name);
+    await expect.poll(() => image.evaluate(element => element instanceof HTMLImageElement ? [element.naturalWidth, element.naturalHeight] : null)).toEqual([120, 80]);
+    expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_tree_text" || call.command === "agent_artifact"))).toEqual([]);
+  });
+}
