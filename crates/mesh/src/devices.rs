@@ -9,7 +9,8 @@
 //! and a device's kind is whatever the signing desktop states in its `Add`.
 //! When several `Add`s name one key, a `Desktop` beats a `Node`, then the
 //! earlier `(added_at_ms, author)` wins; the genesis device never changes.
-//! A removal is permanent: that key never rejoins, it joins with a new key.
+//! A `Remove` holds until an `Add` of that key stamped after it: a removed
+//! machine comes back with a fresh ticket and keeps its key.
 //!
 //! Accepted limit: an `Add` signed by a removed device, seen by a member
 //! before the `Remove`, stays. Remove that device too.

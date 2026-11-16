@@ -368,6 +368,30 @@ async fn a_removed_device_leaves_its_mesh_for_another() {
 }
 
 #[tokio::test]
+async fn a_removed_device_rejoins_with_a_fresh_ticket_and_its_key() {
+    let studio = create("Studio").await;
+    let laptop = join(&studio, DeviceKind::Node, "Laptop").await;
+    studio
+        .mesh
+        .remove(laptop.id())
+        .await
+        .expect("the removal is signed");
+    until(&laptop.mesh, |m| m.is_removed(laptop.id())).await;
+    let ticket = studio
+        .mesh
+        .invite(DeviceKind::Node, Duration::from_secs(3600))
+        .await
+        .expect("ticket");
+    let (key, dir) = laptop.stop().await;
+    let mesh = Mesh::join_replacing_lone(dir.path(), bind(&key).await, &ticket, "Laptop")
+        .await
+        .expect("the desktop takes the removed key back");
+    assert_eq!(mesh.me(), key.public());
+    assert!(mesh.is_member(mesh.me()));
+    until(&studio.mesh, |m| m.is_member(key.public())).await;
+}
+
+#[tokio::test]
 async fn forgetting_a_mesh_leaves_a_folder_with_none() {
     let studio = create("Studio").await;
     let laptop = join(&studio, DeviceKind::Node, "Laptop").await;

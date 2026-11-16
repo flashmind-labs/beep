@@ -453,7 +453,8 @@ impl Peers {
 
     /// Joins the mesh a desktop's ticket names. The ticket is read once and
     /// never logged or put in an error. A node whose mesh removed it has no
-    /// mesh to keep and takes the new one in its place.
+    /// mesh to keep and takes the new one in its place, also after a refused
+    /// try already closed the old one.
     pub(crate) async fn join(&self, ticket: &str) -> Result<()> {
         let ticket = JoinTicket::parse(ticket)?;
         let old = self.active().map(|active| active.mesh);
@@ -462,28 +463,18 @@ impl Peers {
             bail!("this node already belongs to a mesh");
         }
 
-        let mesh = match old {
-            Some(old) => {
-                self.leave().await;
-                close_within(old).await?;
-                Mesh::join_replacing_lone(
-                    &self.inner.dir,
-                    self.inner.endpoint.clone(),
-                    &ticket,
-                    &self.inner.name,
-                )
-                .await
-            }
-            None => {
-                Mesh::join(
-                    &self.inner.dir,
-                    self.inner.endpoint.clone(),
-                    &ticket,
-                    &self.inner.name,
-                )
-                .await
-            }
+        if let Some(old) = old {
+            self.leave().await;
+            close_within(old).await?;
         }
+
+        let mesh = Mesh::join_replacing_lone(
+            &self.inner.dir,
+            self.inner.endpoint.clone(),
+            &ticket,
+            &self.inner.name,
+        )
+        .await
         .context("could not join")?;
         self.install(mesh);
         Ok(())

@@ -8,7 +8,7 @@ pub enum MeshError {
     /// The author is not (yet) a member.
     #[error("{0} is not a member")]
     Stranger(EndpointId),
-    /// The key was removed and cannot author or rejoin.
+    /// The key was removed and cannot author until a desktop adds it again.
     #[error("{0} was removed")]
     Removed(EndpointId),
     #[error("{0} is not a desktop")]

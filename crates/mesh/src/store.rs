@@ -347,12 +347,7 @@ impl Core {
             added_at_ms: now,
         };
 
-        match self.devices.add(&self.key, device) {
-            Ok(_) => {}
-            Err(MeshError::Removed(_)) => return Err(refuse("this key was removed")),
-            Err(e) => return Err(e),
-        }
-
+        self.devices.add(&self.key, device)?;
         self.save_devices()?;
         self.redemptions.retain(|claimed| claimed.expires_ms > now);
         self.redemptions.push(Redemption {
@@ -371,20 +366,21 @@ impl Core {
         Ok(self.devices.ops().to_vec())
     }
 
+    /// Sets the flags the ticket gives `joiner`, and clears ones a machine
+    /// added again kept from before.
     fn set_join_flags(
         &mut self,
         joiner: EndpointId,
         observer: bool,
         temporary: bool,
     ) -> Result<(), MeshError> {
-        if observer {
-            self.state
-                .set(Key::Observer(joiner.to_string()), Some(Vec::new()))?;
-        }
-
-        if temporary {
-            self.state
-                .set(Key::Temporary(joiner.to_string()), Some(Vec::new()))?;
+        for (key, on) in [
+            (Key::Observer(joiner.to_string()), observer),
+            (Key::Temporary(joiner.to_string()), temporary),
+        ] {
+            if self.state.get(&key).is_some() != on {
+                self.state.set(key, on.then(Vec::new))?;
+            }
         }
 
         Ok(())
