@@ -44,7 +44,10 @@ fn only_a_permission_prompt_is_answered_with_allow_and_deny() {
     let always = option("always", OptionKind::AllowAlways);
     let reject = option("reject", OptionKind::RejectOnce);
     assert!(allow_deny(&[allow.clone(), always, reject.clone()]));
-    assert!(!allow_deny(&[allow.clone()]), "nothing to deny with");
+    assert!(
+        !allow_deny(std::slice::from_ref(&allow)),
+        "nothing to deny with"
+    );
     let choices = [
         option("choice-0", OptionKind::AllowOnce),
         option("choice-1", OptionKind::AllowOnce),
