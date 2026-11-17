@@ -36,7 +36,7 @@ test("feedback control keeps focus and its picker across updates", async () => {
     assert.ok(pickerSlot);
     const picker = dom.window.document.createElement("input");
     pickerSlot.append(picker);
-    await act(() => { render({ kind: "running", agent: "Example", hint: "Open the review" }); });
+    await act(() => { render({ kind: "running", label: "Reviewing", agent: "Example", hint: "Open the review" }); });
     assert.equal(host.querySelector("button"), control);
     assert.equal(dom.window.document.activeElement, control);
     assert.equal(pickerSlot.firstElementChild, picker);

@@ -79,6 +79,28 @@ test("Work on it picks a model under the button and starts the issue's agent at 
   expect(args).toMatchObject({ machineId: "build-box", agent: "codex", model: "beta", checkout: { named_worktree: { branch: "issue-7-example-issue" } } });
   expect(String(args?.prompt)).toContain("https://example.test/issues/7");
   await expect(page.locator(".cc-pjc:visible").getByRole("textbox", { name: "Task for a coding agent" })).toHaveCount(0);
+
+  // The session is named for the issue once its machine names it.
+  const session = { machine_id: "build-box", machine_name: "build-box", id: "worker", agent: "codex", cwd: "/srv/project/.worktrees/issue-7-example-issue", status: "working", external: false, question: null };
+  await page.evaluate(session => window.__navigation.emit("agent-started", { start: "start:one", session, first_message: "Work on it" }), session);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_title_save").map(call => call.args))).toEqual([{ machineId: "build-box", agent: "codex", session: "worker", title: "Issue #7" }]);
+});
+
+test("an issue opens the session that worked on it, one started before sessions were named found by its worktree and named then", async ({ page }) => {
+  const now = Date.now(), issue = { number: 7, title: "Example issue", url: "https://example.test/issues/7", author: "Author", opened_at: now, comments: 0, labels: [] };
+  const detail = { kind: "issue", number: 7, title: issue.title, url: issue.url, author: issue.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Issue description</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
+  const row = (id: string, title: string | null, status: string) => ({ kind: "agent", machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title, cwd: "/srv/project/.worktrees/issue-7-example-issue", status, doing: null, started_at: 1, last_activity: 1, external: false, question: null });
+  await openDesktop(page, false, {
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
+    agent_sessions: [row("earlier", null, "ended")], project_sessions: [row("earlier", null, "ended")],
+    center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail,
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "issues" } }), projectName);
+  await page.locator('.pj-det .pj-li[title="Example issue"]').click();
+  const pane = page.locator(".pj-split > .pj-det");
+  await expect(pane.getByRole("button", { name: "Open session" })).toBeVisible();
+  await expect(pane.getByRole("button", { name: "Work on it" })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_title_save").map(call => call.args))).toEqual([{ machineId: "build-box", agent: "codex", session: "earlier", title: "Issue #7" }]);
 });
 
 test("Work on it asks the machine first when the project is on several", async ({ page }) => {

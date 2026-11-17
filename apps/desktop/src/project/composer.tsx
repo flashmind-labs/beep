@@ -2,7 +2,7 @@ import { flushSync } from "react-dom";
 import { keepProjectPick, lastProjectPick, type ProjectPick } from "../agents/agentmodels.ts";
 import { pickPopover } from "../agents/pick-popover.ts";
 import type { AgentButtonItem, AgentState, PickButton } from "../review/feedback-view.tsx";
-import type { SessionRow } from "./projects-state.ts";
+import { agentLabel, type SessionRow } from "./projects-state.ts";
 import { syncRepairPrompt } from "./gitsync-state.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
 import { StashBar } from "../chat/stash-hints.tsx";
@@ -22,7 +22,7 @@ import { commandKey, isMobile } from "../ui/platform.ts";
 import { filterProjects } from "./projects-state.ts";
 import { openMenu } from "../ui/menu.tsx";
 import { localProjectId } from "./localid.ts";
-import { addHosts, type BarPlace, type BarTarget, barCheckout, barPlace, barPrompt, barReadiness, blockedHosts, fixedTitle, forgeOf, nextBarMachine, reviewPrompt, reviewSession, type ReviewSession, reviewTitle, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
+import { addHosts, type BarPlace, type BarTarget, barCheckout, barPlace, barPrompt, barReadiness, blockedHosts, forgeOf, nextBarMachine, reviewPrompt, reviewTitled, type SessionTask, sessionIn, type TaskSession, taskSession, taskTitle, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine, openAgents, openMachine, openMachines } from "../agents/agentnew.tsx";
 import { TASK_WORDS } from "../agents/assistant-state.ts";
 import type { Machine } from "../machines/machines.tsx";
@@ -355,8 +355,14 @@ export function workOnIssue(name: string, issue: IssueRow) {
 /// Work on it's task: a new worktree for the issue, from the default branch.
 function issueTask(name: string, issue: IssueRow): AgentTask {
   const base = baseFor(null, pc.branches.get(name));
-  return { prompt: issuePrompt(issue), target: { kind: "issue", number: issue.number, branch: issueBranch(issue.number, issue.title), base } };
+  return { prompt: issuePrompt(issue), target: { kind: "issue", number: issue.number, branch: issueBranch(issue.number, issue.title), base, task: { kind: "issue", number: issue.number } } };
 }
+
+/// The session working on `issue` of project `name`, or null.
+export const issueSession = (name: string, issue: IssueRow) => sessionFor(name, { kind: "issue", number: issue.number }, issueTask(name, issue).target);
+
+/// The session fixing the failed run of `detail`, or null.
+export const fixSession = (name: string, detail: RunDetail) => sessionFor(name, { kind: "run", workflow: detail.run.workflow, number: detail.run.number }, fixTask(name, detail).target);
 
 /// Work on it on the issue's page: starts the agent at once.
 export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick, machine: string | null) => startTask(name, issueTask(name, issue), pick, machine);
@@ -387,7 +393,8 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
     const { entry, agent, machine_id, cwd } = row;
     const same = agent === pc.picked.agent;
     const base = baseFor(null, pc.branches.get(entry.project!));
-    const checkout = targetPlan({ kind: "issue", number: entry.number, branch: issueBranch(entry.number, entry.title), base });
+    const task: SessionTask = { kind: "issue", number: entry.number };
+    const checkout = targetPlan({ kind: "issue", number: entry.number, branch: issueBranch(entry.number, entry.title), base, task });
     const model = same && pc.modelFor === `${machine_id}/${agent}` ? pc.picked.model.trim() || null : null;
 
     try {
@@ -395,6 +402,7 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
       const fast = same && agent === "codex" ? pc.picked.fast : null;
       const session = await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), model, effort, fast, checkout });
       if (model || effort || fast !== null) sessionPicks.set(session.session.id, { model: model ?? "", effort, fast });
+      nameSession(session.session, task);
     } catch (e) {
       return { started, failed: row, error: reason(e) };
     }
@@ -432,7 +440,7 @@ type ContinuedPr = Pick<PullRequestRow, "number" | "title" | "url">;
 async function continueTask(name: string, pr: ContinuedPr): Promise<AgentTask> {
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: localProjectId(name), number: pr.number });
   if (head.fork) throw new Error(`PR #${pr.number} comes from a fork, so its branch ${head.branch} is not in this repository.`);
-  return { prompt: `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, target: { kind: "pr", number: pr.number, branch: head.branch } };
+  return { prompt: `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, target: { kind: "pr", number: pr.number, branch: head.branch, task: null } };
 }
 
 /// The fields of a pull request a review reads.
@@ -462,9 +470,10 @@ async function reviewTask(name: string, pr: ReviewedPr): Promise<AgentTask> {
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: localProjectId(name), number: pr.number });
   await ensureSessions().catch(e => console.warn("agent sessions:", e));
   const review = { number: pr.number, earlier: earlierReview(name, pr.number) };
+  const task: SessionTask = { kind: "review", number: pr.number };
   const target: BarTarget = head.fork
-    ? { kind: "issue", number: pr.number, branch: `review-pr-${pr.number}`, base: baseFor(null, pc.branches.get(name)), review }
-    : { kind: "pr", number: pr.number, branch: head.branch, review };
+    ? { kind: "issue", number: pr.number, branch: `review-pr-${pr.number}`, base: baseFor(null, pc.branches.get(name)), task, review }
+    : { kind: "pr", number: pr.number, branch: head.branch, task, review };
   return { prompt: reviewPrompt(pr, forgeOf(pr.url), head.fork, !!review.earlier), target };
 }
 
@@ -584,8 +593,8 @@ type Image = { name: string; mime: string; data: string };
 /// Starts a coding agent of project `name` on `place` with `prompt`: in
 /// `target`'s worktree, beside a session already there, or without a target
 /// in `checkout`. This device keeps the start and answers at once with the
-/// session it shows as until its machine names it. A review is named for its
-/// PR then.
+/// session it shows as until its machine names it. A session for a task is
+/// named for it then.
 async function startSession(name: string, place: BarPlace, pick: Omit<ProjectPick, "agent"> & { agent: string | null }, prompt: string, images: Image[], target: BarTarget | null, checkout: CheckoutPick) {
   const was = barExisting(name, place, target);
   const model = pick.model.trim() || null, effort = pick.effort, fast = pick.agent === "codex" ? pick.fast : null;
@@ -596,19 +605,19 @@ async function startSession(name: string, place: BarPlace, pick: Omit<ProjectPic
   if (model || effort || fast !== null) sessionPicks.set(started.session.id, { model: model ?? "", effort, fast });
   startedWith(started.session, prompt, images);
   keepMachine(name, place.machine_id);
-  if (target?.review) reviewStarts.set(started.session.id, target.review.number);
+  if (target?.task) taskStarts.set(started.session.id, target.task);
 
   return started.session;
 }
 
-/// The PR each review start is for, by the start's id, until its machine names its session.
-const reviewStarts = new Map<string, number>();
+/// The task each start is for, by the start's id, until its machine names its session.
+const taskStarts = new Map<string, SessionTask>();
 
 listen<AgentStarted>("agent-started", ({ payload: { start, session } }) => {
-  const number = reviewStarts.get(start);
-  if (number === undefined) return;
-  reviewStarts.delete(start);
-  nameReview(session, number);
+  const task = taskStarts.get(start);
+  if (!task) return;
+  taskStarts.delete(start);
+  nameSession(session, task);
 });
 
 /// What an agent button starts: the prompt and the worktree, or the
@@ -700,8 +709,8 @@ export interface AgentButtonOpts {
   choose: boolean;
   label: string;
   hint: string;
-  /// The session it started, still working, which the button opens.
-  running: { agent: string; open(): void } | null;
+  /// The session it started, which the button opens.
+  session: SessionState | null;
   start: (pick: ProjectPick, machine: string | null) => Promise<void>;
 }
 
@@ -734,7 +743,7 @@ export function agentButtons(redraw: () => void) {
     latest.set(key, o);
     let button = made.get(key);
     if (!button) made.set(key, button = pickButton(o.project, (pick, machine) => void run(key, pick, machine), o.machine, o.choose));
-    const state: AgentState = o.running ? { kind: "running", agent: o.running.agent, hint: "Open the session", open: o.running.open }
+    const state: AgentState = o.session ? o.session
       : starting.has(key) ? { kind: "starting" } : { kind: "ready", label: o.label, hint: o.hint };
 
     return { button, state, error: failed.get(key) ?? "" };
@@ -744,16 +753,36 @@ export function agentButtons(redraw: () => void) {
 
 /// The session that last reviewed PR `number` of `project`, found by its
 /// name among the project's sessions on every machine, as it is now.
-export function earlierReview(project: string, number: number): ReviewSession | null {
-  const found = reviewSession(projectSessions(project), number);
-  return found && (sameSession(found) ?? found);
+export const earlierReview = (project: string, number: number) => sessionFor(project, { kind: "review", number }, null);
+
+/// The session of `project` started for `task`, as it is now: the newest
+/// named for it on any machine, else the newest chat in `worktree` when the
+/// task made its own (as a session started before tasks named theirs),
+/// which is named for it then.
+function sessionFor(project: string, task: SessionTask, worktree: BarTarget | null): TaskSession | null {
+  const found = taskSession(projectSessions(project), task);
+  if (found) return sameSession(found) ?? found;
+  const earlier = worktree?.kind === "issue" ? branchSession(project, worktree) : null;
+  if (earlier) nameSession(earlier, task);
+  return earlier;
+}
+
+/// The agent button of a task whose session exists: while it works it shows
+/// `working` and opens the chat; after, Open session.
+export type SessionState = Extract<AgentState, { kind: "running" | "done" }>;
+
+export function sessionState(s: TaskSession | null, working: string): SessionState | null {
+  if (!s) return null;
+  const open = () => go("pane", { agent: s });
+  return AGENT_ACTIVE.has(s.status) ? { kind: "running", label: working, agent: agentLabel(s.agent), hint: "Open the session", open }
+    : { kind: "done", label: "Open session", hint: "Opens the agent's chat", open };
 }
 
 /// The newest chat of ours in `target`'s worktree on any machine of
 /// `project`, as it is now; review chats are left to their PR's reviews.
-function branchSession(project: string, target: BarTarget): ReviewSession | null {
+function branchSession(project: string, target: BarTarget): TaskSession | null {
   const places = projectOf(project)?.places ?? [];
-  const chats = projectSessions(project).filter(s => !fixedTitle(s.title));
+  const chats = projectSessions(project).filter(s => !reviewTitled(s.title));
   const found = places.map(p => sessionIn(chats, p.machine, targetFolders(target, p.cwd, knownWorktree(project, p.machine, target)))).filter(s => s !== null).sort((a, b) => b.last_activity - a.last_activity)[0];
   return found ? sameSession(found) ?? found : null;
 }
@@ -762,20 +791,25 @@ function branchSession(project: string, target: BarTarget): ReviewSession | null
 /// every machine, which stand in on Home, where no project's are read.
 function projectSessions(project: string) {
   const places = projectOf(project)?.places ?? [];
-  const inside = (s: ReviewSession) => places.some(p => p.machine === s.machine_id && `${s.cwd}/`.startsWith(`${p.cwd.replace(/\/+$/, "")}/`));
+  const inside = (s: TaskSession) => places.some(p => p.machine === s.machine_id && `${s.cwd}/`.startsWith(`${p.cwd.replace(/\/+$/, "")}/`));
   return [...(state.sessions.get(project) ?? []), ...sessions.filter(inside)];
 }
 
-const sameSession = (s: ReviewSession) => sessions.find(l => l.machine_id === s.machine_id && l.agent === s.agent && l.id === s.id) ?? null;
+const sameSession = (s: TaskSession) => sessions.find(l => l.machine_id === s.machine_id && l.agent === s.agent && l.id === s.id) ?? null;
 
-/// Names a review session for its PR, which finds it for the next review.
-function nameReview(s: ReviewSession, number: number) {
-  invoke("agent_title_save", { machineId: s.machine_id, agent: s.agent, session: s.id, title: reviewTitle(number) })
-    .catch(e => console.warn("review title:", e));
+/// Names a session for its task, which finds it again; once per session.
+function nameSession(s: Pick<TaskSession, "machine_id" | "agent" | "id">, task: SessionTask) {
+  const key = `${s.machine_id}\0${s.agent}\0${s.id}`;
+  if (named.has(key)) return;
+  named.add(key);
+  invoke("agent_title_save", { machineId: s.machine_id, agent: s.agent, session: s.id, title: taskTitle(task) })
+    .catch(e => { named.delete(key); console.warn("session title:", e); });
 }
 
+const named = new Set<string>();
+
 /// Sends the bar's text and attachments to `earlier` through `send`.
-async function continueInBar(earlier: ReviewSession, text: string, send: (prompt: string, images: Image[]) => Promise<unknown>) {
+async function continueInBar(earlier: TaskSession, text: string, send: (prompt: string, images: Image[]) => Promise<unknown>) {
   const c = projectComp;
   c.update({ error: "" });
   pc.starting = true;
@@ -799,13 +833,13 @@ async function continueInBar(earlier: ReviewSession, text: string, send: (prompt
 
 /// Sends `prompt` to the session that reviewed PR `number` before, and
 /// names it again when resuming gave it a new id.
-async function steerReview(number: number, earlier: ReviewSession, prompt: string, images: Image[]) {
+async function steerReview(number: number, earlier: TaskSession, prompt: string, images: Image[]) {
   const session = await steer(earlier, prompt, images);
-  if (session.id !== earlier.id) nameReview(session, number);
+  if (session.id !== earlier.id) nameSession(session, { kind: "review", number });
 }
 
 /// Sends `prompt` to `earlier`, resuming it when it ended, and opens it.
-async function steer(earlier: ReviewSession, prompt: string, images: Image[]) {
+async function steer(earlier: TaskSession, prompt: string, images: Image[]) {
   let session = sameSession(earlier);
 
   if (!session || session.status === "ended") {

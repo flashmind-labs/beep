@@ -40,11 +40,11 @@ test("Fix this names the run, job and step and fences the log as data", () => {
 test("Fix this starts on the run's branch, or a new one from the default branch or a tag", () => {
   const list = { default_branch: "main", branches: [{ name: "main", local: true, committed_at: 2 }, { name: "bump-gradle", local: false, committed_at: 1 }] };
   const onBranch = runTarget(run(), list);
-  assert.deepEqual(onBranch, { kind: "run", number: 409, branch: "bump-gradle" });
+  assert.deepEqual(onBranch, { kind: "run", number: 409, branch: "bump-gradle", task: { kind: "run", workflow: "CI", number: 409 } });
   assert.deepEqual(targetPlan(onBranch), { branch_worktree: { branch: "bump-gradle" } });
   assert.deepEqual(targetCheckout(onBranch), { label: "Worktree bump-gradle", sub: "run #409" });
   const onMain = runTarget(run({ branch: "main" }), list);
-  assert.deepEqual(onMain, { kind: "issue", number: 409, branch: "fix-run-409", base: "main" });
+  assert.deepEqual(onMain, { kind: "issue", number: 409, branch: "fix-run-409", base: "main", task: { kind: "run", workflow: "CI", number: 409 } });
   assert.deepEqual(targetPlan(onMain), { named_worktree: { base: "main", branch: "fix-run-409" } });
   // A release run names its tag as the branch.
   const onTag = runTarget(run({ branch: "node-v0.7.17" }), list);

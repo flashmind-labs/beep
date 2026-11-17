@@ -9,7 +9,8 @@ import type { AgentState, PickButton } from "../review/feedback-view.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { agentLabel } from "./projects-state.ts";
-import type { ReviewSession } from "./projectbar.ts";
+import type { TaskSession } from "./projectbar.ts";
+import type { SessionState } from "./composer.tsx";
 import type { ProjectRef } from "./localid.ts";
 
 /// An open issue (IssueRow).
@@ -115,8 +116,10 @@ export interface RepoActs {
   /// The agent button's picker, whose pick runs `start`.
   button: (start: (pick: ProjectPick, machine: string | null) => void) => PickButton;
   /// The session that reviewed the PR before, which Open review opens.
-  reviewOf: (pr: PullRequestRow) => ReviewSession | null;
-  openReview: (s: ReviewSession) => void;
+  reviewOf: (pr: PullRequestRow) => TaskSession | null;
+  openReview: (s: TaskSession) => void;
+  /// The session working on the issue, which its button opens.
+  issueSession: (issue: IssueRow) => SessionState | null;
 }
 
 /// What the window hands `makeThreads`.
@@ -242,7 +245,7 @@ export function makeThreads(deps: ThreadDeps) {
     if (reviewed && !AGENT_ACTIVE.has(reviewed.status)) buttons.push({ kind: "run", key: "open-review", label: "Open review", primary: false, disabled: false, title: "Opens the agent's review of this PR. Right-click to review it again.", run: () => ctx.openReview(reviewed) });
     else {
       const button = buttonOf(s, `a${n}`, () => ctx.button((pick, machine) => void act(project.project_id, `a${n}`, () => ctx.startReview(row(), pick, machine))));
-      const state: AgentState = reviewed ? { kind: "running", agent: agentLabel(reviewed.agent), hint: "Open the review", open: () => ctx.openReview(reviewed) }
+      const state: AgentState = reviewed ? { kind: "running", label: "Reviewing", agent: agentLabel(reviewed.agent), hint: "Open the review", open: () => ctx.openReview(reviewed) }
         : s.busy.has(`a${n}`) ? { kind: "starting" }
         : { kind: "ready", label: "Review with agent", hint: "Pick a model: an agent reviews this PR and posts its comments on it" };
       buttons.push({ kind: "agent", key: "agent-review", button, state });
@@ -251,12 +254,12 @@ export function makeThreads(deps: ThreadDeps) {
   }
 
   /// An open issue's button: Work on it, which starts an agent on a new
-  /// branch for it.
+  /// branch for it, or the session working on it, which it opens.
   function issueButtons(project: ProjectRef, ctx: RepoActs, i: IssueRow): ThreadActions {
     const s = of(project.project_id);
     const key = `w${i.number}`;
     const button = buttonOf(s, key, () => ctx.button((pick, machine) => void act(project.project_id, key, () => ctx.startIssue(s.issues?.find(x => x.number === i.number) ?? i, pick, machine))));
-    const state: AgentState = s.busy.has(key) ? { kind: "starting" } : { kind: "ready", label: "Work on it", hint: "Pick a model: an agent starts on a new branch for this issue" };
+    const state: AgentState = ctx.issueSession(i) ?? (s.busy.has(key) ? { kind: "starting" } : { kind: "ready", label: "Work on it", hint: "Pick a model: an agent starts on a new branch for this issue" });
     return actsEl(s, [key], [{ kind: "agent", key: "work", button, state }]);
   }
 

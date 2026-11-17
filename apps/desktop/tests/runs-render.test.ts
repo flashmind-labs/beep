@@ -18,7 +18,7 @@ test("unchanged Actions redraws keep the visible run rows", () => {
       finished_at: null, progress: null, pull_requests: [] }],
     checks: [], synced_at: null, error: null, rate_limited_until: null,
   });
-  const runs = makeRuns({ invoke, kept, redraw() {}, openUrl() {}, fix() {}, startFix: async () => {}, button: () => ({ button, state: { kind: "starting" }, error: "" }) });
+  const runs = makeRuns({ invoke, kept, redraw() {}, openUrl() {}, fix() {}, startFix: async () => {}, fixSession: () => null, button: () => ({ button, state: { kind: "starting" }, error: "" }) });
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);

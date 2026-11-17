@@ -1,6 +1,6 @@
 import type { LiveMode } from "./projectlive.ts";
 import { RunsView } from "./runs-view.tsx";
-import type { AgentButtonOpts } from "./composer.tsx";
+import type { AgentButtonOpts, SessionState } from "./composer.tsx";
 import type { AgentButtonItem } from "../review/feedback-view.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
@@ -248,11 +248,12 @@ export function fixPrompt(d: Pick<RunDetail, "run" | "jobs" | "log">) {
 /// on the default branch itself, and for a run on a tag, such as a release,
 /// which the forge names as its branch. `list` holds the project's branches;
 /// before they are read, a branch other than the default is taken as one.
-export function runTarget(r: Pick<RunRow, "number" | "branch">, list: BaseBranches | null | undefined): BarTarget {
+export function runTarget(r: Pick<RunRow, "number" | "branch" | "workflow">, list: BaseBranches | null | undefined): BarTarget {
   const base = baseFor(null, list);
   const branch = !!r.branch && r.branch !== base && (!list || list.branches.some(b => b.name === r.branch));
-  if (!branch) return { kind: "issue", number: r.number, branch: `fix-run-${r.number}`, base: r.branch || base };
-  return { kind: "run", number: r.number, branch: r.branch };
+  const task = { kind: "run" as const, workflow: r.workflow, number: r.number };
+  if (!branch) return { kind: "issue", number: r.number, branch: `fix-run-${r.number}`, base: r.branch || base, task };
+  return { kind: "run", number: r.number, branch: r.branch, task };
 }
 
 /// What the page hands `makeRuns`: `fix` fills the bar for Fix this in the
@@ -263,6 +264,8 @@ interface RunDeps {
   openUrl: (url: string) => unknown;
   fix: (detail: RunDetail) => void;
   startFix: (project: string, detail: RunDetail, pick: ProjectPick, machine: string | null) => Promise<void>;
+  /// The session fixing the run, which its button opens.
+  fixSession: (project: string, detail: RunDetail) => SessionState | null;
   button: (key: string, o: AgentButtonOpts) => AgentButtonItem;
   /// The chip saying whether the project is live or polling.
   mode?: (id: string) => LiveMode | null;
@@ -465,7 +468,7 @@ export function makeRuns(deps: RunDeps) {
   function fixer(agent: ProjectRef, detail: RunDetail): AgentButtonItem {
     const key = detailKey(agent.project_id, detail.run);
     const start = (pick: ProjectPick, machine: string | null) => deps.startFix(agent.name, details.get(key)?.data ?? detail, pick, machine);
-    return deps.button(`fix ${key}`, { project: agent.name, machine: null, choose: true, label: "Fix this", hint: "Pick a model: an agent starts on this run's branch with the failure in its prompt", running: null, start });
+    return deps.button(`fix ${key}`, { project: agent.name, machine: null, choose: true, label: "Fix this", hint: "Pick a model: an agent starts on this run's branch with the failure in its prompt", session: deps.fixSession(agent.name, detail), start });
   }
 
   /// The Actions section. Its key is the project, so its rows stay while live updates arrive.
