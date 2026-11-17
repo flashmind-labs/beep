@@ -102,8 +102,9 @@ pub fn run() {
     // The tick of a board lane settling on a card.
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_haptics::init());
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.plugin(tauri_plugin_notification::init());
     builder
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .manage(artifacts::Pages::default())
         .manage(machines::forwards::Forwards::default())
@@ -532,7 +533,7 @@ fn hide_windows(app: &AppHandle) {
 
 /// Everything quitting does, within `QUIT_LIMIT` unless an update installs.
 fn quit(app: &AppHandle) {
-    #[cfg(desktop)]
+    #[cfg(all(desktop, feature = "resource-profiling"))]
     if let Some(sampling) = app.try_state::<platform::energy::Sampling>() {
         sampling.stop();
     }
@@ -659,8 +660,17 @@ fn setup(
                 Ok(task) => {
                     app.manage(task);
 
+                    #[cfg(feature = "resource-profiling")]
                     if let Some(sampling) = platform::energy::start(app.clone()) {
                         app.manage(sampling);
+                    }
+                    #[cfg(not(feature = "resource-profiling"))]
+                    if std::env::var_os("BEEP_DESKTOP_RESOURCE_METRICS")
+                        .is_some_and(|value| value == "1")
+                    {
+                        log::warn!(
+                            "resource profiling unavailable: build with --features resource-profiling"
+                        );
                     }
                 }
                 Err(e) => log::warn!("metrics unavailable: {e:#}"),
