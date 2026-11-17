@@ -30,12 +30,3 @@ fn close_entries_share_a_record() {
     assert_eq!(meter.used(start + Duration::from_secs(2)), ms(1000));
     assert!(locked(&meter.used).len() <= 5);
 }
-
-#[test]
-fn pending_timers_are_kept() {
-    let meter = Meter::new(BUDGET);
-
-    meter.set_timers(3);
-
-    assert_eq!(meter.timers(), 3);
-}

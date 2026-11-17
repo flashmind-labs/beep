@@ -99,37 +99,25 @@ test("overview card keeps focus through pin updates and opens by keyboard", asyn
 });
 
 test("group rename keeps its draft during refresh and saves on Enter", async ({ page }) => {
-  await openDesktop(page, false, { project_groups: [{ id: 'group', name: 'Example group', paths: ['example'] }] });
+  await openDesktop(page, false, { project_groups: [
+    { id: 'group', name: 'Example group', paths: ['example'] },
+    { id: 'second', name: 'Second group', paths: ['other'] },
+  ] });
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
   const group = page.locator('.pj-org').filter({ hasText: 'Example group' });
+  const second = page.locator('.pj-org').filter({ hasText: 'Second group' });
+  await expect(second).toBeVisible();
+  await second.evaluate(element => { element.dataset.identity = 'kept'; });
   await group.getByRole('button', { name: 'Rename' }).click();
   const input = page.getByRole('textbox', { name: 'Group name' });
   await input.fill('Updated group');
   await page.locator('.pj-card').first().getByRole('button', { name: 'Pin to top' }).evaluate(el => { if (el instanceof HTMLElement) el.click(); });
   await expect(input).toHaveValue('Updated group');
   await expect(input).toBeFocused();
+  await expect(second).toHaveAttribute('data-identity', 'kept');
   await input.press('Enter');
   await expect(page.locator('.pj-org').filter({ hasText: 'Updated group' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === 'project_group_save' && call.args.name === 'Updated group'))).toBe(true);
-});
-
-test("overview refresh retains visible groups and a focused rename draft", async ({ page }) => {
-  await openDesktop(page, false, { project_groups: [
-    { id: "first", name: "First group", paths: ["example"] },
-    { id: "second", name: "Second group", paths: ["other"] },
-  ] });
-  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
-  const first = page.locator(".pj-org").filter({ hasText: "First group" });
-  const second = page.locator(".pj-org").filter({ hasText: "Second group" });
-  await expect(second).toBeVisible();
-  await second.evaluate(element => { element.dataset.identity = "kept"; });
-  await first.getByRole("button", { name: "Rename" }).click();
-  const input = page.getByRole("textbox", { name: "Group name" });
-  await input.fill("Editing group");
-  await page.locator(".pj-card").first().getByRole("button", { name: "Pin to top" }).evaluate(element => { if (element instanceof HTMLElement) element.click(); });
-  await expect(input).toHaveValue("Editing group");
-  await expect(input).toBeFocused();
-  await expect(second).toHaveAttribute("data-identity", "kept");
 });
 
 test("project groups load progressively without replacing earlier groups", async ({ page }) => {

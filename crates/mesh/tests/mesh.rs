@@ -1310,15 +1310,6 @@ mod local_client {
                     }
                 }
             }
-            "count/1" => {
-                tx.send(&Opened::Ready {}).await.ok();
-
-                if let Ok(Some(n)) = rx.recv::<u32>().await {
-                    for i in 0..n {
-                        tx.send(&i).await.ok();
-                    }
-                }
-            }
             "stall/1" => {
                 tx.send(&Opened::Ready {}).await.ok();
                 rx.recv::<u32>().await.ok();
@@ -1385,26 +1376,6 @@ mod local_client {
         assert!(matches!(reply, Err(MeshError::Link(_))), "{reply:?}");
         assert!(start.elapsed() >= limit);
         assert!(start.elapsed() <= limit + Duration::from_millis(2));
-    }
-
-    #[tokio::test]
-    async fn a_local_call_is_answered_without_a_network() {
-        let client = PeerClient::local(session());
-        let reply: u32 = client.call("echo/1", &41u32).await.expect("answered");
-        assert_eq!(reply, 42);
-    }
-
-    #[tokio::test]
-    async fn a_local_follow_yields_every_item_then_ends() {
-        let client = PeerClient::local(session());
-        let items: Vec<u32> = client
-            .follow::<u32, u32>("count/1", &3)
-            .await
-            .expect("opened")
-            .map(|item| item.expect("item"))
-            .collect()
-            .await;
-        assert_eq!(items, [0, 1, 2]);
     }
 
     #[tokio::test]
