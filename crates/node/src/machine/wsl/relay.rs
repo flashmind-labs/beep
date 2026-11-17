@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use std::{path::Path, process::Stdio};
 use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio_util::task::AbortOnDropHandle;
 
 /// Which way a message crosses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,19 +42,26 @@ pub async fn relay(distro: &str, program: &str, args: &[String]) -> Result<()> {
     let agent_in = child.stdin.take().context("the agent has no stdin")?;
     let agent_out = child.stdout.take().context("the agent has no stdout")?;
 
-    let inbound = pump(BufReader::new(tokio::io::stdin()), agent_in, Toward::Linux);
-    let outbound = pump(BufReader::new(agent_out), tokio::io::stdout(), Toward::Windows);
-    tokio::select! {
-        done = inbound => done?,
-        done = outbound => done?,
-    }
+    // The client closing its side closes the agent's stdin; the relay ends
+    // once the agent stops writing, so its last answers still arrive.
+    let inbound = AbortOnDropHandle::new(tokio::spawn(pump(
+        BufReader::new(tokio::io::stdin()),
+        agent_in,
+        Toward::Linux,
+    )));
+    let outbound = pump(BufReader::new(agent_out), tokio::io::stdout(), Toward::Windows).await;
+    drop(inbound);
 
-    Ok(())
+    outbound
 }
 
 /// Copies lines from `from` to `to`, each JSON one with its paths turned
 /// `toward` the other side.
-async fn pump(from: impl AsyncBufRead + Unpin, mut to: impl AsyncWrite + Unpin, toward: Toward) -> Result<()> {
+async fn pump(
+    from: impl AsyncBufRead + Unpin + Send,
+    mut to: impl AsyncWrite + Unpin + Send,
+    toward: Toward,
+) -> Result<()> {
     let mut lines = LineReader::new(from, MAX_MESSAGE);
 
     while let Some(line) = lines.next().await? {

@@ -13,7 +13,7 @@ mod relay;
 mod report;
 mod steps;
 
-pub(crate) use distro::{DistroName, Found, LinuxPath, linux_path, windows_drive_path, windows_folder, windows_path};
+pub(crate) use distro::{DistroName, LinuxPath, linux_path, windows_drive_path, windows_folder, windows_path};
 pub use relay::relay;
 pub(crate) use relay::{Toward, translate};
 pub(crate) use report::{agents_changed, found, report, with_agent};

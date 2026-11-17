@@ -1,13 +1,11 @@
 //! The machine's WSL distributions, for its report. The routine report
 //! looks into the running distributions, as looking into a stopped one
-//! starts it, and into the default one once in the background;
-//! `probe_all` looks into every one when the user asks.
+//! starts it, and into the default one once in the background.
 
 use super::{
     distro::{DistroName, Found, Listed},
     steps,
 };
-use anyhow::Result;
 use beep_proto::node::WslDistro;
 use futures::future::join_all;
 use std::{
@@ -22,8 +20,8 @@ use tokio::{sync::Notify, time::timeout};
 
 /// How long the routine report waits for the running distributions' probes.
 const PROBES_LIMIT: Duration = Duration::from_secs(10);
-/// How long looking into every distribution may take, starting them.
-const PROBE_ALL_LIMIT: Duration = Duration::from_secs(60);
+/// How long looking into the stopped default distribution may take, starting it.
+const DEFAULT_PROBE_LIMIT: Duration = Duration::from_secs(60);
 
 /// What each distribution had when it was last probed well.
 static FOUND: LazyLock<Mutex<HashMap<DistroName, Found>>> = LazyLock::new(Mutex::default);
@@ -80,7 +78,7 @@ pub(crate) async fn report() -> Vec<WslDistro> {
         && !DEFAULT_PROBED.swap(true, Ordering::Relaxed)
     {
         let name = default.name.clone();
-        tokio::spawn(async move { probe(&[&name], PROBE_ALL_LIMIT).await });
+        tokio::spawn(async move { probe(&[&name], DEFAULT_PROBE_LIMIT).await });
     }
 
     let running: Vec<&DistroName> = listed
@@ -106,14 +104,6 @@ fn forget_gone(listed: &[Listed]) {
     if found.len() != before {
         AGENTS_CHANGED.notify_one();
     }
-}
-
-/// Looks into every distribution, starting the stopped ones.
-pub(crate) async fn probe_all() -> Result<()> {
-    let listed = steps::list().await?;
-    let names: Vec<&DistroName> = listed.iter().map(|listed| &listed.name).collect();
-    probe(&names, PROBE_ALL_LIMIT).await;
-    Ok(())
 }
 
 /// Probes `distros` together for at most `limit`, keeping what each probe
