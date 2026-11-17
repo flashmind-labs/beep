@@ -15,6 +15,7 @@ use crate::{
     link::restart::{self, Drained},
     machine::service::{self, Restart},
 };
+use beep_proto::node::update::ReleaseChannel;
 use reqwest::{Client, StatusCode, Url};
 use std::{
     cmp::Ordering,
@@ -126,7 +127,7 @@ pub async fn update(options: Options) -> Result<(), Error> {
     let Options { check, wait, dir } = options;
     let base = base();
     let client = client()?;
-    let Newest { current, latest } = newest(&client, &base).await?;
+    let Newest { current, latest } = newest(&client, &base, ReleaseChannel::All).await?;
 
     match current.cmp(&latest) {
         // The binary is the newest, but the node may still run an older one,
@@ -246,9 +247,9 @@ struct Newest {
     latest: Version,
 }
 
-async fn newest(client: &Client, base: &str) -> Result<Newest, Error> {
+async fn newest(client: &Client, base: &str, channel: ReleaseChannel) -> Result<Newest, Error> {
     let current: Version = CURRENT.parse()?;
-    let latest = fetch(client, &url(base, "latest.txt")?).await?;
+    let latest = fetch(client, &url(base, Into::<&str>::into(channel))?).await?;
     let latest: Version = String::from_utf8_lossy(&latest).parse()?;
     Ok(Newest { current, latest })
 }
@@ -308,3 +309,7 @@ async fn wait_for_idle(dir: &Path, limit: Duration) -> Option<restart::UpdateCon
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/machine_update.rs"]
+mod tests;

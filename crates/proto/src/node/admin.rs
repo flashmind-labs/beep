@@ -181,7 +181,7 @@ pub mod update {
     //! machine. Only the beep-node CLI offers it; the Mac app's node updates
     //! with the app.
     //!
-    //! The caller sends one `Request::Update`; the node answers with one
+    //! The caller sends one `Request`; the node answers with one
     //! `Event`, finishes the stream, and only then restarts, so the caller
     //! reads the answer before the connection drops. It restarts once its
     //! agent sessions are idle, or after a wait; new prompts can still start.
@@ -189,6 +189,22 @@ pub mod update {
     use serde::{Deserialize, Serialize};
 
     pub const PROTOCOL: &str = "update/1";
+
+    /// Which beep-node releases an update may install.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum ReleaseChannel {
+        Minor,
+        All,
+    }
+
+    impl From<ReleaseChannel> for &'static str {
+        fn from(channel: ReleaseChannel) -> Self {
+            match channel {
+                ReleaseChannel::Minor => "minor.txt",
+                ReleaseChannel::All => "latest.txt",
+            }
+        }
+    }
 
     /// What the caller sends.
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -201,6 +217,9 @@ pub mod update {
             #[serde(default)]
             now: bool,
         },
+        /// Installs the newest minor release. Older nodes reject this request
+        /// before downloading anything; `Update` keeps its original behavior.
+        Minor { now: bool },
     }
 
     /// What the node answers.

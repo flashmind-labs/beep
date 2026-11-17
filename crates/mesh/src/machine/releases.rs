@@ -3,7 +3,10 @@
 //! whoever asks.
 
 use anyhow::{Context, Result};
-use beep_proto::node::tool_update::{Releases, Tool};
+use beep_proto::node::{
+    tool_update::{Releases, Tool},
+    update::ReleaseChannel,
+};
 use reqwest::{Client, header::USER_AGENT};
 use serde::Deserialize;
 use std::{
@@ -38,14 +41,14 @@ pub struct ToolReleases {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Of {
     Tool(Tool),
-    Node,
+    Node(ReleaseChannel),
 }
 
 impl Of {
     fn name(self) -> &'static str {
         match self {
             Self::Tool(tool) => tool.into(),
-            Self::Node => "beep-node",
+            Self::Node(_) => "beep-node",
         }
     }
 }
@@ -82,8 +85,8 @@ impl ToolReleases {
     }
 
     /// The newest beep-node release, as `latest`.
-    pub async fn latest_node(&self) -> Option<String> {
-        self.cached(Of::Node).await
+    pub async fn latest_node(&self, channel: ReleaseChannel) -> Option<String> {
+        self.cached(Of::Node(channel)).await
     }
 
     async fn cached(&self, of: Of) -> Option<String> {
@@ -93,7 +96,7 @@ impl ToolReleases {
             let wait = if found.version.is_some() {
                 match of {
                     Of::Tool(_) => FRESH,
-                    Of::Node => NODE_FRESH,
+                    Of::Node(_) => NODE_FRESH,
                 }
             } else {
                 RETRY
@@ -130,13 +133,19 @@ impl ToolReleases {
         let http = self.http.as_ref().context("no HTTP client")?;
         let releases = match of {
             Of::Tool(tool) => tool.releases(),
-            Of::Node => Releases::Channel(NODE_RELEASES),
+            Of::Node(_) => Releases::Channel(NODE_RELEASES),
         };
         let repo = match releases {
             Releases::GitHub(repo) => repo,
             Releases::Channel(base) => {
                 let text = http
-                    .get(format!("{base}/latest.txt"))
+                    .get(format!(
+                        "{base}/{}",
+                        match of {
+                            Of::Node(channel) => Into::<&str>::into(channel),
+                            Of::Tool(_) => "latest.txt",
+                        }
+                    ))
                     .header(USER_AGENT, AGENT)
                     .send()
                     .await?
@@ -159,3 +168,7 @@ impl ToolReleases {
         Ok(tag.strip_prefix('v').unwrap_or(&tag).to_owned())
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/machine_releases.rs"]
+mod tests;

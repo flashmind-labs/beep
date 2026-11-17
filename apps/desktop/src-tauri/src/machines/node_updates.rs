@@ -3,6 +3,7 @@
 //! Machines. Entry point: `follow`.
 
 use crate::{
+    beep::state::Prefs,
     fleet::{Fleet, files},
     notices::notify,
 };
@@ -48,13 +49,14 @@ pub(crate) async fn update_behind(app: AppHandle) {
         return;
     };
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
+    let channel = app.state::<Prefs>().node_release_channel();
 
     let failed: Vec<String> = behind
         .iter()
         .map(|device| {
             let fleet = &fleet;
             async move {
-                files::update_machine(fleet, device.id, false)
+                files::update_machine(fleet, device.id, false, channel)
                     .await
                     .map_err(|e| format!("{}: {e}", device.name))
             }
@@ -83,7 +85,10 @@ pub(crate) async fn update_behind(app: AppHandle) {
 /// when there are any.
 async fn behind(app: &AppHandle) -> Option<(Version, Vec<Device>)> {
     let fleet = app.state::<Arc<Fleet>>();
-    let latest = fleet.releases().latest_node().await?;
+    let latest = fleet
+        .releases()
+        .latest_node(app.state::<Prefs>().node_release_channel())
+        .await?;
     let latest = Version::parse(&latest)
         .inspect_err(|e| log::info!("reading beep-node release {latest}: {e}"))
         .ok()?;

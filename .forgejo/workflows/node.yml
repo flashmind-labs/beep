@@ -206,6 +206,9 @@ jobs:
           cp crates/node/install.sh "$pointer/install.sh"
           cp crates/node/install.ps1 "$pointer/install.ps1"
           printf '%s\n' "$VERSION" > "$pointer/latest.txt"
+          if [[ "$VERSION" == *.0 ]]; then
+            cp "$pointer/latest.txt" "$pointer/minor.txt"
+          fi
           echo "files=$files" >> "$GITHUB_OUTPUT"
           echo "pointer=$pointer" >> "$GITHUB_OUTPUT"
 
@@ -234,7 +237,8 @@ jobs:
           CF_BUCKET: ${{ secrets.CF_BUCKET }}
         run: |
           set -euo pipefail
-          for name in install.sh install.ps1 latest.txt; do
+          for name in install.sh install.ps1 latest.txt minor.txt; do
+            [[ -f "$POINTER/$name" ]] || continue
             bash scripts/r2.sh put "$POINTER/$name" "beep/node/$name" "text/plain; charset=utf-8"
             echo "Uploaded beep/node/$name"
           done
@@ -246,4 +250,5 @@ jobs:
           CF_ACCESS_KEY_ID: ${{ secrets.CF_ACCESS_KEY_ID }}
           CF_SECRET_ACCESS_KEY: ${{ secrets.CF_SECRET_ACCESS_KEY }}
           CF_BUCKET: ${{ secrets.CF_BUCKET }}
-        run: python3 scripts/r2-prune.py beep/node "$VERSION"
+        # The minor feed still points at this minor's .0 release after patches.
+        run: python3 scripts/r2-prune.py beep/node "${VERSION%.*}.0"

@@ -104,3 +104,15 @@ fn an_older_file_with_server_fields_still_loads() {
     assert!(!saved.agent_notices);
     assert_eq!(saved.zoom.percent(), 120);
 }
+
+#[test]
+fn node_release_channel_follows_developer_mode_changes() {
+    use beep_proto::node::update::ReleaseChannel;
+
+    let prefs = Prefs::load(state_file("node-channel"));
+    assert_eq!(prefs.node_release_channel(), ReleaseChannel::Minor);
+    prefs.set_developer(true);
+    assert_eq!(prefs.node_release_channel(), ReleaseChannel::All);
+    prefs.set_developer(false);
+    assert_eq!(prefs.node_release_channel(), ReleaseChannel::Minor);
+}

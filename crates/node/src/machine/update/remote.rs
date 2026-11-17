@@ -11,7 +11,10 @@ use crate::{
     lock,
     machine::service::{self, Restart},
 };
-use beep_proto::node::{LinkRx, LinkTx, update};
+use beep_proto::node::{
+    LinkRx, LinkTx,
+    update::{self, ReleaseChannel},
+};
 use futures::FutureExt;
 use std::{
     path::PathBuf,
@@ -69,8 +72,13 @@ async fn serve(
     agents: Arc<Agents>,
     waiting: Waiting,
 ) -> anyhow::Result<()> {
-    let Some(update::Request::Update { now }) = rx.recv::<update::Request>().await? else {
+    let Some(request) = rx.recv::<update::Request>().await? else {
         return Ok(());
+    };
+    let (now, channel) = match request {
+        update::Request::Update { now } => (now, ReleaseChannel::All),
+        update::Request::Minor { now } => (now, ReleaseChannel::Minor),
+        _ => anyhow::bail!("unsupported node update request"),
     };
 
     if UPDATING.swap(true, AtomicOrdering::SeqCst) {
@@ -81,7 +89,7 @@ async fn serve(
         return tx.finish().await;
     }
 
-    let (event, restart) = match remote(&agents, now).await {
+    let (event, restart) = match remote(&agents, now, channel).await {
         Ok(Remote { event, restart }) => (event, restart),
         Err(e) => {
             // With its causes, as one line.
@@ -164,10 +172,10 @@ fn next(restart: Restart, exe: PathBuf, unix: bool) -> Option<Next> {
     }
 }
 
-async fn remote(agents: &Agents, now: bool) -> Result<Remote, Error> {
+async fn remote(agents: &Agents, now: bool, channel: ReleaseChannel) -> Result<Remote, Error> {
     let base = base();
     let client = client()?;
-    let Newest { current, latest } = newest(&client, &base).await?;
+    let Newest { current, latest } = newest(&client, &base, channel).await?;
 
     if current >= latest {
         return Ok(Remote {
