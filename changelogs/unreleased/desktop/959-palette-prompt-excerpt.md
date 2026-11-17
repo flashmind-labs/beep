@@ -7,3 +7,8 @@
   than one word, instead of wrapping onto several lines.
 - Desktop: coding agent results in the search palette show the agent's
   icon, with only the project name on the right.
+
+### Changed
+
+- Desktop: the search palette lists projects first, then machines and
+  coding agents, before code, settings and actions.

@@ -56,6 +56,18 @@ test("the top hit leads when several groups match, and lists once", () => {
   assert.equal(hits.filter(h => h.kind === "project").length, 1);
 });
 
+test("projects, machines and coding agents list before the rest", () => {
+  const hits = rank("acme", index({
+    actions: [entry("action", "New acme session")],
+    settings: [entry("setting", "Acme look")],
+    code: [entry("code", "acme/widget PR")],
+    projects: [entry("project", "acme/widget")],
+    sessions: [entry("agent_session", "Fix acme login")],
+    machines: [entry("machine", "acme box")],
+  }));
+  assert.deepEqual(hits.map(h => h.kind), ["project", "machine", "agent_session", "code", "setting", "action"]);
+});
+
 test("no top hit from one group, or without a prefix match", () => {
   assert.ok(rank("morning", index({ settings: [entry("setting", "Morning brief")] })).every(h => !h.top));
   const noPrefix = index({ settings: [entry("setting", "A morning")], machines: [entry("machine", "the morning box")] });

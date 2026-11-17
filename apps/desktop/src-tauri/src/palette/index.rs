@@ -33,17 +33,17 @@ impl PaletteAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum HitKind {
-    Action,
-    Setting,
-    /// Branches with work, under "Projects and code". The id is the project
-    /// and the branch, split by a space.
-    Branch,
     Project,
     /// A folder coding agents worked in, not imported. The id is its name.
     Folder,
+    Machine,
     /// A coding agent's session, under "Coding agents".
     AgentSession,
-    Machine,
+    /// Branches with work, under "Projects and code". The id is the project
+    /// and the branch, split by a space.
+    Branch,
+    Setting,
+    Action,
 }
 
 /// A section of the Settings sheet, by the id the sheet's nav goes to.
