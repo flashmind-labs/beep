@@ -1,5 +1,6 @@
-//! The app's log, under `~/Library/Logs/Beep` on macOS (where Console shows
-//! it), the XDG state folder on Linux and the app's data folder on Android
+//! The app's log, under `~/Library/Logs/Beep` on macOS (`Beep Dev` for a
+//! debug build; Console shows it),
+//! the XDG state folder on Linux and the app's data folder on Android
 //! (also on logcat), so a user can send it. Beep's own lines from
 //! debug up but the per-snapshot event lines, the embedded node's from info
 //! but its per-read subscription lines, plugins' own lines (target `plugin`,
@@ -30,6 +31,15 @@ const WEBVIEW_CHARS: usize = 4000;
 #[cfg(target_os = "android")]
 static ANDROID_DIR: OnceLock<PathBuf> = OnceLock::new();
 
+/// The log folder's name: a debug build (`just run`) logs apart from an
+/// installed Beep.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+const NAME: &str = if cfg!(debug_assertions) {
+    "Beep Dev"
+} else {
+    "Beep"
+};
+
 pub(crate) fn dir() -> Option<PathBuf> {
     #[cfg(target_os = "android")]
     {
@@ -37,7 +47,11 @@ pub(crate) fn dir() -> Option<PathBuf> {
     }
     #[cfg(windows)]
     {
-        Some(PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("Beep/Logs"))
+        Some(
+            PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
+                .join(NAME)
+                .join("Logs"),
+        )
     }
     #[cfg(target_os = "linux")]
     {
@@ -46,7 +60,7 @@ pub(crate) fn dir() -> Option<PathBuf> {
     #[cfg(not(any(windows, target_os = "linux", target_os = "android")))]
     {
         let home = std::env::var_os("HOME")?;
-        Some(PathBuf::from(home).join("Library/Logs/Beep"))
+        Some(PathBuf::from(home).join("Library/Logs").join(NAME))
     }
 }
 
