@@ -2,6 +2,12 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.22] - 2026-11-17
+
+### Performance
+
+- Node: builds compile fewer dependencies.
+
 ## [0.7.21] - 2026-11-17
 
 ### Fixed

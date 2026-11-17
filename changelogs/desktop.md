@@ -7,6 +7,242 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.26] - 2026-11-17
+
+### Added
+
+- Desktop: a file that is slow to open in the side pane (video, audio,
+  PDF or 3D model) or to upload to a machine with a message shows its
+  transfer speed, such as 4.2 MB/s. The speed appears only for transfers
+  that have run more than 5 seconds and are under 80% done.
+- Desktop: an issue's page shows the agent session working on it. While
+  it runs, the button reads "Working" and the agent's name and opens its
+  chat. After it finishes, the button reads "Open session". Both replace
+  "Work on it".
+- Desktop: a failed Actions run shows its agent session the same way. The
+  button reads "Fixing" and the agent's name while it runs, then "Open
+  session" when it finishes. Both replace "Fix this".
+- Desktop: sessions started from "Work on it" are named "Issue #N", and
+  sessions started from "Fix this" are named "Fix run #N
+  (workflow)", as PR reviews are named "Review #N". The names cannot be
+  changed, so a session can be found from any machine. Sessions started
+  on an issue before this update get their name when the issue is opened.
+- Desktop: in an agent session's Running tab, each command's ports are
+  listed on their own line under the command instead of beside the Stop
+  button. A port that a command on another machine listens on is now a
+  link. Clicking it forwards that port to this computer over the mesh, on
+  the same port number when it is free, and opens it in the browser.
+  Before, only ports on this computer could be opened.
+- Desktop: a port forward from another machine stays open until the app
+  quits.
+- Desktop: On a project's Issues list and Overview, a GitHub issue
+  with a linked pull request that closes it shows a yellow "PR" tag.
+  Forgejo issues do not show the tag.
+- Desktop: In a window at least 1200px wide, opening a session that
+  belongs to a project shows that project's sessions in the sidebar's
+  place: a filter, the running sessions with what each is doing under
+  its title (or, while it is idle, the first line of its last reply),
+  then the latest past ones, one line each. Running sessions stay in
+  the order they started, newest first, so they do not reshuffle as
+  agents work. The reply line shows its bold, italics and code as
+  notifications do. The panel ends on the project's own painting (each
+  project gets one of the app's paintings) with a card of its open pull
+  requests and issues, Actions and machines, each opening that part of
+  the project page with the sessions still beside it. The project name goes back to the
+  project page. The sidebar button swaps between the sidebar and the
+  sessions with a short slide, and the conversation stays where it
+  is. Cmd+E (Ctrl+E on Windows and Linux) swaps between the sidebar
+  and the project's sessions, and elsewhere folds the sidebar. A
+  project window shows its sessions in the sidebar's place on every
+  page.
+- Desktop: Settings > Instructions lists suggested rules beside the
+  editor. Add puts one at the end of your instructions to review and
+  save. The first one, Linear git history, asks agents to rebase a
+  feature branch and merge it with a fast-forward, with no merge
+  commits.
+- Desktop: in a session that belongs to a project, Ctrl+Tab opens
+  the next running session of that project, in the order the
+  sessions panel lists them, wrapping from the last back to the
+  first. Ctrl+Shift+Tab opens the previous one. Ctrl+Tab in the
+  session's side pane still switches that pane's tabs.
+- Desktop: a GitHub issue's detail pane on a project's page lists the
+  pull requests that will close it or mention it. Clicking one opens it
+  in the app when it is one of the project's open pull requests,
+  otherwise on GitHub.
+- Desktop: Cmd+K finds sessions by what the agent replied, not only by
+  your prompts. A copy of each machine's index updates live, so results
+  come at once, and sessions on offline machines are still found.
+- Desktop: view supported device video using native H.264 capture, with JPEG fallback.
+- Desktop: Running sessions in a project's sessions panel show the
+  lines added and removed in their checkout, in green and red under
+  their time. The node counts them as each turn ends, as the Changes
+  tab does. It needs an updated beep-node.
+
+### Changed
+
+- Desktop: the Rename, Change and Update buttons on a machine's page sit at the right edge of their row.
+- Desktop: default source builds provide a lean remote controller with plaintext replies. Build with the `full` Cargo feature or run `just run shared full` for local agents, terminals, sync, device and media hosting, rich text, and native integrations.
+- Desktop: plugins load compiled JavaScript. TypeScript plugin authors must build before installing; shipped plugins continue to work.
+- Desktop: Agents are instructed to use image content and the request when titling sessions, while preserving explicit titles.
+- Desktop: lean builds download remote media in bounded chunks. Resumable media caching remains available with `blob-cache` or `full`.
+- Desktop: plugin interfaces and themes remain available in lean builds. The plugin tool API requires `plugin-tools` or `full`; authors can check `beep.capabilities.tools` before registering tools. The Session Notes interface continues to work.
+- Desktop: default builds include Markdown, sanitized rich text, math, media caching, and plugin tools.
+- Desktop: local agents, terminals, files, native integrations, and resource profiling are available without selecting build features.
+- Desktop: agents share Cargo build artifacts across linked worktrees.
+- Desktop: a WSL distribution on a Windows machine is no longer added as
+  a separate machine. The Windows machine runs the coding agents installed
+  in its distributions itself. The machine page lists each distribution with
+  the agents found in it, without add, turn on or turn off buttons. The Add
+  a machine sheet no longer offers WSL.
+- Desktop: Home's board fits the window under the Needs you queue, and
+  each lane scrolls on its own a card at a time, so a long lane no longer
+  makes the whole Home page scroll.
+- Desktop: On Home, lanes share the width by how many cards they hold. A
+  lane with more cards lays them out in two or three columns, and an
+  empty lane keeps to its title.
+- Desktop: The sidebar starts 300px wide. Dragging its edge resizes it
+  and the project's sessions together, and the width is kept.
+- Desktop: the search palette lists projects first, then machines and
+  coding agents, before code, settings and actions.
+- Desktop: coding agent notifications in the notifications pane show
+  the agent's icon (Claude, Codex, and others) and read as three
+  lines: "project: session title", then the agent's reply, then how
+  long ago. The machine and agent names are gone from the text.
+  System notifications use the same title and reply. A failed turn
+  says "Failed:" and gives the reason.
+- Desktop: On Home, the Working lane is never narrower than the other
+  lanes. It spreads its cards over two or three columns, so what agents
+  are doing right now stays readable. Ready to review takes at most two
+  columns, and Done today keeps to one.
+- Desktop: Closing a session opens its project's page instead of going
+  back to Home or the page it was opened from. A session with no project
+  still goes back.
+- Desktop: On Home, the Working lane is one wide column, and Ready to
+  review fills two columns of equal width. Lanes no longer take their
+  width from how many cards they hold, so Working stays readable.
+- Desktop: The Needs you buttons on Home share one width, and the
+  "Review with agent" button now reads "Review".
+- Desktop: answered agent questions disappear from notifications.
+- Desktop: the pickers under Work on it, Continue, Review with agent, Fix this
+  and Fix with an agent ask in steps: machine, harness, model, then
+  thinking, with nothing picked for you. Picking the thinking level
+  starts the agent. Other pickers keep their one-screen layout.
+- Desktop: Closing a session in a project opens that project's next
+  running session, in the order its sessions panel lists them. The
+  project page opens only once no other session of it runs.
+- Desktop: after updating, each machine indexes its sessions once in the
+  background. A prompt you just sent shows in search once its session has
+  been quiet for a minute or two.
+- Desktop: search by text only covers sessions that ran inside a project
+  imported on that machine. Sessions in other folders are still listed,
+  but they are not found by what was said in them.
+
+### Fixed
+
+- Desktop: delegated agents and their status appear in flsh sessions when the harness reports them.
+- Desktop: A session that works in another project's checkout stays
+  with the project it started in, in the project sessions panel too.
+- Desktop: an interrupted Git transfer no longer leaves half-written pack files
+  in `.git`. A stalled transfer gives up after 30 seconds of silence instead
+  of waiting five minutes. Git packs its objects together once many have
+  arrived.
+- Desktop: in a diff, "Review with agent" shows a reviewer that is
+  still working after the window reloads or its machine's connection
+  drops, so you can open it again. Before, the button went back to
+  "Review with agent" and hid the running reviewer.
+- Desktop: In a project's new conversation (Cmd+N from a project,
+  including in a project window), Shift+Cmd+M and the model pill open the
+  model picker again.
+- Desktop: media viewers reject incomplete or changing remote downloads instead of displaying partial files.
+- Desktop: development logs no longer contain color codes.
+- Desktop: retrying a session that failed to start no longer crashes the app.
+- Desktop: opening a project focuses the agent composer, and closing the model picker with Cmd+Shift+M returns focus to the input.
+- Desktop: paintings no longer crash on startup when visibility tracking is unavailable.
+- Desktop: answer buttons no longer squeeze question text.
+- Desktop: on Wi-Fi networks that rewrite DNS answers, such as some hotel
+  content filters, the app could not reach any machine. Names now resolve
+  through encrypted DNS first, then the network's DNS if that fails.
+- Desktop: In a project window too narrow for its sessions, the Back
+  button no longer sits under the window's traffic lights.
+- Desktop: in the search palette, a coding agent found by its prompt
+  shows one short line from that prompt, without a "Prompt:" label,
+  repeated excerpts for each search word, or attached file paths.
+- Desktop: a palette row stays on one line when the search has more
+  than one word, instead of wrapping onto several lines.
+- Desktop: coding agent results in the search palette show the agent's
+  icon, with only the project name on the right.
+- Desktop: the task field on a project page keeps an unsent task for
+  each project. Text typed in one project no longer follows you to the
+  next one or overlaps its placeholder. Drafts survive an app restart.
+- Desktop: when a machine is slow to start following a folder, the Files
+  tab reads it directly instead of showing that the session subscription
+  did not answer in time.
+- Desktop: the time on each project card and the Recent activity order
+  now agree.
+- Desktop: the usage pill at the top no longer keeps Claude's plan percentages
+  from an earlier run while Codex's numbers update. Claude's current numbers
+  replace the old ones as soon as a machine reads them.
+- Desktop: a coding agent's reply in the notifications pane renders
+  its markdown (bold, italic, code) on up to two lines instead of
+  showing raw marks or HTML such as `<br>`.
+- Desktop: system notifications show the reply as plain text.
+- Desktop: opening a session no longer narrows the conversation a
+  moment after it shows. The files pane was first sized for a
+  narrower window and then widened, so a conversation you already
+  scrolled now keeps its place.
+- Desktop: starting another app build no longer disrupts a running frontend watcher.
+- Desktop: a file link in a reply from a session working in a subfolder
+  of a repository now opens in the file pane when the file is in a
+  worktree at the repository's top, such as `.worktrees/fix/...`.
+  Before, the pane looked only in the session's folder and failed.
+- Desktop: device streaming keeps video and touch input moving independently, without losing drawing acknowledgements under input load.
+- Desktop: the project bar's machine menu lists an online machine that
+  has a checkout and a coding agent even when it reported itself while
+  the bar was off screen, such as right after the app restarts.
+- Desktop: a coding agent session started in a terminal outside Beep now
+  shows as ended as soon as its process exits, so you can continue it in
+  Beep right away. Before, it showed as running outside Beep for up to
+  three minutes.
+- Desktop: the Fast mode switch in the picker under Work on it and the
+  other agent buttons shows as a switch again, instead of a stray dot
+  in the corner.
+- Desktop (macOS): an expanded diagram or picture opened from the attachments
+  window no longer puts its title under the close, minimize and zoom buttons.
+- Desktop: resumed Claude sessions recover available earlier messages from native history.
+- Desktop: fixing a failed workflow run that a tag started, such as a
+  release, now starts the agent on a new branch from that tag. Before,
+  it failed because no branch had the tag's name.
+- Desktop: the spinner on the plan line above the composer is a small circle again instead of a stretched slash.
+- Desktop: the rows in the machine and harness steps of the picker under
+  Work on it and the other agent buttons light up when pointed at.
+- Desktop: the session title in a chat header ends where its text ends, so pointing at or double-clicking the empty bar beside it no longer starts a rename.
+- Desktop: with an HTML preview focused in the session pane, Cmd+1 leaves
+  the zoomed pane and focuses the message field, and Cmd+W closes the tab,
+  as they do elsewhere. Cmd+2 to Cmd+9 also switch tabs.
+
+### Performance
+
+- Desktop: Git sync between machines sends only the commits the other machine
+  is missing, instead of the whole history for each new branch. A repository
+  that grew to tens of gigabytes from repeated copies stays its normal size.
+- Desktop: only the default branch and the branch checked out on each machine
+  sync. Agent worktree branches stay on the machine that made them. A branch
+  that both machines have fast-forwards while it is checked out on the
+  machine that made the commits.
+- Desktop: builds compile fewer dependencies.
+- Desktop: source builds compile fewer dependencies while retaining device control, Git sync, and TypeScript plugins.
+- Desktop: the app no longer reads every transcript over the mesh to build
+  its own index, which saves data and battery.
+- Desktop: source builds compile fewer dependencies while preserving app features.
+- Desktop: regular builds omit resource profiling dependencies; build with the `resource-profiling` feature and enable profiling at runtime to use it.
+- Desktop: opening a session loads only the newest entries that fit the
+  window, plus a few more, instead of the last 200. It loads with less
+  data. Older entries still load as you scroll up.
+- Desktop: sessions appear faster when listing local and remote agents.
+- Desktop: Git sync and the branch views keep each repository open between
+  reads instead of loading its pack indexes again on every scan, which uses
+  less CPU and battery.
+
 ## [0.9.25] - 2026-11-16
 
 ### Added
