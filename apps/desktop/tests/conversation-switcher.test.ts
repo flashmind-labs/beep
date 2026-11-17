@@ -2,7 +2,7 @@ import { answers, calls } from "./dom-env.ts";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import assert from "node:assert/strict";
-import { ConversationHistory, conversationKey, conversationState, firstConversation, conversationScope, groupConversations, nextConversation, retitle } from "../src/agents/conversation-state.ts";
+import { ConversationHistory, conversationKey, conversationState, firstConversation, groupConversations, isConversationKey, nextConversation, retitle } from "../src/agents/conversation-state.ts";
 import { initConversationSwitcher } from "../src/agents/conversation-switcher.tsx";
 import type { AgentRow } from "../src/agents/agents.ts";
 
@@ -72,11 +72,10 @@ test("the first press passes over the current conversation's subagents", () => {
   assert.equal(firstConversation(rows, -1, false), 0);
 });
 
-test("Option+Tab cycles every conversation and Ctrl+Tab the project's, excluding other modifiers and composition", () => {
+test("Option+Tab accepts reverse cycling but excludes other modifiers and composition", () => {
   const key = { key: "Tab", altKey: true, ctrlKey: false, metaKey: false, isComposing: false };
-  assert.equal(conversationScope(key), "all");
-  assert.equal(conversationScope({ ...key, altKey: false, ctrlKey: true }), "project");
-  for (const extra of [{ altKey: false }, { ctrlKey: true }, { metaKey: true }, { isComposing: true }, { key: "Enter" }]) assert.equal(conversationScope({ ...key, ...extra }), null);
+  assert.ok(isConversationKey(key));
+  for (const extra of [{ altKey: false }, { ctrlKey: true }, { metaKey: true }, { isComposing: true }, { key: "Enter" }]) assert.ok(!isConversationKey({ ...key, ...extra }));
 });
 
 test("holding cycles without actions, release opens once, Escape and blur cancel, and closed rows do not reopen", async () => {

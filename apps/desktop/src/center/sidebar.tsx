@@ -28,7 +28,7 @@ import { currentLocation, go, drawTop, windowProject } from "./views.tsx";
 import { groupMenu } from "../project/groups.tsx";
 import { fsync, redrawProjects, redrawProjectsPage } from "../project/sections.ts";
 import { conflictList } from "../project/filesync.ts";
-import { prefetchOnHover, projectRail, sessionsDue } from "../project/loads.tsx";
+import { prefetchOnHover, projectRail, railSessions, sessionsDue } from "../project/loads.tsx";
 import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import { drawProjects } from "../project/page.tsx";
 import { refresh } from "./refresh.ts";
@@ -103,10 +103,25 @@ roomy.addEventListener("change", drawRail);
 /// room for both beside it, or the sidebar again. Their reads redraw only this.
 export function drawRail() {
   const rail = currentLocation()?.view === "pane" && !onPhone() && !windowProject && roomy.matches ? projectHere()?.project ?? null : null;
-  const current = AG.open && !AG.draft ? runningKey({ machine_id: AG.open.machine_id, id: AG.open.session }) : null;
   setRail(rail);
-  placeWindowParts({ rail: rail && projectRail(rail, current) });
+  placeWindowParts({ rail: rail && projectRail(rail, openKey()) });
 }
+
+/// The running key of the session on screen; null for a draft or none.
+const openKey = () => AG.open && !AG.draft ? runningKey({ machine_id: AG.open.machine_id, id: AG.open.session }) : null;
+
+// ⌃Tab in a project's session opens the next of its running sessions, in the rail's order and
+// round to the first; ⌃⇧Tab the one before. A side pane with focus takes it for its tabs first.
+document.addEventListener("keydown", e => {
+  if (e.key !== "Tab" || !e.ctrlKey || e.altKey || e.metaKey || e.isComposing || currentLocation()?.view !== "pane") return;
+  const project = projectHere()?.project, running = project ? railSessions(project)?.running ?? [] : [];
+  if (!running.length) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const at = running.findIndex(row => runningKey(row) === openKey());
+  const next = at < 0 ? (e.shiftKey ? running.length - 1 : 0) : (at + (e.shiftKey ? -1 : 1) + running.length) % running.length;
+  if (next !== at) go("pane", { agent: running[next] });
+}, true);
 
 export function drawSide() {
   const home = state.home, location = currentLocation()?.view;
