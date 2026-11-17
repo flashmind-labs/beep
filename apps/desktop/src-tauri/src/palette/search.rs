@@ -91,7 +91,7 @@ fn entries(
         .iter()
         .map(|session| ((session.machine_id.as_str(), session.id.as_str()), session))
         .collect();
-    found.sort_by(|a, b| b.hit.activity.cmp(&a.hit.activity));
+    found.sort_by_key(|found| std::cmp::Reverse(found.hit.activity));
 
     found
         .iter()
