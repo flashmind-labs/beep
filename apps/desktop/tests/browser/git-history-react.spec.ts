@@ -756,7 +756,7 @@ test("review picker remains usable through diff refresh and closes with Escape",
   const review = page.getByRole("button", { name: "Review with agent" });
   await expect(review).toBeEnabled();
   await review.click();
-  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker).toBeVisible();
   // The picker places itself as it opens, next to its button.
   const placed = await page.locator(".dv-fbw .agc-pick").evaluate(element => element instanceof HTMLElement ? [element.style.top, element.style.left] : []);
@@ -785,10 +785,10 @@ test("closing a diff removes the review picker's keyboard handler", async ({ pag
   await open("notice-one");
   await page.getByRole("tab", { name: "Changes", exact: true }).click();
   await page.getByRole("button", { name: "Review with agent" }).click();
-  await expect(page.getByRole("dialog", { name: "Machine, harness, model and thinking" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toBeVisible();
   await page.evaluate(() => document.addEventListener("keydown", event => { if (event.key === "Escape") document.body.dataset.escapeReached = "yes"; }));
   await open("notice-two");
-  await expect(page.getByRole("dialog", { name: "Machine, harness, model and thinking" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.locator("body")).toHaveAttribute("data-escape-reached", "yes");
 });
@@ -822,7 +822,7 @@ test("a pending review picker does not open after its diff closes", async ({ pag
     await page.evaluate(async url => { await import(url); }, pickerUrl);
     await page.keyboard.press("Escape");
     await expect(page.locator("body")).toHaveAttribute("data-escape-reached", "yes");
-    await expect(page.getByRole("dialog", { name: "Machine, harness, model and thinking" })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toHaveCount(0);
   } finally { release(); }
 });
 

@@ -24,7 +24,6 @@ test("a phone picks a model while typing in an agent conversation", async ({ pag
   await page.locator("#agmsg").fill("Draft");
   await page.locator("#agmodelb").tap();
   await page.locator('[data-agmo="test-model"]').tap();
-  await page.locator('[data-age=""]').tap();
   await expect(page.locator("#agmodelb")).toContainText("Test model");
   await expect(page.locator("#agmsg")).toHaveValue("Draft");
 });

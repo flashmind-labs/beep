@@ -27,6 +27,8 @@ test("workflow run retains focus while details update", async ({ page }) => {
   await page.getByRole('menuitem', { name: 'Fix this' }).click();
   await expect(page.getByRole('textbox', { name: 'Task for a coding agent' })).toHaveValue(/Build/);
   await page.getByRole('button', { name: 'Fix this' }).click();
+  await page.getByRole('dialog', { name: 'Machine, harness, model and thinking' }).locator('[data-agmachine="build-box"]').click();
+  await page.getByRole('dialog', { name: 'Machine, harness, model and thinking' }).locator('[data-agh]:not(:disabled)').first().click();
   await page.getByRole('dialog', { name: 'Machine, harness, model and thinking' }).locator('[data-agmo="alpha"]').click();
   await page.getByRole('dialog', { name: 'Machine, harness, model and thinking' }).locator('[data-age=""]').click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'agent_begin').length)).toBe(1);

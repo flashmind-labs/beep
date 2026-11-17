@@ -497,7 +497,7 @@ test("settings assistant", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Settings" });
   await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
   await dialog.locator("#assistantSetting").getByRole("button").click();
-  await expect(page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).getByText("Example Model B")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" }).getByText("Example Model B")).toBeVisible();
   await baseline(page, "settings-assistant");
 });
 
@@ -973,8 +973,7 @@ test("settings codex fast thinking", async ({ page }) => {
   const settings = page.getByRole("dialog", { name: "Settings" });
   await settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
   await settings.locator("#assistantSetting").getByRole("button").click();
-  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
-  await picker.locator('[data-agstep="thinking"]').click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker.getByRole("button", { name: "Ultra", exact: true })).toBeVisible();
   await expect(picker.getByRole("button", { name: "None", exact: true })).toHaveCount(0);
   const fast = picker.getByRole("switch", { name: "Fast mode", exact: true });

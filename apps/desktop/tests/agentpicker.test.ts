@@ -89,7 +89,7 @@ test("Retry reloads immediately, stays open and preserves the model selection", 
     render: view => root.render(view),
     picked: { agent: "codex", model: "model-a", effort: null, fast: null, query: "" },
     offered: ["codex"], everywhere: ["codex"], machine: { id: "picker-host", name: "build-box" },
-    noMachine: "Pick a machine.", machines: null, anchor: () => null, changed: () => {},
+    noMachine: "Pick a machine.", steps: null, anchor: () => null, changed: () => {},
   };
   answers.agent_models = null;
   preloadModels([{ machine_id: "picker-host", agents: ["codex"] }]);

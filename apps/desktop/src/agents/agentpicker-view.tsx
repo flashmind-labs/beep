@@ -11,12 +11,8 @@ import { useDialogRef } from "../ui/parts.tsx";
 interface PickerProps {
   picked: Picked;
   model: ModelInfo | null;
-  /// The picked model's name, for its step.
-  modelName: string;
   offered: readonly string[];
   everywhere: readonly string[];
-  /// The machines the Machine step lists; null where the machine is fixed.
-  machines: readonly MachineRow[] | null;
   machineName: string | null;
   machineId: string | null;
   rows: readonly PickRow[];
@@ -25,16 +21,24 @@ interface PickerProps {
   failed: boolean;
   onRetry: () => void;
   onQuery: (query: string) => void;
-  onMachine: (id: string) => void;
   onAgent: (agent: string) => void;
   onModel: (row: PickRow) => void;
   onEffort: (effort: string | null) => void;
   onFast: (fast: boolean) => void;
-  /// The last step was answered: the pick is whole.
-  onDone: () => void;
   /// The pill the picker opens from.
   anchor: () => HTMLElement | null;
   search: RefObject<HTMLInputElement | null>;
+}
+
+/// The stepped picker's props: the plain picker's, with the Machine step,
+/// the picked model's name and the end of the last step.
+interface StepPickerProps extends PickerProps {
+  modelName: string;
+  /// The machines the Machine step lists; null where the machine is fixed.
+  machines: readonly MachineRow[] | null;
+  onMachine: (id: string) => void;
+  /// The last step was answered: the pick is whole.
+  onDone: () => void;
 }
 
 /// The picker's steps, in the order it asks them.
@@ -97,73 +101,116 @@ export function AgentPillContent({ agent, detail }: { agent: string; detail: str
   return <><HarnessIcon agent={agent}/>{detail}<Icon name="caretDown" size={12} /></>;
 }
 
-/// The picker asks one step at a time: the machine where it can change,
-/// the harness where there is a choice, the model, then the thinking level.
-/// It opens on the model with the rest filled in; a step above goes back.
-export function AgentPicker({ picked, model, modelName, offered, everywhere, machines, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onMachine, onAgent, onModel, onEffort, onFast, onDone, anchor, search }: PickerProps) {
+export function AgentPicker({ picked, model, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, onFast, anchor, search }: PickerProps) {
   const name = agentKind(picked.agent).name;
   const levels = effortsOf(picked.agent).filter(level => !model?.efforts?.length || model.efforts.includes(level.value));
-  const steps: Step[] = [...(machines ? ["machine" as const] : []), ...(machines || offered.length > 1 ? ["harness" as const] : []), "model", ...(thinks(picked.agent) ? ["thinking" as const] : [])];
-  const [step, setStep] = useState<Step>(machines && !machineId ? "machine" : "model");
   // The highlighted row is kept by its model, so a list that streams in
   // keeps it where it still shows; another harness or machine starts over.
   const [lit, setLit] = useState<Lit | null>(null);
   const highlight = lit === null ? -1 : rows.findIndex(row => rowKey(row) === lit.key);
   useLayoutEffect(() => { setLit(null); }, [machineId, picked.agent]);
-  const body = useRef<HTMLDivElement>(null);
-  // Each step takes the keys as it shows, so ⇧⌘M and typing picks a model.
+  // The search takes the keys as the picker opens, so ⇧⌘M and typing picks a model.
   // A phone keeps the message field focused: moving focus re-lays the page for the
   // keyboard under the placed picker.
-  useLayoutEffect(() => {
-    if (document.body.classList.contains("mobile")) return;
-    if (step === "model") search.current?.focus();
-    else (body.current?.querySelector<HTMLButtonElement>("button.on:not(:disabled)") ?? body.current?.querySelector<HTMLButtonElement>("button:not(:disabled)"))?.focus();
-  }, [search, step]);
+  useLayoutEffect(() => { if (!document.body.classList.contains("mobile")) search.current?.focus(); }, [search]);
   // The thinking level the search names, taken with the model picked.
   const effort = (rows[highlight] ?? rows[0])?.effort ?? null;
   const move = (to: number) => { const row = rows[to]; if (!row) return; setLit({ key: rowKey(row), by: "keys" }); };
-  const back = () => { const at = steps.indexOf(step); if (at > 0) setStep(steps[at - 1]); };
+  // The rows have one height, so only their number changes the picker's
+  // size, and only up to the most its unplaced height shows: past that,
+  // typing a search places it again for nothing.
+  const sized = Math.min(rows.length, Math.ceil(PICK_HEIGHT / MODEL_ROW));
+  const { node, style } = usePlacement(JSON.stringify([machineId, picked.agent, sized, note, loading, failed, levels.length]), anchor);
+  const dialog = useDialogRef(node);
+  const list = useRef<HTMLDivElement>(null);
+  return <div className="agc-pick" role="dialog" aria-label="Harness, model and thinking" ref={dialog} style={style}>
+    <div className="agc-rail">{railOf(offered, everywhere).map(item => {
+      const kind = agentKind(item.agent);
+      const title = item.enabled ? kind.name : `${kind.name} (not on ${machineName || "any machine"})`;
+      return <button key={item.agent} type="button" data-agh={item.agent} aria-pressed={item.agent === picked.agent}
+        title={title} disabled={!item.enabled} onClick={() => { setLit(null); onAgent(item.agent); }}><HarnessIcon agent={item.agent}/></button>;
+    })}</div>
+    <div className="agc-list"><div className="agc-find"><input ref={search} className="agc-search" spellCheck={false} autoComplete="off"
+      placeholder={offered.length > 1 ? "Search models…" : `Search ${name} models…`} value={picked.query} onChange={event => { setLit(null); onQuery(event.currentTarget.value); }}
+      onKeyDown={event => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          move(event.key === "ArrowDown" ? Math.min(highlight + 1, rows.length - 1) : Math.max(highlight - 1, 0));
+        } else if (event.key === "Enter" && !event.metaKey) {
+          event.preventDefault();
+          const row = rows[highlight] ?? rows[0];
+          if (row) onModel(row);
+        }
+      }}/></div>
+      <div className="agc-models" ref={list}><ModelRows rows={rows} picked={picked} chosen highlight={highlight} lit={lit} list={list} onHover={row => setLit({ key: rowKey(row), by: "pointer" })} onModel={onModel} />
+        {note && <p className="none" role="status">{loading && <><Spinner /> </>}{note}</p>}
+        {failed && <button type="button" data-agretry="" onClick={onRetry}>Retry</button>}
+      </div>
+    </div>
+    <div className="agc-think">{picked.agent === "codex" && <><h5>Fast mode<Switch label="Fast mode" on={picked.fast === true} disabled={model?.fast === false} flip={() => onFast(picked.fast !== true)} /></h5><p className="none">Higher usage.</p></>}<h5>Thinking</h5>{levels.length ? <>
+      <button type="button" data-age="" className={picked.effort ? "" : "on"} onClick={() => onEffort(null)}>Default{!picked.effort && <Check/>}</button>
+      {levels.map(level => <button key={level.value} type="button" data-age={level.value} className={picked.effort === level.value ? "on" : effort === level.value ? "hi" : ""}
+        onClick={() => onEffort(level.value)}>{level.label}{picked.effort === level.value && <Check/>}</button>)}
+    </> : <p className="none">{effortNote(name)}</p>}</div>
+  </div>;
+}
+
+/// The picker under an agent button (Work on it, Continue, Review with
+/// agent, Fix this) asks one step at a time, nothing picked for you: the
+/// machine where it can change, the harness, the model, then the thinking
+/// level, whose pick starts. A step answered shows along the top; clicking
+/// it asks it again.
+export function StepPicker({ picked, model, modelName, offered, everywhere, machines, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onMachine, onAgent, onModel, onEffort, onFast, onDone, anchor, search }: StepPickerProps) {
+  const name = agentKind(picked.agent).name;
+  const levels = effortsOf(picked.agent).filter(level => !model?.efforts?.length || model.efforts.includes(level.value));
+  const steps: Step[] = [...(machines ? ["machine" as const] : []), "harness", "model", ...(thinks(picked.agent) ? ["thinking" as const] : [])];
+  const [step, setStep] = useState<Step>(steps[0]);
+  const at = steps.indexOf(step);
+  const [lit, setLit] = useState<Lit | null>(null);
+  const highlight = lit === null ? -1 : rows.findIndex(row => rowKey(row) === lit.key);
+  useLayoutEffect(() => { setLit(null); }, [machineId, picked.agent]);
+  const body = useRef<HTMLDivElement>(null);
+  // Each step takes the keys as it shows. A phone keeps the message field
+  // focused: moving focus re-lays the page for the keyboard.
+  useLayoutEffect(() => {
+    if (document.body.classList.contains("mobile")) return;
+    if (step === "model") search.current?.focus();
+    else body.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }, [search, step]);
+  // The thinking level a search such as `opus high` names, taken with the model.
+  const effort = (rows[highlight] ?? rows[0])?.effort ?? null;
+  const move = (to: number) => { const row = rows[to]; if (!row) return; setLit({ key: rowKey(row), by: "keys" }); };
+  const back = () => { if (at > 0) setStep(steps[at - 1]); };
   const pickModel = (row: PickRow) => {
     onModel(row);
     if (row.effort !== null || !thinks(row.agent)) onDone();
     else setStep("thinking");
   };
-  // The rows have one height, so only their number changes the picker's
-  // size, and only up to the most its unplaced height shows: past that,
-  // typing a search places it again for nothing.
   const sized = Math.min(rows.length, Math.ceil(PICK_HEIGHT / MODEL_ROW));
   const { node, style } = usePlacement(JSON.stringify([step, machineId, picked.agent, sized, note, loading, failed, levels.length]), anchor);
   const dialog = useDialogRef(node);
   const list = useRef<HTMLDivElement>(null);
-  const answers: Record<Step, string> = {
-    machine: machineName ?? "None",
-    harness: name,
-    model: modelName,
-    thinking: levels.find(level => level.value === picked.effort)?.label ?? "Default",
-  };
-  return <div className="agc-pick" role="dialog" aria-label="Machine, harness, model and thinking" ref={dialog} style={style}>
-    <div className="agc-steps">{steps.map(s =>
-      <button key={s} type="button" data-agstep={s} aria-current={s === step ? "step" : undefined} onClick={() => setStep(s)}>
-        <small>{STEP_NAMES[s]}</small>{answers[s]}
+  const answers: Record<Step, string> = { machine: machineName ?? "", harness: name, model: modelName, thinking: "" };
+  return <div className="agc-pick steps" role="dialog" aria-label="Machine, harness, model and thinking" ref={dialog} style={style}>
+    <div className="agc-steps">{steps.map((s, i) =>
+      <button key={s} type="button" data-agstep={s} aria-current={s === step ? "step" : undefined} disabled={i > at} onClick={() => setStep(s)}>
+        <small>{STEP_NAMES[s]}</small>{i < at ? answers[s] : "\u00a0"}
       </button>)}
     </div>
-    <div className="agc-list" ref={body} onKeyDown={event => { if (step !== "model") stepKeys(event, back); }}>
+    <div className="agc-list" key={step} ref={body} onKeyDown={event => { if (step !== "model") stepKeys(event, back); }}>
       {step === "machine" && machines && <div className="agc-models">{machines.map(m =>
-        <button key={m.id} type="button" data-agmachine={m.id} className={m.id === machineId ? "on" : ""} disabled={!m.enabled}
-          onClick={() => { onMachine(m.id); setStep("harness"); }}>
+        <button key={m.id} type="button" data-agmachine={m.id} disabled={!m.enabled} onClick={() => { onMachine(m.id); setStep("harness"); }}>
           <span className={`ddot ${m.online ? "on" : "off"}`} />{m.name}{m.note && <small>{m.note}</small>}
         </button>)}
       </div>}
-      {step === "harness" && <div className="agc-models">{railOf(offered, everywhere).filter(item => item.enabled || everywhere.includes(item.agent)).map(item => {
-        const kind = agentKind(item.agent);
-        return <button key={item.agent} type="button" data-agh={item.agent} className={item.agent === picked.agent ? "on" : ""} disabled={!item.enabled}
-          onClick={() => { setLit(null); onAgent(item.agent); setStep("model"); }}>
-          <HarnessIcon agent={item.agent}/>{kind.name}{!item.enabled && <small>not on {machineName || "any machine"}</small>}
-        </button>;
-      })}</div>}
+      {step === "harness" && <div className="agc-models">{railOf(offered, everywhere).filter(item => item.enabled || everywhere.includes(item.agent)).map(item =>
+        <button key={item.agent} type="button" data-agh={item.agent} disabled={!item.enabled} onClick={() => { setLit(null); onAgent(item.agent); setStep("model"); }}>
+          <HarnessIcon agent={item.agent}/>{agentKind(item.agent).name}{!item.enabled && <small>not on {machineName || "any machine"}</small>}
+        </button>)}
+      </div>}
       {step === "model" && <>
         <div className="agc-find"><input ref={search} className="agc-search" spellCheck={false} autoComplete="off"
-          placeholder={offered.length > 1 ? "Search models…" : `Search ${name} models…`} value={picked.query} onChange={event => { setLit(null); onQuery(event.currentTarget.value); }}
+          placeholder={`Search ${name} models…`} value={picked.query} onChange={event => { setLit(null); onQuery(event.currentTarget.value); }}
           onKeyDown={event => {
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
@@ -177,7 +224,7 @@ export function AgentPicker({ picked, model, modelName, offered, everywhere, mac
               back();
             }
           }}/></div>
-        <div className="agc-models" ref={list}><ModelRows rows={rows} picked={picked} highlight={highlight} lit={lit} list={list} onHover={row => setLit({ key: rowKey(row), by: "pointer" })} onModel={pickModel} />
+        <div className="agc-models" ref={list}><ModelRows rows={rows} picked={picked} chosen={false} highlight={highlight} lit={lit} list={list} onHover={row => setLit({ key: rowKey(row), by: "pointer" })} onModel={pickModel} />
           {note && <p className="none" role="status">{loading && <><Spinner /> </>}{note}</p>}
           {failed && <button type="button" data-agretry="" onClick={onRetry}>Retry</button>}
         </div>
@@ -185,9 +232,9 @@ export function AgentPicker({ picked, model, modelName, offered, everywhere, mac
       {step === "thinking" && <div className="agc-think">
         {picked.agent === "codex" && <><h5>Fast mode<Switch label="Fast mode" on={picked.fast === true} disabled={model?.fast === false} flip={() => onFast(picked.fast !== true)} /></h5><p className="none">Higher usage.</p></>}
         <h5>Thinking</h5>
-        <button type="button" data-age="" className={picked.effort ? "" : "on"} onClick={() => { onEffort(null); onDone(); }}>Default{!picked.effort && <Check/>}</button>
-        {levels.map(level => <button key={level.value} type="button" data-age={level.value} className={picked.effort === level.value ? "on" : effort === level.value ? "hi" : ""}
-          onClick={() => { onEffort(level.value); onDone(); }}>{level.label}{picked.effort === level.value && <Check/>}</button>)}
+        <button type="button" data-age="" onClick={() => { onEffort(null); onDone(); }}>Default</button>
+        {levels.map(level => <button key={level.value} type="button" data-age={level.value} className={effort === level.value ? "hi" : ""}
+          onClick={() => { onEffort(level.value); onDone(); }}>{level.label}</button>)}
         {!levels.length && <p className="none">{effortNote(name)}</p>}
       </div>}
     </div>
@@ -216,9 +263,11 @@ const PICK_HEIGHT = 340;
 /// offer hundreds of models. The highlighted row scrolls into view as the
 /// arrow keys move it. The cursor highlights a row only by moving over it:
 /// one resting where the picker opens is not a choice.
-function ModelRows({ rows, picked, highlight, lit, list, onHover, onModel }: {
+function ModelRows({ rows, picked, chosen, highlight, lit, list, onHover, onModel }: {
   rows: readonly PickRow[];
   picked: Picked;
+  /// Whether the picked model is marked: the stepped picker marks none.
+  chosen: boolean;
   highlight: number;
   lit: Lit | null;
   list: RefObject<HTMLDivElement | null>;
@@ -242,7 +291,7 @@ function ModelRows({ rows, picked, highlight, lit, list, onHover, onModel }: {
       const row = rows[item.index];
       // The search field is the list's one Tab stop: a focused row would unmount as it scrolls away.
       return <button key={item.key} ref={virtual.measureElement} data-index={item.index} type="button" tabIndex={-1} data-agmo={row.value}
-        className={`${row.value === picked.model && row.agent === picked.agent ? "on" : ""}${row.value && row.agent === "flsh" ? " mono" : ""}${item.index === highlight ? " hi" : ""}`}
+        className={`${chosen && row.value === picked.model && row.agent === picked.agent ? "on" : ""}${row.value && row.agent === "flsh" ? " mono" : ""}${item.index === highlight ? " hi" : ""}`}
         style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${item.start}px)` }}
         onMouseMove={event => { if (item.index !== highlight && (event.movementX || event.movementY)) onHover(row); }}
         onClick={() => onModel(row)}>{badged && <HarnessIcon agent={row.agent}/>}{row.label}{row.note && <small>{row.note}</small>}</button>;

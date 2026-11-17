@@ -60,23 +60,17 @@ function pickerLayer(on: boolean) {
   perfLayer("picker", on);
 }
 
-/// What the open picker has picked so far, and what the session had as it opened.
-let draft: { session: string; picked: Picked; was: SessionPick } | null = null;
-
-/// The picker by the pill, for the session's own harness: the model and the
-/// thinking level picked go to the session for its next turn once both are
-/// answered; Fast mode goes at once.
+/// The picker by the pill, for the session's own harness: a model or a
+/// thinking level picked goes to the session for its next turn.
 function drawModelPicker() {
   const el = modelPickHost.current, s = AG.page?.session;
   if (!el) return;
   pickerLayer(AG.modelOpen && !!s);
-  if (!AG.modelOpen || !s) { draft = null; closedPicker(el); return; }
-  if (draft?.session !== s.id) {
-    const now = sessionPicks.get(s.id) ?? { model: "", effort: null, fast: null };
-    const was = resumePicks.get(s.id) ?? { ...now, model: AG.page?.model || now.model };
-    draft = { session: s.id, was, picked: { agent: s.agent, model: was.model, effort: was.effort, fast: was.fast, query: "" } };
-  }
-  const { picked, was } = draft;
+  if (!AG.modelOpen || !s) { closedPicker(el); return; }
+  const now = sessionPicks.get(s.id) ?? { model: "", effort: null, fast: null };
+  const pending = resumePicks.get(s.id);
+  const was = pending ? pending.effort : now.effort;
+  const picked: Picked = { agent: s.agent, model: pending?.model ?? (AG.page?.model || now.model), effort: was, fast: pending ? pending.fast : now.fast, query: "" };
   drawPicker(el, {
     render: view => { if (el.isConnected) showAgentControl("pick", view); },
     picked,
@@ -84,20 +78,15 @@ function drawModelPicker() {
     everywhere: [s.agent],
     machine: { id: s.machine_id, name: s.machine_name },
     noMachine: "",
-    machines: null,
+    steps: null,
     anchor: () => modelPill.current,
     changed: what => {
       if (what === "models") return drawModelPill();
-      const next = { model: picked.model, effort: picked.effort, fast: picked.fast };
-      // Fast mode goes at once, with what the session has: a model picked
-      // and not yet confirmed waits for the Thinking step.
-      if (what === "fast") { was.fast = picked.fast; return void switchSessionModel(s, { ...was }, "fast"); }
-      if (what !== "done") return;
-      AG.modelOpen = false;
-      drawModelPicker();
-      const model = next.model !== was.model, effort = next.effort !== was.effort;
-      if (model || effort) void switchSessionModel(s, next, model && effort ? "both" : model ? "model" : "effort");
-      else drawModelPill();
+      if (what === "agent" || what === "done") return;
+      // A search such as `opus high` picks the thinking level with the model.
+      const both = what === "model" && picked.effort !== was;
+      if (what === "model") { AG.modelOpen = false; drawModelPicker(); }
+      switchSessionModel(s, { model: picked.model, effort: picked.effort, fast: picked.fast }, both ? "both" : what);
     },
   });
 }

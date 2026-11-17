@@ -23,7 +23,6 @@ test("an imported session with an unknown model can choose before continuing", a
   await expect(page.locator("#agmodelb")).toContainText("Model unknown");
   await page.locator("#agmodelb").click();
   await page.locator('[data-agmo="test-model"]').click();
-  await page.locator('[data-age=""]').click();
   await expect(page.locator("#agmodelb")).toContainText("Test model");
   expect(await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer"))).toEqual([]);
   await page.locator("#agmsg").fill("Continue with this model");
@@ -240,8 +239,7 @@ test("fast mode alone is applied before continuing an ended session", async ({ p
   });
   await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
   await page.locator("#agmodelb").click();
-  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
-  await picker.locator('[data-agstep="thinking"]').click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await picker.getByRole("switch", { name: "Fast mode", exact: true }).click();
   await page.locator("#agmsg").click();
   await page.locator("#agmsg").fill("Continue at fast speed");

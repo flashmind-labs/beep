@@ -523,7 +523,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
     everywhere: [...new Set((pc.hosts ?? []).flatMap(m => m.agents))],
     machine: { id: host.machine_id, name: host.machine_name },
     noMachine: "",
-    machines: pc.project ? { rows: projectMachines(pc.project), pick: id => { if (pc.project) keepMachine(pc.project, id); pc.machine = id; redrawProjects(); } } : null,
+    steps: null,
     anchor: () => projectComp.harness,
     changed: what => {
       if (what !== "models") {
@@ -532,7 +532,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
         p.effort = keepEffort(p.agent, p.effort);
         keepProjectPick(pc.project, p);
       }
-      if (what === "done") { pc.open = false; redrawProjects(); return projectComp.input.focus(); }
+      if (what === "model") { pc.open = false; redrawProjects(); return projectComp.input.focus(); }
       if (what !== "models") redrawProjects();
       else if (pc.project) drawProjectComp(pc.project);
       if (what === "agent") focusSearch(el);

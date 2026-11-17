@@ -6,10 +6,8 @@ const models = { pick: "listed", current: "alpha", models: [
   { id: "alpha", name: "Alpha", description: null }, { id: "beta", name: "Beta", description: null },
 ] };
 
-/// Picks Beta under Codex, then the thinking level `effort`, or keeps the
-/// one picked with Enter.
-async function selectBeta(page: import("@playwright/test").Page, effort: string | null = null) {
-  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+async function selectBeta(page: import("@playwright/test").Page) {
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker).toBeVisible();
   const input = picker.locator(".agc-search");
   // Both harnesses list Beta: naming one keeps the search on it.
@@ -18,10 +16,6 @@ async function selectBeta(page: import("@playwright/test").Page, effort: string 
   await input.press("ArrowDown");
   await expect(picker.locator('[data-agmo="beta"]')).toHaveClass(/hi/);
   await input.press("Enter");
-  // The Thinking step comes next, its level focused.
-  await expect(picker.locator('[data-agstep="thinking"]')).toHaveAttribute("aria-current", "step");
-  if (effort === null) await page.keyboard.press("Enter");
-  else await picker.locator(`[data-age="${effort}"]`).click();
   await expect(picker).toHaveCount(0);
 }
 
@@ -44,7 +38,7 @@ test("the picker opens beside its pill, inside the window", async ({ page }) => 
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   const pill = page.locator(".cc-pjc:visible").getByTitle("Harness, model and thinking");
   await pill.click();
-  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker).toBeVisible();
   const box = await picker.boundingBox(), anchor = await pill.boundingBox(), view = page.viewportSize();
   if (!box || !anchor || !view) throw new Error("the picker and its pill are laid out");
@@ -80,18 +74,15 @@ test("new-agent picker changes harness, effort and model", async ({ page }) => {
   const keys = page.locator("#agcomposer ~ .prompt-stash-bar");
   await expect(keys).toBeVisible();
   await pill.click();
-  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker).toBeVisible();
   await expect(keys).toBeHidden();
-  // It opens on the model, the machine and harness filled in.
-  await expect(picker.locator('[data-agstep="model"]')).toHaveAttribute("aria-current", "step");
-  await expect(picker.locator('[data-agstep="machine"]')).toContainText("build-box");
-  await picker.locator('[data-agstep="harness"]').click();
   await picker.locator('[data-agh="codex"]').click();
-  await expect(picker.locator('[data-agstep="harness"]')).toContainText("Codex");
-  await selectBeta(page, "high");
+  await expect(picker.locator('[data-agh="codex"]')).toHaveAttribute("aria-pressed", "true");
+  await picker.locator('[data-age="high"]').click();
+  await expect(picker.locator('[data-age="high"]')).toHaveClass(/on/);
+  await selectBeta(page);
   await expect(pill).toContainText("Beta");
-  await expect(pill).toContainText("High");
 });
 
 test("model results preserve a typed query, caret and input identity", async ({ page }) => {
@@ -107,7 +98,7 @@ test("model results preserve a typed query, caret and input identity", async ({ 
   const pill = page.locator(".cc-pjc:visible").getByTitle("Harness, model and thinking");
   await expect(pill).toBeEnabled();
   await pill.click();
-  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   const input = picker.locator(".agc-search");
   await input.fill("codex beta");
   await input.evaluate(element => { if (element instanceof HTMLInputElement) { element.dataset.identity = "same"; element.setSelectionRange(2, 2); } });
@@ -137,7 +128,7 @@ test("delayed model results clear the previous keyboard highlight", async ({ pag
   const pill = page.locator(".cc-pjc:visible").getByTitle("Harness, model and thinking");
   await expect(pill).toBeEnabled();
   await pill.click();
-  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   const input = picker.locator(".agc-search");
   await expect(picker.locator('[data-agmo="alpha"]')).toBeVisible();
   await input.press("ArrowDown");
@@ -147,7 +138,6 @@ test("delayed model results clear the previous keyboard highlight", async ({ pag
   await expect(picker.locator('[data-agmo="beta"]')).toBeVisible();
   await expect(picker.locator(".hi")).toHaveCount(0);
   await input.press("Enter");
-  await page.keyboard.press("Enter");
   await expect(picker).toHaveCount(0);
   await pill.click();
   await expect(picker.locator('[data-agmo=""]')).toHaveClass(/on/);
@@ -160,15 +150,15 @@ test("new-agent picker can be reopened after its view is removed", async ({ page
   await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
   await openStartForm(page);
   await page.locator("#agpillb").click();
-  await expect(page.getByRole("dialog", { name: "Machine, harness, model and thinking" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toBeVisible();
   await page.evaluate(() => window.__navigation.open({ agent: {
     kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session",
     cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
   } }));
-  await expect(page.getByRole("dialog", { name: "Machine, harness, model and thinking" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toHaveCount(0);
   await openStartForm(page);
   await page.locator("#agpillb").click();
-  await expect(page.getByRole("dialog", { name: "Machine, harness, model and thinking" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -226,7 +216,7 @@ test("model search keeps its query, focus and highlight while lists stream in (#
   const pill = page.locator(".cc-pjc:visible").getByTitle("Harness, model and thinking");
   await expect(pill).toBeEnabled();
   await pill.click();
-  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   const input = picker.locator(".agc-search");
   await expect(input).toBeFocused();
   await input.evaluate(el => Reflect.set(window, "modelSearch", el));
@@ -264,7 +254,7 @@ test("model rows are no Tab stops: Tab from the search leaves the list", async (
   await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await page.locator(".cc-pjc:visible").getByTitle("Harness, model and thinking").click();
-  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   const input = picker.locator(".agc-search");
   await expect(input).toBeFocused();
   await expect(picker.locator('[data-agmo="beta"]')).toBeVisible();
@@ -280,7 +270,7 @@ test("a resting cursor highlights no model row; a moved one picks its row on Ent
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   const pill = page.locator(".cc-pjc:visible").getByTitle("Harness, model and thinking");
   await pill.click();
-  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   const beta = picker.locator('[data-agmo="beta"]');
   const box = await beta.boundingBox();
   if (!box) throw new Error("the Beta row has no box");
@@ -297,7 +287,6 @@ test("a resting cursor highlights no model row; a moved one picks its row on Ent
 
   await page.mouse.move(box.x + box.width / 2 + 6, box.y + box.height / 2 + 2, { steps: 3 });
   await expect(beta).toHaveClass(/hi/);
-  await page.keyboard.press("Enter");
   await page.keyboard.press("Enter");
   await expect(picker).toHaveCount(0);
   await expect(pill).toContainText("Beta");
@@ -322,11 +311,9 @@ test("⇧⌘M then `opus 5.5 h` and Enter picks the model and thinking across ha
   const pill = page.locator("#agpillb");
   await expect(pill).toBeEnabled();
   await page.locator("#agprompt").press(`${mod}+Shift+m`);
-  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker).toBeVisible();
-  await picker.locator('[data-agstep="harness"]').click();
   await picker.locator('[data-agh="codex"]').click();
-  // A search that names the thinking level skips the Thinking step.
   await page.keyboard.type("opus 5.5 h");
   await expect(picker.locator('[data-agmo="opus"]')).toBeVisible();
   await expect(picker.locator('[data-agmo="opus"] .cc-ag.claude')).toBeVisible();

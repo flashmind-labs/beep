@@ -832,16 +832,27 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agc-note { display: flex; gap: 8px; align-items: center; padding: 0 6px; font-size: 12.5px; color: var(--muted) }
 .agc-help { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 8px; font-size: 13px }
 .agc-help ol { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 3px }
-.agc-pick { position: fixed; top: 0; left: 0; z-index: 30; width: min(420px, calc(100vw - 16px)); box-sizing: border-box; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); box-shadow: 0 18px 50px color-mix(in srgb, var(--shade) 50%, transparent); --pick-h: 340px; max-height: var(--pick-h); overflow: hidden }
-/* The steps the picker asks, each with its answer; the one shown is underlined. */
+.agc-pick { position: fixed; top: 0; left: 0; z-index: 30; width: min(640px, calc(100vw - 16px)); box-sizing: border-box; display: grid; grid-template-columns: 58px minmax(0, 1fr) 184px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); box-shadow: 0 18px 50px color-mix(in srgb, var(--shade) 50%, transparent); --pick-h: 340px; max-height: var(--pick-h); overflow: hidden auto; scrollbar-width: thin }
+/* The picker under an agent button asks one step at a time; each slides in. */
+.agc-pick.steps { width: min(420px, calc(100vw - 16px)); display: flex; flex-direction: column; overflow: hidden }
+.agc-pick.steps .agc-list { flex: 1; min-height: 0; padding-top: 6px; animation: agc-step .16s ease-out }
+.agc-pick.steps .agc-think { border-left: 0; padding-top: 6px; min-height: 0; max-height: none }
+.agc-list button:disabled { opacity: .45 }
+@keyframes agc-step { from { opacity: 0; transform: translateX(10px) } }
 .agc-steps { display: flex; gap: 4px; padding: 10px 10px 0; flex: none; overflow-x: auto; scrollbar-width: none }
 .agc-steps button { all: unset; cursor: default; display: grid; gap: 1px; min-width: 0; padding: 5px 9px; border-radius: var(--radius-sm); font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .agc-steps button small { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
-.agc-steps button:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
-.agc-steps button[aria-current="step"] { color: var(--fg); background: color-mix(in srgb, var(--fg) 6%, transparent); box-shadow: inset 0 -1px 0 var(--accent) }
+.agc-steps button:not(:disabled):hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
+.agc-steps button:disabled { opacity: .45 }
+.agc-steps button[aria-current="step"] { opacity: 1; color: var(--fg); background: color-mix(in srgb, var(--fg) 6%, transparent); box-shadow: inset 0 -1px 0 var(--accent) }
+.agc-rail { display: grid; align-content: start; gap: 8px; padding: 12px 11px; border-right: 1px solid var(--border); box-sizing: border-box; max-height: calc(var(--pick-h) - 2px); overflow-y: auto; scrollbar-width: none }
+.agc-rail button { all: unset; cursor: default; width: 34px; height: 34px; border-radius: var(--radius-sm); display: grid; place-items: center; position: relative }
+.agc-rail button[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent) }
+.agc-rail button[aria-pressed="true"]::after { content: ""; position: absolute; right: -9px; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent) }
+.agc-rail button[disabled] { opacity: .35; cursor: default }
+.agc-rail .cc-ag { width: 26px; height: 26px; font-size: 10px }
 .agc-list .cc-ag { width: 18px; height: 18px; font-size: 8px; flex: none }
-.agc-list { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; padding-top: 6px }
-.agc-list button:disabled { opacity: .45 }
+.agc-list { display: flex; flex-direction: column; max-height: calc(var(--pick-h) - 2px); min-width: 0 }
 .agc-find { padding: 12px 12px 8px }
 .agc-models { display: grid; align-content: start; min-width: 0; min-height: 0; flex: 1; overflow-y: auto; scrollbar-width: thin; padding-bottom: 8px; box-sizing: border-box }
 .agc-search { display: block; width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 4%, transparent); color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--accent) }
@@ -852,7 +863,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agc-list button.on { background: color-mix(in srgb, var(--accent) 14%, transparent) }
 .agc-list button small { color: var(--muted); font-size: 11.5px; margin-left: auto; overflow: hidden; text-overflow: ellipsis }
 .agc-list .none, .agc-think .none { margin: 8px 16px; font-size: 12px; color: var(--dim); line-height: 17px; display: flex; gap: 6px; align-items: center }
-.agc-think { padding: 6px 0 10px; display: grid; align-content: start; box-sizing: border-box; min-height: 0; overflow-y: auto; scrollbar-width: thin }
+.agc-think { border-left: 1px solid var(--border); padding: 14px 0 10px; display: grid; align-content: start; box-sizing: border-box; max-height: calc(var(--pick-h) - 2px); overflow-y: auto; scrollbar-width: thin }
 .agc-think h5 { margin: 0 16px 8px; font-size: 12px; font-weight: 500; color: var(--muted); display: flex; justify-content: space-between; gap: 6px }
 .agc-think [data-age] { all: unset; cursor: default; display: flex; justify-content: space-between; align-items: center; min-height: 22px; margin: 0 6px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 13px }
 :is(.agc-list [data-agretry], .agc-think [data-age]):hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
@@ -875,6 +886,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agc-menu.cols > button { grid-column: 1 / -1; grid-template-columns: subgrid }
 .agc-menu.cols > hr { grid-column: 1 / -1; width: 100% }
 .agc-menu.cols small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+@media (max-width: 520px) { .agc-pick { grid-template-columns: 48px minmax(0, 1fr) } .agc-think { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--border) } }
 /* Harness badges show each agent's own logo; OpenCode keeps letters. */
 .cc-ag.mark, .dcoderav.mark { padding: 0 }
 .cc-ag.mark svg, .dcoderav.mark svg { width: 58%; height: 58%; display: block }

@@ -47,7 +47,7 @@ export function AssistantView() {
       everywhere: offered,
       machine: machineFor(hosts, own, picked.agent),
       noMachine: "No machine is online to list models.",
-      machines: null,
+      steps: null,
       anchor: () => pill.current,
       changed: what => {
         if (what === "models") return listed(n => n + 1);
@@ -55,7 +55,7 @@ export function AssistantView() {
         setPick(next);
         setError("");
         saveAssistant(next).catch(e => setError(String(e)));
-        if (what === "done") setOpen(false);
+        if (what === "model") setOpen(false);
       },
     });
     focusSearch(el);

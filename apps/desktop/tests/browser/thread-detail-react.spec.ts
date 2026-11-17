@@ -66,6 +66,11 @@ test("Work on it picks a model under the button and starts the issue's agent at 
   await work.click();
   const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
   await expect(picker).toBeVisible();
+  // It asks the machine first, nothing picked for you.
+  await expect(picker.locator('[data-agstep="machine"]')).toHaveAttribute("aria-current", "step");
+  await expect(picker.locator('[data-agstep="model"]')).toBeDisabled();
+  await picker.locator('[data-agmachine="build-box"]').click();
+  await picker.locator('[data-agh="codex"]').click();
   await picker.locator('[data-agmo="beta"]').click();
   await picker.locator('[data-age=""]').click();
   await expect(picker).toHaveCount(0);
@@ -91,7 +96,6 @@ test("Work on it asks the machine first when the project is on several", async (
   await page.locator('.pj-det .pj-li[title="Example issue"]').click();
   await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Work on it" }).click();
   const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
-  await picker.locator('[data-agstep="machine"]').click();
   // A machine without the project's checkout is listed but cannot be picked.
   await expect(picker.locator('[data-agmachine="spare-box"]')).toBeDisabled();
   await picker.locator('[data-agmachine="gpu-box"]').click();
@@ -120,6 +124,8 @@ test("Review with agent starts a named reviewer on a pull request's branch, and 
   await page.locator(".pj-strip button").filter({ hasText: "1 PR" }).click();
   await page.locator('.pj-split:not(.gh-layout) > .pj-list .pj-li[title="Example change"] .t > b').click();
   await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Review with agent" }).click();
+  await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-agmachine="build-box"]').click();
+  await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-agh="codex"]').click();
   await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-agmo="alpha"]').click();
   await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-age=""]').click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").length)).toBe(1);
@@ -138,6 +144,8 @@ test("Review with agent starts a named reviewer on a pull request's branch, and 
   await page.locator(".pj-strip button").filter({ hasText: "1 PR" }).click();
   await page.locator('.pj-split:not(.gh-layout) > .pj-list .pj-li[title="Example change"] .t > b').click();
   await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-agmachine="build-box"]').click();
+  await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-agh="codex"]').click();
   await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-agmo="alpha"]').click();
   await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-age=""]').click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").length)).toBe(2);

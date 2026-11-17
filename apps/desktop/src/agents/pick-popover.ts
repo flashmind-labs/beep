@@ -94,7 +94,7 @@ export function pickPopover(o: PickPopoverOpts): PickPopover {
       everywhere: o.everywhere(),
       machine: { id: machine.id, name: machine.name },
       noMachine: "",
-      machines: machinesStep(),
+      steps: { machines: machinesStep() },
       anchor: () => currentButton,
       changed: what => {
         if (what === "done") { close(); o.draw(true); o.start(); return; }
