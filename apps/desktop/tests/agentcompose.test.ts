@@ -569,12 +569,13 @@ for (const back of ["agents", { view: "projects", arg: { project: "acme/widget",
   });
 }
 
-// Keep navigation real while replacing the window's destination renderer.
+// Keep navigation real while replacing the window's destination renderer: a closed
+// session opens its project, whatever page it was opened from.
 function closeDestination(t: test.TestContext, from: BackTo = { view: "home", arg: null }) {
   const previous = windowHooks;
   connectWindow({
-    goBack(target: BackTo) { assert.deepEqual(target, from); S.view = "agents"; },
-    sessionProject() { return { label: "widget", name: "acme/widget", open() { assert.fail("should return to the previous page"); } }; },
+    goBack() { assert.fail("should open the session's project"); },
+    sessionProject() { return { label: "widget", name: "acme/widget", open() { S.view = "agents"; } }; },
   } as unknown as WindowHooks);
   AG.back = from;
   t.after(() => connectWindow(previous!));
@@ -598,7 +599,7 @@ test("a refused background close shows an error without reopening the session", 
 });
 
 for (const from of [{ view: "home", arg: null }, { view: "projects", arg: { project: "acme/widget", tile: "running" } }, { view: "pane", arg: "agents" }] satisfies BackTo[]) {
-  test(`Cmd+Shift+W returns to ${from.view} immediately and a late reply leaves another page alone`, async t => {
+  test(`Cmd+Shift+W from a session opened from ${from.view} opens its project at once, and a late reply leaves another page alone`, async t => {
     const page = openSession("idle");
     page.session.id = AG.open!.session = `close-from-${from.view}`;
     closeDestination(t, from);
@@ -622,7 +623,7 @@ for (const from of [{ view: "home", arg: null }, { view: "projects", arg: { proj
   });
 }
 
-test("closing a child session returns to its previous page instead of opening its parent", async t => {
+test("closing a child session opens its project instead of its parent", async t => {
   const page = openSession("idle");
   page.session.id = AG.open!.session = "close-child";
   closeDestination(t, { view: "projects", arg: { project: "acme/widget", tile: "running" } });
