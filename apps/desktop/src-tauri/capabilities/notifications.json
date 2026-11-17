@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notifications",
+  "windows": ["bar", "center", "project-*"],
+  "platforms": ["linux", "windows", "android", "iOS"],
+  "permissions": ["notification:default"]
+}

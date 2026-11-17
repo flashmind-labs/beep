@@ -1,7 +1,7 @@
 //! The desktop app: its log, login `PATH`, installed editors and updates.
 
 pub(crate) mod editors;
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "resource-profiling"))]
 pub(crate) mod energy;
 
 #[cfg(target_os = "ios")]

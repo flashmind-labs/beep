@@ -86,8 +86,12 @@ host = [
 # `beep-node update` comes with it, with what it downloads and unpacks with.
 cli = [
     "host",
+    "port-mapping",
     "dep:clap",
 ]
+
+# The desktop reuses its endpoint, which disables automatic port mapping.
+port-mapping = ["host", "iroh/portmapper"]
 
 [[bin]]
 name = "beep-node"
@@ -121,7 +125,7 @@ ignore = { workspace = true, optional = true }
 # Device frames: the emulator's pixels encoded, the simulator's measured.
 image = { workspace = true, features = ["jpeg", "png"], optional = true }
 # Port mapping and metrics: a node is reached from outside.
-iroh = { workspace = true, default-features = true, optional = true }
+iroh = { workspace = true, optional = true }
 iroh-blobs = { workspace = true, optional = true }
 irpc = { workspace = true, optional = true }
 iroh-metrics = { workspace = true, optional = true }

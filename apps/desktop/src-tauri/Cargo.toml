@@ -15,6 +15,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build.workspace = true
 
 [features]
+# Battery and process sampling, enabled at runtime by BEEP_DESKTOP_RESOURCE_METRICS.
+resource-profiling = ["dep:battery", "dep:sysinfo"]
 # Sparkle updates, for the signed builds of the release workflow.
 sparkle = ["dep:tauri-plugin-sparkle-updater"]
 
@@ -53,13 +55,12 @@ serde_bytes.workspace = true
 serde_json.workspace = true
 strum.workspace = true
 tauri = { workspace = true, features = ["wry", "dynamic-acl", "tray-icon", "image-png", "macos-private-api"] }
-tauri-plugin-notification.workspace = true
 tauri-plugin-opener.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 tracing.workspace = true
 tracing-appender.workspace = true
-tracing-subscriber = { workspace = true, default-features = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, default-features = false, features = ["fmt", "env-filter", "tracing-log", "smallvec"] }
 url.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 which.workspace = true
@@ -72,20 +73,25 @@ tokio = { workspace = true, features = ["test-util"] }
 # Desktop only: no login item or self-updater on a phone, and no embedded node.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 arboard.workspace = true
-battery.workspace = true
+battery = { workspace = true, optional = true }
 beep-mesh = { workspace = true, features = ["thumbs"] }
 beep-node = { workspace = true, features = ["host"] }
 beep-plugins.workspace = true
 # The app data folder before Tauri starts, as Tauri finds it.
 dirs.workspace = true
 image = { workspace = true, features = ["png"] }
-sysinfo = { workspace = true, features = ["system"] }
+sysinfo = { workspace = true, features = ["system"], optional = true }
 # Brotli for the bundled pages. A phone skips it: the IPA is zipped anyway.
 # macos-private-api is repeated here because the Tauri CLI checks this entry.
 tauri = { workspace = true, default-features = true, features = ["macos-private-api", "compression", "common-controls-v6", "x11", "dbus"] }
 tauri-plugin-autostart.workspace = true
-tauri-plugin-updater.workspace = true
 tauri-plugin-window-state.workspace = true
+
+[target.'cfg(not(any(target_os = "macos", target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater.workspace = true
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+tauri-plugin-notification.workspace = true
 
 # A board lane ticks as it settles on a card.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
