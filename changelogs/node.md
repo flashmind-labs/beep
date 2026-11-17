@@ -2,6 +2,65 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.17] - 2026-11-17
+
+### Added
+
+- Node: serves port forwards to the user's desktops. A desktop can reach
+  only ports on the node's own loopback, and only while the machine is
+  shared with other devices.
+- Node: a server that a session's command starts on a port after the
+  session launched now appears in the desktop's Running tab within about a
+  minute, because the node checks its sessions' ports once a minute.
+- Node: reports which large file a sync waits on and how much of it has
+  arrived, so desktops can show it.
+- Node: When a coding session's turn ends, the node counts the lines
+  added and removed in its checkout, as the Changes tab does, and sends
+  them with the session so the desktop can show them beside it.
+
+### Changed
+
+- Node: when a coding agent session moves to another machine, the note the
+  agent gets now names the machine it came from and the machine it runs on
+  now. Before, it only named the old and new folders.
+
+### Fixed
+
+- Node: on Wi-Fi networks that rewrite DNS answers, such as some hotel
+  content filters, the node could not reach any machine. Names now resolve
+  through encrypted DNS first, then the network's DNS if that fails.
+- Node: changes made by a session working in a linked worktree inside a
+  project's .worktrees folder now reach views that follow all session
+  folders. Before, those changes were dropped.
+- Node: Codex sessions show the questions Codex asks while it keeps
+  working, and send your answer back to it. The node updates the Codex
+  adapter it installed to a version that forwards them, and reinstalls an
+  installed adapter that is too old.
+- Node: a Codex question that takes your own words no longer asks for them
+  again as a separate "Additional answer or note" question.
+- Node: a coding agent session started in a terminal outside Beep now
+  shows as ended as soon as its process exits, so you can continue it in
+  Beep right away. Before, it showed as running outside Beep for up to
+  three minutes.
+- Node: coding agent updates grant Homebrew trust only to the installed formula when required, then retry the upgrade instead of hiding the failure behind the agent updater.
+- Node: image attachments no longer become conversation titles when a session has no name.
+
+### Performance
+
+- Node: on Linux, the file watch skips build output and caches
+  (target, node_modules, .venv, __pycache__, .next and similar) and
+  linked worktrees under .worktrees. Opening the Files tab on a large
+  checkout starts watching much faster and uses far fewer inotify
+  watches, so the desktop no longer reports that the session
+  subscription did not answer in time.
+- Node: a folder is watched once however many views follow it, and
+  stays watched for five minutes after the last one closes, so
+  reopening a project does not set up its file watch again.
+- Node: source builds compile fewer dependencies while retaining device control and Git sync.
+- Node: Git sync and the branch views keep each repository open between
+  reads instead of loading its pack indexes again on every scan, which uses
+  less CPU and battery.
+
 ## [0.7.16] - 2026-11-16
 
 ### Added
