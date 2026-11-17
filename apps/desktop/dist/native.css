@@ -68,7 +68,8 @@ body:not(.mobile) .cc-pjc .pill small { font-size: 12px; color: var(--dim) }
 body:not(.mobile) .cc-pjc .pill .cc-ag, body:not(.mobile) .cc-pjc.centered .pill .cc-ag { width: 16px; height: 16px; border: 0; background: none }
 body:not(.mobile) .cc-pjc.centered .agc-where .pill { font-size: 13px; color: var(--fg) }
 body:not(.mobile) .cc-pjc .row > .dbtn.quiet { width: 26px; height: 26px; min-height: 0; padding: 0; justify-content: center; color: var(--muted) }
-body:not(.mobile) .cc-pjc :is(.agc-send, .row > button[type="submit"]) { display: none }
+/* Return sends on the desktop; a touch screen has no key for it, so it keeps the button. */
+@media (pointer: fine) { body:not(.mobile) .cc-pjc :is(.agc-send, .row > button[type="submit"]) { display: none } }
 
 /* ----- Sidebar: quiet section names, and the open row filled in the text's own colour ----- */
 /* The sidebar's section labels sit on its painting, so they take the items' colour to stay readable. */

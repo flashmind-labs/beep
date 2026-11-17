@@ -3,6 +3,8 @@
 // two-finger swipe carries the page back or forward. A jump glides or snaps to its
 // place, and a list of cards scrolls a card at a time with inertia.
 
+import { isTouchDevice } from "./platform.ts";
+
 export type Move = "open" | "back" | "next";
 
 let playing: Move | null = null;
@@ -267,7 +269,7 @@ export function itemScroll() {
   let held: { list: HTMLElement; sign: number; swipes: number } | null = null;
 
   document.addEventListener("wheel", event => {
-    if (document.body.classList.contains("mobile") || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+    if (isTouchDevice() || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
     const dy = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? event.deltaY : event.deltaY * LINE_PX;
     if (Math.abs(event.deltaX) > Math.abs(dy)) return;
 

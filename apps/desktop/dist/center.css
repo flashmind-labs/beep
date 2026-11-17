@@ -1103,6 +1103,12 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
    page, Home or a project's board, has room for. The view sets its height from the cards. */
 .bd-lane.cell { overflow-y: auto; scrollbar-width: none }
 .bd-lane.cell::-webkit-scrollbar { display: none }
+/* A finger drags a cell a card at a time, in either layout (a tablet or an unfolded phone shows
+   the desktop's); a mouse or trackpad wheel does it in itemScroll. */
+@media (pointer: coarse) {
+  .bd-lane.cell { scroll-snap-type: y mandatory }
+  .bd-lane.cell > * { scroll-snap-align: start; scroll-snap-stop: always }
+}
 
 @container (max-width: 760px) {
   .bd-lanes { flex-wrap: wrap }

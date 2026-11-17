@@ -33,6 +33,11 @@ export function mobileLayout(env: LayoutEnv): boolean {
   return env.width < NARROW_PX || (env.coarse && env.width < TOUCH_PX);
 }
 
+/// Whether the main pointer is a finger, as on a phone or tablet.
+export function isTouchDevice(): boolean {
+  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+}
+
 /// The app runs on a phone (Tauri mobile). The Rust side may set
 /// `window.__BEEP_PHONE__` before the page loads; otherwise the user agent says.
 export function onPhone(): boolean {
