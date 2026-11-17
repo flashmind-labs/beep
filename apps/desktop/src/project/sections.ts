@@ -99,11 +99,13 @@ onMoves(() => redrawProjects());
 onClosing(() => redrawProjects());
 
 export function redrawProjects() {
-  if (currentLocation()?.view === "projects") drawProjects();
+  const view = currentLocation()?.view;
+  if (view === "projects") return drawProjects();
+
   // The project's sessions beside one of them show its card.
-  else if (currentLocation()?.view === "pane") drawRail();
+  if (view === "pane") drawRail();
   // The empty agent view has the same bar.
-  else if (AG.draft && barOn(AG.draft)) drawProjectComp(AG.draft);
+  if (AG.draft && barOn(AG.draft)) drawProjectComp(AG.draft);
 }
 
 /// The project's sessions with their latest status and reported worktree.

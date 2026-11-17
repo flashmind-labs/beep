@@ -268,3 +268,23 @@ test("⇧⌘M in the project task field opens and closes the model picker", asyn
   await page.keyboard.press(key);
   await expect(harness).toHaveAttribute("aria-expanded", "false");
 });
+
+test("⇧⌘M and the pill open the model picker in a project's new conversation", async ({ page }, info) => {
+  await openDesktop(page, false, { agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }] });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await expect(page.locator(".pj-strip")).toBeVisible();
+  const modifier = info.project.name === "Windows" ? "Control" : "Meta";
+  await page.keyboard.press(`${modifier}+n`);
+  await expect(page.locator("#agdraft textarea")).toBeFocused();
+  const harness = page.locator('#agdraft button[title="Harness, model and thinking"]');
+  await expect(harness).toBeEnabled();
+
+  await page.keyboard.press(`${modifier}+Shift+m`);
+  await expect(harness).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("#agdraft .pick .agc-search")).toBeVisible();
+  await page.keyboard.press(`${modifier}+Shift+m`);
+  await expect(harness).toHaveAttribute("aria-expanded", "false");
+
+  await harness.click();
+  await expect(page.locator("#agdraft .pick .agc-search")).toBeVisible();
+});
