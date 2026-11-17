@@ -7,7 +7,7 @@ import { type AgentRow, type AgentPage, type OpenAgent, AG, AGENT_ACTIVE, where 
 import { drawAgentBody } from "./logview.tsx";
 import { disposeQueue } from "./messages.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
-import { joinRuns } from "./older-state.ts";
+import { joinRuns, viewRead } from "./older-state.ts";
 import { readFailed } from "./reconnect-state.ts";
 import { applyAgentPage, heldPage, isOpen, pollAgent } from "./session.tsx";
 import { paneShown } from "../ui/active.ts";
@@ -40,7 +40,7 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
   open: (o, id, receive) => {
     const onEvent = new Channel<FeedUpdate>();
     onEvent.onmessage = receive;
-    return invoke<void>("agent_follow", { ...where(o), id, last: 200, after: transcripts.get(transcriptKey(o))?.cursor ?? null, onEvent });
+    return invoke<void>("agent_follow", { ...where(o), id, last: viewRead(window.innerHeight), after: transcripts.get(transcriptKey(o))?.cursor ?? null, onEvent });
   },
   close: id => { void invoke("agent_unfollow", { id }).catch(e => console.warn("session detach:", e)); },
   unfollowed: o => { offScreen.delete(transcriptKey(o)); },

@@ -317,7 +317,7 @@ export async function pollAgent(readNow = false) {
   void tracked("processes", readRunning());
 
   try {
-    const page = await tracked("view", invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST) }, AGENT_READ_WAIT_MS));
+    const page = await tracked("view", invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST, window.innerHeight) }, AGENT_READ_WAIT_MS));
 
     if (still()) {
       // A push received while this fallback read ran is newer than its reply.
