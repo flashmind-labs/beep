@@ -2,6 +2,294 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.0] - 2026-11-17
+
+### Added
+
+- Node: on a Windows machine, Codex, Gemini CLI, pi, flsh, Hermes and
+  OpenCode installed in a WSL distribution now run as that machine's
+  agents when Windows lacks them, as Claude Code already did. They need
+  their ACP adapter or npx installed inside WSL.
+- Node: sessions that coding agents ran inside WSL now show in Beep's
+  session lists and transcripts, under their Windows folders.
+- Node: keeps a search index of the prompts and agent replies in the
+  sessions of its project folders. It reads the agents' own files on that
+  machine.
+- Node: stream supported device video using native H.264 capture, with JPEG fallback.
+- Node: serves port forwards to the user's desktops. A desktop can reach
+  only ports on the node's own loopback, and only while the machine is
+  shared with other devices.
+- Node: a server that a session's command starts on a port after the
+  session launched now appears in the desktop's Running tab within about a
+  minute, because the node checks its sessions' ports once a minute.
+- Node: reports which large file a sync waits on and how much of it has
+  arrived, so desktops can show it.
+- Node: When a coding session's turn ends, the node counts the lines
+  added and removed in its checkout, as the Changes tab does, and sends
+  them with the session so the desktop can show them beside it.
+- Node: Codex fast mode and all available thinking levels.
+- Node: beep-node can replace a text file in a working folder when the
+  desktop's editor saves it, keeping the file's permissions. Older nodes
+  refuse this, so update the node to save edits.
+- Node: assistant chats get instructions for being the Beep assistant and
+  project tools: `projects_hosts` lists Git hosts, `projects_create` creates
+  a project (private repository unless asked), `projects_clone` clones a URL,
+  `projects_found` lists the projects found on your machines and
+  `projects_import` imports them.
+- Node: the project tools need a desktop to be online. Agents that the
+  assistant starts do not get them.
+- Node: an assistant chat stays one after beep-node restarts. A chat moved
+  to another machine keeps its title, model and thinking level.
+- Node: on a Windows machine without Claude Code installed on Windows,
+  the node now runs the Claude Code installed in a WSL distribution as
+  that machine's Claude Code. Sessions work on the project's Windows
+  folder, seen from WSL under `/mnt/`. The machine's Claude Code sign-in
+  is passed into WSL, and Beep tools work there. The WSL distribution no
+  longer needs to be added as a separate machine.
+- Node: with a Meshy API key saved, coding agents can animate, retexture,
+  remesh, convert, resize, UV unwrap, split and prepare 3D models for
+  printing, and make reliefs and Meshy images.
+- Node: moving a session reports to the desktop when the project folder on
+  the source machine has uncommitted edits. Those edits stay on the source
+  machine. Only the session and the worktrees it made move.
+- Node: a session's plan steps carry when they started and ended, so the
+  apps can show each step's subagents.
+- Node: Claude Code can run directly on the `claude` CLI instead of the npm
+  ACP adapter, when its harness is set to Direct. Prompts, streamed text and
+  thinking, tool calls, tool permission prompts, plan approval, Claude's
+  questions (shown as forms when the app supports them), model and mode
+  changes, stopping a turn, and resuming a session with its history all work.
+  Claude Code also runs on a machine that has its CLI but neither its ACP
+  adapter nor Node.js/npx, through the node's own Direct driver.
+- Node: coding agents can rig a textured humanoid 3D model so it can be animated, optionally remeshing it and setting its height. The `model_3d` tool's new `rig` action needs a saved Meshy API key, takes a GLB from the session folder or an HTTP(S) URL, and saves the rigged GLB in the session's working folder.
+- Node: a Mac node lists the iPhones and iPads plugged into it, so they
+  appear in the Device tab and to agents. The screen, app installs and
+  app launches work as on the desktop. Taps, typing and buttons are not
+  available yet.
+- Windows: the node runs the WSL machines it added only while Beep may use
+  the computer. It leaves one alone when another Beep on the PC already
+  runs it. If you stop WSL, for example with `wsl --shutdown`, the node
+  waits until the machine is turned on again or the node restarts. A
+  distribution removed from WSL is forgotten.
+- WSL: a node running in WSL is named after its distribution and the
+  Windows PC, such as Ubuntu on gpu-box.
+- Node: when an agent sends files to another machine, the sending node reports
+  how many bytes the receiving machine has fetched. The agent session shows
+  this as progress on the running `files` tool call, updated about once a
+  second.
+- Node: agents read a device's newest log lines with the `device` tool's
+  `logs` action: logcat for Android phones and emulators, the last five
+  minutes of an iOS simulator's log, with an optional filter and line count.
+- Node: the `device` tool's `ui` action lists what the screen shows, each
+  element's label, id and where to tap it, for Android devices and iOS
+  simulators.
+- Node: the `device` tool installs an APK or `.app` already on the device's
+  machine (`install`), starts an app or opens a link (`launch`), and stops an
+  Android app and clears its data (`reset`).
+- Node: desktops can follow the machine's phones and hear when one connects.
+- Node: when a coding agent sends a Beep problem report, the approval
+  offers "Send and open issue". It also opens a public GitHub issue
+  with your signed-in `gh` account. The issue carries the description,
+  the report reference and the versions, but no logs. The agent gets
+  the issue link back.
+- Node: coding agents read Beep's status and logs first, and offer a
+  problem report when Beep itself fails.
+- Node: an Android phone connected to the machine over adb, by USB or
+  wireless debugging once debugging is allowed on the phone, is listed with
+  the machine's devices. The Device tab and agents' `device` tool show its
+  screen and tap, swipe, type and press keys on it. A phone cannot be booted
+  or shut down from Beep.
+- Node: the machine tells desktops when adb sees a phone or emulator connect
+  or disconnect, so the device list updates without waiting for a refresh.
+
+### Changed
+
+- Node: updates initiated from Beep follow Developer mode.
+- Node: desktop controllers without hosting remain mesh controllers and no longer appear as coding agent or file hosts, or as phones.
+- Node: agents share Cargo build artifacts across linked worktrees.
+- Node: a Windows node no longer installs or runs beep-node inside WSL.
+  WSL machines added earlier stop running and can be removed from Machines.
+- Node: Agents are instructed to use image content and the request when titling sessions, while preserving explicit titles.
+- Node: when a coding agent session moves to another machine, the note the
+  agent gets now names the machine it came from and the machine it runs on
+  now. Before, it only named the old and new folders.
+- Node: an agent on a node can now read every machine's status, logs and
+  metrics and include them in a problem report, as an agent on a desktop
+  can. Before, a node refused these requests from another node, so the
+  beep_logs, beep_status, beep_metrics and report tools only covered that
+  node. Machines still on an older node release keep refusing until they
+  update.
+- Node: when a coding agent session moves to another machine, the note the
+  agent gets now names the machine it came from and the machine it runs on
+  now. Before, it only named the old and new folders.
+- Node: `beep-node mesh join` accepts the short `beepjoin3` ticket. The
+  older `beepjoin2` ticket still works, but desktops no longer make it.
+- Node: Beep now keeps every project it excludes from Syncthing in one `// Beep project files` block in the shared folder's ignore file, not one block per project. Old blocks merge on the next change.
+- Node: session history metadata is available in pages.
+- Node: `beep-node mesh join` with a fresh ticket brings a removed node
+  back into the mesh.
+- Node: moving a session no longer waits for every file of the project.
+  The target waits until its checkout is at the same commit as the
+  source's.
+- Node: the worktrees a session created move with it, including their
+  branch, commits and uncommitted changes. Other worktrees stay where
+  they are. The source keeps its copy of a moved worktree, detached from
+  the branch.
+- Node: a Claude Code session shows its task list as the session's plan
+  again. Claude Code had its task tools off on recent models.
+- Node: with Project sync on, adds the Syncthing ignore rule for each
+  project in one of its shares unless the project chose Syncthing.
+- Node: a node gives a problem report its whole log for the chosen period,
+  instead of the newest 1 MiB.
+- Node: a problem report can be up to 95 MiB, up from 5 MiB, and a large
+  one gets more time to upload.
+- Node: the Beep tools for coding agents now have one tool per action, such as `list_machines`, `remote_run`, `remote_run_status`, `send_files`, `start_agent`, `device_tap`, `beep_logs`, `generate_image`, `generate_3d`, `rig_3d` and `list_models`. Each tool takes only its own arguments, so agents mix up arguments less often.
+- Node: the `plugins` tool is removed, so coding agents can no longer list, create or call Beep plugins.
+- beep-node: the log says where a failed incoming connection came from:
+  its address, or its endpoint id when it came through a relay. Warnings
+  for an incoming connection name its protocol and machine.
+
+### Fixed
+
+- Node: minor release notes now include changes from preceding patch releases, even without pending entries.
+- Node: resumed Claude sessions recover available earlier messages from native history.
+- Node: an interrupted Git transfer no longer leaves half-written pack files
+  in `.git`. A stalled transfer gives up after 30 seconds of silence instead
+  of waiting five minutes. Git packs its objects together once many have
+  arrived.
+- Node: a machine with a very long system journal answers status checks
+  at once, so beep_status no longer shows it as not answering.
+- Node: a resumed session shows its added and removed line counts
+  right away after a restart, not after its next turn ends.
+- Node: file paths in a WSL session's tool calls and diffs now read as
+  Windows paths, so they open.
+- Node: setting up a call to a disconnected machine times out after one
+  15-second wait and explains that the request was not sent.
+- Node: Linux and Windows packages build successfully for releases.
+- Node: delegated agents and their status appear in flsh sessions when the harness reports them.
+- Node: an agent that starts a helper agent is now told to stop the helper
+  with `stop_agent` once it no longer needs it. Finished helpers used to stay
+  open and listed as running until the agent that started them ended.
+- Node: device streaming paces frames consistently and keeps touch input responsive when video writes are blocked.
+- Node: Codex sessions show the questions Codex asks while it keeps
+  working, and send your answer back to it. The node updates the Codex
+  adapter it installed to a version that forwards them, and reinstalls an
+  installed adapter that is too old.
+- Node: a Codex question that takes your own words no longer asks for them
+  again as a separate "Additional answer or note" question.
+- Node: a coding agent session started in a terminal outside Beep now
+  shows as ended as soon as its process exits, so you can continue it in
+  Beep right away. Before, it showed as running outside Beep for up to
+  three minutes.
+- Node: on Wi-Fi networks that rewrite DNS answers, such as some hotel
+  content filters, the node could not reach any machine. Names now resolve
+  through encrypted DNS first, then the network's DNS if that fails.
+- Node: changes made by a session working in a linked worktree inside a
+  project's .worktrees folder now reach views that follow all session
+  folders. Before, those changes were dropped.
+- Node: Codex sessions show the questions Codex asks while it keeps
+  working, and send your answer back to it. The node updates the Codex
+  adapter it installed to a version that forwards them, and reinstalls an
+  installed adapter that is too old.
+- Node: a Codex question that takes your own words no longer asks for them
+  again as a separate "Additional answer or note" question.
+- Node: a coding agent session started in a terminal outside Beep now
+  shows as ended as soon as its process exits, so you can continue it in
+  Beep right away. Before, it showed as running outside Beep for up to
+  three minutes.
+- Node: coding agent updates grant Homebrew trust only to the installed formula when required, then retry the upgrade instead of hiding the failure behind the agent updater.
+- Node: image attachments no longer become conversation titles when a session has no name.
+- Node: a Claude Code turn that finished normally no longer ends with
+  "The turn did not finish" when the same step asked for the advisor
+  next to a local command. The advisor request never ran, so that turn
+  now ends normally.
+- Node: "Stop all" now ends a session's subagents even after the turn was interrupted first, instead of only cancelling the turn.
+- Node: detect when an agent moves into a linked Git worktree.
+- Node: A newly started assistant session says it is the assistant from the
+  start, so desktops and phones show it on the Assistant page.
+- Node: a message one agent session sends another with `send_to_agent`
+  reaches a working session at its next step, as a steer, instead of
+  waiting for the turn to end. Pressing Stop on that session no longer
+  deletes these messages. They go out as the next prompt.
+- Node: after a refused join on a removed node, running `beep-node mesh
+  join` again no longer fails with "this directory already belongs to a
+  mesh".
+- Node: a session past its compaction limit compacts as soon as its turn
+  ends, so the next message no longer waits behind a compaction that starts
+  only when the message is sent.
+- Node: a message sent to a session that has ended opens the session
+  again and goes to it, instead of failing with "session is no longer on
+  the machine". This covers messages held while offline and sent later.
+- Node: a skill library whose skills sit in an agent's folder, such as
+  `.claude/skills` or `.cursor/skills`, now lists those skills and they can
+  be installed. Before, the library showed 0 skills.
+- Node: in a Claude Code session run by a node, clicking the card of a
+  subagent started with the default agent opens that subagent's
+  conversation. Before, the click only expanded the card's result.
+- Node: cancelling a session move after the source machine had already
+  stopped the session now starts it again there, instead of leaving it
+  ended.
+- Node: a temporary code reviewer, started by the review tool or by
+  Review with agent, no longer appears in the Sessions list or in
+  Home's Done today lane. Its session is removed when the review ends.
+- Node: an agent that offers more than 500 models, such as flsh with several
+  providers set up, shows all of them in the model picker instead of
+  dropping the providers listed last.
+- Node: the first Git copy of a project into a folder that already has
+  files no longer fails forever with "rebuilding the git index failed" when
+  a file differs from the commit. The differing file stays as a local
+  change.
+- Node: Claude Code sessions run through a node can ask you questions now.
+  Claude Code's questions and forms from MCP servers appear in the session
+  one at a time, each with its options and a Skip option.
+- Node: while a question waits, words typed in the message box become the
+  answer. In a multiple choice question, pick several options by typing
+  their numbers, such as 1, 3.
+- Linux (including WSL 1): installing Node.js for a coding agent's adapter,
+  and the gh, teacli and flsh tools, no longer depends on the system `tar`.
+  That `tar` fails on Ubuntu 24.04 under WSL 1, so these installs failed
+  there.
+- Node: Claude Code can be installed from Settings > Coding agents on a machine
+  without Node.js, Windows included. Beep uses Claude Code's own installer when
+  npm is missing.
+- Node: on Windows, installs and updates find the npm that Beep set up in its
+  own folder.
+- Node: when a desktop does not run commands, the message names the "Let Beep use this computer" setting by its current name.
+- Node: after you stop a turn and send a message, the message goes once the
+  turn has stopped. Before, it went into the stopping turn, so the agent kept
+  working and the session stayed on Stopping.
+- Node: a foldable's view switches screens on the next frame after it opens
+  or closes.
+- Node: an Android phone with two screens, such as a foldable, shows the screen that is on in the Device tab instead of a blank view, and follows the phone as it opens or closes.
+
+### Performance
+
+- Node: builds compile fewer dependencies.
+- Node: session lists load faster by reading known checkout folders directly.
+- Node: Git sync between machines sends only the commits the other machine
+  is missing, instead of the whole history for each new branch. A repository
+  that grew to tens of gigabytes from repeated copies stays its normal size.
+- Node: only the default branch and the branch checked out on each machine
+  sync. Agent worktree branches stay on the machine that made them. A branch
+  that both machines have fast-forwards while it is checked out on the
+  machine that made the commits.
+- Node: desktops and phones search that index, so they no longer download
+  transcripts to build their own.
+- Node: desktop source builds leave out unused port mapping while standalone node connectivity stays unchanged.
+- Node: on Linux, the file watch skips build output and caches
+  (target, node_modules, .venv, __pycache__, .next and similar) and
+  linked worktrees under .worktrees. Opening the Files tab on a large
+  checkout starts watching much faster and uses far fewer inotify
+  watches, so the desktop no longer reports that the session
+  subscription did not answer in time.
+- Node: a folder is watched once however many views follow it, and
+  stays watched for five minutes after the last one closes, so
+  reopening a project does not set up its file watch again.
+- Node: source builds compile fewer dependencies while retaining device control and Git sync.
+- Node: Git sync and the branch views keep each repository open between
+  reads instead of loading its pack indexes again on every scan, which uses
+  less CPU and battery.
+
 ## [0.7.22] - 2026-11-17
 
 ### Performance
