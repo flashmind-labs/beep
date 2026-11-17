@@ -362,7 +362,7 @@ function issueTask(name: string, issue: IssueRow): AgentTask {
 export const issueSession = (name: string, issue: IssueRow) => sessionFor(name, { kind: "issue", number: issue.number }, issueTask(name, issue).target);
 
 /// The session fixing the failed run of `detail`, or null.
-export const fixSession = (name: string, detail: RunDetail) => sessionFor(name, { kind: "run", workflow: detail.run.workflow, number: detail.run.number }, fixTask(name, detail).target);
+export const fixSession = (name: string, detail: RunDetail) => sessionFor(name, { kind: "run", workflow: detail.run.workflow, number: detail.run.number }, runTarget(detail.run, pc.branches.get(name)));
 
 /// Work on it on the issue's page: starts the agent at once.
 export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick, machine: string | null) => startTask(name, issueTask(name, issue), pick, machine);
@@ -797,13 +797,14 @@ function projectSessions(project: string) {
 
 const sameSession = (s: TaskSession) => sessions.find(l => l.machine_id === s.machine_id && l.agent === s.agent && l.id === s.id) ?? null;
 
-/// Names a session for its task, which finds it again; once per session.
+/// Names a session for its task, which finds it again; once per session and
+/// app run, so a machine that is offline is not asked on every draw.
 function nameSession(s: Pick<TaskSession, "machine_id" | "agent" | "id">, task: SessionTask) {
   const key = `${s.machine_id}\0${s.agent}\0${s.id}`;
   if (named.has(key)) return;
   named.add(key);
   invoke("agent_title_save", { machineId: s.machine_id, agent: s.agent, session: s.id, title: taskTitle(task) })
-    .catch(e => { named.delete(key); console.warn("session title:", e); });
+    .catch(e => console.warn("session title:", e));
 }
 
 const named = new Set<string>();
