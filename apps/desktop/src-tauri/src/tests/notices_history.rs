@@ -210,7 +210,7 @@ fn notice(key: &AgentNoticeKey) -> Notice {
 }
 
 #[test]
-fn a_watched_turn_leaves_no_ready_note_and_settles_its_question() {
+fn a_watched_turn_leaves_no_ready_note_and_removes_its_question() {
     let dir = TempDir::new().expect("a temp dir");
     let notes = store(&dir);
     let ready = ready_key();
@@ -240,8 +240,7 @@ fn a_watched_turn_leaves_no_ready_note_and_settles_its_question() {
             .agent_notice(&ready, &notice(&ready), true, true, false)
             .changed
     );
-    assert_eq!(ids(&notes), [question.to_string()]);
-    assert!(notes.get(&question.to_string()).is_some_and(|n| n.done));
+    assert!(notes.list().is_empty());
 
     // A new question is still kept while the session is on screen.
     let next = AgentNoticeKey {
@@ -371,4 +370,77 @@ fn a_turn_on_screen_and_a_dismissed_note_are_read_for_the_other_apps() {
     notes.agent_notice(&question, &notice(&question), true, false, false);
     let dismissed = notes.dismiss(&[question.to_string()]);
     assert_eq!(unread_of(dismissed).count(), 1);
+}
+
+#[test]
+fn answered_questions_are_removed_and_other_notifications_are_kept() {
+    let dir = TempDir::new().expect("a temp dir");
+    let notes = store(&dir);
+    for id in ["answered", "pending"] {
+        let mut question = note(id, 1);
+        question.kind = NoteKind::Asks;
+        notes.put(question, 1);
+    }
+    let mut conflict = note("conflict", 1);
+    conflict.kind = NoteKind::Conflict;
+    notes.put(conflict, 1);
+    notes.put(note("finished", 1), 1);
+
+    assert!(notes.finish(|n| n.id == "answered" || n.id == "conflict"));
+    assert!(!notes.finish(|n| n.id == "answered" || n.id == "conflict"));
+    assert!(notes.get("answered").is_none());
+    assert!(notes.get("pending").is_some_and(|n| !n.done));
+    assert!(notes.get("conflict").is_some_and(|n| n.done));
+    assert!(notes.get("finished").is_some_and(|n| !n.done));
+
+    notes.save().expect("the notes are written");
+    assert_eq!(store(&dir).list(), notes.list());
+}
+
+#[test]
+fn loading_old_history_removes_only_answered_questions() {
+    let dir = TempDir::new().expect("a temp dir");
+    let mut answered = note("answered", 1);
+    answered.kind = NoteKind::Asks;
+    answered.done = true;
+    let mut pending = note("pending", 1);
+    pending.kind = NoteKind::Asks;
+    let mut settled = note("settled", 1);
+    settled.kind = NoteKind::Conflict;
+    settled.done = true;
+    let finished = note("finished", 1);
+    let saved = [answered, pending.clone(), settled.clone(), finished.clone()];
+    fs::write(
+        dir.path().join("notes.json"),
+        serde_json::to_vec(&saved).expect("the notes serialize"),
+    )
+    .expect("the old history is written");
+
+    assert_eq!(store(&dir).list(), [pending, settled, finished]);
+}
+
+#[test]
+fn a_new_question_removes_the_previous_question_only_in_its_session() {
+    let dir = TempDir::new().expect("a temp dir");
+    let notes = store(&dir);
+    let question = AgentNoticeKey {
+        question: Some(7),
+        ..ready_key()
+    };
+    let other = AgentNoticeKey {
+        session: "s2".into(),
+        ..question.clone()
+    };
+    for key in [&question, &other] {
+        notes.agent_notice(key, &notice(key), true, false, false);
+    }
+    let next = AgentNoticeKey {
+        question: Some(8),
+        ..question.clone()
+    };
+    notes.agent_notice(&next, &notice(&next), true, false, false);
+
+    assert!(notes.get(&question.to_string()).is_none());
+    assert!(notes.get(&other.to_string()).is_some_and(|n| !n.done));
+    assert!(notes.get(&next.to_string()).is_some_and(|n| !n.done));
 }
