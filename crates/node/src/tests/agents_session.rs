@@ -2045,6 +2045,45 @@ async fn compaction_env(name: &str, compact: Option<AutoCompact>) -> String {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn agent_processes_inherit_the_main_checkouts_cargo_target() {
+    use crate::agents::checkout::tests::{repo, run};
+
+    let (_temp, root) = repo("agent-cargo-target");
+    std::fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+    run(&root, &["add", "Cargo.toml"]);
+    run(&root, &["commit", "--quiet", "-m", "Add workspace"]);
+    run(&root, &["worktree", "add", "--quiet", ".worktrees/change"]);
+    let cwd = root.join(".worktrees/change");
+    let seen = root.join("env");
+    let log = root.join("sent.jsonl");
+    let mut kind = script("test", r#"printf '%s' "$CARGO_TARGET_DIR" > "$2""#, &log);
+    kind.args.push(seen.display().to_string());
+    kind.env.insert(
+        "CARGO_HOME".to_owned(),
+        root.join("cargo-home").display().to_string(),
+    );
+    let expected = dunce::canonicalize(&root).unwrap().join("target");
+    let expected = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| {
+        if std::env::var_os("CARGO_BUILD_TARGET_DIR").is_some() {
+            String::new()
+        } else {
+            expected.display().to_string()
+        }
+    });
+
+    let session = Session::start(start_on(&kind, &cwd, None)).unwrap();
+    settle(&session).await;
+    assert_eq!(std::fs::read_to_string(&seen).unwrap(), expected);
+
+    kind.env
+        .insert("CARGO_TARGET_DIR".to_owned(), "custom-output".to_owned());
+    let session = Session::start(start_on(&kind, &cwd, None)).unwrap();
+    settle(&session).await;
+    assert_eq!(std::fs::read_to_string(&seen).unwrap(), "custom-output");
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn an_agent_with_its_own_compaction_starts_with_the_setting() {
     let at = |percent| {
         Some(AutoCompact {
