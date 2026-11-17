@@ -302,7 +302,10 @@ async fn mesh_leaves_a_peers_other_branches_on_that_peer() {
 #[tokio::test(flavor = "multi_thread")]
 async fn mesh_peer_branch_replaced_keeps_received_history_and_does_not_block_sync() {
     let (a, b) = paused_pair().await;
-    git(&b.folder(), &["branch", "topic"]);
+    // `b` has its own commit on `topic`, so the peer's cannot fast-forward it.
+    git(&b.folder(), &["switch", "-q", "-c", "topic"]);
+    commit(&b, "mine.txt", "b's own topic work\n");
+    git(&b.folder(), &["switch", "-q", "main"]);
     git(&a.folder(), &["switch", "-c", "topic"]);
     let first = commit(&a, "topic.txt", "topic\n");
     resume_pair(&a, &b).await;

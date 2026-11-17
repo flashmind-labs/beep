@@ -147,6 +147,8 @@ fn a_pack_cut_short_leaves_nothing_and_a_whole_one_indexes() {
     .unwrap();
     let bytes = packing.wait_with_output().unwrap().stdout;
     let (_target_dir, target) = make();
+    // A copied repository with no commit yet has no pack folder.
+    std::fs::remove_dir_all(target.root.join(".git/objects/pack")).unwrap();
     let leftovers = |repo: &Repo| {
         let pack_dir = std::fs::read_dir(repo.root.join(".git/objects/pack")).unwrap();
         let git_dir = std::fs::read_dir(repo.root.join(".git")).unwrap();
@@ -159,13 +161,13 @@ fn a_pack_cut_short_leaves_nothing_and_a_whole_one_indexes() {
     };
 
     let cut = target.incoming_pack().unwrap();
-    std::fs::write(cut.path(), &bytes[..bytes.len() / 2]).unwrap();
+    std::fs::write(cut.received(), &bytes[..bytes.len() / 2]).unwrap();
     assert!(target.index_pack(&cut).is_err());
     drop(cut);
     assert_eq!(leftovers(&target), Vec::<String>::new());
 
     let whole = target.incoming_pack().unwrap();
-    std::fs::write(whole.path(), &bytes).unwrap();
+    std::fs::write(whole.received(), &bytes).unwrap();
     target.index_pack(&whole).unwrap();
     drop(whole);
     assert!(target.is_complete(commit));

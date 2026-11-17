@@ -85,6 +85,12 @@ impl Repo {
         name == self.default_branch() || self.ref_oid(name).is_some()
     }
 
+    /// Whether local branch `branch` reaches `commit`.
+    fn holds(&self, branch: &str, commit: Oid) -> bool {
+        self.ref_oid(branch)
+            .is_some_and(|tip| self.is_ancestor(commit, tip) == Some(true))
+    }
+
     fn synced_branches(&self) -> Vec<String> {
         let default = self.default_branch();
         let head = self
@@ -191,9 +197,9 @@ impl Repo {
         let wanted = tips.iter().map(|tip| &tip.name).collect::<HashSet<_>>();
 
         for (branch, &oid) in held.iter().filter(|(branch, _)| !wanted.contains(branch)) {
-            // A branch no longer taken is let go of, so its history can be
-            // collected; one the peer removed keeps its history.
-            if self.takes_branch(branch) {
+            // The peer removed the branch or stopped sharing it. Its history
+            // is kept only for a branch taken here that does not hold it yet.
+            if self.takes_branch(branch) && !self.holds(branch, oid) {
                 self.retain_peer_history(peer, branch, oid)?;
             }
 

@@ -5,7 +5,8 @@
   that grew to tens of gigabytes from repeated copies stays its normal size.
 - Node: only the default branch and the branch checked out on each machine
   sync. Agent worktree branches stay on the machine that made them. A branch
-  that both machines have still fast-forwards.
+  that both machines have fast-forwards while it is checked out on the
+  machine that made the commits.
 
 ### Fixed
 

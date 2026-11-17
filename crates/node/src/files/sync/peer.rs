@@ -721,7 +721,7 @@ async fn receive_objects(connection: &Connection, shared: &Shared, want: ObjectW
         Ok((repo, pack))
     })
     .await??;
-    let mut file = tokio::fs::File::from_std(pack.reopen()?);
+    let mut file = tokio::fs::File::create(pack.received()).await?;
     let mut total = 0u64;
 
     loop {

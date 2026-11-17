@@ -472,6 +472,19 @@ pub(super) fn move_ref(root: &Path, change: &RefMove) -> Result<Option<Stay>> {
     }))
 }
 
+/// A pack on its way in: the bytes as they come, then Git's index of them,
+/// in one folder that is removed with it.
+pub(super) struct IncomingPack {
+    dir: tempfile::TempDir,
+}
+
+impl IncomingPack {
+    /// Where the bytes go as they arrive.
+    pub(super) fn received(&self) -> PathBuf {
+        self.dir.path().join("received.pack")
+    }
+}
+
 /// The repository in a project's root.
 #[derive(Debug)]
 pub(super) struct Repo {
@@ -614,38 +627,56 @@ impl Repo {
         Ok(output)
     }
 
-    /// A file that holds a pack while it arrives, so Git reads only a whole
-    /// one. A transfer cut short leaves nothing behind. It sits with the
-    /// packs, where writes wake no scan and the sync copies nothing.
-    pub(super) fn incoming_pack(&self) -> Result<tempfile::NamedTempFile> {
-        tempfile::Builder::new()
+    /// A folder for a pack while it arrives, so Git reads only a whole one.
+    /// A transfer cut short leaves nothing behind. It sits with the packs,
+    /// where writes wake no scan and the sync copies nothing.
+    pub(super) fn incoming_pack(&self) -> Result<IncomingPack> {
+        let packs = self.root.join(GIT).join("objects").join("pack");
+        fs::create_dir_all(&packs)?;
+        let dir = tempfile::Builder::new()
             .prefix("beep-incoming-")
-            .suffix(".pack")
-            .tempfile_in(self.root.join(GIT).join("objects").join("pack"))
-            .context("making room for a Git pack")
+            .tempdir_in(packs)
+            .context("making room for a Git pack")?;
+        Ok(IncomingPack { dir })
     }
 
-    /// Indexes the whole pack in `pack`.
-    pub(super) fn index_pack(&self, pack: &tempfile::NamedTempFile) -> Result<()> {
-        let before = self.unfinished_packs();
+    /// Indexes the whole pack that came into `incoming`, and only then
+    /// moves it in with the others. Whatever Git leaves on failure goes
+    /// with the folder.
+    pub(super) fn index_pack(&self, incoming: &IncomingPack) -> Result<()> {
+        let fixed = incoming.dir.path().join("fixed.pack");
         let output = self
             .git()
             .args(["index-pack", "--stdin", "--fix-thin"])
-            .stdin(pack.reopen()?)
+            .arg(&fixed)
+            .stdin(fs::File::open(incoming.received())?)
             .output()
             .context("running git index-pack")?;
 
         if !output.status.success() {
-            // Git leaves the pack it was writing when it fails.
-            for path in self.unfinished_packs().difference(&before) {
-                let _ = fs::remove_file(path);
-            }
-
             bail!(
                 "Git could not read the object pack: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let name = stdout
+            .split_whitespace()
+            .last()
+            .filter(|name| is_hex(name))
+            .context("Git did not name the pack")?;
+        let packs = self.root.join(GIT).join("objects").join("pack");
+
+        // Git finds a pack by its index, so the index moves in last.
+        for ext in ["pack", "rev", "idx"] {
+            let from = fixed.with_extension(ext);
+
+            if from.exists() {
+                fs::rename(&from, packs.join(format!("pack-{name}.{ext}")))?;
+            }
+        }
+
         Ok(())
     }
 
@@ -653,21 +684,15 @@ impl Repo {
     /// are in place; below `gc.autoPackLimit` packs it returns at once. It
     /// stays in the foreground, so it finishes or fails here.
     pub(super) fn collect(&self) {
+        if is_busy(&self.root) {
+            return;
+        }
+
         if let Err(e) = self.run(&["-c", "gc.autoDetach=false", "gc", "--auto", "--quiet"]) {
             log::warn!("{}: {e:#}", self.root.display());
         }
     }
 
-    fn unfinished_packs(&self) -> HashSet<PathBuf> {
-        let Ok(entries) = fs::read_dir(self.root.join(GIT).join("objects").join("pack")) else {
-            return HashSet::new();
-        };
-        entries
-            .flatten()
-            .filter(|entry| entry.file_name().to_string_lossy().starts_with("tmp_pack_"))
-            .map(|entry| entry.path())
-            .collect()
-    }
 
     /// This repository for questions about refs and history, answered in
     /// process instead of by a git process. Like [`Self::git`], it ignores the
