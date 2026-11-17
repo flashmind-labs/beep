@@ -90,8 +90,10 @@ export function CardRow({ card }: { card: BoardCard }) {
 
 /// `more` makes a lane's title open the full list behind it, and `lanes`
 /// picks the lanes drawn. Ended sessions are a short list, and `beside` fills
-/// the room beside the lanes in a wide window. Lanes stay put; only the cards move.
-export function Board({ cards, more, lanes: drawn = LANES, beside = null }: { cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; lanes?: typeof LANES; beside?: ReactNode }) {
+/// the room beside the lanes in a wide window. With `spread`, the lanes share
+/// the width by their cards: an empty lane keeps to its title, and a full one
+/// lays its cards out in columns. Lanes stay put; only the cards move.
+export function Board({ cards, more, lanes: drawn = LANES, beside = null, spread = false }: { cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; lanes?: typeof LANES; beside?: ReactNode; spread?: boolean }) {
   const lanes = byLane(cards);
   const box = useTravel(cards);
   const [, redraw] = useState(0);
@@ -106,13 +108,17 @@ export function Board({ cards, more, lanes: drawn = LANES, beside = null }: { ca
 
   const heading = (lane: Lane, title: string) => <h4>{more[lane] ? <button type="button" onClick={more[lane]}>{title}</button> : title}<span>{lanes[lane].length || ""}</span></h4>;
 
-  return <div className="bd-lanes" ref={box}>{drawn.map(({ lane, title }) => lane === "done"
-    ? <div className="bd-lane log" key={lane}>
+  // A spread lane's share of the width: a column per `SPREAD_ROWS` cards, and an empty one keeps to its title.
+  const share = (lane: Lane) => spread ? { flexGrow: Math.min(Math.ceil(lanes[lane].length / SPREAD_ROWS), SPREAD_COLUMNS) } : undefined;
+  const named = (name: string, lane: Lane) => spread && !lanes[lane].length ? `${name} empty` : name;
+
+  return <div className={spread ? "bd-lanes spread" : "bd-lanes"} ref={box}>{drawn.map(({ lane, title }) => lane === "done"
+    ? <div className={named("bd-lane log", lane)} key={lane} style={share(lane)}>
       {heading(lane, title)}
       <div className="bd-log">{lanes.done.slice(0, DONE_SHOWN).map(card => <CardRow key={card.key} card={{ ...card, sub: "", color: null }}/>)}</div>
       {lanes.done.length > DONE_SHOWN && more.done && <Button look="quiet" small onClick={more.done}>All {lanes.done.length}</Button>}
     </div>
-    : <div className={lanes[lane].length > CROWDED_FROM ? "bd-lane many" : "bd-lane"} key={lane}>
+    : <div className={named(lanes[lane].length > CROWDED_FROM ? "bd-lane many" : "bd-lane", lane)} key={lane} style={share(lane)}>
       {heading(lane, title)}
       <Cell>{lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}</Cell>
     </div>)}{beside !== null && <div className="bd-art">{beside}</div>}</div>;
@@ -123,6 +129,8 @@ const DONE_SHOWN = 10;
 /// A lane with more cards than this takes the painting's room for wider cards. A count, not
 /// the cell's fit: the fit depends on the lane's width, which the painting changes.
 const CROWDED_FROM = 4;
+/// A spread lane takes another column for every this many cards, up to `SPREAD_COLUMNS`.
+const SPREAD_ROWS = 6, SPREAD_COLUMNS = 3;
 
 function Card({ card, open }: { card: BoardCard; open(): void }) {
   const style = { opacity: card.dim ? .55 : undefined, viewTransitionName: heroCard() === card.key ? "board-hero" : undefined };
@@ -200,14 +208,16 @@ function shownHeight(cell: HTMLElement) {
 function pageFits(cell: HTMLElement, step: number) {
   const page = pageOf(cell);
   if (!page || isMobile()) return null;
-  const room = page.clientHeight - (cell.getBoundingClientRect().top - page.getBoundingClientRect().top + page.scrollTop);
+  // Home's lanes stop above its view's bottom padding, so Home does not scroll; a project's board is left as it was.
+  const padding = page.matches(".cc-view") ? Number.parseFloat(getComputedStyle(page).paddingBottom) || 0 : 0;
+  const room = page.clientHeight - padding - (cell.getBoundingClientRect().top - page.getBoundingClientRect().top + page.scrollTop);
 
   return Math.max(SHOWN, Math.floor(room / step));
 }
 
-/// The project page that scrolls a board's lanes.
+/// The page that scrolls a board's lanes: a project's board, or Home's view.
 function pageOf(cell: HTMLElement) {
-  return cell.closest<HTMLElement>(".pj-board");
+  return cell.closest<HTMLElement>(".pj-board, .cc-view");
 }
 
 type Places = Map<string, { x: number; y: number }>;

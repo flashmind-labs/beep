@@ -113,3 +113,40 @@ test.describe("on a touch screen without hover", () => {
     await expect(page.locator("#sec-running .bd-card", { hasText: "Lazy-load charts" }).getByRole("button", { name: "Close" })).toBeVisible();
   });
 });
+
+test("a full lane scrolls on its own and Home fits the window", async ({ page }) => {
+  const idle = Array.from({ length: 25 }, (_, index) => row(`idle-${index}`, `Finished turn ${index}`, "idle"));
+  await openDesktop(page, false, { center_home: { ...home, running: [...home.running, ...idle] }, projects_sessions: [] });
+  const lane = page.locator("#sec-running .bd-lane.cell").nth(1);
+  await expect(lane.locator(".bd-card")).toHaveCount(26);
+  await expect.poll(() => lane.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await expect.poll(() => page.locator("#view").evaluate(element => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(1);
+});
+
+test("a crowded lane spreads its cards over columns and an empty one stays narrow", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const idle = Array.from({ length: 25 }, (_, index) => row(`idle-${index}`, `Finished turn ${index}`, "idle"));
+  await openDesktop(page, false, { center_home: { ...home, needs_you: [], running: [row("busy", "Add rate limits", "working"), ...idle] }, projects_sessions: [] });
+  const lanes = page.locator("#sec-running .bd-lanes > .bd-lane");
+  const review = lanes.nth(1), done = lanes.nth(2);
+  await expect(review.locator(".bd-card")).toHaveCount(25);
+  const columns = await review.locator(".bd-card").evaluateAll(cards => new Set(cards.map(card => Math.round(card.getBoundingClientRect().left))).size);
+  expect(columns).toBeGreaterThanOrEqual(2);
+  const [reviewBox, doneBox] = await Promise.all([review.boundingBox(), done.boundingBox()]);
+  expect(doneBox?.width ?? 0).toBeLessThan((reviewBox?.width ?? 0) / 2);
+});
+
+test("a lane's wheel moves it a row of cards at a time", async ({ page }) => {
+  const idle = Array.from({ length: 25 }, (_, index) => row(`idle-${index}`, `Finished turn ${index}`, "idle"));
+  await openDesktop(page, false, { center_home: { ...home, running: [...home.running, ...idle] }, projects_sessions: [] });
+  const lane = page.locator("#sec-running .bd-lane.cell").nth(1);
+  await expect.poll(() => lane.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  const step = await lane.evaluate(element => {
+    const tops = [...new Set([...element.querySelectorAll<HTMLElement>(".bd-card")].map(card => card.offsetTop))].sort((a, b) => a - b);
+    return tops[1] - tops[0];
+  });
+  await lane.hover();
+  await page.mouse.wheel(0, 40);
+  await expect.poll(() => lane.evaluate(element => element.scrollTop)).toBe(step);
+  await expect(page.locator("#view")).toHaveJSProperty("scrollTop", 0);
+});
