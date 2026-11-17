@@ -48,7 +48,10 @@ struct Shared {
 /// takes `Inner`: notify waits on it while a watch is added.
 struct State {
     readers: Mutex<Readers>,
+    /// Every watch is to be made again: notify missed events.
     stale: AtomicBool,
+    /// Roots whose own folder was removed or replaced, to watch again.
+    lost: Mutex<Vec<PathBuf>>,
     /// Paths created, removed or renamed since the folders were last
     /// brought in line, in the order they changed.
     #[cfg(target_os = "linux")]
@@ -135,7 +138,8 @@ impl Paths {
     pub(crate) async fn replace(&self, roots: Vec<PathBuf>) -> Result<()> {
         let shared = self.shared.clone();
         let id = self.id;
-        let (result, changed) = spawn_blocking(move || {
+        let self_changed = self.changed.clone();
+        let (result, missed) = spawn_blocking(move || {
             // OS notifications use physical paths, including macOS's /private aliases.
             // Resolve the existing prefix even when a requested store is not created yet.
             let mut roots = roots
@@ -152,23 +156,27 @@ impl Paths {
             let mut inner = crate::lock(&shared.inner);
             let before = shared.state.set(id, roots.clone());
             let result = inner.install(&shared.state.wanted());
+            drop(inner);
 
             if result.is_err() {
                 shared.state.set(id, before.clone());
+                shared.state.forget(&roots);
             }
 
-            let changed = if before != roots || !matches!(result, Ok(false)) {
-                before.into_iter().chain(roots).collect()
-            } else {
-                Vec::new()
-            };
-            Ok::<_, anyhow::Error>((result, changed))
+            let mut missed = shared.state.missed(&result);
+
+            if before != roots {
+                missed.retain(|(reader, _, _)| *reader != id);
+                let changed = before.into_iter().chain(roots).collect();
+                missed.push((id, self_changed, changed));
+            }
+            Ok::<_, anyhow::Error>((result, missed))
         })
         .await
         .context("filesystem watcher stopped")??;
 
-        if !changed.is_empty() {
-            (self.changed)(changed, true);
+        for (_, changed, roots) in missed {
+            changed(roots, true);
         }
 
         result.map(|_| ())
@@ -201,6 +209,7 @@ impl Shared {
         let state = Arc::new(State {
             readers: Mutex::default(),
             stale: AtomicBool::new(false),
+            lost: Mutex::default(),
             #[cfg(target_os = "linux")]
             moved: Mutex::default(),
             refresh,
@@ -260,11 +269,8 @@ impl Shared {
             if result.is_err() {
                 log::debug!("filesystem notification watches need reconciliation");
             }
-            // Rebuilding an OS watch can leave a short gap; reconcile state afterwards.
-            if !matches!(result, Ok(false)) {
-                for (changed, roots) in self.state.readers_roots() {
-                    changed(roots, true);
-                }
+            for (_, changed, roots) in self.state.missed(&result) {
+                changed(roots, true);
             }
             #[cfg(test)]
             self.reconciled.send_replace(());
@@ -314,14 +320,20 @@ impl State {
             .filter(|(_, roots): &(Changed, Vec<PathBuf>)| !roots.is_empty())
             .collect();
 
-        if event.as_ref().map_or(true, |event| {
-            event.need_rescan()
-                || (renames(event) && {
-                    let roots = readers.roots();
-                    event.paths.iter().any(|path| loses_watch(&roots, path))
-                })
-        }) {
-            self.stale.store(true, Ordering::Release);
+        match &event {
+            Ok(event) if !event.need_rescan() => {
+                if renames(event) {
+                    let roots = readers.watched();
+                    let lost: Vec<_> = event
+                        .paths
+                        .iter()
+                        .flat_map(|path| lost(&roots, path))
+                        .cloned()
+                        .collect();
+                    crate::lock(&self.lost).extend(lost);
+                }
+            }
+            _ => self.stale.store(true, Ordering::Release),
         }
         drop(readers);
 
@@ -367,25 +379,53 @@ impl State {
 
     /// Every root a reader wants or that still lingers.
     fn wanted(&self) -> Vec<PathBuf> {
-        let readers = crate::lock(&self.readers);
-        let mut roots = readers.roots();
-        roots.extend(readers.lingering.keys().cloned());
+        let mut roots = crate::lock(&self.readers).watched();
         roots.sort();
         roots.dedup();
         roots
     }
 
-    fn readers_roots(&self) -> Vec<(Changed, Vec<PathBuf>)> {
+    /// The readers and roots a pass over the watches may have missed
+    /// changes for, since adding an OS watch leaves a short gap: every root
+    /// after a rebuild or a failure, else those under a watch just added.
+    fn missed(&self, result: &Result<Installed>) -> Vec<(u64, Changed, Vec<PathBuf>)> {
         crate::lock(&self.readers)
             .held
-            .values()
-            .filter(|reader| !reader.roots.is_empty())
-            .map(|reader| (reader.changed.clone(), reader.roots.clone()))
+            .iter()
+            .filter_map(|(id, reader)| {
+                let roots: Vec<_> = match result {
+                    Err(_) | Ok(Installed { rebuilt: true, .. }) => reader.roots.clone(),
+                    Ok(Installed { served, .. }) => reader
+                        .roots
+                        .iter()
+                        .filter(|root| served.contains(root))
+                        .cloned()
+                        .collect(),
+                };
+                (!roots.is_empty()).then(|| (*id, reader.changed.clone(), roots))
+            })
             .collect()
+    }
+
+    /// Stops `roots` lingering: they could not be watched, and each pass
+    /// would only fail on them again.
+    fn forget(&self, roots: &[PathBuf]) {
+        let mut readers = crate::lock(&self.readers);
+
+        for root in roots {
+            readers.lingering.remove(root);
+        }
     }
 }
 
 impl Readers {
+    /// Every root a watch is held for: wanted by a reader, or lingering.
+    fn watched(&self) -> Vec<PathBuf> {
+        let mut roots = self.roots();
+        roots.extend(self.lingering.keys().cloned());
+        roots
+    }
+
     fn roots(&self) -> Vec<PathBuf> {
         self.held
             .values()
@@ -406,11 +446,24 @@ impl Readers {
     }
 }
 
-impl Inner {
-    fn install(&mut self, roots: &[PathBuf]) -> Result<bool> {
-        let mut wanted = BTreeMap::new();
+/// What one pass over the watches did.
+#[derive(Default)]
+struct Installed {
+    /// Every watch was made again, after one was lost.
+    rebuilt: bool,
+    /// The roots whose watch was made in this pass.
+    served: Vec<PathBuf>,
+}
 
-        for (path, mode) in roots.iter().filter_map(|root| existing(root).ok()) {
+impl Inner {
+    fn install(&mut self, roots: &[PathBuf]) -> Result<Installed> {
+        let mut wanted = BTreeMap::new();
+        let anchors: Vec<_> = roots
+            .iter()
+            .filter_map(|root| existing(root).ok().map(|anchor| (root, anchor)))
+            .collect();
+
+        for (_, (path, mode)) in anchors.iter().cloned() {
             wanted
                 .entry(path)
                 .and_modify(|held| {
@@ -428,32 +481,40 @@ impl Inner {
             .collect();
         wanted.retain(|path, _| !recursive.iter().any(|parent| covers(parent, path)));
         let stale = self.state.stale.swap(false, Ordering::AcqRel);
+        // A root's folder replaced at the same path keeps its entry but not
+        // its OS watch: it is made again, and only it.
+        let lost: Vec<_> = std::mem::take(&mut *crate::lock(&self.state.lost))
+            .iter()
+            .filter_map(|root| existing(root).ok().map(|(path, _)| path))
+            .collect();
+        let again = |path: &PathBuf| stale || lost.contains(path);
 
-        if self.installed == wanted && !stale {
-            return Ok(false);
+        if self.installed == wanted && !stale && lost.is_empty() {
+            return Ok(Installed::default());
         }
         // notify owns OS watch descriptors by path, without caller reference
         // counts: watches that go are removed before overlapping ones are
-        // added. Only what changed is walked again, unless a watch was lost.
-        let (gone, added): (Vec<_>, Vec<_>) = if stale {
-            (
-                self.installed.clone().into_iter().collect(),
-                wanted.clone().into_iter().collect(),
-            )
-        } else {
-            (
-                self.installed
-                    .iter()
-                    .filter(|(path, mode)| wanted.get(*path) != Some(*mode))
-                    .map(|(path, mode)| (path.clone(), *mode))
-                    .collect(),
-                wanted
-                    .iter()
-                    .filter(|(path, mode)| self.installed.get(*path) != Some(*mode))
-                    .map(|(path, mode)| (path.clone(), *mode))
-                    .collect(),
-            )
-        };
+        // added. Only what changed or was lost is walked again.
+        let gone: Vec<_> = self
+            .installed
+            .iter()
+            .filter(|(path, mode)| wanted.get(*path) != Some(*mode) || again(path))
+            .map(|(path, mode)| (path.clone(), *mode))
+            .collect();
+        let added: Vec<_> = wanted
+            .iter()
+            .filter(|(path, mode)| self.installed.get(*path) != Some(*mode) || again(path))
+            .map(|(path, mode)| (path.clone(), *mode))
+            .collect();
+        let served = anchors
+            .iter()
+            .filter(|(_, (anchor, _))| {
+                added.iter().any(|(path, mode)| {
+                    path == anchor || (*mode == RecursiveMode::Recursive && covers(path, anchor))
+                })
+            })
+            .map(|(root, _)| (*root).clone())
+            .collect();
 
         for (path, _) in &gone {
             self.unwatch(path);
@@ -485,7 +546,10 @@ impl Inner {
         }
 
         self.installed = wanted;
-        Ok(true)
+        Ok(Installed {
+            rebuilt: stale,
+            served,
+        })
     }
 
     /// Watches one root. On Linux a folder is walked here, one watch per
@@ -655,12 +719,12 @@ fn unwatched(relative: &Path) -> bool {
     })
 }
 
-/// Whether replacing `path` drops a watch: it is, or holds, a root no other
-/// root outside it covers. Git replaces a checkout's `.git/index` on most
-/// commands, and the recursive watch of the checkout still covers it, so that
-/// alone does not rebuild every watch and read every root again.
-fn loses_watch(roots: &[PathBuf], path: &Path) -> bool {
-    roots.iter().any(|root| {
+/// The roots whose watch replacing `path` drops: it is, or holds, a root no
+/// other root outside it covers. Git replaces a checkout's `.git/index` on
+/// most commands, and the recursive watch of the checkout still covers it, so
+/// that alone does not watch it again.
+fn lost<'a>(roots: &'a [PathBuf], path: &'a Path) -> impl Iterator<Item = &'a PathBuf> {
+    roots.iter().filter(move |root| {
         root.starts_with(path)
             && !roots
                 .iter()

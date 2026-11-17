@@ -90,7 +90,7 @@ impl Sessions for PeerClient {
                 Ok(None) => {}
                 // The subscription is still starting, such as while the node
                 // sets up a file watch: the node answers this read directly.
-                Err(_) => tracing::info!("session subscription slow, reading directly"),
+                Err(_) => tracing::debug!("session subscription slow, reading directly"),
             }
         }
 

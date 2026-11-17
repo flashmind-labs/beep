@@ -148,10 +148,10 @@ fn replacing_a_file_in_a_watched_checkout_keeps_its_watch() {
     let linked = PathBuf::from("/srv/elsewhere/.git/worktrees/x/index");
     let roots = vec![checkout.clone(), index.clone(), linked.clone()];
 
-    assert!(!loses_watch(&roots, &index));
-    assert!(loses_watch(&roots, &linked));
-    assert!(loses_watch(&roots, &checkout));
-    assert!(loses_watch(&roots, Path::new("/srv")));
+    assert_eq!(lost(&roots, &index).count(), 0);
+    assert_eq!(lost(&roots, &linked).collect::<Vec<_>>(), [&linked]);
+    assert_eq!(lost(&roots, &checkout).count(), 2);
+    assert_eq!(lost(&roots, Path::new("/srv")).count(), 3);
 }
 
 
@@ -269,4 +269,70 @@ async fn readers_share_a_root_and_it_stays_watched_after_the_last_lets_go() {
     drop(second);
     assert!(crate::lock(&shared.state.readers).lingering.contains_key(&root));
     assert!(crate::lock(&shared.inner).installed.contains_key(&root));
+}
+
+#[tokio::test]
+async fn a_lingering_root_removed_and_made_again_is_watched_again() {
+    let directory = tempfile::tempdir().unwrap();
+    let directory = crate::agents::reach::real(directory.path()).unwrap();
+    let root = directory.join("worktree");
+    std::fs::create_dir(&root).unwrap();
+    let first = Paths::new(|_| {}).unwrap();
+    first.replace(vec![root.clone()]).await.unwrap();
+    let mut reconciled = first.reconciled.clone();
+    drop(first);
+
+    watched::read_and_update(&mut reconciled, |_| ());
+    std::fs::remove_dir_all(&root).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), reconciled.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    std::fs::create_dir(&root).unwrap();
+    let (changed, mut changes) = mpsc::channel(32);
+    let second = Paths::new(move |paths| {
+        let _ = changed.try_send(paths);
+    })
+    .unwrap();
+    second.replace(vec![root.clone()]).await.unwrap();
+
+    while changes.try_recv().is_ok() {}
+    std::fs::write(root.join("example.txt"), "changed").unwrap();
+    assert_eq!(
+        timeout_change(&mut changes).await,
+        std::slice::from_ref(&root)
+    );
+}
+
+#[tokio::test]
+async fn a_root_that_stops_lingering_leaves_other_readers_alone() {
+    let gone = tempfile::tempdir().unwrap();
+    let gone = crate::agents::reach::real(gone.path()).unwrap();
+    let kept = tempfile::tempdir().unwrap();
+    let first = Paths::new(|_| {}).unwrap();
+    first.replace(vec![gone.clone()]).await.unwrap();
+    let (changed, mut changes) = mpsc::channel(32);
+    let second = Paths::new(move |paths| {
+        let _ = changed.try_send(paths);
+    })
+    .unwrap();
+    second.replace(vec![kept.path().to_owned()]).await.unwrap();
+    let shared = second.shared.clone();
+    drop(first);
+
+    while changes.try_recv().is_ok() {}
+    let mut reconciled = second.reconciled.clone();
+    watched::read_and_update(&mut reconciled, |_| ());
+    crate::lock(&shared.state.readers)
+        .lingering
+        .insert(gone.clone(), Instant::now());
+    let _ = shared.state.refresh.try_send(());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while crate::lock(&shared.inner).installed.contains_key(&gone) {
+            reconciled.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    assert!(changes.try_recv().is_err());
 }
