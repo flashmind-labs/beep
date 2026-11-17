@@ -23,8 +23,9 @@ use beep_proto::node::{
     },
 };
 use beep_proto::watched;
-use futures::FutureExt;
+use futures::{FutureExt, Stream, StreamExt};
 use std::{
+    future::Future,
     sync::{
         Arc,
         atomic::{AtomicU8, Ordering},
@@ -32,14 +33,17 @@ use std::{
     time::Duration,
 };
 use strum::FromRepr;
-use tokio::sync::watch;
+use tokio::{
+    sync::watch,
+    time::{Instant, sleep_until},
+};
 use tokio_util::task::AbortOnDropHandle;
-use tonic::{Status, Streaming};
+use tonic::Status;
 
 pub use beep_proto::node::device::PROTOCOL;
 pub use phone::track_phones;
 
-/// The shortest wait between two frames: about 30 a second.
+/// The shortest interval between starting frames: about 30 a second.
 const FRAME_GAP: Duration = Duration::from_millis(33);
 /// Off macOS, where no iOS simulator is listed.
 #[cfg(not(target_os = "macos"))]
@@ -59,9 +63,11 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -
             },
             Request::Boot { id } => done(boot(&id).await),
             Request::Shutdown { id } => done(shutdown(&id).await),
-            Request::Logs { id, lines, filter } => {
-                answer(logs(&id, lines, &filter).await.map(|text| Reply::Logs { text }))
-            }
+            Request::Logs { id, lines, filter } => answer(
+                logs(&id, lines, &filter)
+                    .await
+                    .map(|text| Reply::Logs { text }),
+            ),
             Request::Ui { id } => answer(ui(&id).await.map(|elements| Reply::Ui { elements })),
             Request::Install { id, path } => done(install(&agents, &id, &path).await),
             Request::Launch { id, target } => done(launch(&id, &target).await),
@@ -102,8 +108,11 @@ async fn list() -> Vec<Device> {
     let (mut devices, phones, iphones, simulators) =
         tokio::join!(android::list(), phone::list(), iphone::list(), ios::list());
     #[cfg(not(target_os = "macos"))]
-    let ((mut devices, phones), iphones, simulators) =
-        (tokio::join!(android::list(), phone::list()), Vec::new(), Vec::new());
+    let ((mut devices, phones), iphones, simulators) = (
+        tokio::join!(android::list(), phone::list()),
+        Vec::new(),
+        Vec::new(),
+    );
 
     devices.extend(phones);
     devices.extend(iphones);
@@ -247,7 +256,10 @@ fn newest_lines(text: &str, filter: &str, lines: u32) -> String {
 /// `device`, unless it is a phone, which only its owner starts and stops.
 fn on_its_own(device: Device) -> Result<Device> {
     if device.phone {
-        anyhow::bail!("{} is a phone: only you can turn it on or off.", device.name);
+        anyhow::bail!(
+            "{} is a phone: only you can turn it on or off.",
+            device.name
+        );
     }
 
     Ok(device)
@@ -317,37 +329,56 @@ async fn attach(mut tx: LinkTx, mut rx: LinkRx, id: &DeviceId, max_side: u32) ->
         }
     };
     let Live {
-        mut screen,
+        screen,
         mut controls,
         _work,
     } = live;
 
-    loop {
-        tokio::select! {
-            changed = screen.changed() => {
-                if changed.is_err() {
-                    let reason = "The view stopped.".to_owned();
-                    return tx.send(&Reply::Ended { reason }).await;
-                }
-
-                let shown = watched::read_and_update(&mut screen, Clone::clone);
-
-                match shown {
-                    Screen::Starting => {}
-                    Screen::Frame(frame) => tx.send(&Reply::Frame(frame)).await?,
-                    Screen::Ended(reason) => return tx.send(&Reply::Ended { reason }).await,
-                }
-            }
-            request = rx.recv::<Request>() => match request? {
-                Some(Request::Input { input }) => {
+    let inputs = async {
+        while let Some(request) = rx.recv::<Request>().await? {
+            match request {
+                Request::Input { input } => {
                     if let Err(e) = controls.send(input).await {
                         log::warn!("device {id}: input not taken: {e:#}");
                     }
                 }
-                Some(other) => log::debug!("device {id}: ignoring {other:?} while attached"),
-                None => return Ok(()),
-            },
+                other => log::debug!("device {id}: ignoring {other:?} while attached"),
+            }
         }
+
+        Ok(())
+    };
+
+    stream(tx, screen, inputs).await
+}
+
+/// Each direction progresses independently. Ending either loop drops the other,
+/// including any write or input operation still in progress.
+async fn stream(
+    mut tx: LinkTx,
+    mut screen: watch::Receiver<Screen>,
+    inputs: impl Future<Output = Result<()>>,
+) -> Result<()> {
+    let frames = async {
+        loop {
+            if screen.changed().await.is_err() {
+                let reason = "The view stopped.".to_owned();
+                return tx.send(&Reply::Ended { reason }).await;
+            }
+
+            let shown = watched::read_and_update(&mut screen, Clone::clone);
+
+            match shown {
+                Screen::Starting => {}
+                Screen::Frame(frame) => tx.send(&Reply::Frame(frame)).await?,
+                Screen::Ended(reason) => return tx.send(&Reply::Ended { reason }).await,
+            }
+        }
+    };
+
+    tokio::select! {
+        result = frames => result,
+        result = inputs => result,
     }
 }
 
@@ -375,22 +406,29 @@ async fn open(id: &DeviceId, max_side: u32) -> Result<Live> {
 /// `FRAME_GAP`, until it ends, then ends `screen` with `ended`. `show` makes
 /// a frame of a message, or `None` when the screen did not change.
 async fn follow<T>(
-    mut stream: Streaming<T>,
+    mut stream: impl Stream<Item = Result<T, Status>> + Unpin,
     screen: watch::Sender<Screen>,
     mut show: impl AsyncFnMut(T) -> Result<Option<Frame>>,
     ended: &str,
 ) {
+    let mut next_frame = Instant::now();
+    let mut next_shown = next_frame;
     let reason = loop {
+        sleep_until(next_frame).await;
         let message = match newest(&mut stream).await {
             Ok(Some(message)) => message,
             Ok(None) => break ended.to_owned(),
             Err(status) => break format!("{ended} ({})", status.message()),
         };
 
+        next_frame = Instant::now() + FRAME_GAP;
+
         match show(message).await {
             Ok(Some(frame)) => {
+                // A fast frame after a slow conversion must not cause a burst.
+                sleep_until(next_shown).await;
                 screen.send_replace(Screen::Frame(frame));
-                tokio::time::sleep(FRAME_GAP).await;
+                next_shown = Instant::now() + FRAME_GAP;
             }
             Ok(None) => {}
             Err(e) => log::warn!("a device frame was not shown: {e:#}"),
@@ -401,13 +439,15 @@ async fn follow<T>(
 
 /// The next message of `stream`, skipping to the newest of those already
 /// waiting; `None` once it ended.
-async fn newest<T>(stream: &mut Streaming<T>) -> Result<Option<T>, Status> {
-    let Some(mut message) = stream.message().await? else {
+async fn newest<T>(
+    stream: &mut (impl Stream<Item = Result<T, Status>> + Unpin),
+) -> Result<Option<T>, Status> {
+    let Some(mut message) = stream.next().await.transpose()? else {
         return Ok(None);
     };
 
-    while let Some(waiting) = stream.message().now_or_never() {
-        match waiting? {
+    while let Some(waiting) = stream.next().now_or_never() {
+        match waiting.transpose()? {
             Some(newer) => message = newer,
             None => break,
         }

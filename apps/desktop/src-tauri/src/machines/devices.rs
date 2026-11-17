@@ -11,8 +11,11 @@ use crate::{
 };
 use beep_proto::{
     ApiError,
-    node::device::{
-        Device, DeviceId, Frame, Input, MAX_SIDE, MAX_TEXT, PROTOCOL, Platform, Reply, Request,
+    node::{
+        LinkRx, LinkTx,
+        device::{
+            Device, DeviceId, Frame, Input, MAX_SIDE, MAX_TEXT, PROTOCOL, Platform, Reply, Request,
+        },
     },
 };
 use futures::{StreamExt, stream};
@@ -23,7 +26,10 @@ use tauri::{
     Manager, State, WebviewWindow,
     ipc::{Channel, InvokeResponseBody},
 };
-use tokio::{sync::mpsc, time::timeout};
+use tokio::{
+    sync::{mpsc, watch},
+    time::timeout,
+};
 use uuid::Uuid;
 
 /// How long a machine has to list its devices.
@@ -34,7 +40,7 @@ const PLATFORMS_LIMIT: Duration = Duration::from_secs(20);
 const POWER_LIMIT: Duration = Duration::from_secs(60);
 /// Machines asked at once.
 const IN_FLIGHT: usize = 4;
-/// Touches, keys and acknowledgements waiting to go up one stream.
+/// Touches and keys waiting to go up one stream.
 const UP_QUEUE: usize = 64;
 /// The smallest frame side asked for.
 const MIN_SIDE: u32 = 160;
@@ -277,16 +283,16 @@ impl Screen {
     }
 }
 
-/// What the window sends up an attached device's stream.
-#[derive(Debug)]
-pub enum Up {
-    Input(Input),
-    /// The window drew the last frame.
-    Drawn,
+/// Input and drawing acknowledgements for one attached view. Acknowledgements
+/// coalesce independently so a full input queue cannot stall the screen.
+#[derive(Clone)]
+pub struct DeviceControls {
+    input: mpsc::Sender<Input>,
+    drawn: watch::Sender<()>,
 }
 
 /// The devices the windows follow, by view, each with where its input goes.
-pub type Attached = Registry<Uuid, mpsc::Sender<Up>>;
+pub type Attached = Registry<Uuid, DeviceControls>;
 
 /// Follows device `id` on `machine_id` in `view`: its frames, each with its
 /// longer side at most `max_side`, go to `on_event` one at a time, and what
@@ -310,10 +316,11 @@ pub async fn device_attach(
         id,
         max_side: max_side.clamp(MIN_SIDE, MAX_SIDE),
     };
-    let (mut tx, mut rx) = client.open_sending(PROTOCOL, &request).await?;
+    let (tx, rx) = client.open_sending(PROTOCOL, &request).await?;
 
-    let (up_tx, mut up) = mpsc::channel(UP_QUEUE);
-    let serial = attached.follow(view, window.label(), up_tx);
+    let (input, up) = mpsc::channel(UP_QUEUE);
+    let (drawn, draws) = watch::channel(());
+    let serial = attached.follow(view, window.label(), DeviceControls { input, drawn });
     let _unfollow = Unfollow {
         registry: &attached,
         key: view,
@@ -330,9 +337,45 @@ pub async fn device_attach(
     }
 
     on_event.send(ScreenEvent::Attached.body()?)?;
+    let lost = format!("Lost the connection to {}.", fleet.name_of(machine));
+
+    follow_screen(
+        tx,
+        rx,
+        up,
+        draws,
+        |event| {
+            on_event.send(event.body()?)?;
+            Ok(())
+        },
+        &lost,
+    )
+    .await
+}
+
+async fn follow_screen(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    mut input: mpsc::Receiver<Input>,
+    mut drawn: watch::Receiver<()>,
+    mut send: impl FnMut(ScreenEvent) -> Result<()>,
+    lost: &str,
+) -> Result<()> {
+    // Keep a pending input write alive while frames and acknowledgements run.
+    // Dropping this future on detach also drops a blocked write and the stream.
+    let inputs = async move {
+        while let Some(input) = input.recv().await {
+            if tx.send(&Request::Input { input }).await.is_err() {
+                return false;
+            }
+        }
+
+        true
+    };
+    tokio::pin!(inputs);
     let mut screen = Screen::new();
     let lost = || ScreenEvent::Ended {
-        reason: format!("Lost the connection to {}.", fleet.name_of(machine)),
+        reason: lost.to_owned(),
     };
 
     loop {
@@ -340,34 +383,36 @@ pub async fn device_attach(
             heard = rx.recv::<Reply>() => match heard {
                 Ok(Some(Reply::Frame(frame))) => {
                     if let Some(frame) = screen.arrived(frame, Instant::now()) {
-                        on_event.send(ScreenEvent::Frame(frame).body()?)?;
+                        send(ScreenEvent::Frame(frame))?;
                     }
                 }
                 Ok(Some(Reply::Ended { reason } | Reply::Failed { reason })) => {
-                    on_event.send(ScreenEvent::Ended { reason }.body()?)?;
+                    send(ScreenEvent::Ended { reason })?;
                     return Ok(());
                 }
                 Ok(Some(_)) => {}
                 Ok(None) | Err(_) => {
-                    on_event.send(lost().body()?)?;
+                    send(lost())?;
                     return Ok(());
                 }
             },
-            sent = up.recv() => match sent {
-                Some(Up::Drawn) => {
-                    if let Some(frame) = screen.drawn(Instant::now()) {
-                        on_event.send(ScreenEvent::Frame(frame).body()?)?;
-                    }
-                }
-                Some(Up::Input(input)) => {
-                    if tx.send(&Request::Input { input }).await.is_err() {
-                        on_event.send(lost().body()?)?;
-                        return Ok(());
-                    }
-                }
+            changed = drawn.changed() => {
                 // Detached: dropping the stream ends the view on the node.
-                None => return Ok(()),
+                if changed.is_err() {
+                    return Ok(());
+                }
+
+                if let Some(frame) = screen.drawn(Instant::now()) {
+                    send(ScreenEvent::Frame(frame))?;
+                }
             },
+            sent = &mut inputs => {
+                if !sent {
+                    send(lost())?;
+                }
+
+                return Ok(());
+            }
         }
     }
 }
@@ -375,10 +420,10 @@ pub async fn device_attach(
 /// Input to the device attached in `view`.
 #[tauri::command]
 pub async fn device_input(attached: State<'_, Attached>, view: Uuid, input: Input) -> Result<()> {
-    let up = attached.get(&view, "device")?;
+    let up = attached.get(&view, "device")?.input;
 
     for input in checked(input) {
-        up.send(Up::Input(input))
+        up.send(input)
             .await
             .map_err(|_| DesktopError::BadRequest("The device is no longer attached.".into()))?;
     }
@@ -390,8 +435,7 @@ pub async fn device_input(attached: State<'_, Attached>, view: Uuid, input: Inpu
 #[tauri::command]
 pub fn device_drawn(attached: State<'_, Attached>, view: Uuid) {
     if let Ok(up) = attached.get(&view, "device") {
-        // A full queue already carries input the next frame answers.
-        let _ = up.try_send(Up::Drawn);
+        up.drawn.send_replace(());
     }
 }
 

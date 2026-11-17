@@ -200,7 +200,11 @@ async fn a_real_device_shows_its_screen_and_takes_input() {
     let Reply::Ui { elements } = ui else {
         panic!("no screen contents: {ui:?}");
     };
-    eprintln!("ui: {} elements, first {:?}", elements.len(), elements.first());
+    eprintln!(
+        "ui: {} elements, first {:?}",
+        elements.len(),
+        elements.first()
+    );
     assert!(!elements.is_empty());
 
     if booted {
@@ -215,4 +219,175 @@ fn logs_keep_the_newest_matching_lines() {
     assert_eq!(newest_lines(text, "beep", 2), "c beep tap\nd BEEP done");
     assert_eq!(newest_lines(text, "", 1), "d BEEP done");
     assert_eq!(newest_lines(text, "missing", 5), "");
+}
+
+fn streamed_frame(value: u8) -> Frame {
+    Frame {
+        jpeg: vec![value],
+        width: 1,
+        height: 1,
+    }
+}
+
+#[tokio::test]
+async fn blocked_video_writes_do_not_delay_input_and_only_the_newest_frame_waits() {
+    let link = beep_proto::node::local_link();
+    let (node_tx, mut node_rx) = link.node;
+    let (mut tx, mut rx) = link.caller;
+    let (screen, shown) = watch::channel(Screen::Starting);
+    let (taken, mut inputs) = tokio::sync::mpsc::unbounded_channel();
+    let inputs_forwarded = async {
+        while let Some(Request::Input { input }) = node_rx.recv::<Request>().await? {
+            taken.send(input).expect("input recorded");
+        }
+
+        Ok(())
+    };
+    let mut serving = std::pin::pin!(stream(node_tx, shown, inputs_forwarded));
+
+    // Larger than the local link's buffer, so sending cannot finish until read.
+    let large = Frame {
+        jpeg: vec![1; 128 * 1024],
+        width: 1,
+        height: 1,
+    };
+    screen.send_replace(Screen::Frame(large.clone()));
+    assert!(futures::poll!(serving.as_mut()).is_pending());
+
+    let input = Input::Button {
+        button: Button::Home,
+    };
+    tx.send(&Request::Input {
+        input: input.clone(),
+    })
+    .await
+    .expect("sent");
+    assert!(futures::poll!(serving.as_mut()).is_pending());
+    assert_eq!(inputs.try_recv().expect("input bypassed video"), input);
+
+    screen.send_replace(Screen::Frame(streamed_frame(2)));
+    screen.send_replace(Screen::Frame(streamed_frame(3)));
+    for expected in [large, streamed_frame(3)] {
+        let reply = tokio::select! {
+            result = serving.as_mut() => panic!("view ended: {result:?}"),
+            reply = rx.recv::<Reply>() => reply.expect("read").expect("frame"),
+        };
+        assert_eq!(reply, Reply::Frame(expected));
+    }
+
+    // Closing input also cancels a video write that cannot finish.
+    screen.send_replace(Screen::Frame(Frame {
+        jpeg: vec![4; 128 * 1024],
+        width: 1,
+        height: 1,
+    }));
+    assert!(futures::poll!(serving.as_mut()).is_pending());
+    drop(tx);
+    serving.await.expect("detached");
+}
+
+#[tokio::test]
+async fn slow_input_does_not_delay_video_and_ends_with_the_screen() {
+    let link = beep_proto::node::local_link();
+    let (node_tx, mut node_rx) = link.node;
+    let (mut tx, mut rx) = link.caller;
+    let (screen, shown) = watch::channel(Screen::Starting);
+    let (taken, mut inputs) = tokio::sync::mpsc::unbounded_channel();
+    let inputs_forwarded = async {
+        while let Some(Request::Input { input }) = node_rx.recv::<Request>().await? {
+            taken.send(input).expect("input recorded");
+            std::future::pending::<()>().await;
+        }
+
+        Ok(())
+    };
+    let mut serving = std::pin::pin!(stream(node_tx, shown, inputs_forwarded));
+
+    let input = Input::Button {
+        button: Button::Home,
+    };
+    tx.send(&Request::Input {
+        input: input.clone(),
+    })
+    .await
+    .expect("sent");
+    assert!(futures::poll!(serving.as_mut()).is_pending());
+    assert_eq!(inputs.try_recv().expect("input started"), input);
+
+    screen.send_replace(Screen::Frame(streamed_frame(1)));
+    let reply = tokio::select! {
+        result = serving.as_mut() => panic!("view ended: {result:?}"),
+        reply = rx.recv::<Reply>() => reply.expect("read").expect("frame"),
+    };
+    assert_eq!(reply, Reply::Frame(streamed_frame(1)));
+
+    let reason = "The device stopped.".to_owned();
+    screen.send_replace(Screen::Ended(reason.clone()));
+    serving.await.expect("ended while input is blocked");
+    assert_eq!(
+        rx.recv::<Reply>().await.expect("read"),
+        Some(Reply::Ended { reason })
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn conversion_time_is_included_in_the_frame_budget_without_catch_up_bursts() {
+    use tokio::time::{advance, interval};
+    use tokio_stream::wrappers::IntervalStream;
+
+    let source = IntervalStream::new(interval(Duration::from_millis(1))).map(|_| Ok(()));
+    let (screen, mut shown) = watch::channel(Screen::Starting);
+    let (started, mut starts) = tokio::sync::mpsc::unbounded_channel();
+    let origin = Instant::now();
+    let mut costs = [10, 50, 10].into_iter();
+    let mut following = std::pin::pin!(follow(
+        source,
+        screen,
+        async |()| {
+            started
+                .send(Instant::now().duration_since(origin))
+                .expect("start recorded");
+            tokio::time::sleep(Duration::from_millis(costs.next().unwrap_or(10))).await;
+            Ok(Some(streamed_frame(1)))
+        },
+        "ended"
+    ));
+
+    assert!(futures::poll!(following.as_mut()).is_pending());
+    assert_eq!(starts.try_recv().expect("first"), Duration::ZERO);
+    advance(Duration::from_millis(10)).await;
+    assert!(futures::poll!(following.as_mut()).is_pending());
+    assert!(shown.has_changed().expect("screen open"));
+    watched::read_and_update(&mut shown, |_| ());
+    advance(Duration::from_millis(23)).await;
+    assert!(futures::poll!(following.as_mut()).is_pending());
+    assert_eq!(starts.try_recv().expect("second"), FRAME_GAP);
+
+    // A slow conversion misses a deadline. The next start resets the budget.
+    advance(Duration::from_millis(50)).await;
+    assert!(futures::poll!(following.as_mut()).is_pending());
+    assert_eq!(starts.try_recv().expect("third"), Duration::from_millis(83));
+    assert!(shown.has_changed().expect("slow frame delivered"));
+    watched::read_and_update(&mut shown, |_| ());
+    advance(Duration::from_millis(10)).await;
+    assert!(futures::poll!(following.as_mut()).is_pending());
+    assert!(
+        starts.try_recv().is_err(),
+        "no immediate catch-up conversion"
+    );
+    assert!(
+        !shown.has_changed().expect("screen open"),
+        "no delivery burst after a slow frame"
+    );
+    advance(Duration::from_millis(23)).await;
+    assert!(futures::poll!(following.as_mut()).is_pending());
+    assert_eq!(
+        starts.try_recv().expect("fourth"),
+        Duration::from_millis(116)
+    );
+    assert!(
+        shown
+            .has_changed()
+            .expect("next frame delivered on its deadline")
+    );
 }
