@@ -3,8 +3,6 @@
 
 use crate::platform::logfile;
 use crate::{beep::state::Prefs, machines::desktop};
-#[cfg(windows)]
-use beep_node::machine::wsl::Wsl;
 use beep_node::{
     agents::{
         mcp::{self, ProjectTools},
@@ -49,9 +47,6 @@ pub struct Machine {
     /// Reopens what was open when the app last quit, then keeps the note of
     /// what is open; `quit` stops it before the last word.
     keeping: Mutex<Option<JoinHandle<()>>>,
-    /// The WSL machines this computer runs while it is lent.
-    #[cfg(windows)]
-    wsl: Arc<Wsl>,
     /// The computer name, read once.
     name: String,
     home: Arc<NodeHome>,
@@ -92,16 +87,8 @@ impl Machine {
         }
         // Searches read the agents' logs ahead on tasks of their own.
         async_runtime::block_on(async { offers.offer_searches(dir, &Search::default()) });
-        // Windows runs the WSL distributions added as machines, while
-        // this computer is lent (`sync`).
-        #[cfg(windows)]
-        let wsl = Arc::new(Wsl::new(dir, &offers));
-        #[cfg(windows)]
-        offers.extra.push(wsl.clone());
         Self {
             keeping: Mutex::default(),
-            #[cfg(windows)]
-            wsl,
             name: crate::beep::identity::computer_name(),
             home: Arc::new(NodeHome {
                 dir: dir.to_path_buf(),
@@ -207,11 +194,6 @@ impl Machine {
     /// setting.
     pub fn sync(&self, prefs: &Prefs) {
         self.home.offers.lend_to_peers(prefs.use_mac());
-        #[cfg(windows)]
-        {
-            let (wsl, lent) = (self.wsl.clone(), prefs.use_mac());
-            async_runtime::spawn(async move { wsl.lend(lent).await });
-        }
     }
 }
 

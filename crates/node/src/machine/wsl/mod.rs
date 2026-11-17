@@ -1,21 +1,20 @@
 //! WSL distributions on Windows. The Windows node finds the distributions and
-//! their agents for its report (`report`), and runs Claude Code found in one
-//! as its own, on the Windows checkout (`agent_command`, `linux_path`). A
-//! distribution the user adds as a machine gets a Linux beep-node with its
-//! own key and checkouts: the Windows node installs and joins it (`wsl/1`,
-//! `Wsl`) and keeps it running (`keeper`).
+//! their agents for its report (`report`), and runs the coding agents found
+//! in one as its own, on the Windows checkout: Claude Code on the node's
+//! bridge, the others through `relay`, both turning paths across
+//! (`translate`).
 //!
 //! Only a Windows node uses it; the logic builds and is tested everywhere.
 
 #![cfg_attr(not(windows), allow(dead_code, unused_imports))]
 
 mod distro;
-mod keeper;
+mod relay;
 mod report;
-mod serve;
 mod steps;
 
-pub(crate) use distro::{DistroName, LinuxPath, linux_path, windows_path};
-pub(crate) use report::{agent, agents_changed, report};
-pub(crate) use steps::{agent_command, home};
-pub use serve::Wsl;
+pub(crate) use distro::{DistroName, LinuxPath, linux_path, windows_drive_path, windows_folder, windows_path};
+pub use relay::relay;
+pub(crate) use relay::{Toward, translate};
+pub(crate) use report::{agents_changed, found, report, with_agent};
+pub(crate) use steps::agent_command;

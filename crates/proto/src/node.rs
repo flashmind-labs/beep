@@ -37,7 +37,7 @@ pub mod tools;
 pub mod transfer;
 pub mod usage;
 
-pub use admin::{logs, search, setup, shell, status, tool_update, traffic, update, version, wsl};
+pub use admin::{logs, search, setup, shell, status, tool_update, traffic, update, version};
 pub use control::*;
 pub use env::*;
 pub use stream::*;

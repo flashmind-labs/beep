@@ -1,7 +1,7 @@
 //! Fetching blobs from peers, and copying them out of the store.
 
 use super::{shared::Shared, task::RETRY};
-use crate::files::sync::{Parts, map::FileMeta, scan::MAX_BYTES};
+use crate::files::sync::{CONNECT_TIMEOUT, Parts, STALL, map::FileMeta, scan::MAX_BYTES};
 use crate::files::transfer::place::{Reserved, space_at};
 use crate::{AsyncMutex, lock};
 use anyhow::{Context, Result, anyhow, bail};
@@ -31,13 +31,6 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
-/// How long a fetch may wait for its next data before it gives up. A
-/// connection can stay open on a path that no longer carries data (a NAT
-/// mapping gone, with the relay keeping the connection alive); without a
-/// limit such a fetch waits forever. The next round fetches again over a
-/// new connection and keeps what came.
-const STALL: Duration = Duration::from_secs(30);
 /// What every disk keeps free beyond a fetch.
 const SPACE_MARGIN: u64 = 64 << 20;
 const CHUNK: usize = 1 << 20;

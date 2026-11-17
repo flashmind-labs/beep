@@ -454,15 +454,15 @@ test("settings machines", async ({ page }) => {
 });
 
 test("settings machine with WSL", async ({ page }) => {
-  const wsl = (name: string, agents: string[], machineId: string | null) => ({ name, agents, node: machineId ? "0.9.0" : null, machine_id: machineId, kept: !!machineId, problem: null, probed: true });
-  const env = { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 16, memory_mb: 32768, home: "C:\\Users\\user", tools: [], logins: [], avds: [], gpus: [], wsl: [wsl("Ubuntu", ["claude", "codex"], "wsl-box"), wsl("Debian", ["gemini"], null)] };
-  const machines = [{ ...machine("desk-pc", "desk-pc", true, 0), env }, machine("wsl-box", "Ubuntu on desk-pc", true, 0)];
+  const wsl = (name: string, agents: string[]) => ({ name, agents, node: null, machine_id: null, kept: false, problem: null, probed: true });
+  const env = { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 16, memory_mb: 32768, home: "C:\\Users\\user", tools: [], logins: [], avds: [], gpus: [], wsl: [wsl("Ubuntu", ["claude", "codex"]), wsl("Debian", ["gemini"])] };
+  const machines = [{ ...machine("desk-pc", "desk-pc", true, 0), env }];
   await openDesktop(page, false, { ...settingsResponses, list_machines: machines });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const nav = page.getByRole("dialog", { name: "Settings" }).getByRole("navigation", { name: "Settings pages" });
   await nav.getByRole("button", { name: /^Machines/ }).click();
   await page.locator("[data-machine='desk-pc']").click();
-  await expect(page.getByRole("button", { name: "Add Debian as a machine" })).toBeVisible();
+  await expect(page.getByText("Claude Code, Codex")).toBeVisible();
   await baseline(page, "settings-machine-wsl");
 });
 

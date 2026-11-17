@@ -2,7 +2,6 @@ import { flushSync } from "react-dom";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { MachineList, MachineLoading } from "./list-view.tsx";
 import { MachineDetail, type MachineLog } from "./detail-view.tsx";
-import { wslActions } from "./wsl.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS } from "../ui/active.ts";
 // machines/: the Machines list, Home's machine table (table.ts) and the
@@ -154,20 +153,6 @@ async function loadToolUpdates() {
   }
 }
 
-/// Who follows the list besides the page, such as the Add a machine sheet.
-const listWatchers = new Set<(list: readonly Machine[]) => void>();
-
-/// Follows the machine list the Machines page shows, read again now and on
-/// each change: the Add a machine sheet shows the same WSL rows as a
-/// machine's page. Returns the unfollow.
-export function followMachineList(watch: (list: readonly Machine[]) => void): () => void {
-  listWatchers.add(watch);
-  const unsubscribe = subscribeChanges(topic("machines"), { deliver: "latest", receive: () => readList() });
-  if (MC.list) watch(MC.list);
-  void readList();
-  return () => { listWatchers.delete(watch); unsubscribe(); };
-}
-
 // Concurrent invalidations share one read and request a fresh pass before publishing.
 let listRead: Promise<void> | null = null;
 let listAgain = false;
@@ -186,7 +171,6 @@ function readList(): Promise<void> {
         ]);
         if (listAgain) continue;
         MC.list = list;
-        for (const watch of listWatchers) watch(list);
         MC.traffic = traffic;
         MC.updatable = new Set(updatable.map(u => u.id));
         MC.mac = mac?.id || null;
@@ -459,7 +443,7 @@ function drawList(at: MachinesHost | null) {
 
 function drawDetail(at: MachinesHost | null, machine: Machine) {
   showScreen(at, { view: "machine", props: {
-    machine, machines: MC.list ?? [], wsl: wslActions, error: MC.error, mac: MC.mac, newest: newest(), updatable: MC.updatable.has(machine.id),
+    machine, error: MC.error, mac: MC.mac, newest: newest(), updatable: MC.updatable.has(machine.id),
     nodeUpdate: MC.updates.get(machine.id) ?? null, search, log, tools: MC.tools, toolUps: MC.toolUps,
     installed: MC.installed, traffic: MC.traffic.find(t => t.id === machine.id), asking: MC.asking, age: span,
     searchEdit: () => { if (search) { search.draft = search.folder; drawMachines(); } },

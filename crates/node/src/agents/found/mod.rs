@@ -38,7 +38,9 @@ mod transcript;
 
 pub(crate) use delete::{remove_dir_in, remove_file_in};
 pub(crate) use disk::{forget_checkouts, rescan, saved_checkouts, walk};
-pub(crate) use git::{Checkout, checkout, common_dir, git_dir, head, last_commit, place, repository};
+pub(crate) use git::{
+    Checkout, checkout, common_dir, default_branch, git_dir, head, last_commit, place, repository,
+};
 pub(crate) use memo::Memo;
 
 /// Session count used to size bounded metadata caches.
@@ -116,6 +118,27 @@ pub(crate) struct Stores {
     opencode: Option<PathBuf>,
     opencode_file: bool,
     memos: Arc<Memos>,
+    /// These are a WSL distribution's, read beside this machine's own.
+    in_wsl: bool,
+}
+
+/// The stores of the agents in each WSL distribution, kept by its home so
+/// their memos last.
+fn wsl_stores() -> Vec<(crate::machine::wsl::DistroName, Stores)> {
+    static KEPT: std::sync::LazyLock<std::sync::Mutex<HashMap<PathBuf, Stores>>> =
+        std::sync::LazyLock::new(Default::default);
+
+    crate::machine::wsl::found()
+        .into_iter()
+        .filter_map(|(distro, found)| {
+            let home = crate::machine::wsl::windows_path(&distro, &found.home?);
+            let stores = crate::lock(&KEPT)
+                .entry(home.clone())
+                .or_insert_with(|| Stores::in_wsl_home(&home))
+                .clone();
+            Some((distro, stores))
+        })
+        .collect()
 }
 
 /// What the stores' files said, kept while they are unchanged.
@@ -165,6 +188,21 @@ impl Stores {
             opencode: opencode::configured(),
             opencode_file: opencode::configured_file(),
             memos: Arc::default(),
+            in_wsl: false,
+        }
+    }
+
+    /// The stores of the agents in a WSL distribution whose user's home is
+    /// `home`, as Windows reaches it, where each keeps them by default.
+    pub(crate) fn in_wsl_home(home: &Path) -> Self {
+        Self {
+            codex: Some(home.join(".codex")),
+            pi: Some(home.join(".pi").join("agent").join("sessions")),
+            flsh: Some(home.join(".local").join("share").join("flashmind").join("sessions")),
+            opencode: Some(home.join(".local").join("share").join("opencode")),
+            opencode_file: false,
+            memos: Arc::default(),
+            in_wsl: true,
         }
     }
 
@@ -216,6 +254,16 @@ impl Stores {
 
         if let Some(root) = self.opencode.as_deref().filter(|_| wants(Agent::OpenCode)) {
             seen.extend(opencode::sessions(root, memos));
+        }
+
+        if !self.in_wsl {
+            for (distro, stores) in wsl_stores() {
+                let mut found = stores.sessions(agent);
+                for one in &mut found {
+                    one.cwd = crate::machine::wsl::windows_folder(&distro, &one.cwd.to_string_lossy());
+                }
+                seen.extend(found);
+            }
         }
 
         seen
@@ -273,7 +321,10 @@ impl Stores {
             }
             _ => None,
         };
-        recorded.unwrap_or_else(|| seen.cwd.clone())
+        let folder = recorded.unwrap_or_else(|| seen.cwd.clone());
+        // A Codex file in WSL names its folders as Linux does.
+        crate::machine::wsl::windows_drive_path(&folder.to_string_lossy())
+            .map_or(folder, PathBuf::from)
     }
 
     /// Direct Codex children, including task-path spawns not exposed over ACP.

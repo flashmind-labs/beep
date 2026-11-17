@@ -42,11 +42,7 @@ pub(super) fn branches(root: &Path, fallback: &str) -> Result<String> {
     let mut repo = crate::agents::found::repository(root).context("no Git repository here")?;
     // The distance walks read the same commits again for every branch.
     repo.object_cache_size_if_unset(OBJECT_CACHE);
-    let default = repo
-        .try_find_reference("refs/remotes/origin/HEAD")?
-        .and_then(|head| head.target().try_name().map(|name| name.shorten().to_string()))
-        .and_then(|name| name.strip_prefix("origin/").map(str::to_owned))
-        .unwrap_or_else(|| fallback.to_owned());
+    let default = crate::agents::found::default_branch(&repo).unwrap_or_else(|| fallback.to_owned());
     let base = [format!("refs/remotes/origin/{default}"), format!("refs/heads/{default}")]
         .iter()
         .find_map(|name| commit_of(&repo, name));

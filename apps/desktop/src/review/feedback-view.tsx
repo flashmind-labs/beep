@@ -1,12 +1,12 @@
 import { useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { Icon } from "../ui/icons.tsx";
-import { Spinner } from "../ui/kit.tsx";
+import { Button, Spinner } from "../ui/kit.tsx";
 import type { Feedback } from "./feedback.ts";
 
 /// The agent button: Review with agent in a diff and on a pull request,
 /// Work on it on an issue. `hint` is its tooltip, `reason` why it cannot start.
 export type FeedbackState =
-  | { kind: "running"; agent: string; hint: string }
+  | { kind: "running"; label: string; agent: string; hint: string }
   | { kind: "starting" }
   | { kind: "ready"; label: string; hint: string; reason: string; open: boolean };
 
@@ -42,7 +42,7 @@ export function FeedbackControl({ state, setButton, setSlot, onClick, picker }: 
   return <>
     <button ref={setButton} type="button" className="dv-btn dv-fb" disabled={disabled} title={title} aria-expanded={expanded}
       onClick={event => { event.stopPropagation(); onClick(); }}>
-      {state.kind === "running" ? <><Spinner />Reviewing <small>{state.agent}</small></>
+      {state.kind === "running" ? <><Spinner />{state.label} <small>{state.agent}</small></>
         : state.kind === "starting" ? <><Spinner />Starting</>
         : <>{state.label}<span style={{ display: "grid" }}><Icon name="caretDown" size={12} /></span></>}
     </button>
@@ -57,10 +57,12 @@ export function FeedbackNote({ text, onDismiss }: { text: string; onDismiss: () 
 }
 
 /// The agent button as its owner has it; the picker adds whether it is open.
+/// `running` and `done` open the session it started.
 export type AgentState =
   | { kind: "ready"; label: string; hint: string }
   | { kind: "starting" }
-  | { kind: "running"; agent: string; hint: string; open(): void };
+  | { kind: "running"; label: string; agent: string; hint: string; open(): void }
+  | { kind: "done"; label: string; hint: string; open(): void };
 
 /// The agent button's picker, kept per button across draws.
 export interface PickButton {
@@ -80,11 +82,16 @@ export interface AgentButtonItem { button: PickButton; state: AgentState; error:
 /// The agent button outside a diff, and why its last start failed: its
 /// picker's pick starts a session.
 export function AgentButton({ item }: { item: AgentButtonItem }) {
-  const { button, state } = item;
+  const { state } = item;
+  return <>{state.kind === "done" ? <Button title={state.hint} onClick={state.open}>{state.label}</Button> : <PickControl button={item.button} state={state} />}
+    {item.error && <span className="cc-err">{item.error}</span>}</>;
+}
+
+function PickControl({ button, state }: { button: PickButton; state: Exclude<AgentState, { kind: "done" }> }) {
   const { open, picker } = useSyncExternalStore(button.subscribe, button.snapshot);
   const shown: FeedbackState = state.kind === "ready" ? { ...state, reason: button.why(), open }
-    : state.kind === "running" ? { kind: "running", agent: state.agent, hint: state.hint } : state;
-  return <><span className="dv-fbw" ref={button.setBox}>
+    : state.kind === "running" ? { kind: "running", label: state.label, agent: state.agent, hint: state.hint } : state;
+  return <span className="dv-fbw" ref={button.setBox}>
     <FeedbackControl state={shown} setButton={button.setButton} setSlot={button.setSlot} onClick={state.kind === "running" ? state.open : button.click} picker={picker} />
-  </span>{item.error && <span className="cc-err">{item.error}</span>}</>;
+  </span>;
 }

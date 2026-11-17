@@ -76,11 +76,17 @@ pub(super) fn message(line: &Value, replay: bool) -> Vec<SessionUpdate> {
 }
 
 /// The updates a session's transcript replays, in order.
-pub(super) fn replay(path: &Path) -> std::io::Result<Vec<SessionUpdate>> {
+pub(super) fn replay(path: &Path, in_wsl: bool) -> std::io::Result<Vec<SessionUpdate>> {
     let text = std::fs::read_to_string(path)?;
     Ok(text
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .map(|mut line| {
+            if in_wsl {
+                crate::machine::wsl::translate(&mut line, crate::machine::wsl::Toward::Windows);
+            }
+            line
+        })
         .flat_map(|line| message(&line, true))
         .collect())
 }

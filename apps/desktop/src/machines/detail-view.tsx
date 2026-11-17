@@ -6,12 +6,12 @@ import { signInOffer } from "./signin-state.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import { RemoveAsk } from "./list-view.tsx";
 import { WslRows } from "./wsl-view.tsx";
-import { wslHosts, type WslActions } from "./wsl-state.ts";
+import { wslHosts } from "./wsl-state.ts";
 import type { Asking, Machine, MachineSearch, ToolUpdate } from "./machines.tsx";
 
 export interface MachineLog { id: string; text: string | null; busy: boolean; error: string }
 interface DetailProps {
-  machine: Machine; machines: readonly Machine[]; wsl: WslActions; error: string; mac: string | null; newest: string | null; updatable: boolean;
+  machine: Machine; error: string; mac: string | null; newest: string | null; updatable: boolean;
   nodeUpdate: NodeUpdate | null; search: MachineSearch | null; log: MachineLog | null;
   tools: readonly ToolUpdate[]; toolUps: ReadonlyMap<string, { busy: boolean; error: string }>;
   installed: ReadonlyMap<string, string>; traffic: MachineTraffic | undefined; asking: Asking | null;
@@ -48,7 +48,7 @@ export function MachineDetail(p: DetailProps) {
     {up?.step === "failed" && <div className="derr dpadx">{up.error}</div>}
     {(up?.step === "note" || (up?.step === "restarting" && up.note)) && <div className="dmuted">{up.step === "note" ? up.text : up.note}</div>}
     {search?.error && <div className="derr dpadx">{search.error}</div>}
-    {wslHosts([m], null).map(host => <Fragment key={host.id}><div className="dset-h">WSL</div><div className="dset-box"><div className="dmach"><WslRows host={host} machines={p.machines} actions={p.wsl} /></div></div></Fragment>)}
+    {wslHosts([m]).map(host => <Fragment key={host.id}><div className="dset-h">WSL</div><div className="dset-box"><div className="dmach"><WslRows host={host} /></div></div></Fragment>)}
     {m.can_host !== false && !!env?.logins.length && <><div className="dset-h">Sign-ins</div><table className="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Account</th><th /></tr></thead><tbody>{env.logins.map(l => { const offer = l.signed_in ? null : signInOffer(l.tool, m.name, m.online, m.id === p.mac); return <tr key={l.tool}><td className="dmono">{l.tool}</td><td>{l.signed_in ? l.account ?? "Signed in" : <span className="dtag ask">Not signed in</span>}</td><td style={{ textAlign: "right" }}>{offer && ("how" in offer ? <small className="dmuted">{offer.how}</small> : <Button small onClick={() => p.signIn(l.tool)}>Sign in</Button>)}</td></tr>; })}</tbody></table></>}
     {m.can_host !== false && !!tools.length && <><div className="dset-hrow"><div className="dset-h">Tools</div>{tools.map(t => { const update = p.tools.find(u => u.machine_id === m.id && u.tool === t.name); if (!update || !m.online || !updateOffered(p.installed, `${m.id} ${t.name}`, update.latest)) return null; const busy = p.toolUps.get(`${m.id} ${t.name}`)?.busy; return <Button key={t.name} small disabled={busy} onClick={() => p.updateTool(t.name)}>{busy ? `Updating ${t.name}…` : `Update ${t.name} to ${update.latest}`}</Button>; })}{notes.map((n, i) => <small key={i} className="dmuted">{n}</small>)}{failures.map(([key, v]) => <small key={key} className="derr">{`${key.slice(m.id.length + 1)}: ${v.error}`}</small>)}</div><table className="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>{tools.map(t => <tr key={t.name}><td className="dmono">{t.name}</td><td className="dmono">{shownVersion(p.installed, `${m.id} ${t.name}`, t.name, t.version) ?? ""}</td><td>{isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>)}</tbody></table></>}
     {!!traffic.length && <><div className="dset-h">Traffic</div><table className="dset-box dset-tbl"><thead><tr><th>Protocol</th><th>Sent</th><th>Received</th></tr></thead><tbody>{traffic.map(r => <tr key={r.label}><td>{r.label}</td><td className="dmono">{bytes(r.sent)}</td><td className="dmono">{bytes(r.received)}</td></tr>)}</tbody></table>{relay && <div className="dmuted">Through a relay: {relay}.</div>}</>}

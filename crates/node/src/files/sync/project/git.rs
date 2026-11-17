@@ -85,7 +85,7 @@ impl Shared {
                 warning = Some(anyhow!("Git commits differ; checkout has no commit; pull through Git to create its working tree"));
             }
 
-            for local in repo.branches()? {
+            for local in repo.local_branches()? {
                 let Some(commits) = candidates.get(&local.name) else {
                     continue;
                 };

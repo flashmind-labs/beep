@@ -155,6 +155,15 @@ fn window_without_timestamps_gives_the_last_lines() {
     assert_eq!(text, "untimed 7\nuntimed 8\nuntimed 9\n");
 }
 
+/// A status-only report asks for no log, and reading the whole journal
+/// for nothing made it miss its time limit.
+#[test]
+fn window_of_no_bytes_reads_nothing() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let unreadable = dir.path().to_owned();
+    assert_eq!(window(&[unreadable], 150, 0).expect("nothing to read"), "");
+}
+
 #[test]
 fn window_keeps_the_newest_whole_lines_under_the_cap() {
     let dir = tempfile::tempdir().expect("a temp folder");

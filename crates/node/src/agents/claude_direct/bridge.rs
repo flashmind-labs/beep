@@ -49,11 +49,12 @@ const MODES: &[(&str, &str)] = &[
 const MODEL: &str = "model";
 
 /// Serves ACP on this process's stdio, driving Claude Code's CLI `program`
-/// with the user's `args`, in the WSL distribution `wsl` when given, until
-/// the client closes it or the CLI exits.
+/// with the user's `args`, in the WSL distribution `wsl` whose user's home
+/// is `home` when given, until the client closes it or the CLI exits.
 /// Logs go to stderr: stdout carries ACP.
-pub async fn serve(program: String, args: Vec<String>, wsl: Option<&str>) -> Result<()> {
+pub async fn serve(program: String, args: Vec<String>, wsl: Option<&str>, home: Option<&str>) -> Result<()> {
     let wsl = wsl.map(str::parse::<DistroName>).transpose()?;
+    let home = home.map(str::parse::<LinuxPath>).transpose()?;
     let (events_tx, mut events) = mpsc::channel(EVENTS);
     // Its reports go unread: a dropped message is logged where it is read.
     let (oversized, _) = mpsc::channel(1);
@@ -87,7 +88,7 @@ pub async fn serve(program: String, args: Vec<String>, wsl: Option<&str>) -> Res
                     program,
                     args,
                     wsl,
-                    home: None,
+                    home,
                     asks: false,
                     session: None,
                     answers: FuturesUnordered::new(),
@@ -199,7 +200,7 @@ struct Bridge {
     args: Vec<String>,
     /// The WSL distribution the CLI runs in, on a Windows machine.
     wsl: Option<DistroName>,
-    /// Its default user's home, once a transcript was looked for in it.
+    /// Its default user's home.
     home: Option<LinuxPath>,
     /// The client takes forms, for `AskUserQuestion`.
     asks: bool,
@@ -258,8 +259,9 @@ impl Bridge {
             "session/load" => {
                 let request = LoadSessionRequest::parse_message(&method, params)?;
                 let id = request.session_id.0.to_string();
-                let transcript = self.transcript(&request.cwd, &id).await;
-                let replay = spawn_blocking(move || replayed(transcript, &id)).await?;
+                let transcript = self.transcript(&request.cwd, &id);
+                let in_wsl = self.wsl.is_some();
+                let replay = spawn_blocking(move || replayed(transcript, &id, in_wsl)).await?;
                 let start = Start::Load(responder.cast(), replay);
                 self.start(&request.session_id.0, true, &request.cwd, &request.mcp_servers, request.system_prompt.as_ref(), start)?;
             }
@@ -349,19 +351,11 @@ impl Bridge {
 
     /// Where Claude Code keeps session `id` it ran in `cwd`: under the
     /// user's home, or in WSL the distribution's.
-    async fn transcript(&mut self, cwd: &Path, id: &str) -> Option<PathBuf> {
+    fn transcript(&self, cwd: &Path, id: &str) -> Option<PathBuf> {
         let Some(distro) = &self.wsl else {
             return updates::transcript(cwd, id);
         };
         let cwd = wsl::linux_path(cwd)?;
-
-        if self.home.is_none() {
-            self.home = wsl::home(distro)
-                .await
-                .inspect_err(|e| log::warn!("the home folder in WSL {distro} is not known: {e:#}"))
-                .ok();
-        }
-
         let folder = crate::agents::claude::slug(Path::new(cwd.as_ref()));
         let transcript = self.home.as_ref()?.join(&format!(".claude/projects/{folder}/{id}.jsonl"));
         Some(wsl::windows_path(distro, &transcript))
@@ -727,11 +721,11 @@ fn commands(initialized: &Value) -> Vec<AvailableCommand> {
 
 /// The updates replaying session `id`'s transcript at `path`; none when it
 /// cannot be read.
-fn replayed(path: Option<PathBuf>, id: &str) -> Vec<SessionUpdate> {
+fn replayed(path: Option<PathBuf>, id: &str, in_wsl: bool) -> Vec<SessionUpdate> {
     let Some(path) = path else {
         return Vec::new();
     };
-    updates::replay(&path).unwrap_or_else(|e| {
+    updates::replay(&path, in_wsl).unwrap_or_else(|e| {
         log::warn!("the transcript of {id} was not replayed: {e}");
         Vec::new()
     })

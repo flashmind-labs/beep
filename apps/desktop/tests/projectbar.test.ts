@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addHosts, barPlace, blockedHosts, barPrompt, barReadiness, nextBarMachine, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt, fixedTitle, reviewSession, reviewTitle } from "../src/project/projectbar.ts";
+import { addHosts, barPlace, blockedHosts, barPrompt, barReadiness, nextBarMachine, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt, fixedTitle, reviewTitled, taskSession, taskTitle } from "../src/project/projectbar.ts";
 
 const HOSTS = [
   { machine_id: "m", machine_name: "mac-box", agents: ["claude"] },
@@ -60,8 +60,8 @@ test("a checkout only on a machine whose agents cannot run names that machine an
 });
 
 test("a target starts on its named or existing branch", () => {
-  const issue = { kind: "issue" as const, number: 52, branch: " issue-52-crash ", base: "main" };
-  const pr = { kind: "pr" as const, number: 41, branch: "fix/login" };
+  const issue = { kind: "issue" as const, number: 52, branch: " issue-52-crash ", base: "main", task: null };
+  const pr = { kind: "pr" as const, number: 41, branch: "fix/login", task: null };
   assert.deepEqual(targetPlan(issue), { named_worktree: { base: "main", branch: "issue-52-crash" } });
   assert.deepEqual(targetPlan(pr), { branch_worktree: { branch: "fix/login" } });
   assert.deepEqual(targetCheckout(issue), { label: "New worktree", sub: "from main" });
@@ -115,23 +115,27 @@ test("reviewPrompt reads the reviews already there; again, it reviews what chang
   assert.match(again, /which of your earlier comments are fixed/);
   assert.match(again, /git pull --ff-only/);
   assert.doesNotMatch(reviewPrompt(PR, "github", true, true), /git pull/);
-  const pr = { kind: "pr" as const, number: 41, branch: "fix/login", review: { number: 41, earlier: { machine_id: "b", machine_name: "build-box", agent: "codex", id: "s1", cwd: "/w", status: "ended", external: false } } };
+  const pr = { kind: "pr" as const, number: 41, branch: "fix/login", task: null, review: { number: 41, earlier: { machine_id: "b", machine_name: "build-box", agent: "codex", id: "s1", cwd: "/w", status: "ended", external: false } } };
   assert.deepEqual(targetCheckout(pr), { label: "Earlier review", sub: "PR #41" });
 });
 
-test("a PR's review session is found by its fixed name, the newest on any machine", () => {
+test("a task's session is found by its fixed name, the newest on any machine", () => {
   const row = (id: string, title: string | null, last_activity: number) => ({ id, title, last_activity });
-  const listed = [row("a", "Review #41", 10), row("b", "Review #41", 30), row("c", "Review #410", 50), row("d", "PR #41 login copy review", 60), row("e", null, 70)];
-  assert.equal(reviewTitle(41), "Review #41");
-  assert.equal(reviewSession(listed, 41)?.id, "b");
-  assert.equal(reviewSession(listed, 410)?.id, "c");
-  assert.equal(reviewSession(listed, 42), null);
-  assert.equal(reviewSession([], 41), null);
+  const listed = [row("a", "Review #41", 10), row("b", "Review #41", 30), row("c", "Review #410", 50), row("d", "PR #41 login copy review", 60), row("e", null, 70), row("f", "Issue #41", 80), row("g", "Fix run #41 (CI)", 90)];
+  const review = (number: number) => ({ kind: "review" as const, number });
+  assert.equal(taskTitle(review(41)), "Review #41");
+  assert.equal(taskSession(listed, review(41))?.id, "b");
+  assert.equal(taskSession(listed, review(410))?.id, "c");
+  assert.equal(taskSession(listed, review(42)), null);
+  assert.equal(taskSession([], review(41)), null);
+  assert.equal(taskSession(listed, { kind: "issue", number: 41 })?.id, "f");
+  assert.equal(taskSession(listed, { kind: "run", workflow: "CI", number: 41 })?.id, "g");
+  assert.equal(taskSession(listed, { kind: "run", workflow: "Release", number: 41 }), null);
 });
 
-test("only a review session's name is fixed", () => {
-  assert.ok(fixedTitle("Review #41"));
-  assert.ok(!fixedTitle("Review #41 again"));
-  assert.ok(!fixedTitle("PR #41 login copy review"));
-  assert.ok(!fixedTitle(null));
+test("only a task session's name is fixed, and only a review's keeps it from its branch's chat", () => {
+  for (const title of ["Review #41", "Issue #41", "Fix run #41 (CI)"]) assert.ok(fixedTitle(title), title);
+  for (const title of ["Review #41 again", "PR #41 login copy review", "Fix login bug #12", "Issue #41: crash", null]) assert.ok(!fixedTitle(title), String(title));
+  assert.ok(reviewTitled("Review #41"));
+  assert.ok(!reviewTitled("Issue #41"));
 });

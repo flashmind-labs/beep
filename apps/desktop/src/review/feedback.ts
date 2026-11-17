@@ -270,7 +270,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   function drawButton(sync = true) {
     if (disposed) return;
     const run = runs.get(o.key);
-    const state: FeedbackState = run ? { kind: "running", agent: agentLabel(run.agent), hint: RUNNING_HINT }
+    const state: FeedbackState = run ? { kind: "running", label: "Reviewing", agent: agentLabel(run.agent), hint: RUNNING_HINT }
       : starting ? { kind: "starting" } : { kind: "ready", label: LABEL, hint: HINT, reason: why(), open: pop.open };
     current = { state, picker: pop.view, note: notes.get(o.key) ?? "" };
     const notify = () => { for (const listener of listeners) listener(); };

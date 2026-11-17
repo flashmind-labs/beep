@@ -82,12 +82,25 @@ pub(super) struct Known {
 /// The subcommand of `beep-node` that speaks ACP and drives Claude Code's
 /// CLI itself, in place of its npm adapter.
 pub const DIRECT_COMMAND: &str = "claude-acp";
-/// The argument of `DIRECT_COMMAND` naming the WSL distribution it runs in.
+/// The subcommand of `beep-node` that relays a coding agent's ACP to it
+/// inside WSL, turning paths across.
+pub const RELAY_COMMAND: &str = "wsl-acp";
+/// The argument of `DIRECT_COMMAND` and `RELAY_COMMAND` naming the WSL
+/// distribution the agent runs in.
 const WSL_FLAG: &str = "--wsl";
 
-/// `kind` is Claude Code in WSL, which only the bridge can run.
-pub(super) fn in_wsl_bridge(kind: &AgentKind) -> bool {
-    kind.args.first().is_some_and(|arg| arg == DIRECT_COMMAND) && kind.args.iter().any(|arg| arg == WSL_FLAG)
+/// `kind` runs inside WSL, on the bridge or the relay, which only this node
+/// can start: its program and arguments stay as detection made them.
+pub(super) fn in_wsl(kind: &AgentKind) -> bool {
+    kind.args
+        .first()
+        .is_some_and(|arg| arg == DIRECT_COMMAND || arg == RELAY_COMMAND)
+        && kind.args.iter().any(|arg| arg == WSL_FLAG)
+}
+
+/// The ACP adapters of the known agents, which the WSL probe looks for.
+pub(crate) fn adapter_bins() -> impl Iterator<Item = &'static str> {
+    KNOWN.iter().filter_map(Known::adapter_bin)
 }
 
 /// This executable, as it was when the node started: an update renames a
@@ -381,10 +394,12 @@ pub(super) fn detection(extra: &[AgentKind], node_dir: Option<&Path>) -> Detecti
         }
     }
 
-    let claude = detection.kinds.iter().any(|kind| kind.name == "claude");
-    if let Some(kind) = in_wsl().filter(|_| !claude) {
-        detection.kinds.push(kind);
-    }
+    let wsl: Vec<AgentKind> = KNOWN
+        .iter()
+        .filter(|known| !detection.kinds.iter().any(|kind| kind.name == known.name))
+        .filter_map(in_wsl_kind)
+        .collect();
+    detection.kinds.extend(wsl);
 
     for kind in extra {
         detection.kinds.retain(|known| known.name != kind.name);
@@ -396,22 +411,45 @@ pub(super) fn detection(extra: &[AgentKind], node_dir: Option<&Path>) -> Detecti
     detection
 }
 
-/// Claude Code installed in a WSL distribution of this Windows machine,
-/// which runs it when Windows has none of its own: this executable's bridge
-/// starts its CLI in the distribution, on the Windows checkout.
-fn in_wsl() -> Option<AgentKind> {
-    let (distro, cli) = crate::machine::wsl::agent("claude")?;
+/// `known`, installed in a WSL distribution of this Windows machine, which
+/// runs it when Windows has none of its own, on the Windows checkout:
+/// Claude Code on this executable's bridge, any other agent through its
+/// relay, with the adapter or `npx` the distribution has.
+fn in_wsl_kind(known: &'static Known) -> Option<AgentKind> {
+    let (distro, found) = crate::machine::wsl::with_agent(known.name)?;
     let exe = EXE.as_ref()?;
-    let known = known("claude")?;
-    log::info!("Claude Code found in WSL {distro} at {}", cli.path);
+    let path = |name: &str| {
+        found
+            .agents
+            .iter()
+            .chain(&found.tools)
+            .find(|program| program.name == name)
+            .map(|program| program.path.to_string())
+    };
+
+    let (args, env) = if known.name == "claude" {
+        let mut args = vec![DIRECT_COMMAND.to_owned(), "--cli".to_owned(), path(known.cli)?];
+        args.extend([WSL_FLAG.to_owned(), distro.to_string()]);
+        args.extend(found.home.iter().flat_map(|home| ["--home".to_owned(), home.to_string()]));
+        args.push("--".to_owned());
+        (args, env(known))
+    } else {
+        let kind = match launch(known, &|name| path(name).is_some(), None)? {
+            Launch::Ready(kind) | Launch::ViaNpx(kind) => kind,
+            _ => return None,
+        };
+        let mut args = vec![RELAY_COMMAND.to_owned(), WSL_FLAG.to_owned(), distro.to_string()];
+        args.extend(["--".to_owned(), path(&kind.program)?]);
+        args.extend(kind.args);
+        (args, kind.env)
+    };
+    log::info!("{} found in WSL {distro}", known.title);
 
     Some(AgentKind {
         name: known.name.to_owned(),
         program: exe.display().to_string(),
-        args: [DIRECT_COMMAND, "--cli", cli.path.as_ref(), WSL_FLAG, distro.as_ref(), "--"]
-            .map(str::to_owned)
-            .into(),
-        env: env(known),
+        args,
+        env,
         compact: None,
         compact_models: Vec::new(),
         default_model: None,

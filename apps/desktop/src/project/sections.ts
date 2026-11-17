@@ -9,7 +9,7 @@ import { onClosing, sessionVisible, shownStatus } from "../agents/closing.ts";
 import { invoke, indexedChannel, listen } from "../ui/tauri.ts";
 import type { Project, SessionRow } from "./projects-state.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
-import type { BarTarget, BlockedHost, ReviewSession } from "./projectbar.ts";
+import type { BarTarget, BlockedHost, TaskSession } from "./projectbar.ts";
 import { type BaseBranches, DEFAULT_CHECKOUT } from "../agents/agentpick.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
 import type { AgentHost} from "../agents/agents.ts";
@@ -27,7 +27,7 @@ import { openUrl } from "../center/openitems.ts";
 import { currentLocation, go, drawTop } from "../center/views.tsx";
 import { openTile } from "./split.tsx";
 import { AG } from "../agents/agents.ts";
-import { barOn, drawProjectComp, workOnIssue, startIssue, continuePr, startContinue, reviewPr, startReview, pickButton, earlierReview, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";
+import { barOn, drawProjectComp, workOnIssue, startIssue, continuePr, startContinue, reviewPr, startReview, pickButton, earlierReview, issueSession, fixSession, sessionState, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
 import { redrawSync } from "./syncpage.ts";
 import { drawProjects } from "./page.tsx";
@@ -41,13 +41,13 @@ export const pa = { tile: null as string | null, run: null as { project: string;
 export const terms = makeTerminals({ invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => redrawProjects(), kept: keptSection("terminals") });
 export const fsync = makeFileSync({
   invoke, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, kept: keptSection("filesync"),
-  fixButton: (project, c) => projectButtons(`conflict ${project}\n${c.path}`, { project, machine: c.holder, choose: false, label: "Fix with an agent", hint: "Pick a model: an agent merges the two copies on the machine that has them", running: null, start: pick => startConflictFix(project, c, pick) }),
+  fixButton: (project, c) => projectButtons(`conflict ${project}\n${c.path}`, { project, machine: c.holder, choose: false, label: "Fix with an agent", hint: "Pick a model: an agent merges the two copies on the machine that has them", session: null, start: pick => startConflictFix(project, c, pick) }),
   repairButton: (project, machine, error) => repairButton(project, machine, error),
 });
 
 /// Fix with an agent on a blocked Git sync of `project` on `machine`.
 export function repairButton(project: string, machine: string, error: string) {
-  return projectButtons(`repair ${project}\n${machine}`, { project, machine, choose: false, label: "Fix with an agent", hint: "Pick a model: an agent starts here with both checkouts and recent sessions in its prompt", running: null, start: pick => startSyncRepair(project, machine, error, pick) });
+  return projectButtons(`repair ${project}\n${machine}`, { project, machine, choose: false, label: "Fix with an agent", hint: "Pick a model: an agent starts here with both checkouts and recent sessions in its prompt", session: null, start: pick => startSyncRepair(project, machine, error, pick) });
 }
 
 export const gitHistory = makeGitHistory({
@@ -87,6 +87,7 @@ export const runs = makeRuns({
   openUrl,
   fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
   startFix: (name, detail, pick, machine) => startFix(name, detail, pick, machine),
+  fixSession: (name, detail) => sessionState(fixSession(name, detail), "Fixing"),
   button: (key, o) => projectButtons(key, o),
   mode: liveMode.mode,
   kept: keptSection("runs"),
@@ -143,7 +144,8 @@ export function repoActs(p: Project): RepoActs {
     startReview: (pr: PullRequestRow, pick: ProjectPick, machine: string | null) => startReview(p.name, pr, pick, machine),
     button: start => pickButton(p.name, start),
     reviewOf: (pr: PullRequestRow) => earlierReview(p.name, pr.number),
-    openReview: (session: ReviewSession) => go("pane", { agent: session }),
+    openReview: (session: TaskSession) => go("pane", { agent: session }),
+    issueSession: (issue: IssueRow) => sessionState(issueSession(p.name, issue), "Working"),
   };
 }
 

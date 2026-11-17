@@ -19,5 +19,5 @@ pub(super) use session::{
     takes_system_prompt, wire_name,
 };
 pub(super) use tasks::{AsyncTask, async_task, stop_task};
-pub(crate) use transport::{Line, LineReader};
-pub(super) use transport::{MAX_MESSAGE, transport};
+pub(crate) use transport::{Line, LineReader, MAX_MESSAGE};
+pub(super) use transport::transport;

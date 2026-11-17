@@ -115,9 +115,9 @@ export function barCheckout(pick: CheckoutPick, base: string | null): { label: s
 /// `branch` (editable) from `base` for an issue, a pull request's own
 /// branch, or the branch a failed workflow run ran on.
 export type BarTarget =
-  | { kind: "issue"; number: number; branch: string; base: string | null; review?: Review }
-  | { kind: "pr"; number: number; branch: string; review?: Review }
-  | { kind: "run"; number: number; branch: string; review?: undefined };
+  | { kind: "issue"; number: number; branch: string; base: string | null; task: SessionTask | null; review?: Review }
+  | { kind: "pr"; number: number; branch: string; task: SessionTask | null; review?: Review }
+  | { kind: "run"; number: number; branch: string; task: SessionTask | null; review?: undefined };
 
 /// What `agent_start` sends as `checkout` for a target.
 export function targetPlan(t: BarTarget) {
@@ -131,22 +131,39 @@ export type Forge = "github" | "forgejo";
 /// it before, which goes on with the new review instead of a new session.
 interface Review {
   number: number;
-  earlier: ReviewSession | null;
+  earlier: TaskSession | null;
 }
 
-/// The session that last reviewed a pull request.
-export type ReviewSession = Pick<SessionRow, "machine_id" | "machine_name" | "agent" | "id" | "cwd" | "status" | "external">;
+/// A session started for a task, as its lookups return it.
+export type TaskSession = Pick<SessionRow, "machine_id" | "machine_name" | "agent" | "id" | "cwd" | "status" | "external">;
 
-/// A review session's name, set when it starts. It finds the session again
-/// from any machine, so it cannot be renamed.
-export const reviewTitle = (number: number) => `Review #${number}`;
+/// What a session was started for: a review of a pull request, Work on it
+/// on an issue, Fix this on a failed run. It names the session when it
+/// starts; the name finds it again from any machine, so it cannot be renamed.
+export type SessionTask =
+  | { kind: "review"; number: number }
+  | { kind: "issue"; number: number }
+  | { kind: "run"; workflow: string; number: number };
 
-/// Whether `title` names a review session, which keeps its name.
-export const fixedTitle = (title: string | null) => title !== null && /^Review #\d+$/.test(title);
+export function taskTitle(t: SessionTask) {
+  switch (t.kind) {
+    case "review": return `Review #${t.number}`;
+    case "issue": return `Issue #${t.number}`;
+    case "run": return `Fix run #${t.number} (${t.workflow})`;
+  }
+}
 
-/// The newest of a project's `sessions` that reviewed PR `number`, or null.
-export function reviewSession<T extends Pick<SessionRow, "title" | "last_activity">>(sessions: readonly T[], number: number): T | null {
-  const title = reviewTitle(number);
+const REVIEW_TITLE = /^Review #\d+$/;
+
+/// Whether `title` names a session started for a task, which keeps its name.
+export const fixedTitle = (title: string | null) => title !== null && (REVIEW_TITLE.test(title) || /^Issue #\d+$|^Fix run #\d+ \(.+\)$/.test(title));
+
+/// Whether `title` names a review session, which a PR's own chat is not.
+export const reviewTitled = (title: string | null) => title !== null && REVIEW_TITLE.test(title);
+
+/// The newest of a project's `sessions` started for `task`, or null.
+export function taskSession<T extends Pick<SessionRow, "title" | "last_activity">>(sessions: readonly T[], task: SessionTask): T | null {
+  const title = taskTitle(task);
   return sessions.filter(s => s.title === title).sort((a, b) => b.last_activity - a.last_activity)[0] ?? null;
 }
 

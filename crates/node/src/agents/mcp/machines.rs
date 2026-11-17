@@ -31,14 +31,11 @@ use serde_json::{Value, json};
 use std::{fmt::Write, str::FromStr, time::Duration};
 use tokio::{sync::watch, time::timeout};
 
-/// How long a call waits for the link to a machine the mesh holds but is
-/// not connected to yet.
-const LINK_WAIT: Duration = Duration::from_secs(15);
 /// How many times opening a call's stream is tried.
 const HANDSHAKES: u32 = 3;
 /// How long a machine has to report itself for `list_machines`.
 const STATUS_WAIT: Duration = Duration::from_secs(5);
-/// How long the machine has to take a call's stream.
+/// How long all attempts to connect and open a call's stream have together.
 const OPEN_LIMIT: Duration = Duration::from_secs(15);
 /// How long one call may run: a command runs at most half an hour.
 const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
@@ -615,19 +612,25 @@ pub(super) async fn handshake(
     peer: EndpointId,
     protocol: &str,
 ) -> Result<(LinkTx, LinkRx)> {
-    let mut tries = HANDSHAKES;
+    let opening = async {
+        let mut tries = HANDSHAKES;
 
-    loop {
-        match try_handshake(mesh, peer, protocol).await {
-            Err(e) if tries > 1 => {
-                log::debug!("opening {protocol} on {peer} failed, trying again: {e:#}");
-                tries -= 1;
+        loop {
+            match try_handshake(mesh, peer, protocol).await {
+                Err(e) if tries > 1 => {
+                    log::debug!("opening {protocol} on {peer} failed, trying again: {e:#}");
+                    tries -= 1;
+                }
+                Err(e) => return Err(e),
+                Ok(Ok(streams)) => return Ok(streams),
+                Ok(Err(reason)) => bail!("the machine refused the call: {reason}"),
             }
-            Err(e) => return Err(e),
-            Ok(Ok(streams)) => return Ok(streams),
-            Ok(Err(reason)) => bail!("the machine refused the call: {reason}"),
         }
-    }
+    };
+
+    timeout(OPEN_LIMIT, opening).await.context(
+        "the machine did not connect and accept the call within 15 seconds; the request was not sent",
+    )?
 }
 
 /// The streams, or why the machine turned the call away, which trying
@@ -643,9 +646,9 @@ async fn try_handshake(
         protocol: protocol.to_owned(),
     })
     .await?;
-    let opened: Opened = timeout(OPEN_LIMIT, rx.recv())
-        .await
-        .context("the machine did not take the call in time")??
+    let opened: Opened = rx
+        .recv()
+        .await?
         .context("the machine closed the call")?;
     Ok(match opened {
         Opened::Refused { reason } => Err(reason),
@@ -653,30 +656,25 @@ async fn try_handshake(
     })
 }
 
-/// A stream to `peer`, waiting a while for the link when the mesh holds the
-/// device but has no connection to it yet.
+/// A stream to `peer`, waiting for a link within the handshake's deadline.
 async fn open(
     mesh: &Mesh,
     peer: EndpointId,
 ) -> Result<(iroh::endpoint::SendStream, iroh::endpoint::RecvStream)> {
     let mut updates = mesh.updates();
-    let opened = timeout(LINK_WAIT, async {
-        loop {
-            watched::read_and_update(&mut updates, |_| ());
 
-            match mesh.open_bi(peer).await {
-                Ok(streams) => return Ok(streams),
-                Err(e) => {
-                    if updates.changed().await.is_err() {
-                        return Err(e);
-                    }
+    loop {
+        watched::read_and_update(&mut updates, |_| ());
+
+        match mesh.open_bi(peer).await {
+            Ok(streams) => return Ok(streams),
+            Err(e) => {
+                if updates.changed().await.is_err() {
+                    return Err(e).context("the mesh closed while waiting for the machine");
                 }
             }
         }
-    })
-    .await
-    .context("the machine is not connected")?;
-    Ok(opened?)
+    }
 }
 
 #[cfg(test)]

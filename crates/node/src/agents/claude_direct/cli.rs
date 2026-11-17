@@ -3,7 +3,7 @@
 
 use crate::agents::{Line, LineReader, acp::MAX_MESSAGE};
 use crate::{
-    machine::wsl::{self, DistroName, LinuxPath},
+    machine::wsl::{self, DistroName, LinuxPath, Toward},
     run::process::command,
 };
 use anyhow::{Context, Result};
@@ -108,7 +108,7 @@ fn file(text: &str) -> Result<NamedTempFile> {
 }
 
 /// `path` on Windows as WSL sees it.
-fn in_wsl(path: &Path) -> Result<LinuxPath> {
+fn wsl_path(path: &Path) -> Result<LinuxPath> {
     wsl::linux_path(path)
         .with_context(|| format!("WSL does not reach {}, which is on no drive", path.display()))
 }
@@ -116,6 +116,9 @@ fn in_wsl(path: &Path) -> Result<LinuxPath> {
 /// A running CLI. Dropping it kills it.
 pub(super) struct Cli {
     lines: mpsc::UnboundedSender<String>,
+    /// It runs in WSL: the paths in what it is sent and what it writes are
+    /// turned across.
+    in_wsl: bool,
     /// Its stdout, one JSON frame each; closed when it exits.
     pub(super) frames: mpsc::Receiver<Value>,
     next: u64,
@@ -132,9 +135,9 @@ impl Cli {
         };
         let mut process = match launch.wsl {
             Some(distro) => {
-                let args = launch.args(&files, |path| Ok(in_wsl(path)?.to_string()))?;
+                let args = launch.args(&files, |path| Ok(wsl_path(path)?.to_string()))?;
                 let program: LinuxPath = launch.program.parse()?;
-                wsl::agent_command(distro, &in_wsl(launch.cwd)?, &program, &args)
+                wsl::agent_command(distro, Some(&wsl_path(launch.cwd)?), &program, &args)
             }
             None => {
                 let mut process = command(launch.program);
@@ -170,6 +173,7 @@ impl Cli {
                 }
             }
         });
+        let in_wsl = launch.wsl.is_some();
         let reader = tokio::spawn(async move {
             let mut lines = LineReader::new(BufReader::new(stdout), MAX_MESSAGE);
 
@@ -183,7 +187,11 @@ impl Cli {
                 };
 
                 match serde_json::from_str::<Value>(&text) {
-                    Ok(frame) => {
+                    Ok(mut frame) => {
+                        if in_wsl {
+                            wsl::translate(&mut frame, Toward::Windows);
+                        }
+
                         if sent.send(frame).await.is_err() {
                             return;
                         }
@@ -196,6 +204,7 @@ impl Cli {
 
         Ok(Self {
             lines,
+            in_wsl,
             frames,
             next: 0,
             _child: child,
@@ -240,6 +249,14 @@ impl Cli {
 
     /// A closed stdin shows as the CLI's exit on stdout.
     fn write(&self, line: &Value) {
-        let _ = self.lines.send(line.to_string());
+        let line = match self.in_wsl {
+            true => {
+                let mut line = line.clone();
+                wsl::translate(&mut line, Toward::Linux);
+                line.to_string()
+            }
+            false => line.to_string(),
+        };
+        let _ = self.lines.send(line);
     }
 }

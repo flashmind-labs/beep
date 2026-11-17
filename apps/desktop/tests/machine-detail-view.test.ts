@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { WslWorkStore } from "../src/machines/wsl-state.ts";
 import { createElement, type ComponentProps } from "react";
 import type { Machine } from "../src/machines/machines.tsx";
 
@@ -17,7 +16,7 @@ test("machine detail preserves a draft and log position on updates and routes it
   const machine: Machine = { id: "one", name: "build-box", online: true, can_host: true, seen_at: 0, version: "1.0", env: { os: "linux", os_version: "Linux", arch: "x86_64", hostname: "host", cpus: 2, memory_mb: 1024, home: "/path/to/work", tools: [{ name: "codex", version: "1.0" }], logins: [{ tool: "codex", signed_in: false, account: null }], avds: [], gpus: [{ vendor: "NVIDIA", model: "NVIDIA GeForce RTX 4090", vram_mb: 24564, driver: "580.0" }], wsl: [] } };
   let saved = "", tool = "", node = 0, removed = 0, cancelled = 0, renamed = 0;
   const noOp = () => {};
-  const props: ComponentProps<typeof MachineDetail> = { machine, machines: [machine], wsl: { work: new WslWorkStore(), add: () => {}, stop: () => {}, start: () => {}, probe: () => {} }, error: "", mac: null, newest: "2.0", updatable: true, nodeUpdate: null, search: { id: "one", folder: "/srv/project", draft: "/srv/project", busy: false, error: "" }, log: { id: "one", text: "line one\nline two", busy: false, error: "" }, tools: [{ machine_id: "one", tool: "codex", version: "1.0", latest: "2.0" }], toolUps: new Map(), installed: new Map(), traffic: undefined, asking: null, age: () => "1m", searchEdit: noOp, searchSave: value => { saved = value; }, searchCancel: () => { cancelled++; }, signIn: value => { tool = value; }, updateNode: () => { node++; }, updateTool: noOp, logRead: noOp, logSave: noOp, rename: () => { renamed++; }, askRemove: () => { removed++; }, remove: noOp, cancelRemove: noOp };
+  const props: ComponentProps<typeof MachineDetail> = { machine, error: "", mac: null, newest: "2.0", updatable: true, nodeUpdate: null, search: { id: "one", folder: "/srv/project", draft: "/srv/project", busy: false, error: "" }, log: { id: "one", text: "line one\nline two", busy: false, error: "" }, tools: [{ machine_id: "one", tool: "codex", version: "1.0", latest: "2.0" }], toolUps: new Map(), installed: new Map(), traffic: undefined, asking: null, age: () => "1m", searchEdit: noOp, searchSave: value => { saved = value; }, searchCancel: () => { cancelled++; }, signIn: value => { tool = value; }, updateNode: () => { node++; }, updateTool: noOp, logRead: noOp, logSave: noOp, rename: () => { renamed++; }, askRemove: () => { removed++; }, remove: noOp, cancelRemove: noOp };
   try {
     const view = render(createElement(MachineDetail, props));
     view.getByText("NVIDIA GeForce RTX 4090 (24 GB)");

@@ -34,7 +34,7 @@ export function reviewButton(item: GitItemRow, project: StartProject, machines: 
     project: project.name, machine, choose: true,
     label: earlier ? "Review again" : "Review",
     hint: earlier ? "Reviews what changed in the chat that reviewed this PR before" : "Pick a model: an agent reviews this PR and posts its comments on it",
-    running: earlier && AGENT_ACTIVE.has(earlier.status) ? { agent: agentLabel(earlier.agent), open: () => go("pane", { agent: earlier }) } : null,
+    session: earlier && AGENT_ACTIVE.has(earlier.status) ? { kind: "running", label: "Reviewing", agent: agentLabel(earlier.agent), hint: "Open the review", open: () => go("pane", { agent: earlier }) } : null,
     start: (pick, at) => startReview(project.name, pr, pick, at),
   });
 }
@@ -45,7 +45,7 @@ export function continueButton(item: GitItemRow, project: StartProject, machines
   const machine = projectStart(project, machines).machine;
   return homeButtons(`continue ${item.url}`, {
     project: project.name, machine, choose: true, label: "Continue", hint: "Pick a model: goes on in the chat on this pull request's branch, or starts an agent there",
-    running: null, start: (pick, at) => startContinue(project.name, item, pick, at),
+    session: null, start: (pick, at) => startContinue(project.name, item, pick, at),
   });
 }
 

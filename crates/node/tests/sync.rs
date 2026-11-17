@@ -1613,9 +1613,9 @@ async fn existing_checkouts_advance_inactive_branches_and_keep_their_indexes() {
     let original = head(&b).unwrap();
     git(&a.folder(), &["branch", "side"]);
     git(&b.folder(), &["branch", "side"]);
+    // The branch checked out on `a` syncs to `b`, which has it too.
     git(&a.folder(), &["switch", "-q", "side"]);
     let ahead = commit(&a, "side.txt", "side\n");
-    git(&a.folder(), &["switch", "-q", "main"]);
     write(&b.path("README.md"), "staged locally\n");
     git(&b.folder(), &["add", "README.md"]);
     a.sync_with(&b).await;

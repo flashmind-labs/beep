@@ -4,7 +4,7 @@
 
 use tracing::Instrument;
 use super::{
-    Syncs,
+    CONNECT_TIMEOUT, STALL, Syncs,
     gitdir::{BranchTip, Checkout, Oid, Repo},
     map::{Entry, Replica},
     project::{Cursor, Shared},
@@ -32,11 +32,17 @@ pub(crate) const ALPN: &[u8] = b"beep-sync/7";
 
 /// The most entries one batch carries.
 const BATCH: usize = 1000;
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 const LAST_RETRY: Duration = Duration::from_secs(60);
 /// The most projects one peer pulls at once over a connection.
 const MAX_STREAMS: usize = 64;
+/// How long a Git object transfer waits for its first chunk, then for each
+/// next one.
+const FIRST_CHUNK: Duration = Duration::from_secs(300);
+/// The largest Git pack one transfer takes.
+const MAX_PACK: u64 = 2 << 30;
+/// The most commits a puller offers as had.
+const MAX_HAVES: usize = 64;
 
 /// Sent as compact msgpack, like the node link, so a field is added only at
 /// the end with `#[serde(default)]`. The same goes for `Reply`.
@@ -60,6 +66,9 @@ enum Request {
         commit: Oid,
         branch: String,
         have: Option<Oid>,
+        /// More commits the puller has, beyond `have`, for the pack to leave out.
+        #[serde(default)]
+        haves: Vec<Oid>,
     },
     /// The branch catalogue reply is sent only in response to this request.
     PullBranches {
@@ -73,6 +82,8 @@ enum Request {
         commit: Oid,
         branch: String,
         have: Option<Oid>,
+        #[serde(default)]
+        haves: Vec<Oid>,
     },
 }
 
@@ -124,7 +135,8 @@ enum ObjectScope {
 struct ObjectWant {
     commit: Oid,
     branch: String,
-    have: Option<Oid>,
+    /// Commits the puller has, the closest first.
+    haves: Vec<Oid>,
     scope: ObjectScope,
 }
 
@@ -207,6 +219,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             commit,
             branch,
             have,
+            haves,
         }) => {
             return serve_objects(
                 &syncs,
@@ -216,7 +229,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
                 ObjectWant {
                     commit,
                     branch,
-                    have,
+                    haves: have.into_iter().chain(haves).collect(),
                     scope: ObjectScope::Checkout,
                 },
             )
@@ -227,6 +240,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             commit,
             branch,
             have,
+            haves,
         }) => {
             return serve_objects(
                 &syncs,
@@ -236,7 +250,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
                 ObjectWant {
                     commit,
                     branch,
-                    have,
+                    haves: have.into_iter().chain(haves).collect(),
                     scope: ObjectScope::Branch,
                 },
             )
@@ -485,21 +499,19 @@ async fn pull_once(
                 {
                     let root = shared.root().to_owned();
                     let remote_branch = remote_branch.to_owned();
-                    let (need, have) = spawn_blocking(move || -> Result<_> {
+                    let peer_id = peer.id;
+                    let (need, haves) = spawn_blocking(move || -> Result<_> {
                         let repo = Repo::open(&root).context("Git checkout is unavailable")?;
                         // Fetching immutable objects is safe while local edits wait for recovery.
                         if repo.head_ref().as_deref() != Some(remote_branch.as_str()) {
                             bail!("Git commits differ between branches");
                         }
 
-                        let have = repo.head();
-                        Ok((
-                            have.is_some_and(|oid| {
-                                repo.is_ancestor(target, oid).is_none()
-                                    && repo.is_ancestor(oid, target).is_none()
-                            }),
-                            have,
-                        ))
+                        let need = repo.head().is_some_and(|oid| {
+                            repo.is_ancestor(target, oid).is_none()
+                                && repo.is_ancestor(oid, target).is_none()
+                        });
+                        Ok((need, repo.haves(&peer_id, &remote_branch)))
                     })
                     .await??;
 
@@ -510,7 +522,7 @@ async fn pull_once(
                             ObjectWant {
                                 commit: target,
                                 branch: branch.clone().unwrap_or_default(),
-                                have,
+                                haves,
                                 scope: ObjectScope::Checkout,
                             },
                         )
@@ -592,7 +604,7 @@ async fn serve_objects(
     let ObjectWant {
         commit,
         branch,
-        have,
+        haves,
         scope,
     } = want;
     let root = shared.root().to_owned();
@@ -616,15 +628,19 @@ async fn serve_objects(
             }
         }
 
+        // Every commit the puller has that is here too stays out of the
+        // pack, related to `commit` or not, and deltas may build on them.
         let mut input = format!("{commit}\n");
 
-        if let Some(have) = have.filter(|have| repo.is_ancestor(*have, commit) == Some(true)) {
-            input.push_str(&format!("^{have}\n"));
+        for have in haves.into_iter().take(MAX_HAVES) {
+            if repo.has_commit(have) {
+                input.push_str(&format!("^{have}\n"));
+            }
         }
 
         let mut command = repo.git();
         command
-            .args(["pack-objects", "--stdout", "--revs"])
+            .args(["pack-objects", "--stdout", "--revs", "--thin"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -665,76 +681,76 @@ async fn serve_objects(
 }
 
 async fn receive_objects(connection: &Connection, shared: &Shared, want: ObjectWant) -> Result<()> {
-    timeout(Duration::from_secs(300), async {
-        let (send, recv) = connection.open_bi().await?;
-        let (mut tx, mut rx) = link(send, recv);
-        let ObjectWant {
+    let (send, recv) = timeout(CONNECT_TIMEOUT, connection.open_bi())
+        .await
+        .context("The Git object transfer did not start")??;
+    let (mut tx, mut rx) = link(send, recv);
+    let ObjectWant {
+        commit,
+        branch,
+        haves,
+        scope,
+    } = want;
+    // Peers before `haves` read only `have`: the closest commit.
+    let have = haves.first().copied();
+    let request = match scope {
+        ObjectScope::Checkout => Request::GitObjects {
+            project: shared.name().to_owned(),
             commit,
             branch,
             have,
-            scope,
-        } = want;
-        let request = match scope {
-            ObjectScope::Checkout => Request::GitObjects {
-                project: shared.name().to_owned(),
-                commit,
-                branch,
-                have,
-            },
-            ObjectScope::Branch => Request::BranchObjects {
-                project: shared.name().to_owned(),
-                commit,
-                branch,
-                have,
-            },
-        };
-        tx.send(&request).await?;
-        let root = shared.root().to_owned();
-        let command = spawn_blocking(move || -> Result<_> {
-            let repo = Repo::open(&root).context("Git checkout is unavailable")?;
-            let mut command = repo.git();
-            command
-                .args(["index-pack", "--stdin", "--fix-thin"])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            Ok(command)
-        })
-        .await??;
-        let mut command = tokio::process::Command::from(command);
-        command.kill_on_drop(true);
-        let mut child = command.spawn()?;
-        let mut stdin = child.stdin.take().context("pack input missing")?;
-        let mut total = 0u64;
+            haves,
+        },
+        ObjectScope::Branch => Request::BranchObjects {
+            project: shared.name().to_owned(),
+            commit,
+            branch,
+            have,
+            haves,
+        },
+    };
+    tx.send(&request).await?;
 
-        loop {
-            match rx.recv::<Reply>().await? {
-                Some(Reply::GitChunk { bytes }) => {
-                    total = total
-                        .checked_add(bytes.len() as u64)
-                        .context("Git pack too large")?;
-                    if total > 2 * 1024 * 1024 * 1024 {
-                        bail!("Git pack exceeds the transfer limit");
-                    }
-
-                    stdin.write_all(&bytes).await?;
-                }
-                Some(Reply::GitDone) => break,
-                Some(Reply::Refused { message }) => bail!("{message}"),
-                _ => bail!("The peer did not complete the Git pack"),
-            }
-        }
-
-        drop(stdin);
-
-        if !child.wait().await?.success() {
-            bail!("Git could not read the object pack");
-        }
-
-        Ok(())
+    let root = shared.root().to_owned();
+    let (repo, pack) = spawn_blocking(move || -> Result<_> {
+        let repo = Repo::open(&root).context("Git checkout is unavailable")?;
+        let pack = repo.incoming_pack()?;
+        Ok((repo, pack))
     })
-    .await
-    .context("The Git object transfer timed out")?
+    .await??;
+    let mut file = tokio::fs::File::create(pack.received()).await?;
+    let mut total = 0u64;
+
+    loop {
+        // Git writes nothing until it has counted and compressed the
+        // objects, which takes long for a big pack.
+        let wait = if total == 0 { FIRST_CHUNK } else { STALL };
+        let reply = timeout(wait, rx.recv::<Reply>())
+            .await
+            .context("The Git object transfer stalled")??;
+
+        match reply {
+            Some(Reply::GitChunk { bytes }) => {
+                total = total
+                    .checked_add(bytes.len() as u64)
+                    .context("Git pack too large")?;
+                if total > MAX_PACK {
+                    bail!("Git pack exceeds the transfer limit");
+                }
+
+                file.write_all(&bytes).await?;
+            }
+            Some(Reply::GitDone) => break,
+            Some(Reply::Refused { message }) => bail!("{message}"),
+            _ => bail!("The peer did not complete the Git pack"),
+        }
+    }
+
+    file.flush().await?;
+    drop(file);
+    // Indexing runs to its end even when the pull is dropped meanwhile, so
+    // Git never leaves a half-written pack of its own.
+    spawn_blocking(move || repo.index_pack(&pack)).await?
 }
 
 #[cfg(test)]

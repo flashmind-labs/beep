@@ -6,7 +6,7 @@ mod install;
 
 use super::{
     Adapter, AgentKind, KNOWN, flsh_config,
-    kinds::{direct, in_wsl_bridge},
+    kinds::{direct, in_wsl},
     models::flsh_dir_of, unix_now,
 };
 use crate::{
@@ -136,7 +136,7 @@ impl Settings {
 fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
     let direct = match config.driver {
         HarnessDriver::Direct => direct(kind),
-        _ if in_wsl_bridge(kind) => Some(kind.clone()),
+        _ if in_wsl(kind) => Some(kind.clone()),
         HarnessDriver::Acp | HarnessDriver::Other => None,
     };
     let adapter = direct.is_none();
@@ -150,9 +150,11 @@ fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
         kind.args.extend(config.args.iter().cloned());
     }
 
-    if let (Some(home), Some(known)) = (
+    // A home set for Windows is no path inside WSL.
+    if let (Some(home), Some(known), false) = (
         config.home.as_deref().filter(|h| !h.trim().is_empty()),
         harness(&kind.name),
+        in_wsl(&kind),
     ) {
         kind.env
             .insert(known.home_var.to_owned(), expand_home(home.trim()));

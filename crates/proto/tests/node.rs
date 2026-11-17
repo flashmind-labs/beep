@@ -244,18 +244,6 @@ mod env {
         let read: EnvReport = beep_proto::lenient::from_slice(&bytes).expect("decodes");
         assert_eq!(read, report);
     }
-
-    #[test]
-    fn a_wsl_request_round_trips() {
-        let request = wsl::Request::Add {
-            distro: "Ubuntu".into(),
-            ticket: beep_proto::SecretText::new("ticket"),
-        };
-        let bytes = rmp_serde::to_vec(&request).expect("encodes");
-        let read: wsl::Request = beep_proto::lenient::from_slice(&bytes).expect("decodes");
-        assert_eq!(read, request);
-        assert!(!format!("{read:?}").contains("ticket\""));
-    }
 }
 
 mod stream {

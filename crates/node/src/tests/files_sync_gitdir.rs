@@ -106,3 +106,68 @@ fn only_refs_index_and_settings_count_as_git_metadata() {
         assert!(!is_metadata(Path::new(path)), "{path}");
     }
 }
+
+#[test]
+fn a_pack_cut_short_leaves_nothing_and_a_whole_one_indexes() {
+    let (_source_dir, source) = init();
+    std::fs::write(source.root.join("a.txt"), "some content\n").unwrap();
+    source.run(&["add", "a.txt"]).unwrap();
+    let commit = commit(&source, "first");
+    let mut packing = source
+        .git()
+        .args(["pack-objects", "--stdout", "--revs"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::io::Write::write_all(
+        packing.stdin.as_mut().unwrap(),
+        format!("{commit}\n").as_bytes(),
+    )
+    .unwrap();
+    let bytes = packing.wait_with_output().unwrap().stdout;
+    let (_target_dir, target) = init();
+    // A copied repository with no commit yet has no pack folder.
+    std::fs::remove_dir_all(target.root.join(".git/objects/pack")).unwrap();
+    let leftovers = |repo: &Repo| {
+        let pack_dir = std::fs::read_dir(repo.root.join(".git/objects/pack")).unwrap();
+        let git_dir = std::fs::read_dir(repo.root.join(".git")).unwrap();
+        pack_dir
+            .chain(git_dir)
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with("tmp_pack_") || name.starts_with("beep-incoming-"))
+            .collect::<Vec<_>>()
+    };
+
+    let cut = target.incoming_pack().unwrap();
+    std::fs::write(cut.received(), &bytes[..bytes.len() / 2]).unwrap();
+    assert!(target.index_pack(&cut).is_err());
+    drop(cut);
+    assert_eq!(leftovers(&target), Vec::<String>::new());
+
+    let whole = target.incoming_pack().unwrap();
+    std::fs::write(whole.received(), &bytes).unwrap();
+    target.index_pack(&whole).unwrap();
+    drop(whole);
+    assert!(target.is_complete(commit));
+    assert_eq!(leftovers(&target), Vec::<String>::new());
+}
+
+/// A new repository in a temporary folder, with an identity to commit as.
+pub(super) fn init() -> (tempfile::TempDir, Repo) {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = Repo {
+        root: temp.path().to_owned(),
+    };
+    repo.run(&["init", "-q", "-b", "main"]).unwrap();
+    repo.run(&["config", "user.name", "Test"]).unwrap();
+    repo.run(&["config", "user.email", "test@example.invalid"]).unwrap();
+    (temp, repo)
+}
+
+/// Commits what is staged, or nothing at all, and names the new commit.
+pub(super) fn commit(repo: &Repo, message: &str) -> Oid {
+    repo.run(&["commit", "-q", "--allow-empty", "-m", message]).unwrap();
+    repo.head().unwrap()
+}
