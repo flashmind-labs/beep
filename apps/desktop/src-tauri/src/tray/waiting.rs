@@ -8,6 +8,7 @@ use crate::{
     machines::list::MachineLists,
     notices::history,
 };
+use beep_proto::SessionId;
 use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
@@ -117,7 +118,7 @@ pub fn entries(needs: Vec<NeedsYou>) -> Vec<Entry> {
 }
 
 /// The menu id of `question` of `session` on `machine_id`.
-pub(crate) fn agent_item(machine_id: &str, session: &str, question: u32) -> String {
+pub(crate) fn agent_item(machine_id: &str, session: &SessionId, question: u32) -> String {
     format!("{ITEM}agent:{machine_id}:{session}:{question}")
 }
 

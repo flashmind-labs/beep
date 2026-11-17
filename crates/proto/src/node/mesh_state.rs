@@ -6,6 +6,7 @@
 //! at the end with `#[serde(default)]`.
 
 use super::{EnvSecret, ForgejoLogin, agent::Effort, harness::HarnessConfig};
+use crate::SessionId;
 use crate::{AgentSlug, ModelId};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -214,7 +215,7 @@ pub struct TerminalRecord {
 pub struct SessionMove {
     pub agent: AgentSlug,
     /// The agent's own id for the session.
-    pub id: String,
+    pub id: SessionId,
     pub from: EndpointId,
     pub to: EndpointId,
     /// The project, by the name `sync/<name>` has.

@@ -303,7 +303,7 @@ pub async fn agent_follow(
     id: Uuid,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
     last: u32,
     after: Option<SessionCursor>,
     on_event: Channel<Update>,

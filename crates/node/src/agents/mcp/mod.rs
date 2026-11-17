@@ -3,6 +3,7 @@
 //! and `Launch` names it in each session's `session/new` as
 //! `beep-node mcp --session <id>`.
 
+use beep_proto::SessionId;
 use crate::{
     agents::{Answered, Asking},
     link::Offers,
@@ -94,21 +95,21 @@ impl Launch {
         }
     }
 
-    fn token(&self, session: &str) -> blake3::Hash {
-        blake3::keyed_hash(&self.key, session.as_bytes())
+    fn token(&self, session: &SessionId) -> blake3::Hash {
+        blake3::keyed_hash(&self.key, session.as_ref().as_bytes())
     }
 
     /// Whether `token` is the one `session` was given. The comparison
     /// takes the same time however much matches.
-    fn verify(&self, session: &str, token: &str) -> bool {
+    fn verify(&self, session: &SessionId, token: &str) -> bool {
         blake3::Hash::from_hex(token.trim()).is_ok_and(|given| given == self.token(session))
     }
 
     /// The entry `session/new` passes for `session`.
-    pub(crate) fn server(&self, session: &str) -> McpServer {
+    pub(crate) fn server(&self, session: &SessionId) -> McpServer {
         let args = Invocation {
             dir: self.dir.clone(),
-            session: session.to_owned(),
+            session: session.clone(),
         }
         .args();
         let token = self.token(session).to_hex().to_string();
@@ -131,7 +132,7 @@ pub struct Invocation {
     /// The node's folder, which holds the socket.
     pub dir: PathBuf,
     /// The node's id of the agent's session.
-    pub session: String,
+    pub session: SessionId,
 }
 
 impl Invocation {
@@ -141,7 +142,7 @@ impl Invocation {
             self.dir.display().to_string(),
             "mcp".to_owned(),
             "--session".to_owned(),
-            self.session.clone(),
+            self.session.to_string(),
         ]
     }
 
@@ -159,7 +160,7 @@ impl Invocation {
             return None;
         }
 
-        let session = session.into_string().ok().filter(|id| !id.is_empty())?;
+        let session = session.into_string().ok().filter(|id| !id.is_empty()).map(Into::<SessionId>::into)?;
         Some(Self {
             dir: PathBuf::from(dir),
             session,
@@ -240,7 +241,7 @@ impl Backend for Node {
         Ok(machines::call(&self.offers, &mesh, request).await)
     }
 
-    async fn device(&self, session: &str, args: Value) -> Called {
+    async fn device(&self, session: &SessionId, args: Value) -> Called {
         match self.offers.mesh.get() {
             Some(mesh) => devices::call(&self.offers, &mesh, &self.screens, session, args).await,
             None => Called::failed(NO_MESH),
@@ -251,15 +252,15 @@ impl Backend for Node {
         transcripts::call(&self.offers, args).await
     }
 
-    async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {
+    async fn ask(&self, session: &SessionId, question: Asking) -> Result<Answered> {
         self.offers.agents.ask(session, question).await
     }
 
-    fn reviewer(&self, session: &str) -> bool {
+    fn reviewer(&self, session: &SessionId) -> bool {
         self.offers.agents.is_reviewer(session)
     }
 
-    fn assistant(&self, session: &str) -> bool {
+    fn assistant(&self, session: &SessionId) -> bool {
         self.offers.agents.is_assistant(session)
     }
 
@@ -270,7 +271,7 @@ impl Backend for Node {
             .is_none_or(|mesh| machines::alone(&mesh))
     }
 
-    fn media(&self, session: &str) -> Option<media::Media> {
+    fn media(&self, session: &SessionId) -> Option<media::Media> {
         self.offers.agents.folder_of(session).map(media::Media::new)
     }
 }
@@ -282,7 +283,7 @@ const NO_MESH: &str = "This machine is not in a mesh yet, so it reaches no other
 /// The first line a connection sends: whose it is.
 #[derive(Deserialize)]
 struct Hello {
-    session: String,
+    session: SessionId,
     token: String,
 }
 
@@ -382,7 +383,7 @@ fn connect_to(named: Option<OsString>, dir: &Path) -> PathBuf {
 /// `beep-node mcp`: connects to the node in `dir` for `session`, with the
 /// token in `TOKEN_ENV`, and pipes stdin and stdout to it until either
 /// side ends.
-pub async fn pipe(dir: &Path, session: &str) -> Result<()> {
+pub async fn pipe(dir: &Path, session: &SessionId) -> Result<()> {
     let token = std::env::var(TOKEN_ENV)
         .with_context(|| format!("{TOKEN_ENV} is not set; the node sets it for its sessions"))?;
     let socket = connect_to(std::env::var_os(SOCKET_ENV), dir);

@@ -294,8 +294,8 @@ fn a_start_shows_as_a_starting_session_with_its_prompt_as_the_first_entry() {
     };
 
     let row = kept.row();
-    assert_eq!(row.id.parse::<StartId>().ok(), Some(kept.id));
-    assert!(row.id.starts_with("start:"));
+    assert_eq!(row.id.as_ref().parse::<StartId>().ok(), Some(kept.id));
+    assert!(row.id.as_ref().starts_with("start:"));
     assert_eq!(row.status, AgentStatus::Starting {});
     assert_eq!(row.doing.as_deref(), Some("Waiting for build-box"));
     assert_eq!(row.title.as_deref(), Some("Fix the build"));

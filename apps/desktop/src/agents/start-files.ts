@@ -7,6 +7,8 @@ interface Destination { machine: string; root: string }
 
 export interface PendingFile {
   file: File;
+  /// When its upload started.
+  started: number;
   /// Where the file is going, and its path there once complete.
   at: Destination | null;
   path: string | null;
@@ -33,7 +35,7 @@ export class StartFiles {
   }
 
   add(files: Iterable<File>) {
-    for (const file of files) this.pending.push({ file, at: null, path: null, done: 0, error: null });
+    for (const file of files) this.pending.push({ file, started: Date.now(), at: null, path: null, done: 0, error: null });
     this.changed();
     void this.pump();
   }
@@ -104,7 +106,7 @@ export class StartFiles {
 
   private async send(entry: PendingFile, where: Destination) {
     if (entry.path) this.discard(entry);
-    Object.assign(entry, { at: where, path: null, done: 0, error: null });
+    Object.assign(entry, { at: where, started: Date.now(), path: null, done: 0, error: null });
     this.changed();
     const name = entry.file.name || "file";
     let path = joinPath(".beep/uploads", name), written = false;

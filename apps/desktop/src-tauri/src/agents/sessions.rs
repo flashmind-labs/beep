@@ -21,6 +21,7 @@ use crate::{
 };
 use beep_mesh::Key;
 use beep_node::agents::tags::own_words;
+use beep_proto::SessionId;
 use beep_proto::node::agent::LineChanges;
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
@@ -90,14 +91,14 @@ impl From<AgentHost> for HostRow {
 pub struct SessionRow {
     machine_id: String,
     machine_name: String,
-    id: String,
+    id: SessionId,
     agent: String,
     title: Option<String>,
     cwd: String,
     status: &'static str,
     doing: Option<String>,
-    /// The first line of its last reply, shown while it is idle.
-    reply: Option<String>,
+    /// The first line of its last reply, shown while it is idle, as inline HTML.
+    reply_html: Option<String>,
     /// The lines changed in its checkout when its last turn ended.
     changes: Option<LineChanges>,
     /// In milliseconds since the Unix epoch.
@@ -130,7 +131,7 @@ impl From<MachineSession> for SessionRow {
             title: session.title,
             cwd: session.cwd,
             doing: session.doing,
-            reply: session.reply,
+            reply_html: session.reply.as_deref().map(markdown::inline_html),
             changes: session.changes,
             external: session.external,
             question: session.question,
@@ -320,7 +321,7 @@ pub async fn agent_title_save(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
     title: String,
 ) -> Result<()> {
     let mesh = fleet.ready().await?;
@@ -361,11 +362,11 @@ pub(crate) async fn follow_titles(app: AppHandle, fleet: Arc<Fleet>) {
 /// Shows a session its machine said ended as ended in the lists held here, so
 /// Home and the session lists drop it from Running at once rather than on a
 /// later read, and has the windows read them again.
-pub(crate) fn closed(app: &AppHandle, machine_id: &str, session: &str) {
+pub(crate) fn closed(app: &AppHandle, machine_id: &str, session: &SessionId) {
     let end = |list: &mut [MachineSession]| {
         for listed in list
             .iter_mut()
-            .filter(|listed| listed.machine_id == machine_id && listed.id == session)
+            .filter(|listed| listed.machine_id == machine_id && listed.id == *session)
         {
             listed.status = AgentStatus::Ended {};
             listed.doing = None;
@@ -624,7 +625,7 @@ pub async fn agent_resume(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
     prompt: Option<String>,
 ) -> Result<Started> {
     let indexed_prompt = prompt.clone();
@@ -672,7 +673,7 @@ pub async fn agent_delete(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
 ) -> Result<()> {
     let machine = fleet.member(&machine_id).ok_or_else(|| {
         DesktopError::BadRequest("Only a machine in the mesh can delete sessions.".into())
@@ -729,12 +730,12 @@ pub async fn agent_view(
     shown: State<'_, AgentsShown>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
     last: u32,
     before: Option<u64>,
 ) -> Result<SessionPage, ViewError> {
     // A start is read from this device, before its machine has the session.
-    if let Ok(start) = session.parse::<StartId>() {
+    if let Ok(start) = session.as_ref().parse::<StartId>() {
         return app
             .state::<Arc<Starts>>()
             .read(|held| held.get(start).map(Start::page))
@@ -792,7 +793,7 @@ pub async fn agent_older(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
     last: u32,
     before: u64,
 ) -> Result<OlderPage, ViewError> {
@@ -840,7 +841,7 @@ pub async fn agent_usage(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
 ) -> Result<Option<AgentSessionUsage>> {
     let request = GetAgentSessionUsage {
         machine_id,
@@ -875,7 +876,7 @@ pub async fn agent_device(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
 ) -> Result<KeptDevice> {
     let machine = fleet.machine(&machine_id)?;
     let version = fleet.status().version(machine);
@@ -922,7 +923,7 @@ pub async fn agent_modes(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
 ) -> Result<Option<ModesRow>> {
     let request = GetAgentSessionModes {
         machine_id,
@@ -949,7 +950,7 @@ pub async fn agent_tasks(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
 ) -> Result<Vec<AgentTask>> {
     let request = GetAgentSessionTasks {
         machine_id,
@@ -980,7 +981,7 @@ pub async fn agent_relocate(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
     folder: String,
 ) -> Result<()> {
     let machine = fleet

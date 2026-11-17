@@ -2,6 +2,7 @@
 //! call that started one, and what its entry says of it (written in
 //! `super::live`).
 
+use beep_proto::SessionId;
 use crate::agents::delete::valid_id;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::{Entry, EntryKind};
@@ -87,6 +88,23 @@ impl Subagent {
     /// it starts one.
     pub(crate) fn of_call(tool: Option<&str>, title: &str, input: Option<&Value>) -> Option<Self> {
         let input = input?;
+
+        if tool == Some("flsh_agent") && input["flshAgent"] == true {
+            return Some(Self {
+                name: text(input, "name"),
+                model: text(input, "model"),
+                ..Self::default()
+            });
+        }
+
+        if tool == Some("delegate") || (tool.is_none() && title == "delegate") {
+            return Some(Self {
+                name: text(input, "name").or_else(|| text(input, "persona")),
+                model: text(input, "model"),
+                title: text(input, "task"),
+                ..Self::default()
+            });
+        }
 
         if title == CODEX_SPAWN {
             let asked = input["prompt"]
@@ -183,7 +201,7 @@ impl TryFrom<&Value> for Activity {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct Run {
     /// The independently readable conversation, when its file exists.
-    pub(crate) session: Option<String>,
+    pub(crate) session: Option<SessionId>,
     /// Its last steps, oldest first.
     pub(crate) steps: Vec<RunStep>,
     /// How many steps it ran in all.

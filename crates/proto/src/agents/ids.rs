@@ -106,3 +106,39 @@ text_id!(ModelId);
 pub struct SessionId(String);
 
 text_id!(SessionId);
+
+impl From<SessionId> for String {
+    fn from(id: SessionId) -> Self {
+        id.0
+    }
+}
+
+impl From<&SessionId> for String {
+    fn from(id: &SessionId) -> Self {
+        id.0.clone()
+    }
+}
+
+impl From<&String> for SessionId {
+    fn from(id: &String) -> Self {
+        Self::new(id.as_str())
+    }
+}
+
+impl PartialEq<String> for SessionId {
+    fn eq(&self, other: &String) -> bool {
+        &self.0 == other
+    }
+}
+
+impl PartialEq<SessionId> for String {
+    fn eq(&self, other: &SessionId) -> bool {
+        self == &other.0
+    }
+}
+
+impl PartialEq<SessionId> for str {
+    fn eq(&self, other: &SessionId) -> bool {
+        self == other.0
+    }
+}

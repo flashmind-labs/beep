@@ -11,6 +11,7 @@ use beep_mesh::{
     Key,
     machine::sessions::{MoveState, move_progress},
 };
+use beep_proto::SessionId;
 use beep_proto::{
     AgentSlug, ModelId,
     node::mesh_state::{SessionMove, StateValue, SyncSpec},
@@ -22,7 +23,7 @@ use std::path::{Component, Path};
 pub struct MoveAsk<'a> {
     pub agent: &'a str,
     /// The agent's own id.
-    pub id: &'a str,
+    pub id: &'a SessionId,
     pub from: EndpointId,
     pub to: EndpointId,
     pub project: &'a str,
@@ -72,7 +73,7 @@ impl Desk {
             .to_owned();
         let record = SessionMove {
             agent: AgentSlug::from(ask.agent),
-            id: ask.id.to_owned(),
+            id: ask.id.clone(),
             from: ask.from,
             to: ask.to,
             project: ask.project.to_owned(),
@@ -89,7 +90,7 @@ impl Desk {
         self.forget_old_moves(record.at).await?;
         self.mesh
             .set(
-                Key::SessionMove(ask.id.to_owned()),
+                Key::SessionMove(ask.id.clone()),
                 Some(record.to_bytes().map_err(anyhow::Error::from)?),
             )
             .await?;
@@ -125,16 +126,16 @@ impl Desk {
     pub async fn takes_moves(&self, machine: EndpointId) -> Result<bool> {
         let client = self.peers.client(machine).await?;
         Ok(!matches!(
-            move_progress(&client, PROBE).await?,
+            move_progress(&client, &SessionId::from(PROBE)).await?,
             MoveState::NeedsUpdate
         ))
     }
 
     /// Takes back the move of session `id`: the machines stop it unless
     /// the target already resumed the session.
-    pub async fn cancel_move(&self, id: &str) -> Result<()> {
+    pub async fn cancel_move(&self, id: &SessionId) -> Result<()> {
         let _one = WRITES.lock().await;
-        self.mesh.set(Key::SessionMove(id.to_owned()), None).await?;
+        self.mesh.set(Key::SessionMove(id.clone()), None).await?;
         Ok(())
     }
 
@@ -147,9 +148,9 @@ impl Desk {
     }
 
     /// How the move of `id` stands, as its target says.
-    pub async fn move_state(&self, id: &str) -> Result<MoveState> {
+    pub async fn move_state(&self, id: &SessionId) -> Result<MoveState> {
         let record: SessionMove =
-            read(&self.mesh, &Key::SessionMove(id.to_owned())).ok_or(FleetError::NotFound)?;
+            read(&self.mesh, &Key::SessionMove(id.clone())).ok_or(FleetError::NotFound)?;
         let client = self.peers.client(record.to).await?;
         Ok(move_progress(&client, id).await?)
     }

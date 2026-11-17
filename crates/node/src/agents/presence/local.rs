@@ -3,6 +3,7 @@
 //! node and a standalone node in that folder; a node run with another
 //! `--dir` keeps its own there, so it never replaces the installed node's.
 
+use beep_proto::SessionId;
 use super::Registration;
 use crate::agents::Agents;
 use crate::link::local_socket::{Listener, Stream};
@@ -164,7 +165,7 @@ async fn serve(listener: &mut Listener, agents: Arc<Agents>) -> Result<()> {
 
 struct Open<'a> {
     agents: &'a Agents,
-    id: String,
+    id: SessionId,
     connection: Uuid,
 }
 

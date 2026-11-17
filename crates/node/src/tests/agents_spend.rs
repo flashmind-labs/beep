@@ -82,7 +82,7 @@ fn fixture() -> Fixture {
     }
 }
 
-fn by_session(reports: &[SessionSpend]) -> BTreeMap<String, &SessionSpend> {
+fn by_session(reports: &[SessionSpend]) -> BTreeMap<SessionId, &SessionSpend> {
     reports
         .iter()
         .map(|report| (report.session.clone(), report))
@@ -101,7 +101,7 @@ fn a_pass_reports_every_agents_sessions_once_each() {
     let sessions = by_session(&reports);
     let names: Vec<(&str, &str)> = sessions
         .values()
-        .map(|report| (report.agent.as_ref(), report.session.as_str()))
+        .map(|report| (report.agent.as_ref(), report.session.as_ref()))
         .collect();
     assert_eq!(
         names,
@@ -240,7 +240,7 @@ fn a_moved_transcript_is_not_counted_again_but_what_follows_is() {
     let line = claude_line("s9", "m9", "2026-11-03T08:30:00.000Z", 1_000_000);
     append(&moved, &line);
     spend
-        .mark_counted(Agent::Claude, "s9", &moved)
+        .mark_counted(Agent::Claude, &SessionId::from("s9"), &moved)
         .expect("marked");
     let reports = spend.pass(NOW);
     assert!(
@@ -283,7 +283,7 @@ fn a_session_that_comes_back_keeps_what_it_spent_here_before() {
     );
     fs::write(&path, back).expect("the transcript comes back");
     spend
-        .mark_counted(Agent::Claude, "s9", &path)
+        .mark_counted(Agent::Claude, &SessionId::from("s9"), &path)
         .expect("marked");
     let after = spend.pass_all(NOW);
     assert!(
@@ -326,7 +326,7 @@ fn a_moved_codex_session_keeps_its_folder_and_provider_for_what_runs_here() {
         ),
     );
     spend
-        .mark_counted(Agent::Codex, "t9", &path)
+        .mark_counted(Agent::Codex, &SessionId::from("t9"), &path)
         .expect("marked");
     // A turn run here: its lines name neither the folder nor the provider
     // nor the model, the header did.

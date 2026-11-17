@@ -1,9 +1,9 @@
 //! `beep_status`, `beep_logs` and `file_report`: an agent looks into Beep
 //! itself and sends a problem report, from its own node. They read what a
 //! problem report reads (`report/1`), with secrets redacted the same way:
-//! from a desktop every machine of the mesh, from a node this machine only,
-//! since only a desktop reads another machine's report.
+//! every machine of the mesh.
 
+use beep_proto::SessionId;
 use super::machines::command_name;
 use super::reply::{fail, parse};
 use super::server::ASK_LIMIT;
@@ -33,10 +33,6 @@ const DEFAULT_LINES: usize = 300;
 const MAX_LINES: usize = 2000;
 const SEND: &str = "send";
 const SEND_AND_ISSUE: &str = "issue";
-/// What a node says of the machines it cannot read.
-const ONLY_HERE: &str = "This agent runs on a node, and only a desktop reads another \
-    machine's status and log, so this is this machine alone. Start the agent on a desktop to \
-    read the others.";
 
 /// Answers one of the tools for the session that called it.
 pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
@@ -77,11 +73,6 @@ fn now() -> i64 {
         .map_or(0, |now| i64::try_from(now.as_secs()).unwrap_or(i64::MAX))
 }
 
-/// Whether this node reads only itself while the mesh has others.
-fn only_here(peers: &Peers) -> bool {
-    !peers.is_desktop() && peers.devices().len() > 1
-}
-
 /// `## name (kind, os version, Beep version): answer`.
 fn heading(share: &Share) -> String {
     let os = [share.os.as_str(), share.os_version.as_str()]
@@ -108,11 +99,6 @@ fn heading(share: &Share) -> String {
 async fn status(peers: &Peers) -> String {
     let shares = collect_within(peers.report_targets(), now(), 0).await;
     let mut text = String::new();
-
-    if only_here(peers) {
-        text.push_str(ONLY_HERE);
-        text.push_str("\n\n");
-    }
 
     for share in &shares {
         text.push_str(&heading(share));
@@ -271,19 +257,8 @@ async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
         .take(1)
         .collect();
     if targets.is_empty() {
-        let devices = peers.devices();
-
-        if devices
-            .iter()
-            .any(|status| command_name(&status.device.name) == command_name(name))
-        {
-            return Err(format!(
-                "{name} is another machine, and only a desktop reads another machine's log. This \
-                 agent runs on a node: start it on a desktop to read {name}'s log."
-            ));
-        }
-
-        let names: Vec<String> = devices
+        let names: Vec<String> = peers
+            .devices()
             .iter()
             .map(|status| command_name(&status.device.name))
             .collect();
@@ -430,10 +405,7 @@ async fn metrics(peers: &Peers, args: MetricsArgs) -> Result<String, String> {
     let me = peers.key().public();
     let target = peers.report_targets().into_iter().find(|target| {
         if name.is_empty() { target.id == me } else { named(target, name) }
-    }).ok_or_else(|| {
-        if only_here(peers) { format!("Only this node's metrics can be read here. Start the agent on a desktop to read {name}.") }
-        else { format!("There is no machine {name}.") }
-    })?;
+    }).ok_or_else(|| format!("There is no machine {name}."))?;
     let client = target
         .client
         .map_err(|reason| format!("{}: {reason}", target.name))?;
@@ -490,7 +462,7 @@ struct ReportArgs {
 async fn file(
     offers: &Offers,
     peers: &Peers,
-    session: &str,
+    session: &SessionId,
     args: ReportArgs,
 ) -> Result<String, String> {
     let description = args.description.trim().to_owned();
@@ -511,11 +483,7 @@ async fn file(
         Period::Today => "today",
         Period::Day => "the past day",
     };
-    let machines = if desktop {
-        "every machine"
-    } else {
-        "this machine"
-    };
+    let machines = "every machine";
     let option = |id: &str, name: &str, kind| AnswerOption {
         id: id.into(),
         name: name.into(),
@@ -591,10 +559,6 @@ async fn file(
         receipt.reference,
         answers.join(", ")
     );
-
-    if only_here(peers) {
-        text.push_str(" Only this machine's log went: a node reads no other machine's.");
-    }
 
     if let Some(gh) = gh.filter(|_| with_issue) {
         // The report reached Beep: a failed issue is said, not a failed call.

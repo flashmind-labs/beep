@@ -14,7 +14,7 @@ fn key(session: &str, question: Option<u32>) -> AgentNoticeKey {
 fn an_agent_session_counts_as_shown_while_its_view_reads_it() {
     let shown = AgentsShown::default();
     let at = Instant::now();
-    shown.read("center", "m1", "claude", "s1", at);
+    shown.read("center", "m1", "claude", &SessionId::from("s1"), at);
     let s1 = key("s1", None);
     assert!(shown.shows(&["center"], &s1, at + Duration::from_secs(5)));
     assert!(

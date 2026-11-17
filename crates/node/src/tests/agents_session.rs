@@ -118,8 +118,8 @@ async fn a_slow_start_waits_for_acps_id() {
     tokio::time::advance(Duration::from_secs(60)).await;
     assert!(futures::poll!(named.as_mut()).is_pending());
     tx.send_modify(|live| {
-        live.agent_session = Some("acp-session".to_owned());
-        live.info.id = "acp-session".to_owned();
+        live.agent_session = Some(SessionId::from("acp-session").to_owned());
+        live.info.id = SessionId::from("acp-session").to_owned();
     });
     assert_eq!(named.await.unwrap().id, "acp-session");
 }
@@ -167,8 +167,8 @@ async fn a_takeover_resumes_without_permission_prompts() {
     assert_eq!(info.last_message, "Picked it up.");
     assert!(info.question.is_none());
     assert_eq!(
-        watched::read(&session.live, |live| live.agent_session.clone()).as_deref(),
-        Some(id)
+        watched::read(&session.live, |live| live.agent_session.clone()),
+        Some(SessionId::from(id))
     );
     let sent: Vec<Value> = std::fs::read_to_string(&log)
         .unwrap()
@@ -2437,7 +2437,7 @@ async fn saved_instructions_reach_new_and_resumed_sessions_without_editing_files
 
     for (index, resume, text) in [
         (0, None, "Use short sentences."),
-        (1, Some("s".to_owned()), "Use plain words."),
+        (1, Some(SessionId::from("s")), "Use plain words."),
     ] {
         agents.set_instructions(Some(text.to_owned()));
         let log = dir.join(format!("sent-{index}.jsonl"));

@@ -5,6 +5,7 @@
 //! serves it only while it is lent to other devices. A device the agent
 //! drives keeps one attached stream open until it idles.
 
+use beep_proto::SessionId;
 use super::{
     machines::{self, Machine, command_name},
     server::Called,
@@ -194,7 +195,7 @@ pub(super) async fn call(
     offers: &Offers,
     mesh: &Mesh,
     screens: &Screens,
-    session: &str,
+    session: &SessionId,
     args: Value,
 ) -> Called {
     let action = match Action::try_from(args) {

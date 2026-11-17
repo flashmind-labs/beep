@@ -15,17 +15,14 @@ use proto::{
     EmulatorStatus, Image, ImageFormat, KeyboardEvent, ParameterValue, PhysicalModelValue, Touch,
     TouchEvent, VmRunState, emulator_controller_client::EmulatorControllerClient,
     image_format::ImgFormat, keyboard_event::KeyEventType, physical_model_value::PhysicalType,
-    rotation::SkinRotation,
-    vm_run_state::RunState,
+    rotation::SkinRotation, vm_run_state::RunState,
 };
 use secrecy::{ExposeSecret, SecretString};
 use std::{
     collections::{BTreeMap, HashMap},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Stdio,
-    sync::{
-        LazyLock, Mutex,
-    },
+    sync::{LazyLock, Mutex},
     time::{Duration, Instant},
 };
 use tokio::{sync::watch, time::timeout};
@@ -247,7 +244,9 @@ pub(super) fn parse_discovery(text: &str) -> Option<Running> {
         port: section.get("grpc.port")?.parse().ok()?,
         token: SecretString::from(section.get("grpc.token")?),
         dir: section.get("avd.dir").map(PathBuf::from),
-        console: section.get("port.serial").and_then(|port| port.parse().ok()),
+        console: section
+            .get("port.serial")
+            .and_then(|port| port.parse().ok()),
     })
 }
 
@@ -277,7 +276,11 @@ pub(super) async fn serial(id: &DeviceId) -> Result<DeviceId> {
 
 /// Starts AVD `id` without a window, to outlive the stream and the node.
 pub(super) async fn boot(id: &DeviceId) -> Result<()> {
-    if running().await.iter().any(|(emulator, _)| emulator.avd == id.0) {
+    if running()
+        .await
+        .iter()
+        .any(|(emulator, _)| emulator.avd == id.0)
+    {
         return Ok(());
     }
 
@@ -327,13 +330,9 @@ pub(super) async fn shutdown(id: &DeviceId) -> Result<()> {
 
 /// Follows AVD `id`'s screen, waiting for it while it boots.
 pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
-    let emulator = wait_running(id).await?;
-    let mut client = client(&emulator).await?;
-    let status = timeout(CALL_TIMEOUT, client.get_status(()))
-        .await
-        .context("the emulator did not answer")??
-        .into_inner();
-    let (width, height) = lcd_size(&status).context("the emulator gave no screen size")?;
+    let controls = controls(id).await?;
+    let mut client = controls.client.clone();
+    let (width, height) = (controls.width, controls.height);
     let side = max_side.min(width.max(height));
     let format = ImageFormat {
         format: ImgFormat::Rgb888.into(),
@@ -343,8 +342,7 @@ pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
     };
     let stream = client.stream_screenshot(format).await?.into_inner();
     let (screen, shown) = watch::channel(Screen::Starting);
-    let turned = Turned::default();
-    let turn = turned.clone();
+    let turn = controls.turned.clone();
     let mut last = Vec::new();
     let show = async move |image: Image| -> Result<Option<Frame>> {
         let Some(format) = image.format else {
@@ -358,20 +356,228 @@ pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
         let rotation = format.rotation.map(|rotation| rotation.rotation());
         turn.set(rotation.map(Turn::from).unwrap_or_default());
         last.clone_from(&image.image);
-        encode(image.image, format.width, format.height).await.map(Some)
+        encode(image.image, format.width, format.height)
+            .await
+            .map(Some)
     };
     let work = tokio::spawn(follow(stream, screen, show, "The emulator stopped."));
-    let controls = Controls {
-        client,
-        width,
-        height,
-        turned,
-    };
     Ok(Live {
         screen: shown,
         controls: AnyControls::Android(Box::new(controls)),
         _work: AbortOnDropHandle::new(work),
     })
+}
+
+/// Uses Android's native encoder for both emulators and physical phones.
+pub(super) async fn video(id: &DeviceId, max_side: u32, phone: bool) -> Result<super::video::Live> {
+    use super::{phone as phones, video};
+    use beep_proto::node::device_video::Reply;
+    use tokio::sync::{mpsc, watch};
+
+    let (controls, size, turned, serial) = if phone {
+        let phones::VideoControls { controls, size } = phones::video_controls(id)?;
+        (
+            AnyControls::Phone(Box::new(controls)),
+            size,
+            None,
+            id.clone(),
+        )
+    } else {
+        let controls = controls(id).await?;
+        let turned = controls.turned.clone();
+        let (size, _) = watch::channel(None);
+        (
+            AnyControls::Android(Box::new(controls)),
+            size,
+            Some(turned),
+            serial(id).await?,
+        )
+    };
+    let adb = env::adb().context(super::adb::NO_ADB)?;
+    let (packets, received) = mpsc::channel(2);
+    let work = tokio::spawn(async move {
+        let result = record(&adb, &serial, max_side, &size, turned.as_ref(), &packets).await;
+        if let Err(error) = result {
+            let _ = packets
+                .send(Reply::Ended {
+                    reason: format!("{error:#}"),
+                })
+                .await;
+        }
+    });
+    // Rotation is already encoded into Android's projection. Emulator touch
+    // coordinates still use the physical display's upright coordinate system.
+    Ok(video::Live {
+        packets: received,
+        controls,
+        work: AbortOnDropHandle::new(work),
+    })
+}
+
+async fn controls(id: &DeviceId) -> Result<Controls> {
+    let emulator = wait_running(id).await?;
+    let mut client = client(&emulator).await?;
+    let status = timeout(CALL_TIMEOUT, client.get_status(()))
+        .await
+        .context("the emulator did not answer")??
+        .into_inner();
+    let (width, height) = lcd_size(&status).context("the emulator gave no screen size")?;
+    Ok(Controls {
+        client,
+        width,
+        height,
+        turned: Turned::default(),
+    })
+}
+
+async fn record(
+    adb: &Path,
+    id: &DeviceId,
+    max_side: u32,
+    size: &watch::Sender<Option<(u32, u32)>>,
+    turned: Option<&Turned>,
+    packets: &tokio::sync::mpsc::Sender<beep_proto::node::device_video::Reply>,
+) -> Result<()> {
+    use beep_proto::node::device_video::{Reply, Rotation};
+    use tokio::io::AsyncReadExt;
+
+    let mut current = read_video_geometry(adb, id).await?;
+    loop {
+        size.send_replace(Some((current.width, current.height)));
+        if let Some(turned) = turned {
+            turned.set(current.turn);
+        }
+        let (width, height) = video_size(current.width, current.height, max_side)?;
+        let dimensions = format!("{width}x{height}");
+        let mut command = process::command(adb);
+        command
+            .args([
+                "-s",
+                &id.0,
+                "exec-out",
+                "screenrecord",
+                "--output-format=h264",
+                "--bit-rate",
+                "8000000",
+                "--size",
+                &dimensions,
+                "-",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let mut child = command
+            .spawn()
+            .context("could not start Android video capture")?;
+        let mut output = child.stdout.take().context("Android video has no output")?;
+        let mut bytes = vec![0; super::video::MAX_CHUNK];
+        let mut started = false;
+        let checking = next_video_geometry(adb, id);
+        tokio::pin!(checking);
+        loop {
+            tokio::select! {
+                read = output.read(&mut bytes) => {
+                    let count = read.context("could not read Android video")?;
+                    if count == 0 {
+                        let status = child.wait().await?;
+                        if !status.success() || !started {
+                            bail!("Android video capture stopped ({status})");
+                        }
+                        // screenrecord's duration limit starts a fresh encoder, never
+                        // a delta stream without its configuration and first keyframe.
+                        break;
+                    }
+                    if !started {
+                        packets.send(Reply::Started { fps: super::video::FPS }).await?;
+                        started = true;
+                    }
+                    packets.send(Reply::Data { data: bytes[..count].to_vec(), rotation: Rotation::Upright }).await?;
+                }
+                next = &mut checking => {
+                    let next = next?;
+                    if next != current {
+                        current = next;
+                        break;
+                    }
+                    checking.set(next_video_geometry(adb, id));
+                }
+                _ = packets.closed() => return Ok(()),
+            }
+        }
+        // Reap only the recorder this attachment started.
+        if child.try_wait()?.is_none() {
+            child.kill().await?;
+        }
+    }
+}
+
+async fn next_video_geometry(adb: &Path, id: &DeviceId) -> Result<VideoGeometry> {
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    read_video_geometry(adb, id).await
+}
+
+async fn read_video_geometry(adb: &Path, id: &DeviceId) -> Result<VideoGeometry> {
+    let printed = super::adb::call(adb, id, &["shell", "dumpsys", "display"], CALL_TIMEOUT).await?;
+    video_geometry(&String::from_utf8_lossy(&printed))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct VideoGeometry {
+    width: u32,
+    height: u32,
+    turn: Turn,
+}
+
+fn video_geometry(printed: &str) -> Result<VideoGeometry> {
+    let pattern = regex::Regex::new(r"real (\d+) x (\d+).*?rotation ([0-3])")?;
+    let line = printed
+        .lines()
+        .find(|line| line.contains("mOverrideDisplayInfo=") && line.contains("displayId 0"))
+        .or_else(|| {
+            printed
+                .lines()
+                .find(|line| line.contains("DisplayInfo{") && line.contains("displayId 0"))
+        })
+        .context("Android gave no default display geometry")?;
+    let info = pattern
+        .captures(line)
+        .context("Android gave no video dimensions")?;
+    let number = |index| -> Result<u32> {
+        Ok(info
+            .get(index)
+            .context("missing display value")?
+            .as_str()
+            .parse()?)
+    };
+    let width = number(1)?;
+    let height = number(2)?;
+    if width == 0 || height == 0 {
+        bail!("Android gave an empty display");
+    }
+    let turn = match number(3)? {
+        0 => Turn::Upright,
+        1 => Turn::Left,
+        2 => Turn::UpsideDown,
+        _ => Turn::Right,
+    };
+    Ok(VideoGeometry {
+        width,
+        height,
+        turn,
+    })
+}
+
+fn video_size(width: u32, height: u32, max_side: u32) -> Result<(u32, u32)> {
+    let longest = width.max(height);
+    if longest == 0 {
+        bail!("the display is empty");
+    }
+    let scale = u64::from(max_side.min(longest));
+    let even = |side| -> Result<u32> {
+        Ok((u32::try_from(u64::from(side) * scale / u64::from(longest))? / 2 * 2).max(2))
+    };
+    Ok((even(width)?, even(height)?))
 }
 
 /// The emulator running AVD `id`, waited for while this node boots it.
@@ -431,8 +637,10 @@ async fn client(emulator: &Running) -> Result<Client> {
         .connect()
         .await
         .with_context(|| format!("could not reach the emulator for {}", emulator.avd))?;
-    Ok(EmulatorControllerClient::with_interceptor(channel, Bearer(token))
-        .max_decoding_message_size(MAX_MESSAGE))
+    Ok(
+        EmulatorControllerClient::with_interceptor(channel, Bearer(token))
+            .max_decoding_message_size(MAX_MESSAGE),
+    )
 }
 
 /// Adds the emulator's token to each call.
@@ -551,7 +759,11 @@ impl From<SkinRotation> for Turn {
 fn quarter_turn(degrees: f32) -> f32 {
     let turned = (degrees + 90.0).rem_euclid(360.0);
 
-    if turned > 180.0 { turned - 360.0 } else { turned }
+    if turned > 180.0 {
+        turned - 360.0
+    } else {
+        turned
+    }
 }
 
 /// A pixel position from a point on a screen `side` pixels long.

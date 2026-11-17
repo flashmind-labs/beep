@@ -135,6 +135,13 @@ export function paneRoot() {
   return !p ? "" : W.shown === bare(p.cwd) ? p.cwd : W.shown;
 }
 
+/// The top of the checkout holding the session's folder when that folder
+/// is a subfolder of it, such as a session in `apps/desktop`; else null.
+export function checkoutTop() {
+  const own = W.trees.find(t => t.own);
+  return own && bare(own.path) !== bare(W.cwd) ? bare(own.path) : null;
+}
+
 /// Whether the folder the tabs read is a linked worktree, not the main
 /// checkout: git lists the main checkout first.
 export function paneLinked() {

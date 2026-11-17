@@ -3,6 +3,7 @@
 //! its bytes as counted (the machine that ran it counted them), and starts
 //! it through its agent. A session moved here by its source.
 
+use beep_proto::SessionId;
 use super::{Env, Harness, rewrite, store};
 use crate::agents::{AgentKind, Begin, SavedSession, found::Agent};
 use anyhow::{Context, Result};
@@ -13,7 +14,7 @@ use tokio::task::spawn_blocking;
 
 /// A session to run here.
 pub(super) struct Arrival<'a> {
-    pub(super) id: &'a str,
+    pub(super) id: &'a SessionId,
     pub(super) mode: Option<String>,
     /// The model it ran on.
     pub(super) model: Option<ModelId>,
@@ -94,7 +95,7 @@ impl Arrival<'_> {
         });
 
         Begin {
-            resume: Some(self.id.to_owned()),
+            resume: Some(self.id.clone()),
             title: info.title,
             mode: info.mode.or_else(|| self.mode.clone()),
             model: info.model.or_else(|| self.model.clone()),

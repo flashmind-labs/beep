@@ -2,6 +2,7 @@
 //! from their SQLite databases and flsh's session files, read whole again
 //! whenever one changes.
 
+use beep_proto::SessionId;
 use super::{
     billing::{Accounts, flsh_provider},
     ledger::{Bucket, BucketKey, Part, UNKNOWN_MODEL},
@@ -63,15 +64,15 @@ pub(super) fn opencode(
     database: &Path,
     since: u64,
     accounts: &mut Accounts,
-) -> rusqlite::Result<BTreeMap<String, Part>> {
+) -> rusqlite::Result<BTreeMap<SessionId, Part>> {
     let conn = open_database(database)?;
     let mut statement = conn.prepare(OPENCODE)?;
     let since_ms = i64::try_from(since.saturating_mul(1000)).unwrap_or(i64::MAX);
     let mut rows = statement.query([since_ms, MAX_ROWS])?;
-    let mut parts: BTreeMap<String, Part> = BTreeMap::new();
+    let mut parts: BTreeMap<SessionId, Part> = BTreeMap::new();
 
     while let Some(row) = rows.next()? {
-        let session: String = row.get(0)?;
+        let session = Into::<SessionId>::into(row.get::<_, String>(0)?);
         let cwd: String = row.get(1)?;
         let hour = count(row.get(2)?);
         let model: String = row.get(3)?;
@@ -122,12 +123,12 @@ pub(super) fn flsh(
     database: &Path,
     since: u64,
     accounts: &mut Accounts,
-) -> rusqlite::Result<BTreeMap<String, Part>> {
+) -> rusqlite::Result<BTreeMap<SessionId, Part>> {
     let conn = open_database(database)?;
     let mut statement = conn.prepare(FLSH)?;
     let since = i64::try_from(since).unwrap_or(i64::MAX);
     let mut rows = statement.query([since, MAX_ROWS])?;
-    let mut parts: BTreeMap<String, Part> = BTreeMap::new();
+    let mut parts: BTreeMap<SessionId, Part> = BTreeMap::new();
 
     while let Some(row) = rows.next()? {
         let totals: String = row.get(3)?;
@@ -136,7 +137,7 @@ pub(super) fn flsh(
         };
         let last: Option<i64> = row.get(4)?;
         let session = FlshSession {
-            id: row.get(0)?,
+            id: Into::<SessionId>::into(row.get::<_, String>(0)?),
             cwd: row.get(1)?,
             model: row.get(2)?,
             totals,
@@ -155,7 +156,7 @@ pub(super) fn flsh_file(
     path: &Path,
     counted: Option<&Counted>,
     accounts: &mut Accounts,
-) -> std::io::Result<BTreeMap<String, Part>> {
+) -> std::io::Result<BTreeMap<SessionId, Part>> {
     let mut parts = BTreeMap::new();
 
     if let Some(session) = flsh_header(path)? {
@@ -202,7 +203,7 @@ const MAX_HEADER: u64 = 1024 * 1024;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct FlshHeader {
-    session_id: String,
+    session_id: SessionId,
     metadata: FlshMetadata,
 }
 
@@ -236,7 +237,7 @@ impl From<&FlshTotals> for Counted {
 
 /// One flsh session's totals.
 struct FlshSession {
-    id: String,
+    id: SessionId,
     cwd: String,
     model: String,
     totals: FlshTotals,
@@ -247,7 +248,7 @@ struct FlshSession {
 /// Adds what `session` spent beyond `counted` to `parts`, in the hour of
 /// its last change.
 fn add_flsh(
-    parts: &mut BTreeMap<String, Part>,
+    parts: &mut BTreeMap<SessionId, Part>,
     session: FlshSession,
     counted: Option<&Counted>,
     accounts: &mut Accounts,

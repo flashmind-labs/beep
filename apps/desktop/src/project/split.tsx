@@ -221,8 +221,12 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   // An issue opens from Issues, keeping its row lit.
   const all = groups.flatMap(g => g.items);
   const issueDetail = issueItems.find(i => i.key === pa.tile)?.detail;
-  const picked = issueDetail ? { key: "issues", detail: () => [viewPart("all-issues", <Button look="quiet" small className="pj-back" onClick={() => openTile("issues")}>All issues</Button>), ...issueDetail()] }
-    : all.find(i => i.key === pa.tile && i.detail) || all[0];
+  // Pull requests open the first one, or say there is none.
+  const firstPr = prFilter.items[0] ?? prItems[0];
+  const prsPicked = pa.tile !== "prs" ? null : firstPr?.detail ? { key: firstPr.key, detail: firstPr.detail }
+    : { key: "prs", detail: () => [viewPart("no-prs", <EmptyPanel text={hostNote(prs, thr.prsError(pid), "No open pull requests.") ?? ""} />)] };
+  const picked = prsPicked ?? (issueDetail ? { key: "issues", detail: () => [viewPart("all-issues", <Button look="quiet" small className="pj-back" onClick={() => openTile("issues")}>All issues</Button>), ...issueDetail()] }
+    : all.find(i => i.key === pa.tile && i.detail) || all[0]);
   const currentShell = projectShell(p.name);
   currentShell.navView = <ProjectNavigation groups={groups} picked={picked.key} openTile={openTile} />;
 
@@ -242,7 +246,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     { label: "Actions", text: runs.tile(pid).count || "", key: "actions", bad: runs.tile(pid).rows[0]?.chip?.text === "failed" },
     { label: plural(running.length, "agent", "agents"), text: "running", key: "running" },
     { label: "Machines", text: machineTile(rows, sync).count || "", key: "machines" },
-    { label: plural(prItems.length, "PR", "PRs"), text: "open", key: prFilter.items[0]?.key ?? prItems[0]?.key ?? "overview" },
+    { label: plural(prItems.length, "PR", "PRs"), text: "open", key: "prs" },
     { label: plural(issueItems.length, "issue", "issues"), text: "open", key: "issues" },
     { label: "Sessions", text: past.length ? `${past.length} past` : "", key: "agents" },
   ];

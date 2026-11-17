@@ -1,3 +1,4 @@
+use beep_proto::SessionId;
 use super::read::{ALPN, Access, Leaving, MovingWorktree, Pulled, pull};
 use crate::{
     agents::{Agents, found::Stores},
@@ -91,7 +92,7 @@ async fn read_from(server: &Router, copy: &Path, id: &str) -> anyhow::Result<Pul
         rx,
         super::read::Ask {
             agent: AgentSlug::CODEX,
-            id,
+            id: &SessionId::from(id),
             copy,
         },
     )
@@ -338,22 +339,22 @@ fn a_move_record_lets_only_its_two_machines_read_and_ask() {
         worktree: None,
     };
     // The source serves its target.
-    assert!(permits(Some(&record), a, b, Asked::Read, ID));
+    assert!(permits(Some(&record), a, b, Asked::Read, &SessionId::from(ID)));
     // Nobody else reads, a member of the mesh or not, and not the other way.
-    assert!(!permits(Some(&record), a, c, Asked::Read, ID));
-    assert!(!permits(Some(&record), b, a, Asked::Read, ID));
-    assert!(!permits(None, a, b, Asked::Read, ID));
+    assert!(!permits(Some(&record), a, c, Asked::Read, &SessionId::from(ID)));
+    assert!(!permits(Some(&record), b, a, Asked::Read, &SessionId::from(ID)));
+    assert!(!permits(None, a, b, Asked::Read, &SessionId::from(ID)));
     assert!(!permits(
         Some(&record),
         a,
         b,
         Asked::Read,
-        "another-session"
+        &SessionId::from("another-session")
     ));
     // The target answers its source.
-    assert!(permits(Some(&record), b, a, Asked::State, ID));
-    assert!(!permits(Some(&record), b, c, Asked::State, ID));
-    assert!(!permits(Some(&record), a, b, Asked::State, ID));
+    assert!(permits(Some(&record), b, a, Asked::State, &SessionId::from(ID)));
+    assert!(!permits(Some(&record), b, c, Asked::State, &SessionId::from(ID)));
+    assert!(!permits(Some(&record), a, b, Asked::State, &SessionId::from(ID)));
 }
 
 #[tokio::test]
@@ -376,7 +377,7 @@ async fn a_session_the_source_is_finishing_with_reads_as_running_until_it_lets_g
     let server = serving(&source.agents).await;
     let mine = TempDir::new().expect("a temp folder");
     let copy = mine.path().join("copy.jsonl");
-    let held = source.agents.moves.hold(ID);
+    let held = source.agents.moves.hold(&SessionId::from(ID));
     assert!(read_from(&server, &copy, ID).await.expect("a read").live);
     drop(held);
     assert!(!read_from(&server, &copy, ID).await.expect("a read").live);
@@ -444,7 +445,7 @@ async fn a_read_the_source_stops_answering_fails_instead_of_waiting_forever() {
     let (tx, rx) = link(send, recv);
     let ask = super::read::Ask {
         agent: AgentSlug::CODEX,
-        id: ID,
+        id: &SessionId::from(ID),
         copy: &copy,
     };
     let quiet = Duration::from_millis(300);
@@ -494,7 +495,7 @@ async fn read_flsh(server: &Router, copy: &Path, id: &str) -> anyhow::Result<Pul
     let (tx, rx) = link(send, recv);
     let ask = super::read::Ask {
         agent: AgentSlug::from("flsh"),
-        id,
+        id: &SessionId::from(id),
         copy,
     };
     pull(tx, rx, ask).await
@@ -582,7 +583,7 @@ impl ProtocolHandler for Project {
         };
         let (tx, rx) = link(send, recv);
         let main = self.1.clone();
-        let leaving = move |_: &str| {
+        let leaving = move |_: &SessionId| {
             Some(Leaving {
                 folder: main.clone(),
                 worktrees: vec![
@@ -635,7 +636,7 @@ async fn stream(server: &Router) -> (beep_proto::node::LinkTx, beep_proto::node:
 async fn the_checkout_lists_only_the_sessions_worktrees_that_are_still_there() {
     let (_dir, main, server) = project_server().await;
     let (tx, rx) = stream(&server).await;
-    let checkout = super::read::checkout(tx, rx, ID).await.expect("an answer");
+    let checkout = super::read::checkout(tx, rx, &SessionId::from(ID)).await.expect("an answer");
     assert_eq!(checkout.head, Some(git(&main, &["rev-parse", "HEAD"])));
     assert_eq!(
         checkout.worktrees,
@@ -653,7 +654,7 @@ async fn a_worktree_comes_with_its_new_commits_and_uncommitted_work() {
     let (tx, rx) = stream(&server).await;
     let base = git(&main, &["rev-parse", "HEAD"]);
     let ask = super::read::WorktreeAsk {
-        id: ID,
+        id: &SessionId::from(ID),
         path: ".worktrees/feat",
         base: &base,
         bundle: true,
@@ -674,7 +675,7 @@ async fn a_worktree_the_session_did_not_make_is_refused() {
     let (_dir, _main, server) = project_server().await;
     let (tx, rx) = stream(&server).await;
     let ask = super::read::WorktreeAsk {
-        id: ID,
+        id: &SessionId::from(ID),
         path: ".worktrees/other",
         base: "",
         bundle: false,
@@ -690,7 +691,7 @@ async fn a_worktree_asked_while_the_source_restarts_is_not_refused_for_good() {
     let (_dir, _main, server) = project_server_reopened(false).await;
     let (tx, rx) = stream(&server).await;
     let ask = super::read::WorktreeAsk {
-        id: ID,
+        id: &SessionId::from(ID),
         path: ".worktrees/feat",
         base: "",
         bundle: false,
@@ -721,7 +722,7 @@ impl ProtocolHandler for Leaves {
         };
         let (tx, rx) = link(send, recv);
         let folder = self.1.clone();
-        let leaving = move |_: &str| {
+        let leaving = move |_: &SessionId| {
             Some(Leaving {
                 folder: folder.clone(),
                 worktrees: Vec::new(),
@@ -769,7 +770,7 @@ async fn the_source_sends_what_it_saved_of_the_session_with_its_checkout() {
     let (send, recv) = connection.open_bi().await.expect("a stream");
     let (tx, rx) = link(send, recv);
 
-    let checkout = super::read::checkout(tx, rx, ID).await.expect("answered");
+    let checkout = super::read::checkout(tx, rx, &SessionId::from(ID)).await.expect("answered");
     let saved = checkout.session.expect("the saved session came along");
     assert_eq!(saved.info.title.as_deref(), Some("Plan the week"));
     assert!(saved.info.assistant);

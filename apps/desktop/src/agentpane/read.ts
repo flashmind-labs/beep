@@ -5,7 +5,7 @@ import { viewKey } from "./view-memory.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
 import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, rememberTerminal } from "./media.ts";
 import { draw, touchTab } from "./media-draw.ts";
-import { bytesOf } from "./media-state.ts";
+import { bytesOf, resolvePath } from "./media-state.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 
 // Keep the original File on the device that uploaded it. A browser File can
@@ -120,20 +120,17 @@ export async function loadText(t: MediaTab) {
   }
 }
 
-/// Points `t` at the same file in the session's folder when it was looked
-/// for in another worktree; false when there is nowhere else to look.
+/// Points `t` at the next place the file may be; false when there is
+/// nowhere else to look.
 function lookElsewhere(t: MediaTab) {
-  const s = P.session, there = t.elsewhere;
-  if (!s || !there) return false;
-
-  t.elsewhere = null;
-  const cwd = s.cwd.replace(/\/+$/, "");
+  const there = t.elsewhere?.shift();
+  if (!there) return false;
 
   if (t.kind === "text") {
-    t.root = s.cwd;
-    t.rel = there.startsWith(`${cwd}/`) ? there.slice(cwd.length + 1) : there;
+    t.root = there.root;
+    t.rel = there.rel;
   } else {
-    t.path = there;
+    t.path = resolvePath(there.root, there.rel);
   }
 
   return true;
@@ -192,6 +189,7 @@ export async function load(t: MediaTab, again = false) {
   const s = P.session;
   if (!s || !t.path) return;
   if (again) localUploads.delete(localUploadKey(s.machine_id, t.path));
+  else t.started = Date.now();
 
   try {
     const { bytes, mime } = await readFile(s.machine_id, t.path, s.id, (done, size) => {

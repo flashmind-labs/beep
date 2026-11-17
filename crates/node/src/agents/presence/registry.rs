@@ -1,5 +1,6 @@
 //! Native registrations and the presence held by their open connections.
 
+use beep_proto::SessionId;
 use crate::{
     agents::{found::Agent, unix_now},
     lock,
@@ -22,7 +23,7 @@ const MAX_ENDED: usize = 256;
 pub(super) struct Registration {
     pub(super) version: u32,
     pub(super) agent: Agent,
-    pub(super) session_id: String,
+    pub(super) session_id: SessionId,
     pub(super) cwd: String,
     #[serde(default)]
     pub(super) pid: Option<u32>,
@@ -39,8 +40,8 @@ impl Registration {
         }
 
         if self.session_id.is_empty()
-            || self.session_id.len() > 256
-            || self.session_id.contains(['/', '\\', '\0'])
+            || self.session_id.as_ref().len() > 256
+            || self.session_id.as_ref().contains(['/', '\\', '\0'])
             || !Path::new(&self.cwd).is_absolute()
             || self.cwd.contains('\0')
             || self.pid == Some(0)
@@ -59,7 +60,7 @@ struct Tracked {
 
 #[derive(Default)]
 pub(in crate::agents) struct Registry {
-    tracked: Mutex<HashMap<String, Tracked>>,
+    tracked: Mutex<HashMap<SessionId, Tracked>>,
     changes: watch::Sender<u64>,
 }
 
@@ -113,7 +114,7 @@ impl Registry {
         Ok(())
     }
 
-    pub(super) fn close(&self, id: &str, connection: Uuid) {
+    pub(super) fn close(&self, id: &SessionId, connection: Uuid) {
         let mut tracked = lock(&self.tracked);
         let Some(session) = tracked.get_mut(id) else {
             return;

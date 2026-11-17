@@ -2,6 +2,7 @@
 //! notices for what is on screen stay quiet.
 
 use beep_proto::AgentNoticeKey;
+use beep_proto::SessionId;
 use std::{
     collections::HashMap,
     sync::{Mutex, MutexGuard, PoisonError},
@@ -22,7 +23,7 @@ pub(crate) struct AgentsShown(Mutex<HashMap<String, ShownAgent>>);
 struct ShownAgent {
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
     at: Instant,
 }
 
@@ -37,13 +38,13 @@ impl AgentsShown {
         label: &str,
         machine_id: &str,
         agent: &str,
-        session: &str,
+        session: &SessionId,
         at: Instant,
     ) {
         let shown = ShownAgent {
             machine_id: machine_id.to_owned(),
             agent: agent.to_owned(),
-            session: session.to_owned(),
+            session: session.clone(),
             at,
         };
         self.views().insert(label.to_owned(), shown);

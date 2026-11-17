@@ -199,6 +199,18 @@ export function shortSize(n: number) {
   return `${Math.round(n / (1024 * 104.8576)) / 10} MB`;
 }
 
+/// A download or upload under way: when it started, in ms, and its bytes.
+export interface Transfer { started: number; done: number; size: number }
+
+/// "4.2 MB/s" for a transfer slow enough to want it: on for over five
+/// seconds and under 80% done. Null otherwise.
+export function transferSpeed({ started, done, size }: Transfer, now = Date.now()) {
+  const seconds = (now - started) / 1000;
+  if (seconds <= 5 || !size || done >= size * 0.8) return null;
+
+  return `${shortSize(Math.round(done / seconds))}/s`;
+}
+
 // ----- The text view -----
 
 /// The most lines the text view draws.

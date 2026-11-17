@@ -5,11 +5,6 @@ import { createDocumentScope } from "../ui/document-root.tsx";
 import { TermKeyState, type TermKey, type TermMod } from "./touchkeys-state.ts";
 import { TouchKeys } from "./touchbar-view.tsx";
 
-/// Whether the main pointer is a finger, as on a phone or tablet.
-export function isTouchDevice(): boolean {
-  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-}
-
 interface TouchBar {
   /// Soft keyboard input, with any armed modifier applied to it.
   apply(typed: string): string;

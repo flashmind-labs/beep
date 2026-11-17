@@ -2,6 +2,7 @@
 //! agents' own logs, sessions started outside Beep included, for the caller's
 //! `FollowUsage` stream.
 
+use beep_proto::SessionId;
 use beep_proto::node::usage::{Billing, SessionSpend};
 use ledger::{Ledger, SessionKey};
 use std::{path::PathBuf, sync::Mutex};
@@ -29,7 +30,7 @@ pub(super) enum Line {
     /// The session the log is of, from its header, and the provider it
     /// runs on when the header names one.
     Session {
-        id: String,
+        id: SessionId,
         cwd: String,
         provider: Option<String>,
     },
@@ -43,7 +44,7 @@ pub(super) enum Line {
 #[derive(Debug, Default)]
 pub(super) struct Request {
     /// The session, when the line names it rather than the log's header.
-    session: Option<String>,
+    session: Option<SessionId>,
     cwd: Option<String>,
     /// Unix seconds.
     at: u64,
@@ -161,7 +162,7 @@ impl Spend {
     pub(crate) fn mark_counted(
         &self,
         agent: Agent,
-        session: &str,
+        session: &SessionId,
         path: &std::path::Path,
     ) -> std::io::Result<()> {
         let stamp = ledger::Stamp::of(path)?;

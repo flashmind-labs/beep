@@ -8,7 +8,7 @@ fn move_with(harness: Harness, transcript: &str, file: &str) -> Stored {
     rewrite(
         harness,
         transcript.as_bytes(),
-        ID,
+        &SessionId::from(ID),
         file,
         &Folders {
             old: PathBuf::from("/srv/laptop/app"),
@@ -154,7 +154,7 @@ fn paths_in_the_project_follow_the_destination_for_every_harness() {
         let out = rewrite(
             harness,
             input.as_bytes(),
-            ID,
+            &SessionId::from(ID),
             &file,
             &Folders {
                 old: from.to_owned(),
@@ -196,7 +196,7 @@ fn a_moved_session_begins_as_its_source_saved_it() {
         fast: Some(true),
     };
     let arrival = Arrival {
-        id: "held-1",
+        id: &SessionId::from("held-1"),
         mode: Some("plan".into()),
         model: Some(ModelId::new("fast")),
         worktrees: Vec::new(),

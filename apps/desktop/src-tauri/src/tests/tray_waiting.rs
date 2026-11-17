@@ -28,7 +28,7 @@ fn agent_questions_open_their_session() {
             "m1",
             "build-box",
             "claude",
-            "s1",
+            &SessionId::from("s1"),
             Some("Fix tests")
         ))
     );

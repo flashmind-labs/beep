@@ -5,6 +5,7 @@ use beep_node::{
     link::{self, peers, state},
     machine::{env, host, service, update},
 };
+use beep_proto::SessionId;
 
 use anyhow::{Context, Result};
 use beep_proto::logging::{self, RollingFile};
@@ -120,7 +121,7 @@ enum Command {
     Mcp {
         /// The node's id of the agent's session.
         #[arg(long)]
-        session: String,
+        session: SessionId,
     },
     /// Started by the node for Claude Code's Direct driver: ACP on stdio,
     /// spoken to the Claude Code CLI `cli` itself, inside the WSL

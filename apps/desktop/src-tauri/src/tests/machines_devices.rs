@@ -39,6 +39,69 @@ fn a_frame_goes_as_its_size_then_the_jpeg() {
     assert_eq!(bytes, [2, 0, 0, 0, 4, 0, 0, 0, 9]);
 }
 
+#[tokio::test]
+async fn frames_and_acknowledgements_run_while_input_is_blocked() {
+    let attached = Attached::default();
+    let view = Uuid::new_v4();
+    let (input, up) = mpsc::channel(UP_QUEUE);
+    let (drawn, draws) = watch::channel(());
+    attached.follow(view, "window", DeviceControls { input, drawn });
+    let input = attached.get(&view, "device").unwrap().input;
+    let text = || Input::Text {
+        text: "a".repeat(MAX_TEXT),
+    };
+
+    for _ in 0..UP_QUEUE {
+        input.try_send(text()).unwrap();
+    }
+
+    let link = beep_proto::node::local_link();
+    let (tx, rx) = link.caller;
+    // Keep the other direction alive without reading it, so input backs up.
+    let (mut node_tx, _node_rx) = link.node;
+    let (shown, mut frames) = mpsc::unbounded_channel();
+    let following = follow_screen(
+        tx,
+        rx,
+        up,
+        draws,
+        |event| {
+            shown.send(event).unwrap();
+            Ok(())
+        },
+        "Connection lost.",
+    );
+    tokio::pin!(following);
+    assert!(futures::poll!(&mut following).is_pending());
+
+    while input.try_send(text()).is_ok() {}
+    assert_eq!(input.capacity(), 0);
+
+    node_tx.send(&Reply::Frame(frame(1))).await.unwrap();
+    assert!(futures::poll!(&mut following).is_pending());
+    assert_eq!(frames.try_recv().unwrap(), ScreenEvent::Frame(frame(1)));
+
+    node_tx.send(&Reply::Frame(frame(2))).await.unwrap();
+    assert!(futures::poll!(&mut following).is_pending());
+    assert!(frames.try_recv().is_err());
+
+    attached
+        .get(&view, "device")
+        .unwrap()
+        .drawn
+        .send_replace(());
+    assert!(futures::poll!(&mut following).is_pending());
+    assert_eq!(frames.try_recv().unwrap(), ScreenEvent::Frame(frame(2)));
+    assert_eq!(input.capacity(), 0);
+
+    // An in-flight input sender must not keep the view alive after detach.
+    attached.detach(&view);
+    assert!(matches!(
+        futures::poll!(&mut following),
+        std::task::Poll::Ready(Ok(()))
+    ));
+}
+
 #[test]
 fn touches_stay_on_the_screen() {
     let touch = |x, y| Input::Touch {
@@ -71,4 +134,83 @@ fn input_reads_from_the_window_json() {
             button: beep_proto::node::device::Button::Home
         }
     );
+}
+
+#[tokio::test]
+async fn video_preserves_every_chunk_and_does_not_block_input_while_waiting_for_the_viewer() {
+    use device_video::{Reply as VideoReply, Request as VideoRequest};
+    let link = beep_proto::node::local_link();
+    let (tx, rx) = link.caller;
+    let (mut node_tx, mut node_rx) = link.node;
+    let (input, up) = mpsc::channel(UP_QUEUE);
+    let (drawn, draws) = watch::channel(());
+    let (shown, mut events) = mpsc::unbounded_channel();
+    let following = follow_video(tx, rx, up, draws, |event| {
+        shown.send(event).unwrap();
+        Ok(())
+    });
+    tokio::pin!(following);
+
+    node_tx
+        .send(&VideoReply::Started { fps: 60 })
+        .await
+        .unwrap();
+    assert!(futures::poll!(&mut following).is_pending());
+    assert_eq!(events.try_recv().unwrap(), ScreenEvent::Video { fps: 60 });
+    for n in [1, 2] {
+        node_tx
+            .send(&VideoReply::Data {
+                data: vec![n],
+                rotation: Rotation::Upright,
+            })
+            .await
+            .unwrap();
+    }
+    assert!(futures::poll!(&mut following).is_pending());
+    assert!(
+        events.try_recv().is_err(),
+        "unacknowledged bytes cannot be skipped"
+    );
+
+    let key = Input::Button {
+        button: beep_proto::node::device::Button::Home,
+    };
+    input.send(key.clone()).await.unwrap();
+    assert!(futures::poll!(&mut following).is_pending());
+    assert_eq!(
+        node_rx.recv::<VideoRequest>().await.unwrap(),
+        Some(VideoRequest::Input { input: key })
+    );
+
+    for n in [1, 2] {
+        drawn.send_replace(());
+        assert!(futures::poll!(&mut following).is_pending());
+        assert_eq!(
+            events.try_recv().unwrap(),
+            ScreenEvent::VideoData {
+                data: vec![n],
+                rotation: Rotation::Upright
+            }
+        );
+    }
+    drop(drawn);
+    assert!(matches!(
+        futures::poll!(&mut following),
+        std::task::Poll::Ready(Ok(()))
+    ));
+}
+
+#[test]
+fn encoded_ipc_has_a_distinct_header_and_preserves_the_native_bytes() {
+    let InvokeResponseBody::Raw(bytes) = ScreenEvent::VideoData {
+        data: vec![0, 0, 1, 0x65],
+        rotation: Rotation::Left,
+    }
+    .body()
+    .unwrap() else {
+        panic!("video is binary");
+    };
+    assert_eq!(&bytes[..4], &VIDEO_TAG.to_le_bytes());
+    assert_eq!(&bytes[4..8], &1u32.to_le_bytes());
+    assert_eq!(&bytes[8..], &[0, 0, 1, 0x65]);
 }

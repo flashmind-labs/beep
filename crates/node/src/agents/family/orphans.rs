@@ -3,6 +3,7 @@
 //! machine that stays silent, for `ORPHAN_AFTER` closes the child, so a
 //! parent that never got to stop it leaves no agent running for good.
 
+use beep_proto::SessionId;
 use super::{Agents, Session, children, ended_for_good};
 use crate::link::Membership;
 use beep_proto::watched;
@@ -66,9 +67,9 @@ impl Agents {
     pub(crate) fn keeps_child(
         &self,
         machine: EndpointId,
-        parent: &str,
-        id: &str,
-        key: &str,
+        parent: &SessionId,
+        id: &SessionId,
+        key: &SessionId,
     ) -> bool {
         let Some(parent_session) = self.get(parent) else {
             return false;
@@ -88,7 +89,7 @@ async fn check_parent(
     membership: Arc<std::sync::OnceLock<Membership>>,
     session: Weak<Session>,
     peer: EndpointId,
-    parent: String,
+    parent: SessionId,
 ) {
     let mut silent = None;
 

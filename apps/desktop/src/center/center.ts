@@ -131,7 +131,8 @@ document.addEventListener("keydown", e => {
     case "palette": return openPalette();
     case "settings": return openSettings();
     case "shortcuts": return toggleShortcuts();
-    case "sidebar": return toggleSide();
+    // A project window's sessions are its sidebar: there is nothing to swap them for.
+    case "sidebar": return windowProject ? undefined : toggleSide();
     case "new-agent":
       if (currentLocation()?.view === "terminals" && isNewKey(e) && allTerms.newLikeOpen()) return;
       return newAgentHere();

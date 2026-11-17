@@ -1,6 +1,7 @@
 //! Claude Code: `<config>/projects/<folder slug>/<id>.jsonl`, the folder
 //! on every line as `cwd`.
 
+use beep_proto::SessionId;
 use super::{
     Stored,
     folder::Folders,
@@ -9,7 +10,7 @@ use super::{
 use crate::agents::claude::slug;
 use std::path::PathBuf;
 
-pub(super) fn rewrite(transcript: &[u8], id: &str, folders: &Folders) -> Stored {
+pub(super) fn rewrite(transcript: &[u8], id: &SessionId, folders: &Folders) -> Stored {
     let mut bytes = Vec::with_capacity(transcript.len() + 64);
 
     for line in transcript.split_inclusive(|b| *b == b'\n') {

@@ -1,6 +1,7 @@
 //! The pictures in sessions' transcripts (`Images`), kept by `image_key` so
 //! the apps can ask for one by its `[image: image-<key>]` line.
 
+use beep_proto::SessionId;
 use super::image_index::FileIndexes;
 use crate::lock;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -63,7 +64,7 @@ struct Kept {
 
 #[derive(Debug)]
 struct Held {
-    session: String,
+    session: SessionId,
     key: String,
     picture: Arc<Picture>,
 }
@@ -71,7 +72,7 @@ struct Held {
 impl Images {
     /// Keeps `picture` for `session`, dropping the oldest past the limits.
     /// One larger than a session's room is not kept.
-    pub(crate) fn keep(&self, session: &str, picture: Picture) {
+    pub(crate) fn keep(&self, session: &SessionId, picture: Picture) {
         if picture.data.len() > SESSION_BYTES {
             return;
         }
@@ -82,7 +83,7 @@ impl Images {
         kept.take(session, &key);
         kept.bytes += picture.data.len();
         kept.held.push_back(Held {
-            session: session.to_owned(),
+            session: session.clone(),
             key,
             picture,
         });
@@ -121,7 +122,7 @@ impl Images {
     }
 
     /// The picture `key` of `session`, when kept; it is then the newest.
-    pub(crate) fn get(&self, session: &str, key: &str) -> Option<Arc<Picture>> {
+    pub(crate) fn get(&self, session: &SessionId, key: &str) -> Option<Arc<Picture>> {
         let mut kept = lock(&self.kept);
         let held = kept.take(session, key)?;
         let picture = held.picture.clone();
@@ -152,32 +153,32 @@ fn subagent_files(path: &Path) -> Vec<PathBuf> {
 }
 
 impl Kept {
-    fn take(&mut self, session: &str, key: &str) -> Option<Held> {
+    fn take(&mut self, session: &SessionId, key: &str) -> Option<Held> {
         let at = self
             .held
             .iter()
-            .position(|held| held.session == session && held.key == key)?;
+            .position(|held| held.session == *session && held.key == key)?;
         let held = self.held.remove(at)?;
         self.bytes -= held.picture.data.len();
         Some(held)
     }
 
     /// How many pictures `session` has and their bytes.
-    fn of(&self, session: &str) -> (usize, usize) {
+    fn of(&self, session: &SessionId) -> (usize, usize) {
         self.held
             .iter()
-            .filter(|held| held.session == session)
+            .filter(|held| held.session == *session)
             .fold((0, 0), |(count, bytes), held| {
                 (count + 1, bytes + held.picture.data.len())
             })
     }
 
     /// Drops the oldest picture, of `session` only when given.
-    fn drop_oldest(&mut self, session: Option<&str>) {
+    fn drop_oldest(&mut self, session: Option<&SessionId>) {
         let at = self
             .held
             .iter()
-            .position(|held| session.is_none_or(|session| held.session == session));
+            .position(|held| session.is_none_or(|session| held.session == *session));
         if let Some(held) = at.and_then(|at| self.held.remove(at)) {
             self.bytes -= held.picture.data.len();
         }

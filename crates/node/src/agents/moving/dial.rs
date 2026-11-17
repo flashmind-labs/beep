@@ -1,6 +1,7 @@
 //! Reaching the other machine of a move over `beep-sessions/1`: the target
 //! reads the transcript, the source asks the target how the move stands.
 
+use beep_proto::SessionId;
 use super::{
     Env,
     progress::Target,
@@ -39,7 +40,7 @@ pub(super) async fn dial(env: &Env, peer: EndpointId) -> Result<Connection> {
 }
 
 /// What the target `to` says of the move of session `id` made at `at`.
-pub(super) async fn ask(env: &Env, to: EndpointId, id: &str, at: u64) -> Result<Target> {
+pub(super) async fn ask(env: &Env, to: EndpointId, id: &SessionId, at: u64) -> Result<Target> {
     let connection = dial(env, to).await?;
     let (send, recv) = connection.open_bi().await?;
     let (mut tx, mut rx) = link(send, recv);

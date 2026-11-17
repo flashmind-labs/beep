@@ -13,6 +13,7 @@ use crate::{
 use anyhow::{Context, bail};
 use beep_mesh::machine::sessions::{Reading, Sessions};
 use beep_node::agents::tags::own_words;
+use beep_proto::SessionId;
 use beep_proto::{
     ImportedProject, MachineSession,
     node::agent::{EntryKind, SessionsReply, SessionsRequest},
@@ -97,7 +98,7 @@ impl PromptIndex {
 
         for session in sessions {
             // A start is kept on this device: its machine has no transcript of it.
-            if session.id.parse::<StartId>().is_ok() {
+            if session.id.as_ref().parse::<StartId>().is_ok() {
                 continue;
             }
 
@@ -345,11 +346,11 @@ struct Page {
 /// when `None`).
 async fn read_page<S: Sessions + ?Sized>(
     client: &S,
-    session: &str,
+    session: &SessionId,
     before: Option<u64>,
 ) -> anyhow::Result<(Vec<String>, Page)> {
     let request = SessionsRequest::Transcript {
-        session: session.to_owned(),
+        session: session.clone(),
         last: PAGE,
         thoughts: false,
         before,

@@ -3,12 +3,18 @@ import { identity } from "../ui/parts.tsx";
 import { agentMessage } from "./session-frame.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import { useLayoutEffect, useRef } from "react";
-import { shortSize } from "../agentpane/files-state.ts";
+import { shortSize, transferSpeed, type Transfer } from "../agentpane/files-state.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { Icon } from "../ui/icons.tsx";
 import { AG, folderName } from "./agents.ts";
 import { drawAgentAttached, previewsOf } from "./images.tsx";
 import { answerUpload, MN, removeMention } from "./workdrop.ts";
+
+/// " · 4.2 MB/s" after a slow transfer's percentage, or nothing.
+export const speedNote = (transfer: Transfer) => {
+  const speed = transferSpeed(transfer);
+  return speed ? ` · ${speed}` : "";
+};
 
 /// Takes image `i` off the message, with the file it is a preview of.
 function removeImage(i: number) {
@@ -46,7 +52,7 @@ export function AgentAttachments() {
         <RemoveChip name={name} data="data-agment" index={i} remove={() => removeMention(i)} />
       </span>;
     })}
-    {MN.uploads.map(upload => <span className="agment up" key={identity(upload)} title={`Uploading to ${machine}`}><Spinner /><span className="nm">{upload.name}</span><small>{upload.size ? Math.round(upload.done / upload.size * 100) : 0}%</small></span>)}
+    {MN.uploads.map(upload => <span className="agment up" key={identity(upload)} title={`Uploading to ${machine}`}><Spinner /><span className="nm">{upload.name}</span><small>{upload.size ? Math.round(upload.done / upload.size * 100) : 0}%{speedNote(upload)}</small></span>)}
     </AttachmentBatch>
     {ask && <div className="agupask"><span>Upload {ask.files.length === 1 ? <b>{ask.files[0].name}</b> : `${ask.files.length} files`} ({shortSize(ask.files.reduce((n, f) => n + f.size, 0))}) to {machine}:</span><Button ref={there} look="primary" data-agup="there" onClick={() => answerUpload("there")}>Into {ask.folder ? `${ask.folder}/` : "the session's folder"}</Button><Button data-agup="default" title="Outside the project. Deleted when this session is closed." onClick={() => answerUpload("default")}>Temporary attachments</Button><Button look="quiet" data-agup="cancel" onClick={() => answerUpload("cancel")}>Cancel</Button></div>}
     {AG.attError && <span className="derr">{AG.attError}</span>}</>;

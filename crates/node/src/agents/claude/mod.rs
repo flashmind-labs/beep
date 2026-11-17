@@ -2,6 +2,7 @@
 //! (`External`): finding them, reading their transcripts and following them.
 //! Taking one over runs it through the ACP adapter.
 
+use beep_proto::SessionId;
 use crate::agents::found::Seen as Sighting;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
@@ -83,7 +84,7 @@ impl Default for External {
 impl External {
     pub(crate) async fn attach_children(
         &self,
-        id: &str,
+        id: &SessionId,
         calls: Vec<(usize, String)>,
         mut entries: Vec<beep_proto::node::agent::Entry>,
     ) -> Result<Vec<beep_proto::node::agent::Entry>> {
@@ -153,8 +154,8 @@ impl External {
     pub(crate) async fn list(
         &self,
         limit: u32,
-        only: Option<String>,
-        owned: HashMap<String, String>,
+        only: Option<SessionId>,
+        owned: HashMap<SessionId, SessionId>,
     ) -> Result<Vec<ExternalSession>> {
         let Some(store) = self.store() else {
             return Ok(Vec::new());
@@ -166,7 +167,7 @@ impl External {
         };
         spawn_blocking(move || {
             let snapshot = discover::Snapshot::of(&store, processes, owned);
-            discover::list(&store, &snapshot, limit, only.as_deref())
+            discover::list(&store, &snapshot, limit, only.as_ref())
         })
         .await?
         .context("reading Claude Code's sessions")
@@ -186,8 +187,8 @@ impl External {
     /// its last prompt. `owned` is as for `list`.
     pub(crate) async fn named(
         &self,
-        ids: HashSet<String>,
-        owned: HashMap<String, String>,
+        ids: HashSet<SessionId>,
+        owned: HashMap<SessionId, SessionId>,
     ) -> Result<Vec<ExternalSession>> {
         let Some(store) = self.store() else {
             return Ok(Vec::new());
@@ -219,7 +220,7 @@ impl External {
     /// such session.
     pub(crate) async fn transcript(
         &self,
-        id: &str,
+        id: &SessionId,
         last: usize,
         before: Option<u64>,
     ) -> Result<Option<Excerpt>> {
@@ -233,7 +234,7 @@ impl External {
     }
 
     /// Session `id`'s transcript file, when there is one.
-    pub(crate) async fn file(&self, id: &str) -> Result<Option<PathBuf>> {
+    pub(crate) async fn file(&self, id: &SessionId) -> Result<Option<PathBuf>> {
         let Some(store) = self.store() else {
             return Ok(None);
         };
@@ -246,13 +247,13 @@ impl External {
 
     /// Starts following session `id` by its file, found once. `None` when
     /// it has none of its own here, such as a subagent's conversation.
-    pub(crate) async fn follow(&self, id: &str) -> Result<Option<Followed>> {
-        if !discover::is_session_id(id) {
+    pub(crate) async fn follow(&self, id: &SessionId) -> Result<Option<Followed>> {
+        if !discover::is_session_id(id.as_ref()) {
             return Ok(None);
         }
 
         Ok(self.file(id).await?.map(|path| Followed {
-            id: id.to_owned(),
+            id: id.clone(),
             path,
             machine: None,
         }))
@@ -266,7 +267,7 @@ impl External {
         &self,
         followed: &mut Followed,
         stale: bool,
-        owned: HashMap<String, String>,
+        owned: HashMap<SessionId, SessionId>,
     ) -> Result<ExternalSession> {
         let Some(store) = self.store() else {
             bail!("session is no longer on the machine");
@@ -335,7 +336,7 @@ impl External {
     /// Deletes session `id`'s transcript and its side folder; `false` when
     /// there is no such transcript. Both are found through the store and
     /// must lie inside its projects folder.
-    pub(crate) async fn delete(&self, id: &str) -> Result<bool> {
+    pub(crate) async fn delete(&self, id: &SessionId) -> Result<bool> {
         let Some(store) = self.store() else {
             return Ok(false);
         };
@@ -347,7 +348,7 @@ impl External {
             let projects = store.projects();
             crate::agents::found::remove_file_in(&projects, &file)?;
 
-            if let Some(side) = file.parent().map(|folder| folder.join(&id)) {
+            if let Some(side) = file.parent().map(|folder| folder.join(id.as_ref())) {
                 crate::agents::found::remove_dir_in(&projects, &side)?;
             }
 
@@ -365,14 +366,14 @@ impl External {
     /// `steer` for its next hook when given. `owned` is as for `list`.
     pub async fn live(
         &self,
-        id: &str,
+        id: &SessionId,
         steer: Option<Steer>,
-        owned: HashMap<String, String>,
+        owned: HashMap<SessionId, SessionId>,
     ) -> Result<LiveStatus> {
-        let found = match self.list(1, Some(id.to_owned()), owned).await?.pop() {
+        let found = match self.list(1, Some(id.clone()), owned).await?.pop() {
             Some(found) => found,
             None if self.live.knows(id) => ExternalSession {
-                id: id.to_owned(),
+                id: id.clone(),
                 agent: "claude".to_owned(),
                 ..ExternalSession::default()
             },
@@ -391,7 +392,7 @@ impl External {
     }
 
     /// Serves one `Watch` stream.
-    pub(crate) async fn watch(&self, tx: LinkTx, rx: LinkRx, sessions: Vec<String>) -> Result<()> {
+    pub(crate) async fn watch(&self, tx: LinkTx, rx: LinkRx, sessions: Vec<SessionId>) -> Result<()> {
         watch::serve(tx, rx, self.store(), &self.hub, sessions).await
     }
 }
@@ -403,7 +404,7 @@ const MACHINE_KEPT: Duration = Duration::from_secs(10);
 /// A Claude Code session a reader follows: its file, and the processes and
 /// pid files last read, with when.
 pub(crate) struct Followed {
-    id: String,
+    id: SessionId,
     path: PathBuf,
     machine: Option<(discover::Snapshot, Instant)>,
 }

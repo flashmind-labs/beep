@@ -64,3 +64,21 @@ fn a_touch_lands_on_a_pixel_of_the_screen() {
     assert_eq!(pixel(-3.0, 1280), 0);
     assert_eq!(pixel(639.6, 1280), 640);
 }
+
+#[test]
+fn native_video_uses_the_active_default_display_and_even_scaled_dimensions() {
+    let printed = r#"mOverrideDisplayInfo=DisplayInfo{"Built-in Screen", displayId 0, real 2400 x 1080, rotation 1, state ON}
+mOverrideDisplayInfo=DisplayInfo{"External Screen", displayId 2, real 1920 x 1080, rotation 0, state ON}"#;
+    assert_eq!(
+        video_geometry(printed).expect("geometry"),
+        VideoGeometry {
+            width: 2400,
+            height: 1080,
+            turn: Turn::Left
+        }
+    );
+    assert_eq!(video_size(2400, 1080, 800).expect("scaled"), (800, 360));
+    assert_eq!(video_size(101, 201, 800).expect("native"), (100, 200));
+    assert!(video_geometry("no display").is_err());
+    assert!(video_size(0, 0, 800).is_err());
+}

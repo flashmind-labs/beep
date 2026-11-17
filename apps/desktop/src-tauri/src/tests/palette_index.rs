@@ -1,5 +1,6 @@
 use super::super::lists::BranchRow;
 use super::*;
+use beep_proto::SessionId;
 use beep_proto::{AgentStatus, ImportedProject, MachineSession};
 use std::time::{Duration, SystemTime};
 
@@ -28,7 +29,7 @@ fn agent_session(
         changes: None,
         machine_id: machine.to_owned(),
         machine_name: machine.to_owned(),
-        id: id.to_owned(),
+        id: SessionId::from(id),
         agent: "claude".to_owned(),
         title: title.map(str::to_owned),
         cwd: cwd.to_owned(),

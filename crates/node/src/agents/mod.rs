@@ -12,6 +12,7 @@ host! {
     mod text;
     pub(crate) use text::cut;
     use crate::{AsyncMutex, agents::claude::External, agents::found::Stores, agents::mcp::Launch};
+    use beep_proto::SessionId;
     use std::{
         collections::HashMap,
         path::PathBuf,
@@ -158,7 +159,7 @@ host! {
         kinds: watch::Sender<Arc<Vec<AgentKind>>>,
         /// The adapters the node installs itself.
         adapters: adapters::Installs,
-        sessions: Mutex<HashMap<String, Arc<Session>>>,
+        sessions: Mutex<HashMap<SessionId, Arc<Session>>>,
         /// Serializes changes to stored sessions against resuming them.
         session_store: AsyncMutex<()>,
         /// Claude Code sessions started outside Beep.
@@ -219,7 +220,7 @@ host! {
         listed: AsyncMutex<Option<found_sessions::Listed>>,
         /// Sessions started outside Beep whose process this node ended or
         /// saw exit lately, by id, with when.
-        closed: Arc<Mutex<HashMap<String, Instant>>>,
+        closed: Arc<Mutex<HashMap<SessionId, Instant>>>,
         /// Which processes hold the sessions' files, checked once for all.
         holders: holders::Holders,
         /// What sessions were, ended ones too, from the restart note.

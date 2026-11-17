@@ -3,6 +3,7 @@
 //! `metadata.working_dir`. The folder hash is flsh's own: the std
 //! `DefaultHasher` over the session's `Path`, as 16 hex digits.
 
+use beep_proto::SessionId;
 use super::{
     Stored,
     folder::Folders,
@@ -20,7 +21,7 @@ use std::{
 /// The first flsh that keeps its sessions in JSONL files.
 const FIRST_JSONL: &str = "0.2.9";
 
-pub(super) fn rewrite(transcript: &[u8], id: &str, folders: &Folders) -> Stored {
+pub(super) fn rewrite(transcript: &[u8], id: &SessionId, folders: &Folders) -> Stored {
     let mut lines = transcript.split_inclusive(|b| *b == b'\n');
     let mut bytes = Vec::with_capacity(transcript.len() + 64);
 
@@ -34,7 +35,7 @@ pub(super) fn rewrite(transcript: &[u8], id: &str, folders: &Folders) -> Stored 
     }
     Stored {
         bytes,
-        path: PathBuf::from(folder_hash(&folders.new)).join(file_name(id)),
+        path: PathBuf::from(folder_hash(&folders.new)).join(file_name(id.as_ref())),
     }
 }
 

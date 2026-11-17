@@ -1,6 +1,7 @@
 //! Claude Code's logs (`line`): each assistant line carries `message.usage`,
 //! `message.model`, `message.id` and `requestId`.
 
+use beep_proto::SessionId;
 use super::{Line, Request, billing::claude_cloud};
 use crate::{agents::claude::unix_seconds, agents::prices::Tokens};
 use beep_proto::node::usage::Billing;
@@ -11,7 +12,7 @@ use serde::Deserialize;
 struct Entry {
     #[serde(rename = "type")]
     kind: Option<String>,
-    session_id: Option<String>,
+    session_id: Option<SessionId>,
     cwd: Option<String>,
     timestamp: Option<String>,
     request_id: Option<String>,

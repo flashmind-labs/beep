@@ -1,3 +1,4 @@
+use beep_proto::SessionId;
 use super::*;
 use crate::{
     agents::{
@@ -13,7 +14,7 @@ use std::sync::Arc;
 
 fn request(args: Value) -> Request {
     Request {
-        session: "parent".to_owned(),
+        session: SessionId::from("parent").to_owned(),
         tool: Tool::HarnessInfo,
         args: args.to_string(),
         approved: Default::default(),

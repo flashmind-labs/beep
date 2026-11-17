@@ -36,6 +36,7 @@ pub(crate) use folder::project_folder;
 pub(crate) use progress::Moves;
 pub use read::ALPN as SESSIONS_ALPN;
 
+use beep_proto::SessionId;
 use super::{Agents, found::Agent};
 use iroh::{Endpoint, EndpointId};
 use saved::Folder;
@@ -101,7 +102,7 @@ impl TryFrom<Agent> for Harness {
 /// where Claude Code looks for it in `new`, with the folders in it
 /// rewritten: Claude Code finds a session by the folder it runs in. Nothing
 /// when there is none, or one is there already. Blocks on the file system.
-pub(crate) fn rehome_claude(id: &str, old: &Path, new: &Path) -> Result<()> {
+pub(crate) fn rehome_claude(id: &SessionId, old: &Path, new: &Path) -> Result<()> {
     let projects = super::claude::config_dir()
         .context("this machine has no home folder")?
         .join("projects");
@@ -140,7 +141,7 @@ pub(crate) struct Stored {
 fn rewrite(
     harness: Harness,
     transcript: &[u8],
-    id: &str,
+    id: &SessionId,
     file_name: &str,
     folders: &folder::Folders,
 ) -> Stored {

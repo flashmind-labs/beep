@@ -2,6 +2,7 @@
 //! keeps on this machine (`Stores`), for suggesting projects to import and
 //! listing an imported project's sessions.
 
+use beep_proto::SessionId;
 use crate::agents::place::of_folder;
 use beep_proto::{
     AgentSlug,
@@ -89,7 +90,7 @@ impl From<Agent> for AgentSlug {
 pub(crate) struct Seen {
     pub(crate) agent: Agent,
     /// The agent's own id for it.
-    pub(crate) id: String,
+    pub(crate) id: SessionId,
     /// The folder it ran in.
     pub(crate) cwd: PathBuf,
     /// Unix seconds.
@@ -129,7 +130,7 @@ struct Memos {
     /// Each Codex session file's latest working folder.
     folders: Memo<Option<PathBuf>>,
     /// Codex's index of the names the user gave.
-    names: Memo<Arc<HashMap<String, String>>>,
+    names: Memo<Arc<HashMap<SessionId, String>>>,
     /// Each flsh or OpenCode database's sessions.
     databases: Memo<Arc<Vec<Seen>>>,
     /// The entries of the few Codex or pi session files read last.
@@ -225,6 +226,7 @@ impl Stores {
     pub(crate) fn describe(&self, mut seen: Seen, now: SystemTime) -> ExternalSession {
         let native_run = seen
             .id
+            .as_ref()
             .starts_with("subagent:")
             .then(|| {
                 seen.file
@@ -275,7 +277,7 @@ impl Stores {
     }
 
     /// Direct Codex children, including task-path spawns not exposed over ACP.
-    pub(crate) fn codex_children(&self, parent: &str) -> Vec<crate::agents::SubagentRun> {
+    pub(crate) fn codex_children(&self, parent: &SessionId) -> Vec<crate::agents::SubagentRun> {
         let Some(root) = self.codex.as_deref() else {
             return Vec::new();
         };
@@ -291,14 +293,14 @@ impl Stores {
                         first_line(&path).map(|line| line.as_deref().and_then(codex_run::parent))
                     })
                     .ok()??;
-                if child.parent != parent {
+                if child.parent != *parent {
                     return None;
                 }
                 self.memos
                     .codex_runs
                     .read(&path, || codex_run::read(&path))
                     .ok()
-                    .filter(|run| run.session.as_deref() == Some(child.session.as_str()))
+                    .filter(|run| run.session.as_ref() == Some(&child.session))
             })
             .collect()
     }
@@ -325,23 +327,23 @@ impl Stores {
 
     /// The file of session `id`, of `agent` when given; `None` for one not
     /// found or kept in a database.
-    pub(crate) fn file(&self, agent: Option<Agent>, id: &str) -> Option<PathBuf> {
+    pub(crate) fn file(&self, agent: Option<Agent>, id: &SessionId) -> Option<PathBuf> {
         self.seen(agent, id)?.file
     }
 
-    pub(super) fn seen(&self, agent: Option<Agent>, id: &str) -> Option<Seen> {
-        if id.starts_with("subagent:") {
+    pub(super) fn seen(&self, agent: Option<Agent>, id: &SessionId) -> Option<Seen> {
+        if id.as_ref().starts_with("subagent:") {
             return agent
                 .is_none_or(|agent| agent == Agent::Codex)
                 .then(|| codex::native(self.codex.as_deref()?, id))
                 .flatten();
         }
 
-        self.sessions(agent).into_iter().find(|seen| seen.id == id)
+        self.sessions(agent).into_iter().find(|seen| seen.id == *id)
     }
 
     /// One session of `agent` by its id, described.
-    pub(crate) fn find(&self, agent: Agent, id: &str) -> Option<ExternalSession> {
+    pub(crate) fn find(&self, agent: Agent, id: &SessionId) -> Option<ExternalSession> {
         let seen = self.seen(Some(agent), id)?;
         Some(self.describe(seen, SystemTime::now()))
     }
@@ -549,7 +551,7 @@ pub(crate) fn history_page(
         agent: seen.agent.to_string(),
         id: seen.id.clone(),
     };
-    fn key(seen: &Seen) -> (Reverse<u64>, &str, &str) {
+    fn key(seen: &Seen) -> (Reverse<u64>, &str, &SessionId) {
         (Reverse(seen.last_activity), seen.agent.as_ref(), &seen.id)
     }
     seen.retain(|one| {
@@ -559,7 +561,7 @@ pub(crate) fn history_page(
                     > (
                         Reverse(before.last_activity),
                         before.agent.as_str(),
-                        before.id.as_str(),
+                        &before.id,
                     )
             })
     });

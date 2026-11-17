@@ -3,6 +3,7 @@
 //! counting a root's agents, asking about a parent, and reading a child's
 //! state without making a transcript read wait for it.
 
+use beep_proto::SessionId;
 use super::{ChildView, PeerCall};
 use crate::agents::{
     family::{ChildNote, NO_AGENT, Parent, RemoteKid},
@@ -50,14 +51,14 @@ pub(super) enum Answer {
 pub(super) struct Call<'a> {
     pub(super) mesh: &'a Mesh,
     /// The calling session's id as the machine knows it.
-    pub(super) session: &'a str,
+    pub(super) session: &'a SessionId,
     pub(super) machine: EndpointId,
     pub(super) name: &'a str,
 }
 
 impl<'a> Call<'a> {
     /// A call from `session` to the machine of `kid`.
-    pub(super) fn to_kid(mesh: &'a Mesh, session: &'a str, kid: &'a RemoteKid) -> Self {
+    pub(super) fn to_kid(mesh: &'a Mesh, session: &'a SessionId, kid: &'a RemoteKid) -> Self {
         Self {
             mesh,
             session,
@@ -67,7 +68,7 @@ impl<'a> Call<'a> {
     }
 
     /// A call from `session` to `machine`.
-    pub(super) fn to_machine(mesh: &'a Mesh, session: &'a str, machine: &'a Machine) -> Self {
+    pub(super) fn to_machine(mesh: &'a Mesh, session: &'a SessionId, machine: &'a Machine) -> Self {
         Self {
             mesh,
             session,
@@ -78,7 +79,7 @@ impl<'a> Call<'a> {
 
     pub(super) async fn ask(&self, tool: Tool, args: &Value, limit: Duration) -> Answer {
         let request = Request {
-            session: self.session.to_owned(),
+            session: self.session.clone(),
             tool,
             args: args.to_string(),
             approved: Default::default(),
@@ -106,7 +107,7 @@ impl<'a> Call<'a> {
 /// A child the machine does not have is as good as stopped.
 pub(crate) async fn stop_remote(
     mesh: &Mesh,
-    parent: &str,
+    parent: &SessionId,
     kid: &RemoteKid,
     turn_only: bool,
 ) -> Result<(), String> {
@@ -130,7 +131,7 @@ pub(crate) async fn stop_remote(
 /// answer.
 pub(crate) async fn stop_remote_retrying(
     mesh: &Mesh,
-    parent: &str,
+    parent: &SessionId,
     kid: &RemoteKid,
 ) -> Result<(), String> {
     retrying(STOP_TRIES, STOP_PAUSE, || {
@@ -167,7 +168,7 @@ where
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct CountCall {
     pub(crate) root_machine: Option<EndpointId>,
-    pub(crate) root: String,
+    pub(crate) root: SessionId,
 }
 
 /// How many live agents `machine` runs under the root `root`; none when it
@@ -176,7 +177,7 @@ pub(crate) async fn count_on(
     mesh: &Mesh,
     machine: EndpointId,
     root_machine: Option<EndpointId>,
-    root: &str,
+    root: &SessionId,
     limit: Duration,
 ) -> usize {
     let name = machine.fmt_short().to_string();
@@ -188,7 +189,7 @@ pub(crate) async fn count_on(
     };
     let args = json!(CountCall {
         root_machine,
-        root: root.to_owned()
+        root: root.clone()
     });
 
     match call.ask(Tool::AgentCount, &args, limit).await {
@@ -205,9 +206,9 @@ pub(crate) async fn count_on(
 pub(crate) async fn ask_parent(
     mesh: &Mesh,
     peer: EndpointId,
-    parent: &str,
-    id: &str,
-    key: &str,
+    parent: &SessionId,
+    id: &SessionId,
+    key: &SessionId,
 ) -> Parent {
     let name = peer.fmt_short().to_string();
     let call = Call {
@@ -217,8 +218,8 @@ pub(crate) async fn ask_parent(
         name: &name,
     };
     let args = json!(PeerCall {
-        id: id.to_owned(),
-        text: Some(key.to_owned()),
+        id: id.clone(),
+        text: Some(key.to_string()),
         ..Default::default()
     });
 
@@ -236,7 +237,7 @@ pub(crate) async fn ask_parent(
 pub(crate) async fn note_parent(
     mesh: &Mesh,
     peer: EndpointId,
-    parent: &str,
+    parent: &SessionId,
     note: &ChildNote,
 ) -> Result<(), String> {
     let name = peer.fmt_short().to_string();
@@ -256,7 +257,7 @@ pub(crate) async fn note_parent(
 /// How a child on another machine stands, asked of it now.
 pub(super) async fn fetch_view(
     mesh: &Mesh,
-    parent: &str,
+    parent: &SessionId,
     kid: &RemoteKid,
 ) -> Result<ChildView, String> {
     let call = Call::to_kid(mesh, parent, kid);
@@ -277,7 +278,7 @@ pub(super) async fn fetch_view(
 /// which may be off. A state older than `VIEW_FRESH` is read again in the
 /// background, for the next read.
 #[derive(Clone, Default)]
-pub(crate) struct Views(Arc<Mutex<HashMap<(EndpointId, String), Seen>>>);
+pub(crate) struct Views(Arc<Mutex<HashMap<(EndpointId, SessionId), Seen>>>);
 
 #[derive(Default)]
 struct Seen {
@@ -290,7 +291,7 @@ struct Seen {
 impl Views {
     /// The last state read of `kid`, `parent`'s child; none before the first
     /// read comes back.
-    pub(super) fn of(&self, mesh: &Mesh, parent: &str, kid: &RemoteKid) -> Option<ChildView> {
+    pub(super) fn of(&self, mesh: &Mesh, parent: &SessionId, kid: &RemoteKid) -> Option<ChildView> {
         let key = (kid.machine, kid.id.clone());
         let mut seen = crate::lock(&self.0);
         let entry = seen.entry(key.clone()).or_default();

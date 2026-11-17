@@ -197,7 +197,7 @@ fn needs_you_puts_oldest_first() {
         ]),
         ..parts()
     });
-    let order: Vec<String> = view
+    let order: Vec<SessionId> = view
         .needs_you
         .iter()
         .map(|NeedsYou::Agent { session, .. }| session.clone())

@@ -5,7 +5,7 @@ use crate::{
     records::{read, write},
 };
 use beep_mesh::{Key, Mesh};
-use beep_proto::{MachineSession, node::mesh_state::StateValue};
+use beep_proto::{MachineSession, SessionId, node::mesh_state::StateValue};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -14,7 +14,7 @@ impl StateValue for Title {}
 
 const PREFIX: &str = "agent-title/";
 
-fn key(machine: &str, agent: &str, session: &str) -> Key {
+fn key(machine: &str, agent: &str, session: &SessionId) -> Key {
     Key::Other(format!("{PREFIX}{machine}/{agent}/{session}"))
 }
 
@@ -24,7 +24,7 @@ fn key(machine: &str, agent: &str, session: &str) -> Key {
 pub struct Retitled {
     pub machine_id: String,
     pub agent: String,
-    pub session: String,
+    pub session: SessionId,
     pub title: Option<String>,
 }
 
@@ -33,18 +33,19 @@ pub fn changed(mesh: &Mesh, key: &Key) -> Option<Retitled> {
     let Key::Other(text) = key else { return None };
     let mut parts = text.strip_prefix(PREFIX)?.splitn(3, '/');
     let (machine_id, agent, session) = (parts.next()?, parts.next()?, parts.next()?);
-    let title = get(mesh, machine_id, agent, session);
+    let session = Into::<SessionId>::into(session);
+    let title = get(mesh, machine_id, agent, &session);
 
     Some(Retitled {
         machine_id: machine_id.to_owned(),
         agent: agent.to_owned(),
-        session: session.to_owned(),
+        session,
         title,
     })
 }
 
 /// The user's title for this session, independent of its latest generated title.
-pub fn get(mesh: &Mesh, machine: &str, agent: &str, session: &str) -> Option<String> {
+pub fn get(mesh: &Mesh, machine: &str, agent: &str, session: &SessionId) -> Option<String> {
     read::<Title>(mesh, &key(machine, agent, session)).map(|title| title.0)
 }
 
@@ -53,7 +54,7 @@ pub async fn save(
     mesh: &Mesh,
     machine: &str,
     agent: &str,
-    session: &str,
+    session: &SessionId,
     title: &str,
 ) -> Result<()> {
     let title = title.trim();

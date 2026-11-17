@@ -18,6 +18,7 @@ use beep_mesh::{
         sessions::{self, NodeFile, NodeImage, NodeWork},
     },
 };
+use beep_proto::SessionId;
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, AgentHarness, AgentHarnesses, AgentHost, AgentImageData,
     AgentModels, AgentSessionModes, AgentSessionTasks, AgentSessionUsage, AgentSessionView,
@@ -326,11 +327,11 @@ pub(crate) async fn older(
 }
 
 /// The session `session` of `agent` as the node lists it now.
-async fn info(client: &PeerClient, agent: &str, session: &str) -> Result<agent::SessionInfo> {
+async fn info(client: &PeerClient, agent: &str, session: &SessionId) -> Result<agent::SessionInfo> {
     limited(sessions::list_all(client))
         .await?
         .into_iter()
-        .find(|info| info.id == session && info.agent == agent)
+        .find(|info| info.id == *session && info.agent == agent)
         .ok_or_else(not_found)
 }
 
@@ -339,7 +340,7 @@ pub(crate) async fn device(
     fleet: &Fleet,
     machine: EndpointId,
     agent: &str,
-    session: &str,
+    session: &SessionId,
 ) -> Result<Option<agent::SessionDevice>> {
     let client = fleet.client(machine).await?;
     Ok(info(&client, agent, session).await?.device)
@@ -351,7 +352,7 @@ pub(crate) async fn created_worktrees(
     fleet: &Fleet,
     machine: EndpointId,
     agent: &str,
-    session: &str,
+    session: &SessionId,
 ) -> Vec<String> {
     let read = async {
         let client = fleet.client(machine).await?;
@@ -700,7 +701,7 @@ pub(crate) async fn delete_session(
     fleet: &Fleet,
     machine: EndpointId,
     agent: &str,
-    session: &str,
+    session: &SessionId,
 ) -> Result<()> {
     let client = fleet.client(machine).await?;
     let done = sessions::delete_session(&client, agent, session)
@@ -910,7 +911,7 @@ pub(crate) async fn worktrees(
     fleet: &Fleet,
     machine: EndpointId,
     folder: &str,
-    session: Option<&str>,
+    session: Option<&SessionId>,
 ) -> Result<Vec<Worktree>> {
     let client = fleet.client(machine).await?;
     work(
@@ -925,7 +926,7 @@ pub(crate) async fn worktrees(
 pub(crate) async fn commands(
     fleet: &Fleet,
     machine: EndpointId,
-    session: &str,
+    session: &SessionId,
 ) -> Result<Vec<AgentCommand>> {
     let client = fleet.client(machine).await?;
     work(fleet, machine, sessions::commands(&client, session).await?)
@@ -935,7 +936,7 @@ pub(crate) async fn commands(
 #[derive(Debug, Deserialize)]
 pub struct PlaceAsk {
     agent: String,
-    session: String,
+    session: SessionId,
     external: bool,
 }
 
@@ -961,7 +962,7 @@ pub(crate) async fn places(
         .map(|ask| {
             if ask.external {
                 return outside
-                    .get(&(ask.agent.as_str(), ask.session.as_str()))
+                    .get(&(ask.agent.as_str(), &ask.session))
                     .cloned()
                     .flatten();
             }
@@ -980,7 +981,7 @@ pub(crate) async fn places(
 async fn outside_places<'a>(
     client: &PeerClient,
     asks: &'a [PlaceAsk],
-) -> Result<HashMap<(&'a str, &'a str), Option<WorkPlace>>> {
+) -> Result<HashMap<(&'a str, &'a SessionId), Option<WorkPlace>>> {
     let outside: Vec<&PlaceAsk> = asks.iter().filter(|ask| ask.external).collect();
 
     if outside.is_empty() {
@@ -1010,7 +1011,7 @@ async fn outside_places<'a>(
                 .iter()
                 .find(|found| found.id == ask.session && found.agent == ask.agent)
                 .and_then(|found| found.place.clone());
-            ((ask.agent.as_str(), ask.session.as_str()), place)
+            ((ask.agent.as_str(), &ask.session), place)
         })
         .collect())
 }
@@ -1019,7 +1020,7 @@ async fn outside_places<'a>(
 async fn outside_one_by_one<'a>(
     client: &PeerClient,
     outside: Vec<&'a PlaceAsk>,
-) -> Result<HashMap<(&'a str, &'a str), Option<WorkPlace>>> {
+) -> Result<HashMap<(&'a str, &'a SessionId), Option<WorkPlace>>> {
     let asks: Vec<_> = outside
         .into_iter()
         .map(|ask| async move {
@@ -1031,7 +1032,7 @@ async fn outside_one_by_one<'a>(
             ))
             .await?;
             let place = found.into_iter().next().and_then(|found| found.place);
-            Ok(((ask.agent.as_str(), ask.session.as_str()), place))
+            Ok(((ask.agent.as_str(), &ask.session), place))
         })
         .collect();
     stream::iter(asks)

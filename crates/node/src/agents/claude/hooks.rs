@@ -2,6 +2,7 @@
 //! node: `install` adds them to Claude Code's settings, and each runs
 //! `beep-node hook` (`forward`), which hands the event over `socket_path`.
 
+use beep_proto::SessionId;
 use super::watch::MAX_MESSAGE;
 use crate::agents::cut;
 use crate::link::local_socket as socket;
@@ -330,7 +331,7 @@ pub fn status(settings_path: &Path, dir: &Path) -> Result<String> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(super) struct HookMessage {
     pub(super) event: HookEvent,
-    pub(super) session_id: String,
+    pub(super) session_id: SessionId,
     #[serde(default)]
     pub(super) message: Option<String>,
     #[serde(default)]
@@ -386,8 +387,8 @@ impl TryFrom<&Value> for HookMessage {
         let event = serde_json::from_value(input["hook_event_name"].clone())?;
         let session_id = input["session_id"]
             .as_str()
-            .context("missing session id")?
-            .to_owned();
+            .context("missing session id")
+            .map(Into::<SessionId>::into)?;
         let message = match event {
             HookEvent::Stop => input["last_assistant_message"].as_str(),
             _ => input["message"].as_str(),

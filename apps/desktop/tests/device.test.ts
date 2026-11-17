@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  type DeviceInput, type DeviceMachine, buttonsFor, defaultPick, fitRect, keyInput, maxSide, missingLine, pickValue, queueInput,
+  type DeviceInput, type DeviceMachine, buttonsFor, defaultPick, fitRect, rotatedSize, keyInput, maxSide, missingLine, pickValue, queueInput,
   keptPick, readKeptDevice, readMachines, readPickValue, readPlatforms, readScreenMessage, showsDeviceTab, touchPoint, commandName, deviceCall, followedDevice, targetPick,
 } from "../src/agentpane/device-state.ts";
 
@@ -181,4 +181,23 @@ test("a session's kept device shows while it runs and is forgotten once off or g
   assert.deepEqual(readKeptDevice({ kind: "kept", pick: null }), { kind: "kept", pick: null });
   assert.deepEqual(readKeptDevice({ kind: "unsupported" }), { kind: "unsupported" });
   assert.equal(readKeptDevice({ kind: "kept", pick: { machine: 1 } }), null);
+});
+
+test("video chunks preserve native bytes and reject invalid rotation and size", () => {
+  const bytes = new Uint8Array([0x56, 0x49, 0x44, 0x31, 1, 0, 0, 0, 0, 0, 1, 0x65]);
+  const chunk = readScreenMessage(bytes.buffer);
+  assert.equal(chunk?.kind, "video_data");
+  if (chunk?.kind === "video_data") {
+    assert.equal(chunk.rotation, 1);
+    assert.deepEqual([...chunk.data], [0, 0, 1, 0x65]);
+  }
+  bytes[4] = 4;
+  assert.equal(readScreenMessage(bytes.buffer), null);
+  assert.equal(readScreenMessage({ kind: "video", fps: -1 }), null);
+  assert.deepEqual(readScreenMessage({ kind: "video", fps: 60 }), { kind: "video", fps: 60 });
+});
+
+test("quarter turns swap the displayed video dimensions", () => {
+  assert.deepEqual(rotatedSize({ width: 100, height: 200 }, 1), { width: 200, height: 100 });
+  assert.deepEqual(rotatedSize({ width: 100, height: 200 }, 2), { width: 100, height: 200 });
 });

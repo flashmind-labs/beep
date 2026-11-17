@@ -61,7 +61,7 @@ fn its_own_steps_and_answer_read_after_the_parents_history() {
     assert_eq!(
         run,
         SubagentRun {
-            session: Some(format!("subagent:codex:{THREAD}")),
+            session: Some(SessionId::from(format!("subagent:codex:{THREAD}"))),
             steps: vec![
                 RunStep {
                     title: "sleep".into(),
@@ -99,17 +99,17 @@ fn task_path_children_are_linked_only_to_their_parent_and_refresh_independently(
         codex: Some(root.path().to_owned()),
         ..Default::default()
     };
-    assert!(stores.codex_children("unrelated").is_empty());
+    assert!(stores.codex_children(&SessionId::from("unrelated")).is_empty());
     assert!(
-        stores.codex_children(THREAD).is_empty(),
+        stores.codex_children(&SessionId::from(THREAD)).is_empty(),
         "no grandchildren here"
     );
-    let children = stores.codex_children("p1");
+    let children = stores.codex_children(&SessionId::from("p1"));
     assert_eq!(children.len(), 1);
     assert!(children[0].working);
     assert_eq!(children[0].task.as_deref(), Some("sleep_test"));
     let before = stores
-        .transcript("p1", 10, None)
+        .transcript(&SessionId::from("p1"), 10, None)
         .expect("read")
         .expect("parent");
     assert_eq!(before.entries.len(), 1);
@@ -126,7 +126,7 @@ fn task_path_children_are_linked_only_to_their_parent_and_refresh_independently(
 
     write(root.path(), true);
     let after = stores
-        .transcript("p1", 10, None)
+        .transcript(&SessionId::from("p1"), 10, None)
         .expect("read")
         .expect("parent");
     assert_eq!(after.entries.len(), 1, "the child is not duplicated");

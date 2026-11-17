@@ -292,19 +292,20 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
         parent: o.session ?? null, model: picked.model.trim() || null, effort: picked.effort, fast: picked.agent === "codex" ? picked.fast : null,
       });
       const load = o.load;
-      const run: Run = {
-        key: o.key, id: started.id, machineId: machine.id, agent: picked.agent, root: v.root,
-        load: () => load(uncommitted), failed: 0,
-      };
-      notes.delete(o.key);
-      runs.set(o.key, run);
-      schedule(run);
+      follow(started, machine.id, v.root, () => load(uncommitted));
     } catch (e) {
       o.say(`Could not start the review: ${reason(e)}`);
     }
 
     starting = false;
     redraw();
+  }
+
+  function follow(read: ReviewRun, machineId: string, root: string, load: () => Promise<DiffFile[]>) {
+    const run: Run = { key: o.key, id: read.id, machineId, agent: read.agent, root, load, failed: 0 };
+    notes.delete(o.key);
+    runs.set(o.key, run);
+    schedule(run);
   }
 
   /// The reviews the session asked for itself, not taken yet, become comments.
@@ -314,10 +315,20 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     if (!machine || !o.session || isStarting(o.session)) return;
     const list = await invoke<ReviewRun[]>("agent_reviews", { machineId: machine.id, session: o.session })
       .catch(e => { console.warn("session reviews not read:", e); return [] as ReviewRun[]; });
+    if (disposed) return;
     const root = o.view()?.root ?? "";
 
     for (const read of list) {
-      if (runState(read) !== "done" || wasTaken(o.key, read.id)) continue;
+      const state = runState(read);
+      // One still running that this window no longer follows, after a reload
+      // or a lost link, is followed again so the button shows and opens it.
+      if (state === "running" && !starting && !runs.has(o.key)) {
+        follow(read, machine.id, root || read.cwd, () => o.load(o.uncommitted()));
+        redraw();
+        continue;
+      }
+
+      if (state !== "done" || wasTaken(o.key, read.id)) continue;
       // One the button started is delivered by its own run.
       if (runs.get(o.key)?.id === read.id) continue;
       o.say(await deliver(o.key, read, root, () => o.load(o.uncommitted())));

@@ -143,7 +143,7 @@ impl AgentSessions {
     ) -> Result<Vec<MachineSession>> {
         let mut sessions = self.list_cached(app, cache).await?;
         // The starts kept here change between reads: the list has them as they are now.
-        sessions.retain(|session| session.id.parse::<StartId>().is_err());
+        sessions.retain(|session| session.id.as_ref().parse::<StartId>().is_err());
         sessions.extend(app.state::<Arc<Starts>>().rows());
         // A presence event may have arrived while the cached read was in flight.
         app.state::<Arc<Fleet>>().apply_presence(&mut sessions);

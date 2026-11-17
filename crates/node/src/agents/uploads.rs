@@ -1,5 +1,6 @@
 //! Temporary attachments on this host, outside project checkouts.
 
+use beep_proto::SessionId;
 use super::work_folder::{self, WorkRoot};
 use super::Agents;
 use crate::{files::paths, lock};
@@ -92,7 +93,7 @@ fn sessions(agents: &Agents) -> (HashSet<String>, HashSet<PathBuf>) {
 }
 
 /// Marks the session's attachments to go a day from now unless it runs again.
-pub(super) fn ended(agent: &str, session: &str) -> Result<()> {
+pub(super) fn ended(agent: &str, session: &SessionId) -> Result<()> {
     let Some(cache) = folder() else { return Ok(()) };
     let _writing = lock(&WRITING);
     let group = cache.join(owner(agent, session));
@@ -134,7 +135,7 @@ fn idle(now: SystemTime, meta: &fs::Metadata) -> Duration {
 
 pub(super) fn write(
     agent: &str,
-    session: &str,
+    session: &SessionId,
     path: &str,
     offset: u64,
     size: u64,
@@ -152,7 +153,7 @@ pub(super) fn write(
     write_in(&folder, &owner, path, offset, size, data)
 }
 
-fn owner(agent: &str, session: &str) -> String {
+fn owner(agent: &str, session: &SessionId) -> String {
     blake3::hash(format!("{agent}\0{session}").as_bytes())
         .to_hex()
         .to_string()
@@ -160,7 +161,7 @@ fn owner(agent: &str, session: &str) -> String {
 
 /// Only an explicit close or deletion removes completed attachments. Node
 /// shutdown and agent failures leave them available for resume.
-pub(super) fn remove(agent: &str, session: &str) -> Result<()> {
+pub(super) fn remove(agent: &str, session: &SessionId) -> Result<()> {
     let Some(cache) = folder() else { return Ok(()) };
     remove_in(&cache, &owner(agent, session))
 }

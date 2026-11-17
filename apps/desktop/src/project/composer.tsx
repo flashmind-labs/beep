@@ -482,7 +482,7 @@ export function startFix(name: string, detail: RunDetail, pick: ProjectPick, mac
 /// Fix this's task: the failed run's branch (a new branch when it ran on the
 /// default branch), with the failure and its log in the prompt.
 function fixTask(name: string, detail: RunDetail): AgentTask {
-  return { prompt: fixPrompt(detail), target: runTarget(detail.run, baseFor(null, pc.branches.get(name))) };
+  return { prompt: fixPrompt(detail), target: runTarget(detail.run, pc.branches.get(name)) };
 }
 
 /// Fix with an agent from the menu: the project's bar filled to settle a

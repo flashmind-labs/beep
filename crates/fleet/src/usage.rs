@@ -8,6 +8,7 @@
 use crate::{desk::Desk, error::Result};
 use beep_mesh::MeshError;
 use beep_projects::imports::records::{ImportRow, imported_project_of};
+use beep_proto::SessionId;
 use beep_proto::{
     AgentSlug, AgentTokens, HarnessBill, ModelId, ModelSpend, PlanLimits, PlanWindow, ProjectBill,
     SpendPeriod, SpendReport,
@@ -88,7 +89,7 @@ struct Session {
 #[derive(Default)]
 struct Said {
     plans: Vec<(String, PlanUsage)>,
-    sessions: HashMap<(EndpointId, AgentSlug, String), Session>,
+    sessions: HashMap<(EndpointId, AgentSlug, SessionId), Session>,
     follows: Vec<PlanFollow>,
 }
 

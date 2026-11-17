@@ -3,6 +3,7 @@
 //! that a session it ended is still served as running until it is done
 //! with it, and that it gave a move up.
 
+use beep_proto::SessionId;
 use super::saved::{Folder, SentTree};
 use crate::{AsyncMutex, lock};
 use beep_proto::node::agent::{MovePhase, MoveProgress};
@@ -42,9 +43,9 @@ struct Tracked {
 
 #[derive(Default)]
 pub(crate) struct Moves {
-    tracked: Mutex<HashMap<String, Tracked>>,
-    held: Mutex<HashSet<String>>,
-    refused: Mutex<HashMap<String, String>>,
+    tracked: Mutex<HashMap<SessionId, Tracked>>,
+    held: Mutex<HashSet<SessionId>>,
+    refused: Mutex<HashMap<SessionId, String>>,
     /// Where the moves are kept, once they are followed.
     kept: OnceLock<Folder>,
     /// Held while a worktree sent is noted, one at a time.
@@ -58,7 +59,7 @@ pub(crate) struct Moves {
 /// target does not take it before the source is done with it.
 pub(super) struct Held<'a> {
     moves: &'a Moves,
-    id: String,
+    id: SessionId,
 }
 
 impl Drop for Held<'_> {
@@ -70,7 +71,7 @@ impl Drop for Held<'_> {
 impl Moves {
     /// A fresh tracker for the move of session `id` that the record made at
     /// `at` asked for.
-    pub(super) fn begin(&self, id: &str, at: u64) -> Tracker {
+    pub(super) fn begin(&self, id: &SessionId, at: u64) -> Tracker {
         let tracker = Arc::new(watch::Sender::new(MoveProgress::default()));
         lock(&self.tracked).insert(
             id.to_owned(),
@@ -84,27 +85,27 @@ impl Moves {
     }
 
     /// The target of `id` can take the session.
-    pub(super) fn take(&self, id: &str) {
+    pub(super) fn take(&self, id: &SessionId) {
         if let Some(one) = lock(&self.tracked).get_mut(id) {
             one.taken = true;
         }
     }
 
     /// Forgets what this node knew of session `id`'s earlier moves.
-    pub(super) fn forget(&self, id: &str) {
+    pub(super) fn forget(&self, id: &SessionId) {
         lock(&self.tracked).remove(id);
         lock(&self.refused).remove(id);
     }
 
     /// How the move of `id` stands here, when this machine is part of one.
-    pub(crate) fn progress(&self, id: &str) -> Option<MoveProgress> {
+    pub(crate) fn progress(&self, id: &SessionId) -> Option<MoveProgress> {
         lock(&self.tracked)
             .get(id)
             .map(|one| watched::read_sent(&one.tracker, Clone::clone))
     }
 
     /// What the target of the move made at `at` tells its source.
-    pub(super) fn target(&self, id: &str, at: u64) -> Target {
+    pub(super) fn target(&self, id: &SessionId, at: u64) -> Target {
         let tracked = lock(&self.tracked);
         let Some(one) = tracked.get(id).filter(|one| one.at == at) else {
             return Target::Unknown;
@@ -127,13 +128,13 @@ impl Moves {
 
     /// Whether the move of `id` is past the point where it can be
     /// cancelled: the session is starting or running here.
-    pub(super) fn committed(&self, id: &str) -> bool {
+    pub(super) fn committed(&self, id: &SessionId) -> bool {
         self.progress(id)
             .is_some_and(|progress| matches!(progress.phase, MovePhase::Resuming | MovePhase::Done))
     }
 
     /// Serves session `id` as running until the guard drops.
-    pub(super) fn hold(&self, id: &str) -> Held<'_> {
+    pub(super) fn hold(&self, id: &SessionId) -> Held<'_> {
         lock(&self.held).insert(id.to_owned());
         Held {
             moves: self,
@@ -141,16 +142,16 @@ impl Moves {
         }
     }
 
-    pub(super) fn holds(&self, id: &str) -> bool {
+    pub(super) fn holds(&self, id: &SessionId) -> bool {
         lock(&self.held).contains(id)
     }
 
     /// The source gave the move of `id` up; a target that asks hears why.
-    pub(super) fn refuse(&self, id: &str, reason: &str) {
+    pub(super) fn refuse(&self, id: &SessionId, reason: &str) {
         lock(&self.refused).insert(id.to_owned(), reason.to_owned());
     }
 
-    pub(super) fn refusal(&self, id: &str) -> Option<String> {
+    pub(super) fn refusal(&self, id: &SessionId) -> Option<String> {
         lock(&self.refused).get(id).cloned()
     }
 
@@ -161,7 +162,7 @@ impl Moves {
     /// The source sent `tree` for session `id`: noted in what is kept, so
     /// it is let go of once the session runs on the target, even after a
     /// restart.
-    pub(super) async fn sent(&self, id: &str, tree: SentTree) {
+    pub(super) async fn sent(&self, id: &SessionId, tree: SentTree) {
         let Some(folder) = self.kept.get().cloned() else {
             return;
         };

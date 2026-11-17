@@ -8,6 +8,7 @@ use super::media::{KEEP, MAX_BYTES};
 use crate::{chat::files::GONE, error::DesktopError, fleet::Fleet};
 use anyhow::{Context, Result};
 use beep_mesh::machine::{NodeShare, sessions};
+use beep_proto::SessionId;
 use futures::StreamExt;
 use iroh::EndpointId;
 use iroh_blobs::{
@@ -57,7 +58,7 @@ struct Entry {
     /// When it was last opened, in seconds since the epoch.
     opened: u64,
     /// The conversations that opened it; none when it was opened outside one.
-    sessions: BTreeSet<String>,
+    sessions: BTreeSet<SessionId>,
 }
 
 struct Opened {
@@ -98,7 +99,7 @@ impl FileCache {
         fleet: &Fleet,
         machine: EndpointId,
         path: &str,
-        session: Option<&str>,
+        session: Option<&SessionId>,
         mut progress: impl FnMut(u64, u64),
     ) -> crate::error::Result<Option<Cached>> {
         let client = fleet.client(machine).await?;
@@ -142,7 +143,7 @@ impl FileCache {
         fleet: &Fleet,
         machine: EndpointId,
         shared: Cached,
-        session: Option<&str>,
+        session: Option<&SessionId>,
         progress: &mut impl FnMut(u64, u64),
     ) -> Result<()> {
         let opened = self.open().await?;
@@ -204,7 +205,7 @@ impl FileCache {
 
     /// Conversation `session` closed: the files no other conversation
     /// opened go.
-    pub(crate) async fn forget(&self, session: &str) -> Result<()> {
+    pub(crate) async fn forget(&self, session: &SessionId) -> Result<()> {
         let opened = self.open().await?;
         let gone: Vec<String> = {
             let mut index = lock(&opened.index);
@@ -244,7 +245,7 @@ impl FileCache {
     }
 
     /// Records `cached` as opened now, by `session`.
-    fn note(&self, opened: &Opened, cached: Cached, session: Option<&str>) -> Result<()> {
+    fn note(&self, opened: &Opened, cached: Cached, session: Option<&SessionId>) -> Result<()> {
         let mut index = lock(&opened.index);
         let entry = index
             .files
@@ -255,7 +256,7 @@ impl FileCache {
                 sessions: BTreeSet::new(),
             });
         entry.opened = now();
-        entry.sessions.extend(session.map(str::to_owned));
+        entry.sessions.extend(session.cloned());
         save(&self.dir, &index)
     }
 

@@ -104,16 +104,16 @@ fn an_unchanged_session_file_is_not_read_again_and_a_changed_one_is() {
     };
     std::fs::write(&path, session("/home/user/proj", "Tidy up")).expect("a session");
     let stores = Stores::at(None, Some(root.path()), None);
-    let found = stores.find(Agent::Pi, "p1").expect("the session");
+    let found = stores.find(Agent::Pi, &SessionId::from("p1")).expect("the session");
     assert_eq!(found.title.as_deref(), Some("Tidy up"));
 
     rewrite_in_place(&path, &session("/home/user/proi", "Tidy on"));
-    let found = stores.find(Agent::Pi, "p1").expect("the session");
+    let found = stores.find(Agent::Pi, &SessionId::from("p1")).expect("the session");
     assert_eq!(found.cwd, "/home/user/proj", "kept from the first read");
     assert_eq!(found.title.as_deref(), Some("Tidy up"));
 
     std::fs::write(&path, session("/home/user/other", "Tidy it all up")).expect("a session");
-    let found = stores.find(Agent::Pi, "p1").expect("the session");
+    let found = stores.find(Agent::Pi, &SessionId::from("p1")).expect("the session");
     assert_eq!(found.cwd, "/home/user/other");
     assert_eq!(found.title.as_deref(), Some("Tidy it all up"));
 }

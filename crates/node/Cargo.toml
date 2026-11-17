@@ -1,6 +1,6 @@
 [package]
 name = "beep-node"
-version = "0.7.17"
+version = "0.7.19"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -201,6 +201,9 @@ windows-sys = { workspace = true, optional = true, features = [
 ] }
 
 [dev-dependencies]
+# The companion client is pure Rust over Unix sockets; type-check and test it on Linux too.
+hyper-util = { workspace = true, features = ["tokio"] }
+tower = { workspace = true, features = ["util"] }
 iroh-tickets.workspace = true
 # Checks that no process-wide crypto provider gets installed.
 rustls.workspace = true

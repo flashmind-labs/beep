@@ -1539,3 +1539,55 @@ fn image_only_prompts_wait_for_text_before_naming_the_session() {
     })));
     assert_eq!(replayed.info.title.as_deref(), Some("Fix the overlap"));
 }
+
+#[test]
+fn flsh_agents_show_progress_and_stop_counting_when_finished() {
+    let mut live = live();
+    live.prompted("Check files");
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "flsh-agent:worker",
+        "name": "flsh_agent", "title": "Check files", "status": "in_progress",
+        "rawInput": {"flshAgent": true, "name": "worker", "model": "provider:model"}
+    })));
+    assert_eq!(live.info.state.subagents, 1);
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "flsh-agent:worker:read",
+        "title": "read: src/lib.rs", "status": "in_progress",
+        "_meta": {"flsh": {"parentToolUseId": "flsh-agent:worker"}}
+    })));
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call_update", "toolCallId": "flsh-agent:worker:read",
+        "status": "completed"
+    })));
+    let (entries, _) = live.transcript(10);
+    assert_eq!(entries.len(), 2);
+    assert!(entries[1].text.contains("[step completed] read: src/lib.rs"));
+    assert!(entries[1].text.contains("[agent] worker"));
+    assert!(entries[1].text.contains("[model] provider:model"));
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call_update", "toolCallId": "flsh-agent:worker",
+        "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "Checked."}}]
+    })));
+    assert_eq!(live.info.state.subagents, 0);
+    let (entries, _) = live.transcript(10);
+    assert!(entries[1].text.starts_with("Check files [completed]"));
+    assert!(entries[1].text.ends_with("Checked."));
+}
+
+#[test]
+fn replayed_flsh_delegations_keep_the_agent_card() {
+    let mut live = live();
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "delegate-1",
+        "title": "delegate", "status": "in_progress",
+        "rawInput": {"task": "Check files", "name": "worker", "model": "provider:model"}
+    })));
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call_update", "toolCallId": "delegate-1",
+        "status": "completed"
+    })));
+    let (entries, _) = live.transcript(10);
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].text.starts_with("Check files [completed]"));
+    assert!(entries[0].text.contains("[agent] worker"));
+}

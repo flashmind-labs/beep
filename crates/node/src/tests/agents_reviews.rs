@@ -68,7 +68,7 @@ impl Rig {
         self.dir.path().display().to_string()
     }
 
-    fn order(&self, focus: &str, parent: Option<String>) -> ReviewOrder {
+    fn order(&self, focus: &str, parent: Option<SessionId>) -> ReviewOrder {
         ReviewOrder {
             cwd: self.cwd(),
             agent: "kid".into(),
@@ -105,7 +105,7 @@ impl Rig {
     }
 
     /// Waits until the review `id` is over and its reviewer is gone.
-    async fn finished(&self, id: &str) -> ReviewRun {
+    async fn finished(&self, id: &SessionId) -> ReviewRun {
         let over = async {
             loop {
                 if let Some(run) = self.agents.review(id)
@@ -159,9 +159,9 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
     assert_eq!(link.session, Agents::name_of(&parent));
     assert!(rig.agents.is_reviewer(&run.id));
     assert!(!rig.agents.is_reviewer(&parent.id));
-    let listed: Vec<String> = rig.agents.list().into_iter().map(|info| info.id).collect();
+    let listed: Vec<SessionId> = rig.agents.list().into_iter().map(|info| info.id).collect();
     assert_eq!(listed, [parent.info().id], "the reviewer is not listed");
-    let mut all: Vec<(String, bool)> = rig
+    let mut all: Vec<(SessionId, bool)> = rig
         .agents
         .listed(true)
         .into_iter()

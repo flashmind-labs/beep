@@ -1,5 +1,6 @@
 //! Deleting an ended session: the agent's own files and the node's record.
 
+use beep_proto::SessionId;
 use super::{Agents, found::Agent};
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::Status;
@@ -25,7 +26,7 @@ impl Agents {
     /// and the harnesses that keep sessions in a database. The agent's
     /// files go first, then the node's record of it, so a failure leaves
     /// the session listed. What it spent stays in the spend totals.
-    pub(super) async fn delete_session(&self, agent: &str, id: &str) -> Result<()> {
+    pub(super) async fn delete_session(&self, agent: &str, id: &SessionId) -> Result<()> {
         let _store = self.session_store.lock().await;
         let which = agent
             .parse::<Agent>()
@@ -35,25 +36,25 @@ impl Agents {
             bail!("{agent} keeps its sessions in a database, which Beep does not edit");
         }
 
-        ensure!(valid_id(id), "{id:?} is not a session id");
+        ensure!(valid_id(id.as_ref()), "{id:?} is not a session id");
         let agent_id = match self.get(id) {
             Some(ours) => {
                 ensure!(ours.agent == agent, "session {id} runs {}", ours.agent);
                 watched::read(&ours.live, |live| live.agent_session.clone())
             }
-            None => Some(id.to_owned()),
+            None => Some(id.clone()),
         };
 
         if let Some(agent_id) = &agent_id {
-            ensure!(valid_id(agent_id), "{agent_id:?} is not a session id");
+            ensure!(valid_id(agent_id.as_ref()), "{agent_id:?} is not a session id");
         }
 
-        let records: Vec<(String, bool)> = self
+        let records: Vec<(SessionId, bool)> = self
             .lock()
             .iter()
             .filter(|(key, session)| {
                 session.agent == agent
-                    && (key.as_str() == id
+                    && (*key == id
                         || agent_id.is_some()
                             && watched::read(&session.live, |live| live.agent_session == agent_id))
             })
@@ -78,7 +79,7 @@ impl Agents {
             "there is no {agent} session {id} on this machine"
         );
         let attachment_agent = agent.to_owned();
-        let attachment_id = agent_id.unwrap_or_else(|| id.to_owned());
+        let attachment_id = agent_id.unwrap_or_else(|| id.clone());
         spawn_blocking(move || super::uploads::remove(&attachment_agent, &attachment_id)).await??;
         let mut sessions = self.lock();
 
@@ -95,7 +96,7 @@ impl Agents {
     pub(super) async fn check_closed_files(
         &self,
         agent: Agent,
-        id: &str,
+        id: &SessionId,
         ours: bool,
     ) -> Result<()> {
         let mut owned = self.owned();
@@ -123,14 +124,14 @@ impl Agents {
         Ok(())
     }
 
-    async fn delete_files(&self, agent: Agent, id: &str, ours: bool) -> Result<bool> {
+    async fn delete_files(&self, agent: Agent, id: &SessionId, ours: bool) -> Result<bool> {
         self.check_closed_files(agent, id, ours).await?;
 
         match agent {
             Agent::Claude => self.external.delete(id).await,
             other => {
                 let stores = self.stores.clone();
-                let id = id.to_owned();
+                let id = id.clone();
                 spawn_blocking(move || stores.delete(other, &id)).await?
             }
         }

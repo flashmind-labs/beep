@@ -2,6 +2,7 @@
 //! `sightings`): transcripts under `<config>/projects/`, and which of them a
 //! running `claude` has open.
 
+use beep_proto::SessionId;
 use super::{procs::Process, transcript};
 use crate::agents::{
     found::{Agent, Memo, Seen as Sighting},
@@ -46,7 +47,7 @@ struct Memos {
     summaries: Memo<Summary>,
     /// The newest transcript of each project folder, by its id and time,
     /// kept while the folder itself is unchanged: no file came or went.
-    newest: Memo<Option<(String, SystemTime)>>,
+    newest: Memo<Option<(SessionId, SystemTime)>>,
 }
 
 impl Default for Memos {
@@ -73,7 +74,7 @@ struct Summary {
 /// One transcript file.
 #[derive(Debug, Clone)]
 pub(super) struct Transcript {
-    pub(super) id: String,
+    pub(super) id: SessionId,
     pub(super) path: PathBuf,
     pub(super) modified: SystemTime,
     created: Option<SystemTime>,
@@ -87,7 +88,7 @@ pub(super) struct Transcript {
 pub(super) struct PidFile {
     pub(super) pid: u32,
     #[serde(rename = "sessionId")]
-    pub(super) session_id: String,
+    pub(super) session_id: SessionId,
     /// Such as `busy` or `idle`.
     #[serde(default)]
     pub(super) status: Option<String>,
@@ -99,7 +100,7 @@ pub(super) struct Snapshot {
     pub(super) processes: Vec<Process>,
     pub(super) pid_files: Vec<PidFile>,
     /// Sessions this node runs: the agent's id to the node's.
-    pub(super) owned: HashMap<String, String>,
+    pub(super) owned: HashMap<SessionId, SessionId>,
     pub(super) now: Option<SystemTime>,
 }
 
@@ -109,7 +110,7 @@ impl Snapshot {
     pub(super) fn of(
         store: &Store,
         processes: Vec<Process>,
-        owned: HashMap<String, String>,
+        owned: HashMap<SessionId, SessionId>,
     ) -> Self {
         Self {
             processes,
@@ -169,19 +170,19 @@ impl Store {
     }
 
     /// The transcript of session `id`.
-    pub(super) fn find(&self, id: &str) -> Option<PathBuf> {
+    pub(super) fn find(&self, id: &SessionId) -> Option<PathBuf> {
         if let Ok(crate::agents::subagent::Conversation::Claude { parent, agent }) =
-            crate::agents::subagent::Conversation::try_from(id)
+            crate::agents::subagent::Conversation::try_from(id.as_ref())
         {
             let path = self
-                .find(parent)?
+                .find(&Into::<SessionId>::into(parent))?
                 .with_extension("")
                 .join("subagents")
                 .join(format!("agent-{agent}.jsonl"));
             return path.is_file().then_some(path);
         }
 
-        if !is_session_id(id) {
+        if !is_session_id(id.as_ref()) {
             return None;
         }
 
@@ -238,9 +239,9 @@ pub(super) fn list(
     store: &Store,
     snapshot: &Snapshot,
     limit: usize,
-    only: Option<&str>,
+    only: Option<&SessionId>,
 ) -> io::Result<Vec<ExternalSession>> {
-    if let Some(id) = only.filter(|id| id.starts_with("subagent:")) {
+    if let Some(id) = only.filter(|id| id.as_ref().starts_with("subagent:")) {
         return super::subagents::session(store, id).map(|session| session.into_iter().collect());
     }
 
@@ -270,7 +271,7 @@ fn describe_picked<'a>(
     for transcript in picked {
         let newest = newest_in_folder
             .get(folder_of(transcript))
-            .is_some_and(|id| *id == transcript.id);
+            .is_some_and(|id| **id == transcript.id);
         sessions.push(describe(store, transcript, newest, snapshot)?);
     }
 
@@ -304,7 +305,7 @@ pub(super) fn describe_file(
 }
 
 /// The id and time of the newest transcript in `folder`.
-fn newest_in(folder: &Path) -> io::Result<Option<(String, SystemTime)>> {
+fn newest_in(folder: &Path) -> io::Result<Option<(SessionId, SystemTime)>> {
     Ok(fs::read_dir(folder)?
         .flatten()
         .filter_map(|file| transcript_at(&file.path()))
@@ -329,8 +330,8 @@ fn transcript_with(
     let id = path
         .file_stem()
         .and_then(|stem| stem.to_str())
-        .filter(|stem| is_session_id(stem))?
-        .to_owned();
+        .filter(|stem| is_session_id(stem))
+        .map(Into::<SessionId>::into)?;
     let meta = metadata().ok()?;
     Some(Transcript {
         id,
@@ -344,7 +345,7 @@ fn transcript_with(
 pub(super) fn list_ids(
     store: &Store,
     snapshot: &Snapshot,
-    ids: &HashSet<String>,
+    ids: &HashSet<SessionId>,
 ) -> io::Result<Vec<ExternalSession>> {
     let all = store.transcripts()?;
     describe_picked(
@@ -409,13 +410,13 @@ fn folder_of(transcript: &Transcript) -> &str {
 }
 
 /// The newest session id in each project folder; `all` is newest first.
-fn newest_by_folder(all: &[Transcript]) -> HashMap<&str, &str> {
+fn newest_by_folder(all: &[Transcript]) -> HashMap<&str, &SessionId> {
     let mut newest = HashMap::new();
 
     for transcript in all {
         newest
             .entry(folder_of(transcript))
-            .or_insert(transcript.id.as_str());
+            .or_insert(&transcript.id);
     }
 
     newest
@@ -487,7 +488,7 @@ fn describe(
 
 /// A transcript, as `presence` needs it.
 pub(super) struct Seen<'a> {
-    pub(super) id: &'a str,
+    pub(super) id: &'a SessionId,
     /// Its project folder's name, the slug of the folder it ran in.
     pub(super) folder: &'a str,
     pub(super) modified: SystemTime,
@@ -507,7 +508,7 @@ pub(super) fn presence(seen: &Seen<'_>, snapshot: &Snapshot) -> Found {
     if let Some(file) = snapshot
         .pid_files
         .iter()
-        .find(|file| file.session_id == seen.id && running(file.pid))
+        .find(|file| file.session_id == *seen.id && running(file.pid))
     {
         let presence = match file.status.as_deref() {
             Some("busy") => Presence::Working,
@@ -533,7 +534,7 @@ pub(super) fn presence(seen: &Seen<'_>, snapshot: &Snapshot) -> Found {
         && let Some(process) = snapshot
             .processes
             .iter()
-            .find(|process| process.session.as_deref() == Some(seen.id) && !claimed(process.pid))
+            .find(|process| process.session.as_ref() == Some(seen.id) && !claimed(process.pid))
     {
         return Found {
             presence: Presence::Running,

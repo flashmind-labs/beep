@@ -14,15 +14,16 @@ import { Changes, UNWATCHED_MS } from "../ui/pagecache.ts";
 import { parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { FoundSection, RepoSection } from "./outside-lists.tsx";
-import { ProjectRail, type RecentSessions } from "./split-view.tsx";
-import { shell } from "../center/window-shell.tsx";
-import { foundFor, withSyncthing, projectName, projectRunning, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
+import { ProjectRail, type RailCard, type RecentSessions } from "./split-view.tsx";
+import { hideRail, shell } from "../center/window-shell.tsx";
+import { foundFor, withSyncthing, projectName, projectRunning, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow, whereRows } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
-import { localProjectId } from "./localid.ts";
+import { localProjectId, projectRef } from "./localid.ts";
+import { machineTile } from "./board.ts";
 import { state, pages, keep, pageFresh } from "../center/state.ts";
 import { openUrl, refreshGit } from "../center/openitems.ts";
-import { currentLocation, go } from "../center/views.tsx";
+import { currentLocation, go, windowProject } from "../center/views.tsx";
 import { projectRows, importSheet, addProject, importFromPage, loadFound, drawRail, openProjects } from "../center/sidebar.tsx";
 import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage, repairButton } from "./sections.ts";
 import { drawProjects } from "./page.tsx";
@@ -325,7 +326,23 @@ export function projectRail(name: string, current: string | null) {
   const sessions = railSessions(name);
   if (!sessions) return null;
 
-  return <ProjectRail project={name} label={projectName(sessions.project)} running={sessions.running} past={sessions.past} current={current} back={() => void openProjects(name)} />;
+  return <ProjectRail project={name} label={projectName(sessions.project)} running={sessions.running} past={sessions.past} current={current} card={railCard(sessions.project)} back={() => { if (!windowProject) hideRail(); void openProjects(name); }} />;
+}
+
+/// What the rail's card shows of a project, as its page's rows count them: open pull requests
+/// and issues, Actions and machines. Reads what is missing, as the project page does.
+function railCard(p: Project): RailCard | null {
+  if (!p.imported) return null;
+  const machines = state.where.get(p.name);
+  if (machines === undefined || whereDue.has(p.name)) loadWhere(p.name);
+  const pid = projectRef(p.name).project_id;
+  thr.ensure(pid);
+  const actions = runs.tile(pid), sync = state.sync.filter(row => row.project === p.name);
+  return {
+    prs: thr.prs(pid)?.length ?? null, issues: thr.issues(pid)?.length ?? null,
+    actions: actions.count, failed: actions.rows[0]?.chip?.text === "failed",
+    machines: machineTile(whereRows(p, machines || null, state.mac?.id || null), sync).count,
+  };
 }
 
 /// Project `name`'s running sessions in the order the rail lists them, newest started first,

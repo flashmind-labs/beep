@@ -248,64 +248,44 @@ async fn a_machine_not_lent_still_gives_a_desktop_its_report() {
     );
 }
 
-/// Another node of the mesh is refused a machine's report.
+/// Another node of the mesh gets a machine's report, as a desktop does.
 #[tokio::test]
-async fn a_node_is_refused_a_report() {
-    let (answer, reply) = ask_report(|peer| Who::Node {
+async fn a_node_gets_a_report() {
+    let (answer, reply) = ask_report(another_node).await;
+    assert!(matches!(answer, Some(Opened::Ready {})), "{answer:?}");
+    assert!(
+        matches!(&reply, Some(report::Reply::Share { log, .. }) if log == "a line\n"),
+        "{reply:?}"
+    );
+}
+
+/// Another node of the mesh may open a machine's log and metrics.
+#[tokio::test]
+async fn a_node_opens_another_machines_log_and_metrics() {
+    for protocol in [
+        beep_proto::node::metrics::PROTOCOL,
+        beep_proto::node::metrics::QUERY_PROTOCOL,
+        beep_proto::node::logs::QUERY_PROTOCOL,
+    ] {
+        let (answer, _) = ask_report_using(another_node, protocol).await;
+        assert!(
+            matches!(answer, Some(Opened::Ready {})),
+            "{protocol}: {answer:?}"
+        );
+    }
+}
+
+fn another_node(peer: EndpointId) -> Who {
+    Who::Node {
         peer,
         desktop_here: false,
-    })
-    .await;
-    assert!(matches!(answer, Some(Opened::Refused { .. })), "{answer:?}");
-    assert!(reply.is_none(), "{reply:?}");
+    }
 }
 
 /// Opens `report/1` on a node that is not lent, from a caller `who`
 /// makes of its key, and asks for the share when the node is ready.
 async fn ask_report(who: fn(EndpointId) -> Who) -> (Option<Opened>, Option<report::Reply>) {
     ask_report_using(who, report::PROTOCOL).await
-}
-
-#[tokio::test]
-async fn a_node_is_refused_another_machines_metrics() {
-    let (answer, reply) = ask_report_using(
-        |peer| Who::Node {
-            peer,
-            desktop_here: false,
-        },
-        beep_proto::node::metrics::PROTOCOL,
-    )
-    .await;
-    assert!(matches!(answer, Some(Opened::Refused { .. })), "{answer:?}");
-    assert!(reply.is_none());
-}
-
-#[tokio::test]
-async fn a_node_is_refused_another_machines_log_query() {
-    let (answer, reply) = ask_report_using(
-        |peer| Who::Node {
-            peer,
-            desktop_here: false,
-        },
-        beep_proto::node::logs::QUERY_PROTOCOL,
-    )
-    .await;
-    assert!(matches!(answer, Some(Opened::Refused { .. })), "{answer:?}");
-    assert!(reply.is_none());
-}
-
-#[tokio::test]
-async fn a_node_is_refused_another_machines_filtered_metrics() {
-    let (answer, reply) = ask_report_using(
-        |peer| Who::Node {
-            peer,
-            desktop_here: false,
-        },
-        beep_proto::node::metrics::QUERY_PROTOCOL,
-    )
-    .await;
-    assert!(matches!(answer, Some(Opened::Refused { .. })), "{answer:?}");
-    assert!(reply.is_none());
 }
 
 async fn ask_report_using(
@@ -371,7 +351,7 @@ async fn ask_report_using(
         .expect("it reads");
     let mut reply = None;
 
-    if matches!(answer, Some(Opened::Ready {})) {
+    if matches!(answer, Some(Opened::Ready {})) && protocol == report::PROTOCOL {
         tx.send(&report::Request {
             since: 0,
             max_bytes: 1024,
@@ -385,6 +365,8 @@ async fn ask_report_using(
             .expect("it reads");
     }
 
+    drop(tx);
+    drop(rx);
     drop(serving.await.expect("served"));
     (answer, reply)
 }

@@ -15,7 +15,8 @@ use beep_mesh::machine::thumb::{Picture, thumb_of};
 #[cfg(any(mobile, feature = "blob-cache"))]
 use beep_proto::media_mime;
 use beep_proto::{
-    AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, GetAgentFile, GetAgentImage, image_key,
+    AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, GetAgentFile, GetAgentImage, SessionId,
+    image_key,
 };
 #[cfg(any(mobile, feature = "blob-cache"))]
 use iroh::EndpointId;
@@ -55,7 +56,7 @@ static OPEN_COPIES: AsyncMutex<()> = AsyncMutex::const_new(());
 pub async fn agent_image(
     fleet: Machines<'_>,
     machine_id: String,
-    session: String,
+    session: SessionId,
     key: String,
 ) -> Result<String> {
     let machine = fleet.machine(&machine_id)?;
@@ -73,7 +74,7 @@ pub async fn agent_image(
 pub async fn agent_thumb(
     fleet: Machines<'_>,
     machine_id: String,
-    session: String,
+    session: SessionId,
     key: String,
 ) -> Result<String> {
     // The machine makes it small; one from before that sends it whole, and
@@ -154,7 +155,7 @@ pub async fn agent_file(
     machine_id: String,
     path: String,
     offset: u64,
-    session: Option<String>,
+    session: Option<SessionId>,
 ) -> Result<AgentFilePart> {
     #[cfg(any(mobile, feature = "blob-cache"))]
     {
@@ -162,7 +163,7 @@ pub async fn agent_file(
         let asked = Asked {
             machine_id: &machine_id,
             path: &path,
-            session: session.as_deref(),
+            session: session.as_ref(),
         };
         // Later parts come from what the first one fetched, or the node.
         let cached = if offset == 0 {
@@ -201,7 +202,7 @@ pub async fn agent_file_open(
     fleet: Machines<'_>,
     machine_id: String,
     path: String,
-    session: Option<String>,
+    session: Option<SessionId>,
 ) -> Result<()> {
     #[cfg(any(mobile, feature = "blob-cache"))]
     {
@@ -209,7 +210,7 @@ pub async fn agent_file_open(
         let asked = Asked {
             machine_id: &machine_id,
             path: &path,
-            session: session.as_deref(),
+            session: session.as_ref(),
         };
 
         if let Some(cached) = cached(&app, &fleet, &cache, asked).await? {
@@ -247,7 +248,7 @@ pub async fn agent_file_save(
     fleet: Machines<'_>,
     machine_id: String,
     path: String,
-    session: Option<String>,
+    session: Option<SessionId>,
 ) -> Result<PathBuf> {
     let to = free_name(&crate::platform::saves_dir(&app)?, &file_name(&path));
     #[cfg(any(mobile, feature = "blob-cache"))]
@@ -256,7 +257,7 @@ pub async fn agent_file_save(
         let asked = Asked {
             machine_id: &machine_id,
             path: &path,
-            session: session.as_deref(),
+            session: session.as_ref(),
         };
 
         if let Some(cached) = cached(&app, &fleet, &cache, asked).await? {
@@ -282,7 +283,7 @@ pub async fn agent_file_save(
 
 /// Conversation `session` closed: drops the files only it opened.
 #[tauri::command]
-pub async fn agent_files_forget(app: AppHandle, session: String) -> Result<()> {
+pub async fn agent_files_forget(app: AppHandle, session: SessionId) -> Result<()> {
     #[cfg(any(mobile, feature = "blob-cache"))]
     app.state::<Arc<FileCache>>().forget(&session).await?;
     #[cfg(not(any(mobile, feature = "blob-cache")))]
@@ -296,7 +297,7 @@ pub async fn agent_files_forget(app: AppHandle, session: String) -> Result<()> {
 struct Asked<'a> {
     machine_id: &'a str,
     path: &'a str,
-    session: Option<&'a str>,
+    session: Option<&'a SessionId>,
 }
 
 /// How far fetching a chat file has come, as `agent-file-progress` tells it.

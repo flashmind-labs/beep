@@ -42,6 +42,11 @@ export function setRail(project: string | null) {
   shell.setState(now => now.side.rail === project ? now : { side: { ...now.side, rail: project, railHidden: !!project && !!now.side.rail && now.side.railHidden } });
 }
 
+/// Shows the sidebar again in place of the project's sessions, until one of its sessions opens.
+export function hideRail() {
+  shell.setState(({ side }) => ({ side: { ...side, railHidden: true } }));
+}
+
 /// The window's elements other modules work in.
 type Host = "side" | "main" | "top" | "home-box" | "view" | "pane-box" | "usage" | "bell";
 const hosts = new Map<Host, HTMLElement>();

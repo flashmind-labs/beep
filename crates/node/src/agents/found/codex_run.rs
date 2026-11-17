@@ -2,6 +2,7 @@
 //! role and task from the header, its calls, done once their `*_output` comes,
 //! and `task_complete` with what it answered.
 
+use beep_proto::SessionId;
 use super::newest_files;
 use crate::agents::{RunStep, SubagentRun, cut, subagent::Conversation};
 use serde_json::Value;
@@ -35,8 +36,8 @@ const DETAILS: [&str; 9] = [
 
 #[derive(Debug, Clone)]
 pub(super) struct Child {
-    pub(super) parent: String,
-    pub(super) session: String,
+    pub(super) parent: SessionId,
+    pub(super) session: SessionId,
 }
 
 /// Parent and native conversation ID from a child rollout's header.
@@ -51,8 +52,8 @@ pub(super) fn parent(line: &str) -> Option<Child> {
     let session = Conversation::Codex(thread).to_string();
     Conversation::try_from(session.as_str()).ok()?;
     (parent != thread).then(|| Child {
-        parent: parent.to_owned(),
-        session,
+        parent: Into::<SessionId>::into(parent),
+        session: Into::<SessionId>::into(session),
     })
 }
 
@@ -114,7 +115,7 @@ impl Reader {
             let session = Conversation::Codex(id).to_string();
             Conversation::try_from(session.as_str())
                 .is_ok()
-                .then_some(session)
+                .then_some(Into::<SessionId>::into(session))
         });
         let text = |key: &str| {
             meta[key]

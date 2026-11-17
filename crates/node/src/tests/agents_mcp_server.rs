@@ -50,7 +50,7 @@ impl Backend for Fake {
         })
     }
 
-    async fn device(&self, _session: &str, args: Value) -> Called {
+    async fn device(&self, _session: &SessionId, args: Value) -> Called {
         let mut called = Called::ok(format!("{} on build-box: 2 x 4 pixels.", args["device"]));
         called.image = Some(beep_proto::node::device::Frame {
             jpeg: vec![1, 2, 3],
@@ -64,8 +64,8 @@ impl Backend for Fake {
         Ok(super::super::reply::ok(args.to_string()))
     }
 
-    async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {
-        assert_eq!(session, "a3f9c1");
+    async fn ask(&self, session: &SessionId, question: Asking) -> Result<Answered> {
+        assert_eq!(*session, "a3f9c1");
         self.asked.lock().unwrap().push(question.text.clone());
         Ok(question
             .options
@@ -74,13 +74,13 @@ impl Backend for Fake {
             .map_or_else(|| Answered::Said(self.answer.into()), Answered::Picked))
     }
 
-    fn reviewer(&self, session: &str) -> bool {
-        assert_eq!(session, "a3f9c1");
+    fn reviewer(&self, session: &SessionId) -> bool {
+        assert_eq!(*session, "a3f9c1");
         self.reviewer
     }
 
-    fn assistant(&self, session: &str) -> bool {
-        assert_eq!(session, "a3f9c1");
+    fn assistant(&self, session: &SessionId) -> bool {
+        assert_eq!(*session, "a3f9c1");
         self.assistant
     }
 
@@ -88,7 +88,7 @@ impl Backend for Fake {
         self.alone
     }
 
-    fn media(&self, _session: &str) -> Option<Media> {
+    fn media(&self, _session: &SessionId) -> Option<Media> {
         self.media.clone().map(Media::new)
     }
 }
@@ -107,7 +107,7 @@ async fn exchange(fake: &Fake, messages: &[Value]) -> Vec<Value> {
 
     client_write.write_all(input.as_bytes()).await.unwrap();
     client_write.shutdown().await.unwrap();
-    serve(fake, "a3f9c1", BufReader::new(server_read), server_write)
+    serve(fake, &SessionId::from("a3f9c1"), BufReader::new(server_read), server_write)
         .await
         .unwrap();
     let mut out = Vec::new();
@@ -431,7 +431,7 @@ async fn grouped_and_internal_names_are_no_tools() {
     let fake = Fake::new("allow");
 
     for name in ["machines", "agent", "device", "beep", "plugins", "job_status", "run_on", "machine_log"] {
-        let result = call(&fake, "a3f9c1", name, json!({ "action": "list" })).await;
+        let result = call(&fake, &SessionId::from("a3f9c1"), name, json!({ "action": "list" })).await;
         assert!(result.failed && result.text == format!("There is no tool {name}."), "{result:?}");
     }
 
@@ -514,13 +514,13 @@ async fn project_tools_are_refused_for_other_sessions_before_validation() {
     let fake = Fake::new("allow");
     // Invalid arguments too: the refusal comes before the schema is checked.
     for args in [json!({ "name": "notes", "machines": ["build-box"] }), json!({ "unknown": 1 })] {
-        let result = call(&fake, "a3f9c1", "projects_create", args).await;
+        let result = call(&fake, &SessionId::from("a3f9c1"), "projects_create", args).await;
         assert!(
             result.failed && result.text == "There is no tool projects_create.",
             "{result:?}"
         );
     }
-    let result = call(&fake, "a3f9c1", "projects", json!({ "action": "hosts" })).await;
+    let result = call(&fake, &SessionId::from("a3f9c1"), "projects", json!({ "action": "hosts" })).await;
     assert!(result.failed, "{result:?}");
     assert!(fake.calls.lock().unwrap().is_empty(), "nothing is forwarded");
 }
@@ -532,8 +532,8 @@ async fn project_tools_reach_the_desktop_as_projects_with_their_action() {
         ..Fake::new("allow")
     };
     let args = json!({ "name": "notes", "machines": ["build-box"] });
-    call(&assistant, "a3f9c1", "projects_create", args).await;
-    let result = call(&assistant, "a3f9c1", "projects_hosts", json!({ "extra": 1 })).await;
+    call(&assistant, &SessionId::from("a3f9c1"), "projects_create", args).await;
+    let result = call(&assistant, &SessionId::from("a3f9c1"), "projects_hosts", json!({ "extra": 1 })).await;
     assert!(result.failed && result.text.contains("extra"), "{result:?}");
 
     let calls = assistant.calls.lock().unwrap();
@@ -626,11 +626,11 @@ async fn every_tool_rejects_unknown_arguments() {
                 _ => json!("value"),
             };
         }
-        let result = call(&fake, "a3f9c1", name, args).await;
+        let result = call(&fake, &SessionId::from("a3f9c1"), name, args).await;
         assert!(result.failed && result.text.contains("unknown_argument"), "{name}: {result:?}");
     }
 
-    let result = call(&fake, "a3f9c1", "device_tap", json!({ "machine": "build-box", "device": "phone", "x": "1", "y": 2 })).await;
+    let result = call(&fake, &SessionId::from("a3f9c1"), "device_tap", json!({ "machine": "build-box", "device": "phone", "x": "1", "y": 2 })).await;
     assert!(result.failed && result.text.contains('x'), "{result:?}");
     assert!(fake.calls.lock().unwrap().is_empty(), "invalid calls never reach a peer");
 }
@@ -642,11 +642,11 @@ async fn review_status_rejects_start_options() {
     for field in ["base", "focus", "harness", "model", "unknown_argument"] {
         let mut args = json!({"id": "review-id"});
         args[field] = json!("value");
-        let result = call(&fake, "a3f9c1", "review", args).await;
+        let result = call(&fake, &SessionId::from("a3f9c1"), "review", args).await;
         assert!(result.failed && result.text.contains(field), "{result:?}");
     }
 
-    let result = call(&fake, "a3f9c1", "review", json!({"id": 7})).await;
+    let result = call(&fake, &SessionId::from("a3f9c1"), "review", json!({"id": 7})).await;
     assert!(result.failed && result.text.contains("id"));
     assert!(fake.calls.lock().unwrap().is_empty());
 }
@@ -676,7 +676,7 @@ async fn submit_review_rejects_unknown_and_mistyped_fields_including_findings() 
             &mut args
         };
         object[field] = json!({"wrong":"type"});
-        let result = call(&fake, "a3f9c1", "submit_review", args).await;
+        let result = call(&fake, &SessionId::from("a3f9c1"), "submit_review", args).await;
         assert!(result.failed && result.text.contains(field), "{result:?}");
     }
 
@@ -708,7 +708,7 @@ async fn a_saved_key_tells_the_agent_its_tools_changed() {
     let list = |id: i64| format!("{}\n", request(id, "tools/list", json!({})));
 
     let served = async {
-        serve(&fake, "a3f9c1", BufReader::new(server_read), server_write)
+        serve(&fake, &SessionId::from("a3f9c1"), BufReader::new(server_read), server_write)
             .await
             .unwrap();
     };

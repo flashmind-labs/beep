@@ -1,5 +1,6 @@
 //! Serves `beep-sessions/1` to the mesh's devices.
 
+use beep_proto::SessionId;
 use tracing::Instrument;
 use super::{
     folder::project_folder,
@@ -48,9 +49,9 @@ pub(super) fn permits(
     me: EndpointId,
     peer: EndpointId,
     ask: Asked,
-    id: &str,
+    id: &SessionId,
 ) -> bool {
-    let Some(record) = record.filter(|record| record.id == id) else {
+    let Some(record) = record.filter(|record| record.id == *id) else {
         return false;
     };
 
@@ -61,8 +62,8 @@ pub(super) fn permits(
 }
 
 /// The move record of session `id` in `mesh`.
-fn record_of(mesh: &Mesh, id: &str) -> Option<SessionMove> {
-    let bytes = mesh.get(&Key::SessionMove(id.to_owned()))?;
+fn record_of(mesh: &Mesh, id: &SessionId) -> Option<SessionMove> {
+    let bytes = mesh.get(&Key::SessionMove(id.clone()))?;
     SessionMove::from_bytes(&bytes).ok()
 }
 
@@ -112,11 +113,11 @@ impl ProtocolHandler for SessionsAlpn {
                     };
                     streams.spawn(async move {
                         let updates = Some(mesh.updates());
-                        let allow = |ask: Asked, id: &str| {
+                        let allow = |ask: Asked, id: &SessionId| {
                             mesh.is_member(peer)
                                 && permits(record_of(&mesh, id).as_ref(), mesh.me(), peer, ask, id)
                         };
-                        let leaving = |id: &str| {
+                        let leaving = |id: &SessionId| {
                             let record = record_of(&mesh, id)?;
                             let folder = project_folder(&mesh, &record.project, &mesh.me())?;
                             Some(Leaving {

@@ -2,6 +2,7 @@
 //! `<CODEX_HOME>/sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl`, with the titles
 //! the user gave in `<CODEX_HOME>/session_index.jsonl`.
 
+use beep_proto::SessionId;
 use super::{Agent, Memos, Seen, first_line, head_lines, newest_files, prompt_title};
 use crate::agents::claude::unix_seconds;
 use crate::agents::{place::call_folder, subagent::Conversation};
@@ -89,7 +90,7 @@ fn header_with_children(line: &str, children: bool) -> Option<Seen> {
         .unwrap_or(0);
     Some(Seen {
         agent: Agent::Codex,
-        id: id.to_owned(),
+        id: Into::<SessionId>::into(id),
         cwd: PathBuf::from(cwd),
         started_at: started,
         last_activity: started,
@@ -99,8 +100,8 @@ fn header_with_children(line: &str, children: bool) -> Option<Seen> {
 }
 
 /// Explicit native lookups do not add child threads to the top-level listing.
-pub(super) fn native(root: &Path, id: &str) -> Option<Seen> {
-    let Conversation::Codex(thread) = Conversation::try_from(id).ok()? else {
+pub(super) fn native(root: &Path, id: &SessionId) -> Option<Seen> {
+    let Conversation::Codex(thread) = Conversation::try_from(id.as_ref()).ok()? else {
         return None;
     };
     let file = super::codex_run::rollout(root, thread)?;
@@ -135,7 +136,7 @@ pub(super) fn native(root: &Path, id: &str) -> Option<Seen> {
 
 /// The names the user gave sessions, by id, from the index at `index`; a
 /// later line wins.
-fn titles(index: &Path) -> HashMap<String, String> {
+fn titles(index: &Path) -> HashMap<SessionId, String> {
     let Ok(file) = File::open(index) else {
         return HashMap::new();
     };
@@ -152,7 +153,7 @@ fn titles(index: &Path) -> HashMap<String, String> {
         if let (Some(id), Some(name)) = (value["id"].as_str(), value["thread_name"].as_str())
             && let Some(name) = prompt_title(name)
         {
-            names.insert(id.to_owned(), name);
+            names.insert(Into::<SessionId>::into(id), name);
         }
     }
 

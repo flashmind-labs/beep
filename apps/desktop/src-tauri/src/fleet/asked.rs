@@ -4,6 +4,7 @@
 
 use super::Fleet;
 use crate::error::{DesktopError, Result};
+use beep_proto::SessionId;
 use iroh::EndpointId;
 use std::{future::Future, time::Duration};
 use tokio::time::timeout;
@@ -22,7 +23,7 @@ impl Fleet {
     pub(crate) async fn asked<T>(
         &self,
         machine: EndpointId,
-        session: &str,
+        session: &SessionId,
         step: &str,
         limit: Duration,
         call: impl Future<Output = Result<T>>,

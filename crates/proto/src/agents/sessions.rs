@@ -1,5 +1,6 @@
 //! Coding-agent sessions on the user's machines.
 
+use crate::SessionId;
 use crate::{
     ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
     node::agent::{CheckoutPlan, Effort, LineChanges, SessionDevice, StopReason},
@@ -355,7 +356,7 @@ wire_structs! {
         pub machine_id: String,
         pub machine_name: String,
         /// The node's id for it, or the agent's own for an external session.
-        pub id: String,
+        pub id: SessionId,
         /// The agent, such as `claude` or `codex`.
         pub agent: String,
         pub title: Option<String>,
@@ -467,7 +468,7 @@ pub struct PreviewAgentMachine {
 pub struct ResumeAgentSession {
     pub machine_id: String,
     pub agent: String,
-    pub session: String,
+    pub session: SessionId,
     pub prompt: Option<String>,
 }
 
@@ -478,7 +479,7 @@ pub struct ResumeAgentSession {
 pub struct GetAgentSession {
     pub machine_id: String,
     pub agent: String,
-    pub session: String,
+    pub session: SessionId,
     pub last: u32,
     pub before: Option<u64>,
 }
@@ -488,7 +489,7 @@ pub struct GetAgentSession {
 pub struct SteerAgentSession {
     pub machine_id: String,
     pub agent: String,
-    pub session: String,
+    pub session: SessionId,
     pub steer: AgentSteer,
 }
 
@@ -503,7 +504,7 @@ pub struct ListAgentModels {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetAgentImage {
     pub machine_id: String,
-    pub session: String,
+    pub session: SessionId,
     pub key: String,
 }
 
@@ -524,7 +525,7 @@ pub struct GetAgentFile {
 pub struct GetAgentSessionUsage {
     pub machine_id: String,
     pub agent: String,
-    pub session: String,
+    pub session: SessionId,
 }
 
 /// The modes of a session Beep runs, the one it is in, and the plan it
@@ -533,7 +534,7 @@ pub struct GetAgentSessionUsage {
 pub struct GetAgentSessionModes {
     pub machine_id: String,
     pub agent: String,
-    pub session: String,
+    pub session: SessionId,
 }
 
 /// The commands a session Beep runs has in the background, running or ended.
@@ -541,5 +542,5 @@ pub struct GetAgentSessionModes {
 pub struct GetAgentSessionTasks {
     pub machine_id: String,
     pub agent: String,
-    pub session: String,
+    pub session: SessionId,
 }

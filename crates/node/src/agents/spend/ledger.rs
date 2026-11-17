@@ -2,6 +2,7 @@
 //! read, what each session spent by hour and model, and which changed. Kept
 //! in one JSON file so a restart reads only what was written since.
 
+use beep_proto::SessionId;
 use super::{Line, billing::Accounts};
 use crate::{
     agents::found::Agent,
@@ -32,7 +33,7 @@ const VERSION: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub(super) struct SessionKey {
     pub(super) agent: Agent,
-    pub(super) session: String,
+    pub(super) session: SessionId,
 }
 
 /// One hour of one model, paid for one way.
@@ -113,7 +114,7 @@ pub(super) struct LogFile {
     /// Read up to here: the end of the last whole line.
     pub(super) read: u64,
     /// The session and folder its header named, for logs whose lines do not.
-    pub(super) session: Option<String>,
+    pub(super) session: Option<SessionId>,
     pub(super) cwd: Option<String>,
     /// The model the next requests run on, for Codex.
     pub(super) model: Option<String>,
@@ -124,7 +125,7 @@ pub(super) struct LogFile {
     pub(super) total: Option<u64>,
     /// The latest message keys, to drop Claude Code's copies.
     pub(super) recent: VecDeque<u64>,
-    pub(super) parts: BTreeMap<String, Part>,
+    pub(super) parts: BTreeMap<SessionId, Part>,
 }
 
 impl LogFile {
@@ -137,7 +138,7 @@ impl LogFile {
 
     /// Takes one line in, telling how its request was paid for by
     /// `accounts`; the session it added to, if any.
-    pub(super) fn take(&mut self, line: Line, accounts: &mut Accounts) -> Option<String> {
+    pub(super) fn take(&mut self, line: Line, accounts: &mut Accounts) -> Option<SessionId> {
         match line {
             Line::Session { id, cwd, provider } => {
                 self.session = Some(id);
@@ -209,7 +210,7 @@ impl LogFile {
 pub(super) struct Database {
     pub(super) agent: Option<Agent>,
     pub(super) stamp: Stamp,
-    pub(super) parts: BTreeMap<String, Part>,
+    pub(super) parts: BTreeMap<SessionId, Part>,
     /// For a flsh session file that moved here: what it had spent on the
     /// machine it came from.
     #[serde(default)]

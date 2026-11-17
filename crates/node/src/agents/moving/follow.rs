@@ -3,6 +3,7 @@
 //! owned here; a restart starts them again from the records and what
 //! `saved` keeps.
 
+use beep_proto::SessionId;
 use super::{
     Env, MAX_MOVES,
     dial::watch_target,
@@ -40,13 +41,13 @@ pub(super) struct Running {
 impl Running {
     /// The move is past the point where it can be taken back: this machine
     /// is the target, and the session starts or runs here.
-    fn committed(&self, env: &Env, id: &str) -> bool {
+    fn committed(&self, env: &Env, id: &SessionId) -> bool {
         self.target && env.agents.moves.committed(id)
     }
 }
 
 /// Whether another move fits: those that ended do not take room.
-fn has_room(running: &HashMap<String, Running>) -> bool {
+fn has_room(running: &HashMap<SessionId, Running>) -> bool {
     running
         .values()
         .filter(|one| !one.task.is_finished())
@@ -101,7 +102,7 @@ pub(crate) async fn follow(
         roots,
     });
     let mut updates = env.mesh.updates();
-    let mut running: HashMap<String, Running> = HashMap::new();
+    let mut running: HashMap<SessionId, Running> = HashMap::new();
 
     loop {
         reconcile(&env, &mut running).await;
@@ -113,7 +114,7 @@ pub(crate) async fn follow(
 }
 
 /// The records this machine takes part in, by session.
-fn records(env: &Env) -> HashMap<String, SessionMove> {
+fn records(env: &Env) -> HashMap<SessionId, SessionMove> {
     let me = env.mesh.me();
     env.mesh
         .scan("session-move/")
@@ -130,14 +131,14 @@ fn records(env: &Env) -> HashMap<String, SessionMove> {
                 }
             };
             let mine = (record.from == me) != (record.to == me);
-            (mine && record.id == id && valid_id(&id)).then_some((id, record))
+            (mine && record.id == id && valid_id(id.as_ref())).then_some((id, record))
         })
         .collect()
 }
 
-pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<String, Running>) {
+pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<SessionId, Running>) {
     let records = records(env);
-    let gone: Vec<String> = running
+    let gone: Vec<SessionId> = running
         .iter()
         .filter(|(id, _)| !records.contains_key(*id))
         .map(|(id, _)| id.clone())
@@ -213,7 +214,7 @@ fn spawn(env: Arc<Env>, record: SessionMove, target: bool) -> AbortOnDropHandle<
     }))
 }
 
-async fn cancelled(env: &Env, id: &str, one: &Running) {
+async fn cancelled(env: &Env, id: &SessionId, one: &Running) {
     if one.target {
         target::take_back(env, id).await;
         env.agents.moves.begin(id, one.at).send_modify(|progress| {

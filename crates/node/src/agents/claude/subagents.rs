@@ -2,6 +2,7 @@
 //! `<session>/subagents/agent-<id>.jsonl` and its `.meta.json`, each shown on
 //! the entry of the call that started it.
 
+use beep_proto::SessionId;
 use super::transcript::{Spawn, read_tail, tool_line};
 use super::{discover::Store, transcript};
 use crate::agents::cut;
@@ -29,8 +30,8 @@ fn conversation(session: &Path, agent: &str) -> Option<String> {
 }
 
 /// The native child reached through its parent's conversation, never a root listing.
-pub(super) fn session(store: &Store, id: &str) -> std::io::Result<Option<ExternalSession>> {
-    let Some(Conversation::Claude { parent, agent }) = Conversation::try_from(id).ok() else {
+pub(super) fn session(store: &Store, id: &SessionId) -> std::io::Result<Option<ExternalSession>> {
+    let Some(Conversation::Claude { parent, agent }) = Conversation::try_from(id.as_ref()).ok() else {
         return Ok(None);
     };
     let Some(path) = store.find(id) else {
@@ -44,7 +45,7 @@ pub(super) fn session(store: &Store, id: &str) -> std::io::Result<Option<Externa
     let digest = transcript::digest_tail(&path, 100)?;
     let head = transcript::head(&path)?;
     let parent_cwd = store
-        .find(parent)
+        .find(&Into::<SessionId>::into(parent))
         .and_then(|path| transcript::head(&path).ok())
         .and_then(|head| head.said.cwd);
     let cwd = digest.said.cwd.or(head.said.cwd).or(parent_cwd).unwrap_or_default();

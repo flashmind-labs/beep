@@ -1,5 +1,6 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
+use beep_proto::SessionId;
 use super::{
     AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
     MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, SavedSession, Session, Sighted,
@@ -301,7 +302,7 @@ impl Agents {
         let (claude, others): (Vec<found::Seen>, Vec<found::Seen>) = picked
             .into_iter()
             .partition(|seen| seen.agent == Agent::Claude);
-        let ids: HashSet<String> = claude.into_iter().map(|seen| seen.id).collect();
+        let ids: HashSet<SessionId> = claude.into_iter().map(|seen| seen.id).collect();
         let owned = self.owned();
         let stores = self.stores.clone();
         let described = spawn_blocking(move || {
@@ -331,7 +332,7 @@ impl Agents {
         sessions.retain(|session| {
             !session
                 .taken_over
-                .as_deref()
+                .as_ref()
                 .is_some_and(|id| self.is_reviewer(id))
         });
 
@@ -345,7 +346,7 @@ impl Agents {
         &self,
         agent: &str,
         limit: u32,
-        session: Option<String>,
+        session: Option<SessionId>,
     ) -> Result<Vec<ExternalSession>> {
         if agent == Agent::Claude.as_ref() {
             self.external.list(limit, session, self.owned()).await
@@ -359,19 +360,19 @@ impl Agents {
     pub(super) async fn find_external(
         &self,
         agent: Agent,
-        id: &str,
-        owned: HashMap<String, String>,
+        id: &SessionId,
+        owned: HashMap<SessionId, SessionId>,
     ) -> Result<Option<ExternalSession>> {
         Ok(match agent {
             Agent::Claude => self
                 .external
-                .list(1, Some(id.to_owned()), owned)
+                .list(1, Some(id.clone()), owned)
                 .await?
                 .into_iter()
                 .next(),
             other => {
                 let stores = self.stores.clone();
-                let id = id.to_owned();
+                let id = id.clone();
                 spawn_blocking(move || stores.find(other, &id)).await?
             }
         })
@@ -383,7 +384,7 @@ impl Agents {
         &self,
         agent: &str,
         limit: u32,
-        session: Option<String>,
+        session: Option<SessionId>,
     ) -> Result<Vec<ExternalSession>> {
         let agent = agent
             .parse::<Agent>()
@@ -395,7 +396,7 @@ impl Agents {
         let only = session.clone();
         let mut sessions = spawn_blocking(move || {
             let now = SystemTime::now();
-            let mut seen = match session.as_deref() {
+            let mut seen = match session.as_ref() {
                 Some(id) => stores.seen(Some(agent), id).into_iter().collect(),
                 None => stores.sessions(Some(agent)),
             };
@@ -416,7 +417,7 @@ impl Agents {
         for found in &mut sessions {
             // A native thread shares its parent's process. Its own turn events,
             // rather than the process holding its file, say whether it works.
-            if found.id.starts_with("subagent:") {
+            if found.id.as_ref().starts_with("subagent:") {
                 continue;
             }
 
@@ -470,7 +471,7 @@ impl Agents {
     }
 
     /// The sessions this node runs, by the agent's own id, to the node's id.
-    pub(super) fn owned(&self) -> HashMap<String, String> {
+    pub(super) fn owned(&self) -> HashMap<SessionId, SessionId> {
         self.lock()
             .values()
             .filter_map(|session| {
@@ -484,12 +485,12 @@ impl Agents {
     /// Ends the process running `agent`'s session `id`, started outside Beep,
     /// so it can go on here. The process is the one this node finds running
     /// that session now, never one a caller names.
-    pub(super) async fn close_external(&self, agent: &str, id: &str) -> Result<()> {
+    pub(super) async fn close_external(&self, agent: &str, id: &SessionId) -> Result<()> {
         anyhow::ensure!(self.get(id).is_none(), "the session already runs in Beep");
-        let found = self.external_of(agent, 1, Some(id.to_owned())).await?;
+        let found = self.external_of(agent, 1, Some(id.clone())).await?;
         let session = found
             .into_iter()
-            .find(|found| found.agent == agent && found.id == id)
+            .find(|found| found.agent == agent && found.id == *id)
             .with_context(|| format!("there is no {agent} session {id} on this machine"))?;
 
         anyhow::ensure!(
@@ -548,12 +549,12 @@ impl Agents {
     pub(super) async fn resume(
         &self,
         kind: &AgentKind,
-        id: &str,
+        id: &SessionId,
         prompt: Option<String>,
     ) -> Result<Arc<Session>> {
         let _store = self.session_store.lock().await;
         anyhow::ensure!(
-            !id.starts_with("subagent:"),
+            !id.as_ref().starts_with("subagent:"),
             "This subagent is managed by its parent. Open the parent to continue it."
         );
         let ours = self.get(id);
@@ -573,9 +574,9 @@ impl Agents {
         let id = match ended {
             Some(Some(agent_session)) => agent_session,
             Some(None) => anyhow::bail!("session {id} ended before the agent gave it an id"),
-            None => id.to_owned(),
+            None => id.clone(),
         };
-        let id = id.as_str();
+        let id = &id;
         let owned = self.owned();
 
         if let Some(session) = owned.get(id).and_then(|node_id| self.get(node_id))
@@ -638,7 +639,7 @@ impl Agents {
     pub(super) fn resumed_begin(
         &self,
         prompt: Option<String>,
-        id: &str,
+        id: &SessionId,
         before: SavedSession,
     ) -> Begin {
         let SavedSession { info, effort, fast } = before;
@@ -648,7 +649,7 @@ impl Agents {
             .and_then(|link| self.parent_live_of(link));
         Begin {
             prompt,
-            resume: Some(id.to_owned()),
+            resume: Some(id.clone()),
             title: info.title,
             mode: info.mode,
             model: info.model,
@@ -685,8 +686,8 @@ impl Agents {
 
     /// What holds the file of each of `found` that no process was seen
     /// running, by session id, all looked up at once.
-    async fn held(&self, agent: Agent, found: &[ExternalSession]) -> HashMap<String, Holding> {
-        let ids: Vec<String> = found
+    async fn held(&self, agent: Agent, found: &[ExternalSession]) -> HashMap<SessionId, Holding> {
+        let ids: Vec<SessionId> = found
             .iter()
             .filter(|found| found.pid.is_none())
             .map(|found| found.id.clone())
@@ -705,7 +706,7 @@ impl Agents {
         let files = spawn_blocking(move || {
             ids.into_iter()
                 .filter_map(|id| Some((stores.file(Some(agent), &id)?, id)))
-                .collect::<HashMap<PathBuf, String>>()
+                .collect::<HashMap<PathBuf, SessionId>>()
         })
         .await
         .unwrap_or_else(|e| {
@@ -728,7 +729,7 @@ impl Agents {
     /// The picture `key` of `session`'s transcript: kept, or else found
     /// again in the agent's own file of the session and kept. `session` is
     /// one of this node's sessions or one started outside Beep.
-    pub(crate) async fn image(&self, session: &str, key: &str) -> Result<Option<Arc<Picture>>> {
+    pub(crate) async fn image(&self, session: &SessionId, key: &str) -> Result<Option<Arc<Picture>>> {
         if let Some(picture) = self.images.get(session, key) {
             return Ok(Some(picture));
         }
@@ -749,7 +750,7 @@ impl Agents {
 
     /// The file the agent keeps `session` in: for one of this node's, the
     /// agent's own session it runs.
-    pub(super) async fn session_file(&self, session: &str) -> Result<Option<PathBuf>> {
+    pub(super) async fn session_file(&self, session: &SessionId) -> Result<Option<PathBuf>> {
         let (agent, id) = match self.get(session) {
             Some(running) => {
                 let Some(id) = watched::read(&running.live, |live| live.agent_session.clone())

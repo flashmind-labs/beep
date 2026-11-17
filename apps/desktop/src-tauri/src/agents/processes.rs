@@ -6,6 +6,7 @@ use crate::{
     fleet::{Machines, asked::SMALL_LIMIT},
 };
 use beep_mesh::MeshError;
+use beep_proto::SessionId;
 use beep_proto::node::agent::{RunningProcess, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest};
 use serde::Serialize;
 use std::time::Duration;
@@ -20,7 +21,7 @@ pub struct ProcessesView {
 pub async fn agent_processes(
     fleet: Machines<'_>,
     machine_id: String,
-    session: String,
+    session: SessionId,
 ) -> Result<ProcessesView> {
     let Some(machine) = fleet.member(&machine_id) else {
         return Ok(ProcessesView {
@@ -55,7 +56,7 @@ pub async fn agent_processes(
 pub async fn agent_stop_process(
     fleet: Machines<'_>,
     machine_id: String,
-    session: String,
+    session: SessionId,
     pid: u32,
 ) -> Result<()> {
     let machine = fleet.member(&machine_id).ok_or_else(|| {
@@ -86,7 +87,7 @@ pub async fn agent_close_external(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
 ) -> Result<()> {
     let machine = fleet.member(&machine_id).ok_or_else(|| {
         DesktopError::BadRequest("The session's machine is not in the mesh.".into())

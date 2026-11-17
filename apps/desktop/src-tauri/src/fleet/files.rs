@@ -26,6 +26,7 @@ use beep_projects::{
     },
     is_windows,
 };
+use beep_proto::SessionId;
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkTree, MachineFolder, MachineSession,
     MachineUpdate, ProjectBranch, ReadWorkFile, WorkDiff, WorkTree, WriteWorkFile,
@@ -260,7 +261,7 @@ pub(crate) async fn upload(
     fleet: &Fleet,
     machine: EndpointId,
     agent: String,
-    session: String,
+    session: SessionId,
     write: WriteWorkFile,
 ) -> Result<String> {
     let client = fleet.client(machine).await?;

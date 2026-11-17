@@ -49,6 +49,9 @@ export type DeviceInput =
   | { Key: { key: DeviceKey } }
   | { Button: { button: DeviceButton } };
 
+export type VideoRotation = 0 | 1 | 2 | 3;
+export type DeviceMedia = { kind: "jpeg" } | { kind: "h264"; width: number; height: number; rotation: VideoRotation };
+
 /// What the screen shows.
 export type ScreenState =
   | { kind: "off" }
@@ -59,6 +62,8 @@ export type ScreenState =
 /// A message on `device_attach`'s channel.
 type ScreenMessage =
   | { kind: "attached" }
+  | { kind: "video"; fps: number }
+  | { kind: "video_data"; data: Uint8Array<ArrayBuffer>; rotation: VideoRotation }
   | { kind: "frame"; width: number; height: number; jpeg: Uint8Array<ArrayBuffer> }
   | { kind: "ended"; reason: string };
 
@@ -291,6 +296,10 @@ export function fitRect(box: Size, image: Size): Rect {
   return { x: (box.width - width) / 2, y: (box.height - height) / 2, width, height };
 }
 
+export function rotatedSize(size: Size, rotation: VideoRotation): Size {
+  return rotation === 1 || rotation === 3 ? { width: size.height, height: size.width } : size;
+}
+
 /// A point in the box as fractions of the drawn image, or null outside it.
 /// With `clamp`, a point outside is moved to the image's edge, as a drag
 /// that leaves the screen keeps touching its edge.
@@ -318,10 +327,17 @@ export function readScreenMessage(message: unknown): ScreenMessage | null {
   if (bytes) {
     if (bytes.length < 8) return null;
     const view = new DataView(bytes.buffer, bytes.byteOffset, 8);
+    if (view.getUint32(0, true) === 0x31444956) {
+      const rotation = view.getUint32(4, true);
+      if (rotation !== 0 && rotation !== 1 && rotation !== 2 && rotation !== 3) return null;
+      if (bytes.length <= 8 || bytes.length > 65544) return null;
+      return { kind: "video_data", data: bytes.slice(8), rotation };
+    }
     return { kind: "frame", width: view.getUint32(0, true), height: view.getUint32(4, true), jpeg: bytes.slice(8) };
   }
 
   if (!isRecord(message)) return null;
+  if (message.kind === "video" && typeof message.fps === "number" && Number.isInteger(message.fps) && message.fps > 0 && message.fps <= 240) return { kind: "video", fps: message.fps };
   if (message.kind === "attached") return { kind: "attached" };
   if (message.kind === "ended" && typeof message.reason === "string") return { kind: "ended", reason: message.reason };
   return null;

@@ -8,6 +8,7 @@
 //! child, from the link the caller passes, so a chain across machines
 //! cannot get around them.
 
+use beep_proto::SessionId;
 use super::{Agents, Begin, Command, Session, known, live::Live, mcp::children};
 use crate::{AsyncMutex, link::Membership};
 use beep_proto::ModelId;
@@ -49,7 +50,7 @@ pub(super) struct Family {
     membership: Arc<OnceLock<Membership>>,
     /// Per parent with children elsewhere, the task that stops them when it
     /// ends for good.
-    watchers: Mutex<HashMap<String, AbortOnDropHandle<()>>>,
+    watchers: Mutex<HashMap<SessionId, AbortOnDropHandle<()>>>,
     /// Held from counting a root's agents until the child exists, so two
     /// starts here cannot both take the last place.
     starting: AsyncMutex<()>,
@@ -66,7 +67,7 @@ pub(crate) struct Who {
     /// `None` for a node that belongs to no mesh.
     pub(crate) machine: Option<EndpointId>,
     /// The session's id as its children's links name it.
-    pub(crate) session: String,
+    pub(crate) session: SessionId,
 }
 
 /// What a child starts with, from the call that starts it.
@@ -106,14 +107,14 @@ impl Agents {
 
     /// The id a session goes by in links: the agent's own when it has one,
     /// which outlives a restart.
-    pub(super) fn name_of(session: &Session) -> String {
+    pub(super) fn name_of(session: &Session) -> SessionId {
         watched::read(&session.live, |live| live.agent_session.clone())
             .unwrap_or_else(|| session.id.clone())
     }
 
     /// The calling session `session` of this node, and who it is to its
     /// children.
-    pub(super) fn caller(&self, session: &str) -> Option<(Arc<Session>, Who)> {
+    pub(super) fn caller(&self, session: &SessionId) -> Option<(Arc<Session>, Who)> {
         let found = self.get(session)?;
         let who = self.who_of(&found);
         Some((found, who))
@@ -162,7 +163,7 @@ impl Agents {
     /// The live sessions on every machine that descend from the root `root`:
     /// this node's own, and what each online machine says of its own. A
     /// machine that does not answer in time counts none.
-    async fn live_under(&self, root_machine: Option<EndpointId>, root: &str) -> usize {
+    async fn live_under(&self, root_machine: Option<EndpointId>, root: &SessionId) -> usize {
         let here = self.live_descendants(root_machine, root);
         let Some(mesh) = self.mesh() else {
             return here;
@@ -180,14 +181,14 @@ impl Agents {
     }
 
     /// The live sessions here that descend from the root `root`.
-    pub(crate) fn live_descendants(&self, root_machine: Option<EndpointId>, root: &str) -> usize {
+    pub(crate) fn live_descendants(&self, root_machine: Option<EndpointId>, root: &SessionId) -> usize {
         self.lock()
             .values()
             .filter(|session| {
                 watched::read(&session.live, |live| {
                     live.status() != Status::Ended
                         && live.info.parent.as_ref().is_some_and(|link| {
-                            link.root == root && link.root_machine == root_machine
+                            link.root == *root && link.root_machine == root_machine
                         })
                 })
             })
@@ -223,7 +224,7 @@ impl Agents {
     /// The child `id` of `who` that runs here; the same refusal for a
     /// session that is not there and one that is not `who`'s, so an agent
     /// learns nothing of the others.
-    pub(super) fn child_of(&self, who: &Who, id: &str) -> Result<Arc<Session>, String> {
+    pub(super) fn child_of(&self, who: &Who, id: &SessionId) -> Result<Arc<Session>, String> {
         self.get(id)
             .filter(|session| watched::read(&session.live, |live| is_child_of(live, who)))
             .ok_or_else(|| format!("{NO_AGENT} {id}."))
@@ -249,12 +250,12 @@ impl Agents {
 
     /// Hands `text`, from the agent `from`, to the live session `id` here,
     /// which counts it against `PEER_MESSAGES`.
-    pub(super) async fn message(&self, from: &str, id: &str, text: String) -> Result<(), String> {
+    pub(super) async fn message(&self, from: &SessionId, id: &SessionId, text: String) -> Result<(), String> {
         let session = self
             .peers()
             .into_iter()
-            .find(|session| session.id == id || Self::name_of(session) == id)
-            .filter(|session| Self::name_of(session) != from)
+            .find(|session| session.id == *id || Self::name_of(session) == *id)
+            .filter(|session| Self::name_of(session) != *from)
             .ok_or_else(|| format!("No agent {id} runs there. Use list_agents to find one."))?;
 
         session.take_peer_message()?;
@@ -312,7 +313,7 @@ impl Agents {
     /// Deletes the background children that closed for good. One that
     /// cannot be deleted is still dropped from the node's sessions.
     pub(super) async fn delete_closed_background(&self) {
-        let closed: Vec<(String, String)> = self
+        let closed: Vec<(String, SessionId)> = self
             .lock()
             .iter()
             .filter(|(_, session)| {
@@ -355,7 +356,7 @@ impl Agents {
     /// the others; what already ended is left alone.
     pub(in crate::agents) async fn cancel_family(&self, session: &Arc<Session>) {
         let mut local: Vec<Arc<Session>> = Vec::new();
-        let mut remote: Vec<(String, RemoteKid)> = Vec::new();
+        let mut remote: Vec<(SessionId, RemoteKid)> = Vec::new();
         let mut queue = vec![session.clone()];
 
         while let Some(next) = queue.pop() {

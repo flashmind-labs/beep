@@ -31,6 +31,7 @@ use beep_mesh::{
 };
 #[cfg(all(desktop, feature = "local-host"))]
 use beep_node::{files::Folders, link::Offers, link::peers::Peers};
+use beep_proto::SessionId;
 use beep_proto::watched;
 use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
 #[cfg(all(desktop, feature = "local-host"))]
@@ -290,12 +291,12 @@ impl Fleet {
     }
 
     /// The session that started `session` on `machine`, when an agent did.
-    pub(crate) fn parent_of(&self, machine: &str, session: &str) -> Option<SessionParent> {
+    pub(crate) fn parent_of(&self, machine: &str, session: &SessionId) -> Option<SessionParent> {
         self.parents.of(machine, session)
     }
 
     /// Whether `session` on `machine` is a temporary reviewer, as last listed.
-    pub(crate) fn is_reviewer(&self, machine: &str, session: &str) -> bool {
+    pub(crate) fn is_reviewer(&self, machine: &str, session: &SessionId) -> bool {
         self.parents.is_reviewer(machine, session)
     }
 

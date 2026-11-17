@@ -2,6 +2,49 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.19] - 2026-11-17
+
+### Fixed
+
+- Node: Linux and Windows packages build successfully for releases.
+
+## [0.7.18] - 2026-11-17
+
+### Added
+
+- Node: stream supported device video using native H.264 capture, with JPEG fallback.
+
+### Changed
+
+- Node: Agents are instructed to use image content and the request when titling sessions, while preserving explicit titles.
+- Node: when a coding agent session moves to another machine, the note the
+  agent gets now names the machine it came from and the machine it runs on
+  now. Before, it only named the old and new folders.
+- Node: an agent on a node can now read every machine's status, logs and
+  metrics and include them in a problem report, as an agent on a desktop
+  can. Before, a node refused these requests from another node, so the
+  beep_logs, beep_status, beep_metrics and report tools only covered that
+  node. Machines still on an older node release keep refusing until they
+  update.
+
+### Fixed
+
+- Node: delegated agents and their status appear in flsh sessions when the harness reports them.
+- Node: an agent that starts a helper agent is now told to stop the helper
+  with `stop_agent` once it no longer needs it. Finished helpers used to stay
+  open and listed as running until the agent that started them ended.
+- Node: device streaming paces frames consistently and keeps touch input responsive when video writes are blocked.
+- Node: Codex sessions show the questions Codex asks while it keeps
+  working, and send your answer back to it. The node updates the Codex
+  adapter it installed to a version that forwards them, and reinstalls an
+  installed adapter that is too old.
+- Node: a Codex question that takes your own words no longer asks for them
+  again as a separate "Additional answer or note" question.
+- Node: a coding agent session started in a terminal outside Beep now
+  shows as ended as soon as its process exits, so you can continue it in
+  Beep right away. Before, it showed as running outside Beep for up to
+  three minutes.
+
 ## [0.7.17] - 2026-11-17
 
 ### Added

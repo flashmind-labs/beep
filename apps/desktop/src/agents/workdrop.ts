@@ -7,7 +7,7 @@ import { AG } from "./agents.ts";
 import type { Attached } from "./agentqueue.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { agentMessage } from "./session-frame.tsx";
-import { joinPath, uploadParts } from "../agentpane/files-state.ts";
+import { joinPath, uploadParts, type Transfer } from "../agentpane/files-state.ts";
 import { fileBase64 } from "../chat/attach.tsx";
 import { rememberLocalUpload } from "../agentpane/read.ts";
 import { reloadFolder } from "../agentpane/files.ts";
@@ -17,10 +17,8 @@ import { invoke } from "../ui/tauri.ts";
 import { stashFile, type StashFile } from "../chat/stash-state.ts";
 
 /// A file on its way to the session's machine.
-interface Upload {
+interface Upload extends Transfer {
   name: string;
-  size: number;
-  done: number;
 }
 
 /// One attachment batch, including its image previews; `size` and `done`
@@ -199,7 +197,7 @@ export async function prepareStashFiles(files: StashFile[]) {
 /// the path it took there, or "" when the session went away.
 async function uploadOne(file: File, folder: string | null, root: string, s = paneSession(), state = current, batch: UploadBatch | null = null) {
   if (!s) return "";
-  const up: Upload = { name: file.name || "file", size: file.size, done: 0 };
+  const up: Upload = { name: file.name || "file", started: Date.now(), size: file.size, done: 0 };
   state.uploads.push(up);
   redrawUploads(state);
 

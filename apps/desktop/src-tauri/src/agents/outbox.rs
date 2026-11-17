@@ -19,6 +19,7 @@ use crate::{
     fleet::{Fleet, agents as direct, asked::READ_LIMIT},
 };
 use beep_node::link::reconnect::Backoff;
+use beep_proto::SessionId;
 use beep_proto::{AgentEntry, AgentEntryKind, ApiError, GetAgentSession};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
@@ -88,7 +89,7 @@ pub(crate) struct Message {
     pub(crate) id: u64,
     pub(crate) machine_id: String,
     pub(crate) agent: String,
-    pub(crate) session: String,
+    pub(crate) session: SessionId,
     pub(crate) how: Kind,
     pub(crate) text: String,
     pub(crate) images: Vec<KeptImage>,
@@ -160,7 +161,7 @@ pub(crate) struct Row {
 pub(crate) struct Changed {
     pub(crate) machine_id: String,
     pub(crate) agent: String,
-    pub(crate) session: String,
+    pub(crate) session: SessionId,
     pub(crate) rows: Vec<Row>,
     pub(crate) sent: Vec<Row>,
 }
@@ -812,7 +813,7 @@ pub fn outbox_list(
     outbox: State<'_, Arc<Outbox>>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
 ) -> Vec<Row> {
     let key = SessionKey {
         machine_id,
@@ -845,7 +846,7 @@ pub fn outbox_drain(
     outbox: State<'_, Arc<Outbox>>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
 ) -> Vec<Taken> {
     let key = SessionKey {
         machine_id,

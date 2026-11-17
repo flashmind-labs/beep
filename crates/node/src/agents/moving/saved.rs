@@ -1,6 +1,7 @@
 //! What a node keeps of a move across a restart: how it ended, and the
 //! copy of the conversation while it waits (`<state>/moves/`).
 
+use beep_proto::SessionId;
 use super::worktree::{Moved, Placed};
 use crate::agents::OpenSession;
 use serde::{Deserialize, Serialize};
@@ -105,20 +106,20 @@ impl Folder {
         }
     }
 
-    fn file(&self, id: &str) -> PathBuf {
+    fn file(&self, id: &SessionId) -> PathBuf {
         self.dir.join(format!("{id}.json"))
     }
 
     /// Where the conversation is copied to while the move waits.
-    pub(super) fn copy(&self, id: &str) -> PathBuf {
-        self.dir.join(id).join("copy.jsonl")
+    pub(super) fn copy(&self, id: &SessionId) -> PathBuf {
+        self.dir.join(id.as_ref()).join("copy.jsonl")
     }
 
-    pub(super) fn load(&self, id: &str) -> Option<Saved> {
+    pub(super) fn load(&self, id: &SessionId) -> Option<Saved> {
         serde_json::from_slice(&fs::read(self.file(id)).ok()?).ok()
     }
 
-    pub(super) fn save(&self, id: &str, saved: &Saved) -> io::Result<()> {
+    pub(super) fn save(&self, id: &SessionId, saved: &Saved) -> io::Result<()> {
         fs::create_dir_all(&self.dir)?;
         let partial = self.dir.join(format!("{id}.json.partial"));
         fs::write(&partial, serde_json::to_vec(saved)?)?;
@@ -127,7 +128,7 @@ impl Folder {
 
     /// Notes that the source sent `tree` for session `id`, whose session
     /// it ended for the move.
-    pub(super) fn keep_sent(&self, id: &str, tree: SentTree) -> io::Result<()> {
+    pub(super) fn keep_sent(&self, id: &SessionId, tree: SentTree) -> io::Result<()> {
         let Some(mut saved) = self.load(id).filter(|saved| saved.phase == Phase::Closed) else {
             return Ok(());
         };
@@ -137,9 +138,9 @@ impl Folder {
     }
 
     /// Takes the copy away, and the saved state with `state`.
-    pub(super) fn clear(&self, id: &str, state: bool) {
+    pub(super) fn clear(&self, id: &SessionId, state: bool) {
         // Gone already is as good as removed.
-        let _ = fs::remove_dir_all(self.dir.join(id));
+        let _ = fs::remove_dir_all(self.dir.join(id.as_ref()));
 
         if state {
             let _ = fs::remove_file(self.file(id));

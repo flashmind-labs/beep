@@ -302,7 +302,7 @@ async fn a_node_runs_commands_on_this_mac_only_while_it_is_lent() {
         .await
         .expect("the node reaches this Mac");
     let request = Request {
-        session: "a3f9c1".to_owned(),
+        session: SessionId::from("a3f9c1").to_owned(),
         tool: Tool::RunOn,
         args: r#"{"command":"echo ran-here"}"#.to_owned(),
         approved: Default::default(),

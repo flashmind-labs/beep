@@ -5,6 +5,7 @@
 #![cfg(unix)]
 
 use beep_node::agents::claude::External;
+use beep_proto::SessionId;
 use beep_proto::node::agent::{LiveState, Steer};
 use serde_json::{Value, json};
 use std::{
@@ -98,7 +99,8 @@ async fn hooks_deliver_what_beep_queued_and_pass_through_without_a_node() {
     })
     .await
     .expect("the node listens");
-    let live = |steer| external.live(SESSION, steer, HashMap::new());
+    let session = SessionId::from(SESSION);
+    let live = |steer| external.live(&session, steer, HashMap::new());
 
     // Before any hook, nothing can be queued.
     assert!(live(Some(Steer::Stop {})).await.is_err());

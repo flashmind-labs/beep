@@ -3,6 +3,7 @@
 //! names, over `tools/1`. Between a user's own machines there are no rules to
 //! check first.
 
+use beep_proto::SessionId;
 use super::catalog::REMOTE_RUN;
 use super::reply::done;
 use crate::{
@@ -303,7 +304,7 @@ async fn have_fetched(
 /// Shows `session` the bytes sent of one offer after the ones `sent`
 /// counts, at most every `SHOW_SENT_EVERY`, until the offer ends or the
 /// session cannot be shown.
-async fn show_sent(offers: &Offers, session: &str, mut offer: watch::Receiver<u64>, sent: Sent) {
+async fn show_sent(offers: &Offers, session: &SessionId, mut offer: watch::Receiver<u64>, sent: Sent) {
     loop {
         let done = sent
             .done

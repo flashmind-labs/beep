@@ -105,10 +105,10 @@ impl Live {
 
         let mut changed = false;
         for run in runs {
-            let Some(session) = run.session.as_deref() else {
+            let Some(session) = run.session.as_ref() else {
                 continue;
             };
-            let Ok(Conversation::Codex(thread)) = Conversation::try_from(session) else {
+            let Ok(Conversation::Codex(thread)) = Conversation::try_from(session.as_ref()) else {
                 continue;
             };
             if self.codex_threads.contains_key(thread) {
@@ -649,7 +649,7 @@ impl ToolCall {
                 text.push_str(&format!("\n[agent] {name}"));
             }
 
-            if let Some(session) = run.and_then(|run| run.session.as_deref()) {
+            if let Some(session) = run.and_then(|run| run.session.as_ref()) {
                 text.push_str(&format!("\n[session] {session}"));
             }
 

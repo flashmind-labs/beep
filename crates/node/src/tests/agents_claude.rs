@@ -58,7 +58,7 @@ async fn a_follow_reads_the_processes_again_only_when_stale_or_old() {
     let line = r#"{"type":"user","cwd":"/srv/project","timestamp":"2026-11-02T10:00:00.000Z","message":{"role":"user","content":"hi"}}"#;
     std::fs::write(project.join(format!("{id}.jsonl")), format!("{line}\n")).expect("a transcript");
     let external = External::locate_in(root.path());
-    let mut followed = external.follow(id).await.expect("found").expect("a file");
+    let mut followed = external.follow(&SessionId::from(id)).await.expect("found").expect("a file");
     let read_at = |followed: &Followed| followed.machine.as_ref().map(|(_, at)| *at);
 
     // No process runs it, and the first read is kept all the same.

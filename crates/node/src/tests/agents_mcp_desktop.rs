@@ -1,3 +1,4 @@
+use beep_proto::SessionId;
 use super::*;
 use beep_proto::node::tools::Tool;
 use beep_mesh::Key;
@@ -20,7 +21,7 @@ impl ProjectTools for Echo {
 
 fn request() -> Request {
     Request {
-        session: "a3f9c1".to_owned(),
+        session: SessionId::from("a3f9c1").to_owned(),
         tool: Tool::Projects,
         args: r#"{"action":"hosts"}"#.to_owned(),
         approved: Default::default(),

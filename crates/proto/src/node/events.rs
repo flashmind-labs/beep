@@ -1,6 +1,7 @@
 //! Topic subscriptions and correlated commands on one bidirectional mesh stream.
 
 use super::{agent, process, sign_in, sync, terminal};
+use crate::SessionId;
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL: &str = "events/1";
@@ -98,7 +99,7 @@ pub struct Snapshot {
 pub enum Operation {
     Agent {
         agent: String,
-        session: String,
+        session: SessionId,
         request: agent::Request,
     },
     Sessions(agent::SessionsRequest),

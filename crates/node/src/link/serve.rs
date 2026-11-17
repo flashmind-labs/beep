@@ -428,6 +428,7 @@ impl Offers {
             tasks::PROTOCOL.to_owned(),
             terminal::PROTOCOL.to_owned(),
             device::PROTOCOL.to_owned(),
+            device::video::PROTOCOL.to_owned(),
             sign_in::PROTOCOL.to_owned(),
         ]
         .into_iter()
@@ -491,6 +492,7 @@ pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
         shell::PROTOCOL,
         terminal::PROTOCOL,
         device::PROTOCOL,
+        device::video::PROTOCOL,
         tasks::PROTOCOL,
         desktop::PROTOCOL,
         sign_in::PROTOCOL,
@@ -541,6 +543,7 @@ fn node_may_open(protocol: &SessionProtocol) -> bool {
             | SessionProtocol::SkillLibrary
             | SessionProtocol::Transcripts
             | SessionProtocol::Device
+            | SessionProtocol::DeviceVideo
     )
 }
 
@@ -610,6 +613,7 @@ pub(super) async fn serve_open(
             SessionProtocol::Tasks => tasks::serve(tx, rx).await,
             SessionProtocol::Terminal => terminal::serve(tx, rx).await,
             SessionProtocol::Device => device::serve(tx, rx, offers.agents.clone()).await,
+            SessionProtocol::DeviceVideo => device::video::serve(tx, rx).await,
             SessionProtocol::SignIn => crate::machine::sign_in::serve(tx, rx).await,
             SessionProtocol::Commands => {
                 super::commands::serve_open(tx, rx, offers, who.id()).await
@@ -661,6 +665,7 @@ fn route(protocol: &SessionProtocol, offers: &Offers) -> Option<Route> {
         | SessionProtocol::Tasks
         | SessionProtocol::Terminal
         | SessionProtocol::Device
+        | SessionProtocol::DeviceVideo
         | SessionProtocol::SignIn
         | SessionProtocol::Commands
         | SessionProtocol::Subscriptions

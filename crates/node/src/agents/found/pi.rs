@@ -2,6 +2,7 @@
 //! `<agent dir>/sessions/--<folder>--/<time>_<id>.jsonl`, a `session` header on
 //! the first line and a `session_info` line naming it.
 
+use beep_proto::SessionId;
 use super::{Agent, Memos, Seen, first_line, head_lines, newest_files, prompt_title};
 use crate::agents::claude::unix_seconds;
 use serde_json::Value;
@@ -61,7 +62,7 @@ fn header(line: &str) -> Option<Seen> {
         .unwrap_or(0);
     Some(Seen {
         agent: Agent::Pi,
-        id: id.to_owned(),
+        id: Into::<SessionId>::into(id),
         cwd: PathBuf::from(cwd),
         started_at: started,
         last_activity: started,

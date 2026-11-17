@@ -2,6 +2,7 @@
 //! transport speaks it. Calls run side by side, a few at a time, so a long
 //! `remote_run` does not hold up the next call.
 
+use beep_proto::SessionId;
 use super::{
     catalog::{self, ASK_USER, DEVICE, PROJECTS, READ_TRANSCRIPT, REMOTE_RUN},
     media::Media,
@@ -49,25 +50,25 @@ pub(crate) trait Backend: Sync {
     }
     /// Runs `session`'s `device` call: emulators and simulators, which this
     /// node reaches over `device/1`.
-    fn device(&self, _session: &str, _args: Value) -> impl Future<Output = Called> + Send {
+    fn device(&self, _session: &SessionId, _args: Value) -> impl Future<Output = Called> + Send {
         async { Called::failed("Devices are unavailable on this backend.") }
     }
     /// Puts `question` to the user in `session` and waits for the answer.
-    fn ask(&self, session: &str, question: Asking)
+    fn ask(&self, session: &SessionId, question: Asking)
     -> impl Future<Output = Result<Answered>> + Send;
     /// Whether `session` is a temporary reviewer, which is offered
     /// `submit_review`.
-    fn reviewer(&self, session: &str) -> bool;
+    fn reviewer(&self, session: &SessionId) -> bool;
     /// Whether `session` is the home assistant, which hears its brief and is
     /// offered `projects`.
-    fn assistant(&self, session: &str) -> bool;
+    fn assistant(&self, session: &SessionId) -> bool;
     /// Whether the mesh has no other machine to run on, so the tools that
     /// reach one are left out.
     fn alone(&self) -> bool {
         false
     }
     /// The media tools `session` gets from the saved API keys.
-    fn media(&self, _session: &str) -> Option<Media> {
+    fn media(&self, _session: &SessionId) -> Option<Media> {
         None
     }
 }
@@ -76,7 +77,7 @@ pub(crate) trait Backend: Sync {
 /// answered.
 pub(super) async fn serve<B, R, W>(
     backend: &B,
-    session: &str,
+    session: &SessionId,
     reader: R,
     mut writer: W,
 ) -> Result<()>
@@ -146,7 +147,7 @@ fn failure(id: Value, code: i32, message: &str) -> Value {
 /// The answer to one message; `None` for a notification or a response.
 async fn answer<B: Backend>(
     backend: &B,
-    session: &str,
+    session: &SessionId,
     media: Option<Arc<Media>>,
     message: Value,
 ) -> Option<Value> {
@@ -269,7 +270,7 @@ impl From<Reply> for Called {
     }
 }
 
-async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -> Called {
+async fn call<B: Backend>(backend: &B, session: &SessionId, name: &str, args: Value) -> Called {
     // Only the home assistant creates and imports projects.
     if name.starts_with(PROJECTS) && !backend.assistant(session) {
         return Called::failed(format!("There is no tool {name}."));
@@ -294,7 +295,7 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
     result
 }
 
-async fn call_tool<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -> Called {
+async fn call_tool<B: Backend>(backend: &B, session: &SessionId, name: &str, args: Value) -> Called {
     match name {
         ASK_USER => return ask_user(backend, session, args).await,
         READ_TRANSCRIPT => {
@@ -339,7 +340,7 @@ async fn call_tool<B: Backend>(backend: &B, session: &str, name: &str, args: Val
         Err(()) => return Called::failed(format!("There is no tool {name}.")),
     };
     let request = Request {
-        session: session.to_owned(),
+        session: session.clone(),
         tool,
         args: args.to_string(),
         approved: Approved::No,
@@ -351,7 +352,7 @@ async fn call_tool<B: Backend>(backend: &B, session: &str, name: &str, args: Val
     }
 }
 
-async fn asked<B: Backend>(backend: &B, session: &str, question: Asking) -> Result<Answered> {
+async fn asked<B: Backend>(backend: &B, session: &SessionId, question: Asking) -> Result<Answered> {
     match timeout(ASK_LIMIT, backend.ask(session, question)).await {
         Ok(answered) => answered,
         Err(_) => anyhow::bail!("the user did not answer within an hour"),
@@ -366,7 +367,7 @@ struct AskArgs {
     options: Vec<String>,
 }
 
-async fn ask_user<B: Backend>(backend: &B, session: &str, args: Value) -> Called {
+async fn ask_user<B: Backend>(backend: &B, session: &SessionId, args: Value) -> Called {
     let args: AskArgs = match serde_json::from_value(args) {
         Ok(args) => args,
         Err(e) => return Called::failed(format!("Bad arguments: {e}")),

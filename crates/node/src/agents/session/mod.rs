@@ -2,6 +2,7 @@
 //! it through the official crate. The task owns the process; streams send
 //! it orders and follow its state through a watch channel.
 
+use beep_proto::SessionId;
 use super::{
     AgentKind,
     acp::Prompt,
@@ -169,7 +170,7 @@ struct Order {
 
 pub(super) struct Session {
     /// Private handle for the process and its MCP connection, never a public session id.
-    pub(super) id: String,
+    pub(super) id: SessionId,
     pub(super) agent: String,
     orders: mpsc::Sender<Order>,
     pub(super) live: watch::Receiver<Live>,
@@ -204,12 +205,12 @@ impl std::fmt::Debug for Session {
 
 /// What a new session starts with.
 pub(super) struct Start<'a> {
-    pub(super) id: String,
+    pub(super) id: SessionId,
     pub(super) kind: &'a AgentKind,
     pub(super) cwd: &'a Path,
     pub(super) prompt: Option<Prompt>,
     /// The agent's id of an earlier session to resume instead of a new one.
-    pub(super) resume: Option<String>,
+    pub(super) resume: Option<SessionId>,
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<Entry>,
     pub(super) timestamps: Option<(u64, u64)>,

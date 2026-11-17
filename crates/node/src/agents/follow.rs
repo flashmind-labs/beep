@@ -1,5 +1,6 @@
 //! Pushes an initial snapshot and subsequent changes to an open session view.
 
+use beep_proto::SessionId;
 use super::{
     Agents, MAX_TRANSCRIPT,
     claude::Followed,
@@ -56,7 +57,7 @@ pub(crate) use sources::Sources;
 
 #[derive(Debug, PartialEq)]
 struct Summary {
-    id: String,
+    id: SessionId,
     agent: String,
     title: Option<String>,
     cwd: String,
@@ -184,12 +185,12 @@ async fn follow(
 ) -> Result<()> {
     let mut presence = agents.presence.subscribe();
     let mut live = agents
-        .get(request.session.as_ref())
+        .get(&request.session)
         .map(|session| session.live.clone());
     // A Claude Code session started outside Beep is found once, and the
     // machine's processes are read again only when its presence may change.
     let mut followed = if live.is_none() && request.agent == "claude" {
-        agents.external.follow(request.session.as_ref()).await?
+        agents.external.follow(&request.session).await?
     } else {
         None
     };
@@ -347,7 +348,7 @@ async fn follow(
 
         if live.is_none() {
             live = agents
-                .get(request.session.as_ref())
+                .get(&request.session)
                 .map(|session| session.live.clone());
         }
     }
@@ -765,7 +766,7 @@ async fn snapshot(
         from,
     } = read;
     let started = Instant::now();
-    let source = match agents.get(request.session.as_ref()) {
+    let source = match agents.get(&request.session) {
         Some(session) => {
             let info = session.info();
 
@@ -786,16 +787,16 @@ async fn snapshot(
             } else if request.agent == "claude" {
                 agents
                     .external
-                    .list(1, Some(request.session.to_string()), agents.owned())
+                    .list(1, Some(request.session.clone()), agents.owned())
                     .await?
             } else {
                 agents
-                    .stores_external(request.agent.as_ref(), 1, Some(request.session.to_string()))
+                    .stores_external(request.agent.as_ref(), 1, Some(request.session.clone()))
                     .await?
             };
             let mut found = found
                 .into_iter()
-                .find(|session| session.id == request.session.as_ref())
+                .find(|session| session.id == request.session)
                 .context("session is no longer on the machine")?;
             agents.settle_closed(std::slice::from_mut(&mut found));
             SessionSource::External(Box::new(found))
@@ -805,7 +806,7 @@ async fn snapshot(
     let started = Instant::now();
     // Source readers already bound their retained transcript and memoize disk parsing.
     // Read enough to validate the cached window, including mutable tools before its tail.
-    let (entries, earlier) = if let Some(session) = agents.get(request.session.as_ref()) {
+    let (entries, earlier) = if let Some(session) = agents.get(&request.session) {
         agents.live_transcript(&session, retained, None).await
     } else {
         let read = match followed {
@@ -818,7 +819,7 @@ async fn snapshot(
             None => {
                 agents
                     .external
-                    .transcript(request.session.as_ref(), retained, None)
+                    .transcript(&request.session, retained, None)
                     .await?
             }
         };
@@ -827,14 +828,14 @@ async fn snapshot(
             None => {
                 let stores = agents.stores.clone();
                 let session = request.session.clone();
-                spawn_blocking(move || stores.transcript(session.as_ref(), retained, None))
+                spawn_blocking(move || stores.transcript(&session, retained, None))
                     .await??
                     .context("session transcript is no longer on the machine")?
             }
         };
 
         for picture in read.pictures {
-            agents.images.keep(request.session.as_ref(), picture);
+            agents.images.keep(&request.session, picture);
         }
         (read.entries, read.earlier)
     };
@@ -860,7 +861,7 @@ async fn paths(
     request: &FollowSession,
     followed: Option<&Followed>,
 ) -> Result<Vec<PathBuf>> {
-    if agents.get(request.session.as_ref()).is_some() {
+    if agents.get(&request.session).is_some() {
         return Ok(if request.agent == "codex" {
             agents.stores.follow_paths(Some(Agent::Codex))
         } else {
@@ -872,7 +873,7 @@ async fn paths(
 
     let file = match followed {
         Some(followed) => Some(followed.path().to_owned()),
-        None => agents.session_file(request.session.as_ref()).await?,
+        None => agents.session_file(&request.session).await?,
     };
 
     if let Some(file) = file {

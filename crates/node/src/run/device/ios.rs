@@ -21,8 +21,7 @@ use proto::{
     get_orientation_response::Orientation,
     hid_event::{
         Event, HidButton, HidButtonType, HidDirection, HidKey, HidOrientation, HidOrientationType,
-        HidPress,
-        HidPressAction, HidTouch, hid_press_action::Action,
+        HidPress, HidPressAction, HidTouch, hid_press_action::Action,
     },
     payload::Source,
     video_stream_request::{Control, Format, Start},
@@ -193,7 +192,11 @@ pub(super) async fn ui(id: &DeviceId) -> Result<Vec<Element>> {
         .await?
         .into_inner();
 
-    accessible(&info.json, screen.width_points as f32, screen.height_points as f32)
+    accessible(
+        &info.json,
+        screen.width_points as f32,
+        screen.height_points as f32,
+    )
 }
 
 /// The elements of idb's accessibility list that say something or have an
@@ -259,7 +262,11 @@ pub(super) async fn install(id: &DeviceId, path: &Path) -> Result<()> {
 
 /// Starts app `target` by its bundle id, or opens it when it is a URL.
 pub(super) async fn launch(id: &DeviceId, target: &str) -> Result<()> {
-    let verb = if target.contains("://") { "openurl" } else { "launch" };
+    let verb = if target.contains("://") {
+        "openurl"
+    } else {
+        "launch"
+    };
     simctl(&[verb, &id.0, target]).await?;
 
     Ok(())
@@ -270,18 +277,24 @@ fn companion() -> Result<PathBuf> {
     which::which("idb_companion")
         .ok()
         .or_else(|| {
-            ["/opt/homebrew/bin/idb_companion", "/usr/local/bin/idb_companion"]
-                .into_iter()
-                .map(PathBuf::from)
-                .chain(dirs::home_dir().map(|home| home.join(".local/bin/idb_companion")))
-                .find(|path| path.is_file())
+            [
+                "/opt/homebrew/bin/idb_companion",
+                "/usr/local/bin/idb_companion",
+            ]
+            .into_iter()
+            .map(PathBuf::from)
+            .chain(dirs::home_dir().map(|home| home.join(".local/bin/idb_companion")))
+            .find(|path| path.is_file())
         })
         .context(NO_COMPANION)
 }
 
 /// Simulator `id`'s unified log of the last minutes, a line per entry.
 pub(super) async fn logs(id: &DeviceId) -> Result<String> {
-    simctl(&["spawn", &id.0, "log", "show", "--last", "5m", "--style", "compact"]).await
+    simctl(&[
+        "spawn", &id.0, "log", "show", "--last", "5m", "--style", "compact",
+    ])
+    .await
 }
 
 async fn simctl(args: &[&str]) -> Result<String> {
@@ -306,39 +319,13 @@ async fn simctl(args: &[&str]) -> Result<String> {
 /// Follows simulator `id`'s screen through an idb_companion of this
 /// stream's own, once the simulator finished booting.
 pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
-    let companion = companion()?;
-    timeout(BOOT_WAIT, simctl(&["bootstatus", &id.0]))
-        .await
-        .with_context(|| format!("{id} did not finish booting"))??;
-
-    let companion = Companion::start(&companion, id).await?;
-    let mut client = CompanionServiceClient::new(companion.connect().await?);
-    let described = client
-        .describe(TargetDescriptionRequest::default())
-        .await?
-        .into_inner();
-    let screen = described
-        .target_description
-        .and_then(|target| target.screen_dimensions)
-        .context("idb_companion gave no screen size")?;
-    let longer = screen.width.max(screen.height).max(1);
-    let scale = (f64::from(max_side) / longer as f64).min(1.0);
-
-    let start = VideoStreamRequest {
-        control: Some(Control::Start(Start {
-            fps: FPS,
-            format: Format::Mjpeg.into(),
-            compression_quality: JPEG_QUALITY,
-            scale_factor: scale,
-            ..Start::default()
-        })),
-    };
-    let (requests, waiting) = mpsc::channel(1);
-    requests.send(start).await?;
-    let stream = client
-        .video_stream(ReceiverStream::new(waiting))
-        .await?
-        .into_inner();
+    let Capture {
+        mut client,
+        screen,
+        encoder,
+        companion,
+    } = start_capture(id, max_side, Format::Mjpeg, false).await?;
+    let Encoder { stream, requests } = encoder;
     let turned = Turned::default();
     turned.set(turn_of(&mut client, id).await);
     let turn = turned.clone();
@@ -360,14 +347,15 @@ pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
         }
 
         last = (jpeg.clone(), turn);
-        tokio::task::spawn_blocking(move || turned_frame(jpeg, turn)).await?.map(Some)
+        tokio::task::spawn_blocking(move || turned_frame(jpeg, turn))
+            .await?
+            .map(Some)
     };
     let (sender, shown) = watch::channel(Screen::Starting);
     let work = tokio::spawn(follow(stream, sender, show, "The simulator stopped."));
     let controls = Controls {
         client,
-        width: screen.width_points as f64,
-        height: screen.height_points as f64,
+        screen: watch::channel(screen).1,
         udid: id.clone(),
         turned,
         _companion: companion,
@@ -377,6 +365,194 @@ pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
         controls: AnyControls::Ios(Box::new(controls)),
         _work: AbortOnDropHandle::new(work),
     })
+}
+
+/// Passes the device's encoder output through without decoding or re-encoding.
+pub(super) async fn video(id: &DeviceId, max_side: u32, phone: bool) -> Result<super::video::Live> {
+    use beep_proto::node::device_video::{Reply, Rotation};
+    let Capture {
+        mut client,
+        mut screen,
+        mut encoder,
+        companion,
+    } = start_capture(id, max_side, Format::H264, phone).await?;
+    let turned = Turned::default();
+    if !phone {
+        turned.set(turn_of(&mut client, id).await);
+    }
+    let turn = turned.clone();
+    let mut capture_client = client.clone();
+    let id = id.clone();
+    let (dimensions, input_screen) = watch::channel(screen);
+    let (controls, companion) = if phone {
+        (AnyControls::Iphone, Some(companion))
+    } else {
+        (
+            AnyControls::Ios(Box::new(Controls {
+                client,
+                screen: input_screen,
+                udid: id.clone(),
+                turned,
+                _companion: companion,
+            })),
+            None,
+        )
+    };
+    let (packets, received) = mpsc::channel(2);
+    let work = tokio::spawn(async move {
+        let _companion = companion;
+        let result: Result<()> = async {
+            let mut started = false;
+            let mut encoded_turn = turn.get();
+            let checking = next_video_geometry(capture_client.clone(), &id, phone);
+            tokio::pin!(checking);
+            loop {
+                tokio::select! {
+                    response = encoder.stream.message() => {
+                        let Some(response) = response? else { break; };
+                        let Some(Output::Payload(payload)) = response.output else { continue; };
+                        let Some(Source::Data(data)) = payload.source else { continue; };
+                        if data.is_empty() { continue; }
+                        if !started {
+                            dimensions.send_replace(screen);
+                            packets.send(Reply::Started { fps: super::video::FPS }).await?;
+                            started = true;
+                        }
+                        for chunk in data.chunks(super::video::MAX_CHUNK) {
+                            packets.send(Reply::Data { data: chunk.to_vec(), rotation: Into::<Rotation>::into(encoded_turn) }).await?;
+                        }
+                    }
+                    next = &mut checking => {
+                        let (next, orientation) = next?;
+                        if let Some(orientation) = orientation { turn.set(orientation); }
+                        checking.set(next_video_geometry(capture_client.clone(), &id, phone));
+                        if next == screen && encoded_turn == turn.get() { continue; }
+                        // A new surface needs fresh SPS/PPS and an IDR frame. Stop
+                        // the old encoder before opening a new byte sequence.
+                        encoder.requests.send(VideoStreamRequest { control: Some(Control::Stop(proto::video_stream_request::Stop {})) }).await?;
+                        timeout(Duration::from_secs(2), async {
+                            while encoder.stream.message().await?.is_some() {}
+                            Ok::<(), tonic::Status>(())
+                        }).await??;
+                        screen = next;
+                        encoded_turn = turn.get();
+                        encoder = capture_stream(&mut capture_client, screen, max_side, Format::H264).await?;
+                        started = false;
+                    }
+                    _ = packets.closed() => break,
+                }
+            }
+            Ok(())
+        }.await;
+        let reason = result.err().map_or_else(
+            || "The device video stopped.".to_owned(),
+            |error| format!("{error:#}"),
+        );
+        let _ = packets.send(Reply::Ended { reason }).await;
+    });
+    Ok(super::video::Live {
+        packets: received,
+        controls,
+        work: AbortOnDropHandle::new(work),
+    })
+}
+
+struct Capture {
+    client: Client,
+    screen: proto::ScreenDimensions,
+    encoder: Encoder,
+    companion: Companion,
+}
+
+struct Encoder {
+    stream: tonic::Streaming<proto::VideoStreamResponse>,
+    requests: mpsc::Sender<VideoStreamRequest>,
+}
+
+async fn start_capture(
+    id: &DeviceId,
+    max_side: u32,
+    format: Format,
+    phone: bool,
+) -> Result<Capture> {
+    let companion = companion()?;
+    if !phone {
+        timeout(BOOT_WAIT, simctl(&["bootstatus", &id.0]))
+            .await
+            .with_context(|| format!("{id} did not finish booting"))??;
+    }
+    let companion = Companion::start(&companion, id).await?;
+    let mut client = CompanionServiceClient::new(companion.connect().await?);
+    let screen = screen_dimensions(&mut client, phone).await?;
+    let encoder = capture_stream(&mut client, screen, max_side, format).await?;
+    Ok(Capture {
+        client,
+        screen,
+        encoder,
+        companion,
+    })
+}
+
+async fn capture_stream(
+    client: &mut Client,
+    screen: proto::ScreenDimensions,
+    max_side: u32,
+    format: Format,
+) -> Result<Encoder> {
+    let longer = screen.width.max(screen.height).max(1);
+    let scale = (f64::from(max_side) / longer as f64).min(1.0);
+    let video = format == Format::H264;
+    let start = VideoStreamRequest {
+        control: Some(Control::Start(Start {
+            fps: if video {
+                u64::from(super::video::FPS)
+            } else {
+                FPS
+            },
+            format: format.into(),
+            compression_quality: if video { 0.0 } else { JPEG_QUALITY },
+            scale_factor: scale,
+            avg_bitrate: if video { 8_000_000.0 } else { 0.0 },
+            key_frame_rate: if video { 1.0 } else { 0.0 },
+            ..Start::default()
+        })),
+    };
+    let (requests, waiting) = mpsc::channel(1);
+    requests.send(start).await?;
+    let stream = client
+        .video_stream(ReceiverStream::new(waiting))
+        .await?
+        .into_inner();
+    Ok(Encoder { requests, stream })
+}
+
+async fn screen_dimensions(client: &mut Client, phone: bool) -> Result<proto::ScreenDimensions> {
+    let described = timeout(
+        Duration::from_secs(2),
+        client.describe(TargetDescriptionRequest::default()),
+    )
+    .await??
+    .into_inner();
+    described
+        .target_description
+        .and_then(|target| target.screen_dimensions)
+        .or_else(|| phone.then(proto::ScreenDimensions::default))
+        .context("idb_companion gave no screen size")
+}
+
+async fn next_video_geometry(
+    mut client: Client,
+    id: &DeviceId,
+    phone: bool,
+) -> Result<(proto::ScreenDimensions, Option<Turn>)> {
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let screen = screen_dimensions(&mut client, phone).await?;
+    let turn = if phone {
+        None
+    } else {
+        Some(timeout(Duration::from_secs(2), turn_of(&mut client, id)).await?)
+    };
+    Ok((screen, turn))
 }
 
 /// The simulator's JPEG `jpeg` as a frame, turned as the device is.
@@ -473,13 +649,16 @@ impl Companion {
     async fn connect(&self) -> Result<Channel> {
         let socket = self.socket.clone();
         // The address is not used: every connection goes to the socket.
-        let channel = Endpoint::from_static("http://localhost")
-            .connect_with_connector(service_fn(move |_: Uri| {
-                let socket = socket.clone();
-                async move { Ok::<_, std::io::Error>(TokioIo::new(UnixStream::connect(socket).await?)) }
-            }))
-            .await
-            .context("could not reach idb_companion")?;
+        let channel =
+            Endpoint::from_static("http://localhost")
+                .connect_with_connector(service_fn(move |_: Uri| {
+                    let socket = socket.clone();
+                    async move {
+                        Ok::<_, std::io::Error>(TokioIo::new(UnixStream::connect(socket).await?))
+                    }
+                }))
+                .await
+                .context("could not reach idb_companion")?;
         Ok(channel)
     }
 }
@@ -497,8 +676,7 @@ impl Drop for Companion {
 pub(super) struct Controls {
     client: Client,
     /// The screen's size in points, upright.
-    width: f64,
-    height: f64,
+    screen: watch::Receiver<proto::ScreenDimensions>,
     udid: DeviceId,
     turned: Turned,
     _companion: Companion,
@@ -509,7 +687,12 @@ impl Controls {
         let events = match input {
             Input::Touch { phase, x, y } => {
                 let (x, y) = self.turned.get().upright(x, y);
-                let (x, y) = point(x, y, self.width, self.height);
+                let dimensions = beep_proto::watched::read(&self.screen, |screen| *screen);
+                let width = u32::try_from(dimensions.width_points)
+                    .context("screen width exceeds input limits")?;
+                let height = u32::try_from(dimensions.height_points)
+                    .context("screen height exceeds input limits")?;
+                let (x, y) = point(x, y, f64::from(width), f64::from(height));
                 let direction = match phase {
                     // idb drags as a run of touches down, then one up.
                     TouchPhase::Down | TouchPhase::Move => HidDirection::Down,
@@ -533,9 +716,11 @@ impl Controls {
             } => return self.rotate().await,
             Input::Button { button } => match button_type(button) {
                 Some(button) => {
-                    let button = || Action::Button(HidButton {
-                        button: button.into(),
-                    });
+                    let button = || {
+                        Action::Button(HidButton {
+                            button: button.into(),
+                        })
+                    };
                     vec![
                         press(button(), HidDirection::Down),
                         press(button(), HidDirection::Up),

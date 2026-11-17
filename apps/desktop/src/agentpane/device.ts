@@ -1,3 +1,4 @@
+import type JMuxer from "jmuxer";
 // The Device tab: shown for a session whose checkout builds for Android or
 // iOS, the machines that serve `device/1`, the device it shows, and that
 // device's live screen while the tab and the window show. Frames go
@@ -11,7 +12,7 @@ import { draw } from "./media-draw.ts";
 import { sessionKey } from "./running.ts";
 import { paneRoot } from "./worktree.ts";
 import {
-  type DeviceFollow, type DeviceHost, type KeptDevice, type DeviceInput, type DeviceMachine, type DevicePick, type DevicePlatform, type DeviceTarget, type ScreenState,
+  type DeviceMedia, type VideoRotation, type DeviceFollow, type DeviceHost, type KeptDevice, type DeviceInput, type DeviceMachine, type DevicePick, type DevicePlatform, type DeviceTarget, type ScreenState,
   defaultPick, deviceError, followedDevice, keptPick, pickedDevice, queueInput, readHosts, readKeptDevice, readMachines, readPlatforms, readScreenMessage, showsDeviceTab, targetPick,
 } from "./device-state.ts";
 
@@ -35,9 +36,10 @@ interface DeviceModel {
   /// A boot or shutdown is on its way.
   busy: boolean;
   screen: ScreenState;
+  media: DeviceMedia;
 }
 
-export const deviceModel = createStore<DeviceModel>(() => ({ machines: [], listed: false, error: "", pick: null, platforms: [], busy: false, screen: { kind: "off" } }));
+export const deviceModel = createStore<DeviceModel>(() => ({ machines: [], listed: false, error: "", pick: null, platforms: [], busy: false, screen: { kind: "off" }, media: { kind: "jpeg" } }));
 
 const set = (change: Partial<DeviceModel>) => deviceModel.setState(change);
 
@@ -301,7 +303,7 @@ export function setPainter(paint: Painter | null, side: () => number) {
 }
 
 /// The attached device and the name of its view.
-let live: { view: string; pick: DevicePick } | null = null;
+let live: { view: string; pick: DevicePick; video: boolean } | null = null;
 
 const samePick = (a: DevicePick, b: DevicePick) => a.machine === b.machine && a.device === b.device;
 
@@ -316,22 +318,27 @@ function follow() {
   attach(want, device?.id ?? want.device);
 }
 
-function attach(pick: DevicePick, id: string) {
+function attach(pick: DevicePick, id: string, preferVideo = true) {
   const view = crypto.randomUUID();
-  const mine = { view, pick };
+  const mine = { view, pick, video: preferVideo && videoSupported() };
   live = mine;
   queue = [];
   set({ screen: { kind: "attaching" } });
   const channel = indexedChannel(message => heard(mine, message));
-  invoke("device_attach", { machineId: pick.machine, id, view, maxSide: sideFor(), onEvent: channel })
+  invoke("device_attach", { machineId: pick.machine, id, view, maxSide: sideFor(), video: mine.video, onEvent: channel })
     .then(() => { if (live === mine) ended(mine, "The view ended."); })
-    .catch(e => { if (live === mine) ended(mine, deviceError(e)); });
+    .catch(e => {
+      if (live !== mine) return;
+      if (mine.video) fallbackVideo(mine);
+      else ended(mine, deviceError(e));
+    });
 }
 
 function detach() {
   if (!live) return;
   const { view } = live;
   live = null;
+  stopVideo();
   queue = [];
   set({ screen: { kind: "off" } });
   invoke("device_detach", { view }).catch(() => {});
@@ -340,6 +347,7 @@ function detach() {
 function ended(mine: NonNullable<typeof live>, reason: string) {
   if (live !== mine) return;
   live = null;
+  stopVideo();
   set({ screen: { kind: "ended", reason } });
   // It may have stopped: the list says.
   void readDevices();
@@ -357,7 +365,14 @@ function heard(mine: NonNullable<typeof live>, message: unknown) {
     case "ended":
       ended(mine, read.reason);
       return;
+    case "video":
+      void startVideo(mine, read.fps);
+      return;
+    case "video_data":
+      feedVideo(mine, read.data, read.rotation);
+      return;
     case "frame":
+      if (deviceModel.getState().media.kind !== "jpeg") stopVideo();
       void paint(mine, read.jpeg);
       return;
   }
@@ -374,6 +389,104 @@ async function paint(mine: NonNullable<typeof live>, jpeg: Uint8Array<ArrayBuffe
   } finally {
     if (live === mine) invoke("device_drawn", { view: mine.view }).catch(() => {});
   }
+}
+
+// H.264 stays encoded across the mesh. JMuxer packages it for the browser's
+// native video decoder without encoding or decoding pixels itself.
+let videoElement: HTMLVideoElement | null = null;
+let muxer: JMuxer | null = null;
+let videoOwner: object | null = null;
+let videoWait: ReturnType<typeof setTimeout> | null = null;
+
+export function setVideoElement(element: HTMLVideoElement | null) {
+  if (!element) stopVideo();
+  videoElement = element;
+}
+
+declare global {
+  interface Window { ManagedMediaSource?: typeof MediaSource }
+}
+
+function videoSupported(): boolean {
+  const source = typeof MediaSource === "undefined" ? window.ManagedMediaSource ?? null : MediaSource;
+  return videoElement !== null && source !== null
+    && ["avc1.42E01E", "avc1.4D402A", "avc1.64002A"].some(codec => source.isTypeSupported(`video/mp4; codecs="${codec}"`));
+}
+
+async function startVideo(mine: NonNullable<typeof live>, fps: number) {
+  try {
+    const { default: Muxer } = await import("jmuxer");
+    if (live !== mine || !videoElement) return;
+    stopVideo();
+    const owner = {};
+    videoOwner = owner;
+    const failed = () => { if (videoOwner === owner) fallbackVideo(mine); };
+    const options: JMuxer.Options & { onUnsupportedCodec: () => void } = {
+      node: videoElement, mode: "video", fps, readFpsFromTrack: true,
+      flushingTime: Math.max(1, Math.floor(1000 / fps)), maxDelay: 100, clearBuffer: true,
+      onReady: () => {
+        if (videoOwner !== owner) return;
+        acknowledge(mine);
+        videoElement?.play().catch(failed);
+      },
+      onError: failed, onUnsupportedCodec: failed,
+    };
+    const instance = new Muxer(options);
+    if (live !== mine || videoOwner !== owner) { instance.destroy(); return; }
+    muxer = instance;
+    set({ media: { kind: "h264", width: 0, height: 0, rotation: 0 } });
+    videoWait = setTimeout(failed, 5000);
+  } catch {
+    fallbackVideo(mine);
+  }
+}
+
+function feedVideo(mine: NonNullable<typeof live>, data: Uint8Array<ArrayBuffer>, rotation: VideoRotation) {
+  if (!muxer || live !== mine) return;
+  try {
+    const media = deviceModel.getState().media;
+    if (media.kind === "h264" && media.rotation !== rotation) set({ media: { ...media, rotation } });
+    muxer.feed({ video: data });
+    acknowledge(mine);
+  } catch {
+    fallbackVideo(mine);
+  }
+}
+
+function acknowledge(mine: NonNullable<typeof live>) {
+  if (live === mine) invoke("device_drawn", { view: mine.view }).catch(() => {});
+}
+
+export function videoSizeChanged() {
+  const media = deviceModel.getState().media;
+  if (!videoElement || media.kind !== "h264") return;
+  set({ media: { ...media, width: videoElement.videoWidth, height: videoElement.videoHeight } });
+}
+
+export function videoPlaying() {
+  if (videoWait !== null) clearTimeout(videoWait);
+  videoWait = null;
+  videoSizeChanged();
+}
+
+export function videoFailed() {
+  if (live && deviceModel.getState().media.kind === "h264") fallbackVideo(live);
+}
+
+function stopVideo() {
+  if (videoWait !== null) clearTimeout(videoWait);
+  videoWait = null;
+  const old = muxer;
+  muxer = null;
+  videoOwner = null;
+  if (deviceModel.getState().media.kind !== "jpeg") set({ media: { kind: "jpeg" } });
+  old?.destroy();
+}
+
+function fallbackVideo(mine: NonNullable<typeof live>) {
+  if (live !== mine || !mine.video) return;
+  detach();
+  if (visible()) attach(mine.pick, mine.pick.device, false);
 }
 
 // ----- Input -----

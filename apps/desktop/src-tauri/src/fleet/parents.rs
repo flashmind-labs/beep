@@ -3,6 +3,7 @@
 //! lists omit them.
 
 use beep_mesh::machine::listing::Linked;
+use beep_proto::SessionId;
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -15,9 +16,9 @@ use std::{
 pub struct SessionParent {
     pub machine_id: String,
     /// The agent's own id for the parent.
-    pub id: String,
+    pub id: SessionId,
     /// The id its node listed it under before the agent's own replaced it.
-    pub key: String,
+    pub key: SessionId,
 }
 
 /// The parents of the sessions each machine listed last, by machine and
@@ -27,7 +28,7 @@ pub(super) struct Parents(Mutex<Held>);
 
 #[derive(Default)]
 struct Held {
-    parents: HashMap<(String, String), SessionParent>,
+    parents: HashMap<(String, SessionId), SessionParent>,
     children: HashMap<String, Vec<Linked>>,
 }
 
@@ -62,17 +63,17 @@ impl Parents {
         held.children.insert(machine.to_owned(), children);
     }
 
-    pub(super) fn of(&self, machine: &str, session: &str) -> Option<SessionParent> {
+    pub(super) fn of(&self, machine: &str, session: &SessionId) -> Option<SessionParent> {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .parents
-            .get(&(machine.to_owned(), session.to_owned()))
+            .get(&(machine.to_owned(), session.clone()))
             .cloned()
     }
 
     /// Whether `machine` last listed `session` as a reviewer.
-    pub(super) fn is_reviewer(&self, machine: &str, session: &str) -> bool {
+    pub(super) fn is_reviewer(&self, machine: &str, session: &SessionId) -> bool {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -81,7 +82,7 @@ impl Parents {
             .is_some_and(|listed| {
                 listed
                     .iter()
-                    .any(|linked| linked.reviewer && linked.session.id == session)
+                    .any(|linked| linked.reviewer && linked.session.id == *session)
             })
     }
 

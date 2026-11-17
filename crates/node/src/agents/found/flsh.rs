@@ -5,6 +5,7 @@
 //! `sessions.db`, read here (read-only) until flsh has imported it, which
 //! it marks with `.sqlite-imported`.
 
+use beep_proto::SessionId;
 use super::{Agent, Memos, Seen, head_lines, newest_files, prompt_title};
 use crate::agents::claude::unix_seconds;
 use serde_json::Value;
@@ -69,7 +70,7 @@ pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
     let Ok(entries) = fs::read_dir(root) else {
         return seen;
     };
-    let mut ids: HashSet<String> = seen.iter().map(|one| one.id.clone()).collect();
+    let mut ids: HashSet<SessionId> = seen.iter().map(|one| one.id.clone()).collect();
 
     for entry in entries.flatten() {
         let database = entry.path().join("sessions.db");
@@ -131,7 +132,7 @@ fn head(path: &Path) -> Option<Seen> {
     let started = started?;
     Some(Seen {
         agent: Agent::Flsh,
-        id: id.to_owned(),
+        id: Into::<SessionId>::into(id),
         cwd: PathBuf::from(cwd),
         started_at: started,
         last_activity: started,
@@ -152,7 +153,7 @@ fn read(database: &Path) -> rusqlite::Result<Vec<Seen>> {
         let first: Option<String> = row.get(5)?;
         Ok(Seen {
             agent: Agent::Flsh,
-            id: row.get(0)?,
+            id: Into::<SessionId>::into(row.get::<_, String>(0)?),
             cwd: PathBuf::from(row.get::<_, String>(2)?),
             started_at: seconds(created),
             last_activity: seconds(last.or(created)),

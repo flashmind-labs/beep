@@ -1,6 +1,7 @@
 //! One agent session's stream: what the caller asks and what the node sends.
 
 use super::{CheckoutPlan, Effort};
+use crate::SessionId;
 use crate::{
     AgentContext, AgentToolCall, ModelId, ProviderCredits, Upload, node::device::DeviceId,
 };
@@ -40,13 +41,13 @@ pub enum Request {
         fast: Option<bool>,
     },
     /// The first message: follows a session that already runs.
-    Attach { session: String },
+    Attach { session: SessionId },
     /// The first message: takes over a session started outside Beep, by its
     /// agent's own id (see `ExternalSession`), once nothing else runs it.
     /// It then runs here like a started one, under a new id, on `prompt`
     /// when there is one.
     Resume {
-        session: String,
+        session: SessionId,
         #[serde(default)]
         prompt: Option<String>,
     },
@@ -129,7 +130,7 @@ pub enum Event {
 #[serde(default)]
 pub struct SessionInfo {
     /// Short and unique on the node, such as `a3f9c1`.
-    pub id: String,
+    pub id: SessionId,
     /// The agent, such as `claude`.
     pub agent: String,
     pub cwd: String,
@@ -214,15 +215,15 @@ pub struct ParentLink {
     #[serde(default)]
     pub machine: Option<EndpointId>,
     /// The parent's id: the agent's own when it has one.
-    pub session: String,
+    pub session: SessionId,
     /// The id the parent's node listed it under when this was made, which
     /// the agent's own id replaces once the node restarts.
     #[serde(default)]
-    pub key: String,
+    pub key: SessionId,
     /// The session at the top of the chain, and its machine.
     #[serde(default)]
     pub root_machine: Option<EndpointId>,
-    pub root: String,
+    pub root: SessionId,
     /// How many starts deep this session is: 1 for a child of a root.
     pub depth: u8,
     /// Not read: the node that starts a child counts the root's agents on

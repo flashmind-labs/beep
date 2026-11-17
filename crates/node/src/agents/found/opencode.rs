@@ -2,6 +2,7 @@
 //! folder, opened read-only; one that is locked or of another shape is
 //! skipped.
 
+use beep_proto::SessionId;
 use super::{Agent, Memos, Seen, prompt_title};
 use std::{
     env,
@@ -122,7 +123,7 @@ fn read(database: &Path) -> rusqlite::Result<Vec<Seen>> {
         let first: Option<String> = row.get(5)?;
         Ok(Seen {
             agent: Agent::OpenCode,
-            id: row.get(0)?,
+            id: Into::<SessionId>::into(row.get::<_, String>(0)?),
             cwd: PathBuf::from(row.get::<_, String>(2)?),
             started_at: seconds(created),
             last_activity: seconds(updated.or(created)),
@@ -196,7 +197,7 @@ pub(super) mod tests {
         database(&root.path().join("opencode.db"));
         fs::write(root.path().join("auth.json"), "{}").expect("a file");
         let found = sessions(root.path(), &Memos::default());
-        let ids: Vec<&str> = found.iter().map(|seen| seen.id.as_str()).collect();
+        let ids: Vec<&str> = found.iter().map(|seen| seen.id.as_ref()).collect();
         assert_eq!(ids, ["ses_b", "ses_a"], "{found:?}");
         let (named, unnamed) = (&found[0], &found[1]);
         assert_eq!(named.agent, Agent::OpenCode);
