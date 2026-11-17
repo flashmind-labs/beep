@@ -257,7 +257,7 @@ interface RunDeps {
   redraw: () => void;
   openUrl: (url: string) => unknown;
   fix: (detail: RunDetail) => void;
-  startFix: (project: string, detail: RunDetail, pick: ProjectPick) => Promise<void>;
+  startFix: (project: string, detail: RunDetail, pick: ProjectPick, machine: string | null) => Promise<void>;
   button: (key: string, o: AgentButtonOpts) => AgentButtonItem;
   /// The chip saying whether the project is live or polling.
   mode?: (id: string) => LiveMode | null;
@@ -459,8 +459,8 @@ export function makeRuns(deps: RunDeps) {
   /// the run's details as last read.
   function fixer(agent: ProjectRef, detail: RunDetail): AgentButtonItem {
     const key = detailKey(agent.project_id, detail.run);
-    const start = (pick: ProjectPick) => deps.startFix(agent.name, details.get(key)?.data ?? detail, pick);
-    return deps.button(`fix ${key}`, { project: agent.name, machine: null, label: "Fix this", hint: "Pick a model: an agent starts on this run's branch with the failure in its prompt", running: null, start });
+    const start = (pick: ProjectPick, machine: string | null) => deps.startFix(agent.name, details.get(key)?.data ?? detail, pick, machine);
+    return deps.button(`fix ${key}`, { project: agent.name, machine: null, choose: true, label: "Fix this", hint: "Pick a model: an agent starts on this run's branch with the failure in its prompt", running: null, start });
   }
 
   /// The Actions section. Its key is the project, so its rows stay while live updates arrive.

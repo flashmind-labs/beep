@@ -5,7 +5,7 @@ import { AgentPicker, AgentPillContent } from "./agentpicker-view.tsx";
 // model column and thinking column, and where it goes on screen.
 
 import { type AgentModels, MODELS_KEPT_MS } from "./agentmodels.ts";
-import { keepEffort, modelLabel, modelSearch, pillDetail, searchedHarnesses, searchRows, type PickRow } from "./agentpick.ts";
+import { keepEffort, modelLabel, modelSearch, pillDetail, searchedHarnesses, searchRows, type MachineRow, type PickRow } from "./agentpick.ts";
 import { invoke, logError } from "../ui/tauri.ts";
 
 // ----- Models -----
@@ -115,11 +115,15 @@ export interface PickerOpts {
   machine: { id: string; name: string } | null;
   /// What the model column says without a machine.
   noMachine: string;
+  /// The Machine step: the machines to pick from, and picking one, after
+  /// which the caller draws the picker for it. Null where the machine is fixed.
+  machines: { rows: readonly MachineRow[]; pick: (id: string) => void } | null;
   /// The pill the picker opens from.
   anchor: () => HTMLElement | null;
   /// After a pick, or once the models are read ("models"); the caller
-  /// redraws. A model pick is meant to close the picker.
-  changed: (what: "agent" | "model" | "effort" | "fast" | "models") => void;
+  /// redraws. "done" follows the last step's pick: the picker closes and
+  /// the pick is used.
+  changed: (what: "agent" | "model" | "effort" | "fast" | "models" | "done") => void;
 }
 
 /// The pill's inside: the harness badge, thinking level and model.
@@ -165,10 +169,12 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
     if (current && current.status !== "loading") current.status = "idle";
     drawPicker(el, o);
   };
+  const own = lists.find(list => list.agent === p.agent)?.list ?? (machine ? knownModels(machine.id, p.agent) : null);
   o.render(
     <AgentPicker
-      model={lists.find(list => list.agent === p.agent)?.list?.models.find(model => model.id === (p.model || lists.find(list => list.agent === p.agent)?.list?.current)) ?? null}
-      picked={p} offered={o.offered} everywhere={o.everywhere} machineName={o.machine?.name ?? null} machineId={o.machine?.id ?? null}
+      model={own?.models.find(model => model.id === (p.model || own.current)) ?? null}
+      modelName={modelLabel(own, p.model)}
+      picked={p} offered={o.offered} everywhere={o.everywhere} machines={o.machines?.rows ?? null} machineName={o.machine?.name ?? null} machineId={o.machine?.id ?? null}
       rows={data.rows} note={note} loading={loading} failed={failed}
       onRetry={onRetry}
       onQuery={(query: string) => { p.query = query; drawPicker(el, o); }}
@@ -178,10 +184,14 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
         if (row.agent !== p.agent) p.effort = effort ?? keepEffort(row.agent, p.effort);
         else if (effort) p.effort = effort;
         p.agent = row.agent; p.model = row.value; p.query = "";
+        // The Thinking step shows the model's own levels.
+        drawPicker(el, o);
         o.changed("model");
       }}
       onFast={(fast: boolean) => { p.fast = fast; o.changed("fast"); }}
       onEffort={(next: string | null) => { p.effort = next; o.changed("effort"); }}
+      onMachine={(id: string) => o.machines?.pick(id)}
+      onDone={() => o.changed("done")}
       anchor={o.anchor} search={field}
     />,
   );

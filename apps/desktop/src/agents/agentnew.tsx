@@ -177,7 +177,8 @@ function drawFrame() {
 function closeOutside(e: MouseEvent) {
   const f = AG.form;
   if (S.view !== "agentnew" || AG.busy || !f.open || !(e.target instanceof Element)) return;
-  if (e.target.closest(".agc-pick, .agc-menu, .pill")) return;
+  // A row the picker took away as its step changed was inside it.
+  if (!e.target.isConnected || e.target.closest(".agc-pick, .agc-menu, .pill")) return;
   f.open = null;
   drawParts();
 }
@@ -254,6 +255,7 @@ function drawPicker(c: StartComposer) {
     everywhere: [...new Set((AG.hosts ?? []).flatMap(m => m.agents))],
     machine: machine && name ? { id: machine, name: host?.machine_name ?? name } : null,
     noMachine: "Pick a machine to list its models.",
+    machines: { rows: formMachines(), pick: id => { pickMachine(id); drawParts(); } },
     anchor: () => c.harness.isConnected ? c.harness : null,
     changed: what => {
       if (what === "models") return drawPill(c, false);
@@ -261,7 +263,7 @@ function drawPicker(c: StartComposer) {
       // A model found under another harness keeps with it.
       if (what === "model" && f.modelFor && machine) f.modelFor = `${machine}/${picked.agent}`;
       if (what !== "agent" && !f.assistant) keepProjectPick(f.project ?? null, picked);
-      if (what === "model") { f.open = null; drawParts(); return c.input.focus(); }
+      if (what === "done") { f.open = null; drawParts(); return c.input.focus(); }
       drawParts();
       if (what === "agent") {
         if (f.agent && !f.assistant) keepProjectPick(f.project ?? null, { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null, fast: f.fast ?? null });
@@ -319,11 +321,22 @@ function baseKey(e: ReactKeyboardEvent<HTMLInputElement>) {
   if (e.key === "Enter" && !e.metaKey) { e.preventDefault(); AG.form.baseTyping = false; drawParts(); }
 }
 
+/// The machines the form can start on, for its Machine menu and its picker's Machine step.
+const formMachines = () => machineRows(AG.hosts ?? [], KNOWN?.map(m => ({ id: m.id, name: m.name, online: m.online })) ?? null, a => agentKind(a).name, AGENT_ORDER);
+
+/// Moves the form to machine `id`, kept for the next start.
+function pickMachine(id: string) {
+  const f = AG.form;
+  f.machine = id;
+  f.machinePicked = true;
+  if (f.assistant) keepAssistantMachine(f.machine); else keepMachine(f.project, f.machine);
+  f.cwd = folderOn(f.cwd, f.machine, f.places);
+}
+
 function hostMenu(): ChoiceMenu | null {
   const f = AG.form;
   if (f.open !== "host") return null;
-  const rows = machineRows(AG.hosts ?? [], KNOWN?.map(m => ({ id: m.id, name: m.name, online: m.online })) ?? null, a => agentKind(a).name, AGENT_ORDER);
-  return { style: "cols", rows: rows.map(m => ({ kind: "button", action: "agm", value: m.id, selected: f.machine === m.id, disabled: !m.enabled, dot: m.online ? "on" : "off", label: <span>{m.name}</span>, detail: m.note })) };
+  return { style: "cols", rows: formMachines().map(m => ({ kind: "button", action: "agm", value: m.id, selected: f.machine === m.id, disabled: !m.enabled, dot: m.online ? "on" : "off", label: <span>{m.name}</span>, detail: m.note })) };
 }
 
 /// Whether the folder is one of the project's checkouts on the machine
@@ -397,12 +410,7 @@ function pickChoice(action: ChoiceAction, value: string) {
   switch (action) {
     case "agb": f.base = value; break;
     case "agbtype": return typeBase();
-    case "agm":
-      f.machine = value;
-      f.machinePicked = true;
-      if (f.assistant) keepAssistantMachine(f.machine); else keepMachine(f.project, f.machine);
-      f.cwd = folderOn(f.cwd, f.machine, f.places);
-      break;
+    case "agm": pickMachine(value); break;
     case "agf": f.cwd = value; f.checkout = DEFAULT_CHECKOUT; break;
     case "agk": if (isCheckoutKind(value)) f.checkout = value; break;
     case "agw": f.checkout = { worktree: value }; break;

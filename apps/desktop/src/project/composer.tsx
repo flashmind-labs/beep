@@ -26,10 +26,10 @@ import { addHosts, type BarPlace, type BarTarget, barCheckout, barPlace, barProm
 import { keepMachine, lastMachine, openAgents, openMachine, openMachines } from "../agents/agentnew.tsx";
 import { TASK_WORDS } from "../agents/assistant-state.ts";
 import type { Machine } from "../machines/machines.tsx";
-import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
+import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, machineRows, type MachineRow, startPlace } from "../agents/agentpick.ts";
 import { BlockedHelp, NoAgentHelp } from "../agents/start-composer-view.tsx";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent, preloadModels } from "../agents/agentpicker.tsx";
-import { AG, type AgentHost } from "../agents/agents.ts";
+import { AG, type AgentHost, agentKind } from "../agents/agents.ts";
 import { draftPlace } from "../agents/draft.tsx";
 import { S } from "../bar/core.ts";
 import { ensureSessions, sessions } from "../agents/sessions.ts";
@@ -359,7 +359,7 @@ function issueTask(name: string, issue: IssueRow): AgentTask {
 }
 
 /// Work on it on the issue's page: starts the agent at once.
-export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick) => startTask(name, issueTask(name, issue), pick);
+export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick, machine: string | null) => startTask(name, issueTask(name, issue), pick, machine);
 
 /// Where each picked issue starts, on the machine and harness the bar has
 /// picked (the one last picked for another project, and the first harness);
@@ -475,8 +475,8 @@ export function fixRun(name: string, detail: RunDetail) {
 }
 
 /// Fix this on the run: starts the agent at once.
-export function startFix(name: string, detail: RunDetail, pick: ProjectPick) {
-  return startTask(name, fixTask(name, detail), pick);
+export function startFix(name: string, detail: RunDetail, pick: ProjectPick, machine: string | null) {
+  return startTask(name, fixTask(name, detail), pick, machine);
 }
 
 /// Fix this's task: the failed run's branch (a new branch when it ran on the
@@ -523,6 +523,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
     everywhere: [...new Set((pc.hosts ?? []).flatMap(m => m.agents))],
     machine: { id: host.machine_id, name: host.machine_name },
     noMachine: "",
+    machines: pc.project ? { rows: projectMachines(pc.project), pick: id => { if (pc.project) keepMachine(pc.project, id); pc.machine = id; redrawProjects(); } } : null,
     anchor: () => projectComp.harness,
     changed: what => {
       if (what !== "models") {
@@ -531,7 +532,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
         p.effort = keepEffort(p.agent, p.effort);
         keepProjectPick(pc.project, p);
       }
-      if (what === "model") { pc.open = false; redrawProjects(); return projectComp.input.focus(); }
+      if (what === "done") { pc.open = false; redrawProjects(); return projectComp.input.focus(); }
       if (what !== "models") redrawProjects();
       else if (pc.project) drawProjectComp(pc.project);
       if (what === "agent") focusSearch(el);
@@ -633,29 +634,33 @@ export async function startTask(name: string, task: AgentTask, pick: ProjectPick
 }
 
 /// An agent button of project `name` (Continue, Review with agent, Work on
-/// it, Fix this, Fix with an agent): the diff's picker under it, listing
-/// `machine`'s harnesses when it can start there, whose model pick runs
-/// `start`.
-export function pickButton(name: string, start: (pick: ProjectPick) => void, machine: string | null = null): PickButton {
+/// it, Fix this, Fix with an agent): the picker under it, on `machine` when
+/// it can start there, whose last step runs `start` with the machine picked.
+/// `choose` offers the project's other machines as its first step.
+export function pickButton(name: string, start: (pick: ProjectPick, machine: string | null) => void, machine: string | null = null, choose = true): PickButton {
   const picked: Picked = { agent: "", model: "", effort: null, fast: null, query: "" };
   const listeners = new Set<() => void>();
   let current: ReturnType<PickButton["snapshot"]> = { open: false, picker: null };
+  let chosen = machine;
   const host = () => {
-    const place = threadPlace(name, machine)?.place;
+    const place = threadPlace(name, chosen)?.place;
     return place ? pc.hosts?.find(h => h.machine_id === place.machine_id) ?? null : null;
+  };
+  /// The harness to offer first on the machine: the last one picked in the
+  /// project when it has it, else the first it has.
+  const defaults = () => {
+    const offered = host()?.agents ?? [];
+    const saved = lastProjectPick(name);
+    if (saved && offered.includes(saved.agent)) Object.assign(picked, saved);
+    else if (!offered.includes(picked.agent)) Object.assign(picked, { agent: harnessFor(null, [...offered].sort(byPreference), AGENT_ORDER) ?? "", model: "", effort: null, fast: null });
   };
   const pop = pickPopover({
     picked,
     machine: () => { const h = host(); return h && { id: h.machine_id, name: h.machine_name, agents: [...h.agents].sort(byPreference) }; },
     everywhere: () => [...new Set((pc.hosts ?? []).flatMap(m => m.agents))],
-    opening: () => {
-      const offered = host()?.agents ?? [];
-      const saved = lastProjectPick(name);
-      if (saved && offered.includes(saved.agent)) Object.assign(picked, saved);
-      else if (!offered.includes(picked.agent)) Object.assign(picked, { agent: harnessFor(null, [...offered].sort(byPreference), AGENT_ORDER) ?? "", model: "", effort: null, fast: null });
-      return !!picked.agent;
-    },
-    start: () => start({ agent: picked.agent, model: picked.model, effort: picked.effort, fast: picked.fast }),
+    machines: () => choose ? { rows: projectMachines(name), pick: id => { chosen = id; defaults(); } } : null,
+    opening: () => { defaults(); return !!picked.agent; },
+    start: () => start({ agent: picked.agent, model: picked.model, effort: picked.effort, fast: picked.fast }, host()?.machine_id ?? chosen),
     draw: sync => {
       current = { open: pop.open, picker: pop.view };
       const notify = () => { for (const listener of listeners) listener(); };
@@ -671,8 +676,16 @@ export function pickButton(name: string, start: (pick: ProjectPick) => void, mac
     setSlot: pop.setSlot,
     // Without a bar, as on a phone, the machines are read on the first click.
     click: () => void (pc.hosts ? pop.toggle() : readProjectHosts().then(() => pop.toggle())),
-    why: () => { const at = threadPlace(name, machine); return !pc.hosts ? "" : at?.place ? "" : `${at?.why ?? `${name} is not on a machine`}.`; },
+    why: () => { const at = threadPlace(name, chosen); return !pc.hosts ? "" : at?.place ? "" : `${at?.why ?? `${name} is not on a machine`}.`; },
   };
+}
+
+/// The Machine step of project `name`'s pickers: each machine with a coding
+/// agent, those without the project's checkout listed but not picked.
+function projectMachines(name: string): MachineRow[] {
+  const places = projectOf(name)?.places ?? [];
+  return machineRows(pc.hosts ?? [], null, agent => agentKind(agent).name, AGENT_ORDER)
+    .map(m => places.some(p => p.machine === m.id) ? m : { ...m, enabled: false, note: `${shortName(name)} is not here` });
 }
 
 /// The agent buttons of project pages: Fix this, and Fix with an agent in sync.
@@ -683,11 +696,13 @@ export interface AgentButtonOpts {
   project: string;
   /// The machine it starts on when it can; null for the bar's.
   machine: string | null;
+  /// Whether its picker offers the project's other machines.
+  choose: boolean;
   label: string;
   hint: string;
   /// The session it started, still working, which the button opens.
   running: { agent: string; open(): void } | null;
-  start: (pick: ProjectPick) => Promise<void>;
+  start: (pick: ProjectPick, machine: string | null) => Promise<void>;
 }
 
 /// Agent buttons kept by key across draws, with the starts going on and why
@@ -698,7 +713,7 @@ export function agentButtons(redraw: () => void) {
   const starting = new Set<string>();
   const failed = new Map<string, string>();
 
-  async function run(key: string, pick: ProjectPick) {
+  async function run(key: string, pick: ProjectPick, machine: string | null) {
     const o = latest.get(key);
     if (!o || starting.has(key)) return;
     starting.add(key);
@@ -706,7 +721,7 @@ export function agentButtons(redraw: () => void) {
     redraw();
 
     try {
-      await o.start(pick);
+      await o.start(pick, machine);
     } catch (e) {
       failed.set(key, reason(e));
     } finally {
@@ -718,7 +733,7 @@ export function agentButtons(redraw: () => void) {
   return (key: string, o: AgentButtonOpts): AgentButtonItem => {
     latest.set(key, o);
     let button = made.get(key);
-    if (!button) made.set(key, button = pickButton(o.project, pick => void run(key, pick), o.machine));
+    if (!button) made.set(key, button = pickButton(o.project, (pick, machine) => void run(key, pick, machine), o.machine, o.choose));
     const state: AgentState = o.running ? { kind: "running", agent: o.running.agent, hint: "Open the session", open: o.running.open }
       : starting.has(key) ? { kind: "starting" } : { kind: "ready", label: o.label, hint: o.hint };
 

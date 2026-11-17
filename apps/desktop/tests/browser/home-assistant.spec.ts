@@ -102,7 +102,7 @@ test("the first start's harness shows the assistant setting saved in Settings", 
   await settings.locator("#assistantSetting").getByRole("button").click();
   // Saved in Settings: Home reads the setting again.
   await page.evaluate(() => window.__navigation.respond("assistant_settings_get", { agent: "codex", model: null, effort: null, fast: null }));
-  await page.getByRole("dialog", { name: "Harness, model and thinking" }).getByText("Example Model B").click();
+  await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).getByText("Example Model B").click();
   await expect(page.locator(".painted-empty .pill .codex")).toBeVisible();
 });
 

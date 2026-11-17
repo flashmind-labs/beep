@@ -222,7 +222,8 @@ test("Fix with an agent on a blocked Git sync starts the agent on that machine a
   await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
   const studio = page.getByRole("article", { name: "studio", exact: true });
   await studio.getByRole("button", { name: "Fix with an agent" }).click();
-  await page.getByRole("dialog", { name: "Harness, model and thinking" }).locator('[data-agmo="alpha"]').click();
+  await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-agmo="alpha"]').click();
+  await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-age=""]').click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").length)).toBe(1);
   const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_begin")?.args);
   expect(args).toMatchObject({ machineId: "studio", agent: "codex", checkout: null });

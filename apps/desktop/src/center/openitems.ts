@@ -31,11 +31,11 @@ export function reviewButton(item: GitItemRow, project: StartProject, machines: 
   const earlier = earlierReview(project.name, item.number);
   const pr = { number: item.number, title: item.title, url: item.url, mine: item.authored };
   return homeButtons(`review ${item.url}`, {
-    project: project.name, machine,
+    project: project.name, machine, choose: true,
     label: earlier ? "Review again" : "Review",
     hint: earlier ? "Reviews what changed in the chat that reviewed this PR before" : "Pick a model: an agent reviews this PR and posts its comments on it",
     running: earlier && AGENT_ACTIVE.has(earlier.status) ? { agent: agentLabel(earlier.agent), open: () => go("pane", { agent: earlier }) } : null,
-    start: pick => startReview(project.name, pr, pick, machine),
+    start: (pick, at) => startReview(project.name, pr, pick, at),
   });
 }
 
@@ -44,8 +44,8 @@ export function reviewButton(item: GitItemRow, project: StartProject, machines: 
 export function continueButton(item: GitItemRow, project: StartProject, machines: Hosts): AgentButtonItem {
   const machine = projectStart(project, machines).machine;
   return homeButtons(`continue ${item.url}`, {
-    project: project.name, machine, label: "Continue", hint: "Pick a model: goes on in the chat on this pull request's branch, or starts an agent there",
-    running: null, start: pick => startContinue(project.name, item, pick, machine),
+    project: project.name, machine, choose: true, label: "Continue", hint: "Pick a model: goes on in the chat on this pull request's branch, or starts an agent there",
+    running: null, start: (pick, at) => startContinue(project.name, item, pick, at),
   });
 }
 

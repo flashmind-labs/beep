@@ -64,15 +64,45 @@ test("Work on it picks a model under the button and starts the issue's agent at 
   const work = page.locator(".pj-split > .pj-det").getByRole("button", { name: "Work on it" });
   await expect(work).toBeEnabled();
   await work.click();
-  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
   await expect(picker).toBeVisible();
   await picker.locator('[data-agmo="beta"]').click();
+  await picker.locator('[data-age=""]').click();
   await expect(picker).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").length)).toBe(1);
   const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_begin")?.args);
   expect(args).toMatchObject({ machineId: "build-box", agent: "codex", model: "beta", checkout: { named_worktree: { branch: "issue-7-example-issue" } } });
   expect(String(args?.prompt)).toContain("https://example.test/issues/7");
   await expect(page.locator(".cc-pjc:visible").getByRole("textbox", { name: "Task for a coding agent" })).toHaveCount(0);
+});
+
+test("Work on it asks the machine first when the project is on several", async ({ page }) => {
+  const now = Date.now(), issue = { number: 7, title: "Example issue", url: "https://example.test/issues/7", author: "Author", opened_at: now, comments: 0, labels: [] };
+  const detail = { kind: "issue", number: 7, title: issue.title, url: issue.url, author: issue.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Issue description</p>", comments: [], earlier: 0, review: "none", checks: null };
+  const host = (id: string, agents: string[]) => ({ machine_id: id, machine_name: id, agents, workspace: null, home: "/srv", capabilities: [] });
+  await openDesktop(page, false, {
+    agent_hosts: [host("build-box", ["codex"]), host("gpu-box", ["claude", "codex"]), host("spare-box", ["codex"])],
+    center_home: { machines: [], running: [], needs_you: [], projects: ["build-box", "gpu-box"].map(id => ({ display_name: null, name: projectName, url: "https://example.test/example/widget", machine_id: id, machine_name: id, folder: "/srv/project", cloned: true, imported_at: 1 })) },
+    agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] },
+    agent_begin: { session: { machine_id: "gpu-box", machine_name: "gpu-box", id: "start:one", agent: "claude", cwd: "/srv/project", status: "starting", external: false, question: null } },
+    center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail,
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "issues" } }), projectName);
+  await page.locator('.pj-det .pj-li[title="Example issue"]').click();
+  await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Work on it" }).click();
+  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+  await picker.locator('[data-agstep="machine"]').click();
+  // A machine without the project's checkout is listed but cannot be picked.
+  await expect(picker.locator('[data-agmachine="spare-box"]')).toBeDisabled();
+  await picker.locator('[data-agmachine="gpu-box"]').click();
+  await expect(picker.locator('[data-agstep="harness"]')).toHaveAttribute("aria-current", "step");
+  await picker.locator('[data-agh="claude"]').click();
+  await picker.locator('[data-agmo="alpha"]').click();
+  await picker.locator('[data-age="high"]').click();
+  await expect(picker).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").length)).toBe(1);
+  const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_begin")?.args);
+  expect(args).toMatchObject({ machineId: "gpu-box", agent: "claude", model: "alpha", effort: "high" });
 });
 
 test("Review with agent starts a named reviewer on a pull request's branch, and Continue starts there too", async ({ page }) => {
@@ -90,7 +120,8 @@ test("Review with agent starts a named reviewer on a pull request's branch, and 
   await page.locator(".pj-strip button").filter({ hasText: "1 PR" }).click();
   await page.locator('.pj-split:not(.gh-layout) > .pj-list .pj-li[title="Example change"] .t > b').click();
   await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Review with agent" }).click();
-  await page.getByRole("dialog", { name: "Harness, model and thinking" }).locator('[data-agmo="alpha"]').click();
+  await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-agmo="alpha"]').click();
+  await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-age=""]').click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").length)).toBe(1);
   const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_begin")?.args);
   expect(args).toMatchObject({ agent: "codex", model: "alpha", checkout: { branch_worktree: { branch: "example-change" } } });
@@ -107,7 +138,8 @@ test("Review with agent starts a named reviewer on a pull request's branch, and 
   await page.locator(".pj-strip button").filter({ hasText: "1 PR" }).click();
   await page.locator('.pj-split:not(.gh-layout) > .pj-list .pj-li[title="Example change"] .t > b').click();
   await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("dialog", { name: "Harness, model and thinking" }).locator('[data-agmo="alpha"]').click();
+  await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-agmo="alpha"]').click();
+  await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-age=""]').click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").length)).toBe(2);
   const next = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin")[1]?.args);
   expect(next).toMatchObject({ agent: "codex", checkout: { branch_worktree: { branch: "example-change" } } });
