@@ -1114,6 +1114,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agrunningrow .t { cursor: default }
 .agrunningrow.whole .t b { white-space: pre-wrap; overflow-wrap: anywhere }
 .agrunningrow .t small.child { padding-left: 1ch; color: var(--muted) }
+.agrunningrow .t .ports { display: flex; flex-wrap: wrap; gap: 0 10px; font: 11px var(--mono) }
+.agrunningrow .t .ports a { color: var(--muted); text-decoration: none }
+.agrunningrow .t .ports a:hover, .agrunningrow .t .ports a:focus-visible { color: var(--fg); text-decoration: underline }
 .agrunningrow .r { display: flex; gap: 6px; align-items: center }
 .agrunningrow .dbtn { padding: 2px 10px; min-height: 0; font-size: 12px }
 /* The Device tab (#648): picker head, the screen fitted with its aspect, the button row. */

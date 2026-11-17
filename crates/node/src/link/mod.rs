@@ -10,6 +10,7 @@ pub use protocol::{Protocol, Session};
 host! {
     mod channels;
     pub mod commands;
+    pub mod forward;
     pub mod subscriptions;
     mod events;
     pub(crate) use events::HEARTBEAT;

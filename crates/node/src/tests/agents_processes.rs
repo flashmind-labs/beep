@@ -130,3 +130,26 @@ fn following_processes_holds_demand_until_dropped() {
     drop(held);
     assert!(seen.has_changed().unwrap());
 }
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_port_opened_or_closed_after_the_last_list_is_a_change() {
+    // The session's root is the agent, left out of the list: this test is its child.
+    let processes = Processes::new(std::os::unix::process::parent_id());
+    let listed = |port| {
+        crate::lock(&processes.known)
+            .ports
+            .contains(&(std::process::id(), port))
+    };
+    processes.list().await.unwrap();
+
+    // Other tests in this process may open ports too, so only changes are asserted.
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    assert!(processes.ports_changed().await.unwrap());
+    assert!(listed(port));
+
+    drop(listener);
+    assert!(processes.ports_changed().await.unwrap());
+    assert!(!listed(port));
+}

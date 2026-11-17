@@ -368,6 +368,10 @@ impl Peers {
         super::commands::CommandsAlpn(self.clone())
     }
 
+    pub fn forward_handler(&self) -> super::forward::ForwardAlpn {
+        super::forward::ForwardAlpn(self.clone())
+    }
+
     pub fn subscriptions_handler(&self) -> super::subscriptions::SubscriptionsAlpn {
         super::subscriptions::SubscriptionsAlpn(self.clone())
     }

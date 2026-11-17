@@ -197,7 +197,8 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
           return structuredClone(command === "list_machine_tree" ? (listing ? [listing] : []) : listing);
         }
 
-        if (command === "agent_processes") { return { processes: structuredClone(processes), local: false }; }
+        if (command === "agent_processes") { return { processes: structuredClone(processes) }; }
+        if (command === "machine_forward_port") { return args.port; }
 
         if (command === "work_diff") {
           const context = typeof args.context === "number" ? args.context : 3;

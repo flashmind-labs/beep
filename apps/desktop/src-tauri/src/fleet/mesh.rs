@@ -94,7 +94,8 @@ impl Serving {
             .accept(
                 beep_proto::node::subscriptions::ALPN,
                 peers.subscriptions_handler(),
-            );
+            )
+            .accept(beep_proto::node::forward::ALPN, peers.forward_handler());
         let late = Late::default();
         Self {
             router: late.add_to(router).spawn(),

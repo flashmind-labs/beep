@@ -106,6 +106,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .manage(artifacts::Pages::default())
+        .manage(machines::forwards::Forwards::default())
         .manage(Arc::new(chat::clipboard::ImageClipboard::default()))
         .register_asynchronous_uri_scheme_protocol(artifacts::SCHEME, |ctx, request, responder| {
             let app = ctx.app_handle();
@@ -198,6 +199,7 @@ pub fn run() {
             agents::diff::agent_commands,
             agents::processes::agent_processes,
             agents::processes::agent_stop_process,
+            machines::forwards::machine_forward_port,
             agents::processes::agent_close_external,
             agents::moving::session_move,
             agents::moving::session_move_cancel,

@@ -93,6 +93,7 @@ host! {
     use acp::Prompt;
     pub(crate) use alerts::AlertHub;
     pub(crate) use processes::Demand as ProcessDemand;
+    pub(crate) use processes::watch_ports;
     use compaction::Route;
     use images::Images;
     use kinds::{Adapter, KNOWN, known, route};

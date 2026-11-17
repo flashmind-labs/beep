@@ -21,6 +21,7 @@ pub mod desktop;
 pub mod device;
 pub mod events;
 pub mod files;
+pub mod forward;
 pub mod harness;
 pub mod mesh_state;
 pub mod metrics;

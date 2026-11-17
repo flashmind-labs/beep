@@ -5,10 +5,10 @@ use super::{
     peers::{CHANNEL_OPEN_WAIT, Peers},
 };
 use anyhow::{Context, Result};
-use beep_proto::node::{LinkRx, LinkTx, subscriptions::Open};
+use beep_proto::node::{LinkRx, LinkTx, link, subscriptions::Open};
 use iroh::{
     EndpointId,
-    endpoint::Connection,
+    endpoint::{Connection, RecvStream, SendStream},
     protocol::{AcceptError, ProtocolHandler},
 };
 use std::fmt;
@@ -34,10 +34,11 @@ fn serve_stream(
     offers: Offers,
     peer: EndpointId,
     mesh: EndpointId,
-    tx: LinkTx,
-    rx: LinkRx,
+    send: SendStream,
+    recv: RecvStream,
 ) -> Session {
     Box::pin(async move {
+        let (tx, rx) = link(send, recv);
         anyhow::ensure!(
             peers.controller_allowed(peer, mesh),
             "only a controller may subscribe"

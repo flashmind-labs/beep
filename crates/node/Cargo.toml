@@ -155,7 +155,7 @@ sha2 = { workspace = true, optional = true }
 strum = { workspace = true, optional = true }
 tar = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "time", "fs", "signal", "io-util", "sync"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "time", "fs", "signal", "io-util", "net", "sync"] }
 tokio-stream = { workspace = true, features = ["sync"], optional = true }
 tokio-util = { workspace = true, features = ["rt"], optional = true }
 tempfile = { workspace = true, optional = true }

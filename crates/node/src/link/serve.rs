@@ -67,6 +67,7 @@ pub async fn serve(
 ) -> Result<()> {
     let traffic = Traffic::default();
     let relays_off = std::env::var_os(NO_RELAY).is_some();
+    crate::agents::watch_ports();
 
     if relays_off {
         log::warn!("{NO_RELAY} is set: no relay, no discovery (for tests only)");
@@ -196,7 +197,8 @@ pub async fn serve(
         .accept(
             beep_proto::node::subscriptions::ALPN,
             peers.subscriptions_handler(),
-        );
+        )
+        .accept(beep_proto::node::forward::ALPN, peers.forward_handler());
     if let Some(served) = served {
         router = served.add_to(router);
     }
