@@ -1,5 +1,6 @@
 //! The `agents/1` requests: one answer each, or a stream the caller follows.
 
+use beep_proto::SessionId;
 use super::{
     Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, SPEND_EVERY,
     custom_agents, harnesses, media_file, reach, unix_now, work_diff, work_folder, worktrees,
@@ -40,7 +41,7 @@ pub(crate) async fn serve_transcripts(
             last,
             before,
             ..
-        }) if !session.trim().is_empty() && session.len() <= 512 && (1..=50).contains(&last) => {
+        }) if !session.as_ref().trim().is_empty() && session.as_ref().len() <= 512 && (1..=50).contains(&last) => {
             agents.transcript_reply(&session, last, false, before).await
         }
         _ => SessionsReply::Error {
@@ -56,7 +57,7 @@ impl Agents {
     /// outside Beep, read from its file.
     pub(super) async fn transcript_reply(
         &self,
-        session: &str,
+        session: &SessionId,
         last: u32,
         thoughts: bool,
         before: Option<u64>,
@@ -542,7 +543,7 @@ pub async fn serve_sessions(
     result
 }
 
-async fn live_reply(agents: &Agents, session: &str, steer: Option<agent::Steer>) -> SessionsReply {
+async fn live_reply(agents: &Agents, session: &SessionId, steer: Option<agent::Steer>) -> SessionsReply {
     agents
         .external
         .live(session, steer, agents.owned())
@@ -743,7 +744,7 @@ async fn send_usage(
 }
 
 /// The picture `key` of `session` as `Image` answers it.
-async fn image_reply(agents: &Agents, session: &str, key: &str) -> SessionsReply {
+async fn image_reply(agents: &Agents, session: &SessionId, key: &str) -> SessionsReply {
     match agents.image(session, key).await {
         Ok(Some(picture)) if picture.data.len() <= MAX_IMAGE => SessionsReply::Image {
             mime: picture.mime.clone(),

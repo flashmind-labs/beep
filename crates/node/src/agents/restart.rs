@@ -1,6 +1,7 @@
 //! Keeping agent sessions across a node restart: the next start resumes each noted
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
+use beep_proto::SessionId;
 use super::{
     AgentKind, Agents, Begin, Command, Prompt, checkout,
     family::RemoteKid,
@@ -67,7 +68,7 @@ pub(crate) struct OpenSession {
     /// The agent, such as `claude`.
     agent: String,
     /// The agent's own id for the session.
-    pub(crate) session: String,
+    pub(crate) session: SessionId,
     cwd: PathBuf,
     #[serde(default)]
     started_at: u64,
@@ -218,19 +219,19 @@ impl Agents {
 
     /// What session `id`, by the agent's own id, is: from its state when it
     /// is here, else as kept from before.
-    pub(crate) fn saved(&self, id: &str) -> Option<SavedSession> {
+    pub(crate) fn saved(&self, id: &SessionId) -> Option<SavedSession> {
         if let Some(saved) = self.get(id).and_then(|session| Self::saved_of(&session)) {
             return Some(saved);
         }
 
         crate::lock(&self.saved)
             .iter()
-            .rfind(|kept| kept.info.id == id)
+            .rfind(|kept| kept.info.id == *id)
             .cloned()
     }
 
     /// The linked worktrees session `id` created, as `saved` gives them.
-    pub(crate) fn created_worktrees(&self, id: &str) -> Vec<String> {
+    pub(crate) fn created_worktrees(&self, id: &SessionId) -> Vec<String> {
         self.saved(id)
             .map(|saved| saved.info.worktrees)
             .unwrap_or_default()
@@ -369,7 +370,7 @@ impl Agents {
     }
 
     /// What it takes to start session `id` again, as it runs now.
-    pub(crate) fn open_session(&self, id: &str) -> Option<OpenSession> {
+    pub(crate) fn open_session(&self, id: &SessionId) -> Option<OpenSession> {
         let session = self.get(id)?;
         let mut open = Self::as_it_runs(&session, Keep::Moving)?;
         open.kids = self.kids_to_keep(&open.session);
@@ -438,7 +439,7 @@ impl Agents {
 /// Readies resumed session `id` of `kind`, kept for `cwd`, to run in its
 /// project folder when `cwd` is in a worktree (`Agents::start`): Claude
 /// Code's transcript goes along. A failure only costs the history.
-pub(super) async fn to_project(kind: &AgentKind, id: &str, cwd: &Path) {
+pub(super) async fn to_project(kind: &AgentKind, id: &SessionId, cwd: &Path) {
     if kind.name.parse::<Agent>() != Ok(Agent::Claude) {
         return;
     }
@@ -463,7 +464,7 @@ mod tests;
 
 /// `kept` with `now` in place of the entries of the same sessions, the
 /// newest `KEPT_SAVED`; a copy of the result.
-fn kept_with<T: Clone>(kept: &mut Vec<T>, now: Vec<T>, session: impl Fn(&T) -> &String) -> Vec<T> {
+fn kept_with<T: Clone>(kept: &mut Vec<T>, now: Vec<T>, session: impl Fn(&T) -> &SessionId) -> Vec<T> {
     kept.retain(|old| !now.iter().any(|new| session(new) == session(old)));
     kept.extend(now);
     let over = kept.len().saturating_sub(KEPT_SAVED);

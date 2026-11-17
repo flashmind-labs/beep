@@ -29,7 +29,7 @@ async fn moves_that_ended_leave_room_for_the_next() {
     let mut running = HashMap::new();
 
     for n in 0..MAX_MOVES + 4 {
-        running.insert(format!("done{n}"), ended().await);
+        running.insert(SessionId::from(format!("done{n}")), ended().await);
     }
 
     assert!(
@@ -39,7 +39,7 @@ async fn moves_that_ended_leave_room_for_the_next() {
     let mut busy = HashMap::new();
 
     for n in 0..MAX_MOVES {
-        busy.insert(format!("busy{n}"), going());
+        busy.insert(SessionId::from(format!("busy{n}")), going());
     }
 
     assert!(!has_room(&busy));

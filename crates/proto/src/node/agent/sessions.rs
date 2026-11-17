@@ -5,6 +5,7 @@ use super::{
     Activity, Entry, ExternalSession, LiveStatus, ModelList, Question, ReviewOrder, ReviewRun,
     SessionFolder, SessionInfo, Steer, StopReason,
 };
+use crate::SessionId;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 
@@ -17,7 +18,7 @@ pub enum SessionsRequest {
     /// The last `last` entries of a session's transcript. `session` may
     /// also be an external session's id.
     Transcript {
-        session: String,
+        session: SessionId,
         last: u32,
         /// Keep the agent's thoughts, as `EntryKind::Thought` entries. A
         /// caller from before them leaves it out and gets none, so it
@@ -40,13 +41,13 @@ pub enum SessionsRequest {
         #[serde(default)]
         limit: u32,
         #[serde(default)]
-        session: Option<String>,
+        session: Option<SessionId>,
     },
     /// Follows these external sessions: `Watching` first, then `Activity`
     /// as they finish turns or wait for the user, until the caller closes
     /// the stream.
     Watch {
-        sessions: Vec<String>,
+        sessions: Vec<SessionId>,
     },
     /// The git checkouts coding agents worked in, from the sessions Claude
     /// Code, Codex, pi, flsh and OpenCode keep: at most `limit`, newest
@@ -67,7 +68,7 @@ pub enum SessionsRequest {
     /// transcript, `key` being its `image_key`. Answered with `Image`, or
     /// `Error` when the node no longer has it.
     Image {
-        session: String,
+        session: SessionId,
         key: String,
     },
     /// The models the agent `agent` can run on here, for `Start`'s `model`.
@@ -165,14 +166,14 @@ pub enum SessionsRequest {
     /// How Claude Code session `session`, started outside Beep, is doing now,
     /// as its hooks report it. Answered with `Live`, or `Error`.
     Live {
-        session: String,
+        session: SessionId,
     },
     /// Queues `steer` on the node for the next hook of `session` to deliver: a
     /// message after the current tool call or at the turn's end, a stop at the
     /// next tool call. Answered with `Live`, or `Error` saying why it cannot,
     /// such as a session idle at its prompt.
     Steer {
-        session: String,
+        session: SessionId,
         steer: Steer,
     },
     /// The worktrees of the git repository holding the session folder
@@ -184,7 +185,7 @@ pub enum SessionsRequest {
     Worktrees {
         folder: String,
         #[serde(default)]
-        session: Option<String>,
+        session: Option<SessionId>,
     },
     /// Deletes the ended session `session` of the harness `agent` from this
     /// machine: its transcript file and the node's record of it. `session`
@@ -193,7 +194,7 @@ pub enum SessionsRequest {
     /// from before it answers `Error` or closes the stream.
     DeleteSession {
         agent: String,
-        session: String,
+        session: SessionId,
     },
     /// The slash commands and skills the agent of the running session
     /// `session` offers, as it last reported them (the list arrives after
@@ -202,13 +203,13 @@ pub enum SessionsRequest {
     /// or `Error`. A node from before it answers `Error` or closes the
     /// stream.
     Commands {
-        session: String,
+        session: SessionId,
     },
     /// How the move of session `session` to this node stands, as the target
     /// says. Answered with `Moving`, or `Error`. A node from before it
     /// answers `Error` or closes the stream: it cannot take a session.
     MoveProgress {
-        session: String,
+        session: SessionId,
     },
     /// Asked by apps from before worktree moves were removed, before they
     /// move a session in a worktree. Answered with `MoveChecked` and
@@ -229,21 +230,21 @@ pub enum SessionsRequest {
     /// time instead. Answered with `CopyDone`, or `Error` saying why not.
     ContinueCopy {
         agent: String,
-        session: String,
+        session: SessionId,
         lost: Option<u64>,
     },
     /// Throws away the copy of a session, or its version set aside at
     /// `lost`. Answered with `CopyDone`.
     DiscardCopy {
         agent: String,
-        session: String,
+        session: SessionId,
         lost: Option<u64>,
     },
     /// `Image` made small on the node, so a remote log's picture does not
     /// cross the network whole. Answered as `Image` is; a node from before
     /// it closes the stream.
     Thumb {
-        session: String,
+        session: SessionId,
         key: String,
     },
     /// Sends the CI runs the user started that ended, as `Run` replies, until
@@ -267,20 +268,20 @@ pub enum SessionsRequest {
     /// How the review `id` stands. Answered with `Review`, or `Error` when
     /// the node has no such review.
     Review {
-        id: String,
+        id: SessionId,
     },
     /// The reviews of the session `session`'s work, oldest first. Answered
     /// with `Reviews`.
     Reviews {
-        session: String,
+        session: SessionId,
     },
     /// Live commands owned by this session, answered with `Processes`.
     Processes {
-        session: String,
+        session: SessionId,
     },
     /// Stops only a process still owned by this session, answered with `ProcessStopped`.
     StopProcess {
-        session: String,
+        session: SessionId,
         pid: u32,
     },
     /// Installs the ACP adapters the agents here lack now, rather than at
@@ -301,7 +302,7 @@ pub enum SessionsRequest {
     UploadFile {
         root: String,
         agent: String,
-        session: String,
+        session: SessionId,
         path: String,
         offset: u64,
         size: u64,
@@ -314,7 +315,7 @@ pub enum SessionsRequest {
     /// Moves a closed session to a working folder, answered with `Deleted` or `Error`.
     RelocateSession {
         agent: String,
-        session: String,
+        session: SessionId,
         folder: String,
     },
     /// Asks the process of `agent`'s session `session`, started outside Beep,
@@ -323,7 +324,7 @@ pub enum SessionsRequest {
     /// not. A node from before it answers `Error` or closes the stream.
     CloseExternal {
         agent: String,
-        session: String,
+        session: SessionId,
     },
     /// The sessions `sessions` started outside Beep, each looked up by its
     /// agent and id, answered with `External` holding those found, in no
@@ -364,7 +365,7 @@ pub const MAX_HASH_PATHS: usize = 64;
 pub struct HistoryCursor {
     pub last_activity: u64,
     pub agent: String,
-    pub id: String,
+    pub id: SessionId,
 }
 
 /// Session metadata only. Transcripts are requested when a session opens.
@@ -380,7 +381,7 @@ pub struct ExternalAsk {
     /// Such as `claude` or `codex`.
     pub agent: String,
     /// The agent's own id for it.
-    pub session: String,
+    pub session: SessionId,
 }
 
 /// The most sessions one `ExternalNamed` asks for.
@@ -593,7 +594,7 @@ pub enum SessionsReply {
     },
     /// The answer to `Watch`: the sessions it could not find.
     Watching {
-        unknown: Vec<String>,
+        unknown: Vec<SessionId>,
     },
     Activity {
         activity: Activity,
@@ -617,7 +618,7 @@ pub enum SessionsReply {
     /// One picture on a `FollowImages` stream: of `session`, shown in its
     /// transcript by the line of its `image_key`.
     SessionImage {
-        session: String,
+        session: SessionId,
         mime: String,
         #[serde(with = "serde_bytes")]
         data: Vec<u8>,
@@ -789,7 +790,7 @@ pub struct Worktree {
 /// Something a node's session did that the user would want to hear about.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Alert {
-    pub session: String,
+    pub session: SessionId,
     /// The agent, such as `claude`.
     pub agent: String,
     /// The title the agent gave the session, when it gives one.
@@ -885,7 +886,7 @@ pub struct MoveProgress {
 pub struct CopyView {
     pub agent: String,
     /// The agent's own id for the session.
-    pub id: String,
+    pub id: SessionId,
     /// The machine that ran it (this one, for a version that lost).
     pub from: EndpointId,
     /// The project, by the name `sync/<name>` has.

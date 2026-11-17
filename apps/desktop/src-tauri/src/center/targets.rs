@@ -4,6 +4,7 @@
 use super::window::{LABEL, open};
 use crate::error::Result;
 use beep_proto::AgentNoticeKey;
+use beep_proto::SessionId;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, PoisonError};
 use tauri::{AppHandle, Emitter, Runtime, State};
@@ -48,7 +49,7 @@ pub(crate) struct AgentTarget {
     kind: String,
     machine_id: String,
     machine_name: String,
-    id: String,
+    id: SessionId,
     agent: String,
     title: Option<String>,
     cwd: String,
@@ -69,14 +70,14 @@ impl AgentTarget {
         machine_id: &str,
         machine_name: &str,
         agent: &str,
-        session: &str,
+        session: &SessionId,
         title: Option<&str>,
     ) -> Box<Self> {
         Box::new(Self {
             kind: "agent".into(),
             machine_id: machine_id.to_owned(),
             machine_name: machine_name.to_owned(),
-            id: session.to_owned(),
+            id: session.clone(),
             agent: agent.to_owned(),
             title: title.map(str::to_owned),
             cwd: String::new(),

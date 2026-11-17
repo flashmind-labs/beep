@@ -110,7 +110,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
         }
     };
     assert_eq!(
-        kinds(agents.transcript_reply(CLAUDE_ID, 10, true, None).await),
+        kinds(agents.transcript_reply(&SessionId::from(CLAUDE_ID), 10, true, None).await),
         [
             (agent::EntryKind::User, "is 391 prime?".into(), None),
             (agent::EntryKind::Thought, "Try 17.".into(), Some(4000)),
@@ -118,7 +118,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
         ]
     );
     assert_eq!(
-        kinds(agents.transcript_reply(CLAUDE_ID, 10, false, None).await).len(),
+        kinds(agents.transcript_reply(&SessionId::from(CLAUDE_ID), 10, false, None).await).len(),
         2
     );
 
@@ -259,9 +259,9 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
     );
     assert!(agents.images.get(&session.id, &key).is_some(), "kept again");
     // A session started outside Beep is read from its file by its id.
-    let outside = agents.image(CLAUDE_ID, &key).await.unwrap();
+    let outside = agents.image(&SessionId::from(CLAUDE_ID), &key).await.unwrap();
     assert_eq!(outside.map(|picture| picture.data.clone()), Some(shot));
-    let missing = agents.image(CLAUDE_ID, &image_key(b"other")).await;
+    let missing = agents.image(&SessionId::from(CLAUDE_ID), &image_key(b"other")).await;
     assert!(missing.unwrap().is_none());
     session.close().await;
     std::fs::remove_dir_all(&dir).unwrap();
@@ -363,7 +363,7 @@ async fn one_session_cannot_be_taken_over_twice() {
     let agents = Agents::new(vec![kind.clone()]);
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let begin = || Begin {
-        resume: Some(id.to_owned()),
+        resume: Some(SessionId::from(id)),
         ..Begin::default()
     };
     let first = agents.start(&kind, Some("/"), begin()).unwrap();
@@ -384,7 +384,7 @@ async fn an_ended_node_session_resumes_from_the_agents_session() {
     let agents = Agents::new(vec![kind.clone()]);
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let begin = Begin {
-        resume: Some(id.to_owned()),
+        resume: Some(SessionId::from(id)),
         ..Begin::default()
     };
     let first = agents.start(&kind, Some("/"), begin).unwrap();
@@ -442,7 +442,7 @@ done
     .unwrap();
     first.close().await;
     let resumed = agents
-        .resume(&kind, "hermes-session", Some("continue".into()))
+        .resume(&kind, &SessionId::from("hermes-session"), Some("continue".into()))
         .await
         .unwrap();
     let mut live = resumed.live.clone();
@@ -465,7 +465,7 @@ done
             .any(|entry| entry.text == "Resumed.")
     );
     resumed.close().await;
-    assert!(agents.resume(&kind, "outside-session", None).await.is_err());
+    assert!(agents.resume(&kind, &SessionId::from("outside-session"), None).await.is_err());
 }
 
 /// Answers `initialize` and `session/new` with the agent's own id, then
@@ -507,7 +507,7 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     .expect("the session is still there");
     assert_eq!(session.info().id, AGENT_ID);
     assert_eq!(agents.list()[0].id, AGENT_ID);
-    assert!(Arc::ptr_eq(&agents.get(AGENT_ID).unwrap(), &session));
+    assert!(Arc::ptr_eq(&agents.get(&SessionId::from(AGENT_ID)).unwrap(), &session));
     agents.shutdown().await;
     let ended = session.info();
     assert_eq!(ended.state.status, Status::Ended);
@@ -566,7 +566,7 @@ done"#,
     assert_eq!(listed[0].id, AGENT_ID);
     assert_eq!(listed[0].state.status, Status::Idle);
     assert!(agents.get(&first.id).is_none());
-    let current = agents.get(AGENT_ID).unwrap();
+    let current = agents.get(&SessionId::from(AGENT_ID)).unwrap();
     assert!(Arc::ptr_eq(&current, &resumed));
     current
         .order(Command::Prompt("Continue the work".to_owned().into()))
@@ -625,7 +625,7 @@ async fn a_session_resumes_only_on_its_own_agent() {
     let (claude, codex) = (kind("claude"), kind("codex"));
     let agents = Agents::new(vec![claude.clone(), codex.clone()]);
     let begin = Begin {
-        resume: Some("0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b".to_owned()),
+        resume: Some(SessionId::from("0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b").to_owned()),
         ..Begin::default()
     };
     let running = agents.start(&codex, Some("/"), begin).unwrap();

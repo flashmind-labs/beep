@@ -263,7 +263,7 @@ async fn a_session_may_not_have_more_than_eight_children() {
             parent: who.session.clone(),
             machine: SecretKeyFor::id(),
             name: format!("box-{at}"),
-            id: format!("k{at}"),
+            id: SessionId::from(format!("k{at}")),
             ended: false,
             since: 0,
         };
@@ -294,9 +294,9 @@ async fn an_agent_reaches_only_its_own_children() {
     // It says no more than for an agent that does not exist.
     let nothing = rig
         .agents
-        .child_of(&other, "nothing")
+        .child_of(&other, &SessionId::from("nothing"))
         .expect_err("no such agent");
-    assert_eq!(refused, nothing.replace("nothing", &id));
+    assert_eq!(refused, nothing.replace("nothing", id.as_ref()));
     // Another machine's session with the same id is another caller.
     let abroad = Who {
         machine: Some(SecretKeyFor::id()),
@@ -584,10 +584,10 @@ async fn a_resumed_session_goes_on_under_its_parent_in_its_mode() {
         effort: None,
         fast: None,
     };
-    let begin = rig.agents.resumed_begin(None, "agent-id", held);
+    let begin = rig.agents.resumed_begin(None, &SessionId::from("agent-id"), held);
     assert_eq!(begin.parent, before.parent);
     assert_eq!(begin.mode.as_deref(), Some("plan"));
-    assert_eq!(begin.resume.as_deref(), Some("agent-id"));
+    assert_eq!(begin.resume, Some(SessionId::from("agent-id")));
     // The parent runs here: the resumed child ends with it again.
     assert!(begin.follows.is_some());
     rig.agents.shutdown().await;
@@ -611,7 +611,7 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
     until(&resumed, |live| live.status() == Status::Idle).await;
     // Its turn count started over, which no longer says it never ran.
     assert_eq!(resumed.info().turns, 0);
-    let view = children::ChildView::of(&resumed.info(), "k1");
+    let view = children::ChildView::of(&resumed.info(), &SessionId::from("k1"));
     assert_eq!(view.state, "idle");
     after.shutdown().await;
 }
@@ -653,24 +653,24 @@ async fn a_parents_node_says_which_remote_children_it_keeps() {
     let mut kid = RemoteKid::expected(&name, there, "box");
     kid.id = "k1".into();
     rig.agents.adopt_remote(&parent, kid.clone());
-    assert!(rig.agents.keeps_child(there, &name, "k1", ""));
+    assert!(rig.agents.keeps_child(there, &name, &SessionId::from("k1"), &SessionId::default()));
     // By the id it started under, too.
-    assert!(rig.agents.keeps_child(there, &name, "agent-id", "k1"));
+    assert!(rig.agents.keeps_child(there, &name, &SessionId::from("agent-id"), &SessionId::from("k1")));
     // Not another machine's, not another child.
-    assert!(!rig.agents.keeps_child(other, &name, "k1", ""));
-    assert!(!rig.agents.keeps_child(there, &name, "k2", ""));
-    assert!(!rig.agents.keeps_child(there, "no-such-parent", "k1", ""));
+    assert!(!rig.agents.keeps_child(other, &name, &SessionId::from("k1"), &SessionId::default()));
+    assert!(!rig.agents.keeps_child(there, &name, &SessionId::from("k2"), &SessionId::default()));
+    assert!(!rig.agents.keeps_child(there, &SessionId::from("no-such-parent"), &SessionId::from("k1"), &SessionId::default()));
     // One that ended is no longer kept.
     rig.agents.end_remote(&kid);
-    assert!(!rig.agents.keeps_child(there, &name, "k1", ""));
+    assert!(!rig.agents.keeps_child(there, &name, &SessionId::from("k1"), &SessionId::default()));
     // A start that got no answer is kept for a while, whichever id the
     // machine gave it.
     rig.agents
         .adopt_remote(&parent, RemoteKid::expected(&name, other, "far"));
-    assert!(rig.agents.keeps_child(other, &name, "anything", ""));
+    assert!(rig.agents.keeps_child(other, &name, &SessionId::from("anything"), &SessionId::default()));
     // A parent that ended for good keeps nothing.
     parent.close().await;
-    assert!(!rig.agents.keeps_child(other, &name, "anything", ""));
+    assert!(!rig.agents.keeps_child(other, &name, &SessionId::from("anything"), &SessionId::default()));
     rig.agents.shutdown().await;
 }
 
@@ -693,16 +693,16 @@ async fn a_start_with_no_answer_holds_its_place_until_it_expires_and_a_refusal_f
     rig.agents.forget_expected(&name, there);
     assert!(rig.agents.link_for(&parent, &who).is_ok());
     // One that answered takes the id it was given, once.
-    rig.agents.settle_remote(&name, there, "k1");
-    rig.agents.settle_remote(&name, there, "k1");
-    let ids: Vec<String> = rig
+    rig.agents.settle_remote(&name, there, &SessionId::from("k1"));
+    rig.agents.settle_remote(&name, there, &SessionId::from("k1"));
+    let ids: Vec<SessionId> = rig
         .agents
         .remote_kids(&name)
         .into_iter()
         .map(|kid| kid.id)
         .collect();
     assert_eq!(
-        ids.iter().filter(|id| id.as_str() == "k1").count(),
+        ids.iter().filter(|id| **id == "k1").count(),
         1,
         "{ids:?}"
     );
@@ -803,9 +803,9 @@ async fn a_far_parent_s_stop_all_stops_its_child_here() {
         mode: None,
         background: false,
     };
-    let stop = |id: String, args: serde_json::Value| {
+    let stop = |id: SessionId, args: serde_json::Value| {
         let mut args = args;
-        args["id"] = id.into();
+        args["id"] = serde_json::json!(id);
         ToolRequest {
             session: "p1".into(),
             tool: Tool::StopAgent,

@@ -1,5 +1,6 @@
 use super::*;
 use crate::machine::said;
+use beep_proto::SessionId;
 use iroh::SecretKey;
 use iroh::endpoint::VarInt;
 use std::future::pending;
@@ -163,7 +164,7 @@ async fn one_off_reads_are_calls_and_never_kept_live() {
         NodeWork::Done(_)
     ));
     assert!(matches!(
-        sessions::commands(&client, "example-session")
+        sessions::commands(&client, &SessionId::from("example-session"))
             .await
             .unwrap(),
         NodeWork::Done(_)

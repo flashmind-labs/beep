@@ -4,10 +4,11 @@ use crate::files::paths;
 
 const ID: &str = "0f3c2a9e-1111-4222-8333-944455556666";
 const OTHER: &str = "7a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d";
+static SEEN_ID: std::sync::LazyLock<SessionId> = std::sync::LazyLock::new(|| SessionId::from(ID));
 
 fn seen(modified: SystemTime, newest: bool) -> Seen<'static> {
     Seen {
-        id: ID,
+        id: &SEEN_ID,
         folder: "-srv-project",
         modified,
         newest_in_folder: newest,
@@ -29,7 +30,7 @@ fn a_process_naming_the_session_runs_it_wherever_it_is() {
     let now = SystemTime::now();
     let old = now - Duration::from_secs(3600);
     let named = |pid: u32, cwd: &str, session: &str| Process {
-        session: Some(session.to_owned()),
+        session: Some(SessionId::from(session)),
         ..process(pid, cwd)
     };
     let snapshot = Snapshot {
@@ -237,7 +238,7 @@ fn a_store_lists_sessions_newest_first_with_what_they_say() {
     let snapshot = Snapshot {
         processes: vec![process(41, "/srv/project")],
         pid_files: store.pid_files(),
-        owned: HashMap::from([(OTHER.to_owned(), "a3f9c1".to_owned())]),
+        owned: HashMap::from([(SessionId::from(OTHER), SessionId::from("a3f9c1"))]),
         now: None,
     };
     let sessions = list(&store, &snapshot, 10, None).unwrap();
@@ -250,10 +251,10 @@ fn a_store_lists_sessions_newest_first_with_what_they_say() {
     assert_eq!(first.pid, Some(41));
     assert_eq!(first.last_prompt, "now run the whole suite");
     assert_eq!(first.last_message, "All 42 tests pass now.");
-    assert_eq!(sessions[1].taken_over.as_deref(), Some("a3f9c1"));
-    assert_eq!(list(&store, &snapshot, 10, Some(OTHER)).unwrap().len(), 1);
-    assert!(store.find(ID).is_some());
-    assert!(store.find("../x").is_none());
+    assert_eq!(sessions[1].taken_over, Some(SessionId::from("a3f9c1")));
+    assert_eq!(list(&store, &snapshot, 10, Some(&SessionId::from(OTHER))).unwrap().len(), 1);
+    assert!(store.find(&SessionId::from(ID)).is_some());
+    assert!(store.find(&SessionId::from("../x")).is_none());
     fs::remove_dir_all(&root).unwrap();
 }
 
@@ -266,7 +267,7 @@ fn a_transcript_is_read_again_only_once_it_changed() {
     fs::write(&path, FIXTURE).expect("a transcript");
     let store = Store::at(root.path());
     let snapshot = Snapshot::default();
-    let ids = HashSet::from([ID.to_owned()]);
+    let ids = HashSet::from([SessionId::from(ID)]);
     let prompt = |store: &Store| {
         let listed = list_ids(store, &snapshot, &ids).expect("the listing");
         listed[0].last_prompt.clone()
@@ -322,7 +323,7 @@ fn an_appended_transcript_summarizes_as_one_read_whole() {
     let path = project.join(format!("{ID}.jsonl"));
     fs::write(&path, FIXTURE).expect("a transcript");
     let store = Store::at(root.path());
-    let ids = HashSet::from([ID.to_owned()]);
+    let ids = HashSet::from([SessionId::from(ID)]);
     let shown = |store: &Store| {
         let listed = list_ids(store, &Snapshot::default(), &ids).expect("the listing");
         let session = listed.into_iter().next().expect("the session");
@@ -439,7 +440,7 @@ fn one_session_is_looked_up_by_its_file_without_listing_the_store() {
     fs::write(elsewhere.join(format!("{OTHER}.jsonl")), FIXTURE).expect("a transcript");
     let store = Store::at(root.path());
 
-    let found = list(&store, &Snapshot::default(), 1, Some(ID)).expect("a lookup");
+    let found = list(&store, &Snapshot::default(), 1, Some(&SessionId::from(ID))).expect("a lookup");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].id, ID);
     assert_eq!(found[0].title.as_deref(), Some("Fix the flaky test"));
@@ -447,7 +448,7 @@ fn one_session_is_looked_up_by_its_file_without_listing_the_store() {
     assert_eq!(store.memos.newest.len(), 1);
     assert_eq!(store.memos.summaries.len(), 1);
     assert!(
-        list(&store, &Snapshot::default(), 1, Some("0f3c2a9e-0000-4222-8333-944455556666"))
+        list(&store, &Snapshot::default(), 1, Some(&SessionId::from("0f3c2a9e-0000-4222-8333-944455556666")))
             .expect("a lookup")
             .is_empty()
     );

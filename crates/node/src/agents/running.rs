@@ -1,5 +1,6 @@
 //! Starting, finding and stopping the sessions this node runs.
 
+use beep_proto::SessionId;
 use super::{
     AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, Prompt, Session, Start, checkout,
     harnesses,
@@ -45,14 +46,14 @@ impl Agents {
     }
 
     /// Whether `session` is one of this node's and still runs.
-    pub(crate) fn runs(&self, session: &str) -> bool {
+    pub(crate) fn runs(&self, session: &SessionId) -> bool {
         self.get(session).is_some_and(|session| {
             watched::read(&session.live, |live| live.status() != Status::Ended)
         })
     }
 
     /// The folder `session` works in, if it is one of this node's.
-    pub(crate) fn folder_of(&self, session: &str) -> Option<PathBuf> {
+    pub(crate) fn folder_of(&self, session: &SessionId) -> Option<PathBuf> {
         self.get(session)
             .map(|session| PathBuf::from(session.info().cwd))
     }
@@ -60,7 +61,7 @@ impl Agents {
     /// Keeps `device` as the device `session` uses, or forgets it.
     pub(crate) async fn set_device(
         &self,
-        session: &str,
+        session: &SessionId,
         device: Option<SessionDevice>,
     ) -> Result<()> {
         let session = self
@@ -73,7 +74,7 @@ impl Agents {
     }
 
     /// Shows in `session` how far its running `send_files` call has sent.
-    pub(crate) async fn sending(&self, session: &str, sent: Sent) -> Result<()> {
+    pub(crate) async fn sending(&self, session: &SessionId, sent: Sent) -> Result<()> {
         let session = self
             .get(session)
             .with_context(|| format!("there is no session {session} here"))?;
@@ -85,7 +86,7 @@ impl Agents {
 
     /// Puts `question` to the user in `session` and waits for the answer.
     /// Fails when the session ends or its turn is cancelled first.
-    pub(crate) async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {
+    pub(crate) async fn ask(&self, session: &SessionId, question: Asking) -> Result<Answered> {
         let session = self
             .get(session)
             .with_context(|| format!("there is no session {session} here"))?;
@@ -363,7 +364,7 @@ impl Agents {
         self.stopping.store(true, Ordering::Relaxed);
     }
 
-    pub(super) fn lock(&self) -> MutexGuard<'_, HashMap<String, Arc<Session>>> {
+    pub(super) fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Arc<Session>>> {
         crate::lock(&self.sessions)
     }
 
@@ -437,7 +438,7 @@ impl Agents {
 
     /// The session `id` names: by the id it started under or by the
     /// agent's own id.
-    pub(super) fn get(&self, id: &str) -> Option<Arc<Session>> {
+    pub(super) fn get(&self, id: &SessionId) -> Option<Arc<Session>> {
         find_session(&self.lock(), id)
     }
 
@@ -459,7 +460,7 @@ impl Agents {
         } else {
             self.list()
         };
-        let owned: HashMap<String, String> = sessions
+        let owned: HashMap<SessionId, SessionId> = sessions
             .iter()
             .filter(|info| info.agent == "claude")
             .filter_map(|info| {
@@ -496,11 +497,11 @@ impl Agents {
     }
 
     /// The entries of the full list whose id is `id`, without copying the others.
-    pub(crate) fn listed_session(&self, id: &str) -> Vec<SessionInfo> {
+    pub(crate) fn listed_session(&self, id: &SessionId) -> Vec<SessionInfo> {
         self.listed_where(true, Some(id))
     }
 
-    fn listed_where(&self, reviewers: bool, id: Option<&str>) -> Vec<SessionInfo> {
+    fn listed_where(&self, reviewers: bool, id: Option<&SessionId>) -> Vec<SessionInfo> {
         let mut sessions: Vec<SessionInfo> = self
             .lock()
             .values()
@@ -511,7 +512,7 @@ impl Agents {
                 let listed = {
                     watched::read(&s.live, |live| {
                         live.agent_session.is_some()
-                            && id.is_none_or(|id| live.info.id == id)
+                            && id.is_none_or(|id| live.info.id == *id)
                             && (!s.reviewer || reviewers && live.info.parent.is_some())
                     })
                 };
@@ -728,7 +729,7 @@ impl Agents {
 }
 
 /// The session `id` names in `sessions`, by its key or the agent's id.
-fn find_session(sessions: &HashMap<String, Arc<Session>>, id: &str) -> Option<Arc<Session>> {
+fn find_session(sessions: &HashMap<SessionId, Arc<Session>>, id: &SessionId) -> Option<Arc<Session>> {
     if let Some(found) = sessions.get(id) {
         return Some(found.clone());
     }
@@ -737,7 +738,7 @@ fn find_session(sessions: &HashMap<String, Arc<Session>>, id: &str) -> Option<Ar
         .values()
         .filter(|session| {
             watched::read(&session.live, |live| {
-                live.agent_session.as_deref() == Some(id)
+                live.agent_session.as_ref() == Some(id)
             })
         })
         .max_by_key(|session| {
@@ -756,7 +757,7 @@ pub(super) struct Begin {
     pub(super) prompt: Option<String>,
     /// Images that go with `prompt`.
     pub(super) images: Vec<Upload>,
-    pub(super) resume: Option<String>,
+    pub(super) resume: Option<SessionId>,
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<agent::Entry>,
     pub(super) timestamps: Option<(u64, u64)>,
@@ -873,9 +874,9 @@ pub(super) fn home_twins(path: &Path, home: &Path) -> Vec<PathBuf> {
 }
 
 /// Six hex digits, random enough to tell sessions apart.
-fn new_id() -> String {
+fn new_id() -> SessionId {
     let random = RandomState::new().hash_one(std::time::SystemTime::now());
-    format!("{:06x}", random & 0xff_ffff)
+    SessionId::new(format!("{:06x}", random & 0xff_ffff))
 }
 
 /// Takes back the questions nobody waits for any more, once the wait that held it ends before an

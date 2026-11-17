@@ -7,6 +7,7 @@ use crate::{
     fleet::{Fleet, Machines},
 };
 use beep_mesh::machine::sessions::{self, NodeWork};
+use beep_proto::SessionId;
 use beep_proto::{
     ApiError,
     node::agent::{Effort, ReviewOrder, ReviewRun},
@@ -41,7 +42,7 @@ pub async fn agent_review_start(
     agent: String,
     cwd: String,
     base: String,
-    parent: Option<String>,
+    parent: Option<SessionId>,
     model: Option<String>,
     effort: Option<Effort>,
     fast: Option<bool>,
@@ -70,7 +71,7 @@ pub async fn agent_review_start(
 pub async fn agent_review(
     fleet: Machines<'_>,
     machine_id: String,
-    id: String,
+    id: SessionId,
 ) -> Result<ReviewRun> {
     let machine = member(&fleet, &machine_id)?;
     let client = fleet.client(machine).await?;
@@ -82,7 +83,7 @@ pub async fn agent_review(
 pub async fn agent_reviews(
     fleet: Machines<'_>,
     machine_id: String,
-    session: String,
+    session: SessionId,
 ) -> Result<Vec<ReviewRun>> {
     let Some(machine) = fleet.member(&machine_id) else {
         return Ok(Vec::new());

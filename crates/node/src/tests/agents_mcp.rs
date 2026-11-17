@@ -3,13 +3,13 @@ use super::*;
 #[test]
 fn a_token_is_good_for_its_own_session_only() {
     let launch = Launch::new("/usr/local/bin/beep-node".into(), "/srv/node".into());
-    let token = launch.token("a3f9c1").to_hex().to_string();
-    assert!(launch.verify("a3f9c1", &token));
-    assert!(!launch.verify("b4e0d2", &token));
-    assert!(!launch.verify("a3f9c1", "not hex"));
+    let token = launch.token(&SessionId::from("a3f9c1")).to_hex().to_string();
+    assert!(launch.verify(&SessionId::from("a3f9c1"), &token));
+    assert!(!launch.verify(&SessionId::from("b4e0d2"), &token));
+    assert!(!launch.verify(&SessionId::from("a3f9c1"), "not hex"));
     let other = Launch::new("/usr/local/bin/beep-node".into(), "/srv/node".into());
-    assert!(!other.verify("a3f9c1", &token), "a new run has a new key");
-    let McpServer::Stdio(server) = launch.server("a3f9c1") else {
+    assert!(!other.verify(&SessionId::from("a3f9c1"), &token), "a new run has a new key");
+    let McpServer::Stdio(server) = launch.server(&SessionId::from("a3f9c1")) else {
         panic!("the server is not a command");
     };
     assert_eq!(server.name, SERVER_NAME);
@@ -28,7 +28,7 @@ fn a_session_connects_to_the_socket_the_node_bound() {
         "/Users/{user}/Library/Application Support/com.flashmind.beep.desktop/node"
     ));
     let launch = Launch::new("/srv/Beep.app/Contents/MacOS/beep".into(), dir.clone());
-    let McpServer::Stdio(server) = launch.server("a3f9c1") else {
+    let McpServer::Stdio(server) = launch.server(&SessionId::from("a3f9c1")) else {
         panic!("the server is not a command");
     };
     let named = server
@@ -56,7 +56,7 @@ fn a_sessions_arguments_read_back_as_its_invocation() {
         "/srv/Beep.app/Contents/MacOS/beep".into(),
         "/srv/node".into(),
     );
-    let McpServer::Stdio(server) = launch.server("a3f9c1") else {
+    let McpServer::Stdio(server) = launch.server(&SessionId::from("a3f9c1")) else {
         panic!("the server is not a command");
     };
     assert_eq!(

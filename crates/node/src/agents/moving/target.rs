@@ -2,6 +2,7 @@
 //! the conversation and the project's files, writes the transcript into the
 //! harness's store and resumes the session in its own checkout.
 
+use beep_proto::SessionId;
 use super::{
     Env, Harness,
     dial::dial,
@@ -417,7 +418,7 @@ async fn worktrees(
 }
 
 /// Notes a worktree placed for the move of session `id` made at `at`.
-fn keep_placed(state: &Folder, id: &str, at: u64, placed: PlacedTree) -> Result<()> {
+fn keep_placed(state: &Folder, id: &SessionId, at: u64, placed: PlacedTree) -> Result<()> {
     let mut saved = state
         .load(id)
         .filter(|saved| saved.at == at)
@@ -430,7 +431,7 @@ fn keep_placed(state: &Folder, id: &str, at: u64, placed: PlacedTree) -> Result<
 
 /// Takes back the worktrees placed for the move of session `id`, which did
 /// not happen. One that changed since stays, and is logged.
-pub(super) async fn take_back(env: &Env, id: &str) {
+pub(super) async fn take_back(env: &Env, id: &SessionId) {
     // A worktree being placed is noted first.
     let _placing = env.agents.moves.placing.lock().await;
     let placed = env.state.load(id).map(|saved| saved.placed).unwrap_or_default();

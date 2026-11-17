@@ -2,6 +2,7 @@
 //! names the session; each assistant `message` carries `usage` (`cost.total`
 //! in US dollars when the provider priced it), `model` and `timestamp`.
 
+use beep_proto::SessionId;
 use super::{Line, Request};
 use crate::{agents::claude::unix_seconds, agents::prices::Tokens};
 use serde::Deserialize;
@@ -10,7 +11,7 @@ use serde::Deserialize;
 struct Entry {
     #[serde(rename = "type")]
     kind: Option<String>,
-    id: Option<String>,
+    id: Option<SessionId>,
     cwd: Option<String>,
     timestamp: Option<String>,
     message: Option<Message>,

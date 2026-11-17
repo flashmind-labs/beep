@@ -6,6 +6,7 @@
 //! `MAX_BYTES`. One thread does all the disk work, in the order asked.
 
 use crate::error::{DesktopError, Result};
+use beep_proto::SessionId;
 use beep_proto::node::agent::SessionCursor;
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
@@ -47,7 +48,7 @@ pub struct KeptTranscript {
 pub(crate) struct SessionKey {
     pub(crate) machine_id: String,
     pub(crate) agent: String,
-    pub(crate) session: String,
+    pub(crate) session: SessionId,
 }
 
 type Job = Box<dyn FnOnce(&mut Store) + Send>;
@@ -232,7 +233,7 @@ pub async fn transcript_kept(
     kept: State<'_, Arc<KeptTranscripts>>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
 ) -> Result<Option<KeptTranscript>> {
     kept.read(SessionKey {
         machine_id,
@@ -248,7 +249,7 @@ pub async fn transcript_forget(
     kept: State<'_, Arc<KeptTranscripts>>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
 ) -> Result<()> {
     let key = SessionKey {
         machine_id,

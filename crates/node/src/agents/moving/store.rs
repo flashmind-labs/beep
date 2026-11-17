@@ -1,5 +1,6 @@
 //! Where this machine keeps a session's transcript, and writing one in.
 
+use beep_proto::SessionId;
 use super::{Harness, Stored};
 use crate::agents::{
     Agents, claude,
@@ -18,7 +19,7 @@ use tokio::task::spawn_blocking;
 impl Agents {
     /// The transcript file of session `id` of `harness` here, when there
     /// is one.
-    pub(super) async fn transcript_file(&self, harness: Harness, id: &str) -> Option<PathBuf> {
+    pub(super) async fn transcript_file(&self, harness: Harness, id: &SessionId) -> Option<PathBuf> {
         let agent = match harness {
             Harness::Claude => return self.external.file(id).await.ok().flatten(),
             Harness::Codex => Agent::Codex,
@@ -34,7 +35,7 @@ impl Agents {
 
     /// Whether flsh session `id` is here only in the database of a flsh
     /// from before 0.2.9.
-    pub(super) async fn flsh_in_database(&self, id: &str) -> bool {
+    pub(super) async fn flsh_in_database(&self, id: &SessionId) -> bool {
         let (stores, id) = (self.stores.clone(), id.to_owned());
         spawn_blocking(move || {
             stores
@@ -153,7 +154,7 @@ impl Agents {
     pub(crate) async fn relocate_session(
         &self,
         agent: &str,
-        id: &str,
+        id: &SessionId,
         destination: &str,
     ) -> anyhow::Result<()> {
         let _store = self.session_store.lock().await;
@@ -164,8 +165,9 @@ impl Agents {
         );
         ensure!(
             !id.is_empty()
-                && id.len() <= 128
+                && id.as_ref().len() <= 128
                 && id
+                    .as_ref()
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_')),
             "invalid session id"
@@ -180,14 +182,14 @@ impl Agents {
                 watched::read(&session.live, |live| live.agent_session.clone())
                     .context("session has no agent id")?
             }
-            None => id.to_owned(),
+            None => id.clone(),
         };
         ensure!(
             self.lock()
                 .values()
                 .filter(|session| session.agent == agent
                     && watched::read(&session.live, |live| {
-                        live.agent_session.as_deref() == Some(agent_id.as_str())
+                        live.agent_session.as_ref() == Some(&agent_id)
                     }))
                 .all(|session| session.info().state.status == Status::Ended),
             "close the session before moving it"
@@ -288,7 +290,7 @@ impl Agents {
             if session.agent == agent
                 && (key == id
                     || watched::read(&session.live, |live| {
-                        live.agent_session.as_deref() == Some(agent_id_for_record.as_str())
+                        live.agent_session.as_ref() == Some(&agent_id_for_record)
                     }))
             {
                 session.moved_to(&moved_cwd);

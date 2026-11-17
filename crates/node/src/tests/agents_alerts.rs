@@ -1,3 +1,4 @@
+use beep_proto::SessionId;
 use super::*;
 use beep_proto::node::agent::AlertKind;
 use iroh::SecretKey;
@@ -21,7 +22,7 @@ fn follower() -> EndpointId {
 }
 
 /// The next alert, taken as a stream does: read, then sent.
-async fn take(follow: &Follow<'_, Alert>) -> String {
+async fn take(follow: &Follow<'_, Alert>) -> SessionId {
     let alert = timeout(Duration::from_secs(10), follow.next())
         .await
         .expect("an alert is there");

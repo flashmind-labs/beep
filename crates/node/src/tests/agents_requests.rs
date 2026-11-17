@@ -59,7 +59,7 @@ fn agents(codex: &Path, pi: &Path) -> Agents {
 }
 
 async fn read(agents: &Agents, id: &str, last: u32) -> SessionsReply {
-    agents.transcript_reply(id, last, true, None).await
+    agents.transcript_reply(&SessionId::from(id), last, true, None).await
 }
 
 #[tokio::test]
@@ -132,7 +132,7 @@ async fn pages_before_an_entry_cover_a_found_session_without_a_gap_or_a_repeat()
 
     loop {
         let SessionsReply::Transcript { entries, earlier } =
-            agents.transcript_reply(CODEX_ID, 4, true, before).await
+            agents.transcript_reply(&SessionId::from(CODEX_ID), 4, true, before).await
         else {
             panic!("a transcript");
         };
@@ -227,7 +227,7 @@ async fn a_native_codex_conversation_reads_only_its_own_messages_and_outputs() {
         .expect("roots");
     assert!(listed.is_empty());
     let listed = agents
-        .stores_external("codex", 1, Some(id.clone()))
+        .stores_external("codex", 1, Some(SessionId::from(id.clone())))
         .await
         .expect("native session");
     assert_eq!(listed.len(), 1);
@@ -258,7 +258,7 @@ async fn a_native_codex_conversation_reads_only_its_own_messages_and_outputs() {
     let SessionsReply::Transcript {
         entries: first,
         earlier,
-    } = agents.transcript_reply(&id, 2, true, Some(2)).await
+    } = agents.transcript_reply(&SessionId::from(&id), 2, true, Some(2)).await
     else {
         panic!("older entries")
     };

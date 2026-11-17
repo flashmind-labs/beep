@@ -7,6 +7,7 @@
 //! starts it and checks the limits. An agent stops and checks only its own
 //! children; it lists and messages any agent the user runs.
 
+use beep_proto::SessionId;
 use super::machines::{Machine, command_name, find, machines};
 use super::reply::{fail, json_of, ok, parse};
 use crate::agents::{
@@ -48,7 +49,7 @@ pub(crate) struct ChildView {
     /// The id its machine lists it under, which the agent's own id
     /// replaces after a restart: how an app finds its row.
     #[serde(default)]
-    pub(crate) key: String,
+    pub(crate) key: SessionId,
     pub(crate) harness: String,
     pub(crate) machine: String,
     /// `working`, `waiting_on_user`, `idle` (its turn is done, its last
@@ -74,7 +75,7 @@ pub(crate) struct ChildView {
 impl ChildView {
     /// The view of a session as its own node reports it; `machine` and the
     /// id's machine part are set by whoever names the machine.
-    pub(crate) fn of(info: &SessionInfo, id: &str) -> Self {
+    pub(crate) fn of(info: &SessionInfo, id: &SessionId) -> Self {
         let state = match info.state.status {
             Status::Ended => "ended",
             Status::Asking => "waiting_on_user",
@@ -82,7 +83,7 @@ impl ChildView {
             _ => "working",
         };
         Self {
-            id: id.to_owned(),
+            id: id.to_string(),
             key: info.id.clone(),
             harness: info.agent.clone(),
             machine: String::new(),
@@ -185,7 +186,7 @@ pub(crate) struct PeerStart {
 /// What a call to a child on another machine carries besides its id.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub(crate) struct PeerCall {
-    pub(crate) id: String,
+    pub(crate) id: SessionId,
     #[serde(default)]
     pub(crate) text: Option<String>,
     /// Stop only the running turn, not the session.
@@ -225,7 +226,7 @@ struct Reach<'a> {
 
 /// A child's id split into its session and the machine it runs on.
 struct ChildId<'a> {
-    session: &'a str,
+    session: SessionId,
     machine: Option<&'a str>,
 }
 
@@ -233,11 +234,11 @@ impl<'a> From<&'a str> for ChildId<'a> {
     fn from(text: &'a str) -> Self {
         match text.trim().split_once('@') {
             Some((session, machine)) => Self {
-                session,
+                session: Into::<SessionId>::into(session),
                 machine: Some(machine),
             },
             None => Self {
-                session: text.trim(),
+                session: Into::<SessionId>::into(text.trim()),
                 machine: None,
             },
         }
@@ -324,7 +325,7 @@ impl Reach<'_> {
             return fail("Give a `prompt`.");
         }
 
-        let prompt = Self::tagged(parent, &self.who.session, &prompt);
+        let prompt = Self::tagged(parent, self.who.session.as_ref(), &prompt);
 
         if let Some(model) = &model
             && !beep_proto::node::agent::valid_model(model)
@@ -450,7 +451,7 @@ impl Reach<'_> {
             .map_err(|e| format!("{} answered something unreadable: {e}", machine.name))?;
         let view = view.named(&machine.name);
         self.agents
-            .settle_remote(me, machine.id, ChildId::from(view.id.as_str()).session);
+            .settle_remote(me, machine.id, &ChildId::from(view.id.as_str()).session);
         Ok(view)
     }
 
@@ -461,7 +462,7 @@ impl Reach<'_> {
         let none = || format!("You have no agent {}.", id.session);
 
         match self.target(id.machine).map_err(|_| none())? {
-            None => Ok(Found::Here(self.agents.child_of(self.who, id.session)?)),
+            None => Ok(Found::Here(self.agents.child_of(self.who, &id.session)?)),
             Some(machine) => self
                 .agents
                 .remote_kids(&self.who.session)
@@ -474,7 +475,7 @@ impl Reach<'_> {
 
     async fn status(&self, id: &str) -> Reply {
         // A review's id: its reviewer is gone once it is done.
-        if let Some(run) = self.agents.review_for(self.who, ChildId::from(id).session) {
+        if let Some(run) = self.agents.review_for(self.who, &ChildId::from(id).session) {
             return super::review::standing(run);
         }
 
@@ -526,7 +527,7 @@ impl Reach<'_> {
         let Ok(found) = self.find(id) else {
             return self.message(parent, id, &text).await;
         };
-        let text = Self::tagged(parent, &self.who.session, &text);
+        let text = Self::tagged(parent, self.who.session.as_ref(), &text);
 
         match found {
             Found::Here(child) => match child.order(Command::Steer(text.into())).await {
@@ -555,18 +556,18 @@ impl Reach<'_> {
     /// `text` to an agent the caller did not start, here or on its machine,
     /// tagged with the caller's full id so the agent can answer.
     async fn message(&self, sender: &Session, id: &str, text: &str) -> Reply {
-        let text = Self::tagged(sender, &full_id(&self.who.session, &self.my_name()), text);
+        let text = Self::tagged(sender, &full_id(self.who.session.as_ref(), &self.my_name()), text);
         let id = ChildId::from(id);
         let sent = match (self.target(id.machine), &self.mesh) {
             (Err(e), _) => Err(e),
             (Ok(None), _) => {
                 self.agents
-                    .message(&self.who.session, id.session, text)
+                    .message(&self.who.session, &id.session, text)
                     .await
             }
             (Ok(Some(machine)), Some(mesh)) => {
                 let args = json!(PeerCall {
-                    id: id.session.to_owned(),
+                    id: id.session.clone(),
                     text: Some(text),
                     ..Default::default()
                 });
@@ -674,7 +675,7 @@ impl Reach<'_> {
             .iter()
             .filter_map(|child| {
                 watched::read(&child.live, |live| {
-                    let id = live.agent_session.as_deref()?;
+                    let id = live.agent_session.as_ref()?;
                     Some(ChildView::of(&live.info, id).named(&here))
                 })
             })
@@ -916,7 +917,7 @@ async fn serve_peer(
         Tool::AgentParent => {
             let call: PeerCall = parse(&request.args)?;
             let key = call.text.unwrap_or_default();
-            let keeps = agents.keeps_child(peer, &request.session, &call.id, &key);
+            let keeps = agents.keeps_child(peer, &request.session, &call.id, &Into::<SessionId>::into(key));
 
             Ok(ok(if keeps { KEPT } else { GONE }))
         }

@@ -1,5 +1,6 @@
 //! The stream the caller follows one session on.
 
+use beep_proto::SessionId;
 use super::{AgentKind, Agents, Begin, Command, Prompt, live};
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
@@ -56,7 +57,7 @@ impl Agents {
     pub(crate) async fn send_session(
         &self,
         agent: &str,
-        id: &str,
+        id: &SessionId,
         request: Request,
     ) -> Result<SessionInfo, String> {
         let found = self.get(id).filter(|session| session.agent == agent);

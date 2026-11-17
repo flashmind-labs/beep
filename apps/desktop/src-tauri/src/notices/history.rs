@@ -14,6 +14,7 @@ use crate::{
 };
 use anyhow::Context;
 use beep_fleet::{Read, digest};
+use beep_proto::SessionId;
 use beep_proto::{
     AgentNoticeKey, ApiError, Notice, RunState,
     node::{
@@ -275,7 +276,7 @@ impl Notes {
     }
 
     /// Opening a session removes its finished-turn notes, including read ones; returns them.
-    fn viewed_agent(&self, machine: &str, agent: &str, session: &str) -> Vec<Note> {
+    fn viewed_agent(&self, machine: &str, agent: &str, session: &SessionId) -> Vec<Note> {
         self.remove(|note| {
             note.kind == NoteKind::Finished
                 && note.id.parse::<AgentNoticeKey>().is_ok_and(|key| {
@@ -448,7 +449,7 @@ pub(crate) fn agent_notice(
 
 /// The user opened this session; its finished-turn notifications no longer
 /// wait, here or on any other app.
-pub(crate) fn agent_viewed(app: &AppHandle, machine: &str, agent: &str, session: &str) {
+pub(crate) fn agent_viewed(app: &AppHandle, machine: &str, agent: &str, session: &SessionId) {
     let notes = notes(app);
     let removed = notes.viewed_agent(machine, agent, session);
 

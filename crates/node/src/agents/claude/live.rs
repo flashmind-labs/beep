@@ -2,6 +2,7 @@
 //! it, and what Beep queued for it (`Live`). The next hook to fire delivers a
 //! queued message.
 
+use beep_proto::SessionId;
 use super::hooks::{HookEvent, HookMessage, WAITING};
 use crate::lock;
 use beep_proto::node::agent::{ExternalSession, LiveState, LiveStatus, LiveTool, PlanEntry, Steer};
@@ -20,7 +21,7 @@ const STOPPED: &str = "The user asked you to stop.";
 /// no hook, so nothing can be queued for it. The map stays whole even if a
 /// holder panicked.
 #[derive(Default)]
-pub(crate) struct Live(Mutex<HashMap<String, Tracked>>);
+pub(crate) struct Live(Mutex<HashMap<SessionId, Tracked>>);
 
 struct Tracked {
     state: LiveState,
@@ -183,7 +184,7 @@ impl Live {
     }
 
     /// Whether a hook spoke for `session` since the node started.
-    pub(super) fn knows(&self, session: &str) -> bool {
+    pub(super) fn knows(&self, session: &SessionId) -> bool {
         lock(&self.0).contains_key(session)
     }
 
@@ -221,7 +222,7 @@ impl Live {
 
     /// Queues `steer` for `session`'s next hook; the error says why it
     /// cannot be.
-    pub(super) fn steer(&self, session: &str, steer: Steer) -> Result<(), String> {
+    pub(super) fn steer(&self, session: &SessionId, steer: Steer) -> Result<(), String> {
         let mut sessions = lock(&self.0);
         let Some(tracked) = sessions.get_mut(session) else {
             return Err(format!(

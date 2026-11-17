@@ -2,6 +2,7 @@
 //! temporary reviewer it starts as a child (`agents::reviews`), and the
 //! reviewer hands its findings in. Both run on the caller's own node.
 
+use beep_proto::SessionId;
 use super::reply::{done, fail, ok, parse};
 use crate::agents::{
     family::{WAIT_LIMIT, WAIT_POLL},
@@ -29,7 +30,7 @@ struct ReviewArgs {
 /// What `review` answers, as JSON.
 #[derive(Debug, Serialize)]
 struct ReviewView {
-    id: String,
+    id: SessionId,
     /// `working`, `done` or `failed`.
     state: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -73,7 +74,7 @@ pub(super) fn submit(offers: &Offers, request: &Request) -> Reply {
     }
 }
 
-async fn run_review(offers: &Offers, session: &str, args: ReviewArgs) -> Reply {
+async fn run_review(offers: &Offers, session: &SessionId, args: ReviewArgs) -> Reply {
     let agents = &offers.agents;
     let Some((caller, who)) = agents.caller(session) else {
         return fail("This session is not one this node runs.");
@@ -84,7 +85,7 @@ async fn run_review(offers: &Offers, session: &str, args: ReviewArgs) -> Reply {
     }
 
     let run = match args.id {
-        Some(id) => match agents.review_for(&who, id.trim()) {
+        Some(id) => match agents.review_for(&who, &Into::<SessionId>::into(id.trim())) {
             Some(run) => run,
             None => return fail(format!("You have no review {}.", id.trim())),
         },
@@ -153,7 +154,7 @@ async fn waited(offers: &Offers, who: &crate::agents::family::Who, run: ReviewRu
     run.into()
 }
 
-fn submit_review(offers: &Offers, session: &str, review: SubmittedReview) -> Reply {
+fn submit_review(offers: &Offers, session: &SessionId, review: SubmittedReview) -> Reply {
     if review.summary.trim().is_empty() {
         return fail("Give a `summary`.");
     }

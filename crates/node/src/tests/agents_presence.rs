@@ -1,3 +1,4 @@
+use beep_proto::SessionId;
 use super::*;
 use crate::agents::Agents;
 use crate::agents::found::Stores;
@@ -23,9 +24,9 @@ fn only_the_last_connection_closes_a_session() {
     let b = Uuid::new_v4();
     registry.register(registration("session_a"), a).unwrap();
     registry.register(registration("session_a"), b).unwrap();
-    registry.close("session_a", a);
+    registry.close(&SessionId::from("session_a"), a);
     assert_eq!(registry.snapshot()[0].presence, Presence::Running);
-    registry.close("session_a", b);
+    registry.close(&SessionId::from("session_a"), b);
     assert_eq!(registry.snapshot()[0].presence, Presence::Stopped);
     assert_eq!(registry.snapshot()[0].pid, None);
 }
@@ -77,7 +78,7 @@ async fn native_presence_answers_without_a_transcript_and_overrides_recent_files
             .unwrap()
             .is_empty()
     );
-    agents.presence.close("session_a", id);
+    agents.presence.close(&SessionId::from("session_a"), id);
     let found = agents.stores_external("flsh", 10, None).await.unwrap();
     assert_eq!(found[0].presence, Presence::Stopped);
 }
@@ -122,7 +123,7 @@ async fn a_mesh_follow_reports_open_and_close_without_polling() {
         panic!("no presence snapshot");
     };
     assert_eq!(sessions[0].presence, Presence::Running);
-    agents.presence.close("session_a", id);
+    agents.presence.close(&SessionId::from("session_a"), id);
     let Some(SessionsReply::External { sessions }) = next(&mut client_rx).await else {
         panic!("no presence snapshot");
     };

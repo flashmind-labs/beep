@@ -1,6 +1,7 @@
 //! A transcript read from the files Codex, pi and flsh keep (`Stores::transcript`):
 //! the last entries as the node answers a transcript request with them.
 
+use beep_proto::SessionId;
 use super::{Agent, Stores, codex_run};
 use crate::agents::{SubagentRun, claude::Excerpt, cut, subagent::Subagent, tags, window::window};
 use anyhow::{Result, bail};
@@ -28,7 +29,7 @@ impl Stores {
     /// `spawn_blocking`.
     pub(crate) fn transcript(
         &self,
-        id: &str,
+        id: &SessionId,
         last: usize,
         before: Option<u64>,
     ) -> Result<Option<Excerpt>> {
@@ -50,8 +51,8 @@ impl Stores {
             .transcripts
             .read(file, || parse(file).map(Arc::new))?;
         if seen.agent == Agent::Codex {
-            let parent = id.strip_prefix("subagent:codex:").unwrap_or(id);
-            let children = self.codex_children(parent);
+            let parent = id.as_ref().strip_prefix("subagent:codex:").map_or_else(|| id.clone(), Into::<SessionId>::into);
+            let children = self.codex_children(&parent);
             if !children.is_empty() {
                 Arc::make_mut(&mut entries)
                     .extend(children.iter().map(crate::agents::SubagentRun::entry));

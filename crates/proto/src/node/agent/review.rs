@@ -3,6 +3,7 @@
 //! and what the reviewer handed in with `submit_review`.
 
 use super::Effort;
+use crate::SessionId;
 use serde::{Deserialize, Serialize};
 
 /// What `SessionsRequest::StartReview` asks for.
@@ -28,7 +29,7 @@ pub struct ReviewOrder {
     /// The session on the node whose work it reviews: the reviewer starts
     /// as its child. `None` for a review of a checkout alone.
     #[serde(default)]
-    pub parent: Option<String>,
+    pub parent: Option<SessionId>,
     #[serde(default)]
     pub fast: Option<bool>,
 }
@@ -38,10 +39,10 @@ pub struct ReviewOrder {
 pub struct ReviewRun {
     /// The reviewer session's id, which the review goes by after the
     /// session is gone.
-    pub id: String,
+    pub id: SessionId,
     /// The session whose work it reviews, as the node names it.
     #[serde(default)]
-    pub parent: Option<String>,
+    pub parent: Option<SessionId>,
     pub cwd: String,
     pub base: String,
     /// The reviewer's harness.

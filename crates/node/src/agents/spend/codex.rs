@@ -1,6 +1,7 @@
 //! Codex's logs (`line`): `session_meta` names the session, `turn_context`
 //! the model, and each `token_count` event the last request's tokens.
 
+use beep_proto::SessionId;
 use super::{Line, Request};
 use crate::{agents::claude::unix_seconds, agents::prices::Tokens};
 use beep_proto::node::usage::Billing;
@@ -42,7 +43,7 @@ pub(super) fn line(text: &str) -> Option<Line> {
 
     match entry.kind.as_deref()? {
         "session_meta" => Some(Line::Session {
-            id: text_of("id")?,
+            id: text_of("id").map(Into::<SessionId>::into)?,
             cwd: text_of("cwd").unwrap_or_default(),
             provider: text_of("model_provider"),
         }),

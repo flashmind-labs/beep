@@ -7,7 +7,7 @@ fn a_log_gives_its_session_model_and_counts() {
     assert!(matches!(
         line(meta),
         Some(Line::Session { id, cwd, provider })
-            if id.starts_with("0199") && cwd == "/srv/project" && provider.as_deref() == Some("openai")
+            if id.as_ref().starts_with("0199") && cwd == "/srv/project" && provider.as_deref() == Some("openai")
     ));
     let turn = r#"{"timestamp":"2026-11-02T10:00:01.000Z","type":"turn_context","payload":{"cwd":"/srv/project","model":"gpt-6.1-sol"}}"#;
     assert!(matches!(line(turn), Some(Line::Model(model)) if model == "gpt-6.1-sol"));

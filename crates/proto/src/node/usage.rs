@@ -4,6 +4,7 @@
 //! Like the rest of the node link these are compact msgpack, so a field is
 //! added only at the end with `#[serde(default)]`.
 
+use crate::SessionId;
 use crate::{AgentSlug, ModelId, ProviderCredits};
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +16,7 @@ pub const MAX_WINDOW_MINUTES: u32 = 31 * 24 * 60;
 #[serde(default)]
 pub struct TurnUsage {
     /// The node's id of the session, such as `a3f9c1`.
-    pub session: String,
+    pub session: SessionId,
     /// The agent, such as `claude`.
     pub agent: AgentSlug,
     /// The folder the session runs in.
@@ -34,7 +35,7 @@ pub struct TurnUsage {
     /// The agent's own id of the session, such as Claude Code's session
     /// id, when it said: the key a `SessionSpend` of the same session
     /// has, so the caller counts the session once.
-    pub agent_session: Option<String>,
+    pub agent_session: Option<SessionId>,
 }
 
 /// The tokens one model used.
@@ -66,7 +67,7 @@ pub struct SessionSpend {
     pub agent: AgentSlug,
     /// The agent's own id of the session, as `TurnUsage::agent_session`
     /// names it.
-    pub session: String,
+    pub session: SessionId,
     /// The folder it ran in.
     pub cwd: String,
     /// The start of what the report covers, in Unix seconds.

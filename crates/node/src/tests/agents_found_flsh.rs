@@ -76,7 +76,7 @@ fn reads_session_files_and_databases_not_imported() {
 
     let mut found = sessions(root.path(), &Memos::default());
     found.sort_by(|a, b| a.id.cmp(&b.id));
-    let ids: Vec<&str> = found.iter().map(|one| one.id.as_str()).collect();
+    let ids: Vec<&str> = found.iter().map(|one| one.id.as_ref()).collect();
     assert_eq!(ids, [JSONL_ID, "session_old"]);
     let file = &found[0];
     assert_eq!(file.cwd, Path::new("/srv/laptop/app"));

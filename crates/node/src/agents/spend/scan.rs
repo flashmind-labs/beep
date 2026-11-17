@@ -2,6 +2,7 @@
 //! since the last pass, and reads a database again when it changed. Every
 //! pass is bounded in files and bytes; what is left waits for the next.
 
+use beep_proto::SessionId;
 use super::{
     Line,
     billing::{AccountFiles, Accounts},
@@ -214,7 +215,7 @@ fn read_log(
     log: &Listed,
     budget: &mut u64,
     accounts: &mut Accounts,
-) -> io::Result<BTreeSet<String>> {
+) -> io::Result<BTreeSet<SessionId>> {
     let mut touched = BTreeSet::new();
 
     if log.stamp.len < entry.read {
@@ -431,15 +432,15 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
 
 /// The sessions whose parts differ between `before` and `after`.
 fn changed_sessions(
-    before: &BTreeMap<String, Part>,
-    after: &BTreeMap<String, Part>,
-) -> Vec<String> {
+    before: &BTreeMap<SessionId, Part>,
+    after: &BTreeMap<SessionId, Part>,
+) -> Vec<SessionId> {
     before
         .keys()
         .chain(after.keys())
         .filter(|session| before.get(*session) != after.get(*session))
         .cloned()
-        .collect::<BTreeSet<String>>()
+        .collect::<BTreeSet<SessionId>>()
         .into_iter()
         .collect()
 }

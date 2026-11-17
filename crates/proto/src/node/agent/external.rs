@@ -1,6 +1,7 @@
 //! Sessions started outside Beep, and the folders agents worked in.
 
 use super::{PlanEntry, WorkPlace};
+use crate::SessionId;
 use serde::{Deserialize, Serialize};
 
 /// A git checkout coding agents worked in, as `SessionsRequest::Folders`
@@ -35,7 +36,7 @@ pub struct AgentSessions {
 #[serde(default)]
 pub struct ExternalSession {
     /// The agent's own id for it, such as Claude Code's session UUID.
-    pub id: String,
+    pub id: SessionId,
     pub agent: String,
     pub cwd: String,
     pub title: Option<String>,
@@ -51,7 +52,7 @@ pub struct ExternalSession {
     /// The agent's last text, cut short.
     pub last_message: String,
     /// The node session it runs as, once Beep took it over.
-    pub taken_over: Option<String>,
+    pub taken_over: Option<SessionId>,
     /// Where it works now, as the node worked it out from the agent's
     /// records; `None` when it does not know.
     pub place: Option<WorkPlace>,
@@ -154,7 +155,7 @@ impl Presence {
 /// Something a followed external session did.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Activity {
-    pub session: String,
+    pub session: SessionId,
     pub kind: ActivityKind,
     /// The agent's last text or the notice it showed, cut short.
     #[serde(default)]

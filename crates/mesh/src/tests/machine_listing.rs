@@ -1,4 +1,5 @@
 use super::*;
+use beep_proto::SessionId;
 
 #[test]
 fn native_open_and_close_override_a_stale_scan_without_duplicating_owned_sessions() {
@@ -91,7 +92,7 @@ async fn project_history_hides_background_children_only() {
                     child.parent = Some(ParentLink {
                         machine: None,
                         session: "missing-parent".into(),
-                        key: String::new(),
+                        key: SessionId::default(),
                         root_machine: None,
                         root: "missing-parent".into(),
                         depth: 1,
@@ -120,7 +121,7 @@ async fn project_history_hides_background_children_only() {
                             id: id.into(),
                             agent: "codex".into(),
                             cwd: "/srv/project".into(),
-                            taken_over: (id != "outside").then(|| id.to_owned()),
+                            taken_over: (id != "outside").then(|| SessionId::from(id)),
                             ..ExternalSession::default()
                         })
                         .collect(),
@@ -138,7 +139,7 @@ async fn project_history_hides_background_children_only() {
     assert_eq!(
         sessions
             .iter()
-            .map(|session| session.id.as_str())
+            .map(|session| session.id.as_ref())
             .collect::<Vec<_>>(),
         ["parent", "front", "outside"]
     );
@@ -161,13 +162,14 @@ async fn project_history_reads_every_metadata_page_without_transcripts() {
             match request {
                 SessionsRequest::ListAll {} => Ok(SessionsReply::Sessions { sessions: vec![] }),
                 SessionsRequest::InFoldersPage { limit, before, .. } => {
-                    let start = before.map_or(0, |cursor| cursor.id.parse::<usize>().unwrap() + 1);
+                    let start =
+                        before.map_or(0, |cursor| cursor.id.as_ref().parse::<usize>().unwrap() + 1);
                     let end = (start + usize::try_from(limit).unwrap()).min(125);
                     Ok(SessionsReply::SessionPage {
                         page: SessionPage {
                             sessions: (start..end)
                                 .map(|i| ExternalSession {
-                                    id: i.to_string(),
+                                    id: SessionId::from(i.to_string()),
                                     agent: "codex".into(),
                                     title: Some(format!("Session {i}")),
                                     last_activity: 1000 - u64::try_from(i).unwrap(),
@@ -176,7 +178,7 @@ async fn project_history_reads_every_metadata_page_without_transcripts() {
                                 })
                                 .collect(),
                             next: (end < 125).then(|| HistoryCursor {
-                                id: (end - 1).to_string(),
+                                id: SessionId::from((end - 1).to_string()),
                                 agent: "codex".into(),
                                 last_activity: 1000 - u64::try_from(end - 1).unwrap(),
                             }),

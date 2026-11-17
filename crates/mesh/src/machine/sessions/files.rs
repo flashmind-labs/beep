@@ -3,6 +3,7 @@ use super::{
     Sessions, WorkRead, WorkWrite, ask, hinted, once,
 };
 use crate::{MeshError, machine::unexpected};
+use beep_proto::SessionId;
 use beep_proto::{
     CustomAgent, ListWorkTree, WorkFolder, WorkTree,
     node::agent::{SessionsReply, SessionsRequest},
@@ -12,11 +13,11 @@ use std::time::Duration;
 /// The picture `key` of `session`'s transcript; `None` when the node no longer has it.
 pub async fn image<S: Sessions + ?Sized>(
     node: &S,
-    session: &str,
+    session: &SessionId,
     key: &str,
 ) -> Result<Option<NodeImage>, MeshError> {
     let request = SessionsRequest::Image {
-        session: session.to_owned(),
+        session: session.clone(),
         key: key.to_owned(),
     };
     picture(node, request).await
@@ -27,11 +28,11 @@ pub async fn image<S: Sessions + ?Sized>(
 /// then asks for the whole picture.
 pub async fn thumb<S: Sessions + ?Sized>(
     node: &S,
-    session: &str,
+    session: &SessionId,
     key: &str,
 ) -> Result<Option<NodeImage>, MeshError> {
     let request = SessionsRequest::Thumb {
-        session: session.to_owned(),
+        session: session.clone(),
         key: key.to_owned(),
     };
     picture(node, request).await
@@ -208,7 +209,7 @@ pub async fn write_file<S: Sessions + ?Sized>(
 pub async fn upload_file<S: Sessions + ?Sized>(
     node: &S,
     agent: String,
-    session: String,
+    session: SessionId,
     write: WorkWrite,
 ) -> Result<NodeWork<String>, MeshError> {
     let request = SessionsRequest::UploadFile {

@@ -15,7 +15,7 @@ fn a_notice_opens_its_agent_session() {
     let asking = AgentTarget::notified(&key(Some(2)));
     assert_eq!(
         asking,
-        AgentTarget::asking("m1", "build-box", "claude", "s1", None)
+        AgentTarget::asking("m1", "build-box", "claude", &SessionId::from("s1"), None)
     );
     let done = AgentTarget::notified(&key(None));
     assert_eq!(done.status, "idle");
@@ -47,7 +47,13 @@ fn a_project_window_hands_its_targets_to_the_main_window() {
 
 #[test]
 fn agent_targets_read_as_the_pane_takes_them() {
-    let agent = CenterTarget::Agent(AgentTarget::asking("m1", "Studio", "claude", "s1", None));
+    let agent = CenterTarget::Agent(AgentTarget::asking(
+        "m1",
+        "Studio",
+        "claude",
+        &SessionId::from("s1"),
+        None,
+    ));
     let json = serde_json::to_value(&agent).expect("serializes");
     assert_eq!(json["agent"]["kind"], "agent");
     assert_eq!(json["agent"]["id"], "s1");

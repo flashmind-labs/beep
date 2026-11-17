@@ -23,6 +23,7 @@ use crate::{
     },
 };
 use beep_node::{agents::tags::title, link::reconnect::Backoff};
+use beep_proto::SessionId;
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentSessionView, AgentStatus, AgentSteer, ApiError,
     MachineSession, ModelId, StartAgentSession, StartedAgent, SteerAgentSession, agent_name,
@@ -160,7 +161,7 @@ impl Start {
         MachineSession {
             machine_id: self.machine_id.clone(),
             machine_name: self.machine_name.clone(),
-            id: self.id.to_string(),
+            id: Into::<SessionId>::into(self.id.to_string()),
             agent: self.agent.clone(),
             title: title(&self.prompt),
             cwd: self.cwd.clone().unwrap_or_default(),
@@ -710,8 +711,8 @@ pub(crate) fn steer(
 }
 
 /// Fails a follow of a start at once: its page reads `agent_view`.
-pub(crate) fn not_followed(session: &str) -> Result<()> {
-    match session.parse::<StartId>() {
+pub(crate) fn not_followed(session: &SessionId) -> Result<()> {
+    match session.as_ref().parse::<StartId>() {
         Ok(_) => Err(DesktopError::BadRequest(NOT_YET.into())),
         Err(_) => Ok(()),
     }
@@ -806,9 +807,10 @@ pub async fn agent_begin(
 pub fn agent_begin_retry(
     app: AppHandle,
     starts: State<'_, Arc<Starts>>,
-    session: String,
+    session: SessionId,
 ) -> Result<()> {
     let id: StartId = session
+        .as_ref()
         .parse()
         .map_err(|e: NotAStart| DesktopError::BadRequest(e.to_string()))?;
 

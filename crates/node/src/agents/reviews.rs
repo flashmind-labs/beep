@@ -4,6 +4,7 @@
 //! never outlives the node, and goes once it submitted, failed or was
 //! stopped; the review stays here for the caller and the desktops.
 
+use beep_proto::SessionId;
 use super::{
     Agents, Begin, Command, Session,
     family::{ChildStart, Review, Who},
@@ -41,7 +42,7 @@ struct Kept {
     /// Who asked, as the family names the parent.
     parent: Option<Who>,
     /// The parent's id on this node.
-    parent_key: Option<String>,
+    parent_key: Option<SessionId>,
     /// Follows the reviewer until it is done.
     _watch: Option<AbortOnDropHandle<()>>,
 }
@@ -60,9 +61,9 @@ impl Reviews {
         }
     }
 
-    fn with<T>(&self, id: &str, f: impl FnOnce(&mut Kept) -> T) -> Option<T> {
+    fn with<T>(&self, id: &SessionId, f: impl FnOnce(&mut Kept) -> T) -> Option<T> {
         let mut all = crate::lock(&self.kept);
-        let kept = all.iter_mut().find(|kept| kept.run.id == id)?;
+        let kept = all.iter_mut().find(|kept| kept.run.id == *id)?;
         let before = kept.run.clone();
         let value = f(kept);
 
@@ -181,12 +182,12 @@ impl Agents {
     }
 
     /// The review `id`.
-    pub(crate) fn review(&self, id: &str) -> Option<ReviewRun> {
+    pub(crate) fn review(&self, id: &SessionId) -> Option<ReviewRun> {
         self.reviews.with(id, |kept| kept.run.clone())
     }
 
     /// The review `id`, when `who` asked for it.
-    pub(crate) fn review_for(&self, who: &Who, id: &str) -> Option<ReviewRun> {
+    pub(crate) fn review_for(&self, who: &Who, id: &SessionId) -> Option<ReviewRun> {
         self.reviews
             .with(id, |kept| {
                 (kept.parent.as_ref() == Some(who)).then(|| kept.run.clone())
@@ -195,10 +196,10 @@ impl Agents {
     }
 
     /// The reviews of `session`'s work, by its id here or the agent's.
-    pub(crate) fn reviews_of(&self, session: &str) -> Vec<ReviewRun> {
-        let names: Vec<String> = match self.get(session) {
+    pub(crate) fn reviews_of(&self, session: &SessionId) -> Vec<ReviewRun> {
+        let names: Vec<SessionId> = match self.get(session) {
             Some(found) => vec![found.id.clone(), Self::name_of(&found)],
-            None => vec![session.to_owned()],
+            None => vec![session.clone()],
         };
         crate::lock(&self.reviews.kept)
             .iter()
@@ -213,12 +214,12 @@ impl Agents {
     }
 
     /// Whether `session` is a reviewer this node runs.
-    pub(crate) fn is_reviewer(&self, session: &str) -> bool {
+    pub(crate) fn is_reviewer(&self, session: &SessionId) -> bool {
         self.get(session).is_some_and(|session| session.reviewer)
     }
 
     /// Whether `session` is the home assistant this node runs.
-    pub(crate) fn is_assistant(&self, session: &str) -> bool {
+    pub(crate) fn is_assistant(&self, session: &SessionId) -> bool {
         self.get(session).is_some_and(|session| session.assistant)
     }
 
@@ -226,7 +227,7 @@ impl Agents {
     /// again replaces it while the reviewer runs.
     pub(crate) fn submit_review(
         &self,
-        session: &str,
+        session: &SessionId,
         review: SubmittedReview,
     ) -> Result<(), String> {
         let id = self
@@ -245,13 +246,13 @@ impl Agents {
             .unwrap_or_else(|| Err("This session is no reviewer.".to_owned()))
     }
 
-    fn submitted(&self, id: &str) -> bool {
+    fn submitted(&self, id: &SessionId) -> bool {
         self.reviews
             .with(id, |kept| kept.run.review.is_some())
             .unwrap_or(false)
     }
 
-    fn fail_review(&self, id: &str, why: String) {
+    fn fail_review(&self, id: &SessionId, why: String) {
         self.reviews.with(id, |kept| kept.run.error = Some(why));
     }
 }

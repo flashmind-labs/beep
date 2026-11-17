@@ -32,7 +32,7 @@ fn the_versioned_binary_counts_and_the_daemons_helpers_do_not() {
     );
     assert_eq!(
         claude_sessions(listed(&listing), |_| false),
-        [(8039, None), (8271, Some(ID.to_owned()))]
+        [(8039, None), (8271, Some(SessionId::from(ID)))]
     );
 }
 
@@ -51,7 +51,7 @@ fn a_program_path_with_spaces_is_claude_when_it_is_a_file() {
     let is_file = |program: &str| program.starts_with("/Users/Jane Doe/.local/");
     assert_eq!(
         claude_sessions(listed(&listing), is_file),
-        [(41, Some(OLD.to_owned())), (42, Some(OLD.to_owned()))]
+        [(41, Some(SessionId::from(OLD))), (42, Some(SessionId::from(OLD)))]
     );
     assert_eq!(claude_sessions(listed(&listing), |_| false), []);
 }

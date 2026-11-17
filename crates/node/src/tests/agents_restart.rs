@@ -172,7 +172,7 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
     let after = Agents::new(vec![kind]);
     after.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.get("held-1").expect("resumed");
+    let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.info.turns == 2).await;
     let read = std::fs::read_to_string(&log).expect("adapter log");
@@ -208,7 +208,7 @@ async fn a_held_session_resumes_after_the_restart_with_its_prompt() {
     let after = Agents::new(vec![kind]);
     after.settings_arrived();
     after.reopen(stopped).await;
-    let session = after.get("held-1").expect("resumed under the agent's id");
+    let session = after.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 2).await;
     let read = std::fs::read_to_string(&log).expect("the adapter's log");
@@ -237,7 +237,7 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
     let after = Agents::new(vec![kind]);
     after.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.get("held-1").expect("resumed under the agent's id");
+    let resumed = after.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.status() == Status::Idle).await;
     assert_eq!(watched::read(&live, |live| live.info.started_at), 100);
@@ -370,7 +370,7 @@ async fn a_session_comes_back_after_a_crash() {
     let after = Agents::new(vec![kind]);
     after.settings_arrived();
     after.reopen(noted.sessions).await;
-    let resumed = after.get("held-1").expect("resumed under the agent's id");
+    let resumed = after.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.status() == Status::Idle).await;
     let read = std::fs::read_to_string(&log).expect("the adapter's log");
@@ -414,17 +414,17 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
     // Kept for a take-over after it ended, across the restart note.
     let noted = Agents::new(Vec::new());
     noted.keep_saved(before.saved_sessions());
-    let saved = noted.saved("held-1").expect("saved across the note");
+    let saved = noted.saved(&SessionId::from("held-1")).expect("saved across the note");
     assert_eq!(saved.info.model, Some(ModelId::new("deep")));
     assert_eq!(
-        noted.created_worktrees("held-1"),
+        noted.created_worktrees(&SessionId::from("held-1")),
         vec!["/srv/app/.worktrees/fix".to_owned()]
     );
 
     let after = Agents::new(vec![kind]);
     after.settings_arrived();
     after.reopen(stopped).await;
-    let session = after.get("held-1").expect("resumed under the agent's id");
+    let session = after.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
     let mut live = session.live.clone();
     until(&mut live, |live| {
         live.info.model == Some(ModelId::new("deep"))
@@ -463,7 +463,7 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
     let after = Agents::new(vec![kind]);
     after.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.get("held-1").expect("resumed");
+    let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     watched::read(&live, |live| {
@@ -528,7 +528,7 @@ async fn assistant_survives_restart() {
     let after = Agents::new(vec![kind]);
     after.settings_arrived();
     after.reopen(stopped).await;
-    assert!(after.is_assistant("held-1"));
+    assert!(after.is_assistant(&SessionId::from("held-1")));
     after.shutdown().await;
 }
 
@@ -576,7 +576,7 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
     after.keep_saved(Reopen::read(dir.path()).saved);
     after.settings_arrived();
     let resumed = after
-        .resume(&kind, "held-1", None)
+        .resume(&kind, &SessionId::from("held-1"), None)
         .await
         .expect("taken over");
     assert!(after.is_assistant(&resumed.id));
@@ -603,7 +603,7 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
     }]);
     agents.settings_arrived();
     let resumed = agents
-        .resume(&kind, "held-1", None)
+        .resume(&kind, &SessionId::from("held-1"), None)
         .await
         .expect("taken over");
     assert!(!agents.is_assistant(&resumed.id));
@@ -627,7 +627,7 @@ fn a_note_from_before_saved_sessions_reads() {
     assert_eq!(note.saved.len(), 1);
     let saved = &note.saved[0].info;
     assert_eq!(
-        (saved.id.as_str(), saved.agent.as_str(), saved.cwd.as_str()),
+        (saved.id.as_ref(), saved.agent.as_str(), saved.cwd.as_str()),
         ("s1", "claude", "/srv/project")
     );
     assert_eq!(saved.model, Some(ModelId::new("deep")));
@@ -710,7 +710,7 @@ async fn a_saved_session_keeps_what_it_goes_on_with_and_not_its_state() {
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
 
-    let saved = agents.saved("held-1").expect("saved");
+    let saved = agents.saved(&SessionId::from("held-1")).expect("saved");
     assert_eq!(saved.info.cwd, session.info().cwd);
     assert!(saved.info.assistant);
     assert_eq!(saved.info.turns, 0);
@@ -733,5 +733,5 @@ fn a_reviewer_taken_over_is_never_the_assistant() {
         fast: None,
     };
 
-    assert!(!agents.resumed_begin(None, "held-1", saved).assistant);
+    assert!(!agents.resumed_begin(None, &SessionId::from("held-1"), saved).assistant);
 }

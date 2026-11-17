@@ -13,6 +13,7 @@ use beep_node::link::{
     peers::{Peers, ReportError},
 };
 use beep_node::machine::provision::Provision;
+use beep_proto::SessionId;
 use beep_proto::node::{
     LinkRx, LinkTx, Open, Opened,
     agent::{
@@ -465,7 +466,7 @@ async fn try_tool(conn: &Link, tool: Tool, args: serde_json::Value) -> Result<Re
     }
 
     tx.send(&ToolRequest {
-        session: "a3f9c1".to_owned(),
+        session: SessionId::from("a3f9c1").to_owned(),
         tool,
         args: args.to_string(),
         approved: Default::default(),
@@ -2380,7 +2381,7 @@ async fn agent_tool(
     }
 
     tx.send(&ToolRequest {
-        session: session.to_owned(),
+        session: SessionId::from(session),
         tool,
         args: args.to_string(),
         approved: Default::default(),
@@ -2405,7 +2406,7 @@ async fn follow(conn: &Link, session: &str, done: impl Fn(&AgentEvent) -> bool) 
     stream
         .tx
         .send(&AgentRequest::Attach {
-            session: session.to_owned(),
+            session: SessionId::from(session),
         })
         .await
         .expect("the attach is sent");
@@ -2482,7 +2483,7 @@ async fn an_agent_on_another_machine_starts_a_child_here_and_reaches_only_its_ow
     attach
         .tx
         .send(&AgentRequest::Attach {
-            session: id.clone(),
+            session: SessionId::from(id.clone()),
         })
         .await
         .expect("the attach is sent");
@@ -2493,7 +2494,7 @@ async fn an_agent_on_another_machine_starts_a_child_here_and_reaches_only_its_ow
     {
         Some(AgentEvent::Attached { session }) => {
             let parent = session.parent.expect("the child names its parent");
-            assert_eq!((parent.session.as_str(), parent.depth), ("p1", 1));
+            assert_eq!((parent.session.as_ref(), parent.depth), ("p1", 1));
             assert_eq!(parent.machine, Some(other.id()));
         }
         other => panic!("not attached: {other:?}"),
@@ -2883,7 +2884,7 @@ async fn ask_to_move_in(
 ) {
     let record = SessionMove {
         agent: "codex".into(),
-        id: MOVED_ID.to_owned(),
+        id: SessionId::from(MOVED_ID),
         from,
         to,
         project: "proj".to_owned(),
@@ -2898,7 +2899,7 @@ async fn ask_to_move_in(
     desktop
         .mesh
         .set(
-            Key::SessionMove(MOVED_ID.to_owned()),
+            Key::SessionMove(SessionId::from(MOVED_ID)),
             Some(record.to_bytes().expect("a record encodes")),
         )
         .await
@@ -2911,7 +2912,7 @@ async fn progress_on(conn: &Link) -> Option<beep_proto::node::agent::MoveProgres
     asked
         .tx
         .send(&SessionsRequest::MoveProgress {
-            session: MOVED_ID.to_owned(),
+            session: SessionId::from(MOVED_ID),
         })
         .await
         .expect("the request is sent");
@@ -3073,7 +3074,7 @@ async fn a_running_session_moves_to_the_other_machine_with_its_conversation() {
     follow
         .tx
         .send(&AgentRequest::Attach {
-            session: MOVED_ID.to_owned(),
+            session: SessionId::from(MOVED_ID),
         })
         .await
         .expect("the attach is sent");
@@ -3217,7 +3218,7 @@ async fn a_machine_that_cannot_take_the_session_leaves_it_running_where_it_was()
     follow
         .tx
         .send(&AgentRequest::Attach {
-            session: MOVED_ID.to_owned(),
+            session: SessionId::from(MOVED_ID),
         })
         .await
         .expect("the attach is sent");

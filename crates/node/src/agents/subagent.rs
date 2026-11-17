@@ -2,6 +2,7 @@
 //! call that started one, and what its entry says of it (written in
 //! `super::live`).
 
+use beep_proto::SessionId;
 use crate::agents::delete::valid_id;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::{Entry, EntryKind};
@@ -200,7 +201,7 @@ impl TryFrom<&Value> for Activity {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct Run {
     /// The independently readable conversation, when its file exists.
-    pub(crate) session: Option<String>,
+    pub(crate) session: Option<SessionId>,
     /// Its last steps, oldest first.
     pub(crate) steps: Vec<RunStep>,
     /// How many steps it ran in all.

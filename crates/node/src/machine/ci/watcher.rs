@@ -8,6 +8,7 @@
 //! `MAX_WAITS` CLI processes at once, owned here and killed when the role
 //! moves away or the node stops.
 
+use beep_proto::SessionId;
 use super::{
     Ci,
     book::{self, Books},
@@ -621,7 +622,7 @@ impl World for MeshWorld {
 
     async fn ask(&self, peer: EndpointId) -> Result<ForgeReach> {
         let request = Request {
-            session: String::new(),
+            session: SessionId::default(),
             tool: Tool::ForgeReach,
             args: "{}".to_owned(),
             approved: Default::default(),

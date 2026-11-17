@@ -188,7 +188,10 @@ fn an_ask_names_its_question_and_its_tray_item() {
     assert_eq!(asked(&asks), None, "a finished turn asks nothing");
     asks.kind = NoteKind::Asks;
     assert_eq!(asked(&asks), Some(key));
-    assert_eq!(waiting::agent_item("m1", "s1", 3), "wait:agent:m1:s1:3");
+    assert_eq!(
+        waiting::agent_item("m1", &SessionId::from("s1"), 3),
+        "wait:agent:m1:s1:3"
+    );
 }
 
 fn ready_key() -> AgentNoticeKey {
@@ -302,8 +305,16 @@ fn opening_a_session_removes_only_its_ready_notes_and_saves_the_removal() {
     notes.put(renamed, now_ms());
     notes.put(note("unrelated", now_ms()), now_ms());
 
-    assert!(!notes.viewed_agent("m1", "codex", "s1").is_empty());
-    assert!(notes.viewed_agent("m1", "codex", "s1").is_empty());
+    assert!(
+        !notes
+            .viewed_agent("m1", "codex", &SessionId::from("s1"))
+            .is_empty()
+    );
+    assert!(
+        notes
+            .viewed_agent("m1", "codex", &SessionId::from("s1"))
+            .is_empty()
+    );
     assert!(notes.get(&ready.to_string()).is_none());
     assert_eq!(notes.list().len(), 5);
 
@@ -330,7 +341,7 @@ fn a_turn_read_on_one_app_does_not_notify_on_another() {
         told.unread.is_some(),
         "unread on the desktop, so it notifies"
     );
-    let removed = desktop.viewed_agent("m1", "codex", "s1");
+    let removed = desktop.viewed_agent("m1", "codex", &SessionId::from("s1"));
     let shared: HashSet<Read> = unread_of(removed).collect();
     assert_eq!(shared.len(), 1, "opening the session reads it for the mesh");
 

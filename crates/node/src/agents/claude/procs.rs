@@ -2,6 +2,7 @@
 //! in and the sessions their arguments name, read from the node's shared
 //! process table, then `lsof` on macOS or `/proc` on Linux.
 
+use beep_proto::SessionId;
 use super::discover::is_session_id;
 use std::{
     collections::HashMap,
@@ -28,7 +29,7 @@ pub(super) struct Process {
     /// The session its arguments name, the sure way to tie it to a
     /// transcript when it wrote no pid file (a session the daemon runs in
     /// the background writes none).
-    pub(super) session: Option<String>,
+    pub(super) session: Option<SessionId>,
 }
 
 /// Every running `claude` with its folder, from the process table the
@@ -137,7 +138,7 @@ struct Folder {
 fn claude_sessions<'a>(
     processes: impl IntoIterator<Item = (u32, &'a str)>,
     is_file: impl Fn(&str) -> bool,
-) -> Vec<(u32, Option<String>)> {
+) -> Vec<(u32, Option<SessionId>)> {
     processes
         .into_iter()
         .filter_map(|(pid, args)| {
@@ -210,7 +211,7 @@ fn is_version(name: &str) -> bool {
 /// The session the arguments `rest` name: `--session-id <id>`, else the
 /// session `--resume` (or `-r`) names, as an id or the path of its
 /// transcript, unless `--fork-session` makes that a new session.
-fn session_named(rest: &str) -> Option<String> {
+fn session_named(rest: &str) -> Option<SessionId> {
     let words: Vec<&str> = rest.split_whitespace().collect();
     // The flag's value: the session id in the words up to the next flag,
     // as a transcript's path may hold spaces.
@@ -236,12 +237,12 @@ fn session_named(rest: &str) -> Option<String> {
 }
 
 /// The session id `word` is, or ends in as a transcript's path.
-fn session_in(word: &str) -> Option<String> {
+fn session_in(word: &str) -> Option<SessionId> {
     let id = Path::new(word)
         .file_stem()
         .and_then(|stem| stem.to_str())
         .unwrap_or(word);
-    is_session_id(id).then(|| id.to_owned())
+    is_session_id(id).then(|| Into::<SessionId>::into(id))
 }
 
 /// The folders `pids` run in; `None` when they could not be read.

@@ -1,3 +1,4 @@
+use beep_proto::SessionId;
 use super::*;
 use crate::events::ChangeKind;
 use beep_proto::node::events::{Query, Read, Snapshot, Value};
@@ -36,7 +37,7 @@ enum Source {
     Plugin,
     Missing,
     Reviews,
-    Agent(String),
+    Agent(SessionId),
     Resources(Vec<Topic>),
 }
 
@@ -211,7 +212,7 @@ impl Snapshots {
 
         for topic in topics.iter().filter(|topic| topic.name() == "agent") {
             let source = match topic.key().filter(|_| !topic.is_pattern()) {
-                Some(session) => Source::Agent(session.to_owned()),
+                Some(session) => Source::Agent(Into::<SessionId>::into(session)),
                 None => Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
             };
             wanted.push((topic.clone(), source));
@@ -225,7 +226,7 @@ impl Snapshots {
                 wanted.push((
                     topic.clone(),
                     Source::Read(Read::Sessions(Box::new(SessionsRequest::Processes {
-                        session: session.to_owned(),
+                        session: Into::<SessionId>::into(session),
                     }))),
                 ));
             }

@@ -2,6 +2,7 @@
 //! every `Watch` stream through a broadcast, and for sessions that send no
 //! hooks, their transcripts read as they grow.
 
+use beep_proto::SessionId;
 use super::{
     discover::Store,
     hooks::{HookEvent, HookMessage},
@@ -109,7 +110,7 @@ async fn read_hook(mut stream: Stream, live: &Live) -> Result<Option<Activity>> 
 
 /// One followed transcript, read as it grows.
 struct Tracker {
-    session: String,
+    session: SessionId,
     path: PathBuf,
     /// Where the next read starts.
     offset: u64,
@@ -122,7 +123,7 @@ struct Tracker {
 }
 
 impl Tracker {
-    fn new(session: String, path: PathBuf) -> Self {
+    fn new(session: SessionId, path: PathBuf) -> Self {
         let offset = fs::metadata(&path).map_or(0, |meta| meta.len());
         Self {
             session,
@@ -196,7 +197,7 @@ pub(crate) async fn serve(
     mut rx: LinkRx,
     store: Option<Store>,
     hub: &Hub,
-    sessions: Vec<String>,
+    sessions: Vec<SessionId>,
 ) -> Result<()> {
     let mut events = hub.0.subscribe();
     let (mut trackers, unknown) = spawn_blocking(move || {

@@ -6,6 +6,7 @@ use crate::{
     MeshError,
     machine::{said, unexpected},
 };
+use beep_proto::SessionId;
 use beep_proto::{
     WorkDiff,
     node::{
@@ -18,10 +19,10 @@ use beep_proto::{
 /// node; none when it is not running or the agent reports none.
 pub async fn commands<S: Sessions + ?Sized>(
     node: &S,
-    session: &str,
+    session: &SessionId,
 ) -> Result<NodeWork<Vec<AgentCommand>>, MeshError> {
     let request = SessionsRequest::Commands {
-        session: session.to_owned(),
+        session: session.clone(),
     };
 
     match once(node, request).await? {
@@ -52,9 +53,9 @@ pub async fn start_review<S: Sessions + ?Sized>(
 /// How the review `id` on the node stands.
 pub async fn review<S: Sessions + ?Sized>(
     node: &S,
-    id: &str,
+    id: &SessionId,
 ) -> Result<NodeWork<ReviewRun>, MeshError> {
-    let request = SessionsRequest::Review { id: id.to_owned() };
+    let request = SessionsRequest::Review { id: id.clone() };
 
     match ask(node, request).await? {
         SessionsReply::Review { run } => Ok(NodeWork::Done(run)),
@@ -67,10 +68,10 @@ pub async fn review<S: Sessions + ?Sized>(
 /// none from a node from before reviews.
 pub async fn reviews<S: Sessions + ?Sized>(
     node: &S,
-    session: &str,
+    session: &SessionId,
 ) -> Result<Vec<ReviewRun>, MeshError> {
     let request = SessionsRequest::Reviews {
-        session: session.to_owned(),
+        session: session.clone(),
     };
 
     match ask(node, request).await? {
@@ -85,11 +86,11 @@ pub async fn reviews<S: Sessions + ?Sized>(
 pub async fn delete_session<S: Sessions + ?Sized>(
     node: &S,
     agent: &str,
-    session: &str,
+    session: &SessionId,
 ) -> Result<NodeWork<()>, MeshError> {
     let request = SessionsRequest::DeleteSession {
         agent: agent.to_owned(),
-        session: session.to_owned(),
+        session: session.clone(),
     };
 
     match hinted(once(node, request).await, "delete sessions")? {
@@ -191,7 +192,7 @@ fn harness_reply(
 pub async fn relocate_session<S: Sessions + ?Sized>(
     node: &S,
     agent: &str,
-    session: &str,
+    session: &SessionId,
     folder: &str,
 ) -> Result<NodeWork<()>, MeshError> {
     match hinted(
@@ -199,7 +200,7 @@ pub async fn relocate_session<S: Sessions + ?Sized>(
             node,
             SessionsRequest::RelocateSession {
                 agent: agent.to_owned(),
-                session: session.to_owned(),
+                session: session.clone(),
                 folder: folder.to_owned(),
             },
         )

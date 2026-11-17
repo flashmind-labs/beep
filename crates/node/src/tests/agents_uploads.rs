@@ -4,7 +4,7 @@ use tempfile::TempDir;
 fn put(cache: &Path, session: &str, name: &str, bytes: &[u8]) -> String {
     write_in(
         cache,
-        &owner("codex", session),
+        &owner("codex", &SessionId::from(session)),
         name,
         0,
         bytes.len() as u64,
@@ -25,22 +25,22 @@ fn uploads_are_outside_the_project_and_only_the_closed_sessions_files_are_remove
     assert!(Path::new(&first).is_absolute());
     assert!(!Path::new(&first).starts_with(&project));
     assert_eq!(fs::read(&first).unwrap(), b"one");
-    remove_in(&cache, &owner("codex", "session-one")).unwrap();
+    remove_in(&cache, &owner("codex", &SessionId::from("session-one"))).unwrap();
     assert!(!Path::new(&first).exists());
     assert_eq!(fs::read(&second).unwrap(), b"two");
     assert_eq!(fs::read(project.join("video.mp4")).unwrap(), b"permanent");
     assert!(!project.join(".beep").exists());
-    remove_in(&cache, &owner("codex", "session-one")).unwrap();
+    remove_in(&cache, &owner("codex", &SessionId::from("session-one"))).unwrap();
 }
 
 #[test]
 fn parts_survive_a_restart_and_cannot_cross_sessions_or_change_size() {
     let dir = TempDir::new().unwrap();
     let cache = dir.path().join("cache");
-    let session = owner("codex", "session-one");
+    let session = owner("codex", &SessionId::from("session-one"));
     let path = write_in(&cache, &session, "clip.mp4", 0, 6, b"one").unwrap();
     assert!(!Path::new(&path).exists());
-    assert!(write_in(&cache, &owner("codex", "session-two"), &path, 3, 6, b"two").is_err());
+    assert!(write_in(&cache, &owner("codex", &SessionId::from("session-two")), &path, 3, 6, b"two").is_err());
     assert!(write_in(&cache, &session, &path, 3, 8, b"two").is_err());
     assert!(write_in(&cache, &session, &path, 2, 6, b"two").is_err());
     // No process-local record is needed to finish after restarting.
@@ -66,7 +66,7 @@ fn duplicate_names_do_not_overwrite_and_empty_files_are_uploaded() {
 #[test]
 fn attachments_have_no_file_or_aggregate_size_quota() {
     let dir = TempDir::new().unwrap();
-    let session = owner("codex", "session");
+    let session = owner("codex", &SessionId::from("session"));
     let size = 6 * 1024 * 1024 * 1024;
     let first = write_in(dir.path(), &session, "large.mp4", 0, size, b"a").unwrap();
     let part = Path::new(&first)
@@ -92,7 +92,7 @@ fn attachments_have_no_file_or_aggregate_size_quota() {
 #[test]
 fn only_abandoned_partial_uploads_expire() {
     let dir = TempDir::new().unwrap();
-    let session = owner("codex", "session");
+    let session = owner("codex", &SessionId::from("session"));
     let complete = put(dir.path(), "session", "keep.mp4", b"keep");
     let partial = write_in(dir.path(), &session, "partial.mp4", 0, 8, b"part").unwrap();
     let partial_bucket = Path::new(&partial).parent().unwrap().parent().unwrap();
@@ -109,14 +109,14 @@ fn attachments_go_a_day_after_their_session_ends_unless_it_runs_again() {
     let open = put(dir.path(), "open", "c.txt", b"c");
 
     for session in ["ended", "resumed"] {
-        fs::write(dir.path().join(owner("codex", session)).join(ENDED), b"").unwrap();
+        fs::write(dir.path().join(owner("codex", &SessionId::from(session))).join(ENDED), b"").unwrap();
     }
 
-    let running = HashSet::from([owner("codex", "resumed")]);
+    let running = HashSet::from([owner("codex", &SessionId::from("resumed"))]);
     sweep(dir.path(), SystemTime::now() + DAY / 2, &running).unwrap();
     assert!(Path::new(&ended).exists(), "within a day of the end");
     sweep(dir.path(), SystemTime::now() + DAY * 2, &running).unwrap();
-    assert!(!dir.path().join(owner("codex", "ended")).exists());
+    assert!(!dir.path().join(owner("codex", &SessionId::from("ended"))).exists());
     assert!(Path::new(&resumed).exists());
     assert!(Path::new(&open).exists());
 }
@@ -125,7 +125,7 @@ fn attachments_go_a_day_after_their_session_ends_unless_it_runs_again() {
 fn attachments_unused_for_three_days_go_even_while_their_session_runs() {
     let dir = TempDir::new().unwrap();
     let file = put(dir.path(), "open", "a.txt", b"a");
-    let running = HashSet::from([owner("codex", "open")]);
+    let running = HashSet::from([owner("codex", &SessionId::from("open"))]);
     sweep(dir.path(), SystemTime::now() + DAY * 2, &running).unwrap();
     assert!(Path::new(&file).exists());
     sweep(dir.path(), SystemTime::now() + UNUSED + DAY, &running).unwrap();
@@ -147,7 +147,7 @@ fn project_uploads_unused_for_three_days_go() {
 #[test]
 fn invalid_names_and_chunks_cannot_escape_the_cache() {
     let dir = TempDir::new().unwrap();
-    let session = owner("codex", "session");
+    let session = owner("codex", &SessionId::from("session"));
 
     for name in ["../clip.mp4", "/clip.mp4", "a/b", "a\\b", "", ".", ".."] {
         assert!(
@@ -175,7 +175,7 @@ fn invalid_names_and_chunks_cannot_escape_the_cache() {
 fn symlinked_session_folders_are_never_written_or_cleaned() {
     let dir = TempDir::new().unwrap();
     let outside = TempDir::new().unwrap();
-    let session = owner("codex", "session");
+    let session = owner("codex", &SessionId::from("session"));
     fs::write(outside.path().join("keep.txt"), b"keep").unwrap();
     std::os::unix::fs::symlink(outside.path(), dir.path().join(&session)).unwrap();
     assert!(write_in(dir.path(), &session, "clip.mp4", 0, 1, b"a").is_err());

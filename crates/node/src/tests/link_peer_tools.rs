@@ -1,3 +1,4 @@
+use beep_proto::SessionId;
 use super::*;
 
 fn caller(table: Table, node_here: bool) -> Caller {
@@ -13,7 +14,7 @@ fn caller(table: Table, node_here: bool) -> Caller {
 
 fn run_on() -> Request {
     Request {
-        session: "a3f9c1".to_owned(),
+        session: SessionId::from("a3f9c1").to_owned(),
         tool: Tool::RunOn,
         args: r#"{"command":"echo ran-here"}"#.to_owned(),
         approved: Default::default(),
@@ -45,7 +46,7 @@ async fn a_desktop_takes_a_nodes_files_and_syncs_for_it() {
     let table = Table::Peer(iroh::SecretKey::generate().public());
     let on_desktop = caller(table, false);
     let send = Request {
-        session: "a3f9c1".to_owned(),
+        session: SessionId::from("a3f9c1").to_owned(),
         tool: Tool::SendFiles,
         args: "{}".to_owned(),
         approved: Default::default(),
@@ -55,7 +56,7 @@ async fn a_desktop_takes_a_nodes_files_and_syncs_for_it() {
     };
     assert!(!text.contains("desktop"), "{text}");
     let sync = Request {
-        session: "a3f9c1".to_owned(),
+        session: SessionId::from("a3f9c1").to_owned(),
         tool: Tool::SyncProject,
         args: r#"{"project":"game"}"#.to_owned(),
         approved: Default::default(),
@@ -71,7 +72,7 @@ async fn no_node_serves_its_log_to_another() {
     let table = Table::Peer(iroh::SecretKey::generate().public());
     let caller = caller(table, true);
     let request = Request {
-        session: "a3f9c1".to_owned(),
+        session: SessionId::from("a3f9c1").to_owned(),
         tool: Tool::MachineLog,
         args: r#"{"lines":5}"#.to_owned(),
         approved: Default::default(),

@@ -11,6 +11,7 @@ use crate::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_mesh::machine::sessions::Reading;
+use beep_proto::SessionId;
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, GitChange, ListWorkTree, MAX_TREE_DEPTH, ReadWorkFile,
     WriteWorkFile,
@@ -261,7 +262,7 @@ pub async fn agent_tree_save(
 #[derive(Deserialize)]
 pub struct AttachmentSession {
     agent: String,
-    session: String,
+    session: SessionId,
 }
 
 /// Writes one part of a dropped file, `data` in base64, to `path` in

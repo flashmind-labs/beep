@@ -13,6 +13,7 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 #[cfg(desktop)]
 use beep_mesh::machine::thumb::{Picture, thumb_of};
+use beep_proto::SessionId;
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, GetAgentFile, GetAgentImage, image_key,
     media_mime,
@@ -31,7 +32,7 @@ type Files<'a> = State<'a, Arc<FileCache>>;
 pub async fn agent_image(
     fleet: Machines<'_>,
     machine_id: String,
-    session: String,
+    session: SessionId,
     key: String,
 ) -> Result<String> {
     let machine = fleet.machine(&machine_id)?;
@@ -49,7 +50,7 @@ pub async fn agent_image(
 pub async fn agent_thumb(
     fleet: Machines<'_>,
     machine_id: String,
-    session: String,
+    session: SessionId,
     key: String,
 ) -> Result<String> {
     // The machine makes it small; one from before that sends it whole, and
@@ -132,12 +133,12 @@ pub async fn agent_file(
     machine_id: String,
     path: String,
     offset: u64,
-    session: Option<String>,
+    session: Option<SessionId>,
 ) -> Result<AgentFilePart> {
     let asked = Asked {
         machine_id: &machine_id,
         path: &path,
-        session: session.as_deref(),
+        session: session.as_ref(),
     };
     // Later parts come from what the first one fetched, or the node.
     let cached = if offset == 0 {
@@ -174,12 +175,12 @@ pub async fn agent_file_open(
     cache: Files<'_>,
     machine_id: String,
     path: String,
-    session: Option<String>,
+    session: Option<SessionId>,
 ) -> Result<()> {
     let asked = Asked {
         machine_id: &machine_id,
         path: &path,
-        session: session.as_deref(),
+        session: session.as_ref(),
     };
 
     if let Some(cached) = cached(&app, &fleet, &cache, asked).await? {
@@ -208,12 +209,12 @@ pub async fn agent_file_save(
     cache: Files<'_>,
     machine_id: String,
     path: String,
-    session: Option<String>,
+    session: Option<SessionId>,
 ) -> Result<PathBuf> {
     let asked = Asked {
         machine_id: &machine_id,
         path: &path,
-        session: session.as_deref(),
+        session: session.as_ref(),
     };
     let to = free_name(&crate::platform::saves_dir(&app)?, &file_name(&path));
 
@@ -229,7 +230,7 @@ pub async fn agent_file_save(
 
 /// Conversation `session` closed: drops the files only it opened.
 #[tauri::command]
-pub async fn agent_files_forget(cache: Files<'_>, session: String) -> Result<()> {
+pub async fn agent_files_forget(cache: Files<'_>, session: SessionId) -> Result<()> {
     cache.forget(&session).await?;
     Ok(())
 }
@@ -239,7 +240,7 @@ pub async fn agent_files_forget(cache: Files<'_>, session: String) -> Result<()>
 struct Asked<'a> {
     machine_id: &'a str,
     path: &'a str,
-    session: Option<&'a str>,
+    session: Option<&'a SessionId>,
 }
 
 /// How far fetching a chat file has come, as `agent-file-progress` tells it.

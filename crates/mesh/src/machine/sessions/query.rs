@@ -3,6 +3,7 @@ use crate::{
     MeshError,
     machine::{said, unexpected},
 };
+use beep_proto::SessionId;
 use beep_proto::node::agent::{
     Entry, ExternalAsk, ExternalSession, HistoryCursor, LiveStatus, ModelList, SessionFolder,
     SessionInfo, SessionPage, SessionsReply, SessionsRequest, Steer,
@@ -32,7 +33,7 @@ pub async fn list_all<S: Sessions + ?Sized>(node: &S) -> Result<Vec<SessionInfo>
 /// The last `last` transcript entries of `session` and how many came before them.
 pub async fn transcript<S: Sessions + ?Sized>(
     node: &S,
-    session: &str,
+    session: &SessionId,
     last: u32,
     thoughts: bool,
 ) -> Result<(Vec<Entry>, u32), MeshError> {
@@ -44,13 +45,13 @@ pub async fn transcript<S: Sessions + ?Sized>(
 /// `earlier` plus entries (thoughts kept) does not end at `before` is that.
 pub async fn transcript_before<S: Sessions + ?Sized>(
     node: &S,
-    session: &str,
+    session: &SessionId,
     last: u32,
     thoughts: bool,
     before: Option<u64>,
 ) -> Result<(Vec<Entry>, u32), MeshError> {
     let request = SessionsRequest::Transcript {
-        session: session.to_owned(),
+        session: session.clone(),
         last,
         thoughts,
         before,
@@ -69,7 +70,7 @@ pub async fn external<S: Sessions + ?Sized>(
     node: &S,
     agent: &str,
     limit: u32,
-    only: Option<String>,
+    only: Option<SessionId>,
 ) -> Result<Vec<ExternalSession>, MeshError> {
     let reading = match only {
         Some(_) => Reading::Once,
@@ -147,10 +148,10 @@ pub async fn in_folders_page<S: Sessions + ?Sized>(
 /// queuing `steer` for its next hook when given.
 pub async fn live<S: Sessions + ?Sized>(
     node: &S,
-    session: &str,
+    session: &SessionId,
     steer: Option<Steer>,
 ) -> Result<LiveStatus, MeshError> {
-    let session = session.to_owned();
+    let session = session.clone();
     let request = match steer {
         Some(steer) => SessionsRequest::Steer { session, steer },
         None => SessionsRequest::Live { session },

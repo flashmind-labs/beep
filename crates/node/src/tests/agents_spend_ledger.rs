@@ -24,9 +24,8 @@ fn copies_of_a_message_count_once_and_hours_split() {
     let accounts = &mut Accounts::default();
     let mut log = LogFile::new(Agent::Claude);
     assert_eq!(
-        log.take(request("s1", 7_200, Some(1), 1_000_000), accounts)
-            .as_deref(),
-        Some("s1")
+        log.take(request("s1", 7_200, Some(1), 1_000_000), accounts),
+        Some(SessionId::from("s1"))
     );
     assert_eq!(
         log.take(request("s1", 7_201, Some(1), 1_000_000), accounts),

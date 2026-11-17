@@ -29,6 +29,7 @@ use beep_mesh::{
     },
     transport_config,
 };
+use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{DiffAsk, Event, Request},
     mesh_state::{StateValue, SyncSpec},
@@ -211,7 +212,7 @@ impl Driver {
                     &client,
                     "codex",
                     Request::Attach {
-                        session: (*session).to_owned(),
+                        session: SessionId::from(*session),
                     },
                 )
                 .await?;

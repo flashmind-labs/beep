@@ -10,6 +10,7 @@ use beep_fleet::{
 use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient, SessionFn, transport_config,
 };
+use beep_proto::SessionId;
 use beep_proto::watched;
 use beep_proto::{
     ApiKey, SecretText, Service, SyncStatus, WorkDiff,
@@ -2734,9 +2735,10 @@ async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cann
         )
         .await
         .expect("the spec is written");
+    let s1 = SessionId::from("s1");
     let ask = |agent: &'static str, cwd: &'static str| MoveAsk {
         agent,
-        id: "s1",
+        id: &s1,
         from: f.build.id,
         to: second.id,
         project: "acme/app",
@@ -2768,24 +2770,28 @@ async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cann
     f.studio
         .mesh
         .set(
-            Key::SessionMove("s0".to_owned()),
+            Key::SessionMove(SessionId::from("s0")),
             Some(old.to_bytes().expect("a record encodes")),
         )
         .await
         .expect("the old record is written");
     assert_eq!(desk.moves().len(), 2);
     let again = MoveAsk {
-        id: "s2",
+        id: &SessionId::from("s2"),
         ..ask("codex", "/srv/build/app")
     };
     desk.move_session(again).await.expect("a second move");
     let mut ids: Vec<_> = desk.moves().into_iter().map(|m| m.id).collect();
     ids.sort();
     assert_eq!(ids, ["s1", "s2"], "the old record is gone");
-    desk.cancel_move("s2").await.expect("taken back");
+    desk.cancel_move(&SessionId::from("s2"))
+        .await
+        .expect("taken back");
     // Another desktop sees it, and may take it back.
     until(&f.laptop.mesh, |m| m.scan("session-move/").len() == 1).await;
-    desk.cancel_move("s1").await.expect("taken back");
+    desk.cancel_move(&SessionId::from("s1"))
+        .await
+        .expect("taken back");
     until(&f.laptop.mesh, |m| m.scan("session-move/").is_empty()).await;
 }
 
@@ -2805,9 +2811,10 @@ async fn a_move_takes_folders_from_place_records_when_there_is_no_sync_record() 
         };
         Some(place.to_bytes().expect("a place encodes"))
     };
+    let s1 = SessionId::from("s1");
     let ask_in = |cwd| MoveAsk {
         agent: "codex",
-        id: "s1",
+        id: &s1,
         from: f.build.id,
         to: second.id,
         project: "acme/app",
@@ -3114,7 +3121,7 @@ async fn session_title_overrides_replicate_and_clear_without_changing_generated_
         &desktop.mesh,
         &machine,
         "codex",
-        "session-1",
+        &SessionId::from("session-1"),
         "  My title  ",
     )
     .await
@@ -3134,18 +3141,28 @@ async fn session_title_overrides_replicate_and_clear_without_changing_generated_
         (
             retitled.machine_id.as_str(),
             retitled.agent.as_str(),
-            retitled.session.as_str(),
+            retitled.session.as_ref(),
             retitled.title.as_deref()
         ),
         (machine.as_str(), "codex", "session-1", Some("My title"))
     );
     assert!(session_titles::changed(&other.mesh, &beep_mesh::Key::Flsh).is_none());
     assert_eq!(
-        session_titles::get(&desktop.mesh, &machine, "claude", "session-1"),
+        session_titles::get(
+            &desktop.mesh,
+            &machine,
+            "claude",
+            &SessionId::from("session-1")
+        ),
         None
     );
     assert_eq!(
-        session_titles::get(&desktop.mesh, "other-machine", "codex", "session-1"),
+        session_titles::get(
+            &desktop.mesh,
+            "other-machine",
+            "codex",
+            &SessionId::from("session-1")
+        ),
         None
     );
     assert!(
@@ -3153,19 +3170,31 @@ async fn session_title_overrides_replicate_and_clear_without_changing_generated_
             &desktop.mesh,
             &machine,
             "codex",
-            "session-1",
+            &SessionId::from("session-1"),
             &"x".repeat(201)
         )
         .await
         .is_err()
     );
     assert!(
-        session_titles::save(&desktop.mesh, &machine, "codex", "session-1", "two\nlines")
-            .await
-            .is_err()
+        session_titles::save(
+            &desktop.mesh,
+            &machine,
+            "codex",
+            &SessionId::from("session-1"),
+            "two\nlines"
+        )
+        .await
+        .is_err()
     );
     assert_eq!(
-        session_titles::get(&desktop.mesh, &machine, "codex", "session-1").as_deref(),
+        session_titles::get(
+            &desktop.mesh,
+            &machine,
+            "codex",
+            &SessionId::from("session-1")
+        )
+        .as_deref(),
         Some("My title")
     );
     let generated = MachineSession {
@@ -3194,11 +3223,17 @@ async fn session_title_overrides_replicate_and_clear_without_changing_generated_
     refreshed.title = Some("A newer generated title".into());
     session_titles::apply(&other.mesh, &mut refreshed);
     assert_eq!(refreshed.title.as_deref(), Some("My title"));
-    session_titles::save(&desktop.mesh, &machine, "codex", "session-1", " ")
-        .await
-        .expect("override is cleared");
+    session_titles::save(
+        &desktop.mesh,
+        &machine,
+        "codex",
+        &SessionId::from("session-1"),
+        " ",
+    )
+    .await
+    .expect("override is cleared");
     until(&other.mesh, |mesh| {
-        session_titles::get(mesh, &machine, "codex", "session-1").is_none()
+        session_titles::get(mesh, &machine, "codex", &SessionId::from("session-1")).is_none()
     })
     .await;
     let mut refreshed = generated;

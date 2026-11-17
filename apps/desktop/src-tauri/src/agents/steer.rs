@@ -12,6 +12,7 @@ use crate::{
     fleet::{Machines, agents as direct, asked::ORDER_LIMIT},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use beep_proto::SessionId;
 use beep_proto::{
     AgentSteer, ModelId, SteerAgentSession, Upload, check_agent_images, image_key,
     node::{
@@ -218,12 +219,12 @@ pub async fn agent_steer(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
     steer: Steer,
     // What the window saw of the session when it sent a message.
     seen: Option<outbox::Seen>,
 ) -> Result<Vec<String>, SteerError> {
-    if let Ok(start) = session.parse::<StartId>() {
+    if let Ok(start) = session.as_ref().parse::<StartId>() {
         return starts::steer(&app, start, &steer);
     }
 
@@ -259,7 +260,7 @@ pub(crate) async fn sent(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
     steer: Steer,
 ) -> Result<Vec<String>> {
     let steer = AgentSteer::try_from(steer)?;

@@ -1,5 +1,6 @@
 //! Event sources for sessions on this machine.
 
+use beep_proto::SessionId;
 use super::{STORED_AGENTS, SummaryCache, recent_deadline};
 use crate::agents::{Agents, found::Agent};
 use anyhow::{Context, Result};
@@ -17,7 +18,7 @@ use tokio::{
 
 pub(crate) struct Sources {
     paths: crate::events::paths::Paths,
-    processes: std::sync::Mutex<std::collections::HashMap<(String, String), ProcessWatch>>,
+    processes: std::sync::Mutex<std::collections::HashMap<(String, SessionId), ProcessWatch>>,
     pending: Arc<Mutex<Pending>>,
     dirty: mpsc::Sender<()>,
     _summary: tokio_util::task::AbortOnDropHandle<()>,
@@ -54,7 +55,7 @@ struct ProcessWatch {
 }
 
 fn active_roots(
-    processes: &std::collections::HashMap<(String, String), ProcessWatch>,
+    processes: &std::collections::HashMap<(String, SessionId), ProcessWatch>,
 ) -> Vec<PathBuf> {
     let mut roots: Vec<_> = processes
         .values()

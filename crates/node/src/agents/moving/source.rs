@@ -5,6 +5,7 @@
 //! session runs on the target, the worktrees it took are let go here. If
 //! the target gives up, the session starts again here.
 
+use beep_proto::SessionId;
 use super::{
     Env,
     dial::ask,
@@ -69,7 +70,7 @@ pub(super) async fn run(
     land(env, record, open, target).await
 }
 
-fn live(env: &Env, id: &str) -> Option<Arc<Session>> {
+fn live(env: &Env, id: &SessionId) -> Option<Arc<Session>> {
     env.agents
         .get(id)
         .filter(|session| watched::read(&session.live, Live::status) != Status::Ended)
@@ -239,7 +240,7 @@ async fn fail(
 /// The move is cancelled: a session still waiting for its turn goes on as
 /// it was, and one this side ended starts again, unless the target already
 /// starts or runs it (`to` says, about the move made at `at`).
-pub(super) async fn cancel(env: &Env, id: &str, at: u64, to: EndpointId) {
+pub(super) async fn cancel(env: &Env, id: &SessionId, at: u64, to: EndpointId) {
     let open = env
         .state
         .load(id)
@@ -282,7 +283,7 @@ pub(super) async fn cancel(env: &Env, id: &str, at: u64, to: EndpointId) {
 /// anyway, past taking back. Asked until it says, for `ASK_WITHIN` at most.
 /// A target that took the session and cannot be reached since may have
 /// started it, so the session is not started a second time here.
-async fn target_has_it(env: &Env, id: &str, at: u64, to: EndpointId) -> bool {
+async fn target_has_it(env: &Env, id: &SessionId, at: u64, to: EndpointId) -> bool {
     let until = Instant::now() + ASK_WITHIN;
 
     while Instant::now() < until {

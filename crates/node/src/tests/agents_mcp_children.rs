@@ -81,7 +81,7 @@ fn what_an_agent_reads_of_a_child_says_when_it_waits_on_the_user() {
         },
         ..SessionInfo::default()
     };
-    let view = |info: &SessionInfo| ChildView::of(info, "c1").named("build-box");
+    let view = |info: &SessionInfo| ChildView::of(info, &SessionId::from("c1")).named("build-box");
     let working = view(&info(Status::Working, 0, None));
     assert_eq!(working.state, "working");
     assert_eq!(working.id, "c1@build-box");
@@ -104,9 +104,9 @@ fn what_an_agent_reads_of_a_child_says_when_it_waits_on_the_user() {
 #[test]
 fn a_childs_id_names_its_machine() {
     let id = ChildId::from(" a3f9c1@build-box ");
-    assert_eq!((id.session, id.machine), ("a3f9c1", Some("build-box")));
+    assert_eq!((id.session, id.machine), (SessionId::from("a3f9c1"), Some("build-box")));
     let id = ChildId::from("a3f9c1");
-    assert_eq!((id.session, id.machine), ("a3f9c1", None));
+    assert_eq!((id.session, id.machine), (SessionId::from("a3f9c1"), None));
 }
 
 #[test]
@@ -215,9 +215,9 @@ fn kind(name: &str) -> AgentKind {
     }
 }
 
-async fn tool(offers: &Offers, session: &str, tool: Tool, args: Value) -> (bool, String) {
+async fn tool(offers: &Offers, session: &SessionId, tool: Tool, args: Value) -> (bool, String) {
     let request = Request {
-        session: session.to_owned(),
+        session: session.clone(),
         tool,
         args: args.to_string(),
         approved: Default::default(),
@@ -307,7 +307,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     let who = offers.agents.caller(&parent_id).unwrap().1;
     let child = offers
         .agents
-        .child_of(&who, ChildId::from(done.id.as_str()).session)
+        .child_of(&who, &ChildId::from(done.id.as_str()).session)
         .unwrap();
     assert_eq!(child.info().cwd, checkout.display().to_string());
     let mut child_live = child.live.clone();

@@ -1,5 +1,6 @@
 use super::*;
 use crate::client::SessionFn;
+use beep_proto::SessionId;
 use beep_proto::node::{Open, Opened as NodeOpened};
 use beep_proto::watched;
 use std::sync::Arc;
@@ -38,7 +39,7 @@ async fn a_start_waits_past_the_call_timeout_for_acps_id() {
                     .unwrap();
                 tx.send(&Event::Attached {
                     session: Box::new(SessionInfo {
-                        id: "acp-session".to_owned(),
+                        id: SessionId::from("acp-session").to_owned(),
                         ..SessionInfo::default()
                     }),
                 })

@@ -2,6 +2,7 @@
 //! and terminals, and `listen` and `client::drain` let `beep-node update` wait
 //! for the node to be idle.
 
+use beep_proto::SessionId;
 use crate::{
     agents::{Agents, OpenSession, SavedSession},
     link::local_socket::{Listener, Stream},
@@ -54,14 +55,14 @@ pub(crate) struct Reopen {
 /// A session's model as nodes from before `saved` keep it.
 #[derive(Debug, Serialize, Deserialize)]
 struct OldModel {
-    session: String,
+    session: SessionId,
     model: ModelId,
 }
 
 /// A session's worktrees as nodes from before `saved` keep them.
 #[derive(Debug, Serialize, Deserialize)]
 struct OldWorktrees {
-    session: String,
+    session: SessionId,
     worktrees: Vec<String>,
 }
 
@@ -137,11 +138,11 @@ impl Reopen {
 
     /// The saved entry of session `id`: the one there is, else one made
     /// from its open session; `None` when there is neither.
-    fn saved_for(&mut self, id: &str) -> Option<&mut SavedSession> {
-        let at = match self.saved.iter().position(|saved| saved.info.id == id) {
+    fn saved_for(&mut self, id: &SessionId) -> Option<&mut SavedSession> {
+        let at = match self.saved.iter().position(|saved| saved.info.id == *id) {
             Some(at) => at,
             None => {
-                let open = self.sessions.iter().find(|open| open.session == id)?;
+                let open = self.sessions.iter().find(|open| open.session == *id)?;
                 self.saved.push(Into::<SavedSession>::into(open));
                 self.saved.len() - 1
             }

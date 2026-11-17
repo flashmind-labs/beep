@@ -10,6 +10,7 @@
 //! while the parent waits on that child in `start_agent` (`wait` gives the
 //! state). Reviewers report through `submit_review` and send none.
 
+use beep_proto::SessionId;
 use super::{Agents, Command, Live, Session, children};
 use crate::{agents::tags, link::Membership};
 use beep_proto::node::agent::{Status, StopReason};
@@ -41,10 +42,10 @@ pub(crate) enum NoteState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ChildNote {
     /// The child's id on its machine, as its parent got it.
-    pub(crate) id: String,
+    pub(crate) id: SessionId,
     /// Its id on its machine from before the agent gave its own.
     #[serde(default)]
-    pub(crate) key: String,
+    pub(crate) key: SessionId,
     /// Its title, else its harness.
     #[serde(default)]
     pub(crate) name: String,
@@ -85,12 +86,12 @@ impl ChildNote {
 /// The children each parent waits on in `start_agent`, by the parent's name
 /// and the child's id as the parent got it.
 #[derive(Clone, Default)]
-pub(crate) struct Waits(Arc<Mutex<HashSet<(String, String)>>>);
+pub(crate) struct Waits(Arc<Mutex<HashSet<(SessionId, String)>>>);
 
 /// Held while a parent waits on a child; the wait ends when it drops.
 pub(crate) struct Waiting {
     waits: Waits,
-    key: (String, String),
+    key: (SessionId, String),
 }
 
 impl Drop for Waiting {
@@ -100,7 +101,7 @@ impl Drop for Waiting {
 }
 
 impl Waits {
-    pub(crate) fn hold(&self, parent: &str, child: &str) -> Waiting {
+    pub(crate) fn hold(&self, parent: &SessionId, child: &str) -> Waiting {
         let key = (parent.to_owned(), child.to_owned());
         crate::lock(&self.0).insert(key.clone());
         Waiting {
@@ -109,7 +110,7 @@ impl Waits {
         }
     }
 
-    fn holds(&self, parent: &str, child: &str) -> bool {
+    fn holds(&self, parent: &SessionId, child: &str) -> bool {
         crate::lock(&self.0).contains(&(parent.to_owned(), child.to_owned()))
     }
 }
@@ -119,7 +120,7 @@ enum To {
     /// The parent runs here.
     Here { parent: Weak<Session>, waits: Waits },
     /// The parent runs on `peer`, under the name `parent`.
-    There { peer: EndpointId, parent: String },
+    There { peer: EndpointId, parent: SessionId },
 }
 
 impl Agents {
@@ -155,7 +156,7 @@ impl Agents {
     pub(crate) async fn note_from(
         &self,
         peer: EndpointId,
-        parent: &str,
+        parent: &SessionId,
         note: &ChildNote,
     ) -> Result<(), String> {
         let kid = self
@@ -223,7 +224,7 @@ async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLoc
         let sent = match &to {
             To::Here { parent, waits } => match parent.upgrade() {
                 Some(parent) => {
-                    let id = children::full_id(&note.id, &children::machine_name(mesh.as_ref()));
+                    let id = children::full_id(note.id.as_ref(), &children::machine_name(mesh.as_ref()));
                     deliver(&parent, waits, &id, &note).await
                 }
                 None => return,
@@ -246,7 +247,7 @@ async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLoc
 
 /// What the child `live` came to, as its node tells it.
 fn note_of(live: &Live, state: NoteState) -> ChildNote {
-    let view = children::ChildView::of(&live.info, "");
+    let view = children::ChildView::of(&live.info, &SessionId::default());
     let text = match state {
         NoteState::Finished if view.last_message.is_empty() => view.error.unwrap_or_default(),
         NoteState::Finished | NoteState::Stopped | NoteState::Closed => view.last_message,

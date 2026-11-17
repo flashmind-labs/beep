@@ -99,7 +99,7 @@ mod listing {
                 past_session(
                     &host,
                     ExternalSession {
-                        id: format!("codex-{index}"),
+                        id: beep_proto::SessionId::from(format!("codex-{index}")),
                         agent: "codex".into(),
                         last_activity: 100 + u64::try_from(index).unwrap(),
                         presence: Presence::Stopped,
@@ -344,7 +344,9 @@ mod sessions {
         let said = |e: MeshError| format!("{e:#}");
         let e = external(&Down, "claude", 1, None).await.expect_err("down");
         assert!(said(e).contains("the node may need an update to list them"));
-        let e = live(&Down, "s", None).await.expect_err("down");
+        let e = live(&Down, &beep_proto::SessionId::from("s"), None)
+            .await
+            .expect_err("down");
         assert!(said(e).contains("the node may need an update for live status"));
         let e = found_folders(&Down, 1).await.expect_err("down");
         assert!(said(e).contains("the node may need an update to find them"));

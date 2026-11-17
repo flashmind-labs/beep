@@ -2,6 +2,7 @@
 //! work across the user's machines. The node runs each `Request` itself,
 //! reaching the machine it names over the mesh, and answers with a `Reply`.
 
+use crate::SessionId;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
@@ -109,7 +110,7 @@ pub enum Approved {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Request {
     /// The node's id of the agent session that called the tool.
-    pub session: String,
+    pub session: SessionId,
     pub tool: Tool,
     /// The call's arguments as the agent sent them, as JSON text.
     pub args: String,

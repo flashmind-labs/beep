@@ -7,6 +7,7 @@
 //! Sent as compact msgpack: a field is added only at the end with
 //! `#[serde(default)]`.
 
+use beep_proto::SessionId;
 use super::{
     Harness,
     progress::Target,
@@ -55,7 +56,7 @@ pub(crate) enum Request {
     /// bytes, else all of it. Ignored when `from` is 0.
     Read {
         agent: AgentSlug,
-        id: String,
+        id: SessionId,
         from: u64,
         prefix_hash: Vec<u8>,
         /// Asked for a worktree's commit and uncommitted work by nodes from
@@ -69,24 +70,24 @@ pub(crate) enum Request {
     /// As `List`.
     Copy {
         agent: AgentSlug,
-        id: String,
+        id: SessionId,
         from: u64,
         prefix_hash: Vec<u8>,
     },
     /// Asks how the move of session `id` made at `at` stands, which the
     /// machine it moves to knows. Sent by the source.
-    State { id: String, at: u64 },
+    State { id: SessionId, at: u64 },
     /// Asked by nodes from before worktree moves were removed; refused.
-    WorktreeBundle { id: String, head: String },
+    WorktreeBundle { id: SessionId, head: String },
     /// Asks for the commit of the project's checkout and the worktrees the
     /// session made, which move with it. Answered with `Checkout`.
-    Checkout { id: String },
+    Checkout { id: SessionId },
     /// Asks for one of those worktrees, by its folder in the project, once
     /// the session ended: `Work`, then the commits main lacks as `Bundle`
     /// pieces when `bundle`, the uncommitted work as `Patch` pieces, and
     /// `BundleEnd`.
     Worktree {
-        id: String,
+        id: SessionId,
         path: String,
         bundle: bool,
         /// The checkout's commit the target matched, which the bundle
@@ -216,7 +217,7 @@ pub(super) enum Asked {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Offer {
     pub(crate) agent: AgentSlug,
-    pub(crate) id: String,
+    pub(crate) id: SessionId,
     /// The mesh project it ran in.
     pub(crate) project: String,
     /// The folder it ran in, relative to the project's checkout here.
@@ -230,14 +231,14 @@ pub(crate) struct Offer {
 
 /// Checks the peer's access again while the move record reaches this machine.
 pub(super) struct Access<'a> {
-    pub(super) check: &'a (dyn Fn(Asked, &str) -> bool + Send + Sync),
+    pub(super) check: &'a (dyn Fn(Asked, &SessionId) -> bool + Send + Sync),
     pub(super) updates: Option<watch::Receiver<u64>>,
     /// The session's project and worktrees here, from its move record.
-    pub(super) leaving: &'a (dyn Fn(&str) -> Option<Leaving> + Send + Sync),
+    pub(super) leaving: &'a (dyn Fn(&SessionId) -> Option<Leaving> + Send + Sync),
 }
 
 impl Access<'_> {
-    async fn allows(&mut self, ask: Asked, id: &str) -> bool {
+    async fn allows(&mut self, ask: Asked, id: &SessionId) -> bool {
         if (self.check)(ask, id) {
             return true;
         }
@@ -467,7 +468,7 @@ async fn locate(
     agents: &Agents,
     me: &str,
     agent: &AgentSlug,
-    id: &str,
+    id: &SessionId,
 ) -> std::result::Result<Found, String> {
     let movable = agent
         .as_ref()
@@ -576,7 +577,7 @@ pub(crate) struct Pulled {
 /// What `pull` asks for.
 pub(crate) struct Ask<'a> {
     pub(crate) agent: AgentSlug,
-    pub(crate) id: &'a str,
+    pub(crate) id: &'a SessionId,
     pub(crate) copy: &'a Path,
 }
 
@@ -597,7 +598,7 @@ pub(super) async fn pull_within(
     let (from, prefix_hash) = held(copy).await?;
     let request = Request::Read {
         agent,
-        id: id.to_owned(),
+        id: id.clone(),
         from,
         prefix_hash,
         worktree: false,
@@ -655,7 +656,7 @@ pub(super) async fn pull_within(
 
 /// Asks a source for the commit of the project's checkout and the worktrees
 /// that move with session `id`.
-pub(crate) async fn checkout(mut tx: LinkTx, mut rx: LinkRx, id: &str) -> Result<Checkout> {
+pub(crate) async fn checkout(mut tx: LinkTx, mut rx: LinkRx, id: &SessionId) -> Result<Checkout> {
     tx.send(&Request::Checkout { id: id.to_owned() }).await?;
 
     match next(&mut rx, QUIET_FOR).await? {
@@ -678,7 +679,7 @@ pub(crate) async fn checkout(mut tx: LinkTx, mut rx: LinkRx, id: &str) -> Result
 
 /// What a target asks of one worktree.
 pub(crate) struct WorktreeAsk<'a> {
-    pub(crate) id: &'a str,
+    pub(crate) id: &'a SessionId,
     /// Its folder in the project, as `Checkout` named it.
     pub(crate) path: &'a str,
     /// The checkout's commit both machines are at.
@@ -691,7 +692,7 @@ pub(crate) struct WorktreeAsk<'a> {
 pub(crate) async fn worktree(mut tx: LinkTx, mut rx: LinkRx, ask: &WorktreeAsk<'_>) -> Result<Fetched> {
     let bundle = ask.bundle;
     tx.send(&Request::Worktree {
-        id: ask.id.to_owned(),
+        id: ask.id.clone(),
         path: ask.path.to_owned(),
         bundle,
         base: ask.base.to_owned(),

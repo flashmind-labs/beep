@@ -1,6 +1,7 @@
 //! The source's side of a move, with a shell script for the agent, and the
 //! pieces the target uses.
 
+use beep_proto::SessionId;
 use super::{
     Env, Stored,
     follow::reconcile,
@@ -186,7 +187,7 @@ async fn the_source_stops_the_turn_when_told_to_and_ends_the_session() {
         .await
         .expect("it ends in time")
         .expect("it ends the session");
-    let saved = source.env.state.load("held-1").expect("it is kept");
+    let saved = source.env.state.load(&SessionId::from("held-1")).expect("it is kept");
     assert_eq!((saved.at, saved.phase), (record.at, Phase::Done));
     source.env.agents.shutdown().await;
 }
@@ -258,7 +259,7 @@ async fn a_cancelled_move_lets_prompts_in_again() {
         .order(Command::Moving { stop: false })
         .await
         .expect("held");
-    source::cancel(&source.env, "held-1", 1_793_696_400_000, record(&source.env, true).to).await;
+    source::cancel(&source.env, &SessionId::from("held-1"), 1_793_696_400_000, record(&source.env, true).to).await;
     session
         .order(Command::Prompt("after".to_owned().into()))
         .await
@@ -320,11 +321,11 @@ async fn a_target_that_gives_up_leaves_the_session_running_here() {
         .order(Command::Prompt("still here".to_owned().into()))
         .await
         .expect("the session takes prompts again");
-    let saved = source.env.state.load("held-1").expect("it is kept");
+    let saved = source.env.state.load(&SessionId::from("held-1")).expect("it is kept");
     assert_eq!(saved.phase, Phase::Failed);
     assert_eq!(saved.reason.as_deref(), Some("this machine has no fake"));
     assert_eq!(
-        source.env.agents.moves.refusal("held-1").as_deref(),
+        source.env.agents.moves.refusal(&SessionId::from("held-1")).as_deref(),
         Some("this machine has no fake"),
         "a target that asks hears why"
     );
@@ -350,11 +351,11 @@ async fn a_target_that_gives_up_after_the_session_ended_has_it_start_again_here(
         .expect("it ends in time");
     assert!(done.is_err(), "the move did not happen");
     assert!(
-        source.env.agents.runs("held-1"),
+        source.env.agents.runs(&SessionId::from("held-1")),
         "the session runs again where it was"
     );
     assert_eq!(
-        source.env.state.load("held-1").map(|saved| saved.phase),
+        source.env.state.load(&SessionId::from("held-1")).map(|saved| saved.phase),
         Some(Phase::Failed)
     );
     source.env.agents.shutdown().await;
@@ -375,9 +376,9 @@ async fn a_move_cancelled_after_the_session_ended_does_not_start_it_while_the_ta
         }
     }
     // The target took it and cannot be asked since: it may run it.
-    source::cancel(&source.env, "held-1", record.at, record.to).await;
+    source::cancel(&source.env, &SessionId::from("held-1"), record.at, record.to).await;
     assert!(
-        !source.env.agents.runs("held-1"),
+        !source.env.agents.runs(&SessionId::from("held-1")),
         "the session does not run on two machines"
     );
     source.env.agents.shutdown().await;
@@ -390,12 +391,12 @@ async fn a_move_taken_back_after_an_earlier_one_ended_here_still_frees_the_sessi
     let source = source_env().await;
     let session = asking(&source).await;
     let env = Arc::new(source.env);
-    let earlier = env.agents.moves.begin("held-1", 1);
+    let earlier = env.agents.moves.begin(&SessionId::from("held-1"), 1);
     show(&earlier, |progress| progress.phase = MovePhase::Done);
     let record = record(&env, false);
     env.mesh
         .set(
-            Key::SessionMove("held-1".to_owned()),
+            Key::SessionMove(SessionId::from("held-1").to_owned()),
             Some(record.to_bytes().expect("a record encodes")),
         )
         .await
@@ -425,7 +426,7 @@ async fn a_move_taken_back_after_an_earlier_one_ended_here_still_frees_the_sessi
     .expect("the source ordered the move");
     // The move is taken back.
     env.mesh
-        .set(Key::SessionMove("held-1".to_owned()), None)
+        .set(Key::SessionMove(SessionId::from("held-1").to_owned()), None)
         .await
         .expect("the record goes");
     reconcile(&env, &mut running).await;
@@ -440,14 +441,14 @@ async fn a_move_taken_back_after_an_earlier_one_ended_here_still_frees_the_sessi
 #[test]
 fn a_target_that_resumes_the_session_reads_as_landed() {
     let moves = crate::agents::moving::Moves::default();
-    let tracker = moves.begin("held-1", 7);
-    moves.take("held-1");
+    let tracker = moves.begin(&SessionId::from("held-1"), 7);
+    moves.take(&SessionId::from("held-1"));
     show(&tracker, |progress| progress.phase = MovePhase::Files);
-    assert_eq!(moves.target("held-1", 7), Target::Taken);
+    assert_eq!(moves.target(&SessionId::from("held-1"), 7), Target::Taken);
     show(&tracker, |progress| progress.phase = MovePhase::Resuming);
-    assert_eq!(moves.target("held-1", 7), Target::Starting, "past taking back, not yet running");
+    assert_eq!(moves.target(&SessionId::from("held-1"), 7), Target::Starting, "past taking back, not yet running");
     show(&tracker, |progress| progress.phase = MovePhase::Done);
-    assert_eq!(moves.target("held-1", 7), Target::Landed);
+    assert_eq!(moves.target(&SessionId::from("held-1"), 7), Target::Landed);
 }
 
 #[tokio::test]
@@ -511,12 +512,12 @@ fn a_transcript_is_written_private_and_a_different_one_is_kept_aside() {
 fn a_move_that_ended_is_remembered_by_the_record_it_answered() {
     let dir = TempDir::new().expect("a temp folder");
     let folder = Folder::new(dir.path());
-    assert_eq!(folder.load("s1"), None);
+    assert_eq!(folder.load(&SessionId::from("s1")), None);
     let saved = Saved::over(7, Phase::Failed, Some("no checkout".into()));
-    folder.save("s1", &saved).expect("saved");
-    assert_eq!(folder.load("s1"), Some(saved));
-    folder.clear("s1", true);
-    assert_eq!(folder.load("s1"), None);
+    folder.save(&SessionId::from("s1"), &saved).expect("saved");
+    assert_eq!(folder.load(&SessionId::from("s1")), Some(saved));
+    folder.clear(&SessionId::from("s1"), true);
+    assert_eq!(folder.load(&SessionId::from("s1")), None);
     assert!(valid_id("0b1c2d3e-0000-4000-8000-0123456789ab"));
     assert!(!valid_id("../etc"));
     assert!(!valid_id(""));

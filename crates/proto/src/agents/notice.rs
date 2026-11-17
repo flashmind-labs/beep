@@ -2,6 +2,7 @@
 //! session it is about, so a click opens the session and Allow or Deny
 //! answers its question.
 
+use crate::SessionId;
 use crate::node::agent::{Alert, AlertKind, StopReason};
 use std::{fmt, path::Path, str::FromStr};
 
@@ -24,7 +25,7 @@ pub struct AgentNoticeKey {
     pub machine_id: String,
     /// The agent, such as `claude`.
     pub agent: String,
-    pub session: String,
+    pub session: SessionId,
     /// The question waiting for an answer; `None` for a turn that ended.
     pub question: Option<u32>,
     /// The machine's name, such as `build-box`.
@@ -33,8 +34,8 @@ pub struct AgentNoticeKey {
 
 impl AgentNoticeKey {
     /// Whether this key is about `session` of `agent` on `machine_id`.
-    pub fn is_session(&self, machine_id: &str, agent: &str, session: &str) -> bool {
-        self.machine_id == machine_id && self.agent == agent && self.session == session
+    pub fn is_session(&self, machine_id: &str, agent: &str, session: &SessionId) -> bool {
+        self.machine_id == machine_id && self.agent == agent && self.session == *session
     }
 }
 
@@ -85,7 +86,7 @@ impl FromStr for AgentNoticeKey {
         Ok(Self {
             machine_id,
             agent,
-            session,
+            session: session.into(),
             question,
             machine_name,
         })
@@ -159,7 +160,7 @@ impl Alert {
             .file_name()
             .and_then(|name| name.to_str())
             .filter(|name| !name.is_empty())
-            .unwrap_or(&self.session)
+            .unwrap_or(self.session.as_ref())
             .to_owned()
     }
 }

@@ -1,6 +1,7 @@
 //! Deleting the files of a session in an agent's store (`Stores::delete`),
 //! always checked to lie inside the store first.
 
+use beep_proto::SessionId;
 use super::{Agent, Stores};
 use crate::files::paths;
 use anyhow::{Context, Result, bail, ensure};
@@ -14,7 +15,7 @@ impl Stores {
     /// session file. `false` when there is no such session. Codex's
     /// `state_5.sqlite` and its title index are left as they are. Blocks:
     /// run it with `spawn_blocking`.
-    pub(crate) fn delete(&self, agent: Agent, id: &str) -> Result<bool> {
+    pub(crate) fn delete(&self, agent: Agent, id: &SessionId) -> Result<bool> {
         let root = match agent {
             Agent::Codex => self.codex.as_deref().map(|root| root.join("sessions")),
             Agent::Pi => self.pi.clone(),

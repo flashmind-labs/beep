@@ -9,6 +9,7 @@ use crate::{
         files as direct,
     },
 };
+use beep_proto::SessionId;
 use beep_proto::{
     DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, WorkDiff,
     node::agent::{AgentCommand, DiffAsk, WorkPlace, Worktree},
@@ -197,7 +198,7 @@ pub async fn agent_places(
 pub async fn agent_commands(
     fleet: Machines<'_>,
     machine_id: String,
-    session: String,
+    session: SessionId,
 ) -> Result<Vec<AgentCommand>> {
     match fleet.member(&machine_id) {
         Some(machine) => agent_nodes::commands(&fleet, machine, &session).await,
@@ -213,10 +214,10 @@ pub async fn agent_worktrees(
     fleet: Machines<'_>,
     machine_id: String,
     folder: String,
-    session: Option<String>,
+    session: Option<SessionId>,
 ) -> Result<Vec<Worktree>> {
     match fleet.member(&machine_id) {
-        Some(machine) => agent_nodes::worktrees(&fleet, machine, &folder, session.as_deref()).await,
+        Some(machine) => agent_nodes::worktrees(&fleet, machine, &folder, session.as_ref()).await,
         None => Ok(Vec::new()),
     }
 }

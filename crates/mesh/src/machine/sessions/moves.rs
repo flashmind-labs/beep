@@ -3,6 +3,7 @@ use crate::{
     MeshError,
     machine::{said, unexpected},
 };
+use beep_proto::SessionId;
 use beep_proto::node::agent::{MoveProgress, SessionsReply, SessionsRequest, Worktree};
 
 /// What a node says of a session's move to it.
@@ -17,10 +18,10 @@ pub enum MoveState {
 /// How the move of `session` to the node stands, as the node says.
 pub async fn move_progress<S: Sessions + ?Sized>(
     node: &S,
-    session: &str,
+    session: &SessionId,
 ) -> Result<MoveState, MeshError> {
     let request = SessionsRequest::MoveProgress {
-        session: session.to_owned(),
+        session: session.clone(),
     };
 
     match node
@@ -51,11 +52,11 @@ pub async fn move_progress<S: Sessions + ?Sized>(
 pub async fn worktrees<S: Sessions + ?Sized>(
     node: &S,
     folder: &str,
-    session: Option<&str>,
+    session: Option<&SessionId>,
 ) -> Result<NodeWork<Vec<Worktree>>, MeshError> {
     let request = SessionsRequest::Worktrees {
         folder: folder.to_owned(),
-        session: session.map(str::to_owned),
+        session: session.cloned(),
     };
 
     match once(node, request).await? {

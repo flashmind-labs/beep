@@ -1,4 +1,5 @@
 use crate::MeshError;
+use beep_proto::SessionId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{fmt, str::FromStr};
 
@@ -22,7 +23,7 @@ pub enum Key {
     /// A terminal kept running on a machine: `terminal/<id>`.
     Terminal(String),
     /// A coding agent session moving to another machine: `session-move/<id>`.
-    SessionMove(String),
+    SessionMove(SessionId),
     /// A value an account move could not bring from the server, as the record of what to enter
     /// again: `unmoved/credential/<id>` or `unmoved/harness/<agent>/<VAR>`. Nodes keep the
     /// server's values of that family while any record of it remains.
@@ -114,7 +115,7 @@ impl FromStr for Key {
             "harness" => Ok(Key::Harness(name)),
             "instructions" => Ok(Key::InstructionVersion(name)),
             "terminal" => Ok(Key::Terminal(name)),
-            "session-move" => Ok(Key::SessionMove(name)),
+            "session-move" => Ok(Key::SessionMove(Into::<SessionId>::into(name))),
             "unmoved" => Ok(Key::Unmoved(name)),
             "temporary" => Ok(Key::Temporary(name)),
             "observer" => Ok(Key::Observer(name)),

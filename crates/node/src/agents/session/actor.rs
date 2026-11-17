@@ -207,7 +207,7 @@ pub(super) struct Actor {
     /// The adapter found no running turn; wait for our prompt's reply.
     pub(super) steer_after_turn: bool,
     /// The agent's id of an earlier session to resume.
-    pub(super) resume: Option<String>,
+    pub(super) resume: Option<beep_proto::SessionId>,
     /// The transcript the resumed session had before the node restarted,
     /// shown again when the agent resumes without replaying it.
     pub(super) earlier: Vec<Entry>,
@@ -1032,7 +1032,7 @@ impl Actor {
             self.brief = joined(self.brief.take(), standing.as_deref());
             None
         };
-        let session = SessionId::from(session);
+        let session = SessionId::from(String::from(session));
         let Some(method) = method else {
             return Some(End::Failed("the agent cannot resume a session".into()));
         };
@@ -1089,8 +1089,9 @@ impl Actor {
         // From now on the session goes by the agent's own id, which
         // still finds it once the node restarts.
         self.live.send_modify(|live| {
-            live.agent_session = Some(session.to_string());
-            live.info.id = session.to_string();
+            let id = Into::<beep_proto::SessionId>::into(&*session.0);
+            live.agent_session = Some(id.clone());
+            live.info.id = id;
         });
         crate::link::restart::changed();
         let Some(model) = self.model.take() else {

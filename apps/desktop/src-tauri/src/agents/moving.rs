@@ -10,6 +10,7 @@ use crate::{
     },
 };
 use beep_fleet::{MoveAsk, MoveState};
+use beep_proto::SessionId;
 use beep_proto::{
     ApiError, ModelId,
     node::{
@@ -24,7 +25,7 @@ use serde::Serialize;
 #[derive(Debug, Serialize, PartialEq)]
 pub struct MoveView {
     /// The agent's own id for the session.
-    pub session: String,
+    pub session: SessionId,
     pub agent: String,
     /// The machine that ran it, and the one that takes it over.
     pub from: String,
@@ -118,7 +119,7 @@ pub async fn session_move(
     machine_id: String,
     to: String,
     agent: String,
-    session: String,
+    session: SessionId,
     project: String,
     cwd: String,
     mode: Option<String>,
@@ -153,7 +154,7 @@ pub async fn session_move_probe(fleet: FleetState<'_>, machine_id: String) -> Re
 
 /// Takes back the move of `session`, unless it already resumed on the target.
 #[tauri::command]
-pub async fn session_move_cancel(fleet: FleetState<'_>, session: String) -> Result<()> {
+pub async fn session_move_cancel(fleet: FleetState<'_>, session: SessionId) -> Result<()> {
     Ok(desk(&fleet).await?.cancel_move(&session).await?)
 }
 
@@ -172,7 +173,7 @@ pub async fn session_moves(fleet: FleetState<'_>) -> Result<Vec<MoveView>> {
 #[tauri::command]
 pub async fn session_move_progress(
     fleet: FleetState<'_>,
-    session: String,
+    session: SessionId,
 ) -> Result<MoveProgressView> {
     Ok(desk(&fleet).await?.move_state(&session).await?.into())
 }

@@ -18,6 +18,7 @@ use crate::{
     projects::ProjectRow,
     tray::waiting::WaitingList,
 };
+use beep_proto::SessionId;
 use beep_proto::node::agent::LineChanges;
 use beep_proto::{
     AgentNoticeKey, AgentQuestion, AgentStatus, ApiError, ImportedProject, Machine, MachineApp,
@@ -47,7 +48,7 @@ pub async fn center_answer_agent(
     fleet: State<'_, Arc<Fleet>>,
     machine_id: String,
     agent: String,
-    session: String,
+    session: SessionId,
     question: u32,
     reply: String,
 ) -> Result<()> {
@@ -175,7 +176,7 @@ enum RunningRow {
     Agent {
         machine_id: String,
         machine_name: String,
-        id: String,
+        id: SessionId,
         agent: String,
         title: Option<String>,
         cwd: String,
@@ -200,7 +201,7 @@ pub(crate) enum NeedsYou {
         machine_id: String,
         machine_name: String,
         agent: String,
-        session: String,
+        session: SessionId,
         title: Option<String>,
         question: AgentQuestion,
     },

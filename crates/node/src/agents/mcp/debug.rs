@@ -3,6 +3,7 @@
 //! problem report reads (`report/1`), with secrets redacted the same way:
 //! every machine of the mesh.
 
+use beep_proto::SessionId;
 use super::machines::command_name;
 use super::reply::{fail, parse};
 use super::server::ASK_LIMIT;
@@ -461,7 +462,7 @@ struct ReportArgs {
 async fn file(
     offers: &Offers,
     peers: &Peers,
-    session: &str,
+    session: &SessionId,
     args: ReportArgs,
 ) -> Result<String, String> {
     let description = args.description.trim().to_owned();

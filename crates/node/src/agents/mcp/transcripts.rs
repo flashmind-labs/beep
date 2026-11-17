@@ -1,5 +1,6 @@
 //! Read-only transcript access for repair agents over the mesh.
 
+use beep_proto::SessionId;
 use super::{machines, reply};
 use crate::{agents::TRANSCRIPT_PROTOCOL, link::Offers};
 use anyhow::{Context, Result, bail};
@@ -19,7 +20,7 @@ const TEXT_BUDGET: usize = 64 * 1024;
 #[serde(deny_unknown_fields)]
 struct Args {
     machine: Option<String>,
-    session: String,
+    session: SessionId,
     #[serde(default = "default_last")]
     last: u32,
     before: Option<u64>,
@@ -35,7 +36,7 @@ impl TryFrom<Value> for Args {
     fn try_from(value: Value) -> Result<Self> {
         let args: Self = serde_json::from_value(value).context("Invalid transcript arguments")?;
 
-        if args.session.trim().is_empty() || args.session.len() > 512 {
+        if args.session.as_ref().trim().is_empty() || args.session.as_ref().len() > 512 {
             bail!("Give a session ID of at most 512 bytes.");
         }
 

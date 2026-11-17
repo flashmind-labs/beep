@@ -2,6 +2,7 @@
 //! built from the agent's `session/update` notifications, and the
 //! transcript, which stays here.
 
+use beep_proto::SessionId;
 use super::{acp::Prompt, images::Images, usage::UsageHub};
 use agent_client_protocol::v1::schema::{CompactionId, ToolCallId, ToolKind};
 use beep_proto::node::{
@@ -74,7 +75,7 @@ pub(crate) struct Live {
     pub(crate) closing: bool,
     /// The agent's own id for the session, once it gave one: for Claude
     /// Code, the transcript's name.
-    pub(crate) agent_session: Option<String>,
+    pub(crate) agent_session: Option<SessionId>,
     /// The prompts still waiting when the node stopped, to send once it
     /// resumes the session.
     pub(super) held: Vec<Prompt>,
