@@ -212,6 +212,17 @@ fn only_github_lists_issues_linked_to_a_pr() {
         HostCommand::ListLinkedIssues.render(&forgejo(), &repo()),
         None
     );
+    let linked = HostCommand::LinkedPrs { number: 12 }
+        .render(&github(), &repo())
+        .expect("gh answers it");
+    assert!(
+        linked.contains("gh api graphql -f 'owner=acme' -f 'name=widget' -F 'number=12'"),
+        "{linked}"
+    );
+    assert_eq!(
+        HostCommand::LinkedPrs { number: 12 }.render(&forgejo(), &repo()),
+        None
+    );
 }
 
 #[test]

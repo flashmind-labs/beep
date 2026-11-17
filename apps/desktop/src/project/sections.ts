@@ -77,7 +77,7 @@ export const thr = makeThreads({
 });
 
 /// A pull request or issue read in full, in the split's right column.
-export const details = makeThreadDetail({ redraw: () => redrawProjects(), openUrl });
+export const details = makeThreadDetail({ redraw: () => redrawProjects() });
 
 /// The project's workflow runs: the Actions section and each PR's checks.
 export const runs = makeRuns({

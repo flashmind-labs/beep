@@ -27,6 +27,7 @@ import { projectBranch, type GitRow } from "./gitsync-state.ts";
 import { boxOf, go } from "../center/views.tsx";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./projects.tsx";
+import { openUrl } from "../center/openitems.ts";
 import { pa, terms, fsync, gitHistory, thr, details, runs, redrawProjects, repoActs } from "./sections.ts";
 import { sessionsHost, sessionsList, sessionsDue, loadSessions } from "./loads.tsx";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
@@ -185,11 +186,16 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   ] });
   const num = (n: number) => <span className="num">{`#${n}`}</span>;
   const prs = thr.prs(pid), issues = thr.issues(pid);
+  // A link to one of the project's open pull requests opens it here.
+  const openLink = (url: string) => {
+    const pr = prs?.find(open => open.url === url);
+    if (pr) openTile(`pr:${pr.number}`); else void openUrl(url);
+  };
   const prItems: SplitItem[] = sortedPrs(prs || []).map(pr => ({
     key: `pr:${pr.number}`, opened: pr.created_at, lead: num(pr.number), title: pr.title, sub: prMeta(pr, ms => formatAgo(ms, "short")).join(" · "), tags: pr.labels,
     right: pr.draft ? <Chip kind="" text="draft" /> : undefined,
     menu: e => thr.prMenu(e, agent, acts, pr),
-    detail: () => [viewPart("thread", details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, thr.prButtons(agent, acts, pr)))],
+    detail: () => [viewPart("thread", details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, thr.prButtons(agent, acts, pr), openLink))],
   }));
   const prKey = `${p.name}:prs`;
   const prFilter = labelFilter(prKey, prItems, i => i.tags, redrawProjects);
@@ -199,7 +205,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     lead: num(issue.number), title: issue.title, sub: issueMeta(issue, ms => formatAgo(ms, "short")), tags: issue.labels,
     right: issue.linked_pr ? <Chip kind="wait" text="PR" title="A pull request is linked to it" /> : undefined,
     menu: e => thr.issueMenu(e, acts, issue),
-    detail: () => [viewPart("thread", details.pane(pid, { number: issue.number, title: issue.title, url: issue.url, author: issue.author, opened_at: issue.opened_at }, thr.issueButtons(agent, acts, issue)))],
+    detail: () => [viewPart("thread", details.pane(pid, { number: issue.number, title: issue.title, url: issue.url, author: issue.author, opened_at: issue.opened_at }, thr.issueButtons(agent, acts, issue), openLink))],
   }));
   const issueKey = `${p.name}:issues`;
   const issueFilter = labelFilter(issueKey, issueItems, i => i.tags, redrawProjects);

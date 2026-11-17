@@ -288,6 +288,19 @@ wire_structs! {
         /// How a pull request's checks stand on its head commit, where the host
         /// says.
         pub checks: Option<RunState>,
+        /// For an issue, the pull requests that will close it or mention it.
+        /// GitHub only.
+        #[serde(default)]
+        pub linked_prs: Vec<LinkedPr>,
+    }
+
+    /// A pull request linked to an issue.
+    pub struct LinkedPr {
+        pub number: u64,
+        pub title: String,
+        /// Its web page, which names its repository.
+        pub url: String,
+        pub state: ThreadState,
     }
 }
 

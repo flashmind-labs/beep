@@ -3,7 +3,7 @@ import { allowSelection, openDesktop, projectName } from "./harness.ts";
 
 test("issue detail keeps comment draft, caret and scroll during project refresh", async ({ page }) => {
   const now = Date.now(), issue = { number: 1, title: "Example issue", url: "https://example.test/issues/1", author: "Author", opened_at: now, comments: 1, labels: [] };
-  const detail = { kind: "issue", number: 1, title: issue.title, url: issue.url, author: issue.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Issue description</p>", comments: [{ author: "Writer", at: now, html: "<p>Existing comment</p>" }], earlier: 0, review: "none", checks: null };
+  const detail = { kind: "issue", number: 1, title: issue.title, url: issue.url, author: issue.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Issue description</p>", comments: [{ author: "Writer", at: now, html: "<p>Existing comment</p>" }], earlier: 0, review: "none", checks: null, linked_prs: [] };
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail,
@@ -52,7 +52,7 @@ test("issue detail keeps comment draft, caret and scroll during project refresh"
 
 test("Work on it picks a model under the button and starts the issue's agent at once", async ({ page }) => {
   const now = Date.now(), issue = { number: 7, title: "Example issue", url: "https://example.test/issues/7", author: "Author", opened_at: now, comments: 0, labels: [] };
-  const detail = { kind: "issue", number: 7, title: issue.title, url: issue.url, author: issue.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Issue description</p>", comments: [], earlier: 0, review: "none", checks: null };
+  const detail = { kind: "issue", number: 7, title: issue.title, url: issue.url, author: issue.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Issue description</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }, { id: "beta", name: "Beta", description: null }] },
@@ -78,7 +78,7 @@ test("Work on it picks a model under the button and starts the issue's agent at 
 test("Review with agent starts a named reviewer on a pull request's branch, and Continue starts there too", async ({ page }) => {
   const reviewer = { machine_id: "build-box", machine_name: "build-box", id: "reviewer", agent: "codex", cwd: "/srv/project", status: "working", external: false, question: null };
   const now = Date.now(), pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, updated_at: now, labels: [] };
-  const detail = { kind: "pr", number: 9, title: pr.title, url: pr.url, author: pr.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null };
+  const detail = { kind: "pr", number: 9, title: pr.title, url: pr.url, author: pr.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] },
@@ -112,4 +112,19 @@ test("Review with agent starts a named reviewer on a pull request's branch, and 
   const next = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin")[1]?.args);
   expect(next).toMatchObject({ agent: "codex", checkout: { branch_worktree: { branch: "example-change" } } });
   expect(String(next?.prompt)).toContain("Continue PR #9");
+});
+
+test("an issue's linked pull requests open here or on the host", async ({ page }) => {
+  const now = Date.now(), issue = { number: 1, title: "Example issue", url: "https://github.com/example/widget/issues/1", author: "Author", opened_at: now, comments: 0, labels: [], linked_pr: true };
+  const pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, updated_at: now, labels: [] };
+  const other = { number: 4, title: "Elsewhere", url: "https://github.com/example/other/pull/4", state: "merged" };
+  const detail = { kind: "issue", number: 1, title: issue.title, url: issue.url, author: issue.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Issue</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [{ number: 9, title: pr.title, url: pr.url, state: "open" }, other] };
+  await openDesktop(page, false, { center_project_lists: { issues: [issue], prs: [pr], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "issues" } }), projectName);
+  await page.locator('.pj-det .pj-li[title="Example issue"]').click();
+  const pane = page.locator(".pj-split > .pj-det");
+  await pane.locator(".cc-line").filter({ hasText: "Elsewhere" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_url").map(call => call.args))).toEqual([{ url: other.url }]);
+  await pane.locator(".cc-line").filter({ hasText: "Example change" }).click();
+  await expect(page.locator('.pj-list .pj-li[title="Example change"]')).toHaveAttribute("aria-current", "true");
 });

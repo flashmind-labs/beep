@@ -34,6 +34,16 @@ export interface ThreadDetailRow {
   earlier: number;
   review: "none" | "approved" | "changes_requested";
   checks: string | null;
+  /// For an issue, the pull requests that will close it or mention it.
+  linked_prs: LinkedPrRow[];
+}
+
+/// A pull request linked to an issue (LinkedPrRow).
+export interface LinkedPrRow {
+  number: number;
+  title: string;
+  url: string;
+  state: ThreadDetailRow["state"];
 }
 
 /// What the list row already knows, shown while the full read is on its way.
@@ -60,7 +70,7 @@ export function forgeLabel(url: string) {
 type Draft = { text: string; posting: boolean; error?: string };
 
 /// A comment goes to the host through a machine with the project.
-export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: string) => unknown }) {
+export function makeThreadDetail(deps: { redraw: () => void }) {
   const reads = new Map<string, Read>();
   const drafts = new Map<string, Draft>();
 
@@ -78,7 +88,8 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
   }
 
   /// The pane of one thread. Its key is the thread, so typing a comment redraws only the pane.
-  function pane(projectId: string, stub: ThreadStub, acts: ThreadActions) {
+  /// `open` opens a link of it.
+  function pane(projectId: string, stub: ThreadStub, acts: ThreadActions, open: (url: string) => void) {
     const key = `${projectId}#${stub.number}`, readState = read(projectId, stub.number), data = readState.data;
     const draft = drafts.get(key) ?? { text: "", posting: false };
     drafts.set(key, draft);
@@ -93,7 +104,7 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
     };
     const view = (redraw: () => void): ComponentProps<typeof ThreadDetailView> => ({
       stub, data, error: readState.error, acts, text: draft.text, posting: draft.posting, draftError: draft.error,
-      edit: (value: string) => { draft.text = value; redraw(); }, post, open: (url: string) => { void deps.openUrl(url); },
+      edit: (value: string) => { draft.text = value; redraw(); }, post, open,
     });
     return <div style={{ display: "contents" }} key={key}><ThreadPane view={view} /></div>;
   }
