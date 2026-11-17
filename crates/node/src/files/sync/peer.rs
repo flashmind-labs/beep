@@ -37,7 +37,9 @@ const FIRST_RETRY: Duration = Duration::from_secs(1);
 const LAST_RETRY: Duration = Duration::from_secs(60);
 /// The most projects one peer pulls at once over a connection.
 const MAX_STREAMS: usize = 64;
-/// How long a Git object transfer waits for its next chunk.
+/// How long a Git object transfer waits for its first chunk, then for each
+/// next one.
+const FIRST_CHUNK: Duration = Duration::from_secs(300);
 const STALL: Duration = Duration::from_secs(30);
 /// The largest Git pack one transfer takes.
 const MAX_PACK: u64 = 2 << 30;
@@ -723,7 +725,10 @@ async fn receive_objects(connection: &Connection, shared: &Shared, want: ObjectW
     let mut total = 0u64;
 
     loop {
-        let reply = timeout(STALL, rx.recv::<Reply>())
+        // Git writes nothing until it has counted and compressed the
+        // objects, which takes long for a big pack.
+        let wait = if total == 0 { FIRST_CHUNK } else { STALL };
+        let reply = timeout(wait, rx.recv::<Reply>())
             .await
             .context("The Git object transfer stalled")??;
 

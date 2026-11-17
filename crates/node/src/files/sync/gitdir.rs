@@ -614,18 +614,18 @@ impl Repo {
         Ok(output)
     }
 
-    /// A file in `.git` that holds a pack while it arrives, so Git reads
-    /// only a whole one. A transfer cut short leaves nothing behind.
+    /// A file that holds a pack while it arrives, so Git reads only a whole
+    /// one. A transfer cut short leaves nothing behind. It sits with the
+    /// packs, where writes wake no scan and the sync copies nothing.
     pub(super) fn incoming_pack(&self) -> Result<tempfile::NamedTempFile> {
         tempfile::Builder::new()
             .prefix("beep-incoming-")
             .suffix(".pack")
-            .tempfile_in(self.root.join(GIT))
+            .tempfile_in(self.root.join(GIT).join("objects").join("pack"))
             .context("making room for a Git pack")
     }
 
-    /// Indexes the whole pack in `pack`, then lets Git pack its objects
-    /// together once enough packs have come.
+    /// Indexes the whole pack in `pack`.
     pub(super) fn index_pack(&self, pack: &tempfile::NamedTempFile) -> Result<()> {
         let before = self.unfinished_packs();
         let output = self
@@ -646,12 +646,16 @@ impl Repo {
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
-        // Below `gc.autoPackLimit` packs this returns at once.
-        if let Err(e) = self.run(&["gc", "--auto", "--quiet"]) {
+        Ok(())
+    }
+
+    /// Packs objects together once received packs pile up, after their refs
+    /// are in place; below `gc.autoPackLimit` packs it returns at once. It
+    /// stays in the foreground, so it finishes or fails here.
+    pub(super) fn collect(&self) {
+        if let Err(e) = self.run(&["-c", "gc.autoDetach=false", "gc", "--auto", "--quiet"]) {
             log::warn!("{}: {e:#}", self.root.display());
         }
-
-        Ok(())
     }
 
     fn unfinished_packs(&self) -> HashSet<PathBuf> {

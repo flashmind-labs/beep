@@ -130,6 +130,11 @@ pub(super) async fn receive_catalog(
         .await??;
     }
 
+    if !changed.is_empty() {
+        let root = shared.root().to_owned();
+        spawn_blocking(move || Repo::open(&root).map(|repo| repo.collect())).await?;
+    }
+
     shared.observe_branches(peer, tips);
     Ok(())
 }
