@@ -49,9 +49,8 @@ use tonic::transport::{Channel, Endpoint, Uri};
 use tower::service_fn;
 
 #[allow(dead_code, clippy::all, clippy::pedantic)]
-mod proto {
-    tonic::include_proto!("idb");
-}
+#[path = "proto/idb.rs"]
+mod proto;
 
 /// How long a simulator has to finish booting before attaching gives up.
 const BOOT_WAIT: Duration = Duration::from_secs(180);

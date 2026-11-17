@@ -582,16 +582,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
-name = "base64-simd"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "339abbe78e73178762e23bea9dfd08e697eb3f3301cd4be981c0f78ba5859195"
-dependencies = [
- "outref",
- "vsimd",
-]
-
-[[package]]
 name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -694,6 +684,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "beep-device-proto"
+version = "0.1.0"
+dependencies = [
+ "protox",
+ "tonic-prost-build",
+]
+
+[[package]]
 name = "beep-fleet"
 version = "0.1.0"
 dependencies = [
@@ -776,6 +774,7 @@ dependencies = [
  "flate2",
  "futures",
  "gix",
+ "gix-revision",
  "hex",
  "humantime",
  "hyper-util",
@@ -794,7 +793,6 @@ dependencies = [
  "notify",
  "portable-pty",
  "prost",
- "protox",
  "rand 0.10.3",
  "regex",
  "reqwest",
@@ -822,7 +820,6 @@ dependencies = [
  "toml_edit 0.25.19+spec-1.1.0",
  "tonic",
  "tonic-prost",
- "tonic-prost-build",
  "tower",
  "tracing",
  "uuid",
@@ -841,7 +838,13 @@ dependencies = [
  "log",
  "mime_guess",
  "notify",
- "oxc",
+ "oxc_allocator",
+ "oxc_codegen",
+ "oxc_diagnostics",
+ "oxc_parser",
+ "oxc_semantic",
+ "oxc_span",
+ "oxc_transformer",
  "rquickjs",
  "semver",
  "serde",
@@ -2308,12 +2311,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b5343afd4a8365a643ac588dab4cf234a190c7f6c88c9f6dd6ffe00837661b7"
 
 [[package]]
-name = "escape-simd"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0440157235aa4badd45ea073af8de2ba44ffead74bf8a7833b215533c36f08e"
-
-[[package]]
 name = "event-listener"
 version = "5.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3043,7 +3040,6 @@ dependencies = [
  "gix-glob",
  "gix-hash",
  "gix-hashtable",
- "gix-index",
  "gix-lock",
  "gix-note",
  "gix-object",
@@ -3097,15 +3093,6 @@ dependencies = [
  "gix-trace",
  "smallvec",
  "unicode-bom",
-]
-
-[[package]]
-name = "gix-bitmap"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "422cd23418fd80e9e965595323975d72abd6364a66ff8f0daade5c105a7f35d2"
-dependencies = [
- "gix-error",
 ]
 
 [[package]]
@@ -3298,35 +3285,6 @@ dependencies = [
  "gix-hash",
  "hashbrown 0.17.1",
  "parking_lot",
-]
-
-[[package]]
-name = "gix-index"
-version = "0.58.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06bfc736774a623307eda890c918d308ef5acd37402bde2d6768fccb1f6ecb5d"
-dependencies = [
- "bitflags 2.13.2",
- "bstr",
- "filetime",
- "fnv",
- "gix-bitmap",
- "gix-error",
- "gix-fs",
- "gix-hash",
- "gix-lock",
- "gix-object",
- "gix-parallel",
- "gix-trace",
- "gix-traverse",
- "gix-utils",
- "gix-validate",
- "hashbrown 0.17.1",
- "itoa",
- "libc",
- "memmap2",
- "rustix",
- "smallvec",
 ]
 
 [[package]]
@@ -3538,7 +3496,6 @@ dependencies = [
  "gix-date",
  "gix-error",
  "gix-hash",
- "gix-hashtable",
  "gix-object",
  "gix-revwalk",
  "gix-trace",
@@ -5074,15 +5031,6 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "json-escape-simd"
-version = "3.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d302fe9761f19c4123edfe82b66be55a08e54012403cd7e27f8a176538737954"
-dependencies = [
- "escape-simd",
 ]
 
 [[package]]
@@ -6668,26 +6616,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
 
 [[package]]
-name = "oxc"
-version = "0.158.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a278f8bfd48b5f7eab27690679616e94d9d316a4f09dd2e57710a0d9bc37cbd"
-dependencies = [
- "oxc_allocator",
- "oxc_ast",
- "oxc_codegen",
- "oxc_diagnostics",
- "oxc_parser",
- "oxc_regular_expression",
- "oxc_semantic",
- "oxc_span",
- "oxc_str",
- "oxc_syntax",
- "oxc_transformer",
- "oxc_transformer_plugins",
-]
-
-[[package]]
 name = "oxc-browserslist"
 version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6770,7 +6698,6 @@ dependencies = [
  "oxc_ecmascript",
  "oxc_index",
  "oxc_semantic",
- "oxc_sourcemap",
  "oxc_span",
  "oxc_str",
  "oxc_syntax",
@@ -6917,19 +6844,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxc_sourcemap"
-version = "9.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1133371a5fadc14b9f66a8fec14be3564a77647c7ab21b1ef0ec973bd82613ce"
-dependencies = [
- "base64-simd",
- "json-escape-simd",
- "rustc-hash",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "oxc_span"
 version = "0.158.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7003,29 +6917,6 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "oxc_transformer_plugins"
-version = "0.158.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4363bfef81db5323ce10ce6f1f24f5990cbba6acb3ae176f8d57a0d73fefcc43"
-dependencies = [
- "cow-utils",
- "itoa",
- "oxc_allocator",
- "oxc_ast",
- "oxc_ast_visit",
- "oxc_diagnostics",
- "oxc_ecmascript",
- "oxc_parser",
- "oxc_semantic",
- "oxc_span",
- "oxc_str",
- "oxc_syntax",
- "oxc_transformer",
- "oxc_traverse",
- "rustc-hash",
 ]
 
 [[package]]

@@ -119,8 +119,7 @@ fn upstream(repo: &Repository, branch: &FullName) -> Result<Option<(String, Obje
 
 /// The commit ref `name` leads to, as `rev-parse --verify '<name>^{commit}'`.
 fn commit_of(repo: &Repository, name: &str) -> Option<ObjectId> {
-    let id = repo.rev_parse_single(format!("{name}^{{commit}}").as_str()).ok()?;
-    Some(id.detach())
+    Some(repo.find_reference(name).ok()?.peel_to_commit().ok()?.id)
 }
 
 /// Commits only `tip` has and commits only `other` has, as

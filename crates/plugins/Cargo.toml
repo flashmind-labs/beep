@@ -15,7 +15,13 @@ log.workspace = true
 mime_guess.workspace = true
 notify.workspace = true
 # Strips TypeScript's types, so a plugin's source runs as written.
-oxc = { workspace = true, features = ["transformer", "codegen", "semantic"] }
+oxc_allocator.workspace = true
+oxc_codegen.workspace = true
+oxc_diagnostics.workspace = true
+oxc_parser.workspace = true
+oxc_semantic.workspace = true
+oxc_span.workspace = true
+oxc_transformer.workspace = true
 rquickjs = { workspace = true, features = ["loader"] }
 semver = { workspace = true, features = ["serde"] }
 serde.workspace = true
