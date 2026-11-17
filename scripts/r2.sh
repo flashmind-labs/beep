@@ -17,9 +17,10 @@ case "$1" in
     file=$2
     key=$3
     type=$4
+    checksum=$(shasum -a 256 "$file")
     curl -sSf --retry 3 --aws-sigv4 "aws:amz:auto:s3" \
       --user "$CF_ACCESS_KEY_ID:$CF_SECRET_ACCESS_KEY" \
-      -H "x-amz-content-sha256: $(sha256sum "$file" | cut -d ' ' -f 1)" \
+      -H "x-amz-content-sha256: ${checksum%% *}" \
       -H "Cache-Control: no-cache" -H "Content-Type: $type" \
       -T "$file" "https://$ACCOUNT.r2.cloudflarestorage.com/$CF_BUCKET/$key" > /dev/null
     ;;
