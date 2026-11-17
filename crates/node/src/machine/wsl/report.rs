@@ -4,7 +4,7 @@
 //! `probe_all` looks into every one when the user asks.
 
 use super::{
-    distro::{DistroName, Found, FoundAgent, Listed},
+    distro::{DistroName, Found, Listed},
     steps,
 };
 use anyhow::Result;
@@ -34,18 +34,24 @@ static AGENTS_CHANGED: Notify = Notify::const_new();
 /// The default distribution was looked into once while stopped.
 static DEFAULT_PROBED: AtomicBool = AtomicBool::new(false);
 
-/// The coding agent `name` installed in a distribution, in the default one
-/// when it has it, else the first by name, as last probed.
-pub(crate) fn agent(name: &str) -> Option<(DistroName, FoundAgent)> {
+/// What each distribution had when last probed, the default one first,
+/// then by name.
+pub(crate) fn found() -> Vec<(DistroName, Found)> {
     let default = crate::lock(&DEFAULT).clone();
-    let found = crate::lock(&FOUND);
-    let mut with: Vec<(&DistroName, &FoundAgent)> = found
+    let mut found: Vec<(DistroName, Found)> = crate::lock(&FOUND)
         .iter()
-        .filter_map(|(distro, found)| Some((distro, found.agents.iter().find(|agent| agent.name == name)?)))
+        .map(|(distro, found)| (distro.clone(), found.clone()))
         .collect();
-    with.sort_by_key(|(distro, _)| (default.as_ref() != Some(*distro), *distro));
+    found.sort_by(|(a, _), (b, _)| (default.as_ref() != Some(a), a).cmp(&(default.as_ref() != Some(b), b)));
+    found
+}
 
-    with.first().map(|(distro, agent)| ((*distro).clone(), (*agent).clone()))
+/// The distribution that has the coding agent `name`, with what it has,
+/// as `found` orders them.
+pub(crate) fn with_agent(name: &str) -> Option<(DistroName, Found)> {
+    found()
+        .into_iter()
+        .find(|(_, found)| found.agents.iter().any(|agent| agent.name == name))
 }
 
 /// Waits until a probe finds other agents in a distribution than before.

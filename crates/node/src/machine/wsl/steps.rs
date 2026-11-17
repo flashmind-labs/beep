@@ -1,5 +1,5 @@
 //! What the Windows node runs through `wsl.exe`: listing the distributions,
-//! and inside one, probing it, reading its home and running a coding agent.
+//! and inside one, probing it and running a coding agent.
 //! Inside a distribution everything runs in its `sh`.
 
 use super::distro::{self, DistroName, Found, LinuxPath, Listed};
@@ -11,8 +11,6 @@ use tokio::{process::Command, time::timeout};
 
 /// How long listing the distributions may take.
 const LIST_LIMIT: Duration = Duration::from_secs(5);
-/// How long asking a distribution for its home folder may take.
-const HOME_LIMIT: Duration = Duration::from_secs(20);
 /// How long probing a distribution may take, starting it included.
 const PROBE_LIMIT: Duration = Duration::from_secs(30);
 /// The most of a failed command's output kept for the reason.
@@ -50,39 +48,30 @@ pub(crate) async fn probe(distro: &DistroName) -> Result<Found> {
 }
 
 /// `wsl.exe` running the Linux `program` with `args` in `distro`, in the
-/// folder `cwd` of the distribution, with the `PATH` the probe found it on
+/// folder `cwd` of the distribution or its home, with the `PATH` the probe found it on
 /// and the variables a coding agent reads (`AGENT_VARS`) carried in from
 /// Windows.
-pub(crate) fn agent_command(distro: &DistroName, cwd: &LinuxPath, program: &LinuxPath, args: &[String]) -> Command {
+pub(crate) fn agent_command(
+    distro: &DistroName,
+    cwd: Option<&LinuxPath>,
+    program: &LinuxPath,
+    args: &[String],
+) -> Command {
     let mut command = crate::run::process::command("wsl.exe");
     let distro: &std::ffi::OsStr = distro.as_ref();
     let script = format!("{}exec \"$0\" \"$@\"\n", path_prelude());
     command
         .arg("-d")
         .arg(distro)
-        .args(["--cd", cwd.as_ref(), "--exec", "sh", "-lc", &script, program.as_ref()])
+        .args(["--cd", cwd.map_or("~", AsRef::as_ref), "--exec", "sh", "-lc", &script, program.as_ref()])
         .args(args)
         .env("WSLENV", wslenv());
     command
 }
 
-/// The home folder of `distro`'s default user, from its own line among
-/// what the login shell's profile may print.
-pub(crate) async fn home(distro: &DistroName) -> Result<LinuxPath> {
-    let printed = wsl(in_distro(distro, "printf 'home %s\\n' \"$HOME\""), HOME_LIMIT).await?;
-    let home = printed
-        .lines()
-        .find_map(|line| line.strip_prefix("home "))
-        .context("the shell in WSL printed no home folder")?;
-    Ok(home.parse()?)
-}
-
 /// The variables set in this process that a coding agent reads: its
 /// credentials and settings. `PATH` stays out, as WSL makes its own.
 const AGENT_VARS: &[&str] = &["CLAUDE_", "ANTHROPIC_", "DISABLE_AUTO_COMPACT", "GH_TOKEN"];
-/// Variables among `AGENT_VARS` that hold a Windows path, which means
-/// nothing to the agent in WSL.
-const WINDOWS_PATHS: &[&str] = &["CLAUDE_CONFIG_DIR"];
 
 /// `WSLENV` naming the variables that cross into a distribution: the ones
 /// it already names and the `AGENT_VARS` this process has.
@@ -90,7 +79,8 @@ fn wslenv() -> String {
     let set: Vec<String> = std::env::vars_os()
         .filter_map(|(name, _)| name.into_string().ok())
         .filter(|name| AGENT_VARS.iter().any(|var| name.starts_with(var)))
-        .filter(|name| !WINDOWS_PATHS.contains(&name.as_str()))
+        // An agent's home set on Windows is a Windows path.
+        .filter(|name| !HARNESSES.iter().any(|harness| harness.home_var == name))
         .collect();
 
     joined_wslenv(std::env::var("WSLENV").ok().as_deref(), set.iter().map(String::as_str))
@@ -146,16 +136,21 @@ fn in_distro(distro: &DistroName, script: &str) -> Vec<OsString> {
     .into()
 }
 
-/// Prints `agent <name> <path>` for each coding agent found, on `PATH` or
-/// in the install folders the node itself looks in (`locate`).
+/// Prints `home <path>`, then `agent <name> <path>` for each coding agent
+/// and `tool <name> <path>` for each ACP adapter and `npx` found, on `PATH`
+/// or in the install folders the node itself looks in (`locate`).
 fn probe_script() -> String {
     let agents: Vec<&str> = HARNESSES.iter().map(|harness| harness.agent).collect();
+    let tools: Vec<&str> = crate::agents::adapter_bins().chain(["npx"]).collect();
     format!(
         "{prelude}\
+         echo \"home $HOME\"\n\
          for a in {agents}; do p=$(command -v \"$a\") && echo \"agent $a $p\"; done\n\
+         for t in {tools}; do p=$(command -v \"$t\") && echo \"tool $t $p\"; done\n\
          exit 0\n",
         prelude = path_prelude(),
         agents = agents.join(" "),
+        tools = tools.join(" "),
     )
 }
 

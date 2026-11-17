@@ -9,7 +9,7 @@ use tokio::{
 };
 
 /// The longest message read from an agent; a longer one is dropped.
-pub(in crate::agents) const MAX_MESSAGE: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_MESSAGE: usize = 16 * 1024 * 1024;
 
 /// The transport over an adapter's stdio, or the node's own when it is the
 /// agent. The crate writes from its own actor, apart from reading, so a full

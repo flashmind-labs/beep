@@ -125,15 +125,27 @@ enum Command {
     },
     /// Started by the node for Claude Code's Direct driver: ACP on stdio,
     /// spoken to the Claude Code CLI `cli` itself, inside the WSL
-    /// distribution `wsl` when given. Arguments after `--` go to the CLI.
+    /// distribution `wsl` when given, whose user's home is `home`.
+    /// Arguments after `--` go to the CLI.
     #[command(name = agents::DIRECT_COMMAND, hide = true)]
     ClaudeAcp {
         #[arg(long, default_value = "claude")]
         cli: String,
         #[arg(long)]
         wsl: Option<String>,
+        #[arg(long)]
+        home: Option<String>,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
+    },
+    /// Started by the node for a coding agent in the WSL distribution `wsl`:
+    /// runs its ACP `command` there and relays it, turning paths across.
+    #[command(name = agents::RELAY_COMMAND, hide = true)]
+    WslAcp {
+        #[arg(long)]
+        wsl: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
     },
     /// Started by the node: keeps its terminals running while it restarts.
     #[cfg(unix)]
@@ -522,8 +534,15 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Command::Mcp { session } => mcp::pipe(&dir, &session).await,
-        Command::ClaudeAcp { cli, wsl, args } => {
-            agents::claude_direct::serve(cli, args, wsl.as_deref()).await
+        Command::ClaudeAcp {
+            cli,
+            wsl,
+            home,
+            args,
+        } => agents::claude_direct::serve(cli, args, wsl.as_deref(), home.as_deref()).await,
+        Command::WslAcp { wsl, command } => {
+            let (program, args) = command.split_first().context("no program to run in WSL")?;
+            beep_node::machine::wsl::relay(&wsl, program, args).await
         }
         #[cfg(unix)]
         Command::PtyHost => beep_node::run_terminal_host(&dir).await,

@@ -92,7 +92,7 @@ fn an_agent_runs_on_the_path_the_probe_found_it_on() {
     let distro: DistroName = "Ubuntu".parse().expect("a name");
     let cwd: LinuxPath = "/mnt/c/code".parse().expect("a path");
     let cli: LinuxPath = "/home/sam/.local/bin/claude".parse().expect("a path");
-    let command = agent_command(&distro, &cwd, &cli, &["--print".to_owned()]);
+    let command = agent_command(&distro, Some(&cwd), &cli, &["--print".to_owned()]);
     let args: Vec<String> = command
         .as_std()
         .get_args()

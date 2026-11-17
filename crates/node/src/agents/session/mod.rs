@@ -353,9 +353,24 @@ impl Session {
             process.env("RUSTC_WRAPPER", wrapper);
         }
 
-        if let Some(target) = cargo::target_dir(cwd, &kind.env) {
+        let in_wsl = super::kinds::in_wsl(kind);
+
+        // A WSL agent cannot use a Windows path as its Cargo target.
+        if !in_wsl && let Some(target) = cargo::target_dir(cwd, &kind.env) {
             process.env("CARGO_TARGET_DIR", target);
         }
+
+        // An agent in WSL reads only the variables `WSLENV` names.
+        if in_wsl {
+            let names: Vec<String> = process
+                .as_std()
+                .get_envs()
+                .filter(|(name, value)| value.is_some() && *name != "PATH")
+                .filter_map(|(name, _)| name.to_str().map(str::to_owned))
+                .collect();
+            process.env("WSLENV", names.join(":"));
+        }
+
         // Its own process group, so closing it stops what it started.
         let child = own_group(&mut process)
             .spawn()

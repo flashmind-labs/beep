@@ -40,17 +40,21 @@ fn a_name_is_what_wsl_registers() {
 }
 
 #[test]
-fn the_probe_finds_linux_agents_and_the_node() {
+fn the_probe_finds_the_home_linux_agents_and_adapters() {
     let printed = "\
+home /home/sam
 agent codex /home/sam/.npm-global/bin/codex
 agent claude /home/sam/.local/bin/claude
 agent gemini /mnt/c/Users/sam/AppData/Roaming/npm/gemini
 agent claude /usr/bin/claude
+tool codex-acp /home/sam/.npm-global/bin/codex-acp
+tool npx /mnt/c/Program Files/nodejs/npx
 some line a profile printed
 ";
     assert_eq!(
         found(printed),
         Found {
+            home: Some("/home/sam".parse().unwrap()),
             agents: vec![
                 FoundAgent {
                     name: "claude".into(),
@@ -61,6 +65,10 @@ some line a profile printed
                     path: "/home/sam/.npm-global/bin/codex".parse().unwrap(),
                 },
             ],
+            tools: vec![FoundAgent {
+                name: "codex-acp".into(),
+                path: "/home/sam/.npm-global/bin/codex-acp".parse().unwrap(),
+            }],
         }
     );
     assert_eq!(found(""), Found::default());
@@ -119,4 +127,17 @@ fn a_linux_path_in_wsl_is_under_the_wsl_share() {
         PathBuf::from(r"\\wsl$\Ubuntu\home\sam\.claude")
     );
     assert!("home/sam".parse::<LinuxPath>().is_err());
+}
+
+#[test]
+fn a_mounted_drive_path_reads_as_windows() {
+    let cases = [
+        ("/mnt/c/Users/sam", Some(r"C:\Users\sam")),
+        ("/mnt/d", Some(r"D:\")),
+        ("/mnt/cx/y", None),
+        ("/home/sam", None),
+    ];
+    for (linux, windows) in cases {
+        assert_eq!(windows_drive_path(linux).as_deref(), windows, "{linux}");
+    }
 }

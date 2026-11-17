@@ -199,6 +199,25 @@ pub(crate) fn linux_path(path: &Path) -> Option<LinuxPath> {
     Some(LinuxPath(format!("/mnt/{}{rest}", drive.to_ascii_lowercase())))
 }
 
+/// A path on a mounted drive inside a distribution as Windows names it,
+/// such as `/mnt/c/Users/sam` as `C:\Users\sam`; `None` for any other.
+pub(crate) fn windows_drive_path(path: &str) -> Option<String> {
+    let rest = path.strip_prefix("/mnt/")?;
+    let mut chars = rest.chars();
+    let drive = chars.next().filter(char::is_ascii_alphabetic)?;
+    let rest = chars.as_str();
+
+    if !(rest.is_empty() || rest.starts_with('/')) {
+        return None;
+    }
+
+    let rest = match rest {
+        "" => "\\".to_owned(),
+        rest => rest.replace('/', "\\"),
+    };
+    Some(format!("{}:{rest}", drive.to_ascii_uppercase()))
+}
+
 /// `path` inside `distro` as Windows reaches it, through `\\wsl$`, which
 /// Windows 10 has too.
 pub(crate) fn windows_path(distro: &DistroName, path: &LinuxPath) -> PathBuf {
@@ -217,12 +236,17 @@ pub(crate) struct FoundAgent {
 /// What the probe found inside a distribution.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Found {
+    /// Its default user's home.
+    pub(crate) home: Option<LinuxPath>,
     /// The coding agent CLIs, in the order Beep lists harnesses.
     pub(crate) agents: Vec<FoundAgent>,
+    /// The ACP adapters and `npx`.
+    pub(crate) tools: Vec<FoundAgent>,
 }
 
-/// What the probe printed: `agent <name> <path>` for each agent on the
-/// `PATH`. Agents under `/mnt/` are Windows installs seen through the
+/// What the probe printed: `home <path>`, then `agent <name> <path>` for
+/// each agent and `tool <name> <path>` for each adapter on the `PATH`.
+/// Programs under `/mnt/` are Windows installs seen through the
 /// `PATH` WSL appends, and do not count.
 pub(crate) fn found(printed: &str) -> Found {
     let mut found = Found::default();
@@ -231,14 +255,18 @@ pub(crate) fn found(printed: &str) -> Found {
         let mut words = line.split_whitespace();
 
         match (words.next(), words.next(), words.next()) {
-            (Some("agent"), Some(agent), Some(path)) if !path.starts_with("/mnt/") => {
-                let path = path.parse::<LinuxPath>();
+            (Some("home"), Some(home), None) => found.home = home.parse().ok(),
+            (Some(kind @ ("agent" | "tool")), Some(name), Some(path)) if !path.starts_with("/mnt/") => {
+                let list = match kind {
+                    "agent" => &mut found.agents,
+                    _ => &mut found.tools,
+                };
 
-                if let Ok(path) = path
-                    && !found.agents.iter().any(|known| known.name == agent)
+                if let Ok(path) = path.parse::<LinuxPath>()
+                    && !list.iter().any(|known| known.name == name)
                 {
-                    found.agents.push(FoundAgent {
-                        name: agent.to_owned(),
+                    list.push(FoundAgent {
+                        name: name.to_owned(),
                         path,
                     });
                 }

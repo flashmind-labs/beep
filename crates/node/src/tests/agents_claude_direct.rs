@@ -93,7 +93,7 @@ fn a_transcript_replays_what_was_said_and_done() {
     let text: Vec<String> = lines.iter().map(Value::to_string).collect();
     std::fs::write(&path, text.join("\n")).unwrap();
 
-    let replayed = updates::replay(&path).unwrap();
+    let replayed = updates::replay(&path, false).unwrap();
 
     let kinds: Vec<&str> = replayed
         .iter()

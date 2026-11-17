@@ -78,9 +78,10 @@ host! {
 
     pub use work_folder::{local_hashes, local_read, local_tree};
 
-    pub(crate) use acp::{Line, LineReader};
+    pub(crate) use acp::{Line, LineReader, MAX_MESSAGE};
     pub(crate) use images::{Picture, block_picture};
-    pub use kinds::{AgentKind, DIRECT_COMMAND, detect};
+    pub use kinds::{AgentKind, DIRECT_COMMAND, RELAY_COMMAND, detect};
+    pub(crate) use kinds::adapter_bins;
     pub use moving::SESSIONS_ALPN;
     pub use moving::SessionsAlpn;
     pub(crate) use moving::follow as follow_moves;
