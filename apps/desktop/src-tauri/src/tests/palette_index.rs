@@ -179,7 +179,7 @@ fn coding_agents_are_found_by_title_project_harness_and_machine() {
     };
     let sessions = build_index(&lists).sessions;
     assert_eq!(sessions[0].title, "Cross-machine desktop UI");
-    assert_eq!(sessions[0].detail, "Claude Code · widget · build-box");
+    assert_eq!(sessions[0].detail, "widget");
     assert_eq!(
         sessions[0].keys,
         [
@@ -221,9 +221,6 @@ fn an_untitled_session_is_named_by_its_project() {
     };
     let index = build_index(&lists);
     assert_eq!(index.sessions[0].title, "acme/widget");
-    assert_eq!(
-        index.sessions[0].detail,
-        "Claude Code · acme/widget · build-box"
-    );
+    assert_eq!(index.sessions[0].detail, "acme/widget");
     assert_eq!(titles(&index.projects), ["acme/widget"]);
 }

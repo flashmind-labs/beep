@@ -5,3 +5,5 @@
   repeated excerpts for each search word, or attached file paths.
 - Desktop: a palette row stays on one line when the search has more
   than one word, instead of wrapping onto several lines.
+- Desktop: coding agent results in the search palette show the agent's
+  icon, with only the project name on the right.
