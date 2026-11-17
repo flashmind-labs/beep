@@ -173,6 +173,7 @@ impl Start {
             subagents: 0,
             model: self.model.as_deref().map(ModelId::new),
             assistant: self.assistant,
+            reply: None,
         }
     }
 

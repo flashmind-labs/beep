@@ -179,6 +179,8 @@ enum RunningRow {
         cwd: String,
         status: &'static str,
         doing: Option<String>,
+        /// The first line of its last reply, shown while it is idle.
+        reply: Option<String>,
         started_at: u64,
         last_activity: u64,
         external: bool,
@@ -468,6 +470,7 @@ impl From<&MachineSession> for RunningRow {
             cwd: session.cwd.clone(),
             status: session.status.into(),
             doing: session.doing.clone(),
+            reply: session.reply.clone(),
             started_at: epoch_ms(session.started_at),
             last_activity: epoch_ms(session.last_activity),
             external: session.external,

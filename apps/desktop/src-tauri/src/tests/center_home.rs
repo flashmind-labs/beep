@@ -18,6 +18,7 @@ fn machine(id: &str, online: bool) -> Machine {
 
 fn agent(machine: &str, id: &str, last_activity: u64) -> MachineSession {
     MachineSession {
+        reply: None,
         machine_id: machine.into(),
         machine_name: machine.into(),
         id: id.into(),

@@ -3,6 +3,7 @@ use std::time::SystemTime;
 
 fn external(id: &str, status: AgentStatus) -> MachineSession {
     MachineSession {
+        reply: None,
         machine_id: "build-box".into(),
         machine_name: "build-box".into(),
         id: id.into(),

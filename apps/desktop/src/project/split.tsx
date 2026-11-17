@@ -101,7 +101,7 @@ export interface SplitItem {
   key: string;
   lead?: ReactNode;
   title: string;
-  sub: string;
+  sub: ReactNode;
   /// Labels, as chips after `sub`.
   tags?: string[];
   /// When it opened, in milliseconds since the Unix epoch; none when unknown.

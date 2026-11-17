@@ -3169,6 +3169,7 @@ async fn session_title_overrides_replicate_and_clear_without_changing_generated_
         Some("My title")
     );
     let generated = MachineSession {
+        reply: None,
         machine_id: machine.clone(),
         machine_name: "build-box".into(),
         id: "session-1".into(),

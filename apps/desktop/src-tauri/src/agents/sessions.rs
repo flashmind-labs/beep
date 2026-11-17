@@ -95,6 +95,8 @@ pub struct SessionRow {
     cwd: String,
     status: &'static str,
     doing: Option<String>,
+    /// The first line of its last reply, shown while it is idle.
+    reply: Option<String>,
     /// In milliseconds since the Unix epoch.
     started_at: u64,
     last_activity: u64,
@@ -125,6 +127,7 @@ impl From<MachineSession> for SessionRow {
             title: session.title,
             cwd: session.cwd,
             doing: session.doing,
+            reply: session.reply,
             external: session.external,
             question: session.question,
             parent: None,

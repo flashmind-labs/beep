@@ -15,6 +15,8 @@ export interface RunningAgent {
   cwd: string;
   status: string;
   doing: string | null;
+  /// The first line of its last reply, shown while it is idle.
+  reply?: string | null;
   started_at: number;
   last_activity: number;
   external: boolean;

@@ -4,6 +4,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 fn session(id: &str, machine: &str, activity: u64) -> MachineSession {
     MachineSession {
+        reply: None,
         id: id.into(),
         machine_id: machine.into(),
         machine_name: machine.into(),

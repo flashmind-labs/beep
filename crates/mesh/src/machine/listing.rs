@@ -292,8 +292,16 @@ pub fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
         question: info.question.map(agent_question),
         model: info.model,
         assistant: info.assistant,
+        reply: first_line(&info.last_message),
     }
 }
+
+/// The first line of `text` that has words, cut to what a list row shows.
+fn first_line(text: &str) -> Option<String> {
+    let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
+    Some(line.chars().take(REPLY_CHARS).collect())
+}
+const REPLY_CHARS: usize = 160;
 
 pub fn external_session(host: &Host, session: ExternalSession) -> MachineSession {
     MachineSession {
@@ -312,6 +320,7 @@ pub fn external_session(host: &Host, session: ExternalSession) -> MachineSession
         subagents: 0,
         model: None,
         assistant: false,
+        reply: None,
     }
 }
 
@@ -387,6 +396,7 @@ pub fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
         subagents: 0,
         model: None,
         assistant: false,
+        reply: None,
     }
 }
 

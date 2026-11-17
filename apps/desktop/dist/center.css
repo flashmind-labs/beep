@@ -1045,6 +1045,7 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .rail-live > .pj-li .t b { font-weight: 500 }
 /* Its line stays when the agent goes idle, so the list does not jump as agents start and stop. */
 .cc-rail .rail-live > .pj-li .t > span { display: block; min-height: 18px; font-family: var(--mono); font-size: 11px; color: var(--dim) }
+.cc-rail .rail-reply { font: 11.5px var(--body); color: color-mix(in srgb, var(--muted) 85%, var(--ink)) }
 .rail-scroll > .rail-all { margin-top: 6px; justify-content: flex-start }
 /* A phone has no window buttons to clear: the rail is as narrow as its icons. */
 html[data-phone] .cwin.side-collapsed { grid-template-columns: 32px minmax(0, 1fr) }

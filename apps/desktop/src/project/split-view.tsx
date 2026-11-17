@@ -70,7 +70,7 @@ export function ProjectRail({ project, label, running, past, current, back }: {
   const needle = filter.trim().toLowerCase();
   const matches = (row: AgentRow) => !needle || (row.title || agentName(row.agent)).toLowerCase().includes(needle);
   const live = running.filter(matches), ended = past.filter(matches);
-  const row = (session: AgentRow, right: ReactNode, sub = "") => <Row key={runningKey(session)} picked={current} nav={false} openTile={() => {}} item={{
+  const row = (session: AgentRow, right: ReactNode, sub: ReactNode = "") => <Row key={runningKey(session)} picked={current} nav={false} openTile={() => {}} item={{
     key: runningKey(session), lead: <HarnessIcon agent={session.agent} />, title: session.title || agentName(session.agent), sub, right,
     open: () => go("pane", { agent: session }),
     menu: event => void sessionMenu(event, session, picked => go("pane", { agent: picked })),
@@ -82,12 +82,19 @@ export function ProjectRail({ project, label, running, past, current, back }: {
     <input className="ip-field rail-filter" type="search" placeholder="Filter sessions" aria-label="Filter sessions" spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
     <div className="rail-scroll">
     {!!live.length && <h4>Running<span className="n">{live.length}</span></h4>}
-    {!!live.length && <div className="rail-live">{live.map(session => row(session, <RunningStatus row={session} />, session.doing ?? ""))}</div>}
+    {!!live.length && <div className="rail-live">{live.map(session => row(session, <RunningStatus row={session} />, runningLine(session)))}</div>}
     {!!ended.length && <h4>Past<span className="n">{ended.length}</span></h4>}
     {ended.slice(0, RAIL_PAST).map(session => row(session, formatAgo(session.last_activity, "short")))}
     {ended.length > RAIL_PAST && <Button look="quiet" className="rail-all" onClick={() => go("projects", { project, tile: "agents" })}>All {ended.length} sessions</Button>}
     </div>
   </>;
+}
+
+/// A running row's second line: what it does, else the first line of its last reply.
+function runningLine(session: RunningAgent) {
+  if (session.doing) return session.doing;
+  const reply = session.reply?.split("\n").find(line => line.trim())?.trim();
+  return reply ? <i className="rail-reply">{reply}</i> : "";
 }
 
 /// The past sessions the rail lists; the project's page has them all.
