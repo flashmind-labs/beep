@@ -108,8 +108,12 @@ export function Board({ cards, more, lanes: drawn = LANES, beside = null, spread
 
   const heading = (lane: Lane, title: string) => <h4>{more[lane] ? <button type="button" onClick={more[lane]}>{title}</button> : title}<span>{lanes[lane].length || ""}</span></h4>;
 
-  // A spread lane's share of the width: a column per `SPREAD_ROWS` cards, and an empty one keeps to its title.
-  const share = (lane: Lane) => spread ? { flexGrow: Math.min(Math.ceil(lanes[lane].length / SPREAD_ROWS), SPREAD_COLUMNS) } : undefined;
+  // A spread lane's share of the width: a column per `SPREAD_ROWS` cards, within its lane's
+  // bounds, and an empty one keeps to its title.
+  const share = (lane: Lane) => {
+    const count = lanes[lane].length, { least, most } = SPREAD[lane];
+    return spread ? { flexGrow: count ? Math.min(Math.max(Math.ceil(count / SPREAD_ROWS), least), most) : 0 } : undefined;
+  };
   const named = (name: string, lane: Lane) => spread && !lanes[lane].length ? `${name} empty` : name;
 
   return <div className={spread ? "bd-lanes spread" : "bd-lanes"} ref={box}>{drawn.map(({ lane, title }) => lane === "done"
@@ -129,8 +133,16 @@ const DONE_SHOWN = 10;
 /// A lane with more cards than this takes the painting's room for wider cards. A count, not
 /// the cell's fit: the fit depends on the lane's width, which the painting changes.
 const CROWDED_FROM = 4;
-/// A spread lane takes another column for every this many cards, up to `SPREAD_COLUMNS`.
-const SPREAD_ROWS = 6, SPREAD_COLUMNS = 3;
+/// A spread lane takes another column for every this many cards.
+const SPREAD_ROWS = 6;
+/// The columns a spread lane with cards takes: Working, the lane watched most, never takes
+/// fewer than the others, Ready to review takes up to two, and Done today's rows keep to one.
+const SPREAD: Record<Lane, { least: number; most: number }> = {
+  needs: { least: 1, most: 1 },
+  working: { least: 2, most: 3 },
+  review: { least: 1, most: 2 },
+  done: { least: 1, most: 1 },
+};
 
 function Card({ card, open }: { card: BoardCard; open(): void }) {
   const style = { opacity: card.dim ? .55 : undefined, viewTransitionName: heroCard() === card.key ? "board-hero" : undefined };

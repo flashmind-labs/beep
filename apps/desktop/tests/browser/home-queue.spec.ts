@@ -124,7 +124,7 @@ test("a full lane scrolls on its own and Home fits the window", async ({ page })
 });
 
 test("a crowded lane spreads its cards over columns and an empty one stays narrow", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.setViewportSize({ width: 1800, height: 1000 });
   const idle = Array.from({ length: 25 }, (_, index) => row(`idle-${index}`, `Finished turn ${index}`, "idle"));
   await openDesktop(page, false, { center_home: { ...home, needs_you: [], running: [row("busy", "Add rate limits", "working"), ...idle] }, projects_sessions: [] });
   const lanes = page.locator("#sec-running .bd-lanes > .bd-lane");
@@ -149,4 +149,19 @@ test("a lane's wheel moves it a row of cards at a time", async ({ page }) => {
   await page.mouse.wheel(0, 40);
   await expect.poll(() => lane.evaluate(element => element.scrollTop)).toBe(step);
   await expect(page.locator("#view")).toHaveJSProperty("scrollTop", 0);
+});
+
+test("Working is never narrower than another lane and spreads its cards", async ({ page }) => {
+  await page.setViewportSize({ width: 2000, height: 1300 });
+  const busy = Array.from({ length: 5 }, (_, index) => row(`busy-${index}`, `Working on ${index}`, "working"));
+  const idle = Array.from({ length: 21 }, (_, index) => row(`idle-${index}`, `Finished turn ${index}`, "idle"));
+  const ended = Array.from({ length: 8 }, (_, index) => ({ ...row(`ended-${index}`, `Ended ${index}`, "ended"), reviewer: false, parent: null, last_activity: Date.now() - index }));
+  await openDesktop(page, false, { center_home: { ...home, needs_you: [], running: [...busy, ...idle] }, projects_sessions: ended, session_moves: [], session_copies: [] });
+  const lanes = page.locator("#sec-running .bd-lanes > .bd-lane");
+  await expect(lanes.nth(2).locator(".cc-row")).toHaveCount(8);
+  const [working, review, done] = await Promise.all([0, 1, 2].map(index => lanes.nth(index).boundingBox()));
+  expect(working?.width ?? 0).toBeGreaterThanOrEqual(review?.width ?? 0);
+  expect(done?.width ?? 0).toBeLessThan(review?.width ?? 0);
+  const columns = await lanes.nth(0).locator(".bd-card").evaluateAll(cards => new Set(cards.map(card => Math.round(card.getBoundingClientRect().left))).size);
+  expect(columns).toBeGreaterThanOrEqual(2);
 });
