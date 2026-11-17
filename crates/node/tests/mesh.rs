@@ -5,7 +5,8 @@
 //! start one in a node.
 //!
 //! Waits ride on the nodes' log lines, the mesh's `updates()` and channels,
-//! each under a generous outer timeout; nothing sleeps.
+//! each under a generous outer timeout; nothing sleeps. Child processes use
+//! two runtime workers so parallel tests do not start a pool per CPU.
 
 use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN};
 use beep_node::link::{
@@ -277,6 +278,7 @@ impl Node {
         env: Vec<(&'static str, String)>,
     ) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_beep-node"))
+            .env("TOKIO_WORKER_THREADS", "2")
             .envs(env.iter().map(|(name, value)| (name, value)))
             .arg("--dir")
             .arg(dir.path())
@@ -352,6 +354,7 @@ impl Node {
     /// `beep-node mesh leave`.
     async fn leave(&self) {
         let out = Command::new(env!("CARGO_BIN_EXE_beep-node"))
+            .env("TOKIO_WORKER_THREADS", "2")
             .args(["mesh", "leave", "--dir"])
             .arg(self.dir.path())
             .kill_on_drop(true)
@@ -370,6 +373,7 @@ impl Node {
     /// `join` with more arguments for the command.
     async fn join_with(&self, ticket: &JoinTicket, more: &[&str]) {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_beep-node"))
+            .env("TOKIO_WORKER_THREADS", "2")
             .args(["mesh", "join", "-", "--dir"])
             .arg(self.dir.path())
             .args(more)
@@ -918,6 +922,7 @@ async fn a_search_folder_that_is_not_one_refuses_the_join() {
     let node = Node::start(Config::default()).await;
     let ticket = desktop.ticket(DeviceKind::Node).await;
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_beep-node"))
+        .env("TOKIO_WORKER_THREADS", "2")
         .args(["mesh", "join", "-", "--search", "/no/such/folder", "--dir"])
         .arg(node.dir.path())
         .stdin(Stdio::piped())
@@ -3378,6 +3383,7 @@ fn git(dir: &Path, args: &[&str]) -> String {
 /// `beep-node status` for the node running from `dir`.
 async fn status_text(dir: &Path) -> String {
     let out = Command::new(env!("CARGO_BIN_EXE_beep-node"))
+        .env("TOKIO_WORKER_THREADS", "2")
         .arg("status")
         .arg("--dir")
         .arg(dir)
