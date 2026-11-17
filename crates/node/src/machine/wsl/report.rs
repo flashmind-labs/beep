@@ -5,7 +5,7 @@
 
 use super::{
     distro::{DistroName, Found, FoundAgent, Listed},
-    keeper, steps,
+    steps,
 };
 use anyhow::Result;
 use beep_proto::node::WslDistro;
@@ -85,24 +85,10 @@ pub(crate) async fn report() -> Vec<WslDistro> {
     probe(&running, PROBES_LIMIT).await;
 
     let found = crate::lock(&FOUND).clone();
-    let mut report: Vec<WslDistro> = listed
+    listed
         .iter()
-        .map(|listed| described(&listed.name, found.get(&listed.name).cloned()))
-        .collect();
-    // A kept distribution WSL no longer lists, until the keeper drops it.
-    let missing = keeper::running()
-        .map(|keeper| keeper.kept())
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|kept| !listed.iter().any(|listed| listed.name == *kept));
-
-    for distro in missing {
-        let mut gone = described(&distro, None);
-        gone.problem = Some(format!("There is no WSL distribution {distro} any more."));
-        report.push(gone);
-    }
-
-    report
+        .map(|listed| described(&listed.name, found.get(&listed.name)))
+        .collect()
 }
 
 /// Forgets what was found in the distributions WSL no longer lists.
@@ -146,27 +132,18 @@ async fn probe(distros: &[&DistroName], limit: Duration) {
     }
 }
 
-/// `distro` with what it was found to have, if it was probed, and how the
-/// keeper stands with it.
-fn described(distro: &DistroName, found: Option<Found>) -> WslDistro {
-    let keeper = keeper::running();
-    let standing = keeper.and_then(|keeper| keeper.standing(distro));
-    let probed = found.is_some();
-    let found = found.unwrap_or_default();
-
-    if let (Some(keeper), Some(id)) = (keeper, &found.machine_id)
-        && let Ok(id) = id.parse()
-    {
-        keeper.know(distro, id);
-    }
-
+/// `distro` with the agents it was found to have, if it was probed. The
+/// fields of the machines distributions once ran as stay empty.
+fn described(distro: &DistroName, found: Option<&Found>) -> WslDistro {
     WslDistro {
         name: distro.to_string(),
-        agents: found.agents.into_iter().map(|agent| agent.name).collect(),
-        node: found.node,
-        machine_id: found.machine_id,
-        kept: standing.is_some(),
-        problem: standing.and_then(|standing| standing.problem),
-        probed,
+        agents: found
+            .map(|found| found.agents.iter().map(|agent| agent.name.clone()).collect())
+            .unwrap_or_default(),
+        node: None,
+        machine_id: None,
+        kept: false,
+        problem: None,
+        probed: found.is_some(),
     }
 }

@@ -40,8 +40,8 @@ pub struct EnvReport {
     /// The beep-node version, such as "0.1.0".
     #[serde(default)]
     pub version: String,
-    /// The WSL distributions of a Windows machine, each of which can run a
-    /// node of its own; empty elsewhere.
+    /// The WSL distributions of a Windows machine, whose coding agents the
+    /// Windows node runs; empty elsewhere.
     #[serde(default)]
     pub wsl: Vec<WslDistro>,
 }
@@ -54,16 +54,14 @@ pub struct WslDistro {
     pub name: String,
     /// The coding agent CLIs found inside it, such as `claude`.
     pub agents: Vec<String>,
-    /// The version of the beep-node installed inside it, if any.
+    /// The next four were for a distribution added as a machine of its own,
+    /// which Beep no longer does; always empty, kept for the wire.
     pub node: Option<String>,
-    /// That node's id in the mesh, once it made its key.
     pub machine_id: Option<String>,
-    /// The Windows node keeps that node running.
     pub kept: bool,
-    /// Why the kept node is not running, in words for the user.
     pub problem: Option<String>,
-    /// `agents` and `node` were read; a distribution that is not running
-    /// is only looked into when asked (`wsl::Request::Probe`).
+    /// `agents` were read; a stopped distribution other than the default
+    /// one is looked into once it runs.
     pub probed: bool,
 }
 

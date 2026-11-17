@@ -26,23 +26,14 @@ fn a_script_runs_in_the_distributions_login_shell_at_home() {
 }
 
 #[test]
-fn the_probe_looks_for_every_harness_and_the_node() {
+fn the_probe_looks_for_every_harness() {
     let script = probe_script();
     for harness in HARNESSES {
         assert!(script.contains(&format!(" {} ", harness.agent)) || script.contains(&format!(" {};", harness.agent)));
     }
-    assert!(script.contains("version") && script.contains(" id "));
     // The folders the node itself looks in.
     assert!(HOME_BINS.iter().all(|dir| script.contains(&format!("$HOME/{dir}"))));
     assert!(NODE_VERSIONS.iter().all(|(versions, _)| script.contains(versions)));
-}
-
-#[test]
-fn the_ticket_never_goes_on_the_command_line() {
-    assert!(JOIN.contains("mesh join --no-service -"));
-    assert!(RUN.contains("--with-parent run"));
-    assert!(RUNNING.contains("status --quiet"));
-    assert!(install_script().contains(INSTALL_URL));
 }
 
 #[test]
@@ -61,13 +52,7 @@ fn the_probe_script_runs_in_sh() {
     let nvm = home.path().join(".nvm/versions/node/v22.1.0/bin");
     std::fs::create_dir_all(&nvm).expect("nvm");
     std::fs::create_dir_all(&bin).expect("bin");
-    let scripts = [
-        ("claude", "#!/bin/sh\n"),
-        (
-            "beep-node",
-            "#!/bin/sh\ncase $1 in version) echo 'beep-node 0.7.4';; id) echo 4f1c;; esac\n",
-        ),
-    ];
+    let scripts = [("claude", "#!/bin/sh\n")];
 
     let codex = nvm.join("codex");
     std::fs::write(&codex, "#!/bin/sh\n").expect("written");
@@ -91,8 +76,6 @@ fn the_probe_script_runs_in_sh() {
     let found = distro::found(&String::from_utf8_lossy(&out.stdout));
     let names: Vec<&str> = found.agents.iter().map(|agent| agent.name.as_str()).collect();
     assert_eq!(names, ["claude", "codex"]);
-    assert_eq!(found.node.as_deref(), Some("0.7.4"));
-    assert_eq!(found.machine_id.as_deref(), Some("4f1c"));
 }
 
 #[test]

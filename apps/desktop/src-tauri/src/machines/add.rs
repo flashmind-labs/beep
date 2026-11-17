@@ -8,13 +8,12 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
 };
-use beep_mesh::{DeviceKind, Invitation, MeshError, ShortTicket, machine};
-use beep_proto::SecretText;
+use beep_mesh::{DeviceKind, Invitation, MeshError, ShortTicket};
 use iroh_tickets::Ticket;
 use qrcode::{EcLevel, QrCode, render::svg::Color};
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
-use tauri::{State, ipc::Channel};
+use tauri::State;
 
 /// A ticket as the sheet shows it.
 #[derive(Debug, Serialize)]
@@ -137,66 +136,4 @@ pub async fn set_machine_search(
     search: String,
 ) -> Result<String> {
     direct::set_machine_search(&fleet, fleet.machine(&machine_id)?, &search).await
-}
-
-/// Has Windows machine `machine_id` run its WSL distribution `distro` as a
-/// machine of its own: it installs beep-node there, keeps it running and
-/// joins it with a node ticket from this desktop. `on_step` hears each step
-/// as it begins.
-#[tauri::command]
-pub async fn add_wsl_machine(
-    fleet: Machines<'_>,
-    machine_id: String,
-    distro: String,
-    on_step: Channel<String>,
-) -> Result<()> {
-    let client = fleet.client(fleet.machine(&machine_id)?).await?;
-    let ticket = fleet.invite(DeviceKind::Node).await?;
-    let ticket = SecretText::new(ShortTicket::from(&ticket).encode_string());
-    let step = |text: String| {
-        if let Err(e) = on_step.send(text) {
-            log::debug!("the window did not hear a WSL step: {e}");
-        }
-    };
-    machine::add_wsl(&client, &distro, ticket, step)
-        .await
-        .map_err(|e| DesktopError::BadRequest(format!("{e:#}")))
-}
-
-/// Has Windows machine `machine_id` stop running the node of its WSL
-/// distribution `distro`.
-#[tauri::command]
-pub async fn stop_wsl_machine(
-    fleet: Machines<'_>,
-    machine_id: String,
-    distro: String,
-) -> Result<()> {
-    let client = fleet.client(fleet.machine(&machine_id)?).await?;
-    machine::stop_wsl(&client, &distro)
-        .await
-        .map_err(|e| DesktopError::BadRequest(format!("{e:#}")))
-}
-
-/// Has Windows machine `machine_id` run the node of its WSL distribution
-/// `distro` again.
-#[tauri::command]
-pub async fn start_wsl_machine(
-    fleet: Machines<'_>,
-    machine_id: String,
-    distro: String,
-) -> Result<()> {
-    let client = fleet.client(fleet.machine(&machine_id)?).await?;
-    machine::start_wsl(&client, &distro)
-        .await
-        .map_err(|e| DesktopError::BadRequest(format!("{e:#}")))
-}
-
-/// Has Windows machine `machine_id` look into each of its WSL distributions,
-/// starting the stopped ones; its next report says what they have.
-#[tauri::command]
-pub async fn probe_wsl_machines(fleet: Machines<'_>, machine_id: String) -> Result<()> {
-    let client = fleet.client(fleet.machine(&machine_id)?).await?;
-    machine::probe_wsl(&client)
-        .await
-        .map_err(|e| DesktopError::BadRequest(format!("{e:#}")))
 }

@@ -171,11 +171,9 @@ body.cbody
             span.tt "This computer"
           button.cc-si [data-goto="machines"]
             span.tt "Machines"
-            span.n "2"
+            span.n "1"
           button.cc-si.sub [aria-current="true" data-sub="machine:desk-pc"]
             span.tt "desk-pc"
-          button.cc-si.sub [data-sub="machine:wsl-box"]
-            span.tt "Ubuntu on desk-pc"
           button.cc-si [data-goto="agents"]
             span.tt "Agent accounts"
           button.cc-si [data-goto="assistant"]
@@ -226,19 +224,14 @@ body.cbody
               div.dset-box
                 div.dmach
                   div.wsl-rows
-                    div.wsl-row
-                      div.am-line
-                        span.am-mac-text
-                          b "Ubuntu"
-                          span.dmono.dmuted "Claude Code, Codex"
-                        span.dmuted "Running as Ubuntu on desk-pc"
-                        button.dbtn.quiet.small [type="button"] "Turn off"
-                    div.wsl-row
-                      div.am-line
-                        span.am-mac-text
-                          b "Debian"
-                          span.dmono.dmuted "Gemini CLI"
-                        button.dbtn.small [type="button"] "Add Debian as a machine"
+                    div.am-line
+                      span.am-mac-text
+                        b "Ubuntu"
+                        span.dmono.dmuted "Claude Code, Codex"
+                    div.am-line
+                      span.am-mac-text
+                        b "Debian"
+                        span.dmono.dmuted "Gemini CLI"
               div.dset-h "Log"
               button.dbtn [type="button"] "Show"
               div.dmach.dset-rm

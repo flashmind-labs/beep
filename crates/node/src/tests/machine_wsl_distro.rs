@@ -46,8 +46,6 @@ agent codex /home/sam/.npm-global/bin/codex
 agent claude /home/sam/.local/bin/claude
 agent gemini /mnt/c/Users/sam/AppData/Roaming/npm/gemini
 agent claude /usr/bin/claude
-node beep-node 0.7.4
-id 4f1c
 some line a profile printed
 ";
     assert_eq!(
@@ -63,8 +61,6 @@ some line a profile printed
                     path: "/home/sam/.npm-global/bin/codex".parse().unwrap(),
                 },
             ],
-            node: Some("0.7.4".into()),
-            machine_id: Some("4f1c".into()),
         }
     );
     assert_eq!(found(""), Found::default());

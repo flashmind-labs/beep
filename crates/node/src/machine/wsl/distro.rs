@@ -219,15 +219,10 @@ pub(crate) struct FoundAgent {
 pub(crate) struct Found {
     /// The coding agent CLIs, in the order Beep lists harnesses.
     pub(crate) agents: Vec<FoundAgent>,
-    /// The version of the beep-node installed in it.
-    pub(crate) node: Option<String>,
-    /// That node's id in the mesh.
-    pub(crate) machine_id: Option<String>,
 }
 
-/// What `probe::SCRIPT` printed: `agent <name> <path>` for each agent on
-/// the `PATH`, `node beep-node <version>` and `id <id>` when beep-node is
-/// installed. Agents under `/mnt/` are Windows installs seen through the
+/// What the probe printed: `agent <name> <path>` for each agent on the
+/// `PATH`. Agents under `/mnt/` are Windows installs seen through the
 /// `PATH` WSL appends, and do not count.
 pub(crate) fn found(printed: &str) -> Found {
     let mut found = Found::default();
@@ -248,10 +243,6 @@ pub(crate) fn found(printed: &str) -> Found {
                     });
                 }
             }
-            (Some("node"), Some("beep-node"), Some(version)) => {
-                found.node = Some(version.to_owned());
-            }
-            (Some("id"), Some(id), None) => found.machine_id = Some(id.to_owned()),
             _ => {}
         }
     }

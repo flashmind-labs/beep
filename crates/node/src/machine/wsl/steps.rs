@@ -1,45 +1,35 @@
 //! What the Windows node runs through `wsl.exe`: listing the distributions,
-//! and inside one, probing it, installing beep-node, running it and joining
-//! it to the mesh. Inside a distribution everything runs in its `sh`.
+//! and inside one, probing it, reading its home and running a coding agent.
+//! Inside a distribution everything runs in its `sh`.
 
 use super::distro::{self, DistroName, Found, LinuxPath, Listed};
 use crate::agents::locate::{HOME_BINS, NODE_VERSIONS, SYSTEM_BINS};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::harness::HARNESSES;
 use std::{ffi::OsString, process::Stdio, time::Duration};
-use tokio::{io::AsyncWriteExt, process::Command, time::timeout};
+use tokio::{process::Command, time::timeout};
 
 /// How long listing the distributions may take.
 const LIST_LIMIT: Duration = Duration::from_secs(5);
-/// How long asking a distribution whether its node runs may take.
-const RUNNING_LIMIT: Duration = Duration::from_secs(20);
+/// How long asking a distribution for its home folder may take.
+const HOME_LIMIT: Duration = Duration::from_secs(20);
 /// How long probing a distribution may take, starting it included.
 const PROBE_LIMIT: Duration = Duration::from_secs(30);
-/// How long installing beep-node in a distribution may take.
-const INSTALL_LIMIT: Duration = Duration::from_secs(5 * 60);
-/// How long joining may take: `mesh join` waits up to 15 seconds for the
-/// node to listen, then for the desktop to take the ticket.
-const JOIN_LIMIT: Duration = Duration::from_secs(90);
 /// The most of a failed command's output kept for the reason.
 const REASON_LINES: usize = 3;
-
-/// The Linux installer, as Add a machine shows it.
-const INSTALL_URL: &str = "https://releases.flashmind.com/beep/node/install.sh";
-/// Where the installer puts beep-node inside a distribution.
-const NODE: &str = "\"$HOME/.local/bin/beep-node\"";
 
 /// The distributions and whether each runs, from one `--list --verbose`,
 /// or where its states are in another language, two quiet lists.
 pub(crate) async fn list() -> Result<Vec<Listed>> {
-    let verbose = wsl(list_args(List::Verbose), None, LIST_LIMIT).await?;
+    let verbose = wsl(list_args(List::Verbose), LIST_LIMIT).await?;
 
     if let Some(listed) = distro::listed(&verbose) {
         return Ok(listed);
     }
 
-    let all = wsl(list_args(List::All), None, LIST_LIMIT).await?;
+    let all = wsl(list_args(List::All), LIST_LIMIT).await?;
     // Fails when none runs.
-    let running = wsl(list_args(List::Running), None, LIST_LIMIT)
+    let running = wsl(list_args(List::Running), LIST_LIMIT)
         .await
         .map(|printed| distro::distros(&printed))
         .unwrap_or_default();
@@ -53,39 +43,10 @@ pub(crate) async fn list() -> Result<Vec<Listed>> {
         .collect())
 }
 
-/// Whether a node already runs in `distro`, such as one another Beep on
-/// this machine keeps. Starts the distribution.
-pub(crate) async fn node_running(distro: &DistroName) -> bool {
-    wsl(in_distro(distro, RUNNING), None, RUNNING_LIMIT)
-        .await
-        .is_ok()
-}
-
-/// What `distro` has: its coding agents and beep-node. Starts it when it
-/// is not running.
+/// The coding agents `distro` has. Starts it when it is not running.
 pub(crate) async fn probe(distro: &DistroName) -> Result<Found> {
-    let printed = wsl(in_distro(distro, &probe_script()), None, PROBE_LIMIT).await?;
+    let printed = wsl(in_distro(distro, &probe_script()), PROBE_LIMIT).await?;
     Ok(distro::found(&printed))
-}
-
-/// Installs the newest beep-node in `distro`, or updates it.
-pub(crate) async fn install(distro: &DistroName) -> Result<()> {
-    wsl(in_distro(distro, &install_script()), None, INSTALL_LIMIT).await?;
-    Ok(())
-}
-
-/// Joins the node running in `distro` to the mesh with `ticket`, given on
-/// stdin so it shows in no process list.
-pub(crate) async fn join(distro: &DistroName, ticket: &str) -> Result<()> {
-    wsl(in_distro(distro, JOIN), Some(ticket), JOIN_LIMIT).await?;
-    Ok(())
-}
-
-/// `wsl.exe` with what runs the node in `distro` until its stdin closes.
-pub(crate) fn run_command(distro: &DistroName) -> Command {
-    let mut command = crate::run::process::command("wsl.exe");
-    command.args(in_distro(distro, RUN)).env("WSL_UTF8", "1");
-    command
 }
 
 /// `wsl.exe` running the Linux `program` with `args` in `distro`, in the
@@ -108,7 +69,7 @@ pub(crate) fn agent_command(distro: &DistroName, cwd: &LinuxPath, program: &Linu
 /// The home folder of `distro`'s default user, from its own line among
 /// what the login shell's profile may print.
 pub(crate) async fn home(distro: &DistroName) -> Result<LinuxPath> {
-    let printed = wsl(in_distro(distro, "printf 'home %s\\n' \"$HOME\""), None, RUNNING_LIMIT).await?;
+    let printed = wsl(in_distro(distro, "printf 'home %s\\n' \"$HOME\""), HOME_LIMIT).await?;
     let home = printed
         .lines()
         .find_map(|line| line.strip_prefix("home "))
@@ -186,17 +147,12 @@ fn in_distro(distro: &DistroName, script: &str) -> Vec<OsString> {
 }
 
 /// Prints `agent <name> <path>` for each coding agent found, on `PATH` or
-/// in the install folders the node itself looks in (`locate`), and
-/// `node beep-node <version>` and `id <id>` when beep-node is installed.
+/// in the install folders the node itself looks in (`locate`).
 fn probe_script() -> String {
     let agents: Vec<&str> = HARNESSES.iter().map(|harness| harness.agent).collect();
     format!(
         "{prelude}\
          for a in {agents}; do p=$(command -v \"$a\") && echo \"agent $a $p\"; done\n\
-         if [ -x {NODE} ]; then\n\
-         \x20 echo \"node $({NODE} version)\"\n\
-         \x20 i=$({NODE} id 2>/dev/null) && echo \"id $i\"\n\
-         fi\n\
          exit 0\n",
         prelude = path_prelude(),
         agents = agents.join(" "),
@@ -220,52 +176,19 @@ fn path_prelude() -> String {
     )
 }
 
-/// Runs the Linux installer, with curl or wget.
-fn install_script() -> String {
-    format!(
-        "url={INSTALL_URL}\n\
-         if command -v curl >/dev/null 2>&1; then script=$(curl -fsSL \"$url\")\n\
-         elif command -v wget >/dev/null 2>&1; then script=$(wget -qO- \"$url\")\n\
-         else echo 'installing beep-node needs curl or wget in WSL' >&2; exit 1\n\
-         fi || exit 1\n\
-         printf '%s\\n' \"$script\" | sh\n"
-    )
-}
-
-/// Runs the node until its stdin closes (`--with-parent`), without the
-/// Windows folders WSL appends to `PATH`: a WSL machine runs Linux tools.
-const RUN: &str = "PATH=$(printf %s \"$PATH\" | tr : '\\n' | grep -v '^/mnt/' | paste -sd : -)\n\
-                   exec \"$HOME/.local/bin/beep-node\" --with-parent run\n";
-
-/// Succeeds when a node runs from the default folder, which the nodes a
-/// Windows node runs use.
-const RUNNING: &str = "exec \"$HOME/.local/bin/beep-node\" status --quiet\n";
-
-/// Joins the running node with the ticket on stdin, never starting a
-/// service of its own.
-const JOIN: &str = "exec \"$HOME/.local/bin/beep-node\" mesh join --no-service -\n";
-
-/// Runs `wsl.exe` with `args`, `input` on its stdin, for at most `limit`;
-/// what it printed on success, else the last lines of it as the error.
-async fn wsl(args: Vec<OsString>, input: Option<&str>, limit: Duration) -> Result<String> {
+/// Runs `wsl.exe` with `args` for at most `limit`; what it printed on
+/// success, else the last lines of it as the error.
+async fn wsl(args: Vec<OsString>, limit: Duration) -> Result<String> {
     let mut command = crate::run::process::command("wsl.exe");
     command
         .args(args)
         // Its own messages in UTF-8 too.
         .env("WSL_UTF8", "1")
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    let mut child = command.spawn().context("could not start wsl.exe")?;
-
-    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
-        stdin.write_all(input.as_bytes()).await?;
-    }
+    let child = command.spawn().context("could not start wsl.exe")?;
 
     let output = timeout(limit, child.wait_with_output())
         .await
