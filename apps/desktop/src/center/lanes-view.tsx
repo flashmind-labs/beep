@@ -90,9 +90,9 @@ export function CardRow({ card }: { card: BoardCard }) {
 
 /// `more` makes a lane's title open the full list behind it, and `lanes`
 /// picks the lanes drawn. Ended sessions are a short list, and `beside` fills
-/// the room beside the lanes in a wide window. With `spread`, the lanes share
-/// the width by their cards: an empty lane keeps to its title, and a full one
-/// lays its cards out in columns. Lanes stay put; only the cards move.
+/// the room beside the lanes in a wide window. With `spread`, each lane lays its
+/// cards out in its `COLUMNS` of one width, fewer when it has fewer cards, and an
+/// empty lane keeps to its title. Lanes stay put; only the cards move.
 export function Board({ cards, more, lanes: drawn = LANES, beside = null, spread = false }: { cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; lanes?: typeof LANES; beside?: ReactNode; spread?: boolean }) {
   const lanes = byLane(cards);
   const box = useTravel(cards);
@@ -108,12 +108,9 @@ export function Board({ cards, more, lanes: drawn = LANES, beside = null, spread
 
   const heading = (lane: Lane, title: string) => <h4>{more[lane] ? <button type="button" onClick={more[lane]}>{title}</button> : title}<span>{lanes[lane].length || ""}</span></h4>;
 
-  // A spread lane's share of the width: a column per `SPREAD_ROWS` cards, within its lane's
-  // bounds, and an empty one keeps to its title.
-  const share = (lane: Lane) => {
-    const count = lanes[lane].length, { least, most } = SPREAD[lane];
-    return spread ? { flexGrow: count ? Math.min(Math.max(Math.ceil(count / SPREAD_ROWS), least), most) : 0 } : undefined;
-  };
+  // A spread lane's columns, which are also its share of the width.
+  const columns = (lane: Lane) => spread ? Math.min(COLUMNS[lane], lanes[lane].length) : null;
+  const share = (lane: Lane) => spread ? { flexGrow: columns(lane) ?? 0 } : undefined;
   const named = (name: string, lane: Lane) => spread && !lanes[lane].length ? `${name} empty` : name;
 
   return <div className={spread ? "bd-lanes spread" : "bd-lanes"} ref={box}>{drawn.map(({ lane, title }) => lane === "done"
@@ -124,7 +121,7 @@ export function Board({ cards, more, lanes: drawn = LANES, beside = null, spread
     </div>
     : <div className={named(lanes[lane].length > CROWDED_FROM ? "bd-lane many" : "bd-lane", lane)} key={lane} style={share(lane)}>
       {heading(lane, title)}
-      <Cell>{lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}</Cell>
+      <Cell columns={columns(lane)}>{lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}</Cell>
     </div>)}{beside !== null && <div className="bd-art">{beside}</div>}</div>;
 }
 
@@ -133,16 +130,9 @@ const DONE_SHOWN = 10;
 /// A lane with more cards than this takes the painting's room for wider cards. A count, not
 /// the cell's fit: the fit depends on the lane's width, which the painting changes.
 const CROWDED_FROM = 4;
-/// A spread lane takes another column for every this many cards.
-const SPREAD_ROWS = 6;
-/// The columns a spread lane with cards takes: Working, the lane watched most, never takes
-/// fewer than the others, Ready to review takes up to two, and Done today's rows keep to one.
-const SPREAD: Record<Lane, { least: number; most: number }> = {
-  needs: { least: 1, most: 1 },
-  working: { least: 2, most: 3 },
-  review: { least: 1, most: 2 },
-  done: { least: 1, most: 1 },
-};
+/// The columns of a spread lane: Working one wide column, Ready to review two, and
+/// Done today its rows.
+const COLUMNS: Record<Lane, number> = { needs: 1, working: 1, review: 2, done: 1 };
 
 function Card({ card, open }: { card: BoardCard; open(): void }) {
   const style = { opacity: card.dim ? .55 : undefined, viewTransitionName: heroCard() === card.key ? "board-hero" : undefined };
@@ -160,7 +150,8 @@ function Card({ card, open }: { card: BoardCard; open(): void }) {
 
 /// A lane's cards, which scroll a card at a time, as every list of cards does
 /// (`itemScroll`).
-function Cell({ children }: { children: ReactNode }) {
+/// `columns` lays the cards out in that many columns of one width; null leaves it to the style.
+function Cell({ columns, children }: { columns: number | null; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState<number | null>(null);
 
@@ -199,7 +190,8 @@ function Cell({ children }: { children: ReactNode }) {
     return () => { clearTimeout(timer); cell.removeEventListener(event, listener); };
   }, []);
 
-  return <div className="bd-lane cell" ref={ref} style={fit === null ? undefined : { maxHeight: fit }}>{children}</div>;
+  const style = { maxHeight: fit ?? undefined, gridTemplateColumns: columns === null ? undefined : `repeat(${columns}, minmax(0, 1fr))` };
+  return <div className="bd-lane cell" ref={ref} style={style}>{children}</div>;
 }
 
 /// The fewest cards a cell shows at once.

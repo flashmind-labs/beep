@@ -114,7 +114,7 @@ body.cbody
                 h4
                   button [type="button"] "Working"
                   span "1"
-                div.bd-lane.cell
+                div.bd-lane.cell style(grid-template-columns)
                   div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
                     b "Fix the login redirect"
                     span.sub
@@ -129,7 +129,7 @@ body.cbody
               div.bd-lane style(flex-grow)
                 h4 "Ready to review"
                   span "1"
-                div.bd-lane.cell
+                div.bd-lane.cell style(grid-template-columns)
                   div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
                     b "Update the changelog"
                     span.sub

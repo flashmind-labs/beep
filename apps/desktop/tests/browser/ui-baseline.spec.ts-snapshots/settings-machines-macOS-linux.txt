@@ -104,7 +104,7 @@ body.cbody
                 h4
                   button [type="button"] "Working"
                   span "2"
-                div.bd-lane.cell
+                div.bd-lane.cell style(grid-template-columns)
                   div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
                     b "First notification"
                     span.sub
