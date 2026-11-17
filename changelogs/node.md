@@ -2,6 +2,55 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.20] - 2026-11-17
+
+### Added
+
+- Node: on a Windows machine, Codex, Gemini CLI, pi, flsh, Hermes and
+  OpenCode installed in a WSL distribution now run as that machine's
+  agents when Windows lacks them, as Claude Code already did. They need
+  their ACP adapter or npx installed inside WSL.
+- Node: sessions that coding agents ran inside WSL now show in Beep's
+  session lists and transcripts, under their Windows folders.
+- Node: keeps a search index of the prompts and agent replies in the
+  sessions of its project folders. It reads the agents' own files on that
+  machine.
+
+### Changed
+
+- Node: desktop controllers without hosting remain mesh controllers and no longer appear as coding agent or file hosts, or as phones.
+- Node: agents share Cargo build artifacts across linked worktrees.
+- Node: a Windows node no longer installs or runs beep-node inside WSL.
+  WSL machines added earlier stop running and can be removed from Machines.
+
+### Fixed
+
+- Node: an interrupted Git transfer no longer leaves half-written pack files
+  in `.git`. A stalled transfer gives up after 30 seconds of silence instead
+  of waiting five minutes. Git packs its objects together once many have
+  arrived.
+- Node: a machine with a very long system journal answers status checks
+  at once, so beep_status no longer shows it as not answering.
+- Node: a resumed session shows its added and removed line counts
+  right away after a restart, not after its next turn ends.
+- Node: file paths in a WSL session's tool calls and diffs now read as
+  Windows paths, so they open.
+- Node: setting up a call to a disconnected machine times out after one
+  15-second wait and explains that the request was not sent.
+
+### Performance
+
+- Node: Git sync between machines sends only the commits the other machine
+  is missing, instead of the whole history for each new branch. A repository
+  that grew to tens of gigabytes from repeated copies stays its normal size.
+- Node: only the default branch and the branch checked out on each machine
+  sync. Agent worktree branches stay on the machine that made them. A branch
+  that both machines have fast-forwards while it is checked out on the
+  machine that made the commits.
+- Node: desktops and phones search that index, so they no longer download
+  transcripts to build their own.
+- Node: desktop source builds leave out unused port mapping while standalone node connectivity stays unchanged.
+
 ## [0.7.19] - 2026-11-17
 
 ### Fixed

@@ -29,6 +29,8 @@ import { ensureHome } from "../center/refresh.ts";
 import { Icon } from "../ui/icons.tsx";
 import { Button, EmptyPanel } from "../ui/kit.tsx";
 
+let focusComposer = false;
+
 /// What the page last drew. It stays rendered while another page shows, so
 /// coming back keeps its place.
 let shown: { project: string; split: boolean; blank: boolean; parts: PagePart[] } | null = null;
@@ -74,6 +76,10 @@ export function drawProjects() {
   if (one && !isMobile()) {
     drawProjectComp(one.name);
     if (el.lastElementChild !== projectComp.form) el.append(projectComp.form);
+    if (focusComposer && !el.hidden) {
+      focusComposer = false;
+      projectComp.input.focus({ preventScroll: true });
+    }
   } else if (projectComp.form.parentNode === el) {
     projectComp.form.remove();
   }
@@ -164,6 +170,7 @@ export const projectsView: CenterView<"projects"> = {
   },
   mount(_el, arg) {
     state.picked = arg?.project || null;
+    focusComposer = !!state.picked;
     // A build's notification opens its run on the Actions tile.
     const run = arg?.run;
     pa.run = run && state.picked ? { project: state.picked, ...run } : null;
@@ -185,5 +192,5 @@ export const projectsView: CenterView<"projects"> = {
     ensureHome();
     prefetchRecentSoon();
   },
-  unmount: () => { disposeSessionPanel(); disposeOverview(); openTile(null, false); liveMode.follow(null); terms.stop(); },
+  unmount: () => { focusComposer = false; disposeSessionPanel(); disposeOverview(); openTile(null, false); liveMode.follow(null); terms.stop(); },
 };

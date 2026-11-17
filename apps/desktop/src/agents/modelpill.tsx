@@ -34,12 +34,13 @@ export function drawModelPill() {
 }
 
 export function toggleModelPicker() {
-  if (!AG.modelOpen && modelPill.current?.disabled) return;
-  AG.modelOpen = !AG.modelOpen;
-  const opened = AG.modelOpen ? perfOpen("picker") : null;
+  if (closeModelPicker()) return;
+  if (modelPill.current?.disabled) return;
+  AG.modelOpen = true;
+  const opened = perfOpen("picker");
   drawModelPicker();
   drawModelPill();
-  opened?.();
+  opened();
 }
 
 /// Closes the model picker; true when it was open, so Esc goes no further.
