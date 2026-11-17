@@ -88,6 +88,23 @@ impl Subagent {
     pub(crate) fn of_call(tool: Option<&str>, title: &str, input: Option<&Value>) -> Option<Self> {
         let input = input?;
 
+        if tool == Some("flsh_agent") && input["flshAgent"] == true {
+            return Some(Self {
+                name: text(input, "name"),
+                model: text(input, "model"),
+                ..Self::default()
+            });
+        }
+
+        if tool == Some("delegate") || (tool.is_none() && title == "delegate") {
+            return Some(Self {
+                name: text(input, "name").or_else(|| text(input, "persona")),
+                model: text(input, "model"),
+                title: text(input, "task"),
+                ..Self::default()
+            });
+        }
+
         if title == CODEX_SPAWN {
             let asked = input["prompt"]
                 .as_str()

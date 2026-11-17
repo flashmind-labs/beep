@@ -64,7 +64,12 @@ pub(super) fn replayed(text: &str, found: &mut Vec<Picture>) -> String {
 /// The subagent tool call a call ran in, as Claude Code's adapter stamps
 /// it (`_meta.claudeCode.parentToolUseId`).
 pub(super) fn parent_tool(meta: Option<&serde_json::Map<String, Value>>) -> Option<ToolCallId> {
-    let id = meta?.get("claudeCode")?.get("parentToolUseId")?.as_str()?;
+    let meta = meta?;
+    let id = meta
+        .get("claudeCode")
+        .or_else(|| meta.get("flsh"))?
+        .get("parentToolUseId")?
+        .as_str()?;
     Some(ToolCallId::new(id.to_owned()))
 }
 
