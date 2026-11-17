@@ -89,7 +89,9 @@ function drawModelPicker() {
     changed: what => {
       if (what === "models") return drawModelPill();
       const next = { model: picked.model, effort: picked.effort, fast: picked.fast };
-      if (what === "fast") return void switchSessionModel(s, next, "fast");
+      // Fast mode goes at once, with what the session has: a model picked
+      // and not yet confirmed waits for the Thinking step.
+      if (what === "fast") { was.fast = picked.fast; return void switchSessionModel(s, { ...was }, "fast"); }
       if (what !== "done") return;
       AG.modelOpen = false;
       drawModelPicker();
