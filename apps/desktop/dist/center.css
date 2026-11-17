@@ -1,7 +1,7 @@
 /* The command center window. Colors and type come from the skin (skins.css). */
 html:where(:has(> body.cbody)), body.cbody { background: var(--ink) }
 .cwin .dlive { background: var(--ink) }
-.cwin { --side-w: 184px; position: relative; height: 100vh; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); background: var(--ink) }
+.cwin { --side-w: 300px; position: relative; height: 100vh; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); background: var(--ink) }
 /* The last Home, put on the page before the scripts load: it covers the real window until the first view replaces it. */
 .cwin.kept { position: fixed; inset: 0; z-index: 10 }
 /* The traffic lights sit over the top of the sidebar; both bars drag the window. */
@@ -1032,11 +1032,17 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .cc-rail .rail-back { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; padding-inline: 0 }
 .cc-rail > .rail-filter { margin: 10px 0 4px; width: auto; flex: none }
 .cc-rail > h4 { padding: 10px 6px 3px }
-.cc-rail > .pj-li { flex: none; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; padding: 4px 6px; border-radius: var(--radius-sm) }
-.cc-rail > .pj-li .lead svg, .cc-rail > .pj-li .lead > * { width: 14px; height: 14px }
-.cc-rail > .pj-li .t > span:empty { display: none }
-.cc-rail > .pj-li .t b { font-weight: 400 }
-.cc-rail > .pj-li .r { font-size: 11px }
+.cc-rail .pj-li { flex: none; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; padding: 4px 6px; border-radius: var(--radius-sm) }
+.cc-rail .pj-li .lead svg, .cc-rail .pj-li .lead > * { width: 14px; height: 14px }
+.cc-rail .pj-li .t > span:empty { display: none }
+.cc-rail .pj-li .t b { font-weight: 400 }
+.cc-rail .pj-li .r { font-size: 11px }
+/* Running sessions read bigger, with what each is doing under its title. */
+.rail-live { display: grid }
+.rail-live > .pj-li { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; padding: 8px 6px }
+.rail-live > .pj-li .lead svg, .rail-live > .pj-li .lead > * { width: 18px; height: 18px }
+.rail-live > .pj-li .t b { font-weight: 500 }
+.rail-live > .pj-li .t > span { font-family: var(--mono); font-size: 11px; color: var(--dim) }
 .cc-rail > .rail-all { margin-top: 6px; justify-content: flex-start }
 /* A phone has no window buttons to clear: the rail is as narrow as its icons. */
 html[data-phone] .cwin.side-collapsed { grid-template-columns: 32px minmax(0, 1fr) }

@@ -26,6 +26,7 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "⌘B", does: "Notifications" },
     { keys: "⌥Tab", does: "Switch active conversations; hold Option to choose" },
     { keys: "⌥⇧Tab", does: "Previous active conversation" },
+    { keys: "⌃Tab", does: "Switch conversations in this project; hold Control to choose" },
     { keys: "⌘,", does: "Settings" },
     { keys: "⌘/", does: "Keyboard shortcuts" },
     { keys: "⌘N", does: "New agent session" },

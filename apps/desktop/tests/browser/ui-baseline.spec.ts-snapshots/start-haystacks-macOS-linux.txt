@@ -1,7 +1,7 @@
 body.cbody
   div.cwin [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
-      canvas.haze.painted-art [aria-hidden="true" height="225" width="46"]
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="75"]
       div.cc-head
       div.cc-brand
         b "Beep"
@@ -88,7 +88,7 @@ body.cbody
             b "1"
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-    div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
+    div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="300" role="separator" tabindex="0"]
     aside#rail.cc-rail.pj-list [aria-label="Project sessions" hidden inert]
     div#main.cc-main style(--top-w)
       div.cc-top
@@ -108,7 +108,7 @@ body.cbody
           svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div#home-box.cc-box [hidden]
         div#view.cc-view
-          canvas.haze.painted-art [aria-hidden="true" height="15" width="272"]
+          canvas.haze.painted-art [aria-hidden="true" height="15" width="243"]
           div.cc-mstrip
             button.m [type="button"]
               span.busy.ddot [title="Online · 2 agents running"]
@@ -168,7 +168,7 @@ body.cbody
             div#agcomposer.agc-wrap
               form.cc-pjc.centered
                 section.agc-intro
-                  canvas.haystacks.painted-art [aria-hidden="true" height="160" width="272"]
+                  canvas.haystacks.painted-art [aria-hidden="true" height="160" width="243"]
                   h3 [aria-label="What are we building today?"]
                     span [aria-hidden="true"]
                       span.agc-word style(--word) "What"
