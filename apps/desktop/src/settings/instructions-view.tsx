@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { Ago } from "../ui/format.ts";
 import type { InstructionsTab } from "../center/state.ts";
-import { MAX_BYTES, bytes, sizeLabel, versionLine, mineLayer, type VersionRow } from "./instructions-state.ts";
+import { MAX_BYTES, SUGGESTIONS, bytes, sizeLabel, versionLine, mineLayer, type Suggestion, type VersionRow } from "./instructions-state.ts";
 import { Button, EmptyPanel, SectionHead } from "../ui/kit.tsx";
 
 export interface InstructionsState {
@@ -24,6 +24,7 @@ interface Props {
   discard: () => void;
   showVersion: (version: number) => void;
   restoreVersion: (version: VersionRow) => void;
+  addSuggestion: (suggestion: Suggestion) => void;
 }
 
 export function InstructionsView(p: Props) {
@@ -46,7 +47,11 @@ export function InstructionsView(p: Props) {
         <li><b>Beep's rules</b><small>Session setup and tool instructions supplied by Beep</small></li>
         <li><b>Project</b><small>The repository's CLAUDE.md or AGENTS.md</small></li>
         <li><b>Task</b><small>The prompt Beep starts the agent with</small></li>
-      </ol></div></Section></div>
+      </ol></div></Section>
+      <Section title="Suggestions" sub="add, then save"><div className="cc-panel"><ul className="in-sugs">{SUGGESTIONS.map(s => {
+        const added = text.includes(s.text);
+        return <li key={s.title}><span><b>{s.title}</b><small>{s.about}</small></span><Button small disabled={added} onClick={() => p.addSuggestion(s)}>{added ? "Added" : "Add"}</Button></li>;
+      })}</ul></div></Section></div>
     </div> : <History {...p} />}
   </div>;
 }

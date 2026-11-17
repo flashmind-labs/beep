@@ -2,7 +2,7 @@
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import type { Ago } from "../ui/format.ts";
-import { MAX_BYTES, bytes } from "./instructions-state.ts";
+import { MAX_BYTES, bytes, withSuggestion } from "./instructions-state.ts";
 import type { VersionRow } from "./instructions-state.ts";
 import type { CenterView, InstructionsTab } from "../center/state.ts";
 import { Button } from "../ui/kit.tsx";
@@ -80,6 +80,7 @@ export function instructionsPage(deps: InstructionsDeps): CenterView<"instructio
       save={() => { void save(); }}
       discard={() => { st.draft = null; st.note = ""; draw(); }}
       showVersion={version => { st.shown = st.shown === `v${version}` ? null : `v${version}`; draw(); }}
+      addSuggestion={suggestion => { st.draft = withSuggestion(text(), suggestion); draw(); }}
       restoreVersion={version => { st.draft = version.text; void save(`Restored version ${version.version}`).then(() => setTab("editor")); }} /> }]);
   }
 

@@ -33,6 +33,11 @@ test("instructions keep editing and focus while saving and preserve later change
     await act(async () => { await view.mount(host, null); });
     await waitFor(() => assert.ok(screen.getByLabelText("Your instructions")));
     const input = screen.getByLabelText("Your instructions") as HTMLTextAreaElement;
+    const { SUGGESTIONS } = await import("../src/settings/instructions-state.ts");
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    assert.equal(input.value, `first\n\n${SUGGESTIONS[0].text}\n`);
+    assert.ok((screen.getByRole("button", { name: "Added" }) as HTMLButtonElement).disabled);
+    assert.ok(screen.getByText("Not saved"));
     input.focus();
     fireEvent.change(input, { target: { value: "submitted" } });
     input.setSelectionRange(3, 6);

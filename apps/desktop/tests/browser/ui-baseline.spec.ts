@@ -481,6 +481,16 @@ test("settings plugins", async ({ page }) => {
   await baseline(page, "settings-plugins");
 });
 
+test("settings instructions", async ({ page }) => {
+  await openDesktop(page, false, { ...settingsResponses, instructions_get: { version: 1, text: "# How I work\n\n- Write plainly.", note: "", saved_at: 0 } });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Instructions", exact: true }).click();
+  await dialog.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "Added", exact: true })).toBeDisabled();
+  await baseline(page, "settings-instructions");
+});
+
 test("settings assistant", async ({ page }) => {
   await openDesktop(page, false, { ...settingsResponses, assistant_settings_get: { agent: null, model: null, effort: null, fast: null }, mac_control: { id: "build-box" }, agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["claude", "codex"], workspace: null, home: "/srv", capabilities: [], assistant: true }], agent_models: { pick: "listed", current: null, models: [{ id: "model-a", name: "Example Model A", description: null, provider: null }, { id: "model-b", name: "Example Model B", description: null, provider: null }] } });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();

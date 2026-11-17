@@ -34,3 +34,23 @@ export function mineLayer(newest: Pick<VersionRow, "version"> | null | undefined
   if (!newest) return "Nothing saved yet, so agents get only the other layers";
   return `Version ${newest.version}, supplied when Beep starts or resumes a session`;
 }
+
+/// A ready-made rule the user can add to their instructions.
+export interface Suggestion {
+  title: string;
+  /// One line on what it asks of agents.
+  about: string;
+  text: string;
+}
+
+export const SUGGESTIONS: readonly Suggestion[] = [{
+  title: "Linear git history",
+  about: "Rebase the branch, then fast-forward: no merge commits",
+  text: "## Git\n\n- Keep history linear: no merge commits. To merge a feature branch, rebase it onto the main branch, rerun its tests, then `git merge --ff-only`. Only rebase a local, unpushed branch, never the main branch or anything pushed.",
+}];
+
+/// `text` with `suggestion` at the end, after a blank line.
+export function withSuggestion(text: string, suggestion: Suggestion) {
+  const kept = text.trimEnd();
+  return kept ? `${kept}\n\n${suggestion.text}\n` : `${suggestion.text}\n`;
+}
