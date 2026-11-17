@@ -17,6 +17,7 @@ use crate::{
     projects::ProjectRow,
     tray::waiting::WaitingList,
 };
+use beep_proto::node::agent::LineChanges;
 use beep_proto::{
     AgentNoticeKey, AgentQuestion, AgentStatus, ApiError, ImportedProject, Machine, MachineApp,
     MachineDetails, MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats,
@@ -181,6 +182,8 @@ enum RunningRow {
         doing: Option<String>,
         /// The first line of its last reply, shown while it is idle.
         reply: Option<String>,
+        /// The lines changed in its checkout when its last turn ended.
+        changes: Option<LineChanges>,
         started_at: u64,
         last_activity: u64,
         external: bool,
@@ -471,6 +474,7 @@ impl From<&MachineSession> for RunningRow {
             status: session.status.into(),
             doing: session.doing.clone(),
             reply: session.reply.clone(),
+            changes: session.changes,
             started_at: epoch_ms(session.started_at),
             last_activity: epoch_ms(session.last_activity),
             external: session.external,

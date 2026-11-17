@@ -21,6 +21,7 @@ use crate::{
 };
 use beep_mesh::Key;
 use beep_node::agents::tags::own_words;
+use beep_proto::node::agent::LineChanges;
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
     AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask, AgentToolCall,
@@ -97,6 +98,8 @@ pub struct SessionRow {
     doing: Option<String>,
     /// The first line of its last reply, shown while it is idle.
     reply: Option<String>,
+    /// The lines changed in its checkout when its last turn ended.
+    changes: Option<LineChanges>,
     /// In milliseconds since the Unix epoch.
     started_at: u64,
     last_activity: u64,
@@ -128,6 +131,7 @@ impl From<MachineSession> for SessionRow {
             cwd: session.cwd,
             doing: session.doing,
             reply: session.reply,
+            changes: session.changes,
             external: session.external,
             question: session.question,
             parent: None,

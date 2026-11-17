@@ -186,6 +186,17 @@ pub struct SessionInfo {
     /// The home assistant (see `Request::Start`).
     #[serde(default)]
     pub assistant: bool,
+    /// The lines changed in its checkout when its last turn ended; `None`
+    /// before then and outside a git checkout.
+    #[serde(default)]
+    pub changes: Option<LineChanges>,
+}
+
+/// Lines added and removed in a checkout, as its diff counts them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineChanges {
+    pub additions: u32,
+    pub deletions: u32,
 }
 
 /// An emulator or simulator a session uses: the machine it runs on and its id there.

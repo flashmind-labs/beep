@@ -293,6 +293,7 @@ pub fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
         model: info.model,
         assistant: info.assistant,
         reply: first_line(&info.last_message),
+        changes: info.changes,
     }
 }
 
@@ -321,6 +322,7 @@ pub fn external_session(host: &Host, session: ExternalSession) -> MachineSession
         model: None,
         assistant: false,
         reply: None,
+        changes: None,
     }
 }
 
@@ -397,6 +399,7 @@ pub fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
         model: None,
         assistant: false,
         reply: None,
+        changes: None,
     }
 }
 

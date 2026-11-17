@@ -267,3 +267,45 @@ cat > /dev/null
         serde_json::json!({})
     );
 }
+
+#[tokio::test]
+async fn a_finished_turn_counts_the_lines_its_checkout_changed() {
+    let temp = tempfile::tempdir().unwrap();
+    let log = temp.path().join("requests.jsonl");
+    let repo = temp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let done = std::process::Command::new("git")
+            .args(["-c", "user.name=Test", "-c", "user.email=test@example.test"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .current_dir(&repo)
+            .status()
+            .unwrap();
+        assert!(done.success(), "git {args:?}");
+    };
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("list.txt"), "a\nb\nc\n").unwrap();
+    git(&["add", "list.txt"]);
+    git(&["commit", "-q", "-m", "start"]);
+    // One line changed and one removed, and a new file of two lines.
+    std::fs::write(repo.join("list.txt"), "a\nB\n").unwrap();
+    std::fs::write(repo.join("new.txt"), "x\ny\n").unwrap();
+
+    let kind = kind(&log);
+    let session = Session::start(Start {
+        prompt: Some(String::from("late").into()),
+        ..start_on(&kind, &repo, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    until(&session, |live| live.info.changes.is_some()).await;
+
+    assert_eq!(
+        session.info().changes,
+        Some(beep_proto::node::agent::LineChanges {
+            additions: 3,
+            deletions: 2
+        })
+    );
+}

@@ -17,6 +17,8 @@ export interface RunningAgent {
   doing: string | null;
   /// The first line of its last reply, shown while it is idle.
   reply?: string | null;
+  /// The lines changed in its checkout when its last turn ended.
+  changes?: { additions: number; deletions: number } | null;
   started_at: number;
   last_activity: number;
   external: boolean;

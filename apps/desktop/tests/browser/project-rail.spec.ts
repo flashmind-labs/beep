@@ -68,16 +68,20 @@ test("a project's session swaps the sidebar for the project's sessions in the sa
   await expect(side).toBeVisible();
 });
 
-test("the project's sessions scroll under a header that stays put, and an idle one shows its last reply", async ({ page }) => {
+test("the project's sessions scroll under a header that stays put, and an idle one shows its last reply and changed lines", async ({ page }) => {
   const sessions = Array.from({ length: 40 }, (_, i) => ({ machine_id: "build-box", machine_name: "build-box", id: `past-${i}`, agent: "codex", title: `Past session ${i}`, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100 - i, external: false, question: null, assistant: false }));
-  const idle = { ...sessions[0], id: "idle", title: "Idle session", status: "idle", reply: "\nAll 42 tests pass now.\nThe rest of the reply.", started_at: 0 };
+  const idle = { ...sessions[0], id: "idle", title: "Idle session", status: "idle", reply: "\nAll 42 tests pass now.\nThe rest of the reply.", started_at: 0, changes: { additions: 146, deletions: 21 } };
   await openDesktop(page, false, { project_sessions: [...sessions, idle] });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
   await page.locator(".pj-det .pv-row").filter({ hasText: "Past session 1" }).first().click();
   const rail = page.locator("#rail"), list = rail.locator(".rail-scroll"), filter = rail.getByPlaceholder("Filter sessions");
   await expect(rail).toBeVisible();
   // An idle running session shows the first line of its last reply.
-  await expect(rail.locator(".rail-live > .pj-li").filter({ hasText: "Idle session" }).locator(".rail-reply")).toHaveText("All 42 tests pass now.");
+  const idleRow = rail.locator(".rail-live > .pj-li").filter({ hasText: "Idle session" });
+  await expect(idleRow.locator(".rail-reply")).toHaveText("All 42 tests pass now.");
+  // Its checkout's changed lines sit under its time, added then removed.
+  await expect(idleRow.locator(".rail-diff i")).toHaveText(["+146", "-21"]);
+  await expect(rail.locator(".rail-live > .pj-li").filter({ hasText: "First notification" }).locator(".rail-diff")).toHaveCount(0);
   const before = await filter.boundingBox();
 
   await list.evaluate(node => { node.scrollTop = node.scrollHeight; });

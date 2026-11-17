@@ -15,6 +15,7 @@ fn removing_a_project_clears_its_lists_and_rejects_late_session_lists() {
     };
     let session = MachineSession {
         reply: None,
+        changes: None,
         id: "a".into(),
         machine_id: "build-box".into(),
         machine_name: "build-box".into(),

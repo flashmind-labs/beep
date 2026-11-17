@@ -2,7 +2,7 @@
 
 use crate::{
     ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
-    node::agent::{CheckoutPlan, Effort, SessionDevice, StopReason},
+    node::agent::{CheckoutPlan, Effort, LineChanges, SessionDevice, StopReason},
 };
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -384,6 +384,11 @@ wire_structs! {
         /// node.
         #[serde(default)]
         pub reply: Option<String>,
+        /// The lines changed in its checkout when its last turn ended;
+        /// `None` before then, outside a git checkout and from an older
+        /// node.
+        #[serde(default)]
+        pub changes: Option<LineChanges>,
     }
 }
 

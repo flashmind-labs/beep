@@ -82,7 +82,7 @@ export function ProjectRail({ project, label, running, past, current, back }: {
     <input className="ip-field rail-filter" type="search" placeholder="Filter sessions" aria-label="Filter sessions" spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
     <div className="rail-scroll">
     {!!live.length && <h4>Running<span className="n">{live.length}</span></h4>}
-    {!!live.length && <div className="rail-live">{live.map(session => row(session, <RunningStatus row={session} />, runningLine(session)))}</div>}
+    {!!live.length && <div className="rail-live">{live.map(session => row(session, <><RunningStatus row={session} /><LineCounts changes={session.changes} /></>, runningLine(session)))}</div>}
     {!!ended.length && <h4>Past<span className="n">{ended.length}</span></h4>}
     {ended.slice(0, RAIL_PAST).map(session => row(session, formatAgo(session.last_activity, "short")))}
     {ended.length > RAIL_PAST && <Button look="quiet" className="rail-all" onClick={() => go("projects", { project, tile: "agents" })}>All {ended.length} sessions</Button>}
@@ -95,6 +95,15 @@ function runningLine(session: RunningAgent) {
   if (session.doing) return session.doing;
   const reply = session.reply?.split("\n").find(line => line.trim())?.trim();
   return reply ? <i className="rail-reply">{reply}</i> : "";
+}
+
+/// The lines its checkout changed, green and red, as its last turn left them.
+function LineCounts({ changes }: { changes: RunningAgent["changes"] }) {
+  if (!changes?.additions && !changes?.deletions) return null;
+  return <span className="rail-diff" title="Lines added and removed in its checkout">
+    {!!changes.additions && <i className="dv-plus">+{changes.additions}</i>}
+    {!!changes.deletions && <i className="dv-minus">-{changes.deletions}</i>}
+  </span>;
 }
 
 /// The past sessions the rail lists; the project's page has them all.

@@ -57,6 +57,7 @@ fn page(earlier: u32, entries: usize, prompt: &str) -> SessionsReply {
 fn session() -> MachineSession {
     MachineSession {
         reply: None,
+        changes: None,
         id: "one".into(),
         machine_id: "build-box".into(),
         machine_name: "build-box".into(),
