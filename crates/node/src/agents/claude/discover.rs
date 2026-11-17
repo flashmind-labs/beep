@@ -2,12 +2,12 @@
 //! `sightings`): transcripts under `<config>/projects/`, and which of them a
 //! running `claude` has open.
 
-use beep_proto::SessionId;
 use super::{procs::Process, transcript};
 use crate::agents::{
     found::{Agent, Memo, Seen as Sighting},
     place::of_folder,
 };
+use beep_proto::SessionId;
 use beep_proto::node::agent::{ExternalSession, Presence};
 use serde::Deserialize;
 use std::{
@@ -354,6 +354,24 @@ pub(super) fn list_ids(
         &all,
         all.iter().filter(|t| ids.contains(&t.id)),
     )
+}
+
+/// The native checkout of each requested session. A missing or unreadable
+/// transcript does not prevent the other sessions from being listed.
+pub(super) fn folders(store: &Store, ids: &HashSet<SessionId>) -> HashMap<SessionId, PathBuf> {
+    ids.iter()
+        .filter_map(|id| {
+            let path = store.find(id)?;
+            let transcript = transcript_at(&path)?;
+            let summary = store
+                .memos
+                .summaries
+                .read_since(&path, |before| summary(&transcript, before))
+                .ok()?;
+            let cwd = summary.gist.said.cwd?;
+            Some((id.clone(), PathBuf::from(cwd)))
+        })
+        .collect()
 }
 
 /// Every session, with the folder it ran in. Sessions are filed by that

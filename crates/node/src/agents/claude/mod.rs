@@ -2,15 +2,15 @@
 //! (`External`): finding them, reading their transcripts and following them.
 //! Taking one over runs it through the ACP adapter.
 
-use beep_proto::SessionId;
 use crate::{
     agents::{found::Seen as Sighting, place::of_folder},
     machine::wsl::{self, DistroName},
 };
 use anyhow::{Context, Result, bail};
+use beep_proto::SessionId;
 use beep_proto::node::{
     LinkRx, LinkTx,
-    agent::{ExternalSession, LiveStatus, Presence, Steer},
+    agent::{ExternalSession, LiveStatus, Presence, Steer, WorkPlace},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -117,8 +117,16 @@ impl External {
     /// Claude Code's stores: this machine's, then each WSL distribution's,
     /// with the distribution it is in.
     fn stores(&self) -> Vec<(Option<DistroName>, discover::Store)> {
-        let mut stores: Vec<_> = self.store().map(|store| (None, store)).into_iter().collect();
-        stores.extend(wsl_stores().into_iter().map(|(distro, store)| (Some(distro), store)));
+        let mut stores: Vec<_> = self
+            .store()
+            .map(|store| (None, store))
+            .into_iter()
+            .collect();
+        stores.extend(
+            wsl_stores()
+                .into_iter()
+                .map(|(distro, store)| (Some(distro), store)),
+        );
         stores
     }
 
@@ -180,7 +188,9 @@ impl External {
             for (distro, store) in &stores {
                 let snapshot = discover::Snapshot::of(store, processes.clone(), owned.clone());
                 let mut listed = discover::list(store, &snapshot, limit, only.as_ref())?;
-                listed.iter_mut().for_each(|session| in_windows(distro.as_ref(), session));
+                listed
+                    .iter_mut()
+                    .for_each(|session| in_windows(distro.as_ref(), session));
                 sessions.extend(listed);
             }
 
@@ -234,7 +244,9 @@ impl External {
             for (distro, store) in &stores {
                 let snapshot = discover::Snapshot::of(store, processes.clone(), owned.clone());
                 let mut listed = discover::list_ids(store, &snapshot, &ids)?;
-                listed.iter_mut().for_each(|session| in_windows(distro.as_ref(), session));
+                listed
+                    .iter_mut()
+                    .for_each(|session| in_windows(distro.as_ref(), session));
                 sessions.extend(listed);
             }
 
@@ -250,6 +262,36 @@ impl External {
         }
 
         Ok(sessions)
+    }
+
+    /// Native checkout folders for sessions the node already owns, without
+    /// discovering processes or scanning unrelated session files.
+    pub(crate) async fn places(
+        &self,
+        ids: HashSet<SessionId>,
+    ) -> Result<HashMap<SessionId, WorkPlace>> {
+        let stores = self.stores();
+
+        spawn_blocking(move || {
+            let mut places = HashMap::new();
+
+            for (distro, store) in stores {
+                for (id, folder) in discover::folders(&store, &ids) {
+                    let folder = match &distro {
+                        Some(distro) => wsl::windows_folder(distro, &folder.to_string_lossy()),
+                        None => folder,
+                    };
+
+                    if let Some(place) = of_folder(&folder) {
+                        places.insert(id, place);
+                    }
+                }
+            }
+
+            places
+        })
+        .await
+        .context("reading native session folders")
     }
 
     /// The last `last` entries of session `id`'s transcript, how many came
@@ -275,7 +317,8 @@ impl External {
         let stores = self.stores();
         let started = std::time::Instant::now();
         let id = id.to_owned();
-        let found = spawn_blocking(move || stores.iter().find_map(|(_, store)| store.find(&id))).await?;
+        let found =
+            spawn_blocking(move || stores.iter().find_map(|(_, store)| store.find(&id))).await?;
         crate::agents::transcript_stage("find", started);
         Ok(found)
     }
@@ -427,7 +470,12 @@ impl External {
     }
 
     /// Serves one `Watch` stream.
-    pub(crate) async fn watch(&self, tx: LinkTx, rx: LinkRx, sessions: Vec<SessionId>) -> Result<()> {
+    pub(crate) async fn watch(
+        &self,
+        tx: LinkTx,
+        rx: LinkRx,
+        sessions: Vec<SessionId>,
+    ) -> Result<()> {
         watch::serve(tx, rx, self.store(), &self.hub, sessions).await
     }
 }

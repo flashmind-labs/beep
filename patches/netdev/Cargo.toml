@@ -116,13 +116,15 @@ version = "0.9"
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies.objc2-core-foundation]
 version = "0.3"
+default-features = false
+features = ["std", "CFArray", "CFDictionary", "CFPropertyList", "CFString"]
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies.objc2-system-configuration]
 version = "0.3"
 features = ["SCNetworkConfiguration"]
 default-features = false
 
-[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies.plist]
+[target.'cfg(target_os = "macos")'.dependencies.plist]
 version = "1.10"
 
 [target.'cfg(target_os = "android")'.dependencies.dlopen2]

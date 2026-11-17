@@ -9,9 +9,9 @@ use crate::agents::{
 };
 use crate::{
     agents::mcp::calls::Tool as BeepTool,
-    files::fsat::{self, FileId},
     agents::tags::{self, Part},
     agents::{Picture, block_picture, cut, window::window},
+    files::fsat::{self, FileId},
 };
 use beep_proto::{
     AgentToolCall,
@@ -461,7 +461,10 @@ impl Digest {
             return;
         }
 
-        let Some(skill) = result["commandName"].as_str().filter(|name| !name.is_empty()) else {
+        let Some(skill) = result["commandName"]
+            .as_str()
+            .filter(|name| !name.is_empty())
+        else {
             return;
         };
         let Some(entry) = self.tool_entry(id) else {
@@ -823,6 +826,94 @@ pub(crate) struct Excerpt {
     pub(crate) pictures: Vec<Picture>,
 }
 
+impl Excerpt {
+    /// Recover history omitted by ACP without duplicating the replay. Prefer
+    /// the longest match, then the newest one when conversations repeat.
+    pub(crate) fn before_replay(mut self, replay: &[Entry]) -> Self {
+        let anchors: Vec<_> = replay.iter().filter_map(anchor).collect();
+        let native: Vec<_> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(at, entry)| Some((at, anchor(entry)?)))
+            .collect();
+        let keep =
+            if anchors.is_empty() && replay.iter().all(|entry| entry.kind == EntryKind::Other) {
+                self.entries.len()
+            } else {
+                native
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(at, (index, _))| {
+                        let matched = native[at..]
+                            .iter()
+                            .map(|(_, anchor)| anchor)
+                            .zip(&anchors)
+                            .take_while(|(native, replay)| native.matches(replay))
+                            .count();
+                        (matched > 0).then_some((matched, *index))
+                    })
+                    .max_by_key(|(matched, _)| *matched)
+                    .map_or(0, |(_, at)| at)
+            };
+        self.entries.truncate(keep);
+        self
+    }
+}
+
+#[derive(PartialEq, Eq)]
+enum Anchor {
+    Text {
+        kind: EntryKind,
+        text: String,
+        truncated: bool,
+    },
+    Tool(Option<String>, Option<String>),
+    Compacted,
+}
+
+impl Anchor {
+    fn matches(&self, replay: &Self) -> bool {
+        match (self, replay) {
+            (
+                Self::Text {
+                    kind,
+                    text,
+                    truncated,
+                },
+                Self::Text {
+                    kind: other_kind,
+                    text: other,
+                    ..
+                },
+            ) => kind == other_kind && (text == other || (*truncated && other.starts_with(text))),
+            _ => self == replay,
+        }
+    }
+}
+
+fn anchor(entry: &Entry) -> Option<Anchor> {
+    match entry.kind {
+        EntryKind::User | EntryKind::Agent | EntryKind::Thought => {
+            // ACP streams blocks together; the native reader separates them.
+            let text = cut(entry.text.trim(), MAX_ENTRY)
+                .split_whitespace()
+                .collect();
+            Some(Anchor::Text {
+                kind: entry.kind,
+                text,
+                truncated: entry.text.len() >= MAX_ENTRY,
+            })
+        }
+        EntryKind::Tool => entry
+            .tool
+            .as_ref()
+            .map(|tool| Anchor::Tool(tool.name.clone(), tool.input.clone())),
+        EntryKind::Compacted => Some(Anchor::Compacted),
+        _ => None,
+    }
+}
+
 /// The `last` entries before entry `before` (the end when `None`) of the
 /// transcript at `path`, with the pictures their image lines show. The
 /// file is read as far back as `MAX_WINDOW` once and kept in `kept`, which
@@ -1031,7 +1122,11 @@ pub(super) mod tests {
     fn a_forked_skill_reads_as_a_subagent() {
         let mut digest = Digest::default();
         for (id, skill, result) in [
-            ("inline", "demo", serde_json::json!({"success": true, "commandName": "demo"})),
+            (
+                "inline",
+                "demo",
+                serde_json::json!({"success": true, "commandName": "demo"}),
+            ),
             (
                 "fork",
                 "review",
@@ -1090,7 +1185,13 @@ pub(super) mod tests {
             (excerpt.earlier, texts)
         };
 
-        assert_eq!(read(5000, 7), (7, vec!["entry 7".into(), "entry 8".into(), "entry 9".into()]));
+        assert_eq!(
+            read(5000, 7),
+            (
+                7,
+                vec!["entry 7".into(), "entry 8".into(), "entry 9".into()]
+            )
+        );
         assert_eq!(read(1, 7), (9, vec!["entry 9".into()]));
         assert_eq!(read(5000, 10), (10, vec![]));
         // A start the transcript no longer reaches reads as no start at all.
@@ -1132,12 +1233,15 @@ pub(super) mod tests {
     #[test]
     fn imported_automatic_titles_are_cleaned_but_custom_titles_stay() {
         let tagged = tags::from_session("parent", "Parent task", "Fix the upload queue.");
-        let mut digest = Digest::read(&serde_json::json!({"type": "ai-title", "aiTitle": tagged}).to_string());
+        let mut digest =
+            Digest::read(&serde_json::json!({"type": "ai-title", "aiTitle": tagged}).to_string());
         let gist = Gist::of(digest, 0, 0, Vec::new());
         assert_eq!(gist.said.title().as_deref(), Some("Fix the upload queue."));
 
         let custom = "Custom title ".repeat(10).trim().to_owned();
-        digest = Digest::read(&serde_json::json!({"type": "custom-title", "customTitle": custom}).to_string());
+        digest = Digest::read(
+            &serde_json::json!({"type": "custom-title", "customTitle": custom}).to_string(),
+        );
         let gist = Gist::of(digest, 0, 0, Vec::new());
         assert_eq!(gist.said.title().as_deref(), Some(custom.as_str()));
     }
@@ -1306,7 +1410,9 @@ pub(super) mod tests {
         digest.line(&call.to_string());
         assert_eq!(digest.entries[0].kind, EntryKind::Tool);
         assert!(
-            digest.entries[0].text.contains("Run on build-box: cargo test"),
+            digest.entries[0]
+                .text
+                .contains("Run on build-box: cargo test"),
             "{}",
             digest.entries[0].text
         );
@@ -1431,12 +1537,18 @@ pub(super) mod tests {
 
         // Rewrite an early prompt in place: a parse of the whole tail
         // would see it, a parse of the appended lines does not.
-        let mut file = fs::OpenOptions::new().write(true).open(&path).expect("open");
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .expect("open");
         let at = text.find("prompt 03900").expect("an early prompt");
         file.seek(SeekFrom::Start(at as u64)).expect("seek");
         file.write_all(b"PROMPT").expect("rewrite");
         drop(file);
-        let mut file = fs::OpenOptions::new().append(true).open(&path).expect("open");
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("open");
         writeln!(file, "{}", line(4000)).expect("append");
         drop(file);
 
@@ -1465,7 +1577,9 @@ pub(super) mod tests {
                 .concat()
         };
         fs::write(&path, text("first")).expect("a transcript");
-        let modified = fs::metadata(&path).and_then(|meta| meta.modified()).expect("a time");
+        let modified = fs::metadata(&path)
+            .and_then(|meta| meta.modified())
+            .expect("a time");
         let kept = Transcripts::new(2);
         let before = entries(&path, 3, None, &kept).expect("read");
         assert_eq!(before.entries[0].text, "first");
@@ -1485,3 +1599,6 @@ pub(super) mod tests {
     }
 }
 
+#[cfg(test)]
+#[path = "../../tests/agents_claude_history.rs"]
+mod history_tests;
