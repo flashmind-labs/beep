@@ -9,7 +9,10 @@ test("issue selection, controls and scroll survive project redraws", async ({ pa
   await page.locator(".pj-strip button").filter({ hasText: "25 issues" }).click();
   await expect(page.locator('.pj-list .pj-li[title="Issues"]')).toHaveAttribute("aria-current", "true");
   const detail = page.locator(".pj-split > .pj-det");
-  await expect(detail.locator('.pj-li[title="Issue 1"]')).toBeVisible();
+  const issue = detail.locator('.pj-li[title="Issue 1"]');
+  await expect(issue).toBeVisible();
+  await expect(issue.locator(".t > span")).toContainText("#1 · opened by Example");
+  await expect(issue.locator(".lead")).toHaveCount(0);
   const layout = await detail.evaluate(el => {
     const slots = [...el.children].filter(child => child instanceof HTMLElement && getComputedStyle(child).display === "contents");
     const controls = el.querySelector<HTMLElement>(".pj-ctl");
@@ -48,13 +51,17 @@ test("issue selection, controls and scroll survive project redraws", async ({ pa
   await expect(detail.locator('.pj-li[title="Issue 2"]')).toBeVisible();
 });
 
-test("an issue with a linked pull request shows a PR tag", async ({ page }) => {
+test("phone issue rows show the number with metadata and a tag for linked PRs", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   const now = Date.now();
   const issue = (number: number, linked_pr: boolean) => ({ number, title: `Issue ${number}`, url: `https://example.test/issues/${number}`, author: "Example", opened_at: now - number * 1000, comments: 0, labels: [], linked_pr });
   await openDesktop(page, false, { center_project_lists: { issues: [issue(1, true), issue(2, false)], prs: [], issues_error: null, prs_error: null, synced_at: now } });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await page.locator(".pj-strip button").filter({ hasText: "2 issues" }).click();
   const detail = page.locator(".pj-split > .pj-det");
-  await expect(detail.locator('.pj-li[title="Issue 1"] .chip.wait')).toHaveText("PR");
+  await expect(page.locator("body")).toHaveClass(/mobile/);
+  const linked = detail.locator('.pj-li[title="Issue 1"]');
+  await expect(linked.locator(".t > span")).toContainText("#1 · opened by Example");
+  await expect(linked.locator(".chip.wait")).toHaveText("PR");
   await expect(detail.locator('.pj-li[title="Issue 2"] .chip')).toHaveCount(0);
 });

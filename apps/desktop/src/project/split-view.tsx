@@ -37,7 +37,7 @@ export function Row({ item, picked, filter, nav, openTile }: { item: SplitItem; 
   return <button type="button" className={`pj-li${nav ? " nav" : ""}`} title={item.title} aria-current={item.key === picked ? "true" : undefined}
     onClick={() => item.open ? item.open() : openTile(item.key)} onContextMenu={item.menu ? e => item.menu?.(e.nativeEvent) : undefined}>
     {nav ? <><span className="t"><b>{item.title}</b></span><span className="c">{item.sub}</span></> : <>
-      <span className="lead">{item.lead}</span><span className="t"><b>{item.title}</b><span>{item.sub}{item.tags?.map(label => filter ? <Label key={label} label={label} filter={filter}/> : <i className="pj-tag" key={label}>{label}</i>)}</span></span>
+      {item.lead && <span className="lead">{item.lead}</span>}<span className="t"><b>{item.title}</b><span>{item.sub}{item.tags?.map(label => filter ? <Label key={label} label={label} filter={filter}/> : <i className="pj-tag" key={label}>{label}</i>)}</span></span>
       <span className="r">{item.right}</span>
     </>}
   </button>;
