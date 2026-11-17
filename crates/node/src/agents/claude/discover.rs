@@ -8,7 +8,7 @@ use crate::agents::{
     place::of_folder,
 };
 use beep_proto::SessionId;
-use beep_proto::node::agent::{ExternalSession, Presence, WorkPlace};
+use beep_proto::node::agent::{ExternalSession, Presence};
 use serde::Deserialize;
 use std::{
     cmp::Reverse,
@@ -358,7 +358,7 @@ pub(super) fn list_ids(
 
 /// The native checkout of each requested session. A missing or unreadable
 /// transcript does not prevent the other sessions from being listed.
-pub(super) fn places(store: &Store, ids: &HashSet<SessionId>) -> HashMap<SessionId, WorkPlace> {
+pub(super) fn folders(store: &Store, ids: &HashSet<SessionId>) -> HashMap<SessionId, PathBuf> {
     ids.iter()
         .filter_map(|id| {
             let path = store.find(id)?;
@@ -369,8 +369,7 @@ pub(super) fn places(store: &Store, ids: &HashSet<SessionId>) -> HashMap<Session
                 .read_since(&path, |before| summary(&transcript, before))
                 .ok()?;
             let cwd = summary.gist.said.cwd?;
-            let place = of_folder(Path::new(&cwd))?;
-            Some((id.clone(), place))
+            Some((id.clone(), PathBuf::from(cwd)))
         })
         .collect()
 }

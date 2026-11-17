@@ -270,13 +270,28 @@ impl External {
         &self,
         ids: HashSet<SessionId>,
     ) -> Result<HashMap<SessionId, WorkPlace>> {
-        let Some(store) = self.store() else {
-            return Ok(HashMap::new());
-        };
+        let stores = self.stores();
 
-        spawn_blocking(move || discover::places(&store, &ids))
-            .await
-            .context("reading native session folders")
+        spawn_blocking(move || {
+            let mut places = HashMap::new();
+
+            for (distro, store) in stores {
+                for (id, folder) in discover::folders(&store, &ids) {
+                    let folder = match &distro {
+                        Some(distro) => wsl::windows_folder(distro, &folder.to_string_lossy()),
+                        None => folder,
+                    };
+
+                    if let Some(place) = of_folder(&folder) {
+                        places.insert(id, place);
+                    }
+                }
+            }
+
+            places
+        })
+        .await
+        .context("reading native session folders")
     }
 
     /// The last `last` entries of session `id`'s transcript, how many came
