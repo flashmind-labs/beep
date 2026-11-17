@@ -11,34 +11,70 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc::{self, RecvTimeoutError, SyncSender},
     },
+    time::{Duration, Instant},
 };
-use tokio::{sync::mpsc, task::spawn_blocking};
-use tokio_util::task::AbortOnDropHandle;
+use tokio::task::spawn_blocking;
 
 type Changed = Arc<dyn Fn(Vec<PathBuf>, bool) + Send + Sync>;
 
+/// How long a root stays watched after its last reader lets go, so a view
+/// opened again does not walk the folder again.
+const LINGER: Duration = Duration::from_secs(5 * 60);
+
+/// One reader of the node's filesystem watch: it names the roots it wants
+/// and hears about changes under them. A root is watched once, however many
+/// readers want it.
 pub(crate) struct Paths {
-    inner: Arc<Mutex<Inner>>,
-    _reconcile: AbortOnDropHandle<()>,
+    id: u64,
+    shared: Arc<Shared>,
     changed: Changed,
     #[cfg(test)]
     reconciled: tokio::sync::watch::Receiver<()>,
 }
 
+/// The node's one watcher. Its watches are brought in line on a thread of
+/// its own, so it serves every runtime in the process.
+struct Shared {
+    inner: Mutex<Inner>,
+    state: Arc<State>,
+    #[cfg(test)]
+    reconciled: tokio::sync::watch::Sender<()>,
+}
+
+/// What the watcher's callback shares with the rest. The callback never
+/// takes `Inner`: notify waits on it while a watch is added.
+struct State {
+    readers: Mutex<Readers>,
+    stale: AtomicBool,
+    /// Paths created, removed or renamed since the folders were last
+    /// brought in line, in the order they changed.
+    #[cfg(target_os = "linux")]
+    moved: Mutex<Vec<PathBuf>>,
+    refresh: SyncSender<()>,
+}
+
+#[derive(Default)]
+struct Readers {
+    held: BTreeMap<u64, Reader>,
+    /// Roots no reader wants any more, until they stop being watched.
+    lingering: BTreeMap<PathBuf, Instant>,
+}
+
+struct Reader {
+    roots: Vec<PathBuf>,
+    changed: Changed,
+}
+
 struct Inner {
     watcher: RecommendedWatcher,
-    stale: Arc<AtomicBool>,
-    roots: Arc<Mutex<Vec<PathBuf>>>,
+    state: Arc<State>,
     installed: BTreeMap<PathBuf, RecursiveMode>,
     /// The folders each recursive watch holds, one inotify watch each.
     #[cfg(target_os = "linux")]
     folders: BTreeMap<PathBuf, std::collections::BTreeSet<PathBuf>>,
-    /// Paths created, removed or renamed since the folders were last
-    /// brought in line, in the order they changed.
-    #[cfg(target_os = "linux")]
-    moved: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 /// Folders a watch never walks into: linked worktrees, build output and
@@ -65,6 +101,9 @@ const UNWATCHED: &[&str] = &[
     ".parcel-cache",
 ];
 
+static SHARED: Mutex<Option<Arc<Shared>>> = Mutex::new(None);
+static NEXT_READER: AtomicU64 = AtomicU64::new(0);
+
 impl Paths {
     pub(crate) fn new(changed: impl Fn(Vec<PathBuf>) + Send + Sync + 'static) -> Result<Self> {
         Self::with_structure(move |roots, _| changed(roots))
@@ -73,131 +112,29 @@ impl Paths {
     pub(crate) fn with_structure(
         changed: impl Fn(Vec<PathBuf>, bool) + Send + Sync + 'static,
     ) -> Result<Self> {
-        let roots = Arc::new(Mutex::new(Vec::<PathBuf>::new()));
-        let interested = roots.clone();
-        let stale = Arc::new(AtomicBool::new(false));
-        let invalidated = stale.clone();
-        #[cfg(target_os = "linux")]
-        let moved = Arc::new(Mutex::new(Vec::new()));
-        #[cfg(target_os = "linux")]
-        let followed = moved.clone();
-        let (refresh, mut refreshes) = mpsc::channel(1);
+        let shared = Shared::get()?;
+        let id = NEXT_READER.fetch_add(1, Ordering::Relaxed);
         let changed: Changed = Arc::new(changed);
-        let reconciled_callback = changed.clone();
-        let direct = changed.clone();
-        #[cfg(test)]
-        let (reconciled_tx, reconciled) = tokio::sync::watch::channel(());
-        let watcher = RecommendedWatcher::new(
-            move |event: notify::Result<notify::Event>| {
-                counted("paths", &event);
-                let roots = crate::lock(&interested);
-                let changed_roots = match &event {
-                    Ok(event) if event.need_rescan() => roots.clone(),
-                    Ok(event) if matches!(event.kind, EventKind::Access(_) | EventKind::Other) => {
-                        return;
-                    }
-                    Ok(event) => roots
-                        .iter()
-                        .filter(|root| event.paths.iter().any(|path| affects(root, path)))
-                        .cloned()
-                        .collect::<Vec<_>>(),
-                    Err(_) => roots.clone(),
-                };
-                let renames = |event: &notify::Event| {
-                    matches!(
-                        event.kind,
-                        EventKind::Create(_)
-                            | EventKind::Remove(_)
-                            | EventKind::Modify(notify::event::ModifyKind::Name(_))
-                    )
-                };
-
-                if event.as_ref().map_or(true, |event| {
-                    event.need_rescan()
-                        || (renames(event) && event.paths.iter().any(|path| loses_watch(&roots, path)))
-                }) {
-                    invalidated.store(true, Ordering::Release);
-                }
-                drop(roots);
-
-                // Folders follow every change in a watched folder, also one
-                // no root reports, such as Git's own: notify cannot be changed
-                // from its own callback, so the reconcile task walks them.
-                #[cfg(target_os = "linux")]
-                if let Ok(event) = &event
-                    && renames(event)
-                {
-                    crate::lock(&followed).extend(event.paths.iter().cloned());
-                    let _ = refresh.try_send(());
-                }
-
-                if changed_roots.is_empty() {
-                    return;
-                }
-
-                let structural = event
-                    .as_ref()
-                    .map_or(true, |event| event.need_rescan() || renames(event));
-                direct(changed_roots, structural);
-
-                if structural {
-                    let _ = refresh.try_send(());
-                }
+        crate::lock(&shared.state.readers).held.insert(
+            id,
+            Reader {
+                roots: Vec::new(),
+                changed: changed.clone(),
             },
-            notify::Config::default().with_follow_symlinks(false),
-        )?;
-        let inner = Arc::new(Mutex::new(Inner {
-            watcher,
-            stale,
-            roots,
-            installed: BTreeMap::new(),
-            #[cfg(target_os = "linux")]
-            folders: BTreeMap::new(),
-            #[cfg(target_os = "linux")]
-            moved,
-        }));
-        let weak = Arc::downgrade(&inner);
-        let reconcile = AbortOnDropHandle::new(tokio::spawn(async move {
-            while refreshes.recv().await.is_some() {
-                let Some(inner) = weak.upgrade() else {
-                    return;
-                };
-                let (result, roots) = match spawn_blocking(move || {
-                    let mut held = crate::lock(&inner);
-                    let roots = crate::lock(&held.roots).clone();
-                    let result = held.install(&roots);
-                    #[cfg(target_os = "linux")]
-                    held.follow();
-                    (result, roots)
-                })
-                .await
-                {
-                    Ok(done) => done,
-                    Err(_) => return,
-                };
+        );
 
-                if result.is_err() {
-                    log::debug!("filesystem notification watches need reconciliation");
-                }
-                // Rebuilding an OS watch can leave a short gap; reconcile state afterwards.
-                if !matches!(result, Ok(false)) {
-                    reconciled_callback(roots, true);
-                }
-                #[cfg(test)]
-                reconciled_tx.send_replace(());
-            }
-        }));
         Ok(Self {
-            inner,
-            _reconcile: reconcile,
-            changed,
+            id,
             #[cfg(test)]
-            reconciled,
+            reconciled: shared.reconciled.subscribe(),
+            shared,
+            changed,
         })
     }
 
     pub(crate) async fn replace(&self, roots: Vec<PathBuf>) -> Result<()> {
-        let inner = self.inner.clone();
+        let shared = self.shared.clone();
+        let id = self.id;
         let (result, changed) = spawn_blocking(move || {
             // OS notifications use physical paths, including macOS's /private aliases.
             // Resolve the existing prefix even when a requested store is not created yet.
@@ -207,12 +144,17 @@ impl Paths {
                 .collect::<Result<Vec<_>>>()?;
             roots.sort();
             roots.dedup();
-            let mut inner = crate::lock(&inner);
-            let before = crate::lock(&inner.roots).clone();
-            let result = inner.install(&roots);
 
-            if result.is_ok() {
-                *crate::lock(&inner.roots) = roots.clone();
+            for root in &roots {
+                existing(root)?;
+            }
+
+            let mut inner = crate::lock(&shared.inner);
+            let before = shared.state.set(id, roots.clone());
+            let result = inner.install(&shared.state.wanted());
+
+            if result.is_err() {
+                shared.state.set(id, before.clone());
             }
 
             let changed = if before != roots || !matches!(result, Ok(false)) {
@@ -233,12 +175,242 @@ impl Paths {
     }
 }
 
+impl Drop for Paths {
+    fn drop(&mut self) {
+        let mut readers = crate::lock(&self.shared.state.readers);
+
+        if let Some(reader) = readers.held.remove(&self.id) {
+            readers.linger(reader.roots);
+        }
+        drop(readers);
+
+        let _ = self.shared.state.refresh.try_send(());
+    }
+}
+
+impl Shared {
+    /// The node's watcher, started by its first reader.
+    fn get() -> Result<Arc<Self>> {
+        let mut held = crate::lock(&SHARED);
+
+        if let Some(shared) = held.as_ref() {
+            return Ok(shared.clone());
+        }
+
+        let (refresh, refreshes) = mpsc::sync_channel(1);
+        let state = Arc::new(State {
+            readers: Mutex::default(),
+            stale: AtomicBool::new(false),
+            #[cfg(target_os = "linux")]
+            moved: Mutex::default(),
+            refresh,
+        });
+        let notified = state.clone();
+        let watcher = RecommendedWatcher::new(
+            move |event: notify::Result<notify::Event>| notified.notify(event),
+            notify::Config::default().with_follow_symlinks(false),
+        )?;
+        let shared = Arc::new(Self {
+            inner: Mutex::new(Inner {
+                watcher,
+                state: state.clone(),
+                installed: BTreeMap::new(),
+                #[cfg(target_os = "linux")]
+                folders: BTreeMap::new(),
+            }),
+            state,
+            #[cfg(test)]
+            reconciled: tokio::sync::watch::Sender::new(()),
+        });
+        let reconciling = shared.clone();
+        std::thread::Builder::new()
+            .name("beep-paths".into())
+            .spawn(move || reconciling.reconcile(refreshes))?;
+        *held = Some(shared.clone());
+        Ok(shared)
+    }
+
+    /// Brings the watches in line whenever the callback or a reader asks,
+    /// and lets lingering roots go once their time is up.
+    fn reconcile(&self, refreshes: mpsc::Receiver<()>) {
+        loop {
+            let next = crate::lock(&self.state.readers)
+                .lingering
+                .values()
+                .min()
+                .copied();
+            let wait = next.map_or(Duration::MAX, |until| {
+                until.saturating_duration_since(Instant::now())
+            });
+
+            if let Err(RecvTimeoutError::Disconnected) = refreshes.recv_timeout(wait) {
+                return;
+            }
+
+            let now = Instant::now();
+            crate::lock(&self.state.readers)
+                .lingering
+                .retain(|_, until| *until > now);
+            let mut inner = crate::lock(&self.inner);
+            let result = inner.install(&self.state.wanted());
+            #[cfg(target_os = "linux")]
+            inner.follow();
+            drop(inner);
+
+            if result.is_err() {
+                log::debug!("filesystem notification watches need reconciliation");
+            }
+            // Rebuilding an OS watch can leave a short gap; reconcile state afterwards.
+            if !matches!(result, Ok(false)) {
+                for (changed, roots) in self.state.readers_roots() {
+                    changed(roots, true);
+                }
+            }
+            #[cfg(test)]
+            self.reconciled.send_replace(());
+        }
+    }
+}
+
+impl State {
+    /// Hands one notification to the readers whose roots it touches.
+    fn notify(&self, event: notify::Result<notify::Event>) {
+        counted("paths", &event);
+
+        if let Ok(event) = &event
+            && matches!(event.kind, EventKind::Access(_) | EventKind::Other)
+            && !event.need_rescan()
+        {
+            return;
+        }
+
+        let renames = |event: &notify::Event| {
+            matches!(
+                event.kind,
+                EventKind::Create(_)
+                    | EventKind::Remove(_)
+                    | EventKind::Modify(notify::event::ModifyKind::Name(_))
+            )
+        };
+        let structural = event
+            .as_ref()
+            .map_or(true, |event| event.need_rescan() || renames(event));
+        let readers = crate::lock(&self.readers);
+        let reached: Vec<_> = readers
+            .held
+            .values()
+            .map(|reader| {
+                let roots = match &event {
+                    Ok(event) if !event.need_rescan() => reader
+                        .roots
+                        .iter()
+                        .filter(|root| event.paths.iter().any(|path| affects(root, path)))
+                        .cloned()
+                        .collect(),
+                    _ => reader.roots.clone(),
+                };
+                (reader.changed.clone(), roots)
+            })
+            .filter(|(_, roots): &(Changed, Vec<PathBuf>)| !roots.is_empty())
+            .collect();
+
+        if event.as_ref().map_or(true, |event| {
+            event.need_rescan()
+                || (renames(event) && {
+                    let roots = readers.roots();
+                    event.paths.iter().any(|path| loses_watch(&roots, path))
+                })
+        }) {
+            self.stale.store(true, Ordering::Release);
+        }
+        drop(readers);
+
+        // Folders follow every change in a watched folder, also one no root
+        // reports, such as Git's own: notify cannot be changed from its own
+        // callback, so the reconcile thread walks them.
+        #[cfg(target_os = "linux")]
+        if let Ok(event) = &event
+            && renames(event)
+        {
+            crate::lock(&self.moved).extend(event.paths.iter().cloned());
+            let _ = self.refresh.try_send(());
+        }
+
+        if reached.is_empty() {
+            return;
+        }
+
+        for (changed, roots) in reached {
+            changed(roots, structural);
+        }
+
+        if structural {
+            let _ = self.refresh.try_send(());
+        }
+    }
+
+    /// Gives reader `id` its `roots`, and the ones it held before.
+    fn set(&self, id: u64, roots: Vec<PathBuf>) -> Vec<PathBuf> {
+        let mut readers = crate::lock(&self.readers);
+        let before = readers
+            .held
+            .get_mut(&id)
+            .map(|reader| std::mem::replace(&mut reader.roots, roots.clone()))
+            .unwrap_or_default();
+
+        for root in &roots {
+            readers.lingering.remove(root);
+        }
+        readers.linger(before.clone());
+        before
+    }
+
+    /// Every root a reader wants or that still lingers.
+    fn wanted(&self) -> Vec<PathBuf> {
+        let readers = crate::lock(&self.readers);
+        let mut roots = readers.roots();
+        roots.extend(readers.lingering.keys().cloned());
+        roots.sort();
+        roots.dedup();
+        roots
+    }
+
+    fn readers_roots(&self) -> Vec<(Changed, Vec<PathBuf>)> {
+        crate::lock(&self.readers)
+            .held
+            .values()
+            .filter(|reader| !reader.roots.is_empty())
+            .map(|reader| (reader.changed.clone(), reader.roots.clone()))
+            .collect()
+    }
+}
+
+impl Readers {
+    fn roots(&self) -> Vec<PathBuf> {
+        self.held
+            .values()
+            .flat_map(|reader| reader.roots.iter().cloned())
+            .collect()
+    }
+
+    /// Keeps `roots` watched for `LINGER` once no reader wants them.
+    fn linger(&mut self, roots: Vec<PathBuf>) {
+        let wanted = self.roots();
+        let until = Instant::now() + LINGER;
+
+        for root in roots {
+            if !wanted.contains(&root) {
+                self.lingering.insert(root, until);
+            }
+        }
+    }
+}
+
 impl Inner {
     fn install(&mut self, roots: &[PathBuf]) -> Result<bool> {
         let mut wanted = BTreeMap::new();
 
-        for root in roots {
-            let (path, mode) = existing(root)?;
+        for (path, mode) in roots.iter().filter_map(|root| existing(root).ok()) {
             wanted
                 .entry(path)
                 .and_modify(|held| {
@@ -255,36 +427,61 @@ impl Inner {
             .map(|(path, _)| path.clone())
             .collect();
         wanted.retain(|path, _| !recursive.iter().any(|parent| covers(parent, path)));
-        let stale = self.stale.swap(false, Ordering::AcqRel);
+        let stale = self.state.stale.swap(false, Ordering::AcqRel);
 
         if self.installed == wanted && !stale {
             return Ok(false);
         }
-        // notify owns OS watch descriptors by path, without caller reference counts.
-        // Remove the previous tree before rebuilding overlapping roots.
-        for path in self.installed.clone().keys() {
+        // notify owns OS watch descriptors by path, without caller reference
+        // counts: watches that go are removed before overlapping ones are
+        // added. Only what changed is walked again, unless a watch was lost.
+        let (gone, added): (Vec<_>, Vec<_>) = if stale {
+            (
+                self.installed.clone().into_iter().collect(),
+                wanted.clone().into_iter().collect(),
+            )
+        } else {
+            (
+                self.installed
+                    .iter()
+                    .filter(|(path, mode)| wanted.get(*path) != Some(*mode))
+                    .map(|(path, mode)| (path.clone(), *mode))
+                    .collect(),
+                wanted
+                    .iter()
+                    .filter(|(path, mode)| self.installed.get(*path) != Some(*mode))
+                    .map(|(path, mode)| (path.clone(), *mode))
+                    .collect(),
+            )
+        };
+
+        for (path, _) in &gone {
             self.unwatch(path);
         }
 
-        let mut added: Vec<PathBuf> = Vec::new();
+        for (index, (path, mode)) in added.iter().enumerate() {
+            match self.watch(path, *mode) {
+                Ok(()) => {}
+                Err(error) if matches!(error.kind, notify::ErrorKind::MaxFilesWatch) => {
+                    for (path, _) in &added[..=index] {
+                        self.unwatch(path);
+                    }
 
-        for (path, mode) in &wanted {
-            if let Err(error) = self.watch(path, *mode) {
-                self.unwatch(path);
+                    for (path, mode) in &gone {
+                        let _ = self.watch(path, *mode);
+                    }
 
-                for path in added {
-                    self.unwatch(&path);
+                    self.state.stale.store(true, Ordering::Release);
+                    return Err(error.into());
                 }
-
-                for (path, mode) in self.installed.clone() {
-                    let _ = self.watch(&path, mode);
+                // A root removed since it was looked at, such as a deleted
+                // worktree, fails alone; its removal brings another pass.
+                Err(error) => {
+                    log::debug!("not watching {}: {error}", path.display());
+                    self.unwatch(path);
+                    wanted.remove(path);
                 }
-
-                self.stale.store(true, Ordering::Release);
-                return Err(error.into());
             }
-
-            added.push(path.clone());
         }
 
         self.installed = wanted;
@@ -321,7 +518,7 @@ impl Inner {
     /// is let go before its new name takes the same inotify watch.
     #[cfg(target_os = "linux")]
     fn follow(&mut self) {
-        let moved = std::mem::take(&mut *crate::lock(&self.moved));
+        let moved = std::mem::take(&mut *crate::lock(&self.state.moved));
 
         for path in moved {
             let Some(held) = self

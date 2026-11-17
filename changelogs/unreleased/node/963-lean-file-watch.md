@@ -6,6 +6,9 @@
   checkout starts watching much faster and uses far fewer inotify
   watches, so the desktop no longer reports that the session
   subscription did not answer in time.
+- Node: a folder is watched once however many views follow it, and
+  stays watched for five minutes after the last one closes, so
+  reopening a project does not set up its file watch again.
 
 ### Fixed
 

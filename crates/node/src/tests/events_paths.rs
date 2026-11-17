@@ -1,15 +1,16 @@
 use super::*;
 use beep_proto::watched;
 use std::time::Duration;
+use tokio::sync::mpsc;
 
 #[tokio::test]
 async fn a_missing_directory_only_watches_its_parent_non_recursively() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("new/store");
     let watcher = Paths::new(|_| {}).unwrap();
-    watcher.replace(vec![path]).await.unwrap();
-    let held = crate::lock(&watcher.inner);
-    assert_eq!(held.installed.len(), 1);
+    watcher.replace(vec![path.clone()]).await.unwrap();
+    let held = crate::lock(&watcher.shared.inner);
+    assert!(!held.installed.contains_key(&path));
     assert_eq!(
         held.installed
             .get(&crate::agents::reach::real(root.path()).unwrap()),
@@ -36,7 +37,6 @@ async fn aliases_share_one_watch_and_removing_one_keeps_the_directory_watched() 
     .unwrap();
     watcher.replace(aliases).await.unwrap();
     watcher.replace(vec![root.path().to_owned()]).await.unwrap();
-    assert_eq!(crate::lock(&watcher.inner).installed.len(), 1);
     while changes.try_recv().is_ok() {}
     std::fs::write(root.path().join("example.txt"), "changed").unwrap();
     tokio::time::timeout(Duration::from_secs(5), changes.recv())
@@ -57,13 +57,13 @@ async fn renaming_and_recreating_a_root_rearms_the_replacement_directory() {
     .unwrap();
     watcher.replace(vec![root.clone()]).await.unwrap();
     while changes.try_recv().is_ok() {}
-    let inner = watcher.inner.clone();
+    let shared = watcher.shared.clone();
     let (ready, wait_ready) = tokio::sync::oneshot::channel();
     let (release, wait_release) = std::sync::mpsc::channel();
     let original = root.clone();
     let renamed = directory.path().join("old");
     let hold = tokio::task::spawn_blocking(move || {
-        let _held = crate::lock(&inner);
+        let _held = crate::lock(&shared.inner);
         std::fs::rename(&original, renamed).unwrap();
         std::fs::create_dir(&original).unwrap();
         ready.send(()).unwrap();
@@ -107,7 +107,7 @@ async fn a_directory_created_after_subscribing_becomes_recursive() {
         loop {
             watched::read_and_update(&mut reconciled, |_| ());
 
-            if crate::lock(&watcher.inner)
+            if crate::lock(&watcher.shared.inner)
                 .installed
                 .get(&crate::agents::reach::real(&path).unwrap())
                 == Some(&RecursiveMode::Recursive)
@@ -185,7 +185,7 @@ async fn the_walk_skips_build_output_and_keeps_a_worktree_inside_as_its_own_root
         .unwrap();
 
     {
-        let held = crate::lock(&watcher.inner);
+        let held = crate::lock(&watcher.shared.inner);
         let folders: Vec<_> = held.folders[&root]
             .iter()
             .map(|folder| folder.strip_prefix(&root).unwrap().to_owned())
@@ -233,7 +233,7 @@ async fn until_reconciled(watcher: &Paths, done: impl Fn(&Inner) -> bool) {
         loop {
             watched::read_and_update(&mut reconciled, |_| ());
 
-            if done(&crate::lock(&watcher.inner)) {
+            if done(&crate::lock(&watcher.shared.inner)) {
                 break;
             }
 
@@ -242,4 +242,31 @@ async fn until_reconciled(watcher: &Paths, done: impl Fn(&Inner) -> bool) {
     })
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn readers_share_a_root_and_it_stays_watched_after_the_last_lets_go() {
+    let root = tempfile::tempdir().unwrap();
+    let root = crate::agents::reach::real(root.path()).unwrap();
+    let first = Paths::new(|_| {}).unwrap();
+    first.replace(vec![root.clone()]).await.unwrap();
+    let (changed, mut changes) = mpsc::channel(32);
+    let second = Paths::new(move |paths| {
+        let _ = changed.try_send(paths);
+    })
+    .unwrap();
+    second.replace(vec![root.clone()]).await.unwrap();
+    drop(first);
+
+    while changes.try_recv().is_ok() {}
+    std::fs::write(root.join("example.txt"), "changed").unwrap();
+    assert_eq!(
+        timeout_change(&mut changes).await,
+        std::slice::from_ref(&root)
+    );
+
+    let shared = second.shared.clone();
+    drop(second);
+    assert!(crate::lock(&shared.state.readers).lingering.contains_key(&root));
+    assert!(crate::lock(&shared.inner).installed.contains_key(&root));
 }
