@@ -24,18 +24,6 @@ async function openBusy(page: Page) {
   await expect(page.locator(".ag-queue .it")).toHaveCount(steers.length);
 }
 
-test("before: the unfolded lists fill a phone", async ({ page }) => {
-  await openBusy(page);
-  // The layout before the fold: the same page without the rules for the line and its list.
-  await page.evaluate(() => {
-    for (const sheet of document.styleSheets) {
-      for (let i = sheet.cssRules.length - 1; i >= 0; i--) if (sheet.cssRules[i].cssText.includes("ag-work")) sheet.deleteRule(i);
-    }
-  });
-  await page.addStyleTag({ content: ".ag-workline { display: none }" });
-  await page.screenshot({ path: "../../.artifacts/phone-composer-before.png" });
-});
-
 test("a phone folds running commands and queued steers into a line each", async ({ page }) => {
   await openBusy(page);
   const line = page.locator(".ag-workline"), tasks = page.locator(".ag-tasks");
