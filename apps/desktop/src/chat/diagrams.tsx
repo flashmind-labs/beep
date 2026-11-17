@@ -2,7 +2,7 @@
 // Previews receive only the cached SVG, so they do not load Mermaid again.
 import { type SyntheticEvent } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
 import { notice, saveUrl } from "./media.tsx";
 
 interface Diagram {
@@ -161,6 +161,7 @@ addEventListener("message", event => {
   else if ((data.action === "save" || data.action === "copy-image") && (data.mime === "image/svg+xml" || data.mime === "image/png")
     && typeof data.data === "string" && data.data.length <= 24000000 && /^[A-Za-z0-9+/]*={0,2}$/.test(data.data)) {
     if (data.action === "copy-image" && data.mime === "image/png") {
+      if (!useBuildCapabilities.getState().image_clipboard) { notice("Copying images requires the full build.", { bad: true }); return; }
       void invoke("copy_diagram_image", { png: data.data }).then(() => notice("Copied diagram image"), () => notice("Could not copy diagram image", { bad: true }));
     } else if (data.action === "save") void saveUrl(`data:${data.mime};base64,${data.data}`, data.mime === "image/png" ? "diagram.png" : "diagram.svg");
   }

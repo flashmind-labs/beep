@@ -1,7 +1,7 @@
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { Viewer, ViewerNotice } from "./viewer-view.tsx";
 import { bar } from "../bar/core.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
 import { savedIn } from "../ui/platform.ts";
 
 /// A picture the viewer shows; one it `saves` can be saved and copied.
@@ -59,14 +59,14 @@ export function viewerAct(a: ViewerAct) {
     if (at >= 0 && at < V.pics.length) { V.at = at; drawViewer(); }
   } else if (a === "close") closeViewer();
   else if (a === "save" && p.saves) saveUrl(p.url, p.name || "image");
-  else if (a === "copy" && p.saves) copyUrl(p.url);
+  else if (a === "copy" && p.saves && useBuildCapabilities.getState().image_clipboard) copyUrl(p.url);
   else if (a === "open") invoke("open_url", { url: p.url }).catch(() => {});
 }
 
 export function viewerKeys(e: KeyboardEvent, cmd: boolean) {
   const key = e.key.toLowerCase();
   const act = e.key === "Escape" ? "close" : e.key === "ArrowLeft" ? "prev" : e.key === "ArrowRight" ? "next"
-    : cmd && key === "s" ? "save" : cmd && key === "c" ? "copy" : null;
+    : cmd && key === "s" ? "save" : cmd && key === "c" && useBuildCapabilities.getState().image_clipboard ? "copy" : null;
 
   if (act) { e.preventDefault(); viewerAct(act); }
   else if (cmd && key === "q") invoke("quit");

@@ -1,8 +1,8 @@
 # Plugins
 
 Prototype. A plugin is a folder `<plugins dir>/<id>/` with a `beep-plugin.json`
-and TypeScript files. The desktop runs it in an embedded sandbox, reloads it
-when its files change, and draws what it places. A plugin never touches the DOM.
+and compiled JavaScript files. The desktop runs it in an embedded sandbox,
+reloads it when its files change, and draws what it places. A plugin never touches the DOM.
 There are three slots and four permissions (`ui.add`, `sessions.read`, `tools`,
 `style`).
 Folders and files whose names start with a dot are never plugins.
@@ -45,7 +45,7 @@ that folder with the same id runs instead.
 
 ```json
 { "id": "composer-cat", "name": "Composer cat", "version": "0.2.0", "api": 1,
-  "description": "A cat sits on the message box.", "entry": "main.ts", "permissions": ["ui.add", "sessions.read"],
+  "description": "A cat sits on the message box.", "entry": "main.js", "permissions": ["ui.add", "sessions.read"],
   "activation": ["slot:composer"] }
 ```
 
@@ -54,7 +54,7 @@ that folder with the same id runs instead.
 - `version`: semver. `api`: the plugin API version, default the newest. This Beep
   knows version 2, which adds `style`. A plugin that asks for a newer one does not
   load, and Settings shows "needs a newer Beep". `description`: optional. `entry`: optional, default
-  `main.ts`, a path inside the folder.
+  `main.js`, a JavaScript path inside the folder.
 - `activation`: optional, when the plugin starts, default `["startup"]`. See
   Activation. A plugin with a `style` may list none: it then runs no code.
 - `permissions`: `ui.add` (place UI), `sessions.read` (follow `session.turn`,
@@ -95,15 +95,23 @@ const stop = beep.on({ name: "ui.composer" }, event => { /* event.data */ });
 
 ## Files
 
-The entry can import other `.ts` and `.js` files of the plugin folder with
-relative paths: `import { draw } from "./lib/draw.ts"`. Types are stripped from each
-file as it loads. Imports need the extension. Only relative paths that stay inside
+The entry can import other `.js` files of the plugin folder with
+relative paths: `import { draw } from "./lib/draw.js"`. Imports need the extension.
+Only relative paths that stay inside
 the folder load (a symlink out of it is refused); there are no bare specifiers,
 URLs or other file types. A plugin loads at most 32 files and 512 KB of source.
 Imports that cycle work as in any ES module. `beep` and `console` are global in
 every file. Top-level code in all files runs before the first render, under the
 same CPU budget, and an error in any of them stops the plugin. A change to any file
 in the folder reloads the plugin.
+
+Write TypeScript against `sdk/beep.d.ts`, then compile it before installing.
+The examples keep `main.ts` as source and a checked-in `main.js` as their entry.
+From `apps/desktop`, `npm run plugins:build` rebuilds the examples with esbuild;
+`npm run plugins:watch` rebuilds them as their source changes. Pass a plugin folder
+after `--` to build another `main.ts` to its manifest's `main.js` entry. The app's
+frontend build also rebuilds the examples. Installed Beep needs no Node or
+TypeScript compiler to run them.
 
 ## Logs
 

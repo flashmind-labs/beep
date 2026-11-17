@@ -10,7 +10,7 @@ test("first run remembers Start and closes the screen when another machine is li
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
   let machines = ["local"];
-  Object.defineProperty(dom.window, "__TAURI__", { value: { core: { invoke: async (cmd: string) => cmd === "list_machines" ? machines : null, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
+  Object.defineProperty(dom.window, "__TAURI__", { value: { core: { invoke: async (cmd: string) => cmd === "list_machines" ? machines : cmd === "build_capabilities" ? { local_host: true, metrics_recording: true, resource_profiling: true, autostart: true, window_state: true, image_clipboard: true, desktop_control: true, rich_text: true } : null, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, cleanup, waitFor } = await import("@testing-library/react");
   const { firstRun } = await import("../src/center/firstrun.tsx");
   try {

@@ -1,0 +1,15 @@
+- dialog "Settings":
+  - navigation "Settings pages":
+    - text: Settings
+    - button "General"
+    - button "Appearance"
+    - button "This computer"
+    - button "Machines 1"
+    - button "Agent accounts"
+    - button "Assistant"
+    - button "Credentials"
+    - button "Instructions"
+    - button "Skills"
+    - button "Plugins"
+    - text: Beep desktop 0.1
+  - text: This computer esc Local work is not available Connect a machine to run work there, or use the full build to run work on this computer.

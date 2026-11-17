@@ -1,6 +1,5 @@
-//! The machines this Mac reaches itself: the mesh it belongs to, and the
-//! node in this process. A call to this Mac never touches the network; a
-//! call to another machine goes over its mesh connection.
+//! The mesh and its remote machines, with an optional node in this process.
+//! A hosted call to this Mac stays in process; other calls use the mesh.
 //!
 //! The mesh opens, or is made on first launch with this Mac as its first
 //! device, off the main thread. Nothing the first paint needs waits on it.
@@ -30,11 +29,11 @@ use beep_mesh::{
     DEFAULT_TICKET_TTL, DeviceKind, DeviceStatus, InUse, Invitation, JoinTicket, Mesh, PeerClient,
     SessionFn, machine::releases::ToolReleases, with_deadline,
 };
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "local-host"))]
 use beep_node::{files::Folders, link::Offers, link::peers::Peers};
 use beep_proto::watched;
 use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "local-host"))]
 use mesh::Serving;
 pub(crate) use parents::SessionParent;
 pub use status::{ClockOff, Status};
@@ -176,16 +175,16 @@ pub struct Fleet {
     #[cfg(desktop)]
     name: String,
     /// The embedded node's links. A phone is a mesh observer and runs no node.
-    #[cfg(desktop)]
+    #[cfg(all(desktop, feature = "local-host"))]
     peers: Peers,
     /// What the user's home shares, for files and sync.
-    #[cfg(desktop)]
+    #[cfg(all(desktop, feature = "local-host"))]
     folders: Folders,
     /// The embedded node, as a call to this Mac reaches it. None on a phone.
     session: Option<SessionFn>,
     mesh: watch::Sender<Opened>,
     status: Status,
-    #[cfg(desktop)]
+    #[cfg(all(desktop, feature = "local-host"))]
     serving: Mutex<Option<Arc<Serving>>>,
     /// A phone's answer to the mesh and join protocols, held while the mesh is in use.
     observing: Mutex<Option<Router>>,
@@ -210,7 +209,7 @@ impl Fleet {
     /// The fleet of the node in `dir` that serves `offers`, on `endpoint`.
     /// Does nothing slow: calls to this Mac work at once, and `run` opens
     /// the mesh.
-    #[cfg(desktop)]
+    #[cfg(all(desktop, feature = "local-host"))]
     pub fn new(endpoint: Endpoint, dir: &Path, name: &str, offers: Offers) -> Self {
         let me = endpoint.id();
         let peers = Peers::new(endpoint.clone(), dir.to_owned(), name.to_owned(), offers);
@@ -235,6 +234,28 @@ impl Fleet {
             folders,
             mesh: watch::channel(Opened::Opening).0,
             serving: Mutex::default(),
+            observing: Mutex::default(),
+            joining: AsyncMutex::new(()),
+            copies: Copies::default(),
+            releases: ToolReleases::default(),
+            parents: parents::Parents::default(),
+            presence: presence::Presence::default(),
+            snapshots: Arc::new(events::Snapshots::default()),
+        }
+    }
+
+    /// A desktop controller that serves only mesh membership and shared state.
+    #[cfg(all(desktop, not(feature = "local-host")))]
+    pub fn controller(endpoint: Endpoint, dir: &Path, name: &str) -> Self {
+        let me = endpoint.id();
+        Self {
+            me,
+            status: Status::new(me, None, dir),
+            session: None,
+            endpoint,
+            dir: dir.to_owned(),
+            name: name.to_owned(),
+            mesh: watch::channel(Opened::Opening).0,
             observing: Mutex::default(),
             joining: AsyncMutex::new(()),
             copies: Copies::default(),
@@ -285,10 +306,15 @@ impl Fleet {
 
     /// `serve`, then `start_services`. Takes the time it takes and is meant
     /// to run in the background.
-    #[cfg(desktop)]
+    #[cfg(all(desktop, feature = "local-host"))]
     pub async fn run(&self) {
         self.serve().await;
         self.start_services().await;
+    }
+
+    #[cfg(all(desktop, not(feature = "local-host")))]
+    pub async fn run(&self) {
+        self.open().await;
     }
 
     /// Opens the mesh the phone is paired with, if any.
@@ -299,7 +325,7 @@ impl Fleet {
 
     /// Answers peers on the endpoint and opens the mesh. Quick: it waits
     /// for no service.
-    #[cfg(desktop)]
+    #[cfg(all(desktop, feature = "local-host"))]
     async fn serve(&self) {
         let serving = Arc::new(Serving::spawn(&self.endpoint, &self.peers));
         *self.serving.lock().unwrap_or_else(PoisonError::into_inner) = Some(serving);
@@ -308,7 +334,7 @@ impl Fleet {
 
     /// Starts the transfer and sync services, which take longer. Until they
     /// are up, sessions that open their protocols wait.
-    #[cfg(desktop)]
+    #[cfg(all(desktop, feature = "local-host"))]
     async fn start_services(&self) {
         let serving = self
             .serving
@@ -328,16 +354,23 @@ impl Fleet {
     /// Opens the mesh, or makes it.
     #[cfg(desktop)]
     async fn open(&self) {
-        let peers = &self.peers;
-
         match mesh::open_or_create(&self.dir, &self.endpoint, &self.name).await {
             Ok(mesh) => {
-                // The node reads its own kind from the mesh's device list.
-                peers.install(mesh.clone());
-                // Settings a join was carrying when the app stopped.
+                // Replay before publishing this build's hosting mode: carried
+                // settings may include the mode of a previous build.
                 if let Err(e) = carry::replay(&self.dir, &mesh).await {
                     log::warn!("{e}");
                 }
+                if mesh.is_member(self.me)
+                    && let Err(error) = mesh.set_desktop_hosting(cfg!(feature = "local-host")).await
+                {
+                    self.mesh.send_replace(Opened::Failed(error.to_string()));
+                    return;
+                }
+                #[cfg(feature = "local-host")]
+                self.peers.install(mesh.clone());
+                #[cfg(not(feature = "local-host"))]
+                self.serve_controller(&mesh);
 
                 self.status.watch(mesh.clone()).await;
                 self.mesh.send_replace(Opened::Open(mesh));
@@ -357,9 +390,15 @@ impl Fleet {
     /// elsewhere in the app past `CLOSE_WAIT`.
     #[cfg(desktop)]
     pub async fn join(&self, invite: impl Into<Invitation>, name: &str) -> Result<()> {
+        #[cfg(feature = "local-host")]
         let peers = &self.peers;
         let _one = self.joining.lock().await;
-        let old = self.ready().await?;
+        // A removed desktop still needs its saved mesh so the join can replace it.
+        let old = self.ready().await.or_else(|error| {
+            self.mesh()
+                .filter(|mesh| !mesh.is_member(self.me))
+                .ok_or(error)
+        })?;
         // A mesh that removed this Mac has nothing to keep.
         if old.is_member(old.me()) && old.devices().len() > 1 {
             return Err(DesktopError::BadRequest(
@@ -368,7 +407,19 @@ impl Fleet {
         }
         // On disk first, so a crash after the swap still brings them along.
         carry::save(&self.dir, &old.scan(""))?;
+        #[cfg(feature = "local-host")]
         peers.leave().await;
+        #[cfg(not(feature = "local-host"))]
+        {
+            // Dropping aborts the router without closing the endpoint we reuse
+            // for the join. Router::shutdown closes that endpoint too.
+            let router = self
+                .observing
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take();
+            drop(router);
+        }
         self.mesh.send_replace(Opened::Opening);
         // The status follows and the alert follows (which let go on seeing the
         // mesh close) stop holding it; calls still running get `CLOSE_WAIT`.
@@ -377,7 +428,10 @@ impl Fleet {
         if let Err(in_use) = close_within(old, CLOSE_WAIT).await {
             let message = in_use.to_string();
             let InUse(old) = in_use;
+            #[cfg(feature = "local-host")]
             peers.install(old.clone());
+            #[cfg(not(feature = "local-host"))]
+            self.serve_controller(&old);
             self.status.watch(old.clone()).await;
             self.mesh.send_replace(Opened::Open(old));
             carry::discard(&self.dir);
@@ -395,9 +449,16 @@ impl Fleet {
                 return Err(e.into());
             }
         };
-        peers.install(new.clone());
-        self.status.watch(new.clone()).await;
         let carried = carry::replay(&self.dir, &new).await;
+        if let Err(error) = new.set_desktop_hosting(cfg!(feature = "local-host")).await {
+            self.mesh.send_replace(Opened::Failed(error.to_string()));
+            return Err(error.into());
+        }
+        #[cfg(feature = "local-host")]
+        peers.install(new.clone());
+        #[cfg(not(feature = "local-host"))]
+        self.serve_controller(&new);
+        self.status.watch(new.clone()).await;
         self.mesh.send_replace(Opened::Open(new));
         carried
     }
@@ -413,33 +474,47 @@ impl Fleet {
     /// Stops answering peers, then stops the sync and transfer services, which
     /// save their state.
     pub async fn stop(&self) {
-        #[cfg(desktop)]
+        #[cfg(all(desktop, feature = "local-host"))]
         let serving = self
             .serving
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
-        #[cfg(desktop)]
+        #[cfg(all(desktop, feature = "local-host"))]
         let serving = async {
             if let Some(serving) = serving {
                 serving.stop().await;
             }
         };
-        #[cfg(mobile)]
+        #[cfg(not(all(desktop, feature = "local-host")))]
         let serving = async {};
-        let observing = self
+        tokio::join!(serving, self.stop_observing(), self.status.stop());
+    }
+
+    async fn stop_observing(&self) {
+        let router = self
             .observing
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
-        let observing = async {
-            if let Some(router) = observing
-                && let Err(e) = router.shutdown().await
-            {
-                log::warn!("stopping the phone's mesh protocols: {e}");
-            }
-        };
-        tokio::join!(serving, observing, self.status.stop());
+        if let Some(router) = router
+            && let Err(e) = router.shutdown().await
+        {
+            log::warn!("stopping mesh protocols: {e}");
+        }
+    }
+
+    #[cfg(all(desktop, not(feature = "local-host")))]
+    fn serve_controller(&self, mesh: &Mesh) {
+        let (peer, join) = mesh.protocols();
+        let router = beep_mesh::router(&self.endpoint)
+            .accept(beep_mesh::PEER_ALPN, peer)
+            .accept(beep_mesh::JOIN_ALPN, join)
+            .spawn();
+        *self
+            .observing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(router);
     }
 
     /// What is known of this Mac's copies of the machines' project folders.
@@ -478,7 +553,7 @@ impl Fleet {
         let opened = watched::read(&opened, Clone::clone);
         match opened {
             Opened::Open(mesh) if self.session.is_none() && !mesh.is_member(self.me) => Err(
-                DesktopError::NoMesh("this phone was removed from the mesh".into()),
+                DesktopError::NoMesh("this device was removed from the mesh".into()),
             ),
             Opened::Open(mesh) => Ok(mesh),
             #[cfg(mobile)]
@@ -657,7 +732,8 @@ impl Fleet {
                 Some(session) => Ok(PeerClient::local(session.clone())
                     .with_snapshot_reader(self.snapshots.reader(machine))),
                 None => Err(DesktopError::BadRequest(
-                    "a phone runs no node of its own".into(),
+                    "This build does not host sessions or files locally. Choose a remote machine."
+                        .into(),
                 )),
             };
         }
@@ -667,7 +743,7 @@ impl Fleet {
             .map_err(|_| DesktopError::NoMesh("still opening".into()))??;
         if mesh.is_observer(machine) {
             return Err(DesktopError::BadRequest(
-                "Phones do not host sessions or files.".into(),
+                "This device does not host sessions or files.".into(),
             ));
         }
 
@@ -739,7 +815,11 @@ impl Fleet {
             .unwrap_or_default()
             .into_iter()
             .filter(|status| {
-                status.online || (status.device.id == self.me && self.session.is_some())
+                if status.device.id == self.me {
+                    self.session.is_some()
+                } else {
+                    status.online
+                }
             })
             .map(|status| status.device.id)
             .collect()
@@ -757,6 +837,10 @@ impl Fleet {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "local-host"))]
 #[path = "../tests/fleet.rs"]
 mod tests;
+
+#[cfg(all(test, desktop, not(feature = "local-host")))]
+#[path = "../tests/fleet_controller.rs"]
+mod controller_tests;

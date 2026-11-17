@@ -1,7 +1,7 @@
 // The "Add a machine" sheet.
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { latest, onShownChange, STALE } from "../ui/active.ts";
-import { invoke } from "../ui/tauri.ts";
+import { buildCapabilities, invoke } from "../ui/tauri.ts";
 import { START, next, machineById, inviteArgs } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen, TicketKind } from "./addmachine-state.ts";
 import { type ReactNode } from "react";
@@ -130,6 +130,7 @@ async function poll() {
 async function loadMac() {
   const asked = opening;
   try {
+    if (!(await buildCapabilities()).local_host) return;
     const view = await invoke<MacControl>("mac_control");
     if (!root || asked !== opening) return;
     mac = view;

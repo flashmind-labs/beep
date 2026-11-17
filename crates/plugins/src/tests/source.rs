@@ -1,29 +1,25 @@
 use super::*;
 
 #[test]
-fn strips_type_annotations() {
-    let js = strip_types(
-        "interface Cat { name: string }\nconst cat: Cat = { name: \"tom\" as string };\nfunction f(x: number): number { return x + 1; }\n",
-        Path::new("main.ts"),
-    )
-    .unwrap();
+fn compiled_javascript_loads_without_rewriting() {
+    let root = tempfile::tempdir().unwrap();
+    let source = "export const cat = { name: 'tom' };\n";
+    std::fs::write(root.path().join("main.js"), source).unwrap();
+    let mut files = Sources::new(root.path().canonicalize().unwrap());
 
-    assert!(!js.contains("interface"));
-    assert!(!js.contains(": number"));
-    assert!(js.contains("const cat = {"));
-    assert!(js.contains("function f(x)"));
+    assert_eq!(files.read("main.js").unwrap(), source);
 }
 
 #[test]
-fn returns_syntax_errors() {
-    let error = strip_types("const = ;", Path::new("main.ts")).unwrap_err();
+fn source_files_must_be_built_before_loading() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("main.ts"), "const cat: string = 'tom';").unwrap();
+    let mut files = Sources::new(root.path().canonicalize().unwrap());
 
-    assert!(matches!(error, SourceError::Syntax(_)));
-}
+    let error = files.read("main.ts").unwrap_err();
 
-#[test]
-fn refuses_unknown_extensions() {
-    let error = strip_types("1", Path::new("main.txt")).unwrap_err();
-
-    assert!(matches!(error, SourceError::SourceType(_)));
+    assert!(
+        error.contains("build plugin sources to JavaScript"),
+        "{error}"
+    );
 }

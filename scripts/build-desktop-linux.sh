@@ -5,7 +5,7 @@ log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 
 for attempt in 1 2 3; do
-    if tauri build --ci --verbose --bundles deb,appimage \
+    if tauri build --ci --verbose --bundles deb,appimage --features full \
         --config '{"bundle":{"createUpdaterArtifacts":true}}' \
         -- --locked 2>&1 | tee "$log"; then
         exit 0

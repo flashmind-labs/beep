@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type Key
 import { flushSync } from "react-dom";
 import type { MachineFolder } from "../project/projects-state.ts";
 import type { FolderOffer } from "../project/addmachine-state.ts";
-import { invoke } from "../ui/tauri.ts";
+import { buildCapabilities, invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.tsx";
 import { NO_MENU, completed, crumbs, isOpen, matching, menuKey, menuOf, splitTyped, suggest, type FolderMenu } from "./foldercomplete.ts";
 import { Button, SkeletonRows, Spinner } from "../ui/kit.tsx";
@@ -193,6 +193,7 @@ export function pickFolder(o: { machine: string; start: string | null; heading: 
 /// A folder of this computer, picked in the palette; null when it is closed.
 /// Refuses while Beep does not run on this computer, as its folders are read through it.
 export async function pickHere(heading: string, start: string | null) {
+  if (!(await buildCapabilities()).local_host) throw new Error("Choosing folders on this computer requires the full build.");
   const mac = await invoke<{ id: string | null }>("mac_control");
   if (!mac.id) throw new Error("Turn on “Let Beep use this computer” in Settings to choose its folders.");
 

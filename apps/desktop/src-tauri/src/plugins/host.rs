@@ -32,8 +32,8 @@ const COMPOSER_CAT: &[(&str, &[u8])] = &[
         include_bytes!("../../../../../plugins/examples/composer-cat/beep-plugin.json"),
     ),
     (
-        "main.ts",
-        include_bytes!("../../../../../plugins/examples/composer-cat/main.ts"),
+        "main.js",
+        include_bytes!("../../../../../plugins/examples/composer-cat/main.js"),
     ),
     (
         "art/cat-ask.png",

@@ -28,7 +28,7 @@ Object.assign(globalThis, {
 const page = (exports: string) => `const v = globalThis.navigationTest.view; ${exports}`;
 const stubs = new Map(Object.entries({
   "center/state.ts": "export const { state } = globalThis.navigationTest; export const $ = selector => document.querySelector(selector);",
-  "ui/tauri.ts": "export const invoke = async () => {}; export const recordTiming = () => {};",
+  "ui/tauri.ts": "export const invoke = async () => {}; export const recordTiming = () => {}; export const buildCapabilities = async () => ({ metrics_recording: false });",
   "ui/mesh-events.ts": "export const refreshTopicSubscriptions = () => {};",
   "ui/active.ts": "export const SLOW_MS = 2000; export const shownChanged = () => {};",
   "center/sidebar.tsx": "export const drawSide = () => {}; export const openProjects = () => {}; export const projectWindowProps = () => ({ clicks: {}, menu: {} }); export const projectRows = () => [];",

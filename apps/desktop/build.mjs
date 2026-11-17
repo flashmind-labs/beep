@@ -1,7 +1,10 @@
 // Bundles src/ into dist/, next to the HTML and CSS Tauri serves.
 // `--watch` rebuilds on every change, for `cargo tauri dev`.
 import * as esbuild from "esbuild";
+import { buildPlugins } from "./build-plugins.mjs";
 import { copyFileSync, cpSync, readdirSync, rmSync } from "node:fs";
+
+await buildPlugins([], process.argv.includes("--watch"));
 
 cpSync(new URL("../diagrams/assets/", import.meta.url), new URL("dist/diagrams/", import.meta.url), { recursive: true });
 

@@ -29,7 +29,7 @@ impl Fixture {
             ),
         )
         .unwrap();
-        std::fs::write(dir.join("main.ts"), main).unwrap();
+        std::fs::write(dir.join("main.js"), main).unwrap();
         std::fs::write(dir.join("art/cat.png"), PNG).unwrap();
         std::fs::write(root.path().join("outside.png"), PNG).unwrap();
 
@@ -82,7 +82,7 @@ fn placed_image_becomes_a_data_url() {
     let fixture = Fixture::new(
         r#""ui.add""#,
         r#"
-        const src: string = "art/cat.png";
+        const src = "art/cat.png";
         beep.place({ slot: "composer", offset: 84, sink: 4 }, () =>
           beep.image({ src, width: 56, height: 48, pixelated: true }));
         "#,
@@ -247,7 +247,7 @@ fn absolute_and_non_image_paths_are_refused() {
 
     let text = Fixture::new(
         r#""ui.add""#,
-        r#"beep.place({ slot: "composer" }, () => beep.image({ src: "main.ts", width: 1, height: 1 }));"#,
+        r#"beep.place({ slot: "composer" }, () => beep.image({ src: "main.js", width: 1, height: 1 }));"#,
     );
     let error = text.load(Instant::now()).unwrap().render().unwrap_err();
     assert!(matches!(
@@ -1352,7 +1352,7 @@ fn session_notes() -> (tempfile::TempDir, Sandbox) {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("session-notes");
     std::fs::create_dir(&dir).unwrap();
-    for file in ["beep-plugin.json", "main.ts"] {
+    for file in ["beep-plugin.json", "main.js"] {
         std::fs::copy(from.join(file), dir.join(file)).unwrap();
     }
     let sandbox = Sandbox::load(&dir, Instant::now()).unwrap();
@@ -1668,7 +1668,7 @@ fn sprite_frames_must_exist_and_be_images() {
         }
     ));
 
-    let text = sprite_error(r#"[{ steps: [{ frame: "main.ts", ms: 100 }] }]"#);
+    let text = sprite_error(r#"[{ steps: [{ frame: "main.js", ms: 100 }] }]"#);
     assert!(matches!(
         text,
         SandboxError::Image {
@@ -1741,7 +1741,7 @@ fn a_sprite_has_at_most_thirty_two_frames() {
         .map(|index| format!(r#"{{ frame: "art/f{index}.png", ms: 20 }}"#))
         .collect();
     std::fs::write(
-        fixture.dir().join("main.ts"),
+        fixture.dir().join("main.js"),
         format!(
             r#"beep.place({{ slot: "composer" }}, () => beep.sprite({{ rest: "art/cat.png", width: 1, height: 1,
               motions: [{{ steps: [{}] }}] }}));"#,
@@ -1940,22 +1940,22 @@ fn load_with(main: &str, files: &[(&str, &str)], now: Instant) -> Result<Sandbox
 fn a_plugin_imports_its_other_files_and_they_see_beep() {
     let mut sandbox = load_with(
         r#"
-        import { label } from "./lib/draw.ts";
+        import { label } from "./lib/draw.js";
         import { shout } from "./lib/loud.js";
         beep.place({ slot: "composer" }, () => beep.text(shout(label("hi"))));
         "#,
         &[
             (
-                "lib/draw.ts",
-                "import { wrap } from '../wrap.ts';\nexport function label(s: string): string { return wrap(s, '<', '>'); }",
+                "lib/draw.js",
+                "import { wrap } from '../wrap.js';\nexport function label(s) { return wrap(s, '<', '>'); }",
             ),
             (
                 "lib/loud.js",
                 "export const shout = (s) => s.toUpperCase() + beep.state(1).get();",
             ),
             (
-                "wrap.ts",
-                "export const wrap = (s: string, a: string, b: string): string => a + s + b;",
+                "wrap.js",
+                "export const wrap = (s, a, b) => a + s + b;",
             ),
         ],
         Instant::now(),
@@ -1967,20 +1967,34 @@ fn a_plugin_imports_its_other_files_and_they_see_beep() {
 }
 
 #[test]
+fn the_shipped_examples_load_as_compiled_javascript() {
+    let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples");
+
+    for name in ["composer-cat", "session-notes"] {
+        let folder = examples.join(name);
+        let manifest = Manifest::read(&folder).unwrap();
+        assert_eq!(manifest.entry, PathBuf::from("main.js"));
+        Sandbox::load(&folder, Instant::now()).unwrap_or_else(|error| {
+            panic!("compiled example {name} did not load: {error}");
+        });
+    }
+}
+
+#[test]
 fn imports_that_cycle_load_as_quickjs_loads_them() {
     let mut sandbox = load_with(
         r#"
-        import { a } from "./a.ts";
+        import { a } from "./a.js";
         beep.place({ slot: "composer" }, () => beep.text(a()));
         "#,
         &[
             (
-                "a.ts",
-                "import { b } from './b.ts';\nexport function a(): string { return 'a' + b(); }",
+                "a.js",
+                "import { b } from './b.js';\nexport function a() { return 'a' + b(); }",
             ),
             (
-                "b.ts",
-                "import { a } from './a.ts';\nexport function b(): string { return typeof a; }",
+                "b.js",
+                "import { a } from './a.js';\nexport function b() { return typeof a; }",
             ),
         ],
         Instant::now(),
@@ -1994,24 +2008,25 @@ fn imports_that_cycle_load_as_quickjs_loads_them() {
 #[test]
 fn imports_outside_the_rules_are_refused() {
     let cases = [
-        ("import '../outside.ts';", "leaves the plugin folder"),
+        ("import '../outside.js';", "leaves the plugin folder"),
         ("import 'lodash';", "only relative imports"),
         ("import '/etc/passwd.js';", "only relative imports"),
         (
             "import 'https://example.com/x.js';",
             "only relative imports",
         ),
-        ("import './data.json';", "only .ts and .js"),
-        ("import './notes.txt';", "only .ts and .js"),
-        ("import './missing.ts';", "cannot read"),
-        ("import './bad.ts';", "expected"),
+        ("import './data.json';", "only .js"),
+        ("import './notes.txt';", "only .js"),
+        ("import './source.ts';", "build typescript to javascript"),
+        ("import './missing.js';", "cannot read"),
+        ("import './bad.js';", "expected"),
     ];
 
     for (main, reason) in cases {
         let files = [
             ("data.json", "{}"),
             ("notes.txt", ""),
-            ("bad.ts", "const = ;"),
+            ("bad.js", "const = ;"),
         ];
 
         let error = load_with(main, &files, Instant::now())
@@ -2028,9 +2043,9 @@ fn imports_outside_the_rules_are_refused() {
 #[cfg(unix)]
 #[test]
 fn a_symlink_out_of_the_folder_is_refused() {
-    let fixture = Fixture::new(r#""ui.add""#, "import './link.ts';");
-    std::fs::write(fixture.root.path().join("outside.ts"), "1;").unwrap();
-    std::os::unix::fs::symlink("../outside.ts", fixture.dir().join("link.ts")).unwrap();
+    let fixture = Fixture::new(r#""ui.add""#, "import './link.js';");
+    std::fs::write(fixture.root.path().join("outside.js"), "1;").unwrap();
+    std::os::unix::fs::symlink("../outside.js", fixture.dir().join("link.js")).unwrap();
 
     let error = fixture.load(Instant::now()).err().expect("load fails");
 
@@ -2042,8 +2057,8 @@ fn a_symlink_out_of_the_folder_is_refused() {
 
 #[test]
 fn too_many_files_are_refused() {
-    let imports: String = (0..40).map(|n| format!("import './f{n}.ts';\n")).collect();
-    let files: Vec<(String, &str)> = (0..40).map(|n| (format!("f{n}.ts"), "1;")).collect();
+    let imports: String = (0..40).map(|n| format!("import './f{n}.js';\n")).collect();
+    let files: Vec<(String, &str)> = (0..40).map(|n| (format!("f{n}.js"), "1;")).collect();
     let files: Vec<(&str, &str)> = files.iter().map(|(n, t)| (n.as_str(), *t)).collect();
 
     let error = load_with(&imports, &files, Instant::now())
@@ -2056,15 +2071,15 @@ fn too_many_files_are_refused() {
 #[test]
 fn an_imported_file_runs_under_the_budget_and_reports_its_errors() {
     let looping = load_with(
-        "import './spin.ts';",
-        &[("spin.ts", "while (true) {}")],
+        "import './spin.js';",
+        &[("spin.js", "while (true) {}")],
         Instant::now(),
     );
     assert!(matches!(looping.err(), Some(SandboxError::Script(_))));
 
     let throwing = load_with(
-        "import './boom.ts';",
-        &[("boom.ts", "throw new Error('imported boom');")],
+        "import './boom.js';",
+        &[("boom.js", "throw new Error('imported boom');")],
         Instant::now(),
     );
     let error = throwing.err().expect("load fails");

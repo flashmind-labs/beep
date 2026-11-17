@@ -1,34 +1,34 @@
 //! The native image clipboard, kept alive while another app requests its
-//! contents. A phone has none: copying a picture there fails.
+//! contents. Builds without the image-clipboard feature cannot copy pictures.
 
 use anyhow::Result;
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "image-clipboard"))]
 use anyhow::{Context, ensure};
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "image-clipboard"))]
 use arboard::{Clipboard, ImageData};
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "image-clipboard"))]
 use base64::{Engine, engine::general_purpose::STANDARD};
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "image-clipboard"))]
 use image::{ImageFormat, ImageReader, Limits};
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "image-clipboard"))]
 use std::{borrow::Cow, io::Cursor, sync::Mutex};
 
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "image-clipboard"))]
 #[derive(Default)]
 pub(crate) struct ImageClipboard(Mutex<Option<Clipboard>>);
 
-#[cfg(mobile)]
+#[cfg(not(all(desktop, feature = "image-clipboard")))]
 #[derive(Default)]
 pub(crate) struct ImageClipboard {}
 
-#[cfg(mobile)]
+#[cfg(not(all(desktop, feature = "image-clipboard")))]
 impl ImageClipboard {
     pub(crate) fn copy_png(&self, _png: &str) -> Result<()> {
-        anyhow::bail!("no image clipboard on a phone")
+        anyhow::bail!("image copying is not included in this build")
     }
 }
 
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "image-clipboard"))]
 impl ImageClipboard {
     pub(crate) fn copy_png(&self, png: &str) -> Result<()> {
         let image = decode(png)?;
@@ -48,7 +48,7 @@ impl ImageClipboard {
     }
 }
 
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "image-clipboard"))]
 fn decode(png: &str) -> Result<ImageData<'static>> {
     ensure!(png.len() <= 24_000_000, "image too large");
     let bytes = STANDARD.decode(png).context("decode image")?;
@@ -66,6 +66,6 @@ fn decode(png: &str) -> Result<ImageData<'static>> {
     })
 }
 
-#[cfg(all(test, desktop))]
+#[cfg(all(test, desktop, feature = "image-clipboard"))]
 #[path = "../tests/chat_clipboard.rs"]
 mod tests;

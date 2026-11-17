@@ -26,11 +26,19 @@ fn what_the_agent_says_comes_as_clean_html() {
         text: "See [sqlx #19](https://example.com/19) and `cargo test`.<script>x()</script>".into(),
     });
     let html = said.html.expect("an agent entry carries its HTML");
-    assert!(
-        html.contains(r#"<a href="https://example.com/19""#),
-        "{html}"
+    #[cfg(any(mobile, feature = "rich-text"))]
+    {
+        assert!(
+            html.contains(r#"<a href="https://example.com/19""#),
+            "{html}"
+        );
+        assert!(html.contains("<code>cargo test</code>"), "{html}");
+    }
+    #[cfg(not(any(mobile, feature = "rich-text")))]
+    assert_eq!(
+        html,
+        "<div class=\"plain-reply\">See [sqlx #19](https://example.com/19) and `cargo test`.&lt;script&gt;x()&lt;/script&gt;</div>"
     );
-    assert!(html.contains("<code>cargo test</code>"), "{html}");
     assert!(!html.contains("<script"), "{html}");
     let tool = EntryRow::from(AgentEntry {
         tool: None,
@@ -50,7 +58,13 @@ fn what_the_user_wrote_comes_as_markdown_without_beeps_context() {
             text: "<beep-context>\nBeep: the tools.\n</beep-context>\n# Review on ~/app\n\n<b>hi</b>\n[image: image-0123456789abcdef]".into(),
         });
     let html = said.html.expect("a user entry carries its HTML");
+    #[cfg(any(mobile, feature = "rich-text"))]
     assert!(html.contains("<h1>Review on ~/app</h1>"), "{html}");
+    #[cfg(not(any(mobile, feature = "rich-text")))]
+    assert_eq!(
+        html,
+        "<div class=\"plain-reply\"># Review on ~/app\n\n&lt;b&gt;hi&lt;/b&gt;</div>"
+    );
     assert!(html.contains("&lt;b&gt;hi&lt;/b&gt;"), "{html}");
     assert!(!html.contains("Beep: the tools"), "{html}");
     assert!(!html.contains("image-0123"), "{html}");
@@ -67,7 +81,13 @@ fn a_thought_comes_as_html_with_its_time() {
     assert_eq!(thought.kind, "thought");
     assert_eq!(thought.ms, Some(12_000));
     let html = thought.html.expect("a thought carries its HTML");
+    #[cfg(any(mobile, feature = "rich-text"))]
     assert!(html.contains("<strong>Reading</strong>"), "{html}");
+    #[cfg(not(any(mobile, feature = "rich-text")))]
+    assert_eq!(
+        html,
+        "<div class=\"plain-reply\">**Reading** the `tests`</div>"
+    );
 }
 
 #[test]
@@ -80,8 +100,22 @@ fn child_replies_have_their_own_html_without_changing_the_agents_prompt() {
         text: text.into(),
     });
     assert_eq!(row.text, text);
-    assert_eq!(row.child_html, ["<p><strong>Passed</strong>.</p>\n"]);
-    assert_eq!(row.html.as_deref(), Some("<p>Thanks.</p>\n"));
+    #[cfg(any(mobile, feature = "rich-text"))]
+    {
+        assert_eq!(row.child_html, ["<p><strong>Passed</strong>.</p>\n"]);
+        assert_eq!(row.html.as_deref(), Some("<p>Thanks.</p>\n"));
+    }
+    #[cfg(not(any(mobile, feature = "rich-text")))]
+    {
+        assert_eq!(
+            row.child_html,
+            ["<div class=\"plain-reply\">**Passed**.</div>"]
+        );
+        assert_eq!(
+            row.html.as_deref(),
+            Some("<div class=\"plain-reply\">Thanks.</div>")
+        );
+    }
 }
 
 #[test]

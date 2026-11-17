@@ -1,7 +1,10 @@
 //! This Mac's side of the mesh: opening or making it, and serving the
 //! endpoint's protocols for it.
 
-use beep_mesh::{JOIN_ALPN, Mesh, MeshError, PEER_ALPN};
+#[cfg(feature = "local-host")]
+use beep_mesh::{JOIN_ALPN, PEER_ALPN};
+use beep_mesh::{Mesh, MeshError};
+#[cfg(feature = "local-host")]
 use beep_node::{
     agents::SESSIONS_ALPN,
     files::{
@@ -10,12 +13,17 @@ use beep_node::{
     },
     link::peers::Peers,
 };
+#[cfg(feature = "local-host")]
 use beep_proto::node::{sync, transfer};
-use iroh::{Endpoint, protocol::Router};
+use iroh::Endpoint;
+#[cfg(feature = "local-host")]
+use iroh::protocol::Router;
+use std::path::Path;
+#[cfg(feature = "local-host")]
 use std::{env, path::PathBuf};
+#[cfg(feature = "local-host")]
 use std::{
     mem,
-    path::Path,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
@@ -35,6 +43,7 @@ pub(super) async fn open_or_create(
 /// Protocols the node serves once its transfer and sync services are up. A
 /// session that opens one before then waits for them. `files/1` is not one:
 /// `Folders` needs no blob store, so it is served from the start.
+#[cfg(feature = "local-host")]
 pub(super) const LATER: [&str; 4] = [
     sync::PROTOCOL,
     sync::CONTROLS,
@@ -43,6 +52,7 @@ pub(super) const LATER: [&str; 4] = [
 ];
 
 /// The folders sync follows, wherever the projects are: the user's home.
+#[cfg(feature = "local-host")]
 pub(super) fn home_folders() -> Folders {
     let home: Vec<PathBuf> = env::var_os("HOME")
         .or_else(|| env::var_os("USERPROFILE"))
@@ -53,6 +63,7 @@ pub(super) fn home_folders() -> Folders {
 }
 
 /// What answers on the endpoint while the app runs.
+#[cfg(feature = "local-host")]
 pub(super) struct Serving {
     router: Router,
     late: Late,
@@ -61,6 +72,7 @@ pub(super) struct Serving {
 
 /// The sync and transfer services: not started yet, running, or stopped for
 /// good, after which none starts.
+#[cfg(feature = "local-host")]
 enum Services {
     Waiting,
     Running(Transfers),
@@ -69,11 +81,13 @@ enum Services {
 
 /// Lets the sessions and connections waiting for the services go on, when
 /// starting them ends any way at all, a panic included.
+#[cfg(feature = "local-host")]
 struct Settle<'a> {
     late: &'a Late,
     peers: &'a Peers,
 }
 
+#[cfg(feature = "local-host")]
 impl Drop for Settle<'_> {
     fn drop(&mut self) {
         self.late.fail();
@@ -81,6 +95,7 @@ impl Drop for Settle<'_> {
     }
 }
 
+#[cfg(feature = "local-host")]
 impl Serving {
     /// Serves the mesh, joins and session reads for moves
     /// on `endpoint` at once. Connections for blobs and sync wait for

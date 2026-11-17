@@ -1,7 +1,7 @@
 use super::*;
 
 const VALID: &str = r#"{ "id": "composer-cat", "name": "Composer cat", "version": "0.1.0",
-  "description": "A cat.", "entry": "main.ts", "permissions": ["ui.add"] }"#;
+  "description": "A cat.", "entry": "main.js", "permissions": ["ui.add"] }"#;
 
 #[test]
 fn parses_a_full_manifest() {
@@ -18,8 +18,16 @@ fn applies_defaults() {
     let manifest = Manifest::parse(r#"{ "id": "ab", "name": "n", "version": "1.2.3" }"#).unwrap();
 
     assert_eq!(manifest.description, "");
-    assert_eq!(manifest.entry, PathBuf::from("main.ts"));
+    assert_eq!(manifest.entry, PathBuf::from("main.js"));
     assert!(manifest.permissions.is_empty());
+}
+
+#[test]
+fn typescript_entries_need_a_javascript_build() {
+    let error = Manifest::parse(&VALID.replace("main.js", "main.ts")).unwrap_err();
+
+    assert!(matches!(error, ManifestError::JavaScriptEntry(_)));
+    assert!(error.to_string().contains("build TypeScript to JavaScript"));
 }
 
 #[test]
@@ -45,8 +53,8 @@ fn rejects_unknown_permissions_and_fields() {
 fn rejects_bad_version_and_entry() {
     assert!(Manifest::parse(&VALID.replace("0.1.0", "one")).is_err());
 
-    for entry in ["../x.ts", "/abs.ts", ""] {
-        let text = VALID.replace("main.ts", entry);
+    for entry in ["../x.js", "/abs.js", ""] {
+        let text = VALID.replace("main.js", entry);
         assert!(
             matches!(Manifest::parse(&text), Err(ManifestError::Entry(_))),
             "{entry:?}"

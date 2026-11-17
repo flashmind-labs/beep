@@ -11,6 +11,7 @@ import { machineCaps, machineDisk, machineDot, machineMemory, machineNow, machin
 import { showMachineMenu, useThisMac } from "./table.ts";
 import { trafficRows, trafficSummary } from "./traffic-state.ts";
 import { Button, Chip, SectionHead, type ButtonLook } from "../ui/kit.tsx";
+import { useBuildCapabilities } from "../ui/tauri.ts";
 
 /// The machines whose project list is open, for as long as the window lives.
 const useOpenFolds = create<{ open: ReadonlySet<string>; toggle(id: string): void }>(set => ({
@@ -43,7 +44,7 @@ function Machine({ machine, terminals }: { machine: MachineCard; terminals: Term
   const projects = machine.online ? machineProjects(machine.id, state.sync, fsync.detail) : [], live = projects.filter(project => project.pct != null || project.chip.wait);
   const menu = (event: React.MouseEvent) => showMachineMenu(machine, () => [], event.nativeEvent);
   return <div id={`m-${machine.id}`} className={`mcard${machine.online ? "" : " off"}`} onContextMenu={menu}>
-    <div className="mtop"><span className="mname" title={machine.name}><Dot machine={machine} /><b>{machine.name}</b><span className="mnote">{[machine.can_host === false ? "Phone" : machineOs(machine), machineNow(machine)].filter(Boolean).join(" · ")}</span></span><span className="act">{machine.can_host !== false && <Button small disabled={!machine.online} onClick={() => openTerminals({ newOn: machine.id })}>New terminal</Button>}</span></div>
+    <div className="mtop"><span className="mname" title={machine.name}><Dot machine={machine} /><b>{machine.name}</b><span className="mnote">{[machine.can_host === false ? "Controller" : machineOs(machine), machineNow(machine)].filter(Boolean).join(" · ")}</span></span><span className="act">{machine.can_host !== false && <Button small disabled={!machine.online} onClick={() => openTerminals({ newOn: machine.id })}>New terminal</Button>}</span></div>
     {machine.online && <>
       <div className="mstats">
         <Stat label="Disk" title={disk.title} bar={disk.used} low={disk.low}><span className="v">{disk.text}</span>{disk.other && <small>{disk.other}</small>}</Stat>
@@ -60,7 +61,8 @@ function ThisMac({ mac }: { mac: MacRow }) {
   return <div id="m-this-mac" className="mcard off"><div className="mtop"><span className="mname" title={mac.title}><span className="ddot off" /><b>{mac.name}</b><span className={`mnote${mac.bad ? " bad" : ""}`}>{[mac.sub, mac.state].filter(Boolean).join(" · ")}</span></span>{mac.action && <span className="act keep"><Button look="primary" small onClick={() => { void useThisMac(); }}>{mac.action}</Button></span>}</div></div>;
 }
 export function HomeMachines({ machines }: { machines: MachineCard[] }) {
-  const unlisted = thisMacRow(state.mac, machines);
+  const capabilities = useBuildCapabilities();
+  const unlisted = capabilities.local_host ? thisMacRow(state.mac, machines) : null;
   if (!machines.length && !unlisted) return <div id="sec-machines"><SectionHead title="Machines"><AddMachine small /></SectionHead><div className="cc-panel cc-empty"><b>No machines linked yet</b><AddMachine look="primary" /></div></div>;
   const online = machines.filter(machine => machine.online).length, count = machines.length ? `${online} of ${machines.length} online` : "";
   const terms = byMachine(termMachines(), allTerms.list(ALL) || []);

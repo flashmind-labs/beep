@@ -15,13 +15,24 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build.workspace = true
 
 [features]
+default = []
+full = ["local-host", "rich-text", "metrics-recording", "resource-profiling", "autostart", "window-state", "image-clipboard", "image-thumbnails", "desktop-control", "asset-compression"]
+local-host = ["beep-node/host", "metrics-recording"]
+rich-text = ["dep:ammonia", "dep:pulldown-cmark", "dep:pulldown-latex"]
+metrics-recording = ["dep:metrics-exporter-prometheus"]
+autostart = ["dep:tauri-plugin-autostart"]
+window-state = ["dep:tauri-plugin-window-state"]
+image-clipboard = ["dep:arboard", "dep:image"]
+image-thumbnails = ["beep-mesh/thumbs"]
+desktop-control = ["local-host", "dep:objc2-application-services", "dep:objc2-screen-capture-kit"]
+asset-compression = ["tauri/compression"]
 # Battery and process sampling, enabled at runtime by BEEP_DESKTOP_RESOURCE_METRICS.
-resource-profiling = ["dep:battery", "dep:sysinfo"]
+resource-profiling = ["metrics-recording", "dep:battery", "dep:sysinfo"]
 # Sparkle updates, for the signed builds of the release workflow.
 sparkle = ["dep:tauri-plugin-sparkle-updater"]
 
 [dependencies]
-ammonia.workspace = true
+ammonia = { workspace = true, optional = true }
 anyhow.workspace = true
 async-trait.workspace = true
 base64.workspace = true
@@ -39,11 +50,12 @@ iroh-tickets.workspace = true
 log.workspace = true
 metrics.workspace = true
 # Renders the metrics a phone keeps itself; a desktop's embedded node uses it too.
-metrics-exporter-prometheus.workspace = true
+metrics-exporter-prometheus = { workspace = true, optional = true }
 open.workspace = true
 percent-encoding.workspace = true
-pulldown-cmark = { workspace = true, features = ["html"] }
-pulldown-latex.workspace = true
+pulldown-cmark = { workspace = true, features = ["html"], optional = true }
+pulldown-cmark-escape.workspace = true
+pulldown-latex = { workspace = true, optional = true }
 qrcode = { workspace = true, features = ["svg"] }
 regex.workspace = true
 rusqlite.workspace = true
@@ -72,20 +84,19 @@ tokio = { workspace = true, features = ["test-util"] }
 
 # Desktop only: no login item or self-updater on a phone, and no embedded node.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-arboard.workspace = true
+arboard = { workspace = true, optional = true }
 battery = { workspace = true, optional = true }
-beep-mesh = { workspace = true, features = ["thumbs"] }
-beep-node = { workspace = true, features = ["host"] }
+beep-mesh.workspace = true
+beep-node.workspace = true
 beep-plugins.workspace = true
 # The app data folder before Tauri starts, as Tauri finds it.
 dirs.workspace = true
-image = { workspace = true, features = ["png"] }
+image = { workspace = true, features = ["png"], optional = true }
 sysinfo = { workspace = true, features = ["system"], optional = true }
-# Brotli for the bundled pages. A phone skips it: the IPA is zipped anyway.
 # macos-private-api is repeated here because the Tauri CLI checks this entry.
-tauri = { workspace = true, default-features = true, features = ["macos-private-api", "compression", "common-controls-v6", "x11", "dbus"] }
-tauri-plugin-autostart.workspace = true
-tauri-plugin-window-state.workspace = true
+tauri = { workspace = true, default-features = false, features = ["macos-private-api", "common-controls-v6", "x11", "dbus"] }
+tauri-plugin-autostart = { workspace = true, optional = true }
+tauri-plugin-window-state = { workspace = true, optional = true }
 
 [target.'cfg(not(any(target_os = "macos", target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater.workspace = true
@@ -95,6 +106,10 @@ tauri-plugin-notification.workspace = true
 
 # A board lane ticks as it settles on a card.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+ammonia.workspace = true
+metrics-exporter-prometheus.workspace = true
+pulldown-cmark = { workspace = true, features = ["html"] }
+pulldown-latex.workspace = true
 tauri-plugin-haptics.workspace = true
 
 # Android scans the pairing QR code with zxing's capture screen.
@@ -126,9 +141,9 @@ mac-notification-sys.workspace = true
 objc2.workspace = true
 objc2-app-kit = { workspace = true, features = ["std", "libc", "NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "NSGraphics", "NSResponder", "NSWindow", "block2", "objc2-core-graphics"] }
 # Desktop control: the accessibility tree and Accessibility permission.
-objc2-application-services = { workspace = true, features = ["std", "HIServices", "libc", "AXUIElement", "AXValue", "AXError"] }
+objc2-application-services = { workspace = true, optional = true, features = ["std", "HIServices", "libc", "AXUIElement", "AXValue", "AXError"] }
 objc2-core-foundation = { workspace = true, features = ["std", "CFArray", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
 objc2-core-graphics = { workspace = true, features = ["std", "CGDirectDisplay", "CGEvent", "CGEventSource", "CGEventTypes", "CGImage", "CGRemoteOperation", "CGSession", "CGWindow"] }
 objc2-foundation = { workspace = true, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSValue", "NSData", "NSNotification", "NSOperation", "NSURL", "NSUserNotification", "block2"] }
 # Desktop control: screenshots.
-objc2-screen-capture-kit = { workspace = true, features = ["std", "block2", "objc2-core-graphics", "SCShareableContent", "SCStream", "SCScreenshotManager"] }
+objc2-screen-capture-kit = { workspace = true, optional = true, features = ["std", "block2", "objc2-core-graphics", "SCShareableContent", "SCStream", "SCScreenshotManager"] }

@@ -30,7 +30,7 @@ pub enum Key {
     /// A device removed after a day offline, such as a container: `temporary/<id>`,
     /// written by the desktop that spent its ticket. The value is empty.
     Temporary(String),
-    /// A phone that controls the mesh but cannot host code: `observer/<id>`.
+    /// A non-host controller: `observer/<id>`. Empty for phones, `desktop` for desktops.
     Observer(String),
     /// The notifications one app marked read, as marks: `notice-read/<device id>`. Each app
     /// writes only its own key, so no two apps overwrite each other.

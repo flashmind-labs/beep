@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { commandKey, revealLabel } from "../ui/platform.ts";
 import { hintModel } from "../bar/hints.ts";
 import { HintView } from "../bar/hints-view.tsx";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
 import { COPY_ICON, ICON } from "../ui/icons.tsx";
 import { viewerAct, viewerKeys, type ViewerPic } from "./media.tsx";
 import { useDialogRef } from "../ui/parts.tsx";
@@ -65,13 +65,18 @@ function usePinchZoom() {
 }
 
 export function Viewer({ pictures, at }: { pictures: ViewerPic[]; at: number }) {
+  const capabilities = useBuildCapabilities();
   const picture = pictures[at], many = pictures.length > 1;
   const close = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => { close.current?.focus(); }, [at]);
   const name = picture.name || hostOf(picture.url);
   const about = many ? `${at + 1} of ${pictures.length}` : "";
   const keeps = !!picture.saves, dialog = useDialogRef();
-  const keys: [string, string][] = [...(many ? [["← →", "move"] as [string, string]] : []), ...(keeps ? [["⌘S", "save"] as [string, string], ["⌘C", "copy"] as [string, string]] : []), ["esc", "close"]];
+  const keys: [string, string][] = [];
+  if (many) keys.push(["arrows", "move"]);
+  if (keeps) keys.push(["⌘S", "save"]);
+  if (keeps && capabilities.image_clipboard) keys.push(["⌘C", "copy"]);
+  keys.push(["esc", "close"]);
   return <div ref={dialog} className="dover dviewer" id="viewer" role="dialog" aria-modal="true" aria-label={name} onKeyDown={event => {
     event.stopPropagation();
     if (event.key === "Tab") {
@@ -79,8 +84,8 @@ export function Viewer({ pictures, at }: { pictures: ViewerPic[]; at: number }) 
       event.preventDefault(); buttons[(index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
     } else viewerKeys(event.nativeEvent, commandKey(event.nativeEvent));
   }}>
-    <div className="vt"><span className="tt"><b>{name}</b><small>{about}</small></span>{keeps ? <><Button data-v="copy" onClick={() => viewerAct("copy")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: COPY_ICON }} />Copy<kbd>⌘C</kbd></Button><Button look="primary" data-v="save" onClick={() => viewerAct("save")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.save }} />Save<kbd>⌘S</kbd></Button></> : !picture.url.startsWith("data:") && <Button data-v="open" onClick={() => viewerAct("open")}>Open in browser</Button>}<Button ref={close}  data-v="close" aria-label="Close" onClick={() => viewerAct("close")} dangerouslySetInnerHTML={{ __html: ICON.x }} /></div>
-    <div className="vi">{many && <button className="nav prev" data-v="prev" aria-label="Previous" disabled={at === 0} onClick={() => viewerAct("prev")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}<ViewerImage key={at} picture={picture} />{many && <button className="nav" data-v="next" aria-label="Next" disabled={at === pictures.length - 1} onClick={() => viewerAct("next")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}</div>
+    <div className="vt"><span className="tt"><b>{name}</b><small>{about}</small></span>{keeps ? <>{capabilities.image_clipboard && <Button data-v="copy" onClick={() => viewerAct("copy")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: COPY_ICON }} />Copy<kbd>⌘C</kbd></Button>}<Button look="primary" data-v="save" onClick={() => viewerAct("save")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.save }} />Save<kbd>⌘S</kbd></Button></> : !picture.url.startsWith("data:") && <Button data-v="open" onClick={() => viewerAct("open")}>Open in browser</Button>}<Button ref={close}  data-v="close" aria-label="Close" onClick={() => viewerAct("close")} dangerouslySetInnerHTML={{ __html: ICON.x }} /></div>
+    <div className="vi">{many && <Button look="plain" className="nav prev" data-v="prev" aria-label="Previous" disabled={at === 0} onClick={() => viewerAct("prev")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}<ViewerImage key={at} picture={picture} />{many && <Button look="plain" className="nav" data-v="next" aria-label="Next" disabled={at === pictures.length - 1} onClick={() => viewerAct("next")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}</div>
     <div className="cap">{picture.caption}</div><HintView value={hintModel(keys)} />
   </div>;
 }

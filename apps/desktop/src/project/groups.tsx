@@ -1,6 +1,6 @@
 import { SidebarMachine } from "../machines/sidebar-machine-view.tsx";
 // Project groups in the sidebar: heading, menu, rename and remove.
-import { invoke } from "../ui/tauri.ts";
+import { buildCapabilities, invoke } from "../ui/tauri.ts";
 import { groupMatches, type ProjectGroup } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
@@ -88,7 +88,7 @@ registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
   load: async () => {
     const machines = state.home?.machines;
     if (!machines) return null;
-    const mac = thisMacRow(state.mac, machines);
+    const mac = (await buildCapabilities()).local_host ? thisMacRow(state.mac, machines) : null;
     return mac ? [...machines, { thisMac: mac }] : machines;
   },
   key: m => "thisMac" in m ? "this-mac" : m.id,

@@ -4,7 +4,7 @@
   "version": "0.2.0",
   "api": 1,
   "description": "A short note on each session, set from its header.",
-  "entry": "main.ts",
+  "entry": "main.js",
   "permissions": ["ui.add", "tools"],
   "activation": ["slot:session.row", "slot:session.header"],
   "tools": [

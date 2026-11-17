@@ -15,7 +15,7 @@ fn write(dir: &Path, version: &str, permissions: &str) {
         ),
     )
     .unwrap();
-    std::fs::write(dir.join("main.ts"), "// plugin").unwrap();
+    std::fs::write(dir.join("main.js"), "// plugin").unwrap();
 }
 
 fn git(commit: &str) -> Origin {
@@ -61,7 +61,7 @@ fn installing_moves_the_folder_and_records_the_approval() {
 
     assert_eq!(installed, id());
     assert!(!staged.exists());
-    assert!(root.path().join("cat-one/main.ts").is_file());
+    assert!(root.path().join("cat-one/main.js").is_file());
     let record = state.record(&id()).unwrap();
     assert!(record.enabled);
     assert_eq!(record.approved, [Permission::UiAdd]);
@@ -191,10 +191,10 @@ fn a_symlink_that_leaves_the_folder_is_refused() {
 fn a_symlink_inside_the_folder_and_a_broken_one_are_judged_by_their_target() {
     let root = tempfile::tempdir().unwrap();
     write(root.path(), "0.1.0", "");
-    std::os::unix::fs::symlink("main.ts", root.path().join("alias.ts")).unwrap();
+    std::os::unix::fs::symlink("main.js", root.path().join("alias.js")).unwrap();
     assert!(check_tree(root.path(), MAX_PLUGIN_BYTES).is_ok());
 
-    std::os::unix::fs::symlink("missing.ts", root.path().join("gone.ts")).unwrap();
+    std::os::unix::fs::symlink("missing.js", root.path().join("gone.js")).unwrap();
     assert!(matches!(
         check_tree(root.path(), MAX_PLUGIN_BYTES),
         Err(ManageError::Symlink(_))

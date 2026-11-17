@@ -36,7 +36,7 @@ fn rig(hidden: bool) -> Rig {
         r#"{ "id": "hold-test", "name": "T", "version": "0.1.0", "permissions": ["ui.add"] }"#,
     )
     .unwrap();
-    std::fs::write(dir.join("main.ts"), MAIN).unwrap();
+    std::fs::write(dir.join("main.js"), MAIN).unwrap();
 
     let start = Instant::now();
     let meter = Arc::new(Meter::new(BUDGET));

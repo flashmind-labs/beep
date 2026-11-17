@@ -4,6 +4,7 @@ import { skillSync, projectSync, type SyncSettingKind } from "./skill-sync.ts";
 import type { MacSettings } from "./settings.tsx";
 import { Button, Switch } from "../ui/kit.tsx";
 import { SettingRow } from "./overview-view.tsx";
+import { useBuildCapabilities } from "../ui/tauri.ts";
 
 interface Props {
   settings: MacSettings; phone: boolean; busy: ReadonlySet<string>;
@@ -22,10 +23,12 @@ function SyncPreference({ kind }: { kind: SyncSettingKind }) {
 }
 export function GeneralView(p: Props) {
   const s = p.settings;
-  return <>{!p.phone && <SettingRow title="Launch at login" note="Keep Beep in the tray after a restart"><Switch id="autostart" label="Launch at login" on={s.autostart} disabled={p.busy.size > 0} flip={() => p.autostart(!s.autostart)} /></SettingRow>}
+  const capabilities = useBuildCapabilities();
+  return <>{!p.phone && !capabilities.local_host && <SettingRow title="Lean build" note="Connect another machine to run agents, terminals and projects. The full build can also run work on this computer.">{null}</SettingRow>}
+    {!p.phone && capabilities.autostart && <SettingRow title="Launch at login" note="Keep Beep in the tray after a restart"><Switch id="autostart" label="Launch at login" on={s.autostart} disabled={p.busy.size > 0} flip={() => p.autostart(!s.autostart)} /></SettingRow>}
     <SettingRow title="Coding agent notifications" note={s.agent_notices ? "When a coding agent asks something or finishes a turn" : "Coding agents only show under Waiting"}><Switch id="agentNotices" label="Coding agent notifications" on={s.agent_notices} disabled={p.busy.size > 0} flip={() => p.notices(!s.agent_notices)} /></SettingRow>
     {/* A phone hosts no files and has no keyboard: these belong to the desktops. */}
-    {!p.phone && <><SyncPreference kind="skills" /><SyncPreference kind="projects" /><SettingRow title="Save files to" note={s.save_folder ?? "No folder"}><span>{s.save_folder_picked && <Button look="quiet" id="useDownloads" disabled={p.busy.size > 0} onClick={p.useDownloads}>Use Downloads</Button>}<Button id="chooseSaves" disabled={p.busy.size > 0} onClick={p.chooseSaves}>Choose…</Button></span></SettingRow><SettingRow title="Keyboard shortcuts" note="Every shortcut, by where it works"><Button id="openShortcuts" onClick={p.shortcuts}>Show…</Button></SettingRow>
+    {!p.phone && <><SyncPreference kind="skills" /><SyncPreference kind="projects" /><SettingRow title="Save files to" note={s.save_folder ?? "No folder"}><span>{s.save_folder_picked && <Button look="quiet" id="useDownloads" disabled={p.busy.size > 0} onClick={p.useDownloads}>Use Downloads</Button>}{capabilities.local_host && <Button id="chooseSaves" disabled={p.busy.size > 0} onClick={p.chooseSaves}>Choose…</Button>}</span></SettingRow><SettingRow title="Keyboard shortcuts" note="Every shortcut, by where it works"><Button id="openShortcuts" onClick={p.shortcuts}>Show…</Button></SettingRow>
       <SettingRow title="Developer mode" note={s.developer ? "Updates to every release, patches included" : "Updates to minor releases only"}><Switch id="developerMode" label="Developer mode" on={s.developer} disabled={p.busy.size > 0} flip={() => p.developer(!s.developer)} /></SettingRow></>}<SettingRow title="Report a problem" note="Collect logs from your machines and send them to us"><Button id="openReport" onClick={p.report}>Report…</Button></SettingRow>
   </>;
 }

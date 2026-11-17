@@ -662,7 +662,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agturn { display: flex; flex-direction: column; gap: 12px; min-width: 0 }
 .agturn[hidden], .agspace[hidden] { display: none }
 .agspace { flex: none }
-.dcoderen { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0 }
+.dcoderen, .plain-reply { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0 }
 .dcoderen.user { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--elev); font-size: 13.5px; line-height: 20px }
 .dcoderen.user b { font-size: 11.5px; font-weight: 600; color: var(--muted) }
 .dcoderen.user a { color: var(--accent); overflow-wrap: anywhere }

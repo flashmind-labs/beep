@@ -151,7 +151,7 @@ impl Budget {
 }
 
 impl Sandbox {
-    /// Reads the plugin folder, strips types from the entry file and runs it.
+    /// Reads the plugin folder and runs its compiled JavaScript entry.
     #[cfg(test)]
     pub(crate) fn load(dir: &Path, now: Instant) -> Result<Self, SandboxError> {
         Self::load_metered(dir, now, Arc::new(Meter::new(crate::meter::BUDGET)))

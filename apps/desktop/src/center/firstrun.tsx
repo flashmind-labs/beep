@@ -2,7 +2,7 @@
 // agents when it lacks something.
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { joinTicket } from "../machines/jointicket.tsx";
-import { invoke } from "../ui/tauri.ts";
+import { buildCapabilities, invoke } from "../ui/tauri.ts";
 import { FirstRunScreen } from "./firstrun-view.tsx";
 import { setupRun, thisComputer } from "./firstrun-setup.ts";
 
@@ -34,6 +34,7 @@ async function linked() {
 export async function firstRun() {
   if (stored() !== null) return;
   if (await linked()) return keep();
+  const capabilities = await buildCapabilities();
   const screen = createDocumentScope<"first-run">();
   let closed = false;
   const leave = () => {
@@ -41,7 +42,7 @@ export async function firstRun() {
     closed = true;
     keep(); screen.dispose();
   };
-  screen.set([{ slot: "first-run", host: document.body, content: <div><FirstRunScreen done={leave} join={joinTicket} prepare={prepare} /></div> }]);
+  screen.set([{ slot: "first-run", host: document.body, content: <div><FirstRunScreen localHost={capabilities.local_host} done={leave} join={joinTicket} prepare={prepare} /></div> }]);
 }
 
 /// Set up for this computer, or null when there is none to run here.

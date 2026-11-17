@@ -34,7 +34,8 @@ impl Mesh {
         self.machines()
             .into_iter()
             .map(|status| {
-                if self.is_observer(status.device.id) {
+                if self.is_observer(status.device.id) && !self.is_desktop_observer(status.device.id)
+                {
                     Device::Phone(status)
                 } else {
                     match status.device.kind {

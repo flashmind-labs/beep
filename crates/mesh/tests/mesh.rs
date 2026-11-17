@@ -1503,6 +1503,56 @@ async fn observer_phones_stay_members_but_never_become_hosts() {
     assert_eq!(desktop.mesh.code_hosts().len(), 2);
 }
 
+#[tokio::test]
+async fn a_non_host_desktop_keeps_controller_authority_and_can_host_again() {
+    let desktop = create("Controller").await;
+    let node = join(&desktop, DeviceKind::Node, "Build box").await;
+    let id = desktop.id();
+    desktop.mesh.set_desktop_hosting(false).await.unwrap();
+    until(&node.mesh, |mesh| mesh.is_desktop_observer(id)).await;
+
+    for mesh in [&desktop.mesh, &node.mesh] {
+        assert!(mesh.is_observer(id));
+        assert!(mesh.inventory().iter().any(|device| matches!(
+            device,
+            beep_mesh::machine::Device::Desktop(status) if status.device.id == id
+        )));
+        assert!(
+            !mesh
+                .code_hosts()
+                .iter()
+                .any(|status| status.device.id == id)
+        );
+    }
+
+    let key = Key::Group("example".into());
+    desktop
+        .mesh
+        .set(key.clone(), Some(b"shared".to_vec()))
+        .await
+        .unwrap();
+    until(&node.mesh, |mesh| mesh.get(&key).is_some()).await;
+    desktop
+        .mesh
+        .invite_observer(Duration::from_secs(300))
+        .await
+        .unwrap();
+
+    let (secret, dir) = desktop.stop().await;
+    let desktop = reopen(secret, dir).await;
+    assert!(desktop.mesh.is_desktop_observer(id));
+    desktop.mesh.set_desktop_hosting(true).await.unwrap();
+    until(&node.mesh, |mesh| !mesh.is_observer(id)).await;
+
+    for mesh in [&desktop.mesh, &node.mesh] {
+        assert!(
+            mesh.code_hosts()
+                .iter()
+                .any(|status| status.device.id == id)
+        );
+    }
+}
+
 /// How a mesh endpoint was set up before the keep-alive was relaxed.
 fn older_transport() -> iroh::endpoint::QuicTransportConfig {
     use iroh::endpoint::{IdleTimeout, QuicTransportConfig, VarInt};

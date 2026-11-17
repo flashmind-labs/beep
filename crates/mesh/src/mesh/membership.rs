@@ -1,12 +1,14 @@
 //! Membership, invitations and device inventory.
 
 use super::{DeviceStatus, Mesh};
-use crate::machine::Device as InventoryDevice;
 use crate::store::TicketPurpose;
 use crate::{DeviceKind, Invitation, JoinTicket, Key, MeshError};
 use iroh::EndpointId;
 use std::collections::BTreeSet;
 use std::time::Duration;
+
+/// Existing readers treat any observer value as a non-host controller.
+const DESKTOP_OBSERVER: &[u8] = b"desktop";
 
 impl Mesh {
     /// The authenticated device that redeemed this desktop's invite.
@@ -59,6 +61,24 @@ impl Mesh {
             .contains_key(&Key::Observer(id.to_string()))
     }
 
+    /// Whether this observer is a desktop controller rather than a phone.
+    pub fn is_desktop_observer(&self, id: EndpointId) -> bool {
+        self.get(&Key::Observer(id.to_string())).as_deref() == Some(DESKTOP_OBSERVER)
+    }
+
+    /// Publishes this desktop's hosting mode without changing signed membership.
+    /// Phone observers keep their existing empty marker.
+    pub async fn set_desktop_hosting(&self, hosting: bool) -> Result<(), MeshError> {
+        let key = Key::Observer(self.me().to_string());
+        let value = (!hosting).then(|| DESKTOP_OBSERVER.to_vec());
+
+        if self.get(&key) != value {
+            self.set(key, value).await?;
+        }
+
+        Ok(())
+    }
+
     /// Every machine in the mesh, including phones and offline members.
     pub fn machines(&self) -> Vec<DeviceStatus> {
         self.devices()
@@ -66,12 +86,9 @@ impl Mesh {
 
     /// Machines that can host sessions and sync files, including offline hosts.
     pub fn code_hosts(&self) -> Vec<DeviceStatus> {
-        self.inventory()
+        self.machines()
             .into_iter()
-            .filter_map(|device| match device {
-                InventoryDevice::Node(status) | InventoryDevice::Desktop(status) => Some(status),
-                InventoryDevice::Phone(_) => None,
-            })
+            .filter(|status| !self.is_observer(status.device.id))
             .collect()
     }
 

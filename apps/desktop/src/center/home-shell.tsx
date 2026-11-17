@@ -4,6 +4,7 @@ import { Icon } from "../ui/icons.tsx";
 import { machineDisk, machineDot, type MachineCard, type MacRow } from "../machines/machine-state.ts";
 import { Button } from "../ui/kit.tsx";
 import { HazeArt } from "../ui/painted-art.tsx";
+import { useBuildCapabilities } from "../ui/tauri.ts";
 
 export type HomeTab = "overview" | "git" | "machines";
 
@@ -24,6 +25,7 @@ interface HomeShellProps {
 }
 
 export function HomeShell({ machines, mac, jump, menu, addMachine, useMac, error, unavailable, offline, content, tabs, selected, open }: HomeShellProps) {
+  const capabilities = useBuildCapabilities();
   return <>
     <HazeArt />
     {machines && <div className="cc-mstrip">{machines.map(machine => {
@@ -31,7 +33,7 @@ export function HomeShell({ machines, mac, jump, menu, addMachine, useMac, error
       const now = machine.online ? (machine.can_host === false ? "controller" : machine.agents ? plural(machine.agents, "agent", "agents") : "idle") : machine.connecting ? "connecting" : "offline";
       const dot = machineDot(machine);
       return <button key={machine.id} type="button" className={`m${machine.online ? "" : " off"}`} onClick={() => jump(`m-${machine.id}`)} onContextMenu={event => menu(machine, event.nativeEvent)}><span className={dot.className} title={dot.title} /><b>{machine.name}</b><span>{disk === "–" || machine.connecting ? now : `${now} · ${disk}`}</span></button>;
-    })}{mac && <div className="m off" title={`This computer: ${mac.title}`}><span className="ddot off" /><b>{mac.name}</b><span className={mac.bad ? "bad" : ""}>{mac.state}</span>{mac.action && <Button look="quiet" small onClick={event => { event.stopPropagation(); useMac(); }}>{mac.action}</Button>}</div>}<Button look="quiet" small onClick={addMachine}><Icon name="plus" /> Add a machine</Button></div>}
+    })}{capabilities.local_host && mac && <div className="m off" title={`This computer: ${mac.title}`}><span className="ddot off" /><b>{mac.name}</b><span className={mac.bad ? "bad" : ""}>{mac.state}</span>{mac.action && <Button look="quiet" small onClick={event => { event.stopPropagation(); useMac(); }}>{mac.action}</Button>}</div>}<Button look="quiet" small onClick={addMachine}><Icon name="plus" /> Add a machine</Button></div>}
     <div className="cc-tabs" role="tablist">{tabs.map(tab =>
       <button key={tab.key} type="button" role="tab" aria-selected={tab.key === selected} onClick={() => open(tab.key)}>
         {tab.label}{!!tab.count && <span className="n">{tab.count}</span>}

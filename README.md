@@ -43,10 +43,16 @@ mesh, tickets and sync in detail.
 ## Build from source
 
 ```sh
-just run              # run the desktop app (quit Beep first)
+just run              # lean desktop controller (quit Beep first)
+just run shared full  # include local hosting and native integrations
 just desktop-build    # build it
 just desktop-check    # type checks and tests
 ```
+
+The lean build controls remote nodes and loads JavaScript plugins. Local agents,
+terminals, sync, rich text and optional native integrations require `full`.
+Individual Cargo features can also be selected; plugin TypeScript is compiled
+before installation, not inside the app. Signed desktop releases use `full`.
 
 Add a machine from the desktop: it gives you a one-use ticket for `beep-node`.
 

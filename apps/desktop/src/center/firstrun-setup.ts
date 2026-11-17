@@ -4,7 +4,7 @@ import type { Machine } from "../machines/machines.tsx";
 import { openSignIn } from "../machines/signin.tsx";
 import { reason } from "../ui/format.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { invoke } from "../ui/tauri.ts";
+import { buildCapabilities, invoke } from "../ui/tauri.ts";
 import { ITEMS, idleWork, isAgent, pending, row, type Item, type Setup, type Work } from "./firstrun-state.ts";
 
 export interface SetupRun {
@@ -19,6 +19,7 @@ export interface SetupRun {
 
 /// This computer as a machine of the mesh; null on a phone or before its node runs.
 export async function thisComputer(): Promise<Machine | null> {
+  if (!(await buildCapabilities()).local_host) return null;
   const [mac, list] = await Promise.all([
     invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this computer's state:", e); return null; }),
     invoke<Machine[]>("list_machines").catch(e => { console.warn("listing machines:", e); return []; }),

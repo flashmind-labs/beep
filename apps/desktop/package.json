@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "plugins:build": "node build-plugins.mjs",
+    "plugins:watch": "node build-plugins.mjs --watch",
     "watch": "node build.mjs --watch",
     "tauri": "tauri",
     "test": "node --import ./tests/ts.mjs --test tests/*.test.ts",

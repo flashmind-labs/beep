@@ -18,10 +18,12 @@ fn rejects_unbounded_labels_and_invalid_durations() {
     assert_eq!(labels(&sample), None);
 }
 
+#[cfg(any(mobile, feature = "metrics-recording"))]
 fn ui_batch(json: serde_json::Value) -> UiBatch {
     serde_json::from_value(json).expect("a valid batch")
 }
 
+#[cfg(any(mobile, feature = "metrics-recording"))]
 #[test]
 fn merges_ui_batches_into_the_metrics() {
     let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
@@ -107,6 +109,7 @@ fn rejects_ui_labels_outside_the_fixed_sets() {
     assert!(!histogram.valid());
 }
 
+#[cfg(any(mobile, feature = "metrics-recording"))]
 #[test]
 fn a_phone_writes_its_merged_ui_metrics_as_snapshots() {
     let dir = tempfile::tempdir().unwrap();

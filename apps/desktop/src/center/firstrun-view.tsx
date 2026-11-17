@@ -8,7 +8,7 @@ import { SunriseArt } from "../ui/painted-art.tsx";
 
 type Step = { kind: "choose" } | { kind: "link" } | { kind: "setup"; run: SetupRun };
 
-export function FirstRunScreen({ done, join, prepare }: { done: () => void; join: JoinTicket; prepare: () => Promise<SetupRun | null> }) {
+export function FirstRunScreen({ done, join, prepare, localHost }: { done: () => void; join: JoinTicket; prepare: () => Promise<SetupRun | null>; localHost: boolean }) {
   const [step, setStep] = useState<Step>({ kind: "choose" });
   const [starting, setStarting] = useState(false);
   const start = useRef<HTMLButtonElement>(null), dialog = useDialogRef();
@@ -38,7 +38,7 @@ export function FirstRunScreen({ done, join, prepare }: { done: () => void; join
       <div><b>{step.kind === "choose" ? "Welcome to Beep" : "Join your other computer"}</b><div className="fr-sub">{step.kind === "choose" ? "Run coding agents on your machines." : "On the computer that already runs Beep, open Machines, then Add a machine, choose Desktop and copy the ticket. This computer then shares its machines, projects and keys."}</div></div>
     </div>
     {step.kind === "choose" ? <div className="fr-ways">
-      <Button ref={start} className="fr-way first" disabled={starting} onClick={() => void begin()}><span className="fr-big"><b>Start here</b><span>New to Beep. Set this computer up to run coding agents.</span></span><kbd aria-hidden="true">Enter</kbd></Button>
+      <Button ref={start} className="fr-way first" disabled={starting} onClick={() => localHost ? void begin() : done()}><span className="fr-big"><b>{localHost ? "Start here" : "Connect a machine"}</b><span>{localHost ? "New to Beep. Set this computer up to run coding agents." : "Open Beep, then add a machine to run agents and keep projects there."}</span></span><kbd aria-hidden="true">Enter</kbd></Button>
       <Button className="fr-way" onClick={() => setStep({ kind: "link" })}><span className="fr-big"><b>Join my other computer</b><span>Beep already runs on another computer of yours. Link this one to its machines, projects and keys.</span></span></Button>
     </div> : <JoinTicketFields done={done} join={join} back={() => setStep({ kind: "choose" })} backLabel="Back" />}
   </div></div>;

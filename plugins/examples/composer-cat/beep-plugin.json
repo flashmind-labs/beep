@@ -4,7 +4,7 @@
   "version": "0.2.0",
   "api": 1,
   "description": "A cat sits on the message box.",
-  "entry": "main.ts",
+  "entry": "main.js",
   "permissions": ["ui.add", "sessions.read"],
   "activation": ["slot:composer"]
 }

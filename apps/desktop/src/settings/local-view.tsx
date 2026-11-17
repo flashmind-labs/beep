@@ -6,6 +6,7 @@ import { WINDOWS } from "../ui/platform.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import { Button, Switch } from "../ui/kit.tsx";
 import { SettingRow } from "./overview-view.tsx";
+import { useBuildCapabilities } from "../ui/tauri.ts";
 
 const LAYOUTS: readonly { id: FrontLayout; label: string }[] = [{ id: "board", label: "Board" }, { id: "list", label: "List" }];
 const FRONT_PAGES: readonly { page: FrontPage; name: string; note: string }[] = [
@@ -38,7 +39,9 @@ export function AppearanceView() {
   </>;
 }
 export function ComputerView({ mac, busy, setEnabled, allow }: { mac: MacControl; busy: boolean; setEnabled(enabled: boolean): void; allow(permission: "ScreenRecording" | "Accessibility"): void }) {
-  const p = mac.permissions, desktopControl = !WINDOWS;
+  const capabilities = useBuildCapabilities();
+  if (!capabilities.local_host) return <SettingRow title="Local work is not available" note="Connect a machine to run work there, or use the full build to run work on this computer.">{null}</SettingRow>;
+  const p = mac.permissions, desktopControl = !WINDOWS && capabilities.desktop_control;
   const sub = !mac.enabled ? desktopControl ? "Beep can see the screen, click, type and run commands here when you ask" : "Beep can run commands and coding agents here when you ask"
     : mac.status === "failed" ? `Couldn't connect: ${mac.error || "unknown error"}` : mac.status === "connected" ? !desktopControl || p.screen_recording && p.accessibility ? "Connected" : "Connected. Allow both below" : "Connecting…";
   const permission = (key: "ScreenRecording" | "Accessibility", name: string, why: string, ok: boolean) => <SettingRow key={key} title={name} note={why}>{ok ? <span className="dtag ok">Allowed</span> : <Button data-allow={key} onClick={() => allow(key)}>Allow…</Button>}</SettingRow>;

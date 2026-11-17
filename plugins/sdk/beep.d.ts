@@ -1,6 +1,6 @@
 // Types for the global `beep` that the host gives every plugin.
-// A plugin is a TypeScript or JavaScript entry file that may import other
-// .ts and .js files of its folder by relative path (`import { x } from "./x.ts"`).
+// A plugin runs a JavaScript entry and relative .js imports inside its folder.
+// Author TypeScript here, then build it to JavaScript before installing.
 // It has no DOM and no setTimeout: use `beep.after` for timers. `console.log`,
 // `console.warn` and `console.error` work like `beep.log`.
 

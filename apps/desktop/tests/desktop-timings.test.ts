@@ -8,7 +8,7 @@ test("batches desktop timings without sending command arguments", async () => {
     __TAURI__: {
       core: {
         Channel: class {},
-        invoke: async (cmd: string, args?: Record<string, unknown>) => { calls.push({ cmd, args }); return null; },
+        invoke: async (cmd: string, args?: Record<string, unknown>) => { calls.push({ cmd, args }); return cmd === "build_capabilities" ? { local_host: true, metrics_recording: true, resource_profiling: true, autostart: true, window_state: true, image_clipboard: true, desktop_control: true, rich_text: true } : null; },
       },
       event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) },
     },
@@ -17,7 +17,8 @@ test("batches desktop timings without sending command arguments", async () => {
   Object.defineProperty(globalThis, "document", { configurable: true, value: {
     hidden: false, addEventListener: () => {},
   } });
-  const { invoke, recordTiming } = await import("../src/ui/tauri.ts");
+  const { buildCapabilities, invoke, recordTiming } = await import("../src/ui/tauri.ts");
+  await buildCapabilities();
   recordTiming("page", "agent", 42);
   await invoke("agent_view", { session: "private" });
   events.get("pagehide")!();

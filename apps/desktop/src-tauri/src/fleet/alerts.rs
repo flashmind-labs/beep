@@ -334,6 +334,6 @@ pub(crate) fn reaches(fleet: &Fleet, machine: &str) -> bool {
         .is_ok_and(|id| id == fleet.id() || fleet.mesh().is_some_and(|mesh| mesh.is_member(id)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "local-host"))]
 #[path = "../tests/fleet_alerts.rs"]
 mod tests;

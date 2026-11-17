@@ -207,6 +207,8 @@ pub enum ManifestError {
     IdMismatch { id: PluginId, folder: String },
     #[error("entry {} must be a relative path inside the plugin folder", .0.display())]
     Entry(PathBuf),
+    #[error("entry {} must be a .js file; build TypeScript to JavaScript before installing the plugin", .0.display())]
+    JavaScriptEntry(PathBuf),
     #[error("needs a newer Beep: the plugin uses API {0}, this Beep knows up to {API_VERSION}")]
     Api(NonZeroU32),
     #[error("activation needs at least one entry")]
@@ -263,6 +265,12 @@ impl Manifest {
             return Err(ManifestError::Entry(manifest.entry));
         }
 
+        if !manifest.activation.is_empty()
+            && manifest.entry.extension().and_then(|ext| ext.to_str()) != Some("js")
+        {
+            return Err(ManifestError::JavaScriptEntry(manifest.entry));
+        }
+
         if manifest.activation.is_empty() && manifest.style.is_empty() {
             return Err(ManifestError::NoActivation);
         }
@@ -295,7 +303,7 @@ fn default_activation() -> Vec<Activation> {
 }
 
 fn default_entry() -> PathBuf {
-    PathBuf::from("main.ts")
+    PathBuf::from("main.js")
 }
 
 #[cfg(test)]

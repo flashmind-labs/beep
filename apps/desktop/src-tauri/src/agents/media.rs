@@ -11,7 +11,7 @@ use crate::{
     fleet::{Fleet, Machines, agents as direct},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "image-thumbnails"))]
 use beep_mesh::machine::thumb::{Picture, thumb_of};
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, GetAgentFile, GetAgentImage, image_key,
@@ -72,7 +72,7 @@ pub async fn agent_thumb(
 }
 
 /// `image` made small, for the log to draw.
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "image-thumbnails"))]
 async fn small(image: AgentImageData) -> AgentImageData {
     let made = thumb_of(Picture {
         mime: image.mime,
@@ -87,7 +87,7 @@ async fn small(image: AgentImageData) -> AgentImageData {
 }
 
 /// A phone draws a picture from an older machine as it comes.
-#[cfg(mobile)]
+#[cfg(any(mobile, not(feature = "image-thumbnails")))]
 async fn small(image: AgentImageData) -> AgentImageData {
     image
 }

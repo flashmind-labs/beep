@@ -1,18 +1,26 @@
 //! Bounded timings from the webviews, without page arguments or user data.
 
+#[cfg(any(mobile, feature = "metrics-recording"))]
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+use serde::Deserialize;
+#[cfg(any(mobile, feature = "metrics-recording"))]
 use std::{
     io::{self, Write},
     path::Path,
+    sync::{Arc, Mutex, PoisonError},
+    time::{SystemTime, UNIX_EPOCH},
+};
+use std::{
     sync::{
-        Arc, Mutex, OnceLock, PoisonError,
+        OnceLock,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::Instant,
 };
-
-use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
-use serde::Deserialize;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+#[cfg(any(mobile, feature = "metrics-recording"))]
+use tauri::Manager;
+#[cfg(any(mobile, feature = "metrics-recording"))]
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
 #[derive(Deserialize)]
@@ -279,7 +287,7 @@ fn slow_ms(kind: UiKind) -> Option<f64> {
 
 /// Merges a webview's UI batch into the app's metrics, the ones `beep_metrics` reads.
 #[tauri::command]
-pub(crate) fn desktop_ui_metrics(app: AppHandle, batch: UiBatch) {
+pub(crate) fn desktop_ui_metrics(_app: AppHandle, batch: UiBatch) {
     let started = Instant::now();
     record_ui(&batch);
 
@@ -293,37 +301,39 @@ pub(crate) fn desktop_ui_metrics(app: AppHandle, batch: UiBatch) {
 
     metrics::histogram!("beep_desktop_ui_merge_seconds").record(started.elapsed().as_secs_f64());
 
-    // A desktop's node writes the metrics; a phone writes its own.
-    if let Some(phone) = app.try_state::<PhoneMetrics>() {
+    // A hosted desktop uses its node's snapshots; hostless apps write their own.
+    #[cfg(any(mobile, feature = "metrics-recording"))]
+    if let Some(phone) = _app.try_state::<PhoneMetrics>() {
         phone.snapshot();
     }
 }
 
 /// How many days of a phone's metrics are kept.
+#[cfg(any(mobile, feature = "metrics-recording"))]
 const PHONE_DAYS: usize = 7;
 
-/// A phone's metrics (#571). A phone embeds no node, so it keeps them itself: each UI batch,
-/// about once a minute while the app shows and once as it hides, writes them to `metrics.*.log`
-/// in its folder, in the node's `metrics.log` snapshot format. No timer runs, so a phone in the
-/// background does no work for them.
+/// Metrics for an app without an embedded node. Each UI batch writes a snapshot
+/// in the node's format. No timer runs while the app is in the background.
+#[cfg(any(mobile, feature = "metrics-recording"))]
 pub(crate) struct PhoneMetrics {
     handle: PrometheusHandle,
     file: Arc<Mutex<RollingFileAppender>>,
 }
 
+#[cfg(any(mobile, feature = "metrics-recording"))]
 impl PhoneMetrics {
     /// Installs the app's metrics recorder and writes its snapshots to `dir`.
     #[cfg_attr(
-        desktop,
-        allow(dead_code, reason = "only a phone keeps its own metrics")
+        all(desktop, feature = "local-host"),
+        allow(dead_code, reason = "the embedded node keeps the metrics")
     )]
     pub(crate) fn start(dir: &Path) -> anyhow::Result<Self> {
         Self::new(PrometheusBuilder::new().install_recorder()?, dir)
     }
 
     #[cfg_attr(
-        desktop,
-        allow(dead_code, reason = "only a phone keeps its own metrics")
+        all(desktop, feature = "local-host"),
+        allow(dead_code, reason = "the embedded node keeps the metrics")
     )]
     fn new(handle: PrometheusHandle, dir: &Path) -> anyhow::Result<Self> {
         let file = RollingFileAppender::builder()
@@ -350,6 +360,7 @@ impl PhoneMetrics {
     }
 }
 
+#[cfg(any(mobile, feature = "metrics-recording"))]
 fn write_snapshot(handle: &PrometheusHandle, file: &Mutex<RollingFileAppender>) -> io::Result<()> {
     handle.run_upkeep();
     let timestamp = SystemTime::now()

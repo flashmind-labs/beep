@@ -55,7 +55,7 @@ fn repo_with(version: &str, permissions: &str) -> tempfile::TempDir {
         manifest(version, permissions),
     )
     .unwrap();
-    std::fs::write(repo.path().join("main.ts"), "// plugin").unwrap();
+    std::fs::write(repo.path().join("main.js"), "// plugin").unwrap();
     commit_all(repo.path());
 
     repo
@@ -144,7 +144,7 @@ async fn staging_previews_without_installing_and_confirming_installs() {
     let installed = set.installer.confirm(&set.host, &staged.stage).unwrap();
 
     assert_eq!(installed, id());
-    assert!(set.dir().join("cat-one/main.ts").is_file());
+    assert!(set.dir().join("cat-one/main.js").is_file());
     assert!(
         !set.dir().join("cat-one/.git").exists(),
         "the repository's own files stay out"
@@ -180,7 +180,7 @@ async fn a_plugin_in_a_subfolder_is_found_and_the_rest_is_left_out() {
     let folder = repo.path().join("plugins/cat");
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(folder.join("beep-plugin.json"), manifest("0.1.0", "")).unwrap();
-    std::fs::write(folder.join("main.ts"), "// plugin").unwrap();
+    std::fs::write(folder.join("main.js"), "// plugin").unwrap();
     std::fs::write(repo.path().join("README.md"), "readme").unwrap();
     commit_all(repo.path());
     let set = setup();
@@ -191,7 +191,7 @@ async fn a_plugin_in_a_subfolder_is_found_and_the_rest_is_left_out() {
         .unwrap();
     set.installer.confirm(&set.host, &staged.stage).unwrap();
 
-    assert!(set.dir().join("cat-one/main.ts").is_file());
+    assert!(set.dir().join("cat-one/main.js").is_file());
     assert!(!set.dir().join("cat-one/README.md").exists());
     let Origin::Git(origin) = set.host.record(&id()).unwrap().origin else {
         panic!("expected a git origin");
@@ -411,7 +411,7 @@ fn a_local_folder_is_copied_without_git_and_previews_as_local() {
         manifest("0.1.0", r#""ui.add""#),
     )
     .unwrap();
-    std::fs::write(source.path().join("main.ts"), "// plugin").unwrap();
+    std::fs::write(source.path().join("main.js"), "// plugin").unwrap();
     std::fs::create_dir(source.path().join(".git")).unwrap();
     std::fs::write(source.path().join(".git/config"), "x").unwrap();
     let set = setup();
@@ -426,7 +426,7 @@ fn a_local_folder_is_copied_without_git_and_previews_as_local() {
         "the source stays"
     );
     set.installer.confirm(&set.host, &staged.stage).unwrap();
-    assert!(set.dir().join("cat-one/main.ts").is_file());
+    assert!(set.dir().join("cat-one/main.js").is_file());
     assert!(!set.dir().join("cat-one/.git").exists());
 }
 
@@ -459,7 +459,7 @@ fn copying_refuses_links_that_leave_the_folder() {
     let outside = tempfile::tempdir().unwrap();
     std::fs::write(outside.path().join("secret"), "x").unwrap();
     let source = tempfile::tempdir().unwrap();
-    std::fs::write(source.path().join("main.ts"), "x").unwrap();
+    std::fs::write(source.path().join("main.js"), "x").unwrap();
     std::os::unix::fs::symlink(outside.path().join("secret"), source.path().join("link")).unwrap();
     let target = tempfile::tempdir().unwrap();
 
@@ -472,18 +472,18 @@ fn copying_refuses_links_that_leave_the_folder() {
 #[test]
 fn copying_keeps_a_link_to_a_file_inside_as_a_file() {
     let source = tempfile::tempdir().unwrap();
-    std::fs::write(source.path().join("main.ts"), "body").unwrap();
-    std::os::unix::fs::symlink("main.ts", source.path().join("alias.ts")).unwrap();
+    std::fs::write(source.path().join("main.js"), "body").unwrap();
+    std::os::unix::fs::symlink("main.js", source.path().join("alias.js")).unwrap();
     let target = tempfile::tempdir().unwrap();
     let out = target.path().join("out");
 
     copy_tree(source.path(), &out, MAX_PLUGIN_BYTES).unwrap();
 
     assert_eq!(
-        std::fs::read_to_string(out.join("alias.ts")).unwrap(),
+        std::fs::read_to_string(out.join("alias.js")).unwrap(),
         "body"
     );
-    assert!(!out.join("alias.ts").is_symlink());
+    assert!(!out.join("alias.js").is_symlink());
 }
 
 #[test]

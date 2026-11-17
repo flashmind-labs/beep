@@ -615,3 +615,28 @@ async fn one_peer_that_never_answers_does_not_hold_the_others() {
     assert_eq!(found.sessions[0].machine_name, "Quick");
     assert_eq!(found.unanswered, vec![slow_id]);
 }
+
+#[tokio::test]
+async fn a_full_build_clears_an_observer_marker_carried_from_a_controller() {
+    let mac = start("build-box").await;
+    let key = Key::Observer(mac.fleet.id().to_string());
+    carry::save(mac.dir.path(), &[(key, b"desktop".to_vec())])
+        .expect("the previous controller's settings are saved");
+    mac.fleet.stop().await;
+    let again = Fleet::new(
+        mac.endpoint.clone(),
+        mac.dir.path(),
+        "build-box",
+        offers(&mac.dir),
+    );
+    again.run().await;
+    let mesh = again
+        .ready()
+        .await
+        .expect("the full build reopens the mesh");
+    assert!(
+        !mesh.is_observer(again.id()),
+        "a full build advertises local hosting"
+    );
+    again.stop().await;
+}

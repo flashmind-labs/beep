@@ -12,8 +12,6 @@ use beep_proto::node::{
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::task::spawn_blocking;
 
-pub use mac::{permissions, request};
-
 /// Serves `desktop/1` for the node link.
 pub struct Desktop;
 

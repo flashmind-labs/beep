@@ -12,9 +12,39 @@ use beep_proto::node::desktop::Permission;
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::{AppHandle, State};
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "autostart"))]
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
+
+#[derive(Serialize)]
+pub struct BuildCapabilities {
+    local_host: bool,
+    metrics_recording: bool,
+    resource_profiling: bool,
+    autostart: bool,
+    window_state: bool,
+    image_clipboard: bool,
+    desktop_control: bool,
+    rich_text: bool,
+}
+
+#[tauri::command]
+pub fn build_capabilities() -> BuildCapabilities {
+    BuildCapabilities {
+        local_host: cfg!(all(desktop, feature = "local-host")),
+        metrics_recording: cfg!(any(mobile, feature = "metrics-recording")),
+        resource_profiling: cfg!(all(desktop, feature = "resource-profiling")),
+        autostart: cfg!(all(desktop, feature = "autostart")),
+        window_state: cfg!(all(desktop, feature = "window-state")),
+        image_clipboard: cfg!(all(desktop, feature = "image-clipboard")),
+        desktop_control: cfg!(all(
+            desktop,
+            target_os = "macos",
+            feature = "desktop-control"
+        )),
+        rich_text: cfg!(any(mobile, feature = "rich-text")),
+    }
+}
 
 #[derive(Serialize)]
 pub struct Settings {
@@ -36,9 +66,9 @@ pub fn settings(app: AppHandle, prefs: State<'_, Prefs>) -> Settings {
     Settings {
         name: identity::computer_name(),
         version: app.package_info().version.to_string(),
-        #[cfg(desktop)]
+        #[cfg(all(desktop, feature = "autostart"))]
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
-        #[cfg(mobile)]
+        #[cfg(not(all(desktop, feature = "autostart")))]
         autostart: false,
         agent_notices: prefs.agent_notices(),
         save_folder: crate::platform::saves_dir(&app).ok(),
@@ -80,15 +110,15 @@ pub fn set_developer_mode(app: AppHandle, prefs: State<'_, Prefs>, enabled: bool
     crate::platform::update::follow_feed(&app);
 }
 
-#[cfg(mobile)]
+#[cfg(not(all(desktop, feature = "autostart")))]
 #[tauri::command]
 pub fn set_autostart(_enabled: bool) -> Result<()> {
     Err(DesktopError::BadRequest(
-        "A phone has no login item.".into(),
+        "Launch at login is not included in this build.".into(),
     ))
 }
 
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "autostart"))]
 #[tauri::command]
 pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<()> {
     let manager = app.autolaunch();
@@ -115,15 +145,28 @@ pub fn set_mac_control(
     machine: State<'_, Machine>,
     fleet: Machines<'_>,
     enabled: bool,
-) -> this_mac::View {
+) -> Result<this_mac::View> {
+    if !build_capabilities().local_host {
+        return Err(DesktopError::BadRequest(
+            "Local hosting is not included in this build.".into(),
+        ));
+    }
+
     prefs.set_use_mac(enabled);
     machine.sync(&prefs);
-    machine.view(&prefs, fleet.id())
+    Ok(machine.view(&prefs, fleet.id()))
 }
 
 #[tauri::command]
-pub fn allow_mac_permission(permission: Permission) {
+pub fn allow_mac_permission(permission: Permission) -> Result<()> {
+    if !build_capabilities().desktop_control {
+        return Err(DesktopError::BadRequest(
+            "Local desktop control is not included in this build.".into(),
+        ));
+    }
+
     this_mac::allow(permission);
+    Ok(())
 }
 
 /// The app has no menu bar of its own, so the bar handles ⌘Q.

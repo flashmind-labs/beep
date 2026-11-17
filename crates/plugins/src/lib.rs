@@ -1,4 +1,4 @@
-//! Runs Beep plugins: TypeScript in a QuickJS sandbox that places UI in named
+//! Runs Beep plugins: JavaScript in a QuickJS sandbox that places UI in named
 //! slots. It has no Tauri dependency, so `beep-node` and phones can host it too.
 
 mod asset;

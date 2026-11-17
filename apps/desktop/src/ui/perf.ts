@@ -8,11 +8,19 @@ export type { PerfView } from "./perf-state.ts";
 export { perfViewOf } from "./perf-state.ts";
 
 let recorder: PerfRecorder | null = null;
+let currentView: PerfView | null = null;
+let checkingCapabilities = false;
 
 /// Sets the page the window shows, starting the recording on the first call.
 export function perfView(view: PerfView) {
+  currentView = view;
   if (recorder) recorder.setView(view);
-  else recorder = start(view);
+  else if (!checkingCapabilities) {
+    checkingCapabilities = true;
+    void import("./tauri.ts").then(module => module.buildCapabilities()).then(capabilities => {
+      if (capabilities.metrics_recording && currentView !== null) recorder = start(currentView);
+    });
+  }
 }
 
 /// Shows overlay `view` over the page while `on`.

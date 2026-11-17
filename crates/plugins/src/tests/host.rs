@@ -75,7 +75,7 @@ fn write_plugin(dir: &std::path::Path, id: &str, text: &str) {
 
 fn write_main(dir: &std::path::Path, id: &str, text: &str) {
     std::fs::write(
-        dir.join(id).join("main.ts"),
+        dir.join(id).join("main.js"),
         format!(r#"beep.place({{ slot: "composer" }}, () => beep.text("{text}"));"#),
     )
     .unwrap();
@@ -138,7 +138,7 @@ fn write_follower(dir: &std::path::Path, id: &str) {
     )
     .unwrap();
     std::fs::write(
-        folder.join("main.ts"),
+        folder.join("main.js"),
         r#"
         const seen = beep.state("none");
         beep.on({ name: "ui.composer" }, (event) => seen.set(JSON.stringify(event.data)));
@@ -257,7 +257,7 @@ fn a_failing_plugin_shows_nothing_and_others_keep_running() {
     write_plugin(root.path(), "good-one", "ok");
     write_plugin(root.path(), "bad-one", "x");
     std::fs::write(
-        root.path().join("bad-one/main.ts"),
+        root.path().join("bad-one/main.js"),
         "throw new Error('boom');",
     )
     .unwrap();
@@ -305,7 +305,7 @@ fn a_reloaded_plugin_gets_the_latest_ui_value_again() {
     wait_for(&rx, |p| texts(p) == [r#""kept""#]);
 
     std::fs::write(
-        root.path().join("follower/main.ts"),
+        root.path().join("follower/main.js"),
         r#"
         beep.on({ name: "ui.composer" }, (event) => seen.set("again " + event.data));
         const seen = beep.state("none");
@@ -379,7 +379,7 @@ fn a_plugin_that_fails_follows_nothing() {
     wait_wanted(&wanted, |topics| topics == [composer_topic()]);
 
     std::fs::write(
-        root.path().join("follower/main.ts"),
+        root.path().join("follower/main.js"),
         "throw new Error('boom');",
     )
     .unwrap();
@@ -389,7 +389,7 @@ fn a_plugin_that_fails_follows_nothing() {
 
 fn write_custom(dir: &std::path::Path, id: &str, main: &str) {
     write_plugin(dir, id, "unused");
-    std::fs::write(dir.join(id).join("main.ts"), main).unwrap();
+    std::fs::write(dir.join(id).join("main.js"), main).unwrap();
 }
 
 fn gone(slot: Slot, text: &str) -> InstanceRef {
@@ -622,7 +622,7 @@ fn write_lazy(dir: &std::path::Path, id: &str, activation: &str, main: &str) {
         ),
     )
     .unwrap();
-    std::fs::write(folder.join("main.ts"), main).unwrap();
+    std::fs::write(folder.join("main.js"), main).unwrap();
 }
 
 /// A supervisor driven by hand, with no loop and no file watcher. Plugin threads are real.
@@ -927,7 +927,7 @@ fn the_host_serves_the_images_that_placements_use_and_stops_when_they_go() {
     .unwrap();
     std::fs::write(folder.join("art/a.png"), b"\x89PNG\r\n\x1a\nbytes").unwrap();
     std::fs::write(
-        folder.join("main.ts"),
+        folder.join("main.js"),
         r#"beep.place({ slot: "composer" }, () => beep.image({ src: "art/a.png", width: 1, height: 1 }));"#,
     )
     .unwrap();
@@ -1247,7 +1247,7 @@ const BUILTIN_V1: &[(&str, &[u8])] = &[
         br#"{ "id": "own-cat", "name": "Own", "version": "1.0.0", "permissions": ["ui.add"] }"#,
     ),
     (
-        "main.ts",
+        "main.js",
         br#"beep.place({ slot: "composer" }, () => beep.text("one"));"#,
     ),
     ("art/frame.png", b"png"),
@@ -1259,7 +1259,7 @@ const BUILTIN_V2: &[(&str, &[u8])] = &[
         br#"{ "id": "own-cat", "name": "Own", "version": "2.0.0", "permissions": ["ui.add", "sessions.read"] }"#,
     ),
     (
-        "main.ts",
+        "main.js",
         br#"beep.place({ slot: "composer" }, () => beep.text("two"));"#,
     ),
 ];
@@ -1269,6 +1269,28 @@ fn own_cat(files: &'static [(&'static str, &'static [u8])]) -> [Builtin; 1] {
         id: plugin_id("own-cat"),
         files,
     }]
+}
+
+#[test]
+fn a_built_in_replaces_an_old_typescript_entry_with_compiled_javascript() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("own-cat");
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::write(
+        dir.join("beep-plugin.json"),
+        r#"{ "id": "own-cat", "name": "Own", "version": "0.1.0", "entry": "main.ts" }"#,
+    )
+    .unwrap();
+    std::fs::write(dir.join("main.ts"), "const old: number = 1;").unwrap();
+
+    let (_host, _rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(BUILTIN_V1));
+
+    assert!(dir.join("main.js").is_file());
+    assert!(!dir.join("main.ts").exists());
+    assert_eq!(
+        Manifest::load(&dir).unwrap().entry,
+        PathBuf::from("main.js")
+    );
 }
 
 #[test]
@@ -1294,7 +1316,7 @@ fn a_changed_built_in_replaces_the_copy_and_keeps_the_off_switch() {
     let (host, _rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(BUILTIN_V1));
     host.set_enabled(&id, false).unwrap();
     drop(host);
-    std::fs::write(root.path().join("own-cat/main.ts"), "// edited").unwrap();
+    std::fs::write(root.path().join("own-cat/main.js"), "// edited").unwrap();
 
     let (host, _rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(BUILTIN_V2));
 
@@ -1306,7 +1328,7 @@ fn a_changed_built_in_replaces_the_copy_and_keeps_the_off_switch() {
         [Permission::UiAdd, Permission::SessionsRead]
     );
     assert!(!root.path().join("own-cat/art").exists());
-    let main = std::fs::read_to_string(root.path().join("own-cat/main.ts")).unwrap();
+    let main = std::fs::read_to_string(root.path().join("own-cat/main.js")).unwrap();
     assert!(main.contains("two"));
 }
 
@@ -1368,9 +1390,9 @@ fn write_files(dir: &std::path::Path, id: &str, files: &[(&str, &str)]) {
     }
 }
 
-const MESSAGE: &str = r#"export const message: string = "{}";"#;
+const MESSAGE: &str = r#"export const message = "{}";"#;
 const IMPORTER: &str = r#"
-import { message } from "./message.ts";
+import { message } from "./message.js";
 beep.place({ slot: "composer" }, () => beep.text(message));
 "#;
 
@@ -1381,15 +1403,15 @@ fn a_change_to_an_imported_file_reloads_the_plugin() {
         root.path(),
         "cat-one",
         &[
-            ("main.ts", IMPORTER),
-            ("message.ts", &MESSAGE.replace("{}", "before")),
+            ("main.js", IMPORTER),
+            ("message.js", &MESSAGE.replace("{}", "before")),
         ],
     );
     let (_host, rx) = start(root.path());
     wait_for(&rx, |p| texts(p) == ["before"]);
 
     std::fs::write(
-        root.path().join("cat-one/message.ts"),
+        root.path().join("cat-one/message.js"),
         MESSAGE.replace("{}", "after"),
     )
     .unwrap();
@@ -1421,7 +1443,7 @@ fn a_failing_plugin_logs_why_it_stopped() {
     write_files(
         root.path(),
         "logs-boom",
-        &[("main.ts", "console.log('hello'); throw new Error('boom');")],
+        &[("main.js", "console.log('hello'); throw new Error('boom');")],
     );
 
     crate::console::tests::captured("logs-boom");
@@ -1449,7 +1471,7 @@ beep.place({ slot: "composer" }, () => beep.text("stored"));
 #[test]
 fn removing_a_plugin_deletes_its_data_but_disabling_keeps_it() {
     let root = tempfile::tempdir().unwrap();
-    write_files(root.path(), "cat-one", &[("main.ts", STORING)]);
+    write_files(root.path(), "cat-one", &[("main.js", STORING)]);
     let data = root.path().join(".data/cat-one.json");
     let (host, rx) = start_with(root.path(), Policy::Dev);
     wait_for(&rx, |p| texts(p) == ["stored"]);
@@ -1468,14 +1490,14 @@ fn a_built_in_update_keeps_the_plugins_data() {
             "beep-plugin.json",
             br#"{ "id": "own-cat", "name": "T", "version": "1.0.0", "permissions": ["ui.add"] }"#,
         ),
-        ("main.ts", STORING.as_bytes()),
+        ("main.js", STORING.as_bytes()),
     ];
     const V2: &[(&str, &[u8])] = &[
         (
             "beep-plugin.json",
             br#"{ "id": "own-cat", "name": "T", "version": "2.0.0", "permissions": ["ui.add"] }"#,
         ),
-        ("main.ts", STORING.as_bytes()),
+        ("main.js", STORING.as_bytes()),
     ];
     let root = tempfile::tempdir().unwrap();
     let (host, rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(V1));
@@ -1504,7 +1526,7 @@ const TOOLS: &str = r#"[
 ]"#;
 
 const TOOL_MAIN: &str = r#"
-beep.tool("add", (input: { a: number; b: number }) => ({ sum: input.a + input.b }));
+beep.tool("add", (input) => ({ sum: input.a + input.b }));
 beep.tool("later", () => new Promise((resolve) => beep.after(50, () => resolve("done"))));
 beep.tool("hang", () => new Promise(() => {}));
 beep.tool("boom", () => { throw new Error("nope"); });
@@ -1521,7 +1543,7 @@ fn write_tool_plugin(dir: &std::path::Path, id: &str, tools: &str, main: &str, a
         ),
     )
     .unwrap();
-    std::fs::write(folder.join("main.ts"), main).unwrap();
+    std::fs::write(folder.join("main.js"), main).unwrap();
 }
 
 fn tool_name(name: &str) -> ToolName {

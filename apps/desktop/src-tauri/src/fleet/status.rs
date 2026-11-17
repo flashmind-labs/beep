@@ -635,7 +635,7 @@ impl Follower {
 
                 let client = match (&self.session, id == self.me) {
                     (Some(session), true) => PeerClient::local(session.clone()),
-                    // A phone is no machine of the mesh, so it never follows itself.
+                    // A controller without a local node never follows itself.
                     (None, true) => continue,
                     (_, false) => PeerClient::over(self.mesh.clone(), id),
                 };
@@ -862,6 +862,6 @@ fn machine_disk(disk: DiskUsage) -> MachineDisk {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "local-host"))]
 #[path = "../tests/fleet_status.rs"]
 mod tests;

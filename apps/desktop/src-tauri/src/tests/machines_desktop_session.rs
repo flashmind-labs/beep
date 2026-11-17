@@ -1,4 +1,5 @@
 use super::*;
+use crate::machines::desktop::permissions;
 
 /// Takes a real screenshot and tree on this Mac and sends both through
 /// the wire encoding. Needs Screen Recording and Accessibility for the

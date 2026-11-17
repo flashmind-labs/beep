@@ -8,4 +8,4 @@ if [[ -z "${RUSTC_WRAPPER:-}" ]] && command -v sccache >/dev/null; then
 fi
 
 npm ci --silent
-npm exec --yes --package '@tauri-apps/cli@2' -- tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --no-bundle --ci
+npm exec --yes --package '@tauri-apps/cli@2' -- tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --no-bundle --ci --features full
