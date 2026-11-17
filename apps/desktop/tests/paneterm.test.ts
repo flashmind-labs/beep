@@ -205,7 +205,7 @@ test("closing a terminal's tab ends the terminal on its machine", async t => {
   const attached = nextAttach();
   attach(term);
   attached.send({ kind: "attached" });
-  const tab: MediaTab = { id: "term:shell 1", kind: "term", name: "shell 1", path: null, url: null, size: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, term };
+  const tab: MediaTab = { id: "term:shell 1", kind: "term", name: "shell 1", path: null, url: null, size: 0, started: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, term };
   P.tabs.push(tab);
   closeTab(tab.id);
   await settle();
@@ -223,7 +223,7 @@ test("a terminal whose stop fails keeps its tab and is followed again", async t 
   const attached = nextAttach();
   attach(term);
   attached.send({ kind: "attached" });
-  const tab: MediaTab = { id: "term:shell 2", kind: "term", name: "shell 2", path: null, url: null, size: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, term };
+  const tab: MediaTab = { id: "term:shell 2", kind: "term", name: "shell 2", path: null, url: null, size: 0, started: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, term };
   P.tabs.push(tab);
   answers.terminal_close = Promise.reject(new Error("build-box: the node stopped answering"));
   nextAttach();
@@ -247,7 +247,7 @@ test("leaving a session detaches its terminals and drops their screens", async t
   const stream = nextAttach();
   attach(term);
   stream.send({ kind: "attached" });
-  P.tabs.push({ id: "term:shell", kind: "term", name: "shell", path: null, url: null, size: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, term });
+  P.tabs.push({ id: "term:shell", kind: "term", name: "shell", path: null, url: null, size: 0, started: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, term });
   closePaneTabs();
   await settle();
   assert.equal(P.tabs.length, 0);
@@ -261,7 +261,7 @@ test("leaving a session detaches its terminals and drops their screens", async t
 test("leaving keeps starting and existing terminals alive", async t => {
   noPane(t);
   calls.length = 0;
-  const starting: MediaTab = { id: "term:new", kind: "term", name: "new", path: null, url: null, size: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0 };
+  const starting: MediaTab = { id: "term:new", kind: "term", name: "new", path: null, url: null, size: 0, started: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0 };
   P.tabs.push(starting, { ...starting, id: "term:existing", existing: ROW });
   closePaneTabs();
   await settle();
@@ -276,7 +276,7 @@ test("leaving during a tab close does not send a second stop", async t => {
   let stopped!: () => void;
   answers.terminal_close = new Promise<void>(resolve => { stopped = resolve; });
   const term = paneTerm(ROW, fakeScreen(), { onEnd() {}, onLink() {}, onEscape() {} });
-  P.tabs.push({ id: "term:shell", kind: "term", name: "shell", path: null, url: null, size: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, term });
+  P.tabs.push({ id: "term:shell", kind: "term", name: "shell", path: null, url: null, size: 0, started: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, term });
   closeTab("term:shell");
   closePaneTabs();
   stopped();
@@ -298,7 +298,7 @@ test("a stop refused after leaving cannot reconnect the disposed terminal", asyn
   const stream = nextAttach();
   attach(term);
   stream.send({ kind: "attached" });
-  P.tabs.push({ id: "term:shell", kind: "term", name: "shell", path: null, url: null, size: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, term });
+  P.tabs.push({ id: "term:shell", kind: "term", name: "shell", path: null, url: null, size: 0, started: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, term });
   closeTab("term:shell");
   closePaneTabs();
   refuse(new Error("the node stopped answering"));

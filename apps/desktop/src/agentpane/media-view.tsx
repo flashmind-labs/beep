@@ -4,6 +4,7 @@ import { ModelControls } from "./model-controls.tsx";
 import { fileSize } from "../chat/media.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { resolvePath } from "./media-state.ts";
+import { transferSpeed } from "./files-state.ts";
 import { P, saveFile, type MediaTab } from "./media.ts";
 import { readError, readFile } from "./read.ts";
 import { noteTab } from "./media-draw.ts";
@@ -76,11 +77,12 @@ function ModelFooter({ tab, machine }: { tab: MediaTab; machine: string | null }
 /// A tab still reading, or one that failed.
 export function PendingView({ tab }: { tab: MediaTab }) {
   const machine = P.session?.machine_name ?? null;
+  const speed = tab.kind === "text" || tab.kind === "term" || tab.error ? null : transferSpeed(tab);
   const pending = tab.error ? { message: tab.error, error: true, progress: null }
     : tab.kind === "text" ? { message: `Reading ${tab.name} from ${machine ?? "the machine"}…`, error: false, progress: null }
     : tab.kind === "term" ? { message: `Opening a terminal on ${(tab.at ?? tab.existing)?.machine_name ?? "the machine"}…`, error: false, progress: null }
     : { message: `Opening ${tab.name}…`, error: false, progress: tab.size ? Math.min(1, Math.max(0, tab.done / tab.size)) : 0 };
-  return <div className={`agpmsg${pending.error ? " derr" : ""}`}>{!pending.error && <Spinner />}{pending.message}{pending.progress !== null && <span className="agpload"><i style={{ transform: `scaleX(${pending.progress})` }} /></span>}</div>;
+  return <div className={`agpmsg${pending.error ? " derr" : ""}`}>{!pending.error && <Spinner />}{pending.message}{pending.progress !== null && <span className="agpload"><i style={{ transform: `scaleX(${pending.progress})` }} /></span>}{speed && <small>{speed}</small>}</div>;
 }
 
 type ModelState = { kind: "drawing" } | { kind: "drawn" } | { kind: "failed"; message: string };

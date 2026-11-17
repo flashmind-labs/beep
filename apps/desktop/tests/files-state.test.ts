@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  type Listing, type TreeEntry, atEdge, codeFile, failedListing, highlight, languageOf, mentionText, mergeTree, treeRows, unreadFolders, uploadParts,
+  type Listing, type TreeEntry, atEdge, codeFile, failedListing, highlight, languageOf, mentionText, mergeTree, treeRows, transferSpeed, unreadFolders, uploadParts,
   withMentions,
 } from "../src/agentpane/files-state.ts";
 import { linkedPath } from "../src/agentpane/media-state.ts";
@@ -121,4 +121,11 @@ test("mergeTree reports whether a read changed anything", () => {
   assert.equal(mergeTree(held, tree(["a"])), true);
   assert.equal(mergeTree(held, tree(["a"])), false);
   assert.equal(mergeTree(held, tree(["a", "b"])), true);
+});
+
+test("a transfer shows its speed once past five seconds and under 80%", () => {
+  const mb = 1024 * 1024;
+  assert.equal(transferSpeed({ started: 0, done: 10 * mb, size: 100 * mb }, 4000), null);
+  assert.equal(transferSpeed({ started: 0, done: 10 * mb, size: 100 * mb }, 10_000), "1 MB/s");
+  assert.equal(transferSpeed({ started: 0, done: 80 * mb, size: 100 * mb }, 10_000), null);
 });

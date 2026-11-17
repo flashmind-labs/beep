@@ -5,6 +5,7 @@ import { Spinner } from "../ui/kit.tsx";
 import { previewsOf } from "./images.tsx";
 import type { Attached } from "./agentqueue.ts";
 import type { PendingFile } from "./start-files.ts";
+import { speedNote } from "./attachments-view.tsx";
 
 export function StartAttachmentChips({ images, files, progress, remove }: { images: Attached[]; files: PendingFile[]; progress: { size: number; done: number } | null; remove(kind: "image" | "file", index: number): void }) {
   const loose = (file: File) => !images.some(image => image.original === file);
@@ -15,10 +16,10 @@ export function StartAttachmentChips({ images, files, progress, remove }: { imag
     {files.map((entry, i) => loose(entry.file) && <span className="att" key={identity(entry)} title={entry.error ?? undefined}><LocalFile entry={entry} /><RemoveChip name={entry.file.name || "file"} data="data-startfile" index={i} remove={() => remove("file", i)} /></span>)}</AttachmentBatch></>;
 }
 
-function LocalFile({ entry: { file, at, path, done, error } }: { entry: PendingFile }) {
+function LocalFile({ entry: { file, at, path, done, error, started } }: { entry: PendingFile }) {
   const url = useMemo(() => file.type.startsWith("image/") ? URL.createObjectURL(file) : null, [file]);
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
   const uploading = at && !path && !error;
 
-  return <>{uploading && <Spinner />}{url ? <ImagePreview images={[{ url, name: file.name, full: null }]} index={0} listed={false} /> : <span className="nm">{file.name || "file"}</span>}{uploading && <small>{file.size ? Math.round(done / file.size * 100) : 0}%</small>}</>;
+  return <>{uploading && <Spinner />}{url ? <ImagePreview images={[{ url, name: file.name, full: null }]} index={0} listed={false} /> : <span className="nm">{file.name || "file"}</span>}{uploading && <small>{file.size ? Math.round(done / file.size * 100) : 0}%{speedNote({ started, done, size: file.size })}</small>}</>;
 }

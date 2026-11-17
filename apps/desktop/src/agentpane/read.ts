@@ -186,6 +186,7 @@ export async function load(t: MediaTab, again = false) {
   const s = P.session;
   if (!s || !t.path) return;
   if (again) localUploads.delete(localUploadKey(s.machine_id, t.path));
+  else t.started = Date.now();
 
   try {
     const { bytes, mime } = await readFile(s.machine_id, t.path, s.id, (done, size) => {

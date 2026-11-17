@@ -86,7 +86,8 @@ export interface MediaTab {
   /// Its bytes as a URL once here, and how many there were.
   url: string | null;
   size: number;
-  /// Bytes read so far while it loads, and why it could not be.
+  /// When it started loading, bytes read so far, and why it could not be.
+  started: number;
   done: number;
   error: string;
   /// Counts changes to what its view shows, so the view draws again.
@@ -287,7 +288,7 @@ export function openPath(path: string) {
 
 function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Partial<MediaTab>) {
   if (!P.tabs.some(x => x.id === t.id)) {
-    const tab: MediaTab = { size: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, ...t };
+    const tab: MediaTab = { size: 0, started: Date.now(), done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, ...t };
     P.tabs.push(tab);
 
     if (!tab.error) {
