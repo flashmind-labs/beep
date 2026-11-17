@@ -99,6 +99,9 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
     #[cfg(target_os = "android")]
     let builder = builder.plugin(tauri_plugin_qr_scan::init());
+    // The tick of a board lane settling on a card.
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_haptics::init());
     builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())

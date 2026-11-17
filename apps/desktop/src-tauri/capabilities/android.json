@@ -8,6 +8,7 @@
     "android"
   ],
   "permissions": [
-    "qr-scan:allow-scan"
+    "qr-scan:allow-scan",
+    "haptics:allow-selection-feedback"
   ]
 }

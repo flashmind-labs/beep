@@ -8,7 +8,8 @@ import { AgentButton, type AgentButtonItem } from "../review/feedback-view.tsx";
 import { Button, LineRow, onRowKey } from "../ui/kit.tsx";
 import { openMenu, type MenuAction } from "../ui/menu.tsx";
 import { heroCard, motionAllowed, movePlaying, setHeroCard, withMove } from "../ui/motion.ts";
-import { isMobile } from "../ui/platform.ts";
+import { isMobile, onPhone } from "../ui/platform.ts";
+import { invoke } from "../ui/tauri.ts";
 import type { AgentQuestion } from "../agents/running-state.ts";
 import { LANES, byLane, travelled, type Lane } from "./lanes-state.ts";
 
@@ -156,6 +157,26 @@ function Cell({ children }: { children: ReactNode }) {
 
     observer.observe(page);
     return () => observer.disconnect();
+  }, []);
+
+  // On a phone the cell snaps a card at a time, and ticks when it rests on another card.
+  useEffect(() => {
+    const cell = ref.current;
+    if (!cell || !onPhone()) return;
+    let rest = cell.scrollTop, timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = () => {
+      if (Math.abs(cell.scrollTop - rest) < 1) return;
+
+      rest = cell.scrollTop;
+      // A phone without a haptic engine refuses, which changes nothing.
+      invoke("plugin:haptics|selection_feedback").catch(() => undefined);
+    };
+    // Where the web view has no scrollend, a short pause in the scroll stands for it.
+    const event = "onscrollend" in cell ? "scrollend" : "scroll";
+    const listener = event === "scrollend" ? settle : () => { clearTimeout(timer); timer = setTimeout(settle, 100); };
+
+    cell.addEventListener(event, listener, { passive: true });
+    return () => { clearTimeout(timer); cell.removeEventListener(event, listener); };
   }, []);
 
   return <div className="bd-lane cell" ref={ref} style={fit === null ? undefined : { maxHeight: fit }}>{children}</div>;
