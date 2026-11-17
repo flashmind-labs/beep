@@ -250,3 +250,18 @@ test("fast mode alone is applied before continuing an ended session", async ({ p
   expect(calls[1].args).toMatchObject({ steer: { configure: { fast: true } } });
   expect(calls[2].args).toMatchObject({ steer: { prompt: { text: "Continue at fast speed" } } });
 });
+
+test("the model shortcut returns focus to the conversation input after using the picker", async ({ page }) => {
+  const active = { ...session, status: "working", external: false };
+  await openDesktop(page, false, { agent_view: view(active) });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+  const input = page.locator("#agmsg");
+  await expect(page.locator("#agmodelb")).toBeEnabled();
+  await input.focus();
+  for (let repeat = 0; repeat < 2; repeat++) {
+    await page.keyboard.press("Meta+Shift+m");
+    await expect(page.locator(".agc-search")).toBeFocused();
+    await page.keyboard.press("Meta+Shift+m");
+    await expect(input).toBeFocused();
+  }
+});

@@ -8,6 +8,26 @@ const named = { ...kept, id: "started", title: null, status: "starting", doing: 
 const pageOf = (session: Omit<typeof start, "title" | "doing"> & { title: string | null; doing: string | null }, text: string | null, error: string | null) => ({ session, plan: [], files: [], entries: text === null ? [] : [{ kind: "user", text }], earlier: 0, last_message: "", error, queued: 0, queued_messages: [], turns: 0 });
 const calls = (page: Page, command: string) => page.evaluate(name => window.__navigation.calls().filter(call => call.command === name).map(call => call.args), command);
 
+test("opening and revisiting a project focuses its composer without stealing focus on refresh", async ({ page }) => {
+  await openDesktop(page, false, { agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }] });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  const form = page.locator(".cc-pjc:visible");
+  const input = form.getByRole("textbox", { name: "Task for a coding agent" });
+  await expect(input).toBeFocused();
+
+  const folder = form.locator('[data-composer="folder"]');
+  await expect(folder).toBeEnabled();
+  await folder.focus();
+  const reads = (await calls(page, "agent_hosts")).length;
+  await page.evaluate(() => window.__navigation.notify("machines"));
+  await expect.poll(async () => (await calls(page, "agent_hosts")).length).toBeGreaterThan(reads);
+  await expect(folder).toBeFocused();
+
+  await page.evaluate(() => window.__navigation.open("home"));
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await expect(input).toBeFocused();
+});
+
 test("project composer keeps draft, menu choices and issue branch across redraws", async ({ page }) => {
   const now = Date.now();
   const issue = { number: 7, title: "Example issue", url: "https://example.test/issues/7", author: "Example", opened_at: now, comments: 0, labels: [] };
@@ -254,19 +274,27 @@ test("newer host availability wins over a delayed initial read", async ({ page }
   await expect(input).toHaveJSProperty("selectionEnd", 5);
 });
 
-test("⇧⌘M in the project task field opens and closes the model picker", async ({ page }, info) => {
+test("the model shortcut returns focus to the project task after using the picker", async ({ page }, info) => {
   await openDesktop(page, false, { agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }] });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   const form = page.locator(".cc-pjc:visible");
   const harness = form.locator('button[title="Harness, model and thinking"]');
   await expect(harness).toBeEnabled();
-  await form.getByRole("textbox", { name: "Task for a coding agent" }).click();
+  const input = form.getByRole("textbox", { name: "Task for a coding agent" });
+  await expect(input).toBeFocused();
   const key = info.project.name === "Windows" ? "Control+Shift+m" : "Meta+Shift+m";
   await page.keyboard.press(key);
   await expect(harness).toHaveAttribute("aria-expanded", "true");
   await expect(form.locator(".pick .agc-search")).toBeVisible();
   await page.keyboard.press(key);
   await expect(harness).toHaveAttribute("aria-expanded", "false");
+  await expect(input).toBeFocused();
+  await page.keyboard.type("Continue typing");
+  await expect(input).toHaveValue("Continue typing");
+  await page.keyboard.press(key);
+  await expect(form.locator(".pick .agc-search")).toBeFocused();
+  await page.keyboard.press(key);
+  await expect(input).toBeFocused();
 });
 
 test("⇧⌘M and the pill open the model picker in a project's new conversation", async ({ page }, info) => {
@@ -284,6 +312,7 @@ test("⇧⌘M and the pill open the model picker in a project's new conversation
   await expect(page.locator("#agdraft .pick .agc-search")).toBeVisible();
   await page.keyboard.press(`${modifier}+Shift+m`);
   await expect(harness).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("#agdraft textarea")).toBeFocused();
 
   await harness.click();
   await expect(page.locator("#agdraft .pick .agc-search")).toBeVisible();
