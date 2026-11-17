@@ -43,6 +43,7 @@ percent-encoding.workspace = true
 pulldown-cmark = { workspace = true, features = ["html"] }
 pulldown-latex.workspace = true
 qrcode = { workspace = true, features = ["svg"] }
+regex.workspace = true
 rusqlite.workspace = true
 rust_decimal.workspace = true
 secrecy.workspace = true

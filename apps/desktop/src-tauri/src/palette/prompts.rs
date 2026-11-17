@@ -18,11 +18,12 @@ use beep_proto::{
     node::agent::{EntryKind, SessionsReply, SessionsRequest},
 };
 use futures::{StreamExt, stream};
+use regex::Regex;
 use schedule::{Due, Pacer, Schedule};
 use std::{
     path::Path,
     sync::{
-        Arc, Mutex, MutexGuard, PoisonError,
+        Arc, LazyLock, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime},
@@ -453,20 +454,7 @@ pub async fn center_find_prompts(
             .into_iter()
             .map(|found| {
                 let mut entry = session_entry(&found.session, &projects);
-                let mut snippets = Vec::new();
-                for term in query.split_whitespace() {
-                    if let Some(text) = found
-                        .texts
-                        .iter()
-                        .find(|text| text.to_lowercase().contains(&term.to_lowercase()))
-                    {
-                        let snippet = excerpt(text, term);
-                        if !snippets.contains(&snippet) {
-                            snippets.push(snippet);
-                        }
-                    }
-                }
-                entry.snippet = Some(format!("Prompt: {}", snippets.join(" · ")));
+                entry.snippet = snippet(&found.texts, &query);
                 Ok(entry)
             })
             .collect()
@@ -475,13 +463,33 @@ pub async fn center_find_prompts(
     .context("searching session prompts stopped")??)
 }
 
-/// A short plain-text excerpt around the first match, with Unicode offsets
-/// measured in characters so case folding cannot split a UTF-8 character.
-fn excerpt(text: &str, query: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let query = query.trim().to_lowercase();
+/// One line from the first prompt that holds a query word, without the
+/// files it mentions.
+fn snippet(texts: &[String], query: &str) -> Option<String> {
+    let terms: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+
+    texts
+        .iter()
+        .find_map(|text| excerpt(&MENTION.replace_all(text, " "), &terms))
+}
+
+/// A file mention as `@path` or `@"path with spaces"` writes it.
+static MENTION: LazyLock<Regex> = LazyLock::new(|| {
+    // A constant pattern, checked by the tests.
+    Regex::new(r#"@"[^"]*"|@\S*[/\\]\S*"#).expect("valid mention pattern")
+});
+
+/// A short plain-text excerpt from just before the earliest query word, with
+/// Unicode offsets measured in characters so case folding cannot split a
+/// UTF-8 character.
+fn excerpt(text: &str, terms: &[String]) -> Option<String> {
     let folded = text.to_lowercase();
-    let folded_at = folded.find(&query).unwrap_or_default();
+    let (folded_at, term) = terms
+        .iter()
+        .filter_map(|term| folded.find(term.as_str()).map(|at| (at, term)))
+        .min()?;
+
+    let chars: Vec<char> = text.chars().collect();
     let mut bytes = 0;
     let at = chars
         .iter()
@@ -491,15 +499,16 @@ fn excerpt(text: &str, query: &str) -> String {
             before < folded_at
         })
         .count();
-    let start = at.saturating_sub(48);
-    let end = (at + query.chars().count() + 96).min(chars.len());
+    let start = at.saturating_sub(24);
+    let end = (at + term.chars().count() + 120).min(chars.len());
     let excerpt: String = chars[start.min(chars.len())..end].iter().collect();
-    format!(
+
+    Some(format!(
         "{}{}{}",
         if start > 0 { "…" } else { "" },
         excerpt.split_whitespace().collect::<Vec<_>>().join(" "),
         if end < chars.len() { "…" } else { "" }
-    )
+    ))
 }
 
 #[cfg(test)]

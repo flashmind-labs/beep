@@ -88,7 +88,7 @@ body:not(.mobile) :is(.cc-pal .it, .dchat)[aria-selected="true"] { background: c
 body:not(.mobile) .cc-pal .it { padding-block: 5px }
 body:not(.mobile) .cc-pal .it .t { grid-template-columns: minmax(0, max-content) minmax(0, 1fr); align-items: baseline; column-gap: 12px }
 body:not(.mobile) .cc-pal .it .t small { text-align: right; color: var(--dim) }
-body:not(.mobile) .cc-pal .it .t small.s { grid-column: 1 / -1; text-align: left }
+body:not(.mobile) .cc-pal .it .t small.s { grid-column: 1 / -1; text-align: left; font-family: var(--body) }
 body:not(.mobile) .cc-pal mark { padding: 0; border-radius: 0; background: none; color: var(--fg); font-weight: 650 }
 body:not(.mobile) .cc-pal small mark { color: var(--muted); font-weight: 500 }
 body:not(.mobile) .cc-pal .it:not([aria-selected="true"]) .t > span { color: color-mix(in srgb, var(--fg) 82%, transparent) }

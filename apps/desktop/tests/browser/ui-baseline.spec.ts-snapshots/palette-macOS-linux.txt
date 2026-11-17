@@ -238,7 +238,7 @@ body.cbody
                 mark "example"
               small "Claude Code · /widget · build-box"
                 mark "example"
-              small.s "Prompt: …rewrite the in the README so it matches the new widget options and drop the old flags…"
+              small.s "…rewrite the in the README so it matches the new widget options and drop the old flags…"
                 mark "example"
           h5 "Machines"
           button#pal-opt-6.it [aria-selected="false" role="option" tabindex="-1" type="button"]

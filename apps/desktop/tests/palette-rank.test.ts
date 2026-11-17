@@ -98,7 +98,7 @@ test("a keystroke over a big index stays under a millisecond", () => {
 test("prompt matches join coding sessions, with an excerpt and the session to open", () => {
   const session = { machine_id: "build-box", id: "a" };
   const listed = { ...entry("agent_session", "Connection fixes", "build-box a", "Codex · widget"), session };
-  const prompt = { ...listed, snippet: "Prompt: Add a retry button" };
+  const prompt = { ...listed, snippet: "Add a retry button" };
   const hits = rank("retry", index({ sessions: [listed] }), [prompt]);
   assert.equal(hits.length, 1);
   assert.equal(hits[0].kind, "agent_session");
@@ -109,7 +109,7 @@ test("prompt matches join coding sessions, with an excerpt and the session to op
 
 test("title and prompt hits deduplicate without merging other kinds with the same id", () => {
   const listed = entry("agent_session", "Retry fixes", "same", "Codex · widget");
-  const prompt = { ...listed, snippet: "Prompt: Add a retry button" };
+  const prompt = { ...listed, snippet: "Add a retry button" };
   const project = entry("project", "Retry tools", "same");
   const hits = rank("retry", index({ sessions: [listed], projects: [project] }), [prompt]);
   assert.equal(hits.filter(hit => hit.kind === "agent_session").length, 1);
