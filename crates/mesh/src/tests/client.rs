@@ -181,6 +181,56 @@ async fn one_off_reads_are_calls_and_never_kept_live() {
     ));
 }
 
+/// A subscription that never gives its snapshot, as while the node sets
+/// up a large file watch.
+struct Starting;
+
+impl SnapshotReader for Starting {
+    fn snapshot(&self, _read: Read) -> SnapshotFuture<'_> {
+        Box::pin(pending())
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_followed_read_asks_the_node_when_its_subscription_is_slow() {
+    use crate::machine::sessions::{self, NodeWork, Reading};
+    use beep_proto::node::{
+        Open, Opened,
+        agent::{SessionsReply, SessionsRequest},
+    };
+
+    let node: SessionFn = Arc::new(|mut tx, mut rx| {
+        Box::pin(async move {
+            rx.recv::<Open>().await.unwrap().unwrap();
+            tx.send(&Opened::Ready {}).await.unwrap();
+            let asked = rx.recv::<SessionsRequest>().await.unwrap().unwrap();
+            assert!(matches!(asked, SessionsRequest::Folder { .. }));
+            tx.send(&SessionsReply::Tree {
+                tree: beep_proto::WorkTree {
+                    folders: Vec::new(),
+                    truncated: false,
+                },
+            })
+            .await
+            .unwrap();
+        })
+    });
+    let client = PeerClient::local(node).with_snapshot_reader(Arc::new(Starting));
+    let list = beep_proto::ListWorkTree {
+        machine_id: String::new(),
+        root: "/srv/project".into(),
+        path: String::new(),
+        ignored: false,
+        depth: 1,
+    };
+    assert!(matches!(
+        sessions::tree(&client, &list, Reading::Followed)
+            .await
+            .unwrap(),
+        NodeWork::Done(_)
+    ));
+}
+
 fn link(e: impl StdError + Send + Sync + 'static) -> MeshError {
     MeshError::Link(anyhow::Error::new(e))
 }

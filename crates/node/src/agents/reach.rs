@@ -207,10 +207,12 @@ impl Agents {
             roots.sort();
             roots.dedup();
             let parents = roots.clone();
+            // A worktree inside a checkout stays a root of its own: the
+            // checkout's watch leaves out its changes.
             roots.retain(|root| {
                 !parents
                     .iter()
-                    .any(|parent| parent != root && root.starts_with(parent))
+                    .any(|parent| crate::events::paths::reports(parent, root))
             });
             Ok(roots)
         })
