@@ -80,11 +80,13 @@ export function ProjectRail({ project, label, running, past, current, back }: {
     <div className="cc-head" data-tauri-drag-region="" />
     <div className="cc-brand"><Button look="quiet" className="rail-back" title={`Back to ${label}`} onClick={back}>{label}</Button><SideToggle /></div>
     <input className="ip-field rail-filter" type="search" placeholder="Filter sessions" aria-label="Filter sessions" spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
+    <div className="rail-scroll">
     {!!live.length && <h4>Running<span className="n">{live.length}</span></h4>}
     {!!live.length && <div className="rail-live">{live.map(session => row(session, <RunningStatus row={session} />, session.doing ?? ""))}</div>}
     {!!ended.length && <h4>Past<span className="n">{ended.length}</span></h4>}
     {ended.slice(0, RAIL_PAST).map(session => row(session, formatAgo(session.last_activity, "short")))}
     {ended.length > RAIL_PAST && <Button look="quiet" className="rail-all" onClick={() => go("projects", { project, tile: "agents" })}>All {ended.length} sessions</Button>}
+    </div>
   </>;
 }
 

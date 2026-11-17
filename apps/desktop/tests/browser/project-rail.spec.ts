@@ -67,3 +67,21 @@ test("a project's session swaps the sidebar for the project's sessions in the sa
   await expect(rail).toBeHidden();
   await expect(side).toBeVisible();
 });
+
+test("the project's sessions scroll under a header that stays put", async ({ page }) => {
+  const sessions = Array.from({ length: 40 }, (_, i) => ({ machine_id: "build-box", machine_name: "build-box", id: `past-${i}`, agent: "codex", title: `Past session ${i}`, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100 - i, external: false, question: null, assistant: false }));
+  await openDesktop(page, false, { project_sessions: sessions });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
+  await page.locator(".pj-det .pv-row").filter({ hasText: "Past session 1" }).first().click();
+  const rail = page.locator("#rail"), list = rail.locator(".rail-scroll"), filter = rail.getByPlaceholder("Filter sessions");
+  await expect(rail).toBeVisible();
+  const before = await filter.boundingBox();
+
+  await list.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await expect.poll(() => list.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+  expect(await rail.evaluate(node => node.scrollTop)).toBe(0);
+  expect(await filter.boundingBox()).toEqual(before);
+  // No row slides up under the filter and the window buttons.
+  const top = await list.evaluate(node => node.getBoundingClientRect().top);
+  expect(top).toBeGreaterThanOrEqual((before?.y ?? 0) + (before?.height ?? 0));
+});
