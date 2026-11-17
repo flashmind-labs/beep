@@ -123,6 +123,7 @@ pub(crate) fn check_all(tools: &[ToolSpec], permissions: &[Permission]) -> Resul
         if tool.description.chars().count() > MAX_DESCRIPTION {
             return Err(ToolsError::LongDescription(tool.name.clone()));
         }
+        #[cfg(feature = "tools")]
         jsonschema::validator_for(&tool.input).map_err(|e| ToolsError::Schema {
             name: tool.name.clone(),
             reason: e.to_string(),
@@ -134,6 +135,7 @@ pub(crate) fn check_all(tools: &[ToolSpec], permissions: &[Permission]) -> Resul
 
 impl ToolSpec {
     /// Whether `input` fits the tool's schema.
+    #[cfg(feature = "tools")]
     pub(crate) fn check_input(&self, input: &serde_json::Value) -> Result<(), ToolError> {
         let validator =
             jsonschema::validator_for(&self.input).map_err(|e| ToolError::Input(e.to_string()))?;
@@ -142,11 +144,18 @@ impl ToolSpec {
             .validate(input)
             .map_err(|e| ToolError::Input(format!("{e} (at {})", e.instance_path())))
     }
+
+    #[cfg(not(feature = "tools"))]
+    pub(crate) fn check_input(&self, _input: &serde_json::Value) -> Result<(), ToolError> {
+        Err(ToolError::Unsupported)
+    }
 }
 
 /// Why a tool call gave no result.
 #[derive(Debug, Error)]
 pub enum ToolError {
+    #[error("plugin tools are not included in this build; enable the plugin-tools desktop feature")]
+    Unsupported,
     #[error("there is no plugin {0}")]
     NoPlugin(PluginId),
     #[error("plugin {plugin} is {state}, so it answers no tool calls")]
@@ -204,6 +213,11 @@ pub(crate) struct Tools {
 
 impl Tools {
     pub(crate) fn new(declared: &[ToolSpec]) -> Self {
+        let declared = if cfg!(feature = "tools") {
+            declared
+        } else {
+            &[]
+        };
         Self {
             declared: declared.iter().map(|tool| tool.name.clone()).collect(),
             registered: BTreeSet::new(),
@@ -214,6 +228,10 @@ impl Tools {
 
     /// Records `beep.tool(name, ...)`: an empty string, or why it is refused.
     pub(crate) fn register(&mut self, name: &str) -> String {
+        if !cfg!(feature = "tools") {
+            return ToolError::Unsupported.to_string();
+        }
+
         let name = match name.parse::<ToolName>() {
             Ok(name) => name,
             Err(error) => return error.to_string(),

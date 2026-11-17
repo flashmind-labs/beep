@@ -139,29 +139,16 @@ its data; removing it deletes the data.
 
 ## Tools for agents
 
-Coding agents reach plugins through the `plugins` tool of the Beep MCP server, on
-the desktop's own node and, through the mesh, on any other machine's node (the
-call goes to an online desktop; a phone runs no plugins and never answers). The
-Settings page shows the permission as "Give tools to your agents": coding agents can
-call the tools this plugin lists.
+The lean desktop leaves plugin tools out; `plugin-tools` or `full` enables them.
+Check `beep.capabilities.tools` before registering handlers so the plugin's UI
+also works without tools. In that build, declarations stay as metadata, no tools
+are advertised, and registration or calls fail explicitly. Only enabled tools
+compile and validate their JSON Schemas.
 
-What an agent can do:
-
-- `list`: every plugin with its state, source, permissions and tools.
-- `status`: one plugin, with its placements count and its recent log lines (up to
-  200, default 50) read from the newest daily file of the app's log, the lines
-  whose message starts with `plugin: <id>: `.
-- `create`: write a starter plugin (id, name, description, permissions) into the
-  plugins folder as a local plugin. It does not run until the user allows it in
-  Settings, Plugins. In a development folder (`BEEP_PLUGINS_DIR`) it runs at once,
-  as any plugin there does.
-- `call`: call a tool a plugin provides with arguments. The result comes back as
-  text (JSON when it is not a string), at most 64 KB, and is untrusted output.
-
-What an agent cannot do: allow a plugin or a permission, turn one on or off, install,
-update or remove one, or call a plugin that is off, waiting for approval, paused
-(no window visible) or stopped; the call fails and names the state. A plugin that
-waits for its slot starts for the call.
+Plugin hosts can call these handlers through `Host::call_tool`. The desktop does
+not currently expose this API through Beep MCP. Calls refuse a plugin that is
+off, waiting for approval, paused or stopped; a plugin waiting for its slot
+starts for the call. Tool results are untrusted output, limited to 64 KB.
 
 A plugin declares each tool in its manifest and registers its handler:
 

@@ -1,8 +1,8 @@
-import { answers, calls } from "./bar-env.ts";
-import test from "node:test";
+import { answers, calls, nativeEvent } from "./bar-env.ts";
+import test, { afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "../src/agentpane/read.ts";
-import { P } from "../src/agentpane/media.ts";
+import { type FilePart, P } from "../src/agentpane/media.ts";
 import { UPLOAD_PART } from "../src/agentpane/files-state.ts";
 import { MN, uploadDropped, activateMentions, rememberMentionImages, resetMentions, currentMentions } from "../src/agents/workdrop.ts";
 
@@ -127,4 +127,73 @@ test("the uploading device plays its local video without reading it back from th
   assert.equal(new TextDecoder().decode(result.bytes), "video bytes");
   assert.equal(result.mime, "video/quicktime");
   assert.equal(calls.filter(call => call.cmd === "agent_file").length, 0);
+});
+
+function remoteParts(parts: FilePart[]) {
+  calls.length = 0;
+  let at = 0;
+  Object.defineProperty(answers, "agent_file", { configurable: true, get() {
+    const part = parts[at++];
+    assert.ok(part, "the reader only asks for available chunks");
+    return part;
+  } });
+}
+
+const part = (size: number, text: string): FilePart => ({ size, mime: "application/pdf", data: btoa(text) });
+const remotePath = "/srv/project/reports/result.pdf";
+afterEach(() => { delete answers.agent_file; });
+
+test("remote media parts keep their offsets and publish only the complete file", async () => {
+  remoteParts([part(6, "abc"), part(6, "def")]);
+  const progress: [number, number][] = [];
+  const result = await readFile(session.machine_id, remotePath, session.id, (done, size) => progress.push([done, size]));
+
+  assert.equal(new TextDecoder().decode(result.bytes), "abcdef");
+  assert.equal(result.mime, "application/pdf");
+  assert.deepEqual(progress, [[3, 6], [6, 6]]);
+  assert.deepEqual(calls.filter(call => call.cmd === "agent_file").map(call => call.args), [
+    { machineId: session.machine_id, path: remotePath, offset: 0, session: session.id },
+    { machineId: session.machine_id, path: remotePath, offset: 3, session: session.id },
+  ]);
+});
+
+test("an empty remote media file is complete", async () => {
+  remoteParts([part(0, "")]);
+  const result = await readFile(session.machine_id, remotePath, null, () => {});
+
+  assert.equal(result.bytes.length, 0);
+  assert.equal(result.mime, "application/pdf");
+  assert.equal(calls.filter(call => call.cmd === "agent_file").length, 1);
+});
+
+test("changing sizes, early EOF and trailing bytes never publish partial media", async () => {
+  for (const parts of [
+    [part(6, "abc"), part(3, "")],
+    [part(6, "abc"), part(7, "defg")],
+    [part(6, "abc"), part(6, "")],
+    [part(6, "abc"), part(6, "defg")],
+    [part(1, "ab")],
+  ]) {
+    remoteParts(parts);
+    let progressCalls = 0;
+    await assert.rejects(
+      readFile(session.machine_id, remotePath, session.id, () => { progressCalls++; }),
+      /file changed/,
+    );
+    const before = progressCalls;
+    nativeEvent("agent-file-progress", { machine_id: session.machine_id, path: remotePath, done: 6, size: 6 });
+    assert.equal(progressCalls, before, "failed reads release their progress listener");
+  }
+});
+
+test("remote file sizes must fit exact nonnegative JavaScript integers", async () => {
+  for (const size of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+    remoteParts([part(size, "a")]);
+
+    await assert.rejects(
+      readFile(session.machine_id, remotePath, session.id, () => {}),
+      /file size is out of range/,
+    );
+    assert.equal(calls.filter(call => call.cmd === "agent_file").length, 1);
+  }
 });

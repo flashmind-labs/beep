@@ -4,6 +4,7 @@
 //! conversation drops the files only it opened; files not opened for `KEEP`
 //! go, and the store stays under `MAX_BYTES`.
 
+use super::media::{KEEP, MAX_BYTES};
 use crate::{chat::files::GONE, error::DesktopError, fleet::Fleet};
 use anyhow::{Context, Result};
 use beep_mesh::machine::{NodeShare, sessions};
@@ -31,18 +32,6 @@ use tokio::{
     time::timeout,
 };
 
-/// How long a file stays after it was last opened.
-#[cfg(desktop)]
-const KEEP: Duration = Duration::from_secs(24 * 60 * 60);
-#[cfg(mobile)]
-const KEEP: Duration = Duration::from_secs(8 * 60 * 60);
-/// The most the store holds; the files opened longest ago go first.
-#[cfg(desktop)]
-const MAX_BYTES: u64 = 5 << 30;
-#[cfg(mobile)]
-const MAX_BYTES: u64 = 500 << 20;
-/// How often old files are dropped while the app runs.
-pub(crate) const SWEEP_EVERY: Duration = Duration::from_secs(30 * 60);
 /// How long reaching the machine's blob store may take.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// How often the store drops the blobs no tag holds.

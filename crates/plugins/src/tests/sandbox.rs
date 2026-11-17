@@ -1378,6 +1378,7 @@ fn call_tool(
 }
 
 #[test]
+#[cfg(feature = "tools")]
 fn session_notes_tools_read_and_write_the_notes_the_rows_show() {
     let (_root, mut sandbox) = session_notes();
     sandbox
@@ -1479,6 +1480,55 @@ fn session_notes_draws_a_note_per_row_from_the_header() {
             ..
         }
     ));
+}
+
+#[test]
+fn plugin_capabilities_report_the_build_and_cannot_be_changed() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        r#"
+          let refused = false;
+          try { beep.capabilities.tools = !beep.capabilities.tools; }
+          catch { refused = true; }
+          beep.place({ slot: "composer" }, () => beep.text(
+            `${beep.capabilities.tools}:${Object.isFrozen(beep.capabilities)}:${refused}`
+          ));
+        "#,
+    );
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+
+    assert_eq!(
+        text_of(sandbox.render().unwrap()),
+        format!("{}:true:true", cfg!(feature = "tools"))
+    );
+}
+
+#[test]
+#[cfg(not(feature = "tools"))]
+fn a_build_without_tools_refuses_registration_and_direct_calls() {
+    let fixture = Fixture::new(r#""tools""#, r#"beep.tool("add", () => 1);"#);
+    let error = fixture
+        .load(Instant::now())
+        .err()
+        .expect("registration fails");
+    assert!(
+        error.to_string().contains("plugin tools are not included"),
+        "{error}"
+    );
+
+    let (_root, mut sandbox) = session_notes();
+    assert!(matches!(
+        call_tool(
+            &mut sandbox,
+            "set_note",
+            json!({ "session": "a", "note": "never written" })
+        ),
+        Err(ToolError::Unsupported)
+    ));
+    sandbox
+        .set_instances(&[row_instance("a", "Alpha")])
+        .unwrap();
+    assert!(sandbox.render().unwrap().unwrap().is_empty());
 }
 
 fn sandbox_id() -> PluginId {

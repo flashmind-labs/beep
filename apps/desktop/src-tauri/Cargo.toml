@@ -16,7 +16,7 @@ tauri-build.workspace = true
 
 [features]
 default = []
-full = ["local-host", "rich-text", "metrics-recording", "resource-profiling", "autostart", "window-state", "image-clipboard", "image-thumbnails", "desktop-control", "asset-compression"]
+full = ["local-host", "rich-text", "metrics-recording", "resource-profiling", "autostart", "window-state", "image-clipboard", "image-thumbnails", "desktop-control", "asset-compression", "blob-cache", "plugin-tools"]
 local-host = ["beep-node/host", "metrics-recording"]
 rich-text = ["dep:ammonia", "dep:pulldown-cmark", "dep:pulldown-latex"]
 metrics-recording = ["dep:metrics-exporter-prometheus"]
@@ -26,6 +26,8 @@ image-clipboard = ["dep:arboard", "dep:image"]
 image-thumbnails = ["beep-mesh/thumbs"]
 desktop-control = ["local-host", "dep:objc2-application-services", "dep:objc2-screen-capture-kit"]
 asset-compression = ["tauri/compression"]
+blob-cache = ["dep:iroh-blobs"]
+plugin-tools = ["beep-plugins/tools"]
 # Battery and process sampling, enabled at runtime by BEEP_DESKTOP_RESOURCE_METRICS.
 resource-profiling = ["metrics-recording", "dep:battery", "dep:sysinfo"]
 # Sparkle updates, for the signed builds of the release workflow.
@@ -44,7 +46,7 @@ beep-proto = { workspace = true, features = ["https"] }
 beep-report.workspace = true
 futures.workspace = true
 iroh.workspace = true
-iroh-blobs.workspace = true
+iroh-blobs = { workspace = true, optional = true }
 iroh-metrics.workspace = true
 iroh-tickets.workspace = true
 log.workspace = true
@@ -66,10 +68,11 @@ serde.workspace = true
 serde_bytes.workspace = true
 serde_json.workspace = true
 strum.workspace = true
-tauri = { workspace = true, features = ["wry", "dynamic-acl", "tray-icon", "image-png", "macos-private-api"] }
+tauri = { workspace = true, features = ["wry", "dynamic-acl", "tray-icon", "macos-private-api"] }
 tauri-plugin-opener.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 tracing.workspace = true
 tracing-appender.workspace = true
 tracing-subscriber = { workspace = true, default-features = false, features = ["fmt", "env-filter", "tracing-log", "smallvec"] }
@@ -79,7 +82,6 @@ which.workspace = true
 
 [dev-dependencies]
 rmp-serde.workspace = true
-tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 # Desktop only: no login item or self-updater on a phone, and no embedded node.
@@ -88,7 +90,7 @@ arboard = { workspace = true, optional = true }
 battery = { workspace = true, optional = true }
 beep-mesh.workspace = true
 beep-node.workspace = true
-beep-plugins.workspace = true
+beep-plugins = { workspace = true, default-features = false }
 # The app data folder before Tauri starts, as Tauri finds it.
 dirs.workspace = true
 image = { workspace = true, features = ["png"], optional = true }
@@ -107,6 +109,7 @@ tauri-plugin-notification.workspace = true
 # A board lane ticks as it settles on a card.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 ammonia.workspace = true
+iroh-blobs.workspace = true
 metrics-exporter-prometheus.workspace = true
 pulldown-cmark = { workspace = true, features = ["html"] }
 pulldown-latex.workspace = true

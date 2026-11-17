@@ -405,6 +405,10 @@ impl Host {
         tool: &ToolName,
         input: &serde_json::Value,
     ) -> Result<serde_json::Value, ToolError> {
+        if !cfg!(feature = "tools") {
+            return Err(ToolError::Unsupported);
+        }
+
         let status = self
             .status()
             .into_iter()

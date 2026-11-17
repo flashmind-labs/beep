@@ -9,7 +9,6 @@ use crate::{
 };
 use tauri::{
     App, AppHandle, Manager, Wry,
-    image::Image,
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
 };
@@ -21,7 +20,7 @@ pub(crate) const REPORT: &str = "report-problem";
 /// Puts the icon in the menu bar.
 pub(crate) fn install(app: &App) -> tauri::Result<()> {
     let handle = app.handle();
-    let icon = Image::from_bytes(include_bytes!("../../icons/tray.png"))?;
+    let icon = tauri::include_image!("icons/tray.png");
     TrayIconBuilder::with_id(TRAY)
         .icon(icon)
         .icon_as_template(true)

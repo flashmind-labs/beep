@@ -26,9 +26,9 @@ export function rememberLocalUpload(machine: string, path: string, file: File) {
 /// How far fetching a file from another machine has come.
 type FileProgress = { machine_id: string; path: string; done: number; size: number };
 
-/// Reads all of `path` from `machine`, a part at a time, keeping it for the
-/// conversation `session`; `progress` hears how far it got. The first part
-/// fetches a file from another machine whole, telling its progress.
+/// Reads all of `path` from `machine`, a part at a time; `progress` hears how
+/// far it got. A build with blob caching keeps it for `session` and may fetch
+/// the whole file before giving the first part.
 export async function readFile(machine: string, path: string, session: string | null, progress: (done: number, size: number) => void) {
   const key = localUploadKey(machine, path), local = localUploads.get(key);
   if (local) {
@@ -42,7 +42,8 @@ export async function readFile(machine: string, path: string, session: string | 
   }
 
   const parts: Uint8Array[] = [];
-  let done = 0, size = 0, mime = "";
+  let done = 0, mime = "";
+  let size: number | null = null;
   const unlisten = await listen<FileProgress>("agent-file-progress", e => {
     if (e.payload.machine_id === machine && e.payload.path === path) progress(e.payload.done, e.payload.size);
   });
@@ -50,12 +51,17 @@ export async function readFile(machine: string, path: string, session: string | 
   try {
     do {
       const part = await invoke<FilePart>("agent_file", { machineId: machine, path, offset: done, session });
-      size = part.size;
-      mime = part.mime;
+      if (!Number.isSafeInteger(part.size) || part.size < 0) throw new Error("The file size is out of range.");
+      if (size === null) { size = part.size; mime = part.mime; }
+      else if (part.size !== size) throw new Error("The file changed while it was loading. Open it again.");
+
       const bytes = bytesOf(part.data);
-      if (!bytes.length) break;
+      const next = done + bytes.length;
+      if (!Number.isSafeInteger(next)) throw new Error("The file size is out of range.");
+      if (next > size || (!bytes.length && done < size)) throw new Error("The file changed while it was loading. Open it again.");
+
       parts.push(bytes);
-      done += bytes.length;
+      done = next;
       progress(done, size);
     } while (done < size);
   } finally {

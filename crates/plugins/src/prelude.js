@@ -262,6 +262,7 @@
 
   const api = {
     place, state, after, on, image, sprite, text, row, button, toggle, input, tool,
+    capabilities: Object.freeze({ tools: native.tools_available }),
     log: logger("info"),
     store,
   };

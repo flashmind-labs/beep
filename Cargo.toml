@@ -38,7 +38,7 @@ beep-fleet = { path = "crates/fleet" }
 beep-mesh = { path = "crates/mesh" }
 # The phone leaves out the host; a node and the desktop turn it on.
 beep-node = { path = "crates/node", default-features = false }
-beep-plugins = { path = "crates/plugins" }
+beep-plugins = { path = "crates/plugins", default-features = false }
 beep-projects = { path = "crates/projects" }
 beep-proto = { path = "crates/proto" }
 beep-report = { path = "crates/report" }

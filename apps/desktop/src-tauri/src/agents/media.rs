@@ -1,29 +1,53 @@
 //! Pictures and media files a coding-agent session refers to, read from
 //! its machine: shown, opened or saved here.
 
+#[cfg(any(mobile, feature = "blob-cache"))]
+use crate::agents::file_cache::{Cached, FileCache};
 use crate::{
-    agents::{
-        file_cache::{Cached, FileCache},
-        work_copy,
-    },
+    agents::work_copy,
     chat::files::{file_name, free_name, gone, image_mime},
     error::{DesktopError, Result},
-    fleet::{Fleet, Machines, agents as direct},
+    fleet::{AsyncMutex, Fleet, Machines, agents as direct},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 #[cfg(all(desktop, feature = "image-thumbnails"))]
 use beep_mesh::machine::thumb::{Picture, thumb_of};
+#[cfg(any(mobile, feature = "blob-cache"))]
+use beep_proto::media_mime;
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, GetAgentFile, GetAgentImage, image_key,
-    media_mime,
 };
+#[cfg(any(mobile, feature = "blob-cache"))]
 use iroh::EndpointId;
 use serde::Serialize;
-use std::{fs, path::PathBuf, sync::Arc};
-use tauri::{AppHandle, Emitter, Manager, State};
+#[cfg(any(mobile, feature = "blob-cache"))]
+use std::sync::Arc;
+use std::{
+    future::Future,
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime},
+};
+#[cfg(any(mobile, feature = "blob-cache"))]
+use tauri::Emitter;
+use tauri::{AppHandle, Manager};
+use tempfile::{NamedTempFile, TempPath};
+use tokio::io::AsyncWriteExt;
 
-/// The chat file store, as commands take it.
-type Files<'a> = State<'a, Arc<FileCache>>;
+/// How long media copies stay after being opened.
+#[cfg(desktop)]
+pub(super) const KEEP: Duration = Duration::from_secs(24 * 60 * 60);
+#[cfg(mobile)]
+pub(super) const KEEP: Duration = Duration::from_secs(8 * 60 * 60);
+/// Each media store's budget, except the copy currently being opened.
+#[cfg(desktop)]
+pub(super) const MAX_BYTES: u64 = 5 << 30;
+#[cfg(mobile)]
+pub(super) const MAX_BYTES: u64 = 500 << 20;
+/// Run once at startup, then age out old media while the app runs.
+pub(crate) const SWEEP_EVERY: Duration = Duration::from_secs(30 * 60);
+
+// A sweep must not remove a copy replaced after its metadata was read.
+static OPEN_COPIES: AsyncMutex<()> = AsyncMutex::const_new(());
 
 /// The picture of the `[image: image-<key>]` line of `session`, read from
 /// its machine, as a data URL the bar can draw.
@@ -119,43 +143,47 @@ pub struct AgentFilePart {
 }
 
 /// Up to `AGENT_FILE_CHUNK` bytes of the media file `path` on `machine_id`
-/// from `offset`. Another mesh machine's file comes from the chat file
-/// store, fetched whole with the first part and kept for `session`, and
-/// `agent-file-progress` events tell how the download goes; otherwise it is
-/// read from its machine.
+/// from `offset`. With blob caching, the first part fetches a remote file
+/// into the chat store, kept for `session`; `agent-file-progress` tells how
+/// the download goes. Other builds read each part directly from the machine.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn agent_file(
     app: AppHandle,
     fleet: Machines<'_>,
-    cache: Files<'_>,
     machine_id: String,
     path: String,
     offset: u64,
     session: Option<String>,
 ) -> Result<AgentFilePart> {
-    let asked = Asked {
-        machine_id: &machine_id,
-        path: &path,
-        session: session.as_deref(),
-    };
-    // Later parts come from what the first one fetched, or the node.
-    let cached = if offset == 0 {
-        cached(&app, &fleet, &cache, asked).await?
-    } else {
-        remote(&fleet, &machine_id).and_then(|machine| cache.known(machine, &path))
-    };
+    #[cfg(any(mobile, feature = "blob-cache"))]
+    {
+        let cache = app.state::<Arc<FileCache>>();
+        let asked = Asked {
+            machine_id: &machine_id,
+            path: &path,
+            session: session.as_deref(),
+        };
+        // Later parts come from what the first one fetched, or the node.
+        let cached = if offset == 0 {
+            cached(&app, &fleet, &cache, asked).await?
+        } else {
+            remote(&fleet, &machine_id).and_then(|machine| cache.known(machine, &path))
+        };
 
-    if let Some(cached) = cached {
-        let data = cache.read(cached, offset, AGENT_FILE_CHUNK).await?;
-        return Ok(AgentFilePart {
-            size: cached.size,
-            mime: media_mime(&path)
-                .unwrap_or("application/octet-stream")
-                .to_owned(),
-            data: STANDARD.encode(&data),
-        });
+        if let Some(cached) = cached {
+            let data = cache.read(cached, offset, AGENT_FILE_CHUNK).await?;
+            return Ok(AgentFilePart {
+                size: cached.size,
+                mime: media_mime(&path)
+                    .unwrap_or("application/octet-stream")
+                    .to_owned(),
+                data: STANDARD.encode(&data),
+            });
+        }
     }
+    #[cfg(not(any(mobile, feature = "blob-cache")))]
+    let _ = (app, session);
 
     let chunk = file_chunk(&fleet, machine_id, path, offset).await?;
     Ok(AgentFilePart {
@@ -165,36 +193,48 @@ pub async fn agent_file(
     })
 }
 
-/// Opens the media file `path` on `machine_id` in the Mac's own app for
-/// it, read whole into the cache first.
+/// Opens the media file `path` on `machine_id` in this computer's own app,
+/// after downloading a complete local copy.
 #[tauri::command]
 pub async fn agent_file_open(
     app: AppHandle,
     fleet: Machines<'_>,
-    cache: Files<'_>,
     machine_id: String,
     path: String,
     session: Option<String>,
 ) -> Result<()> {
-    let asked = Asked {
-        machine_id: &machine_id,
-        path: &path,
-        session: session.as_deref(),
-    };
+    #[cfg(any(mobile, feature = "blob-cache"))]
+    {
+        let cache = app.state::<Arc<FileCache>>();
+        let asked = Asked {
+            machine_id: &machine_id,
+            path: &path,
+            session: session.as_deref(),
+        };
 
-    if let Some(cached) = cached(&app, &fleet, &cache, asked).await? {
-        let to = cache.copy_path(cached, &file_name(&path));
-        cache.export(cached, &to).await?;
-        crate::platform::open(&to)?;
-        return Ok(());
+        if let Some(cached) = cached(&app, &fleet, &cache, asked).await? {
+            let to = cache.copy_path(cached, &file_name(&path));
+            cache.export(cached, &to).await?;
+            crate::platform::open(&to)?;
+            return Ok(());
+        }
     }
+    #[cfg(not(any(mobile, feature = "blob-cache")))]
+    let _ = session;
 
-    let data = whole_file(&fleet, &machine_id, &path).await?;
     let dir = app.path().app_cache_dir()?.join("agent-files");
-    fs::create_dir_all(&dir).map_err(anyhow::Error::from)?;
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(anyhow::Error::from)?;
     let of = image_key(format!("{machine_id}\n{path}").as_bytes());
     let to = dir.join(format!("{of}-{}", file_name(&path)));
-    fs::write(&to, &data).map_err(anyhow::Error::from)?;
+    let temporary = download_file(&dir, |offset| {
+        file_chunk(&fleet, machine_id.clone(), path.clone(), offset)
+    })
+    .await?;
+    let _one = OPEN_COPIES.lock().await;
+    temporary.persist(&to).map_err(anyhow::Error::from)?;
+    trim_open_files(&dir, Some(&to)).await;
     crate::platform::open(&to)?;
     Ok(())
 }
@@ -205,36 +245,53 @@ pub async fn agent_file_open(
 pub async fn agent_file_save(
     app: AppHandle,
     fleet: Machines<'_>,
-    cache: Files<'_>,
     machine_id: String,
     path: String,
     session: Option<String>,
 ) -> Result<PathBuf> {
-    let asked = Asked {
-        machine_id: &machine_id,
-        path: &path,
-        session: session.as_deref(),
-    };
     let to = free_name(&crate::platform::saves_dir(&app)?, &file_name(&path));
+    #[cfg(any(mobile, feature = "blob-cache"))]
+    {
+        let cache = app.state::<Arc<FileCache>>();
+        let asked = Asked {
+            machine_id: &machine_id,
+            path: &path,
+            session: session.as_deref(),
+        };
 
-    if let Some(cached) = cached(&app, &fleet, &cache, asked).await? {
-        cache.export(cached, &to).await?;
-        return Ok(to);
+        if let Some(cached) = cached(&app, &fleet, &cache, asked).await? {
+            cache.export(cached, &to).await?;
+            return Ok(to);
+        }
     }
+    #[cfg(not(any(mobile, feature = "blob-cache")))]
+    let _ = session;
 
-    let data = whole_file(&fleet, &machine_id, &path).await?;
-    fs::write(&to, &data).map_err(anyhow::Error::from)?;
+    let dir = to
+        .parent()
+        .ok_or_else(|| DesktopError::BadRequest("bad save folder".into()))?;
+    let temporary = download_file(dir, |offset| {
+        file_chunk(&fleet, machine_id.clone(), path.clone(), offset)
+    })
+    .await?;
+    temporary
+        .persist_noclobber(&to)
+        .map_err(anyhow::Error::from)?;
     Ok(to)
 }
 
 /// Conversation `session` closed: drops the files only it opened.
 #[tauri::command]
-pub async fn agent_files_forget(cache: Files<'_>, session: String) -> Result<()> {
-    cache.forget(&session).await?;
+pub async fn agent_files_forget(app: AppHandle, session: String) -> Result<()> {
+    #[cfg(any(mobile, feature = "blob-cache"))]
+    app.state::<Arc<FileCache>>().forget(&session).await?;
+    #[cfg(not(any(mobile, feature = "blob-cache")))]
+    let _ = (app, session);
     Ok(())
 }
 
 /// A media file asked for, from the conversation `session` when there is one.
+#[cfg(any(mobile, feature = "blob-cache"))]
 #[derive(Clone, Copy)]
 struct Asked<'a> {
     machine_id: &'a str,
@@ -243,6 +300,7 @@ struct Asked<'a> {
 }
 
 /// How far fetching a chat file has come, as `agent-file-progress` tells it.
+#[cfg(any(mobile, feature = "blob-cache"))]
 #[derive(Clone, Serialize)]
 struct FileProgress<'a> {
     machine_id: &'a str,
@@ -252,6 +310,7 @@ struct FileProgress<'a> {
 }
 
 /// Another mesh machine, whose files the chat file store keeps.
+#[cfg(any(mobile, feature = "blob-cache"))]
 fn remote(fleet: &Fleet, machine_id: &str) -> Option<EndpointId> {
     fleet
         .member(machine_id)
@@ -261,6 +320,7 @@ fn remote(fleet: &Fleet, machine_id: &str) -> Option<EndpointId> {
 /// `asked` from the chat file store, fetched unless it holds the file
 /// already. `None` for a file read another way: on this machine, in a
 /// working copy here, or from a node that cannot share.
+#[cfg(any(mobile, feature = "blob-cache"))]
 async fn cached(
     app: &AppHandle,
     fleet: &Fleet,
@@ -318,30 +378,145 @@ async fn file_chunk(
     gone(direct::file(fleet, machine, &request).await)
 }
 
-/// The whole media file `path` on `machine_id`, read a chunk at a time.
-async fn whole_file(fleet: &Fleet, machine_id: &str, path: &str) -> Result<Vec<u8>> {
-    let mut data = Vec::new();
+/// Bounds the completed copies kept for native viewers, including copies
+/// left by a previous app run. In-progress temporary files stay untouched.
+pub(crate) async fn sweep_open_files(dir: &Path) {
+    let _one = OPEN_COPIES.lock().await;
+    trim_open_files(dir, None).await;
+}
+
+async fn trim_open_files(dir: &Path, keep: Option<&Path>) {
+    if let Err(error) = prune_open_files(dir, keep, SystemTime::now(), MAX_BYTES).await {
+        log::warn!("dropping old media copies failed: {error}");
+    }
+}
+
+struct OpenCopy {
+    path: PathBuf,
+    size: u64,
+    opened: SystemTime,
+}
+
+async fn prune_open_files(
+    dir: &Path,
+    keep: Option<&Path>,
+    now: SystemTime,
+    budget: u64,
+) -> std::io::Result<()> {
+    let metadata = match tokio::fs::symlink_metadata(dir).await {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if !metadata.file_type().is_dir() {
+        return Ok(());
+    }
+
+    let mut entries = tokio::fs::read_dir(dir).await?;
+    let mut copies = Vec::new();
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name();
+        let Some((key, name)) = name.to_str().and_then(|name| name.split_once('-')) else {
+            continue;
+        };
+        if key.len() != 16
+            || !key
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            || name.is_empty()
+        {
+            continue;
+        }
+        let metadata = tokio::fs::symlink_metadata(entry.path()).await?;
+        if metadata.file_type().is_file() {
+            copies.push(OpenCopy {
+                path: entry.path(),
+                size: metadata.len(),
+                opened: metadata.modified()?,
+            });
+        }
+    }
+    copies.sort_by_key(|copy| std::cmp::Reverse(copy.opened));
+
+    let expired = |copy: &OpenCopy| now.duration_since(copy.opened).unwrap_or_default() > KEEP;
+    // External viewers may still read the newest copy. Keep it until it ages
+    // out, even when that one file exceeds the normal store budget.
+    let keep = copies
+        .iter()
+        .find(|copy| Some(copy.path.as_path()) == keep)
+        .or_else(|| copies.first().filter(|copy| !expired(copy)))
+        .map(|copy| copy.path.clone());
+    let mut held = copies
+        .iter()
+        .find(|copy| Some(&copy.path) == keep.as_ref())
+        .map_or(0, |copy| copy.size);
+
+    for copy in copies {
+        if Some(&copy.path) == keep.as_ref() {
+            continue;
+        }
+        if expired(&copy) || copy.size > budget.saturating_sub(held) {
+            match tokio::fs::remove_file(copy.path).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        } else {
+            held = held.saturating_add(copy.size);
+        }
+    }
+    Ok(())
+}
+
+/// Downloads a file in bounded chunks. The guarded temporary file disappears
+/// on errors and cancellation; callers only publish complete downloads.
+async fn download_file<F>(dir: &Path, mut read: impl FnMut(u64) -> F + Send) -> Result<TempPath>
+where
+    F: Future<Output = Result<AgentFileChunk>> + Send,
+{
+    let dir = dir.to_owned();
+    let temporary = tokio::task::spawn_blocking(move || NamedTempFile::new_in(dir))
+        .await
+        .map_err(anyhow::Error::from)?
+        .map_err(anyhow::Error::from)?;
+    let (file, temporary) = temporary.into_parts();
+    let mut file = tokio::fs::File::from_std(file);
+    let mut offset = 0_u64;
+    let mut size = None;
 
     loop {
-        let offset = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
-        let chunk = file_chunk(fleet, machine_id.to_owned(), path.to_owned(), offset).await?;
+        let chunk = read(offset).await?;
+        let len = u64::try_from(chunk.data.len()).map_err(anyhow::Error::from)?;
+        let next = offset
+            .checked_add(len)
+            .ok_or_else(|| DesktopError::BadRequest("the file size is out of range".into()))?;
 
         if chunk.data.len() > AGENT_FILE_CHUNK {
-            return Err(DesktopError::BadRequest("file too large".into()));
+            return Err(DesktopError::BadRequest("file chunk too large".into()));
         }
-
-        data.extend_from_slice(&chunk.data);
-        let have = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
-
-        if have >= chunk.size {
-            data.truncate(usize::try_from(chunk.size).map_err(anyhow::Error::from)?);
-            return Ok(data);
-        }
-
-        if chunk.data.is_empty() {
+        if size.is_some_and(|size| chunk.size != size)
+            || next > chunk.size
+            || (len == 0 && offset < chunk.size)
+        {
             return Err(DesktopError::BadRequest(
                 "the file changed while read".into(),
             ));
         }
+
+        size = Some(chunk.size);
+        file.write_all(&chunk.data)
+            .await
+            .map_err(anyhow::Error::from)?;
+        offset = next;
+
+        if offset == chunk.size {
+            file.flush().await.map_err(anyhow::Error::from)?;
+            drop(file);
+            return Ok(temporary);
+        }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/agents_media.rs"]
+mod tests;

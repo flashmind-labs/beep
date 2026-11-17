@@ -532,6 +532,7 @@ impl Fleet {
     }
 
     /// The endpoint this app reaches the mesh on.
+    #[cfg(any(mobile, feature = "blob-cache"))]
     pub fn endpoint(&self) -> &Endpoint {
         &self.endpoint
     }

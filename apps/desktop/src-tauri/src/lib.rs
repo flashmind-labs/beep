@@ -727,17 +727,23 @@ fn setup(
         Arc::new(Fleet::observer(endpoint, &mesh))
     };
     app.manage(fleet.clone());
-    let files = Arc::new(agents::file_cache::FileCache::new(
-        handle.path().app_cache_dir()?.join("chat-files"),
-    ));
-    let sweeping = files.clone();
+    let opened_files = handle.path().app_cache_dir()?.join("agent-files");
+    #[cfg(any(mobile, feature = "blob-cache"))]
+    let files = {
+        let files = Arc::new(agents::file_cache::FileCache::new(
+            handle.path().app_cache_dir()?.join("chat-files"),
+        ));
+        app.manage(files.clone());
+        files
+    };
     tauri::async_runtime::spawn(async move {
         loop {
-            sweeping.sweep().await;
-            tokio::time::sleep(agents::file_cache::SWEEP_EVERY).await;
+            agents::media::sweep_open_files(&opened_files).await;
+            #[cfg(any(mobile, feature = "blob-cache"))]
+            files.sweep().await;
+            tokio::time::sleep(agents::media::SWEEP_EVERY).await;
         }
     });
-    app.manage(files);
     // What the projects pages read, kept for the run of the app.
     app.manage(beep_fleet::Session::new(
         fleet.clone(),

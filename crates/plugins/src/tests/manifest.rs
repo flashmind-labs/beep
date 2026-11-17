@@ -196,8 +196,17 @@ fn tools_need_the_permission_and_stay_within_the_limits() {
     assert!(Manifest::parse(&with_tools(r#""tools""#, &long)).is_err());
 
     let schema = r#"[{ "name": "a", "input": { "type": 5 } }]"#;
-    let error = Manifest::parse(&with_tools(r#""tools""#, schema)).unwrap_err();
-    assert!(error.to_string().contains("not valid"), "{error}");
+    #[cfg(feature = "tools")]
+    {
+        let error = Manifest::parse(&with_tools(r#""tools""#, schema)).unwrap_err();
+        assert!(error.to_string().contains("not valid"), "{error}");
+    }
+    #[cfg(not(feature = "tools"))]
+    {
+        // Disabled tools retain their metadata, without compiling or running schemas.
+        let manifest = Manifest::parse(&with_tools(r#""tools""#, schema)).unwrap();
+        assert_eq!(manifest.tools[0].input, serde_json::json!({ "type": 5 }));
+    }
 }
 
 #[test]

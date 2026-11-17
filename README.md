@@ -53,6 +53,9 @@ The lean build controls remote nodes and loads JavaScript plugins. Local agents,
 terminals, sync, rich text and optional native integrations require `full`.
 Individual Cargo features can also be selected; plugin TypeScript is compiled
 before installation, not inside the app. Signed desktop releases use `full`.
+Lean builds stream remote media without a persistent download cache. Select
+`blob-cache` for cached, resumable downloads, or `plugin-tools` for the plugin
+tool API. Plugin UI and themes work in either build.
 
 Add a machine from the desktop: it gives you a one-use ticket for `beep-node`.
 
