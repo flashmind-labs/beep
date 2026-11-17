@@ -35,7 +35,7 @@ test("the lists under the cards fold, open a repo's items and keep button clicks
   await expect(second).toHaveAttribute('aria-expanded', 'false');
   await expect(section.locator('.it')).toHaveCount(2);
   await section.locator('.it').first().hover();
-  await expect(section.locator('.it').first().getByRole('button', { name: 'Review' })).toBeVisible();
+  await expect(section.locator('.it').first().getByRole('button', { name: 'Review' })).toHaveCount(0);
   await expect(section.locator('.it').nth(1).getByRole('button', { name: 'Review' })).toHaveCount(0);
   await second.click();
   await expect(second).toHaveAttribute('aria-expanded', 'true');
@@ -53,10 +53,11 @@ test("the lists under the cards fold, open a repo's items and keep button clicks
   await expect(section.locator('.pl-head')).toHaveAttribute('aria-expanded', 'false');
   await head.click();
   await expect(section.locator('.it')).toHaveCount(1);
-  // Reply leaves the page for the agent; it must not also open the item's URL.
+  // Import opens its sheet without also opening the repository item.
   const opened = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_url').length);
-  await section.locator('.it').hover();
-  await section.locator('.it').getByRole('button', { name: 'Reply' }).click();
+  await second.hover();
+  await section.getByRole('button', { name: 'Import project' }).last().click();
+  await expect(page.getByRole('dialog')).toBeVisible();
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_url').length)).toBe(opened);
 });
 

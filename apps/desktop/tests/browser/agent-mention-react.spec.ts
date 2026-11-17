@@ -44,7 +44,7 @@ test("agent file picker preserves composer focus and attaches an image", async (
   await expect(count).toHaveText("1 file");
   await expect(input).toBeFocused();
   await count.click();
-  await expect(page.getByRole("dialog", { name: "Attachments", exact: true }).getByRole("button", { name: "Preview example.jpg", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Attachments", exact: true }).getByRole("button", { name: "Preview example.png", exact: true })).toBeVisible();
 });
 
 test("a failed background session close shows a dismissible error", async ({ page }, info) => {

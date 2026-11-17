@@ -1,3 +1,4 @@
+import { build } from "esbuild";
 import { readFile } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,18 @@ import type { ProjectRow } from "../../src/project/projects-state.ts";
 import type { RunningProcess } from "../../src/agentpane/running-state.ts";
 import type { MeshEvent } from "../../src/ui/mesh-events.ts";
 import type { CenterTarget } from "../../src/project/projectwindow.ts";
+
+/// Bundles isolated component fixtures with the app's asset loaders.
+export async function bundleFixture(entry: string, production = false): Promise<string> {
+  const bundle = await build({
+    entryPoints: [entry], bundle: true, write: false, platform: "browser", format: "iife",
+    loader: { ".svg": "text" },
+    define: production ? { "process.env.NODE_ENV": '"production"' } : {},
+  });
+  const script = bundle.outputFiles?.[0];
+  if (!script) throw new Error("Fixture bundle produced no script");
+  return script.text;
+}
 
 interface BrowserSession extends RunningAgent { question: null }
 interface Fixture { project: ProjectRow; sessions: [BrowserSession, BrowserSession]; home: HomeView; streaming: boolean }

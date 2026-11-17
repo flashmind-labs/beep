@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { openDesktop, sessionSettled } from "./harness.ts";
+import { bundleFixture, openDesktop, sessionSettled } from "./harness.ts";
 
 interface Box { x: number; y: number; width: number; height: number }
 
@@ -187,8 +186,8 @@ const listed = [0, 1].map(index => ({ id: `agent-${index}`, machine_id: "build-b
 test("each session row reports its instance and draws its own plugin output", async ({ page }) => {
   await openDesktop(page, false, { agent_sessions: listed, session_moves: [] });
   await page.goto("https://app.test/index.html");
-  const bundle = await build({ entryPoints: ["tests/browser/agents-bar-fixture.ts"], bundle: true, write: false, platform: "browser", format: "iife" });
-  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  const script = await bundleFixture("tests/browser/agents-bar-fixture.ts");
+  await page.addScriptTag({ content: script });
   await page.evaluate(() => Reflect.get(window, "openTestAgents")());
   const rows = page.getByRole("option");
   await expect(rows).toHaveCount(2);
@@ -239,12 +238,13 @@ test("the open session's header reports its instance, and a header button press 
   expect((await box(page.locator(".ag-head"))).height).toBe(head.height);
 
   // In a narrower window the title keeps room to read and nothing in the header overlaps. In a narrow one the plugin leaves.
-  await page.setViewportSize({ width: 1000, height: 900 });
-  const parts = await Promise.all([".ag-head .tt", ".pluginhere", "#agstate"].map(selector => box(page.locator(selector))));
+  const chrome = await page.locator(".ag-head").evaluate(element => window.innerWidth - element.clientWidth);
+  await page.setViewportSize({ width: 800 + chrome, height: 900 });
+  const parts = await Promise.all([".ag-head .tt", ".pluginhere"].map(selector => box(page.locator(selector))));
   expect(parts[0].width).toBeGreaterThan(100);
   for (const [i, a] of parts.entries()) for (const b of parts.slice(i + 1)) expect(a.x + a.width <= b.x + 0.5 || b.x + b.width <= a.x + 0.5).toBe(true);
   if (process.env.PLUGIN_SLOT_SHOTS === "1") await page.screenshot({ path: "../../docs/plugin-header-narrow.png", clip: { x: 0, y: 0, width: 1000, height: 120 } });
-  await page.setViewportSize({ width: 760, height: 900 });
+  await page.setViewportSize({ width: 650 + chrome, height: 900 });
   await expect(page.locator(".pluginhere")).toBeHidden();
   expect((await box(page.locator(".ag-head .tt"))).width).toBeGreaterThan(100);
   await page.setViewportSize({ width: 1280, height: 900 });

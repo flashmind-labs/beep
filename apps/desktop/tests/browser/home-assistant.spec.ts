@@ -61,7 +61,7 @@ test("Cmd+N on Home opens the Assistant page and starts the assistant with its h
   await prompt.press("Enter");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").map(call => call.args))).toEqual([
     // No machine picked: Auto picks one, this computer first.
-    { machineId: null, agent: "flsh", cwd: null, prompt: "How is the widget project doing?", images: [], model: null, effort: "high", checkout: null, assistant: true },
+    { machineId: null, agent: "flsh", cwd: null, prompt: "How is the widget project doing?", images: [], model: null, effort: "high", fast: null, checkout: null, assistant: true },
   ]);
   // The new chat opens on the page, picked in its list.
   await expect(page.locator(".asst-list")).toBeVisible();

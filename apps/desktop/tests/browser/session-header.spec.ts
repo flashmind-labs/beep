@@ -1,7 +1,6 @@
-import { build } from "esbuild";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { openDesktop, sessionSettled } from "./harness.ts";
+import { bundleFixture, openDesktop, sessionSettled } from "./harness.ts";
 
 const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
 const usages = {
@@ -113,8 +112,8 @@ test("a long note in a session row leaves the title and state in place", async (
   await page.setViewportSize({ width: 760, height: 900 });
   await openDesktop(page, false, { agent_sessions: rows, session_moves: [] });
   await page.goto("https://app.test/index.html");
-  const bundle = await build({ entryPoints: ["tests/browser/agents-bar-fixture.ts"], bundle: true, write: false, platform: "browser", format: "iife" });
-  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  const script = await bundleFixture("tests/browser/agents-bar-fixture.ts");
+  await page.addScriptTag({ content: script });
   await page.evaluate(() => Reflect.get(window, "openTestAgents")());
   const note = { kind: "text", text: "a note that is much too long to fit in a narrow row of the session list", tone: "accent" };
   await page.evaluate(list => window.__navigation.emit("plugins-changed", list), [{ ...placement, slot: "session.row", instance: "build-box:agent-0", node: note }]);

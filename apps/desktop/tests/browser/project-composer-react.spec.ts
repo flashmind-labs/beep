@@ -153,7 +153,7 @@ test("a draft's start opens as a session at once, and the session its machine na
   await expect(banner).toContainText("Waiting for build-box");
   await expect(banner.getByRole("button", { name: "Retry" })).toHaveCount(0);
   await expect(page.locator("#agdraft, #agmsg")).toHaveCount(0);
-  expect((await calls(page, "agent_begin")).at(-1)).toEqual({ machineId: "build-box", agent: "codex", cwd: "/srv/project", prompt: "Inspect the project", model: null, effort: null, checkout: null, images: [] });
+  expect((await calls(page, "agent_begin")).at(-1)).toEqual({ machineId: "build-box", agent: "codex", cwd: "/srv/project", prompt: "Inspect the project", model: null, effort: null, fast: null, checkout: null, images: [] });
   await expect.poll(async () => (await calls(page, "agent_view")).map(args => args.session)).toContain("start:one");
 
   for (const command of ["agent_start", "agent_follow", "agent_modes", "agent_tasks", "agent_usage", "agent_processes", "transcript_kept", "outbox_list"]) {
@@ -197,9 +197,11 @@ test("a start that failed says why, runs again on Retry and goes on Cancel", asy
   await expect(banner).toContainText("Waiting for build-box");
   await expect(banner.getByRole("button", { name: "Retry" })).toHaveCount(0);
 
+  await page.evaluate(next => window.__navigation.respond("agent_view", next), pageOf({ ...kept, id: "notice-one", title: "Next session", status: "working", doing: null }, null, null));
   await banner.getByRole("button", { name: "Cancel" }).click();
   await expect.poll(() => calls(page, "agent_steer")).toEqual([{ machineId: "build-box", agent: "codex", session: "start:one", steer: "close" }]);
-  await expect(page.locator("#agconv")).toBeHidden();
+  await expect.poll(async () => (await calls(page, "agent_view")).map(args => args.session)).toContain("notice-one");
+  await expect(page.locator("#agconv .dtakeover")).toHaveCount(0);
 });
 
 test("project composer closes and reopens its model picker", async ({ page }) => {

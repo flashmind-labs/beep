@@ -94,7 +94,7 @@ test("a question with no option to allow opens the chat to answer", async ({ pag
 test("long option names leave the question room", async ({ page }) => {
   const long = { ...question, options: ["Allow this command once for this session", "Always allow commands like this one here", "Allow for every project on this machine", "Deny and tell the agent what to do instead"].map((name, index) => ({ id: `o${index}`, name, allow: index < 3 })) };
   await openDesktop(page, false, { center_home: { ...home, needs_you: [{ ...home.needs_you[0], question: long }] }, projects_sessions: [] });
-  expect((await page.locator("#sec-needs .cc-row .t b").boundingBox())?.width).toBeGreaterThan(250);
+  expect((await page.locator("#sec-needs .cc-row > .t").boundingBox())?.width).toBeGreaterThan(250);
 });
 
 test("Done today rows keep to one line", async ({ page }) => {

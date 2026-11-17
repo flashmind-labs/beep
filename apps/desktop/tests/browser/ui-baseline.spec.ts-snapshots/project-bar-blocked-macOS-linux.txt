@@ -234,7 +234,7 @@ body.cbody
         form.cc-pjc
           div.box
             div.cx-layer [aria-hidden="true" hidden]
-            textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="example/widget is on Ubuntu on desk-pc, where no coding agent runs yet" rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value=""
+            textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="example/widget is on Ubuntu on desk-pc, where no coding agent runs yet" rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value="" (focused)
             div.row
               span.choices
                 button.pill [data-composer="machine" title="The machine it runs on (Shift+Tab in the task field)" type="button"] "Add to a machine"

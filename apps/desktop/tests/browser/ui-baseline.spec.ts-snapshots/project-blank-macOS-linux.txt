@@ -166,7 +166,7 @@ body.cbody
                 span.ddot.on
           div.box
             div.cx-layer [aria-hidden="true" hidden]
-            textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="Describe the task." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value=""
+            textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="Describe the task." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value="" (focused)
             div.row
               span.sp
               button.pill [aria-expanded="false" title="Harness, model and thinking" type="button"] "Default"

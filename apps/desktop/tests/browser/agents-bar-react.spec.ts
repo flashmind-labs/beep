@@ -1,13 +1,12 @@
-import { build } from "esbuild";
 import { expect, test } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { bundleFixture, openDesktop } from "./harness.ts";
 
 const rows = Array.from({ length: 20 }, (_, index) => ({ id: `agent-${index}`, machine_id: "build-box", machine_name: "Build box", agent: "codex", title: `Agent ${index}`, cwd: "/srv/project", status: "working", doing: "Working", started_at: index, last_activity: index, external: false, question: null }));
 test("agent list refresh preserves its rows, focus and scroll", async ({ page }) => {
   await openDesktop(page, false, { agent_sessions: rows, session_moves: [] });
   await page.goto("https://app.test/index.html");
-  const bundle = await build({ entryPoints: ["tests/browser/agents-bar-fixture.ts"], bundle: true, write: false, platform: "browser", format: "iife" });
-  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  const script = await bundleFixture("tests/browser/agents-bar-fixture.ts");
+  await page.addScriptTag({ content: script });
   await page.evaluate(() => Reflect.get(window, "openTestAgents")());
   const list = page.locator(".dagscroll"), row = page.getByRole("option", { name: /Agent 0/ });
   await expect(row).toBeVisible();

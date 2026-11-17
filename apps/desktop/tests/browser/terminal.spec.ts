@@ -77,7 +77,7 @@ async function open(page: Page) {
     if (path === "term.html") {
       return route.fulfill({
         contentType: "text/html",
-        body: `<!doctype html><link rel="stylesheet" href="fonts.css"><link rel="stylesheet" href="style.css"><body><script type="module" src="term.js"></script></body>`,
+        body: `<!doctype html><link rel="stylesheet" href="fonts.css"><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="skins.css"><body><script type="module" src="term.js"></script></body>`,
       });
     }
     if (path === "term.js") return route.fulfill({ contentType: "text/javascript", body: script });
@@ -152,10 +152,9 @@ test("the screen fits its element and draws text, colours and images, placeholde
   const loaded = await page.evaluate(async () => (await document.fonts.load("12px 'Symbols Nerd Font Mono'", "\u{f07b}")).map(face => face.status));
   expect(loaded).toEqual(["loaded"]);
 
-  // The theme's foreground draws the text. A full line, since thin glyphs leave few pixels
-  // at exactly that colour.
-  await page.evaluate(() => window.term.write("the quick brown fox jumps over the lazy dog\r\n"));
-  await expect.poll(() => pixels(page, [0xcf, 0xe3, 0xd8])).toBeGreaterThan(20);
+  // Several lines retain enough foreground pixels with either browser's font rasterizer.
+  await page.evaluate(() => window.term.write("the quick brown fox jumps over the lazy dog\r\n".repeat(8)));
+  await expect.poll(() => pixels(page, [0xe3, 0xe4, 0xe6])).toBeGreaterThan(20);
 });
 
 test("a screen hidden and shown again draws again", async ({ page }) => {
@@ -198,7 +197,7 @@ test("a pane that narrows narrows the grid", async ({ page }) => {
 test("a steady cursor stays drawn", async ({ page }) => {
   await open(page);
   await page.evaluate(() => { window.term.screen.focus(); window.term.write("\x1b[2 q"); });
-  const cursor: [number, number, number] = [0x6f, 0xcf, 0x97];
+  const cursor: [number, number, number] = [0x5e, 0x6a, 0xd2];
 
   // Across several blink periods.
   for (let i = 0; i < 6; i++) {
@@ -237,7 +236,7 @@ test("a flood of output stays responsive and lands whole", async ({ page }) => {
     setTimeout(() => resolve(performance.now() - t), 0);
   }));
   expect(answered).toBeLessThan(250);
-  await expect.poll(() => pixels(page, [0x6f, 0xcf, 0x97]), { timeout: 30_000 }).toBeGreaterThan(50);
+  await expect.poll(() => pixels(page, [0x4c, 0xb7, 0x82]), { timeout: 30_000 }).toBeGreaterThan(50);
   expect(Date.now() - started).toBeLessThan(30_000);
 });
 

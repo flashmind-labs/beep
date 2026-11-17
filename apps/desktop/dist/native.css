@@ -429,7 +429,7 @@ body:not(.mobile) #view > .painted-art.haze { height: 58px }
 body:not(.mobile) .bd-lane > h4:has(> span:empty) { opacity: .5 }
 @media (hover: hover) { body:not(.mobile) .bd-card:not(:hover, :focus-within) .bd-close { visibility: hidden } }
 body:not(.mobile) .bd-answers { display: flex; flex-wrap: wrap; justify-content: end; gap: 6px }
-body:not(.mobile) .cc-row > .r:has(> .bd-answers) { max-width: 50% }
+body:not(.mobile) .cc-row:has(> .r > .bd-answers) { grid-template-columns: 28px minmax(0, 1fr) fit-content(50%) }
 /* The queue's own buttons (Review, Continue, Open, Resolve) share one width; a question's answers keep theirs. */
 body:not(.mobile) #sec-needs .cc-row > .r :is(.dbtn, .dv-fb):not(.bd-answers .dbtn) { min-width: 136px; justify-content: center }
 body:not(.mobile) .bd-answers .dbtn { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }

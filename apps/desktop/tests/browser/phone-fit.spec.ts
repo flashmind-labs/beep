@@ -62,7 +62,8 @@ test("phone agent rows show their harness and truncate, with New in the header",
   expect(await sideways(page)).toEqual([]);
 
   await page.locator(".cc-top .ag-new-top").click();
-  await expect(page.locator("#title")).toHaveText("Start a coding agent");
+  await expect(page.locator("#title")).toHaveText("Projects");
+  await expect(page.getByRole("searchbox", { name: "Search projects" })).toBeVisible();
 });
 
 test("a swipe back never lets the phone window scroll sideways", async ({ page }) => {

@@ -47,7 +47,7 @@ test("an empty open pane focuses notifications that arrive later", async ({ page
 });
 
 test("approval buttons submit once and can retry an error", async ({ page }) => {
-  const approval = { ...note("approval", 1), kind: "asks", title: "Permission required" };
+  const approval = { ...note("approval", 1), kind: "asks", title: "Permission required", allow_deny: true };
   await openDesktop(page, false, { notes_list: [approval] });
   await page.getByRole("button", { name: /Notifications/ }).click();
   const row = page.locator('.nt-row[data-id="approval"]');

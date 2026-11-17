@@ -1,13 +1,12 @@
-import { build } from "esbuild";
 import { expect, test, type Page } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { bundleFixture, openDesktop } from "./harness.ts";
 
 // A branch diff of about 600 files and 40k lines must open, scroll and
 // update without blocking the window.
 async function setup(page: Page) {
   await openDesktop(page);
   await page.goto("https://app.test/index.html");
-  const bundle = await build({ entryPoints: ["tests/browser/diff-large-fixture.ts"], bundle: true, write: false, platform: "browser", format: "iife", define: { "process.env.NODE_ENV": "\"production\"" } });
+  const script = await bundleFixture("tests/browser/diff-large-fixture.ts", true);
   await page.evaluate(() => {
     const host = document.createElement("div");
     host.id = "host";
@@ -17,7 +16,7 @@ async function setup(page: Page) {
     new PerformanceObserver(list => { for (const entry of list.getEntries()) longTasks.push(entry.duration); }).observe({ type: "longtask" });
     Reflect.set(window, "longTasks", longTasks);
   });
-  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  await page.addScriptTag({ content: script });
 }
 
 const frames = (page: Page) => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));

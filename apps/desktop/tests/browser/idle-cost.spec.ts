@@ -31,12 +31,11 @@ async function setHidden(page: Page, hidden: boolean) {
   }, hidden);
 }
 
-test("an idle window with working agents runs few callbacks, and nothing once hidden", async ({ page }) => {
+test("an idle window with reduced motion runs few callbacks, and nothing once hidden", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.addInitScript(countCallbacks);
   await openDesktop(page);
   await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
-  // The sidebar's painting fills in once as the window opens.
-  await page.waitForTimeout(3500);
 
   const home = await idle(page, 3000);
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);

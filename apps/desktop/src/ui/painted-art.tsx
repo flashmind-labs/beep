@@ -113,20 +113,21 @@ function PaintedArt({ scene }: { scene: Scene }) {
     resized.observe(target);
     // A canvas that only touches the edge of its scroller is reported as crossing it with no area:
     // the second threshold tells that apart from one that comes into view.
-    const watch = new IntersectionObserver(entries => {
+    const watch = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(entries => {
       seen = entries[entries.length - 1].intersectionRatio > 0;
       if (seen) wake();
     }, { threshold: [0, 0.001] });
+    seen = watch === null;
     const shown = () => { if (!document.hidden) wake(); };
     if (alive) {
-      watch.observe(target);
+      watch?.observe(target);
       document.addEventListener("visibilitychange", shown);
     }
 
     return () => {
       gone = true;
       resized.disconnect();
-      watch.disconnect();
+      watch?.disconnect();
       document.removeEventListener("visibilitychange", shown);
       if (frame) cancelAnimationFrame(frame);
       window.clearTimeout(timer);

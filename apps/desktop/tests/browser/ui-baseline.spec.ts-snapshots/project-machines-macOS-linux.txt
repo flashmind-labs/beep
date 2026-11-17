@@ -300,7 +300,7 @@ body.cbody
         form.cc-pjc
           div.box
             div.cx-layer [aria-hidden="true" hidden]
-            textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="No machine has a coding agent. Install one in Coding agents" rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value=""
+            textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="No machine has a coding agent. Install one in Coding agents" rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value="" (focused)
             div.row
               span.choices
                 button.pill [data-composer="machine" title="The machine it runs on (Shift+Tab in the task field)" type="button"] "Install a coding agent"
