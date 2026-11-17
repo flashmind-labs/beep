@@ -200,31 +200,23 @@ body.cbody
               span "one"
                 mark "Example"
               small "Project"
-          h5 "Actions"
-          button#pal-opt-1.it [aria-selected="false" role="option" tabindex="-1" type="button"]
-            span style(display)
-              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-            span.t
-              span "New session"
-                mark "example"
-          h5 "Settings"
-          button#pal-opt-2.it [aria-selected="false" role="option" tabindex="-1" type="button"]
-            span style(display)
-              svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-            span.t
-              span "look"
-                mark "Example"
-              small "Settings"
           h5 "Projects"
-          button#pal-opt-3.it [aria-selected="false" role="option" tabindex="-1" type="button"]
+          button#pal-opt-1.it [aria-selected="false" role="option" tabindex="-1" type="button"]
             span style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.t
               span "two"
                 mark "Example"
               small "Project"
+          h5 "Machines"
+          button#pal-opt-2.it [aria-selected="false" role="option" tabindex="-1" type="button"]
+            span.ddot
+            span.t
+              span "-box"
+                mark "example"
+            span.w "online"
           h5
-          button#pal-opt-4.it [aria-selected="false" role="option" tabindex="-1" type="button"]
+          button#pal-opt-3.it [aria-selected="false" role="option" tabindex="-1" type="button"]
             span style(display)
             span.t
               span "Fix the redirect"
@@ -232,23 +224,31 @@ body.cbody
               small "/widget @ build-box"
                 mark "example"
           h5 "Coding agents"
-          button#pal-opt-5.it [aria-selected="false" role="option" tabindex="-1" type="button"]
-            span style(display)
-              svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          button#pal-opt-4.it [aria-selected="false" role="option" tabindex="-1" type="button"]
+            span.claude.dmag-ic.mark
+              svg [aria-hidden="true" viewBox="0 0 24 24"]
             span.t
               span "Tidy the docs"
                 mark "example"
-              small "Claude Code · /widget · build-box"
+              small "/widget"
                 mark "example"
-              small.s "Prompt: …rewrite the in the README so it matches the new widget options and drop the old flags…"
+              small.s "…rewrite the in the README so it matches the new widget options and drop the old flags…"
                 mark "example"
-          h5 "Machines"
-          button#pal-opt-6.it [aria-selected="false" role="option" tabindex="-1" type="button"]
-            span.ddot
+          h5 "Settings"
+          button#pal-opt-5.it [aria-selected="false" role="option" tabindex="-1" type="button"]
+            span style(display)
+              svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.t
-              span "-box"
+              span "look"
+                mark "Example"
+              small "Settings"
+          h5 "Actions"
+          button#pal-opt-6.it [aria-selected="false" role="option" tabindex="-1" type="button"]
+            span style(display)
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.t
+              span "New session"
                 mark "example"
-            span.w "online"
         div.foot
           span "move"
             kbd "↑↓"

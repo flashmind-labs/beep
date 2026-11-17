@@ -656,6 +656,7 @@ dependencies = [
  "pulldown-cmark",
  "pulldown-latex",
  "qrcode",
+ "regex",
  "rmp-serde",
  "rusqlite",
  "rust_decimal",

@@ -170,12 +170,8 @@ pub(super) fn session_entry(s: &MachineSession, imported: &[ImportedProject]) ->
     .into_iter()
     .flatten()
     .collect();
-    let detail = [Some(harness), project, Some(s.machine_name.as_str())]
-        .into_iter()
-        .flatten()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" · ");
+    // The harness shows as the row's icon.
+    let detail = project.unwrap_or_default().to_owned();
     let id = format!("{} {}", s.machine_id, s.id);
     let mut entry = Entry::new(HitKind::AgentSession, id, title.to_owned(), detail, &keys);
     entry.session = Some(SessionRow::from(s.clone()));

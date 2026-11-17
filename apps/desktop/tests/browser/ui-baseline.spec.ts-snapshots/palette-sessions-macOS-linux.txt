@@ -194,26 +194,26 @@ body.cbody
         div#pal-list.res [role="listbox"]
           h5 "Sessions · example/widget"
           button#pal-opt-0.it [aria-selected="true" role="option" tabindex="-1" type="button"]
-            span style(display)
-              svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.claude.dmag-ic.mark
+              svg [aria-hidden="true" viewBox="0 0 24 24"]
             span.t
               span "Fix the example redirect"
-              small "Claude Code · example/ · build-box"
+              small "example/"
                 mark "widget"
           button#pal-opt-1.it [aria-selected="false" role="option" tabindex="-1" type="button"]
-            span style(display)
-              svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.codex.dmag-ic.mark
+              svg [aria-hidden="true" viewBox="0 0 24 24"]
             span.t
               span "Tidy the example docs"
-              small "Claude Code · example/ · build-box"
+              small "example/"
                 mark "widget"
           button#pal-opt-2.it [aria-selected="false" role="option" tabindex="-1" type="button"]
-            span style(display)
-              svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.claude.dmag-ic.mark
+              svg [aria-hidden="true" viewBox="0 0 24 24"]
             span.t
               span "Measure the 's start"
                 mark "widget"
-              small "Claude Code · example/ · build-box"
+              small "example/"
                 mark "widget"
         div.foot
           span "move"

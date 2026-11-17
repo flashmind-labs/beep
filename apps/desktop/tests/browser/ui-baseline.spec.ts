@@ -255,7 +255,8 @@ test("search palette", async ({ page }) => {
     projects: [hit("project", "one", "Example one", "Project"), hit("project", "two", "Example two", "Project")],
     sessions: [hit("session", "s1", "Fix the example redirect", "example/widget @ build-box")], machines: [hit("machine", "m1", "example-box", "online")],
   };
-  const prompt = { ...hit("agent_session", "s2", "Tidy the example docs", "Claude Code · example/widget · build-box"), keys: [], snippet: "Prompt: …rewrite the example in the README so it matches the new widget options and drop the old flags…" };
+  const session = { machine_id: "m1", machine_name: "build-box", id: "s2", agent: "claude", cwd: "/srv/widget", status: "idle", external: false };
+  const prompt = { ...hit("agent_session", "s2", "Tidy the example docs", "example/widget"), keys: [], session, snippet: "…rewrite the example in the README so it matches the new widget options and drop the old flags…" };
   await openDesktop(page, false, { center_home: home, center_palette_index: index, center_find_prompts: [prompt] });
   await page.getByRole("button", { name: /^Search/ }).click();
   await page.getByRole("dialog", { name: "Search" }).getByRole("combobox").fill("example");
@@ -264,7 +265,7 @@ test("search palette", async ({ page }) => {
 });
 
 test("palette project sessions", async ({ page }) => {
-  const session = (id: string, title: string) => ({ kind: "agent_session", id, title, detail: "Claude Code · example/widget · build-box", keys: [title.toLowerCase()], project: "example/widget" });
+  const session = (id: string, title: string) => ({ kind: "agent_session", id, title, detail: "example/widget", keys: [title.toLowerCase()], project: "example/widget", session: { machine_id: "m1", machine_name: "build-box", id, agent: id === "s2" ? "codex" : "claude", cwd: "/srv/widget", status: "idle", external: false } });
   const index = {
     actions: [], settings: [], code: [], machines: [],
     projects: [{ kind: "project", id: "example/widget", title: "example/widget", detail: "build-box", keys: ["example/widget"] }],

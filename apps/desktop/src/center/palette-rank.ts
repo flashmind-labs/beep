@@ -98,7 +98,7 @@ export function rank<S>(rawQuery: string, index: PaletteIndex<S>, text: Entry<S>
   const sessions = matches(query, index.sessions);
   withText(sessions, text.filter(entry => entry.kind === "agent_session"));
   const find = (group: Entry<S>[]) => matches(query, group);
-  const groups = [find(index.actions), find(index.settings), find(index.code), find(index.projects), sessions, find(index.machines)];
+  const groups = [find(index.projects), find(index.machines), sessions, find(index.code), find(index.settings), find(index.actions)];
   const shown = groups.map(tiers => tiers.flat().slice(0, PER_GROUP));
   const top = topGroup(groups, shown);
   const out: Hit<S>[] = top < 0 ? [] : [{ ...shown[top][0], top: true }];

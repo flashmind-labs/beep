@@ -13,7 +13,7 @@ import { rank, type Entry, type Hit as FoundHit, type HitKind, type PaletteIndex
 import { PaletteSearch } from "./palette-search.ts";
 import { projectWindowProps } from "./sidebar.tsx";
 import { opensNewWindow, projectFirst } from "../project/projectwindow.ts";
-import { IC } from "../ui/icons.tsx";
+import { HarnessIcon, IC } from "../ui/icons.tsx";
 
 /// One search result. A branch's id is its project and the branch, split by
 /// a space.
@@ -147,8 +147,9 @@ function draw(q: string) {
       group={(hit: Hit) => listing ? `Sessions · ${listing}` : hit.top ? "Top hit" : GROUPS[hit.kind]}
       keys={[["↑↓", "move"], ["↵", "open"], ...(listing ? [["←", "back"]] : more ? [["→", "sessions"]] : []), ["esc", "close"]]}
       icon={(hit: Hit) => {
+        if (hit.session) return <HarnessIcon agent={hit.session.agent} className="dmag-ic" />;
         const name = ICON_OF[hit.kind] ?? hit.kind;
-        return name in ICONS ? ICONS[name as keyof typeof ICONS] : IC[name as keyof typeof IC];
+        return <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: name in ICONS ? ICONS[name as keyof typeof ICONS] : IC[name as keyof typeof IC] }} />;
       }}
       windowProps={hit => {
         if (hit.kind !== "project") return null;

@@ -56,6 +56,18 @@ test("the top hit leads when several groups match, and lists once", () => {
   assert.equal(hits.filter(h => h.kind === "project").length, 1);
 });
 
+test("projects, machines and coding agents list before the rest", () => {
+  const hits = rank("acme", index({
+    actions: [entry("action", "New acme session")],
+    settings: [entry("setting", "Acme look")],
+    code: [entry("code", "acme/widget PR")],
+    projects: [entry("project", "acme/widget")],
+    sessions: [entry("agent_session", "Fix acme login")],
+    machines: [entry("machine", "acme box")],
+  }));
+  assert.deepEqual(hits.map(h => h.kind), ["project", "machine", "agent_session", "code", "setting", "action"]);
+});
+
 test("no top hit from one group, or without a prefix match", () => {
   assert.ok(rank("morning", index({ settings: [entry("setting", "Morning brief")] })).every(h => !h.top));
   const noPrefix = index({ settings: [entry("setting", "A morning")], machines: [entry("machine", "the morning box")] });
@@ -98,7 +110,7 @@ test("a keystroke over a big index stays under a millisecond", () => {
 test("prompt matches join coding sessions, with an excerpt and the session to open", () => {
   const session = { machine_id: "build-box", id: "a" };
   const listed = { ...entry("agent_session", "Connection fixes", "build-box a", "Codex · widget"), session };
-  const prompt = { ...listed, snippet: "Prompt: Add a retry button" };
+  const prompt = { ...listed, snippet: "Add a retry button" };
   const hits = rank("retry", index({ sessions: [listed] }), [prompt]);
   assert.equal(hits.length, 1);
   assert.equal(hits[0].kind, "agent_session");
@@ -109,7 +121,7 @@ test("prompt matches join coding sessions, with an excerpt and the session to op
 
 test("title and prompt hits deduplicate without merging other kinds with the same id", () => {
   const listed = entry("agent_session", "Retry fixes", "same", "Codex · widget");
-  const prompt = { ...listed, snippet: "Prompt: Add a retry button" };
+  const prompt = { ...listed, snippet: "Add a retry button" };
   const project = entry("project", "Retry tools", "same");
   const hits = rank("retry", index({ sessions: [listed], projects: [project] }), [prompt]);
   assert.equal(hits.filter(hit => hit.kind === "agent_session").length, 1);
