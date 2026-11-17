@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    future::Future,
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant},
 };
@@ -215,7 +216,8 @@ fn paced(app: AppHandle, name: &'static str, frequent: bool) {
     match next {
         Pace::Now => changed(app, Topic::new(name)),
         Pace::At(due) => {
-            tokio::spawn(async move {
+            let app = app.clone();
+            views.spawn(async move {
                 tokio::time::sleep_until(due.into()).await;
 
                 if let Some((pace, _)) = app.state::<Views>().pace(name) {
@@ -230,6 +232,14 @@ fn paced(app: AppHandle, name: &'static str, frequent: bool) {
 }
 
 impl Views {
+    /// Event callbacks can run on the main thread, outside a Tokio runtime.
+    fn spawn(&self, task: impl Future<Output = ()> + Send + 'static) {
+        let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+        while tasks.try_join_next().is_some() {}
+
+        tasks.spawn_on(task, tauri::async_runtime::handle().inner());
+    }
+
     /// The pace of a view that frequent changes draw, and its gap.
     fn pace(&self, name: &str) -> Option<(&Mutex<DrawPace>, Duration)> {
         match name {
@@ -303,15 +313,12 @@ fn start(app: &AppHandle, views: &Views, mut pending: std::sync::MutexGuard<'_, 
         return;
     }
 
-    let mut tasks = views.tasks.lock().unwrap_or_else(PoisonError::into_inner);
-    while tasks.try_join_next().is_some() {}
-
     for name in due.topics {
-        tasks.spawn(draw(app.clone(), name));
+        views.spawn(draw(app.clone(), name));
     }
 
     if due.projects {
-        tasks.spawn(draw_projects(app.clone()));
+        views.spawn(draw_projects(app.clone()));
     }
 }
 

@@ -103,3 +103,23 @@ fn each_topic_draws_on_its_own_and_once_at_a_time() {
     pending.topics.insert("home");
     assert_eq!(pending.due().topics, ["home"]);
 }
+
+#[test]
+fn view_tasks_can_start_outside_a_tokio_runtime() {
+    assert!(tokio::runtime::Handle::try_current().is_err());
+    let views = Views::default();
+    let (sent, received) = tokio::sync::oneshot::channel();
+
+    views.spawn(async move {
+        // Paced draws need the runtime's timer driver as well as its executor.
+        tokio::time::sleep_until(tokio::time::Instant::now()).await;
+        sent.send(()).unwrap();
+    });
+
+    tauri::async_runtime::block_on(async {
+        tokio::time::timeout(Duration::from_secs(5), received)
+            .await
+            .unwrap()
+            .unwrap();
+    });
+}
