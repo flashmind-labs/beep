@@ -214,8 +214,10 @@ async function readProjectHosts() {
   if (pc.project && barOn(pc.project)) redrawProjects();
 }
 
-// A host can return after the project opened during its update.
-subscribeChanges([topic("machines"), topic("accounts")], { deliver: "latest", receive: () => readProjectHosts() }, { when: () => !!pc.project && barOn(pc.project), wait: AMBIENT_MS });
+// A host can return after the project opened during its update. Followed
+// while the bar is hidden too: drawing the same project again does not read
+// the hosts, so a machine that reported meanwhile would stay missing.
+subscribeChanges([topic("machines"), topic("accounts")], { deliver: "latest", receive: () => readProjectHosts() }, { when: () => !!pc.project, wait: AMBIENT_MS });
 
 /// Reads what the bar needs for project `name`: the machines that run
 /// agents, the sessions (for worktrees) and the project's branches.
