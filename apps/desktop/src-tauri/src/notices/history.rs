@@ -7,6 +7,7 @@ use super::notify;
 use crate::{
     beep::epoch_ms,
     center::{AgentTarget, CenterTarget, RunAt},
+    chat::markdown::inline_html,
     error::{DesktopError, Result},
     fleet::Fleet,
     tray::waiting,
@@ -68,6 +69,9 @@ pub struct Note {
     pub(crate) kind: NoteKind,
     pub(crate) title: String,
     pub(crate) text: String,
+    /// `text` as inline HTML, for a coding agent's reply in markdown.
+    #[serde(default)]
+    pub(crate) html: String,
     /// The machine or project it comes from.
     pub(crate) source: String,
     /// Milliseconds since the Unix epoch.
@@ -106,6 +110,7 @@ impl Note {
             kind,
             title,
             text: String::new(),
+            html: String::new(),
             source,
             at: now_ms(),
             read: false,
@@ -301,6 +306,7 @@ impl Notes {
         let target = if reviewer { target.reviewing() } else { target };
         let note = Note {
             text: notice.body.clone(),
+            html: inline_html(&notice.body),
             read: seen,
             target: Some(CenterTarget::Agent(target)),
             allow_deny: allow_deny && key.question.is_some(),

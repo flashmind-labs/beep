@@ -213,3 +213,13 @@ fn bad_latex_shows_as_code() {
     let html = to_html(r"see $\frac{1$ here");
     assert!(!html.contains("<math"), "{html}");
 }
+
+#[test]
+fn a_notification_reply_renders_inline_without_html_or_links() {
+    let reply = "<br>\n\nMerged into **main** as `b09a9be`.\n\n- see [the PR](https://example.com)\n- <script>x</script>";
+    assert_eq!(
+        inline_html(reply),
+        "Merged into <strong>main</strong> as <code>b09a9be</code>. see the PR"
+    );
+    assert_eq!(plain_text(reply), "Merged into main as b09a9be. see the PR");
+}

@@ -15,6 +15,8 @@ export interface Note {
   kind: NoteKind;
   title: string;
   text: string;
+  /// `text` as cleaned inline HTML, for a coding agent's reply in markdown.
+  html: string;
   source: string;
   at: number;
   read: boolean;

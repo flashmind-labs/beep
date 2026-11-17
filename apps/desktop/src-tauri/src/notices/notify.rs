@@ -6,6 +6,7 @@
 
 use crate::{
     center::{self, AgentTarget, CenterTarget},
+    chat::markdown::plain_text,
     error::{DesktopError, Result},
     fleet::{Fleet, alerts},
     notices::history,
@@ -108,7 +109,7 @@ pub fn notice(app: &AppHandle, notice: &Notice, allow_deny: bool, reviewer: bool
     send(
         app,
         &notice.title,
-        &notice.body,
+        &plain_text(&notice.body),
         Route {
             target: Some(target),
             buttons,
