@@ -10,13 +10,13 @@ use super::{
 };
 use crate::{events, lock, machine::env, run::process};
 use anyhow::{Context, Result, bail};
-use beep_proto::node::events::Topic;
-use beep_proto::watched;
 use beep_proto::node::device::{
     Button, Device, DeviceId, DeviceState, Frame, Input, Key, MAX_TEXT, Platform, Reply, Request,
     TouchPhase,
 };
+use beep_proto::node::events::Topic;
 use beep_proto::node::{LinkRx, LinkTx};
+use beep_proto::watched;
 use futures::future::join_all;
 use image::{ImageFormat, codecs::jpeg::JpegEncoder, imageops::FilterType};
 use std::{
@@ -185,7 +185,13 @@ async fn release(adb: &Path, id: &DeviceId) -> Option<String> {
         return Some(known.clone());
     }
 
-    let out = call(adb, id, &["shell", "getprop", "ro.build.version.release"], CALL_TIMEOUT).await;
+    let out = call(
+        adb,
+        id,
+        &["shell", "getprop", "ro.build.version.release"],
+        CALL_TIMEOUT,
+    )
+    .await;
     let number = String::from_utf8(out.ok()?).ok()?;
     let release = format!("Android {}", number.trim());
     lock(&RELEASES).insert(id.0.clone(), release.clone());
@@ -222,8 +228,10 @@ async fn capture(
     size: watch::Sender<Option<(u32, u32)>>,
 ) {
     let mut last = Vec::new();
+    let mut next_shown = tokio::time::Instant::now();
 
     let reason = loop {
+        let next_frame = tokio::time::Instant::now() + FRAME_GAP;
         // Asked before every frame, so a foldable's view changes screens
         // on the next frame after it opens or closes.
         let lit = call(&adb, &id, &["shell", "dumpsys", "display"], CALL_TIMEOUT)
@@ -246,15 +254,17 @@ async fn capture(
 
             match tokio::task::spawn_blocking(move || frame(&png, max_side)).await {
                 Ok(Ok((full, frame))) => {
+                    tokio::time::sleep_until(next_shown).await;
                     size.send_replace(Some(full));
                     screen.send_replace(Screen::Frame(frame));
+                    next_shown = tokio::time::Instant::now() + FRAME_GAP;
                 }
                 Ok(Err(e)) => log::warn!("a phone screenshot was not shown: {e:#}"),
                 Err(e) => log::warn!("a phone screenshot was not shown: {e}"),
             }
         }
 
-        tokio::time::sleep(FRAME_GAP).await;
+        tokio::time::sleep_until(next_frame).await;
     };
 
     screen.send_replace(Screen::Ended(reason));

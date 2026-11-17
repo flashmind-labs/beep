@@ -39,6 +39,69 @@ fn a_frame_goes_as_its_size_then_the_jpeg() {
     assert_eq!(bytes, [2, 0, 0, 0, 4, 0, 0, 0, 9]);
 }
 
+#[tokio::test]
+async fn frames_and_acknowledgements_run_while_input_is_blocked() {
+    let attached = Attached::default();
+    let view = Uuid::new_v4();
+    let (input, up) = mpsc::channel(UP_QUEUE);
+    let (drawn, draws) = watch::channel(());
+    attached.follow(view, "window", DeviceControls { input, drawn });
+    let input = attached.get(&view, "device").unwrap().input;
+    let text = || Input::Text {
+        text: "a".repeat(MAX_TEXT),
+    };
+
+    for _ in 0..UP_QUEUE {
+        input.try_send(text()).unwrap();
+    }
+
+    let link = beep_proto::node::local_link();
+    let (tx, rx) = link.caller;
+    // Keep the other direction alive without reading it, so input backs up.
+    let (mut node_tx, _node_rx) = link.node;
+    let (shown, mut frames) = mpsc::unbounded_channel();
+    let following = follow_screen(
+        tx,
+        rx,
+        up,
+        draws,
+        |event| {
+            shown.send(event).unwrap();
+            Ok(())
+        },
+        "Connection lost.",
+    );
+    tokio::pin!(following);
+    assert!(futures::poll!(&mut following).is_pending());
+
+    while input.try_send(text()).is_ok() {}
+    assert_eq!(input.capacity(), 0);
+
+    node_tx.send(&Reply::Frame(frame(1))).await.unwrap();
+    assert!(futures::poll!(&mut following).is_pending());
+    assert_eq!(frames.try_recv().unwrap(), ScreenEvent::Frame(frame(1)));
+
+    node_tx.send(&Reply::Frame(frame(2))).await.unwrap();
+    assert!(futures::poll!(&mut following).is_pending());
+    assert!(frames.try_recv().is_err());
+
+    attached
+        .get(&view, "device")
+        .unwrap()
+        .drawn
+        .send_replace(());
+    assert!(futures::poll!(&mut following).is_pending());
+    assert_eq!(frames.try_recv().unwrap(), ScreenEvent::Frame(frame(2)));
+    assert_eq!(input.capacity(), 0);
+
+    // An in-flight input sender must not keep the view alive after detach.
+    attached.detach(&view);
+    assert!(matches!(
+        futures::poll!(&mut following),
+        std::task::Poll::Ready(Ok(()))
+    ));
+}
+
 #[test]
 fn touches_stay_on_the_screen() {
     let touch = |x, y| Input::Touch {
