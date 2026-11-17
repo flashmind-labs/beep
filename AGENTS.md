@@ -205,7 +205,7 @@ release notes or edit published entries. Check with
 - Apps stay on 0.x until production: minor or patch bumps only. Do not run a
   release recipe, tag or upload a build without cutting a new version for
   that app. Release recipes commit and tag, and `just release` also pushes:
-  read the recipe, the `justfile` and the `.forgejo/workflows/` file first.
+  read the recipe, the `justfile` and the `.github/workflows/` file first.
 - A release freezes the app's changelog
   (`python3 scripts/changelog.py freeze <version> --path changelogs/<app>.md`),
   which collects its files into a dated entry and deletes them. Release pages

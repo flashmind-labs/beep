@@ -1,11 +1,11 @@
 # Releases beep-node for a `node-v<version>` tag (made by `just patch`,
 # `just minor` or `just release`). The tag must match crates/node/Cargo.toml.
 #
-# The host runner cross-builds the static Linux binaries (x86_64 and aarch64
+# Linux runners cross-build the static Linux binaries (x86_64 and aarch64
 # musl) in Docker with zig and x86_64-pc-windows-msvc with cargo-xwin, the Mac
 # runner builds aarch64-apple-darwin, the Linux job pushes the beep-node
-# image (amd64 and arm64) to the registry the build workflow uses, and a
-# last job attaches the archives and SHA256SUMS to the tag's Forgejo release
+# image (amd64 and arm64) to GHCR, and a
+# last job attaches the archives and SHA256SUMS to the tag's GitHub release
 # and uploads them to the R2 bucket under beep/node/<version>/, served at
 # https://releases.flashmind.com/beep/node/. latest.txt there names the newest
 # version and install.sh reads it:
@@ -27,11 +27,17 @@ concurrency:
 env:
   BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
 
+permissions:
+  contents: read
+
 jobs:
   linux:
-    runs-on: host
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check the version
         run: bash scripts/check-node-version.sh
@@ -47,55 +53,36 @@ jobs:
             tar -czf "dist/beep-node-$VERSION-$target.tar.gz" -C "$RUNNER_TEMP/node-bin/$target" beep-node
           done
 
-      # The container image, from the binaries above, into the registry the
-      # build workflow pushes the server to. One image per architecture, then
-      # a list naming both under <version> and latest.
-      - name: Log in to the registry
-        run: |
-          printf '%s' '${{ secrets.REGISTRY_TOKEN }}' \
-            | docker login '${{ vars.REGISTRY }}' \
-                -u '${{ vars.REGISTRY_USER }}' --password-stdin
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
 
       - name: Build and push the image
         run: |
           set -euo pipefail
-          IMAGE='${{ vars.REGISTRY }}/${{ vars.REGISTRY_USER }}/beep-node'
-          for arch in amd64 arm64; do
-            # One plain manifest per arch: no attestations, which would make
-            # each a list that docker manifest create refuses.
-            docker build --platform "linux/$arch" --target node-image \
-              --provenance=false --sbom=false \
-              --build-context "node-dist=$RUNNER_TEMP/node-bin" \
-              -t "$IMAGE:$VERSION-$arch" .
-            docker push "$IMAGE:$VERSION-$arch"
-          done
-          # The registry is plain HTTP: buildx's resolver refuses it, the
-          # docker manifest commands take --insecure.
-          for tag in "$VERSION" latest; do
-            docker manifest rm "$IMAGE:$tag" 2>/dev/null || true
-            docker manifest create --insecure "$IMAGE:$tag" \
-              "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
-            docker manifest push --insecure --purge "$IMAGE:$tag"
-          done
-          docker image rm "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
-
-      - name: Log out
-        if: always()
-        run: docker logout '${{ vars.REGISTRY }}'
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/beep-node"
+          docker buildx build --platform linux/amd64,linux/arm64 --target node-image \
+            --build-context "node-dist=$RUNNER_TEMP/node-bin" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --tag "$image:$VERSION" --tag "$image:latest" --push .
 
       - name: Clean up
         if: always()
         run: rm -rf "$RUNNER_TEMP/node-bin"
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: node-linux
           path: dist/*.tar.gz
 
   windows:
-    runs-on: host
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check the version
         run: bash scripts/check-node-version.sh
@@ -114,25 +101,23 @@ jobs:
             "dist/beep-node-$VERSION-$target.zip" "$RUNNER_TEMP/node-win/$target/beep-node.exe"
           rm -rf "$RUNNER_TEMP/node-win"
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: node-windows
           path: dist/*.zip
 
   macos:
-    runs-on: macos
+    runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check the version
         run: bash scripts/check-node-version.sh
 
-      - name: Set up the toolchain
-        run: |
-          set -euo pipefail
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          # Kept between runs, so a build only recompiles what changed.
-          echo "CARGO_TARGET_DIR=$HOME/Library/Caches/beep-node-target" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
 
       - name: Build and package
         run: |
@@ -141,33 +126,36 @@ jobs:
           cargo build --release --locked --package beep-node --bin beep-node --target "$target"
           mkdir -p dist
           # Without AppleDouble ._ entries for the binary's extended attributes.
-          COPYFILE_DISABLE=1 tar -czf "dist/beep-node-$VERSION-$target.tar.gz" -C "$CARGO_TARGET_DIR/$target/release" beep-node
+          COPYFILE_DISABLE=1 tar -czf "dist/beep-node-$VERSION-$target.tar.gz" -C "target/$target/release" beep-node
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: node-macos
           path: dist/*.tar.gz
 
   publish:
     needs: [linux, macos, windows]
-    runs-on: host
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check the version
         run: bash scripts/check-node-version.sh
 
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v8
         with:
           name: node-linux
           path: dist
 
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v8
         with:
           name: node-macos
           path: dist
 
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v8
         with:
           name: node-windows
           path: dist
@@ -181,12 +169,16 @@ jobs:
 
       - name: Publish the release
         env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           python3 scripts/changelog.py notes "$VERSION" --path changelogs/node.md > "$RUNNER_TEMP/release-notes.md"
-          bash scripts/forgejo-release.sh create "beep-node $VERSION" "$RUNNER_TEMP/release-notes.md" \
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag \
+              --title "beep-node $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
+          gh release upload "$GITHUB_REF_NAME" --clobber \
             dist/*.tar.gz dist/*.zip dist/SHA256SUMS
 
       - name: Stage the R2 upload
@@ -214,7 +206,7 @@ jobs:
 
       - name: Upload the release to R2
         if: steps.r2.outputs.files != ''
-        uses: https://github.com/ryand56/r2-upload-action@v1.5
+        uses: ryand56/r2-upload-action@v1.5
         with:
           r2-account-id: ${{ steps.r2.outputs.account }}
           r2-access-key-id: ${{ secrets.CF_ACCESS_KEY_ID }}

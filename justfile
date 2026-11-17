@@ -64,7 +64,6 @@ server-release version:
     python3 scripts/changelog.py notes {{version}} --path changelogs/server.md > /dev/null
     git tag -a "server-v{{version}}" -m "Beep server {{version}}"
     git push origin "server-v{{version}}"
-    git push forgejo "server-v{{version}}"
 
 # Bump selected apps, commit together and publish main plus their release tags.
 # Examples: just patch desktop; just patch desktop beep-node android ios; just patch all.

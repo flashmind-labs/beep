@@ -15,8 +15,7 @@
 # with the runner's debug key and will not install over a build signed with
 # another one.
 #
-# The version code is 1000000 plus the run number, always above the 100 plus
-# run number the native app used.
+# The version code is 1100000 plus the run number to start above Forgejo builds.
 name: android
 
 on:
@@ -31,16 +30,19 @@ concurrency:
 env:
   NDK_VERSION: 28.2.13676358
 
+permissions:
+  contents: read
+
 jobs:
   apk:
-    runs-on: host
+    runs-on: ubuntu-24.04
     env:
       BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
-        uses: https://github.com/dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
 
@@ -56,7 +58,7 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: https://github.com/android-actions/setup-android@v3
+        uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
 
@@ -80,7 +82,7 @@ jobs:
         working-directory: apps/desktop
         run: >-
           npm run tauri -- android build --apk --aab
-          --config '{"bundle":{"android":{"versionCode":'$((1000000 + ${{ github.run_number }}))'}}}'
+          --config '{"bundle":{"android":{"versionCode":'$((1100000 + GITHUB_RUN_NUMBER))'}}}'
 
       # Tauri builds release outputs unsigned. Without the keystore secrets
       # they are signed with a throwaway debug key.
@@ -115,8 +117,9 @@ jobs:
             -signedjar beep-android.aab "$aab" "$alias" > /dev/null
           sha256sum beep-android.apk > beep-android.apk.sha256
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: beep-android
           path: |
             beep-android.apk

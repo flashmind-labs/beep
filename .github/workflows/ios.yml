@@ -1,11 +1,9 @@
 # Uploads a tag ios-vX.Y.Z (made by `just patch`, `just minor` or
 # `just release`) to TestFlight for invited beta testers. The phone app is the
 # desktop Tauri app built for iOS; its version is "version" in apps/desktop/src-tauri/tauri.ios.conf.json and
-# the workflow run number is the build number.
+# the build number adds 10000 to the workflow run number.
 #
-# Runs on a Mac registered with the `macos` label, with Rust, Node, Xcode and
-# xcodegen installed for the runner's user. The server's https:// address is
-# the repository variable BEEP_SERVER_URL.
+# The repository variable BEEP_SERVER_URL sets the report server address.
 name: ios
 
 on:
@@ -17,14 +15,17 @@ concurrency:
   group: ios-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   testflight:
-    runs-on: macos
+    runs-on: macos-26
     env:
       BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
       IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check the tag
         env:
@@ -39,8 +40,8 @@ jobs:
       - name: Check configuration
         env:
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID || vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID || vars.APPLE_API_ISSUER_ID }}
           IOS_DISTRIBUTION_P12: ${{ secrets.IOS_DISTRIBUTION_P12 }}
           IOS_DISTRIBUTION_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_PASSWORD }}
         run: |
@@ -61,14 +62,15 @@ jobs:
             exit 1
           }
 
-      - name: Set up build tools
-        run: |
-          set -euo pipefail
-          export PATH="$HOME/.cargo/bin:$PATH"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          command -v xcodegen >/dev/null || brew install xcodegen
-          rustup target add aarch64-apple-ios
-          rustup component add llvm-tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+          components: llvm-tools
+      - name: Install XcodeGen
+        run: brew install xcodegen
 
       - name: Prepare App Store Connect key
         env:
@@ -87,6 +89,20 @@ jobs:
           set -euo pipefail
           bash scripts/keychain.sh import ios ios-signing.p12 IOS_DISTRIBUTION_P12 IOS_DISTRIBUTION_PASSWORD
 
+      - name: Install the provisioning profile
+        env:
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          profile="$RUNNER_TEMP/ios.mobileprovision"
+          printf '%s' "$IOS_PROVISIONING_PROFILE" | base64 -D > "$profile"
+          security cms -D -i "$profile" > "$RUNNER_TEMP/ios-profile.plist"
+          uuid=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$RUNNER_TEMP/ios-profile.plist")
+          profiles="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          mkdir -p "$profiles"
+          install -m 600 "$profile" "$profiles/$uuid.mobileprovision"
+
       - name: Build the web UI
         working-directory: apps/desktop
         run: |
@@ -103,17 +119,17 @@ jobs:
         working-directory: apps/desktop
         env:
           APPLE_DEVELOPMENT_TEAM: ${{ vars.IOS_TEAM_ID }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID || vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID || vars.APPLE_API_ISSUER_ID }}
         run: |
           set -euo pipefail
           npm run tauri -- ios build --export-method app-store-connect \
-            --build-number "$GITHUB_RUN_NUMBER"
+            --build-number "$((10000 + GITHUB_RUN_NUMBER))"
 
       - name: Upload to TestFlight
         env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID || vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID || vars.APPLE_API_ISSUER_ID }}
         run: |
           set -euo pipefail
           ipa=$(find apps/desktop/src-tauri/gen/apple/build -name '*.ipa' | head -1)

@@ -16,9 +16,12 @@ on:
         description: Oldest flsh CLI version to keep
         required: true
 
+permissions:
+  contents: read
+
 jobs:
   prune:
-    runs-on: host
+    runs-on: ubuntu-24.04
     env:
       CF_ACCESS_KEY_ID: ${{ secrets.CF_ACCESS_KEY_ID }}
       CF_SECRET_ACCESS_KEY: ${{ secrets.CF_SECRET_ACCESS_KEY }}
@@ -28,7 +31,7 @@ jobs:
       NODE: ${{ inputs.node }}
       CLI: ${{ inputs.cli }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Prune
         run: |
           set -euo pipefail
