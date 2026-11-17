@@ -39,8 +39,8 @@ fn the_title_is_the_project_and_the_session() {
 fn the_body_is_what_the_agent_said_or_why_it_stopped() {
     let body = |kind| alert(Some("Fix the login"), kind).notice_body();
     assert_eq!(
-        body(ended(StopReason::EndTurn, "**Done**, see `a.rs`.", None)),
-        "Done, see a.rs."
+        body(ended(StopReason::EndTurn, "**Done**, see `a.rs`.\n", None)),
+        "**Done**, see `a.rs`."
     );
     assert_eq!(body(ended(StopReason::EndTurn, " ", None)), "Finished");
     assert_eq!(

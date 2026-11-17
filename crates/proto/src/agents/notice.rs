@@ -178,14 +178,13 @@ pub fn agent_name(agent: &str) -> &str {
     }
 }
 
-/// `text` on one line without markdown marks, cut to `MAX_BODY` characters.
+/// `text` as markdown, cut to `MAX_BODY` characters; apps render it.
 fn clip(text: &str) -> String {
-    let plain = text.replace("**", "").replace('`', "");
-    let line = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text = text.trim();
 
-    match line.char_indices().nth(MAX_BODY) {
-        Some((end, _)) => format!("{}...", line[..end].trim_end()),
-        None => line,
+    match text.char_indices().nth(MAX_BODY) {
+        Some((end, _)) => format!("{}...", text[..end].trim_end()),
+        None => text.to_owned(),
     }
 }
 

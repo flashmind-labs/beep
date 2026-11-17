@@ -122,6 +122,46 @@ pub fn to_html(markdown: &str) -> String {
         .to_string()
 }
 
+/// Markdown as one run of inline HTML for a short preview, such as a
+/// notification's reply: emphasis and code stay, raw HTML and links go,
+/// and breaks and blocks become spaces.
+pub fn inline_html(markdown: &str) -> String {
+    let mut out = String::with_capacity(markdown.len() * 3 / 2);
+    html::push_html(&mut out, inline(markdown));
+
+    ammonia::Builder::default()
+        .rm_tags(["img"])
+        .clean(out.trim())
+        .to_string()
+}
+
+/// Markdown as plain text on one line, for a system notification.
+pub fn plain_text(markdown: &str) -> String {
+    let mut text = String::with_capacity(markdown.len());
+
+    for event in inline(markdown) {
+        if let Event::Text(part) | Event::Code(part) = event {
+            text.push_str(&part);
+        }
+    }
+
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The inline events of `markdown`, with a space for each break and block.
+fn inline(markdown: &str) -> impl Iterator<Item = Event<'_>> {
+    Parser::new_ext(markdown, PLAIN_OPTIONS).filter_map(|event| match event {
+        Event::Text(_)
+        | Event::Code(_)
+        | Event::Start(Tag::Emphasis | Tag::Strong | Tag::Strikethrough)
+        | Event::End(TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough) => Some(event),
+        Event::SoftBreak | Event::HardBreak | Event::Rule | Event::End(_) => {
+            Some(Event::Text(" ".into()))
+        }
+        _ => None,
+    })
+}
+
 /// Markdown someone else wrote, such as an issue on a code host, as HTML.
 /// Raw HTML in it shows as text and images are left out, so nothing in it
 /// runs or loads.

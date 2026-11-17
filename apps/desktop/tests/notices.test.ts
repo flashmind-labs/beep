@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { type Note, type NoteKind, asks, badge, bellLabel, conflictProject, doneLabel, find, fromNote, markRead, noteAgent, opens, copies, copyLine, skillName, subLine, unreadCount, unreadIds, without } from "../src/center/notices-state.ts";
 
-const note = (id: string, kind: NoteKind, over: Partial<Note> = {}): Note => ({ id, kind, title: `Title ${id}`, text: "", source: "build-box", at: 1_760_000_000_000, read: false, done: false, target: null, allow_deny: true, ...over });
+const note = (id: string, kind: NoteKind, over: Partial<Note> = {}): Note => ({ id, kind, title: `Title ${id}`, text: "", html: "", source: "build-box", at: 1_760_000_000_000, read: false, done: false, target: null, allow_deny: true, ...over });
 const items = (...ids: string[]) => ids.map(id => fromNote(note(id, "finished", { text: `Text ${id}` })));
 
 test("the badge counts what is unread and clears when it is read", () => {

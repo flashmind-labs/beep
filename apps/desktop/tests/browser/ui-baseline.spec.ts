@@ -716,9 +716,9 @@ test("agent artifacts", async ({ page }) => {
 
 test("notices popover", async ({ page }) => {
   const session = (id: string, agent: string) => ({ agent: { machine_id: "m1", machine_name: machineId, id, agent, cwd: "/srv/widget", status: "idle", external: false } });
-  const note = (id: string, kind: string, title: string, text: string, ago: number, target: object | null) => ({ id, at: NOW - ago, kind, title, text, source: machineId, read: false, done: false, target, allow_deny: true });
+  const note = (id: string, kind: string, title: string, text: string, ago: number, target: object | null, html = "") => ({ id, at: NOW - ago, kind, title, text, html, source: machineId, read: false, done: false, target, allow_deny: true });
   await openDesktop(page, false, { notes_list: [
-    note("first", "finished", "example/widget: Tidy the docs", "Rewrote the README example for the new options.", 60_000, session("s1", "codex")),
+    note("first", "finished", "example/widget: Tidy the docs", "Rewrote the **README** example for `--compact`.", 60_000, session("s1", "codex"), "Rewrote the <strong>README</strong> example for <code>--compact</code>."),
     note("second", "asks", "example/widget: Fix the login", "Run cargo test -p widget?", 120_000, session("s2", "claude")),
     note("third", "offline", `${machineId} is offline`, "", 3_600_000, null),
   ] });
