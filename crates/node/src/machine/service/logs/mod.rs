@@ -85,6 +85,10 @@ pub(crate) fn recent(files: &[PathBuf], lines: u32) -> Result<String> {
 /// service's log when there are none. A log with no timestamp at all gives
 /// its last lines.
 pub(crate) fn window(files: &[PathBuf], since: i64, max_bytes: usize) -> Result<String> {
+    // A long journal takes seconds to read, for no bytes to keep.
+    if max_bytes == 0 {
+        return Ok(String::new());
+    }
     let read = window_from(files, Some(since), max_bytes)?;
 
     if read.timed {
