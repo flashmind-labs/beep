@@ -91,16 +91,22 @@ body.cbody
             div.nt-list
               div.nt-row.unread [data-id="first" role="button" tabindex="0"]
                 span.nt-dot
+                span.codex.dmag-ic.mark
+                  svg [aria-hidden="true" viewBox="0 0 24 24"]
                 span.nt-t
-                  b "Codex finished"
-                  span "build-box · 1 min"
+                  b "example/widget: Tidy the docs"
+                  span "Rewrote the README example for the new options."
+                  span "1 min ago"
                 button.dbtn.quiet [aria-label="Dismiss" title="Dismiss" type="button"]
                   svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
               div.nt-row.unread [data-id="second" role="button" tabindex="0"]
                 span.nt-dot
+                span.claude.dmag-ic.mark
+                  svg [aria-hidden="true" viewBox="0 0 24 24"]
                 span.nt-t
-                  b "Permission required"
-                  span "build-box · 2 min"
+                  b "example/widget: Fix the login"
+                  span "Run cargo test -p widget?"
+                  span "2 min ago"
                   span.nt-acts
                     button.dbtn.pri.small [type="button"] "Allow"
                     button.dbtn.small [type="button"] "Deny"
@@ -108,9 +114,10 @@ body.cbody
                   svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
               div.nt-row.unread [data-id="third" role="button" tabindex="0"]
                 span.nt-dot
+                span
                 span.nt-t
-                  b "Claude Code finished"
-                  span "build-box · 1 h"
+                  b "build-box is offline"
+                  span "build-box · 1 h ago"
                 button.dbtn.quiet [aria-label="Dismiss" title="Dismiss" type="button"]
                   svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
         button.mb-set [aria-label="Settings" type="button"]

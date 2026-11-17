@@ -321,7 +321,7 @@ async fn a_machines_question_arrives_with_its_options() {
     assert_eq!(key.question, Some(3));
     assert_eq!(key.machine_id, node.id.to_string());
     assert_eq!(key.machine_name, "build-box");
-    assert_eq!(notice.title, "Claude Code on build-box asks");
+    assert_eq!(notice.title, "project");
     assert_eq!(options.len(), 2);
     drop(heard);
     timeout(LIMIT, following)

@@ -351,7 +351,7 @@ async fn stream(
                 let key = alert.key(&id.to_string(), &name_of(mesh, id));
                 let project = project_at(mesh, id, &alert.cwd);
                 let notice = Notice {
-                    title: alert.notice_title(&key.machine_name, project.as_deref()),
+                    title: alert.notice_title(project.as_deref()),
                     body: alert.notice_body(),
                     session_id: key.to_string(),
                 };

@@ -715,8 +715,13 @@ test("agent artifacts", async ({ page }) => {
 // Popovers
 
 test("notices popover", async ({ page }) => {
-  const note = (id: string, kind: string, title: string, ago: number) => ({ id, at: NOW - ago, kind, title, text: "", source: machineId, read: false, done: false, target: null, allow_deny: true });
-  await openDesktop(page, false, { notes_list: [note("first", "finished", "Codex finished", 60_000), note("second", "asks", "Permission required", 120_000), note("third", "finished", "Claude Code finished", 3_600_000)] });
+  const session = (id: string, agent: string) => ({ agent: { machine_id: "m1", machine_name: machineId, id, agent, cwd: "/srv/widget", status: "idle", external: false } });
+  const note = (id: string, kind: string, title: string, text: string, ago: number, target: object | null) => ({ id, at: NOW - ago, kind, title, text, source: machineId, read: false, done: false, target, allow_deny: true });
+  await openDesktop(page, false, { notes_list: [
+    note("first", "finished", "example/widget: Tidy the docs", "Rewrote the README example for the new options.", 60_000, session("s1", "codex")),
+    note("second", "asks", "example/widget: Fix the login", "Run cargo test -p widget?", 120_000, session("s2", "claude")),
+    note("third", "offline", `${machineId} is offline`, "", 3_600_000, null),
+  ] });
   await page.getByRole("button", { name: /Notifications/ }).click();
   await expect(page.locator('.nt-row[data-id="third"]')).toBeVisible();
   await baseline(page, "notices");

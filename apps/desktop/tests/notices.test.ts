@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Note, type NoteKind, asks, badge, bellLabel, conflictProject, doneLabel, find, fromNote, markRead, opens, copies, copyLine, skillName, subLine, unreadCount, unreadIds, without } from "../src/center/notices-state.ts";
+import { type Note, type NoteKind, asks, badge, bellLabel, conflictProject, doneLabel, find, fromNote, markRead, noteAgent, opens, copies, copyLine, skillName, subLine, unreadCount, unreadIds, without } from "../src/center/notices-state.ts";
 
 const note = (id: string, kind: NoteKind, over: Partial<Note> = {}): Note => ({ id, kind, title: `Title ${id}`, text: "", source: "build-box", at: 1_760_000_000_000, read: false, done: false, target: null, allow_deny: true, ...over });
 const items = (...ids: string[]) => ids.map(id => fromNote(note(id, "finished", { text: `Text ${id}` })));
@@ -70,7 +70,15 @@ test("a row opens what it is about", () => {
 });
 
 test("a row says where it came from and when", () => {
-  assert.equal(subLine(fromNote(note("a", "finished", { source: "build-box" })), "4 min"), "build-box · 4 min");
+  assert.equal(subLine(fromNote(note("a", "finished", { source: "build-box" })), "4 min ago"), "build-box · 4 min ago");
+});
+
+test("a coding agent's row shows its agent and only when", () => {
+  const agent = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", cwd: "/srv/widget", status: "idle", external: false };
+  const done = fromNote(note("a", "finished", { target: { agent } }));
+  assert.equal(noteAgent(done), "claude");
+  assert.equal(subLine(done, "4 min ago"), "4 min ago");
+  assert.equal(noteAgent(fromNote(note("b", "offline"))), null);
 });
 
 test("a skill conflict lists its copies and which are on this computer", () => {
