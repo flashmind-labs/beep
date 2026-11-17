@@ -2,6 +2,12 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.19] - 2026-11-17
+
+### Fixed
+
+- Node: Linux and Windows packages build successfully for releases.
+
 ## [0.7.18] - 2026-11-17
 
 ### Added
