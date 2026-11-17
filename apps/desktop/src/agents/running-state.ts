@@ -94,14 +94,17 @@ export function repoOf(r: Pick<RunningAgent, "machine_id" | "cwd">, projects: re
 /// `path` without trailing slashes: a moved session's folder can end in one.
 const trimSlash = (path: string) => path.replace(/(.)\/+$/, "$1");
 
-/// The project whose folder holds a session: the deepest one. `main` is the
-/// repository's main checkout when the session works in a linked worktree,
-/// which may be outside the project's folder.
+/// The project whose folder holds a session's folder: the deepest one. `main` is the main
+/// checkout of the repository it works in now, which may be a linked worktree outside the
+/// project's folder or another repository; it counts only when the folder is in no project.
 export function projectOf(r: Pick<RunningAgent, "machine_id" | "cwd"> & { main?: string | null }, projects: readonly ProjectFolder[] = []) {
-  const paths = [r.cwd, r.main].filter((p): p is string => !!p).map(trimSlash);
-  const holds = (folder: string) => paths.some(p => p === folder || p.startsWith(folder + "/"));
-  const inside = (p: ProjectFolder) => p.machine_id === r.machine_id && holds(trimSlash(p.folder));
-  return projects.filter(inside).sort((a, b) => b.folder.length - a.folder.length)[0];
+  const holding = (path: string | null | undefined) => {
+    if (!path) return undefined;
+    const at = trimSlash(path);
+    const holds = (p: ProjectFolder) => { const folder = trimSlash(p.folder); return p.machine_id === r.machine_id && (at === folder || at.startsWith(folder + "/")); };
+    return projects.filter(holds).sort((a, b) => b.folder.length - a.folder.length)[0];
+  };
+  return holding(r.cwd) ?? holding(r.main);
 }
 
 /// Whether `open` is session `s`, on the same machine and agent.
