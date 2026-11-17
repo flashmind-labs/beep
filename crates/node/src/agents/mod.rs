@@ -217,9 +217,9 @@ host! {
         /// The last folder listing; held while one runs, so asks that come
         /// meanwhile share it instead of each running git for every folder.
         listed: AsyncMutex<Option<found_sessions::Listed>>,
-        /// Sessions started outside Beep whose process this node ended
-        /// lately, by id, with when.
-        closed: Mutex<HashMap<String, Instant>>,
+        /// Sessions started outside Beep whose process this node ended or
+        /// saw exit lately, by id, with when.
+        closed: Arc<Mutex<HashMap<String, Instant>>>,
         /// Which processes hold the sessions' files, checked once for all.
         holders: holders::Holders,
         /// What sessions were, ended ones too, from the restart note.
