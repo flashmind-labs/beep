@@ -2,7 +2,6 @@
 //! it through the official crate. The task owns the process; streams send
 //! it orders and follow its state through a watch channel.
 
-use beep_proto::SessionId;
 use super::{
     AgentKind,
     acp::Prompt,
@@ -22,6 +21,7 @@ use crate::{
 use agent_client_protocol::v1::schema::McpServer;
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
+use beep_proto::SessionId;
 use beep_proto::node::agent::{
     AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, SessionDevice, SessionInfo,
     Status,
@@ -39,7 +39,7 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{OnceCell, mpsc, oneshot, watch};
 use tokio_util::task::AbortOnDropHandle;
 
 mod actor;
@@ -174,6 +174,8 @@ pub(super) struct Session {
     pub(super) agent: String,
     orders: mpsc::Sender<Order>,
     pub(super) live: watch::Receiver<Live>,
+    /// Native history before the adapter's replay, read once for a resumed Claude session.
+    pub(super) history: Option<OnceCell<Vec<Entry>>>,
     moved_cwd: Mutex<Option<String>>,
     /// A temporary reviewer (`agents::reviews`): never listed, never kept
     /// over a restart, offered `submit_review`.
@@ -381,6 +383,7 @@ impl Session {
         first.agent_session = resume.clone();
         let (live_tx, live) = watch::channel(first);
         let (orders, orders_rx) = mpsc::channel(ORDERS);
+        let history = (resume.is_some() && kind.name == "claude").then(OnceCell::new);
         let actor = Actor {
             live: live_tx,
             alerts,
@@ -447,6 +450,7 @@ impl Session {
             agent: kind.name.clone(),
             orders,
             live,
+            history,
             moved_cwd: Mutex::new(None),
             reviewer: false,
             assistant,

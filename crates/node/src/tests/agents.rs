@@ -110,7 +110,11 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
         }
     };
     assert_eq!(
-        kinds(agents.transcript_reply(&SessionId::from(CLAUDE_ID), 10, true, None).await),
+        kinds(
+            agents
+                .transcript_reply(&SessionId::from(CLAUDE_ID), 10, true, None)
+                .await
+        ),
         [
             (agent::EntryKind::User, "is 391 prime?".into(), None),
             (agent::EntryKind::Thought, "Try 17.".into(), Some(4000)),
@@ -118,7 +122,12 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
         ]
     );
     assert_eq!(
-        kinds(agents.transcript_reply(&SessionId::from(CLAUDE_ID), 10, false, None).await).len(),
+        kinds(
+            agents
+                .transcript_reply(&SessionId::from(CLAUDE_ID), 10, false, None)
+                .await
+        )
+        .len(),
         2
     );
 
@@ -259,9 +268,14 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
     );
     assert!(agents.images.get(&session.id, &key).is_some(), "kept again");
     // A session started outside Beep is read from its file by its id.
-    let outside = agents.image(&SessionId::from(CLAUDE_ID), &key).await.unwrap();
+    let outside = agents
+        .image(&SessionId::from(CLAUDE_ID), &key)
+        .await
+        .unwrap();
     assert_eq!(outside.map(|picture| picture.data.clone()), Some(shot));
-    let missing = agents.image(&SessionId::from(CLAUDE_ID), &image_key(b"other")).await;
+    let missing = agents
+        .image(&SessionId::from(CLAUDE_ID), &image_key(b"other"))
+        .await;
     assert!(missing.unwrap().is_none());
     session.close().await;
     std::fs::remove_dir_all(&dir).unwrap();
@@ -442,7 +456,11 @@ done
     .unwrap();
     first.close().await;
     let resumed = agents
-        .resume(&kind, &SessionId::from("hermes-session"), Some("continue".into()))
+        .resume(
+            &kind,
+            &SessionId::from("hermes-session"),
+            Some("continue".into()),
+        )
         .await
         .unwrap();
     let mut live = resumed.live.clone();
@@ -465,7 +483,12 @@ done
             .any(|entry| entry.text == "Resumed.")
     );
     resumed.close().await;
-    assert!(agents.resume(&kind, &SessionId::from("outside-session"), None).await.is_err());
+    assert!(
+        agents
+            .resume(&kind, &SessionId::from("outside-session"), None)
+            .await
+            .is_err()
+    );
 }
 
 /// Answers `initialize` and `session/new` with the agent's own id, then
@@ -507,7 +530,10 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     .expect("the session is still there");
     assert_eq!(session.info().id, AGENT_ID);
     assert_eq!(agents.list()[0].id, AGENT_ID);
-    assert!(Arc::ptr_eq(&agents.get(&SessionId::from(AGENT_ID)).unwrap(), &session));
+    assert!(Arc::ptr_eq(
+        &agents.get(&SessionId::from(AGENT_ID)).unwrap(),
+        &session
+    ));
     agents.shutdown().await;
     let ended = session.info();
     assert_eq!(ended.state.status, Status::Ended);
@@ -991,4 +1017,155 @@ while read -r line; do :; done
     let listed = agents.listed_with_places(false).await;
     assert!(!listed[0].place.as_ref().unwrap().linked);
     session.close().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn native_places_skip_an_unreadable_transcript() {
+    use super::checkout::tests::run;
+    use std::collections::HashSet;
+
+    const BROKEN: &str = "7a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d";
+    let root = tempfile::tempdir().expect("a temp folder");
+    let repo = root.path().join("project");
+    std::fs::create_dir(&repo).expect("a checkout folder");
+    run(&repo, &["init", "-q", "-b", "main"]);
+    let config = root.path().join("claude");
+    let folder = config.join("projects").join(super::claude::slug(&repo));
+    std::fs::create_dir_all(&folder).expect("a transcript folder");
+    let line = serde_json::json!({
+        "type": "assistant", "cwd": repo,
+        "message": {"content": [{"type": "text", "text": "Done."}]}
+    });
+    std::fs::write(
+        folder.join(format!("{CLAUDE_ID}.jsonl")),
+        format!("{line}\n"),
+    )
+    .expect("the valid transcript");
+    // A directory with a transcript's name cannot be read as a transcript.
+    std::fs::create_dir(folder.join(format!("{BROKEN}.jsonl"))).expect("an unreadable transcript");
+
+    let places = External::at(&config)
+        .places(HashSet::from([
+            SessionId::from(CLAUDE_ID),
+            SessionId::from(BROKEN),
+            SessionId::from("../outside"),
+        ]))
+        .await
+        .expect("native places remain available");
+
+    assert_eq!(places.len(), 1);
+    assert_eq!(
+        places[&SessionId::from(CLAUDE_ID)].folder,
+        repo.to_string_lossy()
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn resumed_claude_reads_native_history_before_a_partial_replay() {
+    use beep_proto::node::agent::EntryKind;
+
+    for compacted in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("claude");
+        let folder = config.join("projects/project");
+        std::fs::create_dir_all(&folder).unwrap();
+        let path = folder.join(format!("{CLAUDE_ID}.jsonl"));
+        let mut records = vec![
+            serde_json::json!({"type":"user", "uuid":"old-user", "message":{"content":"yes"}}),
+            serde_json::json!({"type":"assistant", "uuid":"old-agent", "parentUuid":"old-user", "message":{"content":[{"type":"text", "text":"Original answer"}]}}),
+        ];
+        if compacted {
+            records.push(serde_json::json!({"type":"system", "subtype":"compact_boundary"}));
+        }
+        records.extend([
+            serde_json::json!({"type":"user", "uuid":"new-user", "parentUuid":"missing", "message":{"content":"yes"}}),
+            serde_json::json!({"type":"assistant", "uuid":"new-agent", "parentUuid":"new-user", "message":{"content":[{"type":"text", "text":"Recent answer"}]}}),
+        ]);
+        let text = records
+            .iter()
+            .map(|record| format!("{record}\n"))
+            .collect::<String>();
+        std::fs::write(&path, &text).unwrap();
+        let agents = agents_at(&config);
+        let script = r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+update() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"%s","content":{"type":"text","text":"%s"}}}}\n' "$1" "$2"; }
+read -r line
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}'
+read -r line
+update user_message_chunk yes
+update agent_message_chunk 'Recent answer'
+reply '{}'
+while read -r line; do
+  case "$line" in
+    *session/prompt*) update agent_message_chunk 'New answer'; reply '{"stopReason":"end_turn"}' ;;
+    *) reply '{}' ;;
+  esac
+done
+"#;
+        let session = agents
+            .start(
+                &sh_agent("claude", script),
+                Some(root.path().to_str().unwrap()),
+                Begin {
+                    resume: Some(CLAUDE_ID.into()),
+                    ..Begin::default()
+                },
+            )
+            .unwrap();
+        let mut live = session.live.clone();
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            watched::wait_for(&mut live, |live| live.status() == Status::Idle),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        let (recent, earlier) = agents.live_transcript(&session, 2, None).await;
+        assert_eq!(
+            recent
+                .iter()
+                .map(|entry| entry.text.as_str())
+                .collect::<Vec<_>>(),
+            ["yes", "Recent answer"]
+        );
+        assert_eq!(earlier, if compacted { 3 } else { 2 });
+        let (older, start) = agents.live_transcript(&session, 20, Some(earlier)).await;
+        assert_eq!(start, 0);
+        assert_eq!(older[0].text, "yes");
+        assert_eq!(older[1].text, "Original answer");
+        assert_eq!(older.len(), earlier as usize);
+        if compacted {
+            assert_eq!(older[2].kind, EntryKind::Compacted);
+        }
+        let (joined, start) = agents.live_transcript(&session, 20, None).await;
+        assert_eq!(start, 0);
+        assert_eq!(joined.len(), older.len() + recent.len());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            text,
+            "native history stays intact"
+        );
+
+        session
+            .order(Command::Prompt("Continue".to_owned().into()))
+            .await
+            .unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            watched::wait_for(&mut live, |live| live.info.turns == 1),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let (updated, start) = agents.live_transcript(&session, 20, None).await;
+        assert_eq!(start, 0);
+        assert_eq!(&updated[..joined.len()], joined);
+        assert_eq!(updated.last().unwrap().text, "New answer");
+        session.close().await;
+    }
 }

@@ -1,6 +1,5 @@
 //! Starting, finding and stopping the sessions this node runs.
 
-use beep_proto::SessionId;
 use super::{
     AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, Prompt, Session, Start, checkout,
     harnesses,
@@ -13,6 +12,7 @@ use crate::{
     run::process,
 };
 use anyhow::{Context, Result};
+use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{
         self, CheckoutPlan, ModelList, ParentLink, SESSIONS_PROTOCOL, SessionDevice, SessionInfo,
@@ -114,6 +114,15 @@ impl Agents {
         last: usize,
         before: Option<u64>,
     ) -> (Vec<agent::Entry>, u64) {
+        let history = self.claude_history(session).await;
+        let offset = history.len() as u64;
+
+        if offset != 0 && before.is_some_and(|before| before <= offset) {
+            let range = super::window::window(0, history.len(), last, before);
+            return (history[range.clone()].to_vec(), range.start as u64);
+        }
+
+        let before = before.map(|before| before.saturating_sub(offset));
         let (mut entries, earlier) = self.codex_transcript(session, last, before).await;
 
         if session.agent == "claude" {
@@ -139,7 +148,67 @@ impl Agents {
         }
 
         mcp::children::show_children(self, session, &mut entries);
-        (entries, earlier)
+        let retained = if earlier == 0 {
+            last.saturating_sub(entries.len()).min(history.len())
+        } else {
+            0
+        };
+        if retained == 0 {
+            return (entries, offset + earlier);
+        }
+
+        let mut joined = history[history.len() - retained..].to_vec();
+        joined.extend(entries);
+
+        (joined, offset + earlier - retained as u64)
+    }
+
+    /// ACP replays can start after a compaction or a missing parent record.
+    /// Keep the available native prefix without changing live tool positions.
+    async fn claude_history<'a>(&self, session: &'a Session) -> &'a [agent::Entry] {
+        let Some(history) = &session.history else {
+            return &[];
+        };
+        let id = watched::read(&session.live, |live| {
+            (live.status() != Status::Starting)
+                .then(|| live.agent_session.clone())
+                .flatten()
+        });
+        let Some(id) = id else {
+            return &[];
+        };
+
+        match history
+            .get_or_try_init(|| async {
+                let Some(read) = self
+                    .external
+                    .transcript(&id, super::live::MAX_ENTRIES, None)
+                    .await?
+                else {
+                    anyhow::bail!("native transcript not found");
+                };
+                let (replay, earlier) = watched::read(&session.live, |live| {
+                    live.transcript_before(usize::MAX, None)
+                });
+                let mut read = read.before_replay(&replay);
+                if earlier != 0 {
+                    read.entries.clear();
+                }
+
+                for picture in read.pictures {
+                    self.images.keep(&id, picture);
+                }
+
+                Ok::<_, anyhow::Error>(read.entries)
+            })
+            .await
+        {
+            Ok(history) => history,
+            Err(error) => {
+                log::warn!("native history not recovered: {error:#}");
+                &[]
+            }
+        }
     }
 
     async fn codex_transcript(
@@ -474,17 +543,12 @@ impl Agents {
             return sessions;
         }
 
-        match self
-            .external
-            .named(owned.keys().cloned().collect(), owned.clone())
-            .await
-        {
+        match self.external.places(owned.keys().cloned().collect()).await {
             Ok(found) => {
-                for native in found {
+                for (id, place) in found {
                     if let Some(info) = sessions
                         .iter_mut()
-                        .find(|info| owned.get(&native.id) == Some(&info.id))
-                        && let Some(place) = native.place
+                        .find(|info| owned.get(&id) == Some(&info.id))
                     {
                         info.place = Some(place);
                     }
@@ -729,7 +793,10 @@ impl Agents {
 }
 
 /// The session `id` names in `sessions`, by its key or the agent's id.
-fn find_session(sessions: &HashMap<SessionId, Arc<Session>>, id: &SessionId) -> Option<Arc<Session>> {
+fn find_session(
+    sessions: &HashMap<SessionId, Arc<Session>>,
+    id: &SessionId,
+) -> Option<Arc<Session>> {
     if let Some(found) = sessions.get(id) {
         return Some(found.clone());
     }

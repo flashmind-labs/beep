@@ -2,9 +2,9 @@
 //! built from the agent's `session/update` notifications, and the
 //! transcript, which stays here.
 
-use beep_proto::SessionId;
 use super::{acp::Prompt, images::Images, usage::UsageHub};
 use agent_client_protocol::v1::schema::{CompactionId, ToolCallId, ToolKind};
+use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{AgentCommand, Effort, Entry, SessionInfo},
     usage::ModelTokens,
@@ -28,7 +28,7 @@ pub(crate) use tools::Sent;
 use tools::ToolCall;
 
 /// The most transcript entries kept; older ones are dropped.
-const MAX_ENTRIES: usize = 5000;
+pub(super) const MAX_ENTRIES: usize = 5000;
 /// The longest entry kept.
 const MAX_ENTRY: usize = 16 * 1024;
 /// The longest last message sent to the caller.

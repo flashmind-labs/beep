@@ -2,12 +2,12 @@
 //! (`External`): finding them, reading their transcripts and following them.
 //! Taking one over runs it through the ACP adapter.
 
-use beep_proto::SessionId;
 use crate::agents::found::Seen as Sighting;
 use anyhow::{Context, Result, bail};
+use beep_proto::SessionId;
 use beep_proto::node::{
     LinkRx, LinkTx,
-    agent::{ExternalSession, LiveStatus, Presence, Steer},
+    agent::{ExternalSession, LiveStatus, Presence, Steer, WorkPlace},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -215,6 +215,21 @@ impl External {
         Ok(sessions)
     }
 
+    /// Native checkout folders for sessions the node already owns, without
+    /// discovering processes or scanning unrelated session files.
+    pub(crate) async fn places(
+        &self,
+        ids: HashSet<SessionId>,
+    ) -> Result<HashMap<SessionId, WorkPlace>> {
+        let Some(store) = self.store() else {
+            return Ok(HashMap::new());
+        };
+
+        spawn_blocking(move || discover::places(&store, &ids))
+            .await
+            .context("reading native session folders")
+    }
+
     /// The last `last` entries of session `id`'s transcript, how many came
     /// before them and the pictures they show; `None` when there is no
     /// such session.
@@ -392,7 +407,12 @@ impl External {
     }
 
     /// Serves one `Watch` stream.
-    pub(crate) async fn watch(&self, tx: LinkTx, rx: LinkRx, sessions: Vec<SessionId>) -> Result<()> {
+    pub(crate) async fn watch(
+        &self,
+        tx: LinkTx,
+        rx: LinkRx,
+        sessions: Vec<SessionId>,
+    ) -> Result<()> {
         watch::serve(tx, rx, self.store(), &self.hub, sessions).await
     }
 }
