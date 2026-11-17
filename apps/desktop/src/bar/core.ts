@@ -42,10 +42,15 @@ export const S: BarState = new Proxy<BarState>({ view: "waiting" }, {
     const key = k as keyof BarState;
     const old = t[key];
     (t as unknown as Record<string, unknown>)[key] = v;
-    if (key === "view" && old !== v) changed();
+    if (key === "view" && old !== v) {
+      // The pane's layout keys on its view: marked at once, before the view draws and measures.
+      if (PANE) bar.dataset.view = String(v);
+      changed();
+    }
     return true;
   },
 });
+if (PANE) bar.dataset.view = S.view;
 
 export const $ = <T extends Element = HTMLElement>(sel: string) => bar.querySelector<T>(sel);
 
