@@ -6,7 +6,11 @@
   its title (or, while it is idle, the first line of its last reply),
   then the latest past ones, one line each. Running sessions stay in
   the order they started, newest first, so they do not reshuffle as
-  agents work. The project name goes back to the
+  agents work. The reply line shows its bold, italics and code as
+  notifications do. The panel ends on the project's own painting (each
+  project gets one of the app's paintings) with a card of its branch,
+  open pull requests and issues, and machines, each opening that part
+  of the project page. The project name goes back to the
   project page. The sidebar button swaps between the sidebar and the
   sessions with a short slide, and the conversation stays where it
   is. Cmd+E (Ctrl+E on Windows and Linux) swaps between the sidebar
