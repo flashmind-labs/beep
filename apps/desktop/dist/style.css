@@ -1203,7 +1203,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 #agdraft > .cc-pjc.centered { margin: auto }
 #agdraft .agc-intro h3 { font-size: 36px; line-height: 40px }
 
-#agtitle { cursor: text; border-radius: var(--radius-sm) }
+#agtitle { justify-self: start; max-width: 100%; cursor: text; border-radius: var(--radius-sm) }
+#agtitle:has(.agtitle-input) { justify-self: stretch }
 #agtitle:focus-visible { outline: 2px solid var(--emerald) }
 .agtitle-input { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; font-size: 14px; font-weight: 600; line-height: 20px; color: var(--fg); background: var(--surface); border: 1px solid var(--emerald); border-radius: var(--radius-sm); padding: 0 4px; outline: 2px solid var(--emerald) }
 .dhead .tt .agtitle-error { color: var(--coral); white-space: normal }
