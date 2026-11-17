@@ -218,6 +218,16 @@ pub(crate) fn windows_drive_path(path: &str) -> Option<String> {
     Some(format!("{}:{rest}", drive.to_ascii_uppercase()))
 }
 
+/// The folder `path` inside `distro` as Windows names it: by its drive
+/// when it is on one, else through `\\wsl$`.
+pub(crate) fn windows_folder(distro: &DistroName, path: &str) -> PathBuf {
+    match (windows_drive_path(path), path.parse::<LinuxPath>()) {
+        (Some(path), _) => PathBuf::from(path),
+        (None, Ok(linux)) => windows_path(distro, &linux),
+        (None, Err(_)) => PathBuf::from(path),
+    }
+}
+
 /// `path` inside `distro` as Windows reaches it, through `\\wsl$`, which
 /// Windows 10 has too.
 pub(crate) fn windows_path(distro: &DistroName, path: &LinuxPath) -> PathBuf {
