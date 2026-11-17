@@ -17,7 +17,7 @@ const OBJECT_CACHE: usize = 4 << 20;
 
 /// What `local_state_script` prints for the checkout at `root`.
 pub(super) fn state(root: &Path) -> Result<String> {
-    let mut repo = gix::discover(root)?;
+    let mut repo = crate::agents::found::repository(root).context("no Git repository here")?;
     repo.object_cache_size_if_unset(OBJECT_CACHE);
     let Some(branch) = repo.head_name()? else {
         return Ok("@@detached\n".to_owned());
@@ -39,7 +39,7 @@ pub(super) fn state(root: &Path) -> Result<String> {
 /// What `branches_script` prints for the checkout at `root`, with
 /// `fallback` as the default branch when `origin` names none.
 pub(super) fn branches(root: &Path, fallback: &str) -> Result<String> {
-    let mut repo = gix::discover(root)?;
+    let mut repo = crate::agents::found::repository(root).context("no Git repository here")?;
     // The distance walks read the same commits again for every branch.
     repo.object_cache_size_if_unset(OBJECT_CACHE);
     let default = repo

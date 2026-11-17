@@ -618,8 +618,7 @@ impl Repo {
     /// process instead of by a git process. Like [`Self::git`], it ignores the
     /// environment and global config that could point it elsewhere.
     pub(super) fn gix(&self) -> Result<gix::Repository> {
-        gix::open_opts(self.root.join(GIT), gix::open::Options::isolated())
-            .context("opening the Git repository")
+        crate::agents::found::repository(&self.root).context("opening the Git repository")
     }
 
     /// Every ref that travels, as the list names them. The sync asks this on
