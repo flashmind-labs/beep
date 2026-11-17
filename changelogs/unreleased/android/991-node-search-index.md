@@ -6,6 +6,9 @@
 ### Changed
 
 - Android: sessions on offline machines are not found by their text.
+- Android: search by text only covers sessions that ran inside a project
+  imported on that machine. Sessions in other folders are still listed,
+  but they are not found by what was said in them.
 
 ### Performance
 

@@ -9,6 +9,9 @@
 - Desktop: after updating, each machine indexes its sessions once in the
   background. A prompt you just sent shows in search once its session has
   been quiet for a minute or two.
+- Desktop: search by text only covers sessions that ran inside a project
+  imported on that machine. Sessions in other folders are still listed,
+  but they are not found by what was said in them.
 
 ### Performance
 
