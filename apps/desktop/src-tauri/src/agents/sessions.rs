@@ -96,8 +96,8 @@ pub struct SessionRow {
     cwd: String,
     status: &'static str,
     doing: Option<String>,
-    /// The first line of its last reply, shown while it is idle.
-    reply: Option<String>,
+    /// The first line of its last reply, shown while it is idle, as inline HTML.
+    reply_html: Option<String>,
     /// The lines changed in its checkout when its last turn ended.
     changes: Option<LineChanges>,
     /// In milliseconds since the Unix epoch.
@@ -130,7 +130,7 @@ impl From<MachineSession> for SessionRow {
             title: session.title,
             cwd: session.cwd,
             doing: session.doing,
-            reply: session.reply,
+            reply_html: session.reply.as_deref().map(markdown::inline_html),
             changes: session.changes,
             external: session.external,
             question: session.question,

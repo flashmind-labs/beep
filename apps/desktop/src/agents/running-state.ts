@@ -15,8 +15,8 @@ export interface RunningAgent {
   cwd: string;
   status: string;
   doing: string | null;
-  /// The first line of its last reply, shown while it is idle.
-  reply?: string | null;
+  /// The first line of its last reply, shown while it is idle, as inline HTML.
+  reply_html?: string | null;
   /// The lines changed in its checkout when its last turn ended.
   changes?: { additions: number; deletions: number } | null;
   started_at: number;

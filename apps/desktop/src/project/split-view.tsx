@@ -90,11 +90,11 @@ export function ProjectRail({ project, label, running, past, current, back }: {
   </>;
 }
 
-/// A running row's second line: what it does, else the first line of its last reply.
+/// A running row's second line: what it does, else the first line of its last reply, with
+/// its emphasis and code as notifications show them.
 function runningLine(session: RunningAgent) {
   if (session.doing) return session.doing;
-  const reply = session.reply?.split("\n").find(line => line.trim())?.trim();
-  return reply ? <i className="rail-reply">{reply}</i> : "";
+  return session.reply_html ? <i className="rail-reply nt-md" dangerouslySetInnerHTML={{ __html: session.reply_html }} /> : "";
 }
 
 /// The lines its checkout changed, green and red, as its last turn left them.
