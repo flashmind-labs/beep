@@ -111,27 +111,19 @@ impl Alert {
         }
     }
 
-    /// "org/web: Claude Code on build-box asks", or without the project when the
-    /// session is in none.
-    pub fn notice_title(&self, machine_name: &str, project: Option<&str>) -> String {
-        let what = match &self.kind {
-            AlertKind::Asks { .. } => "asks",
-            AlertKind::TurnEnded { stop_reason, .. } => match stop_reason {
-                StopReason::EndTurn => "finished",
-                StopReason::Failed => "failed",
-                _ => "stopped",
-            },
-            AlertKind::Failed { .. } => "failed",
-        };
-        let said = format!("{} on {} {what}", agent_name(&self.agent), machine_name);
+    /// "org/web: Fix the login", or only the session's title when the
+    /// session is in no project. The row's icon says which agent it is.
+    pub fn notice_title(&self, project: Option<&str>) -> String {
+        let about = self.about();
 
         match project {
-            Some(project) => format!("{project}: {said}"),
-            None => said,
+            Some(project) => format!("{project}: {about}"),
+            None => about,
         }
     }
 
-    /// What the session is about, then what happened, on one short line.
+    /// What happened, on one short line: the agent's reply, its question,
+    /// or why it stopped.
     pub fn notice_body(&self) -> String {
         let said = match &self.kind {
             AlertKind::Asks { question } => match &question.detail {
@@ -142,20 +134,19 @@ impl Alert {
                 stop_reason,
                 last_message,
                 error,
-            } => {
-                let fallback = || stop_reason.to_string();
-
-                match stop_reason {
-                    StopReason::EndTurn => Some(last_message.as_str())
-                        .filter(|message| !message.trim().is_empty())
-                        .map_or_else(fallback, str::to_owned),
-                    StopReason::Failed => error.clone().unwrap_or_else(fallback),
-                    _ => fallback(),
-                }
-            }
-            AlertKind::Failed { reason } => reason.clone(),
+            } => match stop_reason {
+                StopReason::EndTurn if last_message.trim().is_empty() => "Finished".to_owned(),
+                StopReason::EndTurn => last_message.clone(),
+                StopReason::Failed => match error {
+                    Some(error) => format!("Failed: {error}"),
+                    None => "Failed".to_owned(),
+                },
+                StopReason::Other => "Stopped".to_owned(),
+                _ => format!("Stopped: {stop_reason}"),
+            },
+            AlertKind::Failed { reason } => format!("Failed: {reason}"),
         };
-        clip(&format!("{}: {said}", self.about()))
+        clip(&said)
     }
 
     /// The session's title, or else its folder's name, or else its id.
@@ -197,3 +188,7 @@ fn clip(text: &str) -> String {
         None => line,
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/agents_notice.rs"]
+mod tests;
