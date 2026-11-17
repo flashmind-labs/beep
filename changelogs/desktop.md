@@ -7,6 +7,12 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.28] - 2026-11-17
+
+### Fixed
+
+- Desktop: Linux installers build with complete workspace inputs.
+
 ## [0.9.27] - 2026-11-17
 
 ### Changed
