@@ -84,11 +84,11 @@ async fn renaming_and_recreating_a_root_rearms_the_replacement_directory() {
     timeout_change(&mut changes).await;
 }
 
-async fn timeout_change(changes: &mut mpsc::Receiver<Vec<PathBuf>>) {
+async fn timeout_change(changes: &mut mpsc::Receiver<Vec<PathBuf>>) -> Vec<PathBuf> {
     tokio::time::timeout(Duration::from_secs(5), changes.recv())
         .await
         .unwrap()
-        .unwrap();
+        .unwrap()
 }
 
 #[tokio::test]
@@ -152,4 +152,94 @@ fn replacing_a_file_in_a_watched_checkout_keeps_its_watch() {
     assert!(loses_watch(&roots, &linked));
     assert!(loses_watch(&roots, &checkout));
     assert!(loses_watch(&roots, Path::new("/srv")));
+}
+
+
+#[test]
+fn a_checkout_watch_leaves_out_linked_worktrees_and_build_output() {
+    let root = Path::new("/srv/project");
+    assert!(reports(root, &root.join("src")));
+    assert!(!reports(root, &root.join(".worktrees/fix")));
+    assert!(!reports(root, &root.join("app/node_modules/x")));
+    assert!(!reports(root, root));
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn the_walk_skips_build_output_and_keeps_a_worktree_inside_as_its_own_root() {
+    let root = tempfile::tempdir().unwrap();
+    let root = crate::agents::reach::real(root.path()).unwrap();
+    for folder in ["a/b", "target/c", "app/node_modules/d", ".git/refs"] {
+        std::fs::create_dir_all(root.join(folder)).unwrap();
+    }
+    let worktree = root.join(".worktrees/fix");
+    std::fs::create_dir_all(worktree.join("src")).unwrap();
+    let (changed, mut changes) = mpsc::channel(32);
+    let watcher = Paths::new(move |paths| {
+        let _ = changed.try_send(paths);
+    })
+    .unwrap();
+    watcher
+        .replace(vec![root.clone(), worktree.clone()])
+        .await
+        .unwrap();
+
+    {
+        let held = crate::lock(&watcher.inner);
+        let folders: Vec<_> = held.folders[&root]
+            .iter()
+            .map(|folder| folder.strip_prefix(&root).unwrap().to_owned())
+            .collect();
+        let expected: Vec<PathBuf> = ["", ".git", ".git/refs", "a", "a/b", "app"]
+            .into_iter()
+            .map(PathBuf::from)
+            .collect();
+        assert_eq!(folders, expected);
+        assert_eq!(held.folders[&worktree].len(), 2);
+    }
+
+    while changes.try_recv().is_ok() {}
+    std::fs::write(worktree.join("src/main.rs"), "changed").unwrap();
+    assert_eq!(timeout_change(&mut changes).await, [worktree]);
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_folder_made_after_the_walk_is_watched_and_one_removed_is_let_go() {
+    let root = tempfile::tempdir().unwrap();
+    let root = crate::agents::reach::real(root.path()).unwrap();
+    let (changed, mut changes) = mpsc::channel(32);
+    let watcher = Paths::new(move |paths| {
+        let _ = changed.try_send(paths);
+    })
+    .unwrap();
+    watcher.replace(vec![root.clone()]).await.unwrap();
+    let made = root.join("made");
+    std::fs::create_dir(&made).unwrap();
+    until_reconciled(&watcher, |held| held.folders[&root].contains(&made)).await;
+
+    while changes.try_recv().is_ok() {}
+    std::fs::write(made.join("example.txt"), "changed").unwrap();
+    assert_eq!(timeout_change(&mut changes).await, std::slice::from_ref(&root));
+
+    std::fs::remove_dir_all(&made).unwrap();
+    until_reconciled(&watcher, |held| !held.folders[&root].contains(&made)).await;
+}
+
+#[cfg(target_os = "linux")]
+async fn until_reconciled(watcher: &Paths, done: impl Fn(&Inner) -> bool) {
+    let mut reconciled = watcher.reconciled.clone();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            watched::read_and_update(&mut reconciled, |_| ());
+
+            if done(&crate::lock(&watcher.inner)) {
+                break;
+            }
+
+            reconciled.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
 }
