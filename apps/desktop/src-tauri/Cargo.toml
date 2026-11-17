@@ -112,6 +112,8 @@ tauri-plugin-single-instance.workspace = true
 webview2-com.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# Match the code generators' Serde build, including its default feature marker.
+serde_core.workspace = true
 # The native updater, only in release builds (`sparkle`): it links Sparkle.framework,
 # which a local build signed ad hoc cannot load under the hardened runtime.
 tauri-plugin-sparkle-updater = { workspace = true, optional = true }
@@ -129,3 +131,13 @@ objc2-core-graphics = { workspace = true, features = ["std", "CGDirectDisplay", 
 objc2-foundation = { workspace = true, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSValue", "NSData", "NSNotification", "NSOperation", "NSURL", "NSUserNotification", "block2"] }
 # Desktop control: screenshots.
 objc2-screen-capture-kit = { workspace = true, features = ["std", "block2", "objc2-core-graphics", "SCShareableContent", "SCStream", "SCScreenshotManager"] }
+
+[target.'cfg(target_os = "macos")'.build-dependencies]
+# Match the runtime features so native builds compile these libraries once.
+libc = { workspace = true, features = ["extra_traits"] }
+log = { workspace = true, features = ["std"] }
+serde = { workspace = true, features = ["rc"] }
+
+[package.metadata.cargo-machete]
+# This dependency aligns features with the code generators.
+ignored = ["serde_core"]

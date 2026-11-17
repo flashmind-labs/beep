@@ -9,7 +9,7 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 # HTTP behind a proxy that holds TLS.
-axum = { workspace = true, features = ["http2"] }
+axum = { workspace = true, features = ["http1", "http2", "tokio", "tracing", "tower-log"] }
 beep-proto = { workspace = true, features = ["logging", "https"] }
 beep-report.workspace = true
 chrono.workspace = true
@@ -23,7 +23,7 @@ secrecy = { workspace = true, features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 toml.workspace = true
 url.workspace = true
 uuid = { workspace = true, features = ["v4"] }
