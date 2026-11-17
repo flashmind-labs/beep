@@ -1013,17 +1013,25 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .side-collapsed .cc-side { padding-inline: 10px }
 .side-collapsed .cc-brand { padding: 0 }
 html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
-/* Beside a project's session its sessions take the sidebar's place, and the sidebar folds to its
-   icons (window-shell.tsx). */
-.cwin.rail-on { grid-template-columns: 52px var(--rail-w, 260px) minmax(0, 1fr) }
-.cwin > #rail-grip { left: calc(52px + var(--rail-w, 260px) - 3px) }
-.cwin:not(.rail-on) > #rail-grip { display: none }
-.cc-rail:not([hidden]) { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 10px 8px }
-.cc-rail > .rail-head { display: flex; align-items: center; min-height: 28px }
-.cc-rail .rail-back { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600 }
-.cc-rail > .rail-new { margin: 6px 6px 2px; justify-content: flex-start; gap: 6px }
-.cc-rail > .rail-filter { margin: 4px 6px 6px; width: auto; flex: none }
-.cc-rail .pv-row[aria-current="true"] { background: var(--ctl-fill-hi) }
+/* Beside a project's session, the sidebar and the project's sessions take turns in the sidebar's
+   column, so the session stays put; the one going out fades while the other slides in
+   (window-shell.tsx). */
+.cwin > .cc-side, .cwin > .cc-rail { grid-column: 1; grid-row: 1; transition: opacity .16s ease, translate .16s ease, visibility 0s }
+.cwin.rail-on > .cc-side, .cwin:not(.rail-on) > .cc-rail { opacity: 0; visibility: hidden; transition: opacity .16s ease, translate .16s ease, visibility 0s .16s }
+.cwin.rail-on > .cc-side { translate: -12px 0 }
+.cwin:not(.rail-on) > .cc-rail { translate: 12px 0 }
+@starting-style { .cwin.rail-on > .cc-rail { opacity: 0; translate: 12px 0 } }
+.cc-rail:not([hidden]) { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 10px 8px 10px; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--ink) 55%, transparent) }
+.cc-rail > .cc-brand { justify-content: space-between }
+.cc-rail .rail-back { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; padding-inline: 0 }
+.cc-rail > .rail-filter { margin: 10px 0 4px; width: auto; flex: none }
+.cc-rail > h4 { padding: 10px 6px 3px }
+.cc-rail > .pj-li { flex: none; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; padding: 4px 6px; border-radius: var(--radius-sm) }
+.cc-rail > .pj-li .lead svg, .cc-rail > .pj-li .lead > * { width: 14px; height: 14px }
+.cc-rail > .pj-li .t > span:empty { display: none }
+.cc-rail > .pj-li .t b { font-weight: 400 }
+.cc-rail > .pj-li .r { font-size: 11px }
+.cc-rail > .rail-all { margin-top: 6px; justify-content: flex-start }
 /* A phone has no window buttons to clear: the rail is as narrow as its icons. */
 html[data-phone] .cwin.side-collapsed { grid-template-columns: 32px minmax(0, 1fr) }
 html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }

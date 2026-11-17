@@ -102,10 +102,13 @@ test("conversation scrollbar preferences apply immediately and survive reload", 
   await openDesktop(page, false, { agent_view: view(), settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false } });
   const openSession = () => page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
   const openAppearance = async () => {
+    // The project's sessions stand in for the sidebar beside its session.
+    await page.locator("#rail .cc-side-toggle").click();
     await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Appearance", exact: true }).click();
   };
   await openSession();
+  await expect(page.locator("#rail")).toBeVisible();
   const rail = page.locator(".agrail"), body = page.locator("#agbody");
   await expect(rail.locator(".th")).toBeVisible();
   await expect(rail.locator(".tk").first()).toBeVisible();

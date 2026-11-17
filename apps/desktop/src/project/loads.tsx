@@ -23,7 +23,7 @@ import { localProjectId } from "./localid.ts";
 import { state, pages, keep, pageFresh } from "../center/state.ts";
 import { openUrl, refreshGit } from "../center/openitems.ts";
 import { currentLocation, go } from "../center/views.tsx";
-import { projectRows, importSheet, addProject, importFromPage, loadFound, drawSide, openProjects } from "../center/sidebar.tsx";
+import { projectRows, importSheet, addProject, importFromPage, loadFound, drawRail, openProjects } from "../center/sidebar.tsx";
 import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage, repairButton } from "./sections.ts";
 import { drawProjects } from "./page.tsx";
 import { refresh, onScreen } from "../center/refresh.ts";
@@ -301,7 +301,7 @@ export function disposeSessionPanel() { if (sessionsTab) removeWindowPart("proje
 
 export function sessionsHost(project: string, rows: SessionRow[]) {
   if (sessionsTab?.project !== project) { disposeSessionPanel(); sessionsTab = { project, host: retainedHost("cc-panel") }; }
-  showWindowParts([{ part: "project-sessions:all", host: sessionsTab.host, identity: project, content: <ProjectSessions rows={rows} all current={null} /> }]);
+  showWindowParts([{ part: "project-sessions:all", host: sessionsTab.host, identity: project, content: <ProjectSessions rows={rows} all /> }]);
   return sessionsTab.host;
 }
 
@@ -362,7 +362,7 @@ async function readSessions(name: string) {
   const { list } = nextSessions(state.sessions.get(name), got);
   state.sessions.set(name, list);
   if (got) keep("sessions", name, list);
-  if (shell.getState().side.rail === name) drawSide();
+  if (shell.getState().side.rail === name) drawRail();
   if (currentLocation()?.view !== "projects" || state.picked !== name) return;
   // The draw also drops the Updating note.
   drawProjects();

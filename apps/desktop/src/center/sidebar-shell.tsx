@@ -39,7 +39,19 @@ function StarPrompt() {
   return <div className="cc-star"><Button look="quiet" className="open" onClick={() => { void invoke("open_url", { url: REPO_URL }).catch(e => console.warn("opening the repository:", e)); dismiss(); }}><Icon name="star" size={12} />Star on GitHub</Button><Button look="quiet" title="Dismiss" aria-label="Dismiss" onClick={dismiss}><Icon name="close" /></Button></div>;
 }
 export function SidebarShell({ links, groups, footer, addMachine }: { links: SideLink[]; groups: ReactNode; footer: SideFooter; addMachine(): void }) {
+  return <><div className="cc-head" data-tauri-drag-region="" /><div className="cc-brand"><b>Beep</b><SideToggle /></div><div className="cc-side-list" id="side-content"><div className="cc-grp cc-nav">{links.map(link => <SidebarItem key={link.label} {...link} />)}</div>{groups}<StarPrompt /><div className="cc-foot"><span title={footer.title}>{footer.dot && <span className={`ddot${footer.dot === "on" ? "" : ` ${footer.dot}`}`} />}{footer.dot && " "}{footer.count !== undefined ? <><b>{footer.count}</b>{footer.text}</> : footer.text}</span>{footer.action === "add" && <Button look="quiet" title="Add a machine" aria-label="Add a machine" onClick={event => { event.stopPropagation(); addMachine(); }} dangerouslySetInnerHTML={{ __html: IC.plus }} />}</div></div></>;
+}
+
+/// The button that folds the sidebar, or beside a project's session swaps it with the project's
+/// sessions. The sidebar and the sessions each show it in the same place.
+export function SideToggle() {
   const side = useStore(shell, s => s.side), collapsed = sideCollapsed(side);
-  const label = collapsed ? "Expand sidebar" : side.rail ? "Show the project's sessions" : "Collapse sidebar";
-  return <><div className="cc-head" data-tauri-drag-region="" /><div className="cc-brand"><b>Beep</b><button type="button" className="cc-side-toggle" title={label} aria-label={label} aria-expanded={!collapsed} aria-controls="side-content" onClick={toggleSide}><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg></span></button></div><div className="cc-side-list" id="side-content"><div className="cc-grp cc-nav">{links.map(link => <SidebarItem key={link.label} {...link} />)}</div>{groups}<StarPrompt /><div className="cc-foot"><span title={footer.title}>{footer.dot && <span className={`ddot${footer.dot === "on" ? "" : ` ${footer.dot}`}`} />}{footer.dot && " "}{footer.count !== undefined ? <><b>{footer.count}</b>{footer.text}</> : footer.text}</span>{footer.action === "add" && <Button look="quiet" title="Add a machine" aria-label="Add a machine" onClick={event => { event.stopPropagation(); addMachine(); }} dangerouslySetInnerHTML={{ __html: IC.plus }} />}</div></div></>;
+  const label = side.rail ? (side.railHidden ? "Show the project's sessions" : "Show the sidebar") : collapsed ? "Expand sidebar" : "Collapse sidebar";
+  // A swap leaves this button behind an inert panel, so focus follows to the one coming in.
+  const toggle = (event: React.MouseEvent<HTMLButtonElement>) => {
+    const focused = event.currentTarget === document.activeElement;
+    toggleSide();
+    if (focused && side.rail) document.querySelector<HTMLElement>(`#${side.railHidden ? "rail" : "side"} .cc-side-toggle`)?.focus();
+  };
+  return <button type="button" className="cc-side-toggle" title={label} aria-label={label} aria-expanded={!collapsed} onClick={toggle}><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg></span></button>;
 }

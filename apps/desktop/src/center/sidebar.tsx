@@ -97,7 +97,16 @@ shell.subscribe((now, was) => { if (!now.assistant !== !was.assistant) drawSide(
 
 /// A window wide enough for the project's sessions beside one of them.
 const roomy = window.matchMedia("(min-width: 1200px)");
-roomy.addEventListener("change", () => drawSide());
+roomy.addEventListener("change", drawRail);
+
+/// Draws a project's sessions in place of the sidebar while one of them shows, in a window with
+/// room for both beside it, or the sidebar again. Their reads redraw only this.
+export function drawRail() {
+  const rail = currentLocation()?.view === "pane" && !onPhone() && !windowProject && roomy.matches ? projectHere()?.project ?? null : null;
+  const current = AG.open && !AG.draft ? runningKey({ machine_id: AG.open.machine_id, id: AG.open.session }) : null;
+  setRail(rail);
+  placeWindowParts({ rail: rail && projectRail(rail, current) });
+}
 
 export function drawSide() {
   const home = state.home, location = currentLocation()?.view;
@@ -114,12 +123,8 @@ export function drawSide() {
     if (g.items != null) side.push(<SidebarGroupView key={name} name={name} group={g} />);
   }
 
-  // A session of a project shows the project's sessions in place of the sidebar, in a window
-  // with room for both beside it.
-  const rail = location === "pane" && !onPhone() && !windowProject && roomy.matches ? projectHere()?.project ?? null : null;
-  setRail(rail);
-  const current = AG.open && !AG.draft ? runningKey({ machine_id: AG.open.machine_id, id: AG.open.session }) : null;
-  placeWindowParts({ rail: rail && projectRail(rail, current), sidebar: <SidebarShell links={links} groups={side} footer={footer(home?.machines)} addMachine={openAddMachine} /> });
+  drawRail();
+  placeWindowParts({ sidebar: <SidebarShell links={links} groups={side} footer={footer(home?.machines)} addMachine={openAddMachine} /> });
   if (currentLocation()?.view === "pane") drawTop();
 }
 

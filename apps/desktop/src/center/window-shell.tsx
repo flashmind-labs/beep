@@ -3,7 +3,7 @@
 // elements through `windowHost`.
 import { useLayoutEffect, type ReactNode } from "react";
 import { createStore, useStore } from "zustand";
-import { RAIL, SIDEBAR, WidthGrip } from "../ui/width-grip.tsx";
+import { SIDEBAR, WidthGrip } from "../ui/width-grip.tsx";
 import { HazeArt } from "../ui/painted-art.tsx";
 import type { ViewName } from "./state.ts";
 
@@ -27,8 +27,9 @@ interface Side { collapsed: boolean; rail: string | null; railHidden: boolean }
 
 export const shell = createStore<Shell>(() => ({ view: null, assistant: null, parts: { title: "Home" }, side: { collapsed: false, rail: null, railHidden: false } }));
 
-/// Whether the sidebar shows only its icons: beside a project's sessions, or as the user left it.
-export const sideCollapsed = ({ collapsed, rail, railHidden }: Side) => rail ? !railHidden : collapsed;
+/// Whether the sidebar shows only its icons, as the user left it. Beside a project's session the
+/// sidebar and the project's sessions take turns in its full column, so the session stays put.
+export const sideCollapsed = ({ collapsed, rail }: Side) => !rail && collapsed;
 
 /// The sidebar's toggle: beside a project's sessions it swaps the two, elsewhere it folds the sidebar.
 export function toggleSide() {
@@ -36,7 +37,7 @@ export function toggleSide() {
 }
 
 /// Shows `project`'s sessions in place of the sidebar, or the sidebar again. Opening a project's
-/// session from elsewhere folds the sidebar again.
+/// session from elsewhere shows its sessions again.
 export function setRail(project: string | null) {
   shell.setState(now => now.side.rail === project ? now : { side: { ...now.side, rail: project, railHidden: !!project && !!now.side.rail && now.side.railHidden } });
 }
@@ -84,10 +85,9 @@ export function CenterWindow() {
   }, [collapsed, rail]);
 
   return <>
-    <aside className="cc-side" id="side" ref={refs.side}><HazeArt />{parts.sidebar}</aside>
+    <aside className="cc-side" id="side" ref={refs.side} inert={rail}><HazeArt />{parts.sidebar}</aside>
     <WidthGrip column={SIDEBAR} id="side-grip" />
-    <aside className="cc-rail pj-list" id="rail" aria-label="Project sessions" hidden={!rail}>{rail && parts.rail}</aside>
-    <WidthGrip column={RAIL} id="rail-grip" />
+    <aside className="cc-rail pj-list" id="rail" aria-label="Project sessions" hidden={!side.rail} inert={!rail}>{side.rail && parts.rail}</aside>
     <div className="cc-main" id="main" ref={refs.main}>
       <div className="cc-top" data-tauri-drag-region="" ref={refs.top}>
         {parts["mobile-back"]}{parts["project-back"]}
