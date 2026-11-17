@@ -1033,7 +1033,7 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .cc-rail > .cc-brand { justify-content: space-between }
 .cc-rail { position: relative; isolation: isolate }
 .rail-card { flex: none; display: grid; margin: 8px 0 0; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--ink) 72%, transparent); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px) }
-.rail-card > .rail-card-li { font-family: var(--body); display: flex; align-items: center; justify-content: flex-start; gap: 10px; min-width: 0; padding: 5px 6px; font-weight: 400; text-align: left }
+.rail-card > .rail-card-li { display: flex; align-items: center; justify-content: flex-start; gap: 10px; min-width: 0; padding: 5px 6px; font-weight: 400; text-align: left }
 .rail-card-li > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .rail-card-li > small { font: 11px var(--mono); color: var(--dim) }
 .rail-card-li > svg { width: 14px; height: 14px; flex: none; color: var(--muted) }
