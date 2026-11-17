@@ -69,6 +69,7 @@
     expanded = input.expanded === true;
     $("png").textContent = input.desktop ? "Save image to Downloads" : "Save image";
     document.body.classList.toggle("expanded", expanded);
+    document.body.style.setProperty("--inset", `${expanded && Number.isFinite(input.inset) ? input.inset : 0}px`);
     $("expand").setAttribute("aria-label", expanded ? "Close" : "Expand");
     if (expanded) $("expand").textContent = "Close";
     $("kind").textContent = kindOf(source);

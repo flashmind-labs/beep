@@ -9,6 +9,8 @@ body:not(.mobile) .cc-side { position: relative; isolation: isolate; background:
 body:not(.mobile) .cc-main { margin: 6px 6px 6px 0; border: 1px solid transparent; border-radius: var(--radius); background: transparent; overflow: visible }
 /* On macOS the window is the system's sidebar material (src-tauri center/window.rs); the page stays opaque. */
 html[data-material="vibrant"], html[data-material="vibrant"] body.cbody, html[data-material="vibrant"] body:not(.mobile) .cwin { background: transparent }
+/* The traffic lights sit over the top-left corner: a layer that covers the window keeps its top row clear of them. */
+html[data-material="vibrant"] { --chrome-inset: 78px }
 html[data-material="vibrant"] body:not(.mobile) .cc-si:hover { background: color-mix(in srgb, var(--fg) 8%, transparent) }
 
 /* ----- Pressed: a control answers on mousedown, at once; the release eases out ----- */

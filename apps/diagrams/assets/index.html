@@ -10,7 +10,7 @@
   font:14px/20px system-ui,sans-serif;background:transparent;color:var(--fg)}
 *{box-sizing:border-box}html{overflow:hidden}body{margin:0}
 main{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg)}
-nav{display:flex;align-items:center;gap:2px;padding:4px 4px 4px 12px;border-bottom:1px solid var(--line)}
+nav{display:flex;align-items:center;gap:2px;padding:4px 4px 4px max(12px,var(--inset,0px));border-bottom:1px solid var(--line)}
 #kind{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:16px;color:var(--muted)}
 button{display:inline-flex;align-items:center;gap:4px;font:inherit;font-size:12px;line-height:16px;border:0;border-radius:4px;padding:4px 8px;background:transparent;color:var(--muted);cursor:pointer}
 button:hover,button[aria-pressed="true"],button[aria-expanded="true"]{background:var(--box);color:var(--fg)}

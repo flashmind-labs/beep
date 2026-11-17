@@ -44,8 +44,13 @@ function expand(source: string) {
 }
 function render(diagram: Diagram) {
   diagram.frame.contentWindow?.postMessage({ kind: "beep-diagram", action: "render", source: diagram.source,
-    expanded: diagram.expanded, desktop: true, dark: getComputedStyle(document.documentElement).colorScheme === "dark",
+    expanded: diagram.expanded, inset: diagram.expanded ? chromeInset() : 0, desktop: true, dark: getComputedStyle(document.documentElement).colorScheme === "dark",
     palette: palette(), ...(diagram.worker ? {} : cache.get(diagram.source)) }, "*");
+}
+/// How far the window's own buttons reach in from the left (--chrome-inset), which the
+/// expanded diagram's title row keeps clear of.
+function chromeInset() {
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--chrome-inset")) || 0;
 }
 /// The skin's colors as hex, since the renderer bakes them into the SVG. Cached drawings
 /// in another skin's colors are dropped when the skin changes.
