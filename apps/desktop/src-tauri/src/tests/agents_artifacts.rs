@@ -87,7 +87,7 @@ fn preview_entry_paths_encode_spaces_and_percent_signs() {
     let pages = Pages::default();
     let src = pages.keep(b"page".to_vec(), place(), "reports/100% done.html".into());
     assert!(src.ends_with("reports/100%25%20done.html"));
-    assert_eq!(done(&pages, &src).body(), &with_zoom_key(b"page"));
+    assert_eq!(done(&pages, &src).body(), &with_pane_keys(b"page"));
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn a_kept_page_is_served_with_its_sandbox_and_others_are_not() {
     assert!(src.ends_with('/'), "relative links resolve under {src}");
     let page = done(&pages, &src);
     assert_eq!(page.status(), StatusCode::OK);
-    assert_eq!(page.body(), &with_zoom_key(b"<p>hi</p>"));
+    assert_eq!(page.body(), &with_pane_keys(b"<p>hi</p>"));
     let csp = page.headers()[header::CONTENT_SECURITY_POLICY]
         .to_str()
         .expect("ASCII");
@@ -245,9 +245,9 @@ fn kinds_go_by_extension() {
 }
 
 #[test]
-fn pages_hand_shift_esc_to_the_pane_after_their_doctype() {
-    let served = |html: &[u8]| String::from_utf8(with_zoom_key(html)).expect("UTF-8");
-    let key = std::str::from_utf8(ZOOM_KEY).expect("UTF-8");
+fn pages_hand_pane_keys_to_the_window_after_their_doctype() {
+    let served = |html: &[u8]| String::from_utf8(with_pane_keys(html)).expect("UTF-8");
+    let key = std::str::from_utf8(PANE_KEYS).expect("UTF-8");
     assert_eq!(
         served(b"\n<!DOCTYPE html><p>hi</p>"),
         format!("\n<!DOCTYPE html>{key}<p>hi</p>")

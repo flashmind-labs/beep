@@ -293,7 +293,6 @@ export function isCloseKey(e: Pick<KeyboardEvent, "key" | "metaKey" | "shiftKey"
 
 /// Runs `toggle` on ⇧esc while `allowed`, ahead of every other Esc handler
 /// (the capture phase), and keeps the key from them. Held keys do not repeat it.
-/// A focused HTML preview keeps its keys, so its page posts `beep:zoom` instead.
 export function onZoomKey(allowed: () => boolean, toggle: () => void) {
   window.addEventListener("keydown", e => {
     if (!isZoomKey(e) || !allowed()) return;
@@ -301,10 +300,18 @@ export function onZoomKey(allowed: () => boolean, toggle: () => void) {
     e.stopImmediatePropagation();
     if (!e.repeat) toggle();
   }, true);
+}
 
-  window.addEventListener("message", e => {
-    if (e.data !== "beep:zoom" || !allowed()) return;
-    const frames = document.querySelectorAll<HTMLIFrameElement>("iframe.agartframe");
-    if ([...frames].some(frame => frame.contentWindow === e.source)) toggle();
-  });
+type FrameKey = Required<Pick<KeyboardEventInit, "key" | "shiftKey" | "metaKey" | "ctrlKey" | "repeat">>;
+
+/// A key a focused HTML preview hands to the window (`PANE_KEYS` in
+/// artifacts.rs): ⇧esc, or ⌘ with 1 to 9 or W. Anything else a page posts is null.
+export function frameKey(data: unknown): FrameKey | null {
+  if (typeof data !== "object" || data === null || !("beep" in data && "key" in data && "shiftKey" in data && "metaKey" in data && "ctrlKey" in data && "repeat" in data)) return null;
+  const { beep, key, shiftKey, metaKey, ctrlKey, repeat } = data;
+  if (beep !== "key" || typeof key !== "string" || typeof shiftKey !== "boolean" || typeof metaKey !== "boolean" || typeof ctrlKey !== "boolean" || typeof repeat !== "boolean") return null;
+  const init = { key, shiftKey, metaKey, ctrlKey, repeat };
+  const zoom = key === "Escape" && shiftKey && !metaKey && !ctrlKey;
+  const command = commandKey(init) && !shiftKey && /^[1-9w]$/i.test(key);
+  return zoom || command ? init : null;
 }

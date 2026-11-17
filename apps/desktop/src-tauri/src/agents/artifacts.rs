@@ -18,7 +18,7 @@
 //! allowing parent-relative dependencies within the project.
 //!
 //! A focused frame keeps its keys from the window, so every HTML response
-//! starts with [`ZOOM_KEY`], which hands Shift+Esc to the pane.
+//! starts with [`PANE_KEYS`], which hands the pane's shortcuts to the window.
 
 use crate::{
     agents::files::read_part,
@@ -76,9 +76,10 @@ const PAGE_CSP: &str = "default-src 'none'; \
     connect-src https: beepview:; frame-src 'none'; form-action 'none'; \
     base-uri 'none'; sandbox allow-scripts";
 
-/// Posts `beep:zoom` to the window on Shift+Esc, which the pane's own
-/// handler cannot see while the frame has focus.
-const ZOOM_KEY: &[u8] = br#"<script>addEventListener("keydown",e=>{if(e.key==="Escape"&&e.shiftKey&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();if(!e.repeat)parent.postMessage("beep:zoom","*")}},true)</script>"#;
+/// Hands the pane's keys to the window before the page sees them: Shift+Esc,
+/// and Cmd (Ctrl on Windows) with 1 to 9 or W. The window cannot see a key
+/// typed while the frame has focus.
+const PANE_KEYS: &[u8] = br#"<script>addEventListener("keydown",e=>{const c=/Windows/.test(navigator.userAgent)?e.ctrlKey:e.metaKey;if(e.key==="Escape"&&e.shiftKey&&!e.metaKey&&!e.ctrlKey&&!e.altKey||c&&!e.shiftKey&&!e.altKey&&/^[1-9w]$/i.test(e.key)){e.preventDefault();e.stopImmediatePropagation();parent.postMessage({beep:"key",key:e.key,shiftKey:e.shiftKey,metaKey:e.metaKey,ctrlKey:e.ctrlKey,repeat:e.repeat},"*")}},true)</script>"#;
 
 /// The HTML pages ready to serve, by the token in their URL.
 pub struct Pages {
@@ -465,7 +466,7 @@ pub fn route(pages: &Pages, request: &Request<Vec<u8>>) -> Route {
                 .header(header::CONTENT_SECURITY_POLICY, PAGE_CSP)
                 .header(header::REFERRER_POLICY, "no-referrer")
                 .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
-                .body(with_zoom_key(&page.html)),
+                .body(with_pane_keys(&page.html)),
         ));
     }
 
@@ -519,7 +520,7 @@ impl FileRead {
         }
 
         let body = if self.mime.starts_with("text/html") {
-            with_zoom_key(&data)
+            with_pane_keys(&data)
         } else {
             data
         };
@@ -544,9 +545,9 @@ pub async fn read_sibling(fleet: &Fleet, file: Sibling) -> Result<Vec<u8>> {
     Ok(data)
 }
 
-/// `html` with [`ZOOM_KEY`] after its doctype, so the page stays in
+/// `html` with [`PANE_KEYS`] after its doctype, so the page stays in
 /// standards mode, or at its start (after a byte order mark) without one.
-fn with_zoom_key(html: &[u8]) -> Vec<u8> {
+fn with_pane_keys(html: &[u8]) -> Vec<u8> {
     let start = if html.starts_with(b"\xEF\xBB\xBF") {
         3
     } else {
@@ -568,7 +569,7 @@ fn with_zoom_key(html: &[u8]) -> Vec<u8> {
         start
     };
 
-    [&html[..at], ZOOM_KEY, &html[at..]].concat()
+    [&html[..at], PANE_KEYS, &html[at..]].concat()
 }
 
 /// The media type a file beside a page is served as, by its extension.
