@@ -76,6 +76,7 @@ patch +apps:
     uv run --script scripts/release.py patch "$@"
 
 # Bump selected apps to the next 0.x minor version and publish them.
+# Include patch release notes since the preceding minor, plus pending entries.
 [positional-arguments]
 minor +apps:
     #!/usr/bin/env bash

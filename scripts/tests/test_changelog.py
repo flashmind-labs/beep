@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from xml.etree import ElementTree as ET
 
 
@@ -30,6 +31,78 @@ def app_tree(root: Path, changelog: str, entries: dict[str, str]) -> Path:
 
 
 class ReleaseNotes(unittest.TestCase):
+    def test_minor_collects_patch_notes_and_pending_without_changing_history(self):
+        published = (
+            "# Changelog\n\n"
+            "## [0.9.10] - 2026-01-04\n\n### Fixed\n\n- App: latest fix,\n  including details.\n\n"
+            "## [0.9.2] - 2026-01-03\n\n### Added\n\n- App: new feature.\n\n"
+            "## [0.9.0] - 2026-01-02\n\n### Added\n\n- App: minor baseline.\n\n"
+            "## [0.8.20] - 2026-01-01\n\n### Fixed\n\n- App: older fix.\n"
+        )
+        expected = (
+            "### Added\n\n- App: new feature.\n\n"
+            "### Fixed\n\n- App: pending fix.\n- App: latest fix,\n  including details."
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = app_tree(Path(directory), published, {"fix.md": "### Fixed\n\n- App: pending fix.\n"})
+            self.assertEqual(unreleased(path, "0.10.0"), expected)
+            self.assertEqual(path.read_text(), published)
+            deleted = freeze(path, "0.10.0")
+
+            self.assertEqual(notes(path.read_text(), "0.10.0"), expected)
+            self.assertTrue(path.read_text().endswith(published.split("\n\n", 1)[1]))
+            self.assertEqual([item.name for item in deleted], ["fix.md"])
+            self.assertFalse(deleted[0].exists())
+
+    def test_minor_can_release_without_pending_notes_or_recorded_baseline(self):
+        published = "# Changelog\n\n## [0.2.1] - 2026-01-01\n\n### Fixed\n\n- App: fixed.\n"
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = app_tree(Path(directory), published, {})
+            self.assertEqual(freeze(path, "0.3.0"), [])
+            self.assertEqual(notes(path.read_text(), "0.3.0"), "### Fixed\n\n- App: fixed.")
+
+            with self.assertRaises(ValueError):
+                freeze(path, "0.4.0")
+
+    def test_patch_requires_pending_notes_and_does_not_repeat_history(self):
+        published = "# Changelog\n\n## [0.2.1] - 2026-01-01\n\n### Fixed\n\n- App: previous fix.\n"
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = app_tree(Path(directory), published, {})
+            with self.assertRaises(ValueError):
+                freeze(path, "0.2.2")
+            self.assertEqual(path.read_text(), published)
+
+            pending = path.parent / "unreleased/app/fix.md"
+            pending.write_text("### Fixed\n\n- App: pending fix.\n")
+            freeze(path, "0.2.2")
+            self.assertEqual(notes(path.read_text(), "0.2.2"), "### Fixed\n\n- App: pending fix.")
+
+    def test_minor_all_preflight_accepts_only_published_patch_notes(self):
+        import release
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            releases = []
+            for app in release.APPS:
+                path = root / app.changelog
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("# Changelog\n\n## [0.2.1]\n\n### Fixed\n\n- App: fixed.\n")
+                manifest = root / app.manifest
+                manifest.parent.mkdir(parents=True, exist_ok=True)
+                manifest.write_text('[package]\nversion = "0.2.1"\n' if app.package else '{"version": "0.2.1"}')
+                releases.append((app, release.Version(0, 3, 0)))
+
+            with (patch.object(sys, "argv", ["release.py", "minor", "all", "--dry-run"]),
+                  patch.object(release, "git", return_value=str(root)),
+                  patch.object(release, "clean_main"), patch.object(release, "refresh"),
+                  patch.object(release, "plan", return_value=releases),
+                  patch.object(release, "release") as publish, patch("builtins.print")):
+                release.main()
+                publish.assert_not_called()
+
     def test_freeze_collects_entries_in_section_order_and_deletes_them(self):
         published = "# Changelog\n\nIntro.\n\n## [0.1.0] - 2026-01-01\n\n- First release.\n"
         entries = {

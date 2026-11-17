@@ -246,8 +246,8 @@ def main():
     clean_main(root)
     urls = refresh(root, args.remote)
     releases = plan(root, apps, args.level)
-    for app in apps:
-        unreleased(root / app.changelog)
+    for app, version in releases:
+        unreleased(root / app.changelog, str(version))
 
     for app, version in releases:
         print(f"{app.name}: {app.version(root)} -> {version} ({app.prefix}-v{version})", flush=True)

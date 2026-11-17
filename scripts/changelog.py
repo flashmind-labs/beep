@@ -3,7 +3,8 @@
 
 Pending entries are files in changelogs/unreleased/<app>/, one per change, so
 branches never edit the same lines. Freezing a version collects them into the
-app's changelog and deletes them.
+app's changelog and deletes them. A minor release also includes patch notes
+since the preceding minor's .0 release, leaving published entries intact.
 """
 
 import argparse
@@ -40,9 +41,9 @@ def entries(changelog: Path) -> list[Path]:
     return sorted(folder.glob("*.md")) if folder.is_dir() else []
 
 
-def read_entry(path: Path) -> dict[str, str]:
+def read_entry(path: Path, text: str | None = None) -> dict[str, str]:
     """An entry's sections by name, each a list of `- ` items."""
-    parts = SUBSECTION.split(path.read_text())
+    parts = SUBSECTION.split(path.read_text() if text is None else text)
 
     if parts[0].strip():
         raise ValueError(f"{path}: text before the first ### section")
@@ -68,11 +69,27 @@ def read_entry(path: Path) -> dict[str, str]:
     return sections
 
 
-def unreleased(changelog: Path) -> str:
-    """The pending entries as one version's notes, sections in their order."""
+def unreleased(changelog: Path, version: str | None = None) -> str:
+    """Pending notes, plus the preceding minor's patch notes for a minor release."""
+    sources = [(path, path.read_text()) for path in entries(changelog)]
+
+    if version is not None:
+        if not VERSION.fullmatch(version):
+            raise ValueError("Expected a 0.x release version")
+
+        target = tuple(map(int, version.split(".")))
+        if target[2] == 0:
+            baseline = (0, target[1] - 1, 0)
+            for heading, body in SECTION.findall(changelog.read_text()):
+                labels = re.findall(r"\[([^]]+)\]", heading)
+                if len(labels) == 1 and VERSION.fullmatch(labels[0]):
+                    published = tuple(map(int, labels[0].split(".")))
+                    if baseline < published < target:
+                        sources.append((changelog, body))
+
     collected = {name: [] for name in SECTIONS}
-    for path in entries(changelog):
-        for name, body in read_entry(path).items():
+    for path, text in sources:
+        for name, body in read_entry(path, text).items():
             collected[name].append(body)
 
     body = "\n\n".join(f"### {name}\n\n" + "\n".join(items) for name, items in collected.items() if items)
@@ -84,7 +101,7 @@ def unreleased(changelog: Path) -> str:
 
 
 def freeze(path: Path, version: str) -> list[Path]:
-    """Writes the pending entries as `version` and deletes them; gives the files deleted."""
+    """Writes release notes and deletes pending entries; gives the files deleted."""
     if not VERSION.fullmatch(version):
         raise ValueError("Expected a 0.x release version")
 
@@ -98,7 +115,7 @@ def freeze(path: Path, version: str) -> list[Path]:
     if "Unreleased" in headings:
         raise ValueError(f"{path} has an [Unreleased] section: move it into {pending_dir(path)}")
 
-    body = unreleased(path)
+    body = unreleased(path, version)
     date = datetime.now(timezone.utc).date().isoformat()
     entry = f"## [{version}] - {date}\n\n{body}\n\n"
     first = SECTION.search(text)
