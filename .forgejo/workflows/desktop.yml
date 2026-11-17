@@ -29,6 +29,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up the toolchain
+        run: |
+          set -euo pipefail
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          # Kept between runs, so a build only recompiles what changed.
+          target="$HOME/Library/Caches/beep-desktop-target"
+          echo "CARGO_TARGET_DIR=$target" >> "$GITHUB_ENV"
+          # It only grows, and a full disk fails every build: past 30 GB, start over.
+          if [ -d "$target" ] && [ "$(du -sk "$target" | cut -f1)" -gt $((30 * 1024 * 1024)) ]; then
+            rm -rf "$target"
+          fi
+
       - name: Check signing credentials and version
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
@@ -55,18 +67,6 @@ jobs:
           python3 -m unittest discover -s scripts/tests
           python3 scripts/changelog.py notes "$version" > "$RUNNER_TEMP/release-notes.md"
           echo "VERSION=$version" >> "$GITHUB_ENV"
-
-      - name: Set up the toolchain
-        run: |
-          set -euo pipefail
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          # Kept between runs, so a build only recompiles what changed.
-          target="$HOME/Library/Caches/beep-desktop-target"
-          echo "CARGO_TARGET_DIR=$target" >> "$GITHUB_ENV"
-          # It only grows, and a full disk fails every build: past 30 GB, start over.
-          if [ -d "$target" ] && [ "$(du -sk "$target" | cut -f1)" -gt $((30 * 1024 * 1024)) ]; then
-            rm -rf "$target"
-          fi
 
       - name: Prepare the native macOS updater
         run: bash scripts/download-sparkle.sh
