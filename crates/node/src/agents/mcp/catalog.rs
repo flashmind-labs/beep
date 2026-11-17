@@ -130,8 +130,9 @@ pub(super) fn tools(reviewer: bool, alone: bool, assistant: bool) -> Value {
             "start_agent",
             "Start another coding agent, linked to you: it shows under your session and the user \
              answers its permission questions. prompt is its only context. It works in cwd or \
-             project, default your folder or your project's checkout on machine. background \
-             agents are deleted with you. Never above your permission mode; 3 levels deep, 8 \
+             project, default your folder or your project's checkout on machine. It stays \
+             open after it answers, until stop_agent or you end; background agents are deleted \
+             with you. Never above your permission mode; 3 levels deep, 8 \
              running per session. Returns its id; with wait its answer, or its state after ~45s. \
              Replies come to you.",
             json!({
