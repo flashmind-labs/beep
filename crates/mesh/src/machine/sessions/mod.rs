@@ -21,7 +21,7 @@ pub use query::{
     models, transcript, transcript_before,
 };
 
-use super::{said, timed_out};
+use super::said;
 use crate::{MeshError, PeerClient};
 use beep_proto::node::agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest};
 use std::{future::Future, time::Duration};
@@ -29,6 +29,9 @@ use tracing::Instrument;
 
 /// How long an ordinary read of the node's sessions may take.
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a followed read waits for its subscription before it asks the
+/// node directly.
+const SUBSCRIPTION_WAIT: Duration = Duration::from_secs(5);
 /// How long an upload may go without sending or receiving bytes.
 const UPLOAD_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a picture may take: a whole one is a few MiB, which a link
@@ -76,16 +79,19 @@ impl Sessions for PeerClient {
     ) -> Result<SessionsReply, MeshError> {
         let read = beep_proto::node::events::Read::Sessions(Box::new(request.clone()));
 
-        if reading == Reading::Followed
-            && read.topic().is_some()
-            && let Some(value) = tokio::time::timeout(limit, self.snapshot(read))
-                .await
-                .map_err(|e| timed_out(e, "the session subscription did not answer in time"))?
-        {
-            return match value? {
-                beep_proto::node::events::Value::Sessions(reply) => Ok(*reply),
-                _ => Err(said("the session subscription returned another resource")),
-            };
+        if reading == Reading::Followed && read.topic().is_some() {
+            match tokio::time::timeout(limit.min(SUBSCRIPTION_WAIT), self.snapshot(read)).await {
+                Ok(Some(value)) => {
+                    return match value? {
+                        beep_proto::node::events::Value::Sessions(reply) => Ok(*reply),
+                        _ => Err(said("the session subscription returned another resource")),
+                    };
+                }
+                Ok(None) => {}
+                // The subscription is still starting, such as while the node
+                // sets up a file watch: the node answers this read directly.
+                Err(_) => tracing::info!("session subscription slow, reading directly"),
+            }
         }
 
         let operation = match &request {
