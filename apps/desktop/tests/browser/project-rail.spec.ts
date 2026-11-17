@@ -112,3 +112,17 @@ test("closing a project's session opens its next running one, then the project o
   await expect(rail).toBeHidden();
   await expect(page.getByRole("heading", { level: 2, name: projectName })).toBeVisible();
 });
+
+test("the project's sessions end on its painting and a card of its branch, threads and machines", async ({ page }) => {
+  const past = { machine_id: "build-box", machine_name: "build-box", id: "past-0", agent: "codex", title: "Past session 0", cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100, external: false, question: null, assistant: false };
+  await openDesktop(page, false, { project_sessions: [past] });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
+  await page.locator(".pj-det .pv-row").filter({ hasText: "Past session 0" }).click();
+  const rail = page.locator("#rail"), card = rail.locator(".rail-card");
+  await expect(rail.locator("canvas.painted-art")).toHaveCount(1);
+  await expect(card.locator(".rail-card-li")).toHaveText([/main/, /Pull requests/, /Issues/, /build-box/]);
+
+  await card.getByRole("button", { name: /Issues/ }).click();
+  await expect(rail).toBeHidden();
+  await expect(page.getByRole("heading", { level: 2, name: projectName })).toBeVisible();
+});

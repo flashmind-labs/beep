@@ -1,5 +1,6 @@
 // A project page's sections (terminals, file sync, Git history, pull
 // requests and issues, runs).
+import { drawRail } from "../center/sidebar.tsx";
 import { layoutChanged } from "../ui/skin.ts";
 import { formatAgo } from "../ui/format.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
@@ -99,6 +100,8 @@ onClosing(() => redrawProjects());
 
 export function redrawProjects() {
   if (currentLocation()?.view === "projects") drawProjects();
+  // The project's sessions beside one of them show its card.
+  else if (currentLocation()?.view === "pane") drawRail();
   // The empty agent view has the same bar.
   else if (AG.draft && barOn(AG.draft)) drawProjectComp(AG.draft);
 }

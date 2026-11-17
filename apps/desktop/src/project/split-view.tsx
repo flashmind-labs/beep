@@ -8,14 +8,15 @@ import type { Freshness } from "../ui/pagecache.ts";
 import type { TileData } from "./board.ts";
 import type { LabelFilter, SplitGroup, SplitItem } from "./split.tsx";
 import { Button, EmptyPanel, LineRow, Section, SectionHead } from "../ui/kit.tsx";
-import { HarnessIcon } from "../ui/icons.tsx";
+import { HarnessIcon, Icon } from "../ui/icons.tsx";
+import { ProjectArt } from "../ui/painted-art.tsx";
 import { SideToggle } from "../center/sidebar-shell.tsx";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import type { AgentRow } from "../agents/agents.ts";
 import { go } from "../center/views.tsx";
 import { FreshNote } from "./page-view.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
-import type { SessionRow } from "./projects-state.ts";
+import type { SessionRow, WhereRow } from "./projects-state.ts";
 
 export function ProjectNavigation({ groups, picked, openTile }: { groups: readonly SplitGroup[]; picked: string; openTile: (key: string) => void }) {
   return <>{groups.map((group, index) => <Fragment key={`${index}:${group.title}`}>
@@ -62,9 +63,10 @@ export function RunningStatus({ row, doing = false }: { row: RunningAgent; doing
 /// sidebar's: the project's name, which goes back to its page, and the toggle back to the
 /// sidebar. Then a filter, the running sessions, roomier, with what each is doing, and the
 /// latest past ones, one line
-/// each. `current` is the running key of the session on screen.
-export function ProjectRail({ project, label, running, past, current, back }: {
-  project: string; label: string; running: RunningAgent[]; past: SessionRow[]; current: string | null; back(): void;
+/// each. `current` is the running key of the session on screen. At the foot, over the project's
+/// painting, a card with its branch, pull requests, issues and machines.
+export function ProjectRail({ project, label, running, past, current, card, back }: {
+  project: string; label: string; running: RunningAgent[]; past: SessionRow[]; current: string | null; card: RailCard | null; back(): void;
 }) {
   const [filter, setFilter] = useState("");
   const needle = filter.trim().toLowerCase();
@@ -77,6 +79,7 @@ export function ProjectRail({ project, label, running, past, current, back }: {
   }} />;
 
   return <>
+    <ProjectArt project={project} />
     <div className="cc-head" data-tauri-drag-region="" />
     <div className="cc-brand"><Button look="quiet" className="rail-back" title={`Back to ${label}`} onClick={back}>{label}</Button><SideToggle /></div>
     <input className="ip-field rail-filter" type="search" placeholder="Filter sessions" aria-label="Filter sessions" spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
@@ -87,7 +90,24 @@ export function ProjectRail({ project, label, running, past, current, back }: {
     {ended.slice(0, RAIL_PAST).map(session => row(session, formatAgo(session.last_activity, "short")))}
     {ended.length > RAIL_PAST && <Button look="quiet" className="rail-all" onClick={() => go("projects", { project, tile: "agents" })}>All {ended.length} sessions</Button>}
     </div>
+    {card && <ProjectCard project={project} card={card} />}
   </>;
+}
+
+/// What the rail's card shows of its project; `null` counts are still being read.
+export interface RailCard { branch: string | null; prs: number | null; issues: number | null; machines: WhereRow[] }
+
+function ProjectCard({ project, card }: { project: string; card: RailCard }) {
+  const open = (tile: string) => () => go("projects", { project, tile });
+  const count = (n: number | null) => n === null ? "" : `${n} open`;
+  return <div className="rail-card">
+    {card.branch && <Button look="quiet" className="rail-card-li" onClick={open("branches")}><Icon name="branch" /><span>{card.branch}</span></Button>}
+    <Button look="quiet" className="rail-card-li" onClick={open("overview")}><Icon name="pr" /><span>Pull requests</span><small>{count(card.prs)}</small></Button>
+    <Button look="quiet" className="rail-card-li" onClick={open("issues")}><Icon name="issue" /><span>Issues</span><small>{count(card.issues)}</small></Button>
+    {card.machines.map(machine => <Button key={machine.id} look="quiet" className="rail-card-li" onClick={open("machines")}>
+      <i className={`ddot${machine.kind === "here" ? "" : " off"}`} /><span>{machine.name}</span><small>{machine.kind === "here" ? "" : machine.kind}</small>
+    </Button>)}
+  </div>;
 }
 
 /// A running row's second line: what it does, else the first line of its last reply, with
