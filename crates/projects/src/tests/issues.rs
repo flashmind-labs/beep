@@ -424,6 +424,40 @@ async fn a_pull_request_reads_in_full_through_a_machine() {
 }
 
 #[tokio::test]
+async fn an_issue_reads_with_its_linked_pull_requests() {
+    let issue = r#"{"number": 12, "title": "Crash", "body": "", "url": "https://github.com/acme/widget/issues/12", "author": {"login": "sam"}, "state": "OPEN", "labels": [], "createdAt": "2026-10-30T09:00:00Z", "comments": []}"#;
+    let linked = r#"[{"number": 13, "title": "Fix the crash", "url": "https://github.com/acme/widget/pull/13", "state": "OPEN"},
+        {"number": 4, "title": "Mention", "url": "https://github.com/acme/other/pull/4", "state": "MERGED"}]"#;
+    let read = |linked: ShellOutput| async move {
+        let fleet = Fleet2(Arc::new(ByCommand(vec![
+            ("graphql", linked),
+            ("issue view 12", ShellOutput::exited(0, issue)),
+        ])));
+        crate::thread_detail::read(&github_home(), &fleet, 12)
+            .await
+            .expect("the issue reads")
+            .linked_prs
+    };
+
+    let prs = read(ShellOutput::exited(0, linked)).await;
+    assert_eq!(
+        prs.iter()
+            .map(|pr| (pr.number, pr.state))
+            .collect::<Vec<_>>(),
+        [
+            (13, beep_proto::ThreadState::Open {}),
+            (4, beep_proto::ThreadState::Merged {})
+        ]
+    );
+    // Without them the issue still reads.
+    assert!(
+        read(ShellOutput::exited(1, "rate limited"))
+            .await
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn a_comment_on_a_pull_request_goes_through_gh_pr_comment() {
     let fleet = Fleet2(Arc::new(ByCommand(vec![(
         "pr comment 41",

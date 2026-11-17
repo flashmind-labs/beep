@@ -10,8 +10,11 @@ use crate::{
     model::IssueHost,
 };
 use anyhow::{Result, anyhow};
-use beep_proto::{GitItemKind, GitReview, RunState, ThreadDetail, ThreadPost, ThreadState};
+use beep_proto::{
+    GitItemKind, GitReview, LinkedPr, RunState, ThreadDetail, ThreadPost, ThreadState,
+};
 use chrono::{DateTime, Utc};
+use serde::Deserialize;
 use serde_json::{Deserializer, Value};
 use std::time::SystemTime;
 
@@ -33,7 +36,7 @@ pub async fn read(
             "The project has no GitHub or Forgejo host.".to_owned(),
         ));
     };
-    let (_, detail) = read_any(
+    let (source, mut detail) = read_any(
         machines,
         &sources,
         store.name(),
@@ -49,7 +52,60 @@ pub async fn read(
         )));
     }
 
+    if detail.kind == (GitItemKind::Issue {}) && matches!(source.host, IssueHost::Github) {
+        // Asked on the machine that read it. Without them the issue still reads.
+        let linked = run_source(
+            machines,
+            source,
+            store.name(),
+            HostCommand::LinkedPrs { number },
+        )
+        .await
+        .and_then(|out| parse_linked(&out));
+        match linked {
+            Ok(linked) => detail.linked_prs = linked,
+            Err(error) => {
+                log::info!("projects: issue #{number}'s pull requests are unknown: {error:#}")
+            }
+        }
+    }
+
     Ok(detail)
+}
+
+/// A pull request as [`HostCommand::LinkedPrs`] prints it.
+#[derive(Deserialize)]
+struct LinkedRead {
+    number: u64,
+    title: String,
+    url: String,
+    state: LinkedState,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+enum LinkedState {
+    Open,
+    Closed,
+    Merged,
+}
+
+/// Parses [`HostCommand::LinkedPrs`].
+fn parse_linked(out: &str) -> Result<Vec<LinkedPr>> {
+    let read: Vec<LinkedRead> = serde_json::from_str(out.trim())?;
+    Ok(read
+        .into_iter()
+        .map(|pr| LinkedPr {
+            number: pr.number,
+            title: pr.title,
+            url: pr.url,
+            state: match pr.state {
+                LinkedState::Open => ThreadState::Open {},
+                LinkedState::Closed => ThreadState::Closed {},
+                LinkedState::Merged => ThreadState::Merged {},
+            },
+        })
+        .collect())
 }
 
 /// Posts `body` as the user's comment on pull request or issue `number`, through the first
@@ -248,6 +304,7 @@ fn parse(host: &IssueHost, out: &str) -> Result<ThreadDetail> {
         earlier: u32::try_from(earlier).unwrap_or(u32::MAX),
         review,
         checks,
+        linked_prs: Vec::new(),
     })
 }
 

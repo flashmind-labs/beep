@@ -134,6 +134,18 @@ pub struct ThreadDetailRow {
     review: &'static str,
     /// A `RunState` name, where the host says.
     checks: Option<&'static str>,
+    /// For an issue, the pull requests that will close it or mention it.
+    linked_prs: Vec<LinkedPrRow>,
+}
+
+/// A pull request linked to an issue.
+#[derive(Debug, Serialize)]
+pub struct LinkedPrRow {
+    number: u64,
+    title: String,
+    url: String,
+    /// `open`, `closed` or `merged`.
+    state: &'static str,
 }
 
 impl From<ThreadDetail> for ThreadDetailRow {
@@ -161,6 +173,16 @@ impl From<ThreadDetail> for ThreadDetailRow {
             earlier: t.earlier,
             review: t.review.into(),
             checks: t.checks.map(Into::into),
+            linked_prs: t
+                .linked_prs
+                .into_iter()
+                .map(|pr| LinkedPrRow {
+                    number: pr.number,
+                    title: pr.title,
+                    url: pr.url,
+                    state: pr.state.into(),
+                })
+                .collect(),
         }
     }
 }

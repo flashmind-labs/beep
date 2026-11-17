@@ -37,6 +37,10 @@ pub enum HostCommand<'a> {
         number: u64,
         body: &'a str,
     },
+    /// The pull requests that will close issue `number` or mention it. GitHub only.
+    LinkedPrs {
+        number: u64,
+    },
     /// The login of the account the CLI is signed in as.
     WhoAmI,
     /// The repository as the CLI's account sees it, with what that account may do there.
@@ -70,6 +74,7 @@ impl HostCommand<'_> {
             | Self::ListOpenPrs
             | Self::ViewPrHead { .. }
             | Self::ViewThread { .. }
+            | Self::LinkedPrs { .. }
             | Self::WhoAmI
             | Self::CanPush => true,
             Self::CommentIssue { .. } | Self::CommentPr { .. } => false,
@@ -178,6 +183,19 @@ impl HostCommand<'_> {
                 number_command(&["pr", "comment"], number, &["--body", body])
             }
             // `gh api` takes no -R; the owner's account decides who it is.
+            Self::LinkedPrs { number } => {
+                let (owner, name) = repo.split_once('/').unwrap_or((repo, ""));
+                format!(
+                    "{account}{}",
+                    Parts::new(&["gh", "api", "graphql"])
+                        .with(&["-f", &format!("owner={owner}")])
+                        .with(&["-f", &format!("name={name}")])
+                        .with(&["-F", &format!("number={number}")])
+                        .with(&["-f", &format!("query={LINKED_PRS_QUERY}")])
+                        .with(&["--jq", LINKED_PRS_JQ])
+                        .render()
+                )
+            }
             Self::WhoAmI => format!(
                 "{account}{}",
                 Parts::new(&["gh", "api", "user", "--jq", ".login"]).render()
@@ -211,7 +229,7 @@ impl HostCommand<'_> {
         Some(match *self {
             Self::ListOpenIssues => tea(&["issue", "list"], &[], &["-s", "open", "--all"]),
             // Forgejo cannot search issues by their linked pull requests.
-            Self::ListLinkedIssues => return None,
+            Self::ListLinkedIssues | Self::LinkedPrs { .. } => return None,
             Self::ListOpenPrs => tea(&["pr", "list"], &[], &["-s", "open", "--all"]),
             Self::ViewPrHead { number } => tea(&["pr", "get"], &[&number.to_string()], &[]),
             // Forgejo keeps a pull request's conversation as its issue's comments.
@@ -238,6 +256,17 @@ impl HostCommand<'_> {
         })
     }
 }
+
+/// An issue's pull requests: those that will close it, and those whose text mentions it.
+const LINKED_PRS_QUERY: &str = "query($owner: String!, $name: String!, $number: Int!) { \
+    repository(owner: $owner, name: $name) { issue(number: $number) { \
+    closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { number title url state } } \
+    timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 50) { nodes { ... on CrossReferencedEvent { \
+    source { ... on PullRequest { number title url state } } } } } } } }";
+
+/// Both lists of [`LINKED_PRS_QUERY`] as one, each pull request once.
+const LINKED_PRS_JQ: &str = ".data.repository.issue | [.closedByPullRequestsReferences.nodes[], \
+    (.timelineItems.nodes[].source | select(.number != null))] | unique_by(.url)";
 
 /// Most open issues or pull requests one gh list reads; gh fetches the pages itself.
 const GH_OPEN_LIMIT: usize = 1000;
