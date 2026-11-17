@@ -4,6 +4,8 @@ import { spoken } from "../ui/format.ts";
 import type { GroupSlot } from "./state.ts";
 import { Button, useLazyCount } from "../ui/kit.tsx";
 import { invoke } from "../ui/tauri.ts";
+import { useStore } from "zustand";
+import { shell, sideCollapsed, toggleSide } from "./window-shell.tsx";
 
 export type SideLink = Parameters<typeof SidebarItem>[0] & { count: number };
 export type SideFooter = { text: string; dot: "off" | "bad" | "on" | "dial" | null; count?: number; title?: string; action: "add" | null };
@@ -36,8 +38,8 @@ function StarPrompt() {
   if (!shown) return null;
   return <div className="cc-star"><Button look="quiet" className="open" onClick={() => { void invoke("open_url", { url: REPO_URL }).catch(e => console.warn("opening the repository:", e)); dismiss(); }}><Icon name="star" size={12} />Star on GitHub</Button><Button look="quiet" title="Dismiss" aria-label="Dismiss" onClick={dismiss}><Icon name="close" /></Button></div>;
 }
-export function SidebarShell({ host, links, groups, footer, addMachine }: { host: HTMLElement; links: SideLink[]; groups: ReactNode; footer: SideFooter; addMachine(): void }) {
-  const [collapsed, setCollapsed] = useState(() => host.closest(".cwin")?.classList.contains("side-collapsed") ?? false);
-  const toggle = () => { const win = host.closest(".cwin"); if (win) setCollapsed(win.classList.toggle("side-collapsed")); };
-  return <><div className="cc-head" data-tauri-drag-region="" /><div className="cc-brand"><b>Beep</b><button type="button" className="cc-side-toggle" title={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} aria-controls="side-content" onClick={toggle}><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg></span></button></div><div className="cc-side-list" id="side-content"><div className="cc-grp cc-nav">{links.map(link => <SidebarItem key={link.label} {...link} />)}</div>{groups}<StarPrompt /><div className="cc-foot"><span title={footer.title}>{footer.dot && <span className={`ddot${footer.dot === "on" ? "" : ` ${footer.dot}`}`} />}{footer.dot && " "}{footer.count !== undefined ? <><b>{footer.count}</b>{footer.text}</> : footer.text}</span>{footer.action === "add" && <Button look="quiet" title="Add a machine" aria-label="Add a machine" onClick={event => { event.stopPropagation(); addMachine(); }} dangerouslySetInnerHTML={{ __html: IC.plus }} />}</div></div></>;
+export function SidebarShell({ links, groups, footer, addMachine }: { links: SideLink[]; groups: ReactNode; footer: SideFooter; addMachine(): void }) {
+  const side = useStore(shell, s => s.side), collapsed = sideCollapsed(side);
+  const label = collapsed ? "Expand sidebar" : side.rail ? "Show the project's sessions" : "Collapse sidebar";
+  return <><div className="cc-head" data-tauri-drag-region="" /><div className="cc-brand"><b>Beep</b><button type="button" className="cc-side-toggle" title={label} aria-label={label} aria-expanded={!collapsed} aria-controls="side-content" onClick={toggleSide}><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg></span></button></div><div className="cc-side-list" id="side-content"><div className="cc-grp cc-nav">{links.map(link => <SidebarItem key={link.label} {...link} />)}</div>{groups}<StarPrompt /><div className="cc-foot"><span title={footer.title}>{footer.dot && <span className={`ddot${footer.dot === "on" ? "" : ` ${footer.dot}`}`} />}{footer.dot && " "}{footer.count !== undefined ? <><b>{footer.count}</b>{footer.text}</> : footer.text}</span>{footer.action === "add" && <Button look="quiet" title="Add a machine" aria-label="Add a machine" onClick={event => { event.stopPropagation(); addMachine(); }} dangerouslySetInnerHTML={{ __html: IC.plus }} />}</div></div></>;
 }

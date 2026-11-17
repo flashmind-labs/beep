@@ -24,11 +24,11 @@ import { ALL } from "../terminals/terminals.tsx";
 import { state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
 import { stuck, draw } from "./home.tsx";
 import { allTerms } from "../terminals/view.tsx";
-import { currentLocation, go, drawTop } from "./views.tsx";
+import { currentLocation, go, drawTop, windowProject } from "./views.tsx";
 import { groupMenu } from "../project/groups.tsx";
 import { fsync, redrawProjects, redrawProjectsPage } from "../project/sections.ts";
 import { conflictList } from "../project/filesync.ts";
-import { prefetchOnHover, sessionsDue } from "../project/loads.tsx";
+import { prefetchOnHover, projectRail, sessionsDue } from "../project/loads.tsx";
 import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import { drawProjects } from "../project/page.tsx";
 import { refresh } from "./refresh.ts";
@@ -37,10 +37,14 @@ import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
 import { type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { placeWindowParts } from "./window-root.tsx";
-import { shell, windowHost } from "./window-shell.tsx";
+import { setRail, shell } from "./window-shell.tsx";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 import { SidebarProjectRow } from "./sidebar-rows.tsx";
 import { single } from "../ui/active.ts";
+import { AG } from "../agents/agents.ts";
+import { placeOf } from "../agents/place.ts";
+import { newChatTarget } from "../project/agent.ts";
+import { runningKey } from "../agents/running-state.ts";
 
 export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
   const slot: GroupSlot<T> = { title: "", ...group, items: null, loading: false, again: false };
@@ -76,7 +80,24 @@ export function paneOn(): { view: PaneNow["view"] | null } {
   return currentLocation()?.view === "pane" ? pane.current() : { view: null };
 }
 
+/// The project on screen, its page or a session of it, and the machine
+/// its start input opens on; null elsewhere.
+export function projectHere() {
+  const on = paneOn();
+  if (on.view === "agent" && AG.draft) return { project: AG.draft, machine: null };
+  // The session on screen, which the pane may have moved to since the window opened it.
+  const page = currentLocation();
+  const target = page?.view === "pane" ? page.arg : null;
+  const open = AG.page?.session ?? (target && typeof target === "object" && "agent" in target ? target.agent : null);
+  const agent = on.view === "agent" && open ? { machine_id: open.machine_id, cwd: open.cwd, main: placeOf(open)?.main } : null;
+  return newChatTarget({ shown: currentLocation()?.view ?? null, picked: state.picked, view: on.view, agent, mac: state.mac?.id }, state.home?.projects);
+}
+
 shell.subscribe((now, was) => { if (!now.assistant !== !was.assistant) drawSide(); });
+
+/// A window wide enough for the project's sessions beside one of them.
+const roomy = window.matchMedia("(min-width: 1200px)");
+roomy.addEventListener("change", () => drawSide());
 
 export function drawSide() {
   const home = state.home, location = currentLocation()?.view;
@@ -93,8 +114,12 @@ export function drawSide() {
     if (g.items != null) side.push(<SidebarGroupView key={name} name={name} group={g} />);
   }
 
-  const host = windowHost("side");
-  placeWindowParts({ sidebar: <SidebarShell host={host} links={links} groups={side} footer={footer(home?.machines)} addMachine={openAddMachine} /> });
+  // A session of a project shows the project's sessions in place of the sidebar, in a window
+  // with room for both beside it.
+  const rail = location === "pane" && !onPhone() && !windowProject && roomy.matches ? projectHere()?.project ?? null : null;
+  setRail(rail);
+  const current = AG.open && !AG.draft ? runningKey({ machine_id: AG.open.machine_id, id: AG.open.session }) : null;
+  placeWindowParts({ rail: rail && projectRail(rail, current), sidebar: <SidebarShell links={links} groups={side} footer={footer(home?.machines)} addMachine={openAddMachine} /> });
   if (currentLocation()?.view === "pane") drawTop();
 }
 

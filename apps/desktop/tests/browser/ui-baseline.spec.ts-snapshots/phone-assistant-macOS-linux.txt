@@ -1,5 +1,5 @@
 body.cbody.mobile
-  div.cwin [aria-label="Beep" role="main"] style(--side-w)
+  div.cwin [aria-label="Beep" role="main"] style(--rail-w,--side-w)
     aside#side.cc-side
       canvas.haze.painted-art [aria-hidden="true"]
       div.cc-head
@@ -89,6 +89,8 @@ body.cbody.mobile
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
+    aside#rail.cc-rail.pj-list [aria-label="Project sessions" hidden]
+    div#rail-grip.cc-grip [aria-label="Resize the sessions" aria-orientation="vertical" aria-valuemax="480" aria-valuemin="200" aria-valuenow="260" role="separator" tabindex="0"]
     div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" type="button"]

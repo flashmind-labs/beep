@@ -18,7 +18,6 @@ import { pane } from "../bar/pane.ts";
 import type { BackTo } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
 import { startView, windowTitle, type CenterTarget } from "../project/projectwindow.ts";
-import { newChatTarget } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.tsx";
 import { mountNotices } from "./notices.tsx";
 import { firstRun } from "./firstrun.tsx";
@@ -27,7 +26,7 @@ import { windowCommand } from "../ui/windowkeys.ts";
 import { state, pagesAccount, keepPagesFile } from "./state.ts";
 import { draw, homeTab, jump } from "./home.tsx";
 import { currentLocation, windowProject, go, goHistory, hasHistory, setWindowProject, goTo } from "./views.tsx";
-import { reloadGroup, paneOn, openProjects, projectWindowProps, openProjectWindow, addProject } from "./sidebar.tsx";
+import { reloadGroup, paneOn, projectHere, openProjects, projectWindowProps, openProjectWindow, addProject } from "./sidebar.tsx";
 import { escUp } from "./escup-state.ts";
 import { itemScroll, setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
 import { openTile } from "../project/split.tsx";
@@ -42,7 +41,6 @@ import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
 import { guardClicks } from "../ui/clickguard.ts";
 import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
 import { projectOf, repoOf, runningKey } from "../agents/running-state.ts";
-import { placeOf } from "../agents/place.ts";
 import { followToolUpdates } from "../machines/machines.tsx";
 import { dialogOpen } from "../ui/parts.tsx";
 import { startupDrawn, startupStage } from "../ui/perf.ts";
@@ -136,19 +134,6 @@ document.addEventListener("keydown", e => {
       return newAgentHere();
   }
 });
-
-/// The project on screen, its page or a session of it, and the machine
-/// its start input opens on; null elsewhere.
-function projectHere() {
-  const on = paneOn();
-  if (on.view === "agent" && AG.draft) return { project: AG.draft, machine: null };
-  // The session on screen, which the pane may have moved to since the window opened it.
-  const page = currentLocation();
-  const target = page?.view === "pane" ? page.arg : null;
-  const open = AG.page?.session ?? (target && typeof target === "object" && "agent" in target ? target.agent : null);
-  const agent = on.view === "agent" && open ? { machine_id: open.machine_id, cwd: open.cwd, main: placeOf(open)?.main } : null;
-  return newChatTarget({ shown: currentLocation()?.view ?? null, picked: state.picked, view: on.view, agent, mac: state.mac?.id }, state.home?.projects);
-}
 
 /// ⌘N: in a project (its page, or one of its sessions) the agent
 /// view with an empty conversation and the project's start input, focused;

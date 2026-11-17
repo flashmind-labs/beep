@@ -1,11 +1,11 @@
 body.cbody
-  div.cwin [aria-label="Beep" role="main"] style(--side-w)
+  div.cwin.rail-on.side-collapsed [aria-label="Beep" role="main"] style(--rail-w,--side-w)
     aside#side.cc-side
-      canvas.haze.painted-art [aria-hidden="true" height="225" width="46"]
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="13"]
       div.cc-head
       div.cc-brand
         b "Beep"
-        button.cc-side-toggle [aria-controls="side-content" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar" type="button"]
+        button.cc-side-toggle [aria-controls="side-content" aria-expanded="false" aria-label="Expand sidebar" title="Expand sidebar" type="button"]
           span
             svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
       div#side-content.cc-side-list
@@ -67,6 +67,36 @@ body.cbody
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
+    aside#rail.cc-rail.pj-list [aria-label="Project sessions"]
+      div.cc-head
+      div.rail-head
+        button.dbtn.quiet.rail-back [title="Back to example/widget" type="button"] "example/widget"
+      button.dbtn.rail-new.small [type="button"] "New session"
+        svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+      input.ip-field.rail-filter [aria-label="Filter sessions" placeholder="Filter sessions" spellcheck="false" type="search" value] value=""
+      h4 "Running"
+        span.n "2"
+      button.pj-li [aria-current="true" title="First notification" type="button"]
+        span.lead
+          span.cc-ag.codex.mark
+            svg [aria-hidden="true" viewBox="0 0 24 24"]
+        span.t
+          b "First notification"
+          span "build-box"
+        span.r
+          span.cc-running "now"
+            span.drun [aria-label="Working" role="img"]
+      button.pj-li [title="Second notification" type="button"]
+        span.lead
+          span.cc-ag.codex.mark
+            svg [aria-hidden="true" viewBox="0 0 24 24"]
+        span.t
+          b "Second notification"
+          span "build-box"
+        span.r
+          span.cc-running "now"
+            span.drun [aria-label="Working" role="img"]
+    div#rail-grip.cc-grip [aria-label="Resize the sessions" aria-orientation="vertical" aria-valuemax="480" aria-valuemin="200" aria-valuenow="260" role="separator" tabindex="0"]
     div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]

@@ -1,13 +1,15 @@
-import { Fragment, type ReactElement, type ReactNode } from "react";
+import { Fragment, useState, type ReactElement, type ReactNode } from "react";
 import { moveLabel } from "../agents/move-store.ts";
 import { closingNote } from "../agents/closing.ts";
-import { runningWhen, type RunningAgent } from "../agents/running-state.ts";
+import { agentName, runningKey, runningWhen, type RunningAgent } from "../agents/running-state.ts";
 import { formatAgo } from "../ui/format.ts";
 import { terminalNote, terminalWhere, type TerminalRow } from "../terminals/terminals.tsx";
 import type { Freshness } from "../ui/pagecache.ts";
 import type { TileData } from "./board.ts";
 import type { LabelFilter, SplitGroup, SplitItem } from "./split.tsx";
 import { Button, EmptyPanel, LineRow, Section, SectionHead } from "../ui/kit.tsx";
+import { HarnessIcon, Icon } from "../ui/icons.tsx";
+import { go } from "../center/views.tsx";
 import { FreshNote } from "./page-view.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
 import type { SessionRow } from "./projects-state.ts";
@@ -53,9 +55,35 @@ export function RunningStatus({ row, doing = false }: { row: RunningAgent; doing
   return runningWhen(row);
 }
 
+/// A project's sessions in place of the sidebar while one of them shows: the project's name,
+/// which goes back to its page, New session, a filter, the running sessions, then the past ones.
+/// `current` is the running key of the session on screen.
+export function ProjectRail({ project, label, running, past, current, back }: {
+  project: string; label: string; running: RunningAgent[]; past: SessionRow[]; current: string | null; back(): void;
+}) {
+  const [filter, setFilter] = useState("");
+  const needle = filter.trim().toLowerCase();
+  const matches = (row: { title: string | null; agent: string }) => !needle || (row.title || agentName(row.agent)).toLowerCase().includes(needle);
+  const live = running.filter(matches), ended = past.filter(matches);
+
+  return <>
+    <div className="cc-head" data-tauri-drag-region="" />
+    <div className="rail-head"><Button look="quiet" className="rail-back" title={`Back to ${label}`} onClick={back}>{label}</Button></div>
+    <Button small className="rail-new" onClick={() => go("pane", { draft: { project, machine: null } })}><Icon name="plus" />New session</Button>
+    <input className="ip-field rail-filter" type="search" placeholder="Filter sessions" aria-label="Filter sessions" spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
+    {!!live.length && <h4>Running<span className="n">{live.length}</span></h4>}
+    {live.map(row => <Row key={runningKey(row)} picked={current} nav={false} openTile={() => {}} item={{
+      key: runningKey(row), lead: <HarnessIcon agent={row.agent} />, title: row.title || agentName(row.agent), sub: row.machine_name,
+      right: <RunningStatus row={row} />, open: () => go("pane", { agent: row }),
+    }} />)}
+    {!!ended.length && <h4>Past sessions<span className="n">{ended.length}</span></h4>}
+    {!!ended.length && <ProjectSessions key={needle} rows={ended} all current={current} />}
+  </>;
+}
+
 export interface RecentSessions { rows: SessionRow[] | null; empty: string | null; count: number; freshness: Freshness | null }
 function RecentSessionsSection({ session }: { session: RecentSessions }) {
-  return <div id="sec-sessions"><div className="cc-sec"><h4>Past sessions{!!session.count && <span className="n">{session.count}</span>}{session.freshness && <FreshNote freshness={session.freshness} className=" ss-updating"/>}</h4></div>{session.rows ? <div style={{ display: "contents" }}><div className="cc-panel"><ProjectSessions rows={session.rows} all={false}/></div></div> : <EmptyPanel text={session.empty} />}</div>;
+  return <div id="sec-sessions"><div className="cc-sec"><h4>Past sessions{!!session.count && <span className="n">{session.count}</span>}{session.freshness && <FreshNote freshness={session.freshness} className=" ss-updating"/>}</h4></div>{session.rows ? <div style={{ display: "contents" }}><div className="cc-panel"><ProjectSessions rows={session.rows} all={false} current={null}/></div></div> : <EmptyPanel text={session.empty} />}</div>;
 }
 
 export function ProjectFallback({ session, machines, running, agents }: { session: RecentSessions; machines: ReactElement; running: ReactElement; agents: ReactElement }) {
