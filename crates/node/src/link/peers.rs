@@ -608,6 +608,12 @@ impl Peers {
             self.inner.dir.clone(),
             offers.skills.clone(),
         );
+        let search = crate::agents::follow_search(
+            active.mesh.clone(),
+            self.inner.endpoint.id(),
+            self.inner.dir.clone(),
+            offers.agents.clone(),
+        );
         let moves = crate::agents::follow_moves(
             active.mesh,
             self.inner.endpoint.clone(),
@@ -615,7 +621,7 @@ impl Peers {
             offers.agents.clone(),
         );
         *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(async move {
-            tokio::join!(follow, moves, runs, skills, libraries);
+            tokio::join!(follow, moves, runs, skills, libraries, search);
         })));
     }
 

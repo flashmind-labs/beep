@@ -148,7 +148,7 @@ rmp-serde = { workspace = true, optional = true }
 # The Android emulator's discovery files.
 rust-ini = { workspace = true, optional = true }
 roxmltree = { workspace = true, optional = true }
-# flsh keeps its sessions in SQLite.
+# flsh keeps its sessions in SQLite; the search index is SQLite too.
 rusqlite = { workspace = true, optional = true }
 secrecy = { workspace = true, optional = true }
 semver = { workspace = true, optional = true }

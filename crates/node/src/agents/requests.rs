@@ -62,8 +62,34 @@ impl Agents {
         thoughts: bool,
         before: Option<u64>,
     ) -> SessionsReply {
+        let read = self.read_transcript(session, last, before, true).await;
+
+        match read {
+            Ok(Some((entries, earlier))) => SessionsReply::Transcript {
+                entries: shown_entries(entries, thoughts),
+                earlier: u32::try_from(earlier).unwrap_or(u32::MAX),
+            },
+            Ok(None) => SessionsReply::Error {
+                message: format!("there is no session {session}"),
+            },
+            Err(e) => SessionsReply::Error {
+                message: format!("could not read session {session}: {e:#}"),
+            },
+        }
+    }
+
+    /// The last `last` entries of a session before entry `before`, with how
+    /// many come earlier: `None` for a session this node does not have.
+    /// Search indexing reads without keeping the prompts' pictures.
+    pub(crate) async fn read_transcript(
+        &self,
+        session: &str,
+        last: u32,
+        before: Option<u64>,
+        keep_pictures: bool,
+    ) -> anyhow::Result<Option<(Vec<agent::Entry>, u64)>> {
         let last = usize::try_from(last.min(MAX_TRANSCRIPT)).unwrap_or(usize::MAX);
-        let read = match self.get(session) {
+        match self.get(session) {
             Some(found) => Ok(Some(self.live_transcript(&found, last, before).await)),
             // A session started outside Beep: Claude Code's, else another
             // agent's from its own store.
@@ -81,25 +107,14 @@ impl Agents {
             }
             .map(|read| {
                 read.map(|read| {
-                    for picture in read.pictures {
-                        self.images.keep(session, picture);
+                    if keep_pictures {
+                        for picture in read.pictures {
+                            self.images.keep(session, picture);
+                        }
                     }
                     (read.entries, read.earlier)
                 })
             }),
-        };
-
-        match read {
-            Ok(Some((entries, earlier))) => SessionsReply::Transcript {
-                entries: shown_entries(entries, thoughts),
-                earlier: u32::try_from(earlier).unwrap_or(u32::MAX),
-            },
-            Ok(None) => SessionsReply::Error {
-                message: format!("there is no session {session}"),
-            },
-            Err(e) => SessionsReply::Error {
-                message: format!("could not read session {session}: {e:#}"),
-            },
         }
     }
 }
@@ -132,6 +147,7 @@ fn watch_slow(request: &SessionsRequest, caller: EndpointId) -> Option<AbortOnDr
         | SessionsRequest::FollowPresence {}
         | SessionsRequest::FollowAlerts {}
         | SessionsRequest::FollowRuns {}
+        | SessionsRequest::FollowIndex { .. }
         | SessionsRequest::FollowUsage { .. } => return None,
         // Neither carries its images or bytes into the log.
         SessionsRequest::Steer { session, .. } => format!("Steer for session {session}"),
@@ -250,6 +266,16 @@ pub async fn serve_sessions(
         SessionsRequest::FollowUsage { history } => {
             return send_usage(tx, rx, &agents, history).await;
         }
+        SessionsRequest::FollowIndex { epoch, after } => {
+            return send_index(tx, rx, &agents, &epoch, after).await;
+        }
+        SessionsRequest::Search { query } => match agents.search.get().cloned() {
+            Some(index) => index
+                .find(query)
+                .await
+                .map_or_else(failed, |hits| SessionsReply::SearchHits { hits }),
+            None => failed("this node's search index is not open yet"),
+        },
         SessionsRequest::Image { session, key } => image_reply(&agents, &session, &key).await,
         SessionsRequest::Thumb { session, key } => match image_reply(&agents, &session, &key).await
         {
@@ -739,6 +765,63 @@ async fn send_usage(
                 // Anything else is the caller's goodbye.
                 _ => return Ok(()),
             },
+        }
+    }
+}
+
+/// The most rows one `IndexRows` batch carries.
+const INDEX_BATCH: u32 = 500;
+
+/// Sends the search index's rows after `after` (all of them when `epoch`
+/// is not this index's), then each new row as it is added.
+async fn send_index(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    agents: &Arc<Agents>,
+    epoch: &str,
+    mut after: u64,
+) -> Result<()> {
+    let Some(index) = agents.search.get().cloned() else {
+        return tx
+            .send(&failed("this node's search index is not open yet"))
+            .await;
+    };
+
+    if epoch != index.epoch() {
+        after = 0;
+    }
+
+    let mut newest = index.newest();
+
+    loop {
+        // Marked seen before reading, so a row added meanwhile wakes the
+        // next round.
+        beep_proto::watched::read_and_update(&mut newest, |_| ());
+
+        loop {
+            let rows = index.rows_after(after, INDEX_BATCH).await?;
+            let current = rows.len() < INDEX_BATCH as usize;
+            after = rows.last().map_or(after, |row| row.seq);
+            tx.send(&SessionsReply::IndexRows {
+                epoch: index.epoch().to_owned(),
+                rows,
+                current,
+            })
+            .await?;
+
+            if current {
+                break;
+            }
+        }
+
+        tokio::select! {
+            changed = newest.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+            }
+            // Anything from the caller is its goodbye.
+            _ = rx.recv::<SessionsRequest>() => return Ok(()),
         }
     }
 }

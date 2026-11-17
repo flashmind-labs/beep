@@ -1,0 +1,298 @@
+//! The search index on disk: each session's prompts and agent replies, kept
+//! once, and the change log copies follow, which is the same table.
+
+use anyhow::{Result, bail};
+use beep_proto::node::agent::{IndexRow, SearchHit};
+use rusqlite::{Connection, OptionalExtension, params};
+use sha2::{Digest, Sha256};
+use std::{collections::BTreeSet, path::Path};
+
+const SCHEMA: u32 = 1;
+/// The most sessions one search answers with.
+const MOST_HITS: u32 = 64;
+
+pub(super) struct Store(Connection);
+
+impl Store {
+    pub fn open(path: &Path) -> Result<Self> {
+        let mut db = Connection::open(path)?;
+        db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;")?;
+        let version: u32 = db.pragma_query_value(None, "user_version", |row| row.get(0))?;
+
+        if version > SCHEMA {
+            bail!("the search index uses a newer schema");
+        }
+
+        if version < SCHEMA {
+            db.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
+            let tx = db.transaction()?;
+            tx.execute_batch(include_str!("schema.sql"))?;
+            tx.execute(
+                "INSERT INTO meta(epoch) VALUES (?1)",
+                [format!("{:016x}", fastrand::u64(..))],
+            )?;
+            tx.pragma_update(None, "user_version", SCHEMA)?;
+            tx.commit()?;
+            // Applies auto_vacuum to a file made before it.
+            db.execute_batch("VACUUM;")?;
+        }
+
+        Ok(Self(db))
+    }
+
+    /// Names this index: copies of another start over.
+    pub fn epoch(&self) -> Result<String> {
+        Ok(self.0.query_row("SELECT epoch FROM meta", [], |row| row.get(0))?)
+    }
+
+    /// Whether session `id` was fully indexed at `stamp`.
+    pub fn current(&self, id: &str, stamp: &str) -> Result<bool> {
+        let saved: Option<bool> = self
+            .0
+            .query_row(
+                "SELECT stamp=?2 AND walk_top IS NULL FROM sessions WHERE id=?1",
+                [id, stamp],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(saved == Some(true))
+    }
+
+    /// How far session `id`'s transcript is indexed.
+    pub fn progress(&self, id: &str) -> Result<Progress> {
+        let saved = self
+            .0
+            .query_row(
+                "SELECT done,walk_top,walk_low FROM sessions WHERE id=?1",
+                [id],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((done, top, low)) = saved else {
+            return Ok(Progress::NEW);
+        };
+        let walk = match top.zip(low) {
+            Some((top, low)) => Some(Walk {
+                top: u64::try_from(top)?,
+                low: u64::try_from(low)?,
+            }),
+            None => None,
+        };
+
+        Ok(Progress {
+            done: u64::try_from(done)?,
+            walk,
+        })
+    }
+
+    /// Saves one transcript page's texts with how far the session is
+    /// indexed after it, so an interrupted read resumes from there. The
+    /// stamp is kept only when the read reached the newest entry and what
+    /// it had already indexed: `current`.
+    pub fn save(&mut self, session: &Indexed, texts: &[String], progress: Progress) -> Result<()> {
+        let tx = self.0.unchecked_transaction()?;
+        let (top, low) = progress.walk.map(|walk| (walk.top, walk.low)).unzip();
+        let column = |at: Option<u64>| at.map(i64::try_from).transpose();
+        tx.execute(
+            "INSERT INTO sessions(id,stamp,activity,done,walk_top,walk_low) VALUES (?1,COALESCE(?2,''),?3,?4,?5,?6)
+             ON CONFLICT(id) DO UPDATE SET stamp=COALESCE(?2,sessions.stamp),activity=?3,
+                 done=?4,walk_top=?5,walk_low=?6",
+            params![
+                session.id,
+                session.stamp,
+                i64::try_from(session.activity)?,
+                i64::try_from(progress.done)?,
+                column(top)?,
+                column(low)?
+            ],
+        )?;
+        {
+            let mut insert = tx.prepare(
+                "INSERT OR IGNORE INTO log(session,text,hash)
+                 SELECT key,?2,?3 FROM sessions WHERE id=?1",
+            )?;
+
+            for text in texts {
+                insert.execute(params![session.id, text, text_hash(text)])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Resets every session not in `present`: its texts go, a reset row
+    /// tells copies, and it is read again if it comes back.
+    pub fn keep_only(&mut self, present: &BTreeSet<String>) -> Result<usize> {
+        let gone: Vec<(i64, String)> = {
+            let mut read = self.0.prepare(
+                "SELECT key,id FROM sessions WHERE EXISTS(SELECT 1 FROM log WHERE session=key AND text IS NOT NULL)",
+            )?;
+            read.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+                .into_iter()
+                .filter(|(_, id)| !present.contains(id))
+                .collect()
+        };
+
+        if gone.is_empty() {
+            return Ok(0);
+        }
+
+        let tx = self.0.unchecked_transaction()?;
+
+        for (key, _) in &gone {
+            tx.execute("DELETE FROM log WHERE session=?1", [key])?;
+            tx.execute("INSERT INTO log(session) VALUES (?1)", [key])?;
+            tx.execute(
+                "UPDATE sessions SET stamp='',done=0,walk_top=NULL,walk_low=NULL WHERE key=?1",
+                [key],
+            )?;
+        }
+
+        tx.commit()?;
+        self.0.execute_batch("PRAGMA incremental_vacuum;")?;
+        Ok(gone.len())
+    }
+
+    /// The sessions holding every word of `query`, newest activity first.
+    /// LIKE folds ASCII case; the index finds the candidates for words of
+    /// three characters or more and LIKE checks them.
+    pub fn find(&self, query: &str) -> Result<Vec<SearchHit>> {
+        let query = query.trim().to_lowercase();
+
+        if query.chars().count() < 2 {
+            return Ok(Vec::new());
+        }
+
+        let terms: Vec<String> = query
+            .split_whitespace()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(|term| format!("%{term}%"))
+            .collect();
+        let conditions: Vec<String> = (1..=terms.len())
+            .map(|at| {
+                format!(
+                    "key IN (SELECT session FROM log WHERE seq IN
+                         (SELECT rowid FROM log_search WHERE text LIKE ?{at}))"
+                )
+            })
+            .collect();
+        let sql = format!(
+            "SELECT key,id,activity FROM sessions WHERE {}
+             ORDER BY activity DESC,id LIMIT {MOST_HITS}",
+            conditions.join(" AND ")
+        );
+        let mut read = self.0.prepare(&sql)?;
+        let rows = read.query_map(rusqlite::params_from_iter(&terms), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?;
+        let mut first = self.0.prepare(
+            "SELECT text FROM log WHERE session=?1 AND text LIKE ?2 ORDER BY seq LIMIT 1",
+        )?;
+
+        rows.map(|row| {
+            let (key, session, activity) = row?;
+            let texts = terms
+                .iter()
+                .map(|term| first.query_row(params![key, term], |row| row.get(0)))
+                .collect::<rusqlite::Result<Vec<String>>>()?;
+            Ok(SearchHit {
+                session,
+                activity: u64::try_from(activity)?,
+                texts,
+            })
+        })
+        .collect()
+    }
+
+    /// The newest row's `seq`, 0 for none.
+    pub fn newest(&self) -> Result<u64> {
+        let seq: i64 = self.0.query_row(
+            "SELECT COALESCE(MAX(seq),0) FROM log",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(u64::try_from(seq)?)
+    }
+
+    /// Up to `most` rows after `after`, in order.
+    pub fn rows_after(&self, after: u64, most: u32) -> Result<Vec<IndexRow>> {
+        let mut read = self.0.prepare(
+            "SELECT seq,id,text FROM log JOIN sessions ON key=session
+             WHERE seq>?1 ORDER BY seq LIMIT ?2",
+        )?;
+        let rows = read.query_map(params![i64::try_from(after)?, most], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+
+        rows.map(|row| {
+            let (seq, session, text) = row?;
+            Ok(IndexRow {
+                seq: u64::try_from(seq)?,
+                session,
+                text,
+            })
+        })
+        .collect()
+    }
+}
+
+/// Keeps a text unique in its session without a second copy of it.
+fn text_hash(text: &str) -> i64 {
+    let digest = Sha256::digest(text.as_bytes());
+    let mut first = [0; 8];
+    first.copy_from_slice(&digest[..8]);
+    i64::from_le_bytes(first)
+}
+
+/// A session as one page of its transcript is saved.
+pub(super) struct Indexed {
+    /// The agent's own id for it.
+    pub id: String,
+    /// Unix milliseconds.
+    pub activity: u64,
+    /// Kept once the read reached its newest entry; `None` before.
+    pub stamp: Option<String>,
+}
+
+/// How far a session's transcript is indexed. Transcript reads go back
+/// from the newest entry, so a read of new entries walks back from the
+/// end until it reaches `done`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Progress {
+    /// Entries before this index are indexed.
+    pub done: u64,
+    /// An unfinished walk back toward `done`.
+    pub walk: Option<Walk>,
+}
+
+/// Entries `low..top` are indexed; `top` becomes `done` when the walk
+/// reaches it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Walk {
+    pub top: u64,
+    pub low: u64,
+}
+
+impl Progress {
+    pub const NEW: Self = Self { done: 0, walk: None };
+}
+
+#[cfg(test)]
+#[path = "../../tests/agents_search_store.rs"]
+mod tests;

@@ -355,6 +355,40 @@ pub enum SessionsRequest {
         root: String,
         paths: Vec<String>,
     },
+    /// The sessions whose prompts or agent replies hold every word of
+    /// `query`, from the node's search index. Answered with `SearchHits`; a
+    /// node from before it closes the stream.
+    Search {
+        query: String,
+    },
+    /// Follows the node's search index from row `after` of index `epoch`:
+    /// `IndexRows` batches up to the newest row, then each change as it
+    /// comes. A different epoch starts from the first row.
+    FollowIndex {
+        epoch: String,
+        after: u64,
+    },
+}
+
+/// One session `SessionsRequest::Search` found.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchHit {
+    /// The agent's own id for the session.
+    pub session: String,
+    /// Unix milliseconds of its last activity.
+    pub activity: u64,
+    /// For each query word, the first prompt or reply holding it.
+    pub texts: Vec<String>,
+}
+
+/// One change of a node's search index. A row with text adds a prompt or
+/// reply; one without resets the session: a copy drops what it holds of it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexRow {
+    pub seq: u64,
+    /// The agent's own id for the session.
+    pub session: String,
+    pub text: Option<String>,
 }
 
 /// The most paths one `HashFiles` asks about.
@@ -530,6 +564,7 @@ impl SessionsRequest {
             | Self::Copies {}
             | Self::Present { .. }
             | Self::HashFiles { .. }
+            | Self::Search { .. }
             | Self::Review { .. }
             | Self::Reviews { .. }
             | Self::Processes { .. }
@@ -549,6 +584,7 @@ impl SessionsRequest {
             | Self::ContinueCopy { .. }
             | Self::DiscardCopy { .. }
             | Self::FollowAlerts {}
+            | Self::FollowIndex { .. }
             | Self::FollowRuns {}
             | Self::StopProcess { .. }
             | Self::CloseExternal { .. }
@@ -741,6 +777,18 @@ pub enum SessionsReply {
     /// one that is not there or cannot be read.
     Hashes {
         hashes: Vec<Option<serde_bytes::ByteArray<32>>>,
+    },
+    /// The answer to `Search`, most recent activity first.
+    SearchHits {
+        hits: Vec<SearchHit>,
+    },
+    /// One batch on a `FollowIndex` stream, in `seq` order. `epoch` names the
+    /// index the rows belong to; `current` is set once the batch reaches the
+    /// newest row.
+    IndexRows {
+        epoch: String,
+        rows: Vec<IndexRow>,
+        current: bool,
     },
 }
 

@@ -58,6 +58,7 @@ host! {
     mod processes;
     pub(crate) mod reach;
     mod repository_recovery;
+    mod search;
     mod tool_details;
     mod requests;
     mod restart;
@@ -83,6 +84,7 @@ host! {
     pub use moving::SESSIONS_ALPN;
     pub use moving::SessionsAlpn;
     pub(crate) use moving::follow as follow_moves;
+    pub(crate) use search::follow as follow_search;
     pub(crate) use moving::project_folder;
     pub use requests::serve_sessions;
     pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts};
@@ -199,6 +201,8 @@ host! {
         reviews: reviews::Reviews,
         /// How sessions start the Beep MCP server, once the node serves it.
         mcp: OnceLock<Arc<Launch>>,
+        /// The search index, once the mesh opened it.
+        search: OnceLock<Arc<search::SearchIndex>>,
         /// Set once the node is stopping.
         stopping: Arc<AtomicBool>,
         /// Set once the mesh gave the user's agent settings, which resumed
