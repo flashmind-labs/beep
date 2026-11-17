@@ -1128,7 +1128,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agdevmiss[hidden] { display: none }
 .agdevstage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--deep) }
 .agdevscreen { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: default }
-.agdevscreen[hidden] { display: none }
+.agdevscreen[hidden], .agdevvideo[hidden] { display: none }
+.agdevvideo { position: absolute; object-fit: contain; pointer-events: none }
 .agdevtype { position: absolute; left: 0; top: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; resize: none; pointer-events: none }
 .agdevnote { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; color: var(--muted); font-size: 12px; text-align: center }
 .agdevnote .dspin { width: 12px; height: 12px } .agdevnote small { color: var(--dim) }

@@ -48,6 +48,8 @@ host! {
         Terminal,
         #[strum(serialize = "device/1")]
         Device,
+        #[strum(serialize = "device-video/1")]
+        DeviceVideo,
         #[strum(serialize = "sign-in/1")]
         SignIn,
         #[strum(serialize = "tool-updates/1")]

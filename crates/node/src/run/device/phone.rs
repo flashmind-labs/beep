@@ -218,6 +218,26 @@ pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
     })
 }
 
+/// Controls for native video; the recorder publishes its logical screen size.
+pub(super) struct VideoControls {
+    pub controls: Controls,
+    pub size: watch::Sender<Option<(u32, u32)>>,
+}
+
+pub(super) fn video_controls(id: &DeviceId) -> Result<VideoControls> {
+    let adb = env::adb().context(NO_ADB)?;
+    let (size, sized) = watch::channel(None);
+    Ok(VideoControls {
+        controls: Controls {
+            adb,
+            id: id.clone(),
+            size: sized,
+            down: None,
+        },
+        size,
+    })
+}
+
 /// Shows phone `id`'s screen as fast as it gives screenshots, and its size
 /// in `size`, until it stops answering.
 async fn capture(

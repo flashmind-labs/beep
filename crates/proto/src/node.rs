@@ -19,6 +19,7 @@ pub mod subscriptions;
 pub mod agent;
 pub mod desktop;
 pub mod device;
+pub mod device_video;
 pub mod events;
 pub mod files;
 pub mod forward;

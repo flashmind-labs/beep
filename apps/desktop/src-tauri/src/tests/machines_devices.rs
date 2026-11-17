@@ -135,3 +135,82 @@ fn input_reads_from_the_window_json() {
         }
     );
 }
+
+#[tokio::test]
+async fn video_preserves_every_chunk_and_does_not_block_input_while_waiting_for_the_viewer() {
+    use device_video::{Reply as VideoReply, Request as VideoRequest};
+    let link = beep_proto::node::local_link();
+    let (tx, rx) = link.caller;
+    let (mut node_tx, mut node_rx) = link.node;
+    let (input, up) = mpsc::channel(UP_QUEUE);
+    let (drawn, draws) = watch::channel(());
+    let (shown, mut events) = mpsc::unbounded_channel();
+    let following = follow_video(tx, rx, up, draws, |event| {
+        shown.send(event).unwrap();
+        Ok(())
+    });
+    tokio::pin!(following);
+
+    node_tx
+        .send(&VideoReply::Started { fps: 60 })
+        .await
+        .unwrap();
+    assert!(futures::poll!(&mut following).is_pending());
+    assert_eq!(events.try_recv().unwrap(), ScreenEvent::Video { fps: 60 });
+    for n in [1, 2] {
+        node_tx
+            .send(&VideoReply::Data {
+                data: vec![n],
+                rotation: Rotation::Upright,
+            })
+            .await
+            .unwrap();
+    }
+    assert!(futures::poll!(&mut following).is_pending());
+    assert!(
+        events.try_recv().is_err(),
+        "unacknowledged bytes cannot be skipped"
+    );
+
+    let key = Input::Button {
+        button: beep_proto::node::device::Button::Home,
+    };
+    input.send(key.clone()).await.unwrap();
+    assert!(futures::poll!(&mut following).is_pending());
+    assert_eq!(
+        node_rx.recv::<VideoRequest>().await.unwrap(),
+        Some(VideoRequest::Input { input: key })
+    );
+
+    for n in [1, 2] {
+        drawn.send_replace(());
+        assert!(futures::poll!(&mut following).is_pending());
+        assert_eq!(
+            events.try_recv().unwrap(),
+            ScreenEvent::VideoData {
+                data: vec![n],
+                rotation: Rotation::Upright
+            }
+        );
+    }
+    drop(drawn);
+    assert!(matches!(
+        futures::poll!(&mut following),
+        std::task::Poll::Ready(Ok(()))
+    ));
+}
+
+#[test]
+fn encoded_ipc_has_a_distinct_header_and_preserves_the_native_bytes() {
+    let InvokeResponseBody::Raw(bytes) = ScreenEvent::VideoData {
+        data: vec![0, 0, 1, 0x65],
+        rotation: Rotation::Left,
+    }
+    .body()
+    .unwrap() else {
+        panic!("video is binary");
+    };
+    assert_eq!(&bytes[..4], &VIDEO_TAG.to_le_bytes());
+    assert_eq!(&bytes[4..8], &1u32.to_le_bytes());
+    assert_eq!(&bytes[8..], &[0, 0, 1, 0x65]);
+}

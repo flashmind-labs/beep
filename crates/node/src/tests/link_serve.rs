@@ -12,6 +12,7 @@ fn a_machine_not_lent_keeps_its_status_but_gives_no_shell_task_or_screen() {
         "shell/1",
         "terminal/1",
         "device/1",
+        "device-video/1",
         "process/1",
         "desktop/1",
         "sign-in/1",
@@ -43,8 +44,7 @@ fn a_machine_not_lent_keeps_its_status_but_gives_no_shell_task_or_screen() {
 fn known_protocol_names_round_trip_and_compare_as_variants() {
     use beep_proto::node::{
         agent, device, events, metrics, process, report, shell, sign_in, skill_library, skills,
-        status, terminal,
-        tool_update, tools, version,
+        status, terminal, tool_update, tools, version,
     };
 
     for (name, protocol) in [
@@ -64,6 +64,10 @@ fn known_protocol_names_round_trip_and_compare_as_variants() {
         (process::PROTOCOL, SessionProtocol::Tasks),
         (terminal::PROTOCOL, SessionProtocol::Terminal),
         (device::PROTOCOL, SessionProtocol::Device),
+        (
+            beep_proto::node::device_video::PROTOCOL,
+            SessionProtocol::DeviceVideo,
+        ),
         (sign_in::PROTOCOL, SessionProtocol::SignIn),
         (tool_update::CHECK, SessionProtocol::ToolCheck),
         (tool_update::PROTOCOL, SessionProtocol::ToolUpdate),
@@ -96,11 +100,17 @@ fn unknown_and_host_protocols_keep_their_original_names() {
 fn another_node_opens_devices_only_while_this_machine_is_lent() {
     use beep_proto::node::{device, shell, status, tools};
 
-    for name in [status::PROTOCOL, tools::PROTOCOL, device::PROTOCOL] {
+    for name in [
+        status::PROTOCOL,
+        tools::PROTOCOL,
+        device::PROTOCOL,
+        beep_proto::node::device_video::PROTOCOL,
+    ] {
         assert!(node_may_open(&SessionProtocol::from(name)), "{name}");
     }
 
     assert!(!node_may_open(&SessionProtocol::from(shell::PROTOCOL)));
     assert_eq!(withheld(device::PROTOCOL, true), None);
     assert!(withheld(device::PROTOCOL, false).is_some());
+    assert!(withheld(beep_proto::node::device_video::PROTOCOL, false).is_some());
 }

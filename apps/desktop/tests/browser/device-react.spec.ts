@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
 import { openDesktop } from "./harness.ts";
 
 const host = { machine_id: "build-box", machine_name: "build-box" };
@@ -95,4 +96,102 @@ test("a phone shows without Boot or Shut down", async ({ page }) => {
   await page.getByRole("tab", { name: "Device" }).click();
   await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\nR5CT1234ABC");
   await expect(page.getByRole("button", { name: /Boot|Shut down/ })).toHaveCount(0);
+});
+
+async function openVideoDevice(page: Page, unavailable = false) {
+  await openDesktop(page, true, { device_hosts: [host], device_platforms: ["Android"], device_list: [{ ...host, devices: [pixel], error: null }] });
+  await page.evaluate(({ agent, unavailable }) => {
+    window.__TAURI_INTERNALS__.transformCallback = callback => { Reflect.set(window, "deviceChannel", callback); return 99; };
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = <T>(command: string, args?: Record<string, unknown>) => {
+      const answer = invoke<T>(command, args);
+      if (command === "device_attach") {
+        return unavailable && args?.video === true ? Promise.reject(new Error("Video capture is unavailable.")) : new Promise<T>(() => {});
+      }
+      return answer;
+    };
+    window.__navigation.open({ agent });
+  }, { agent: session, unavailable });
+  await page.getByRole("tab", { name: "Device" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_attach").length)).toBe(unavailable ? 2 : 1);
+}
+
+async function deliverVideo(page: Page, landscape = false) {
+  const consumed = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_drawn").length);
+  await page.evaluate(() => {
+    const deliver = Reflect.get(window, "deviceChannel");
+    if (typeof deliver !== "function") throw new Error("missing device channel");
+    deliver({ message: { kind: "attached" }, index: 0 });
+    deliver({ message: { kind: "video", fps: 60 }, index: 1 });
+  });
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_drawn").length)).toBe(consumed + 1);
+  const fixture = landscape ? "../fixtures/device-video-landscape.h264" : "../fixtures/device-video.h264";
+  const encoded = Array.from(readFileSync(new URL(fixture, import.meta.url)));
+  await page.evaluate(data => {
+    const deliver = Reflect.get(window, "deviceChannel");
+    if (typeof deliver !== "function") throw new Error("missing device channel");
+    let index = 2;
+    // Deliberately split NAL units and start codes across transport chunks.
+    for (let start = 0; start < data.length; start += 997) {
+      const piece = data.slice(start, start + 997);
+      const bytes = new Uint8Array(8 + piece.length);
+      new DataView(bytes.buffer).setUint32(0, 0x31444956, true);
+      bytes.set(piece, 8);
+      deliver({ message: bytes.buffer, index: index++ });
+    }
+  }, encoded);
+}
+
+test("native H.264 bytes play without JPEG conversion and retain touch coordinates", async ({ page }) => {
+  await openVideoDevice(page);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().find(call => call.command === "device_attach")?.args.video)).toBe(true);
+  await deliverVideo(page);
+  const video = page.locator("video.agdevvideo");
+  await expect(video).toBeVisible();
+  await expect.poll(() => video.evaluate(node => node instanceof HTMLVideoElement ? node.videoWidth : 0)).toBe(100);
+  await expect.poll(() => video.evaluate(node => node instanceof HTMLVideoElement ? node.currentTime : 0)).toBeGreaterThan(0);
+  expect(await page.locator(".agpview.device").innerText()).toMatchSnapshot("device-video.txt");
+  const box = await video.boundingBox();
+  if (!box) throw new Error("video has no box");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_input").map(call => call.args.input))).toEqual([
+    { Touch: { phase: "Down", x: expect.closeTo(0.5, 2), y: expect.closeTo(0.5, 2) } },
+    { Touch: { phase: "Up", x: expect.closeTo(0.5, 2), y: expect.closeTo(0.5, 2) } },
+  ]);
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "device_detach"))).toBe(true);
+});
+
+test("a client without a video decoder requests JPEG directly", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "MediaSource", { value: undefined });
+    Object.defineProperty(window, "ManagedMediaSource", { value: undefined });
+  });
+  await openVideoDevice(page);
+  expect(await page.evaluate(() => window.__navigation.calls().find(call => call.command === "device_attach")?.args.video)).toBe(false);
+});
+
+test("a video decoder failure reattaches once with JPEG", async ({ page }) => {
+  await openVideoDevice(page);
+  await deliverVideo(page);
+  await expect(page.locator("video.agdevvideo")).toBeVisible();
+  await page.locator("video.agdevvideo").dispatchEvent("error");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_attach").map(call => call.args.video))).toEqual([true, false]);
+});
+
+test("unsupported native capture retries with JPEG", async ({ page }) => {
+  await openVideoDevice(page, true);
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_attach").map(call => call.args.video))).toEqual([true, false]);
+});
+
+test("an encoder restart takes new dimensions and keyframes without losing the view", async ({ page }) => {
+  await openVideoDevice(page);
+  const video = page.locator("video.agdevvideo");
+  await deliverVideo(page);
+  await expect.poll(() => video.evaluate(node => node instanceof HTMLVideoElement ? node.videoWidth : 0)).toBe(100);
+  await expect.poll(() => video.evaluate(node => node instanceof HTMLVideoElement ? node.currentTime : 0)).toBeGreaterThan(0);
+  await deliverVideo(page, true);
+  await expect.poll(() => video.evaluate(node => node instanceof HTMLVideoElement ? node.videoWidth : 0)).toBe(200);
+  await expect.poll(() => video.evaluate(node => node instanceof HTMLVideoElement ? node.currentTime : 0)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_attach").length)).toBe(1);
 });

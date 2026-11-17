@@ -6,12 +6,17 @@
 
 mod adb;
 mod android;
-#[cfg(target_os = "macos")]
+// The companion client uses Unix sockets, so Linux can also type-check it
+// and run its pure protocol and input tests without an Apple runtime.
+#[cfg(any(target_os = "macos", all(test, unix)))]
+#[cfg_attr(all(test, not(target_os = "macos")), allow(dead_code))]
 mod ios;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(test, unix)))]
+#[cfg_attr(all(test, not(target_os = "macos")), allow(dead_code))]
 mod iphone;
 mod phone;
 mod platforms;
+pub(crate) mod video;
 
 use crate::agents::{Agents, reach::Access};
 use anyhow::{Context, Result};
@@ -297,10 +302,10 @@ struct Live {
 enum Controls {
     Android(Box<android::Controls>),
     Phone(Box<phone::Controls>),
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", all(test, unix)))]
     Ios(Box<ios::Controls>),
     /// An iPhone, which takes no input.
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", all(test, unix)))]
     Iphone,
 }
 
@@ -309,9 +314,9 @@ impl Controls {
         match self {
             Self::Android(controls) => controls.send(input).await,
             Self::Phone(controls) => controls.send(input).await,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", all(test, unix)))]
             Self::Ios(controls) => controls.send(input).await,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", all(test, unix)))]
             Self::Iphone => anyhow::bail!(iphone::NO_INPUT),
         }
     }

@@ -1,12 +1,12 @@
 // The Device tab's view: the picker with the device's state and Boot or
 // Shut down, its screen fitted to the view, and its hardware buttons.
-import { memo, useEffect, useLayoutEffect, useRef, type ChangeEvent, type FormEvent, type KeyboardEvent, type PointerEvent } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent, type PointerEvent } from "react";
 import { useStore } from "zustand";
 import { Icon, type IconName } from "../ui/icons.tsx";
-import { deviceModel, pickDevice, power, sendInput, setDeviceShown, setPainter, showAgain } from "./device.ts";
+import { deviceModel, pickDevice, power, sendInput, setDeviceShown, setPainter, setVideoElement, videoSizeChanged, videoPlaying, videoFailed, showAgain } from "./device.ts";
 import {
   BUTTON_NAMES, type Device, type DeviceButton, type DeviceMachine, type Rect, type ScreenState, type Size, type TouchPhase,
-  buttonsFor, fitRect, keyInput, takesInput, maxSide, missingLine, pickedDevice, pickValue, powerChip, readPickValue, touchPoint,
+  buttonsFor, fitRect, keyInput, takesInput, maxSide, missingLine, pickedDevice, pickValue, powerChip, readPickValue, touchPoint, rotatedSize,
 } from "./device-state.ts";
 import { Button, Spinner } from "../ui/kit.tsx";
 
@@ -72,6 +72,9 @@ function DeviceHead({ machines, device, busy, listed }: { machines: readonly Dev
 /// the device through a hidden text field, which also takes composed text.
 function Screen({ device }: { device: Device | null }) {
   const screen = useStore(deviceModel, s => s.screen);
+  const media = useStore(deviceModel, s => s.media);
+  const [stageSize, setStageSize] = useState<Size>({ width: 0, height: 0 });
+  const video = useRef<HTMLVideoElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const keys = useRef<HTMLTextAreaElement>(null);
@@ -85,7 +88,9 @@ function Screen({ device }: { device: Device | null }) {
   useLayoutEffect(() => {
     const box = stage.current, el = canvas.current;
     if (!box || !el) return;
+    setVideoElement(video.current);
     const redraw = () => {
+      setStageSize({ width: box.clientWidth, height: box.clientHeight });
       const ratio = devicePixelRatio || 1;
       el.width = Math.round(box.clientWidth * ratio);
       el.height = Math.round(box.clientHeight * ratio);
@@ -102,6 +107,7 @@ function Screen({ device }: { device: Device | null }) {
     return () => {
       watch.disconnect();
       setPainter(null, () => 0);
+      setVideoElement(null);
       frame.current?.close();
       frame.current = null;
     };
@@ -109,12 +115,12 @@ function Screen({ device }: { device: Device | null }) {
 
   // A new view starts blank.
   useEffect(() => {
-    if (screen.kind === "live") return;
+    if (screen.kind === "live" && media.kind === "jpeg") return;
     frame.current?.close();
     frame.current = null;
     const el = canvas.current;
     el?.getContext("2d")?.clearRect(0, 0, el.width, el.height);
-  }, [screen.kind]);
+  }, [screen.kind, media.kind]);
 
   useEffect(() => () => { if (tick.current !== null) cancelAnimationFrame(tick.current); }, []);
 
@@ -123,9 +129,11 @@ function Screen({ device }: { device: Device | null }) {
 
   /// Where the frame sits in the canvas, in CSS pixels.
   const drawn = (): Rect | null => {
-    const el = canvas.current, bitmap = frame.current;
-    if (!el || !bitmap) return null;
-    return fitRect({ width: el.clientWidth, height: el.clientHeight }, { width: bitmap.width, height: bitmap.height });
+    const el = canvas.current;
+    if (!el) return null;
+    const size = media.kind === "h264" ? rotatedSize(media, media.rotation) : frame.current;
+    if (!size) return null;
+    return fitRect({ width: el.clientWidth, height: el.clientHeight }, size);
   };
   const at = (event: PointerEvent<HTMLCanvasElement>, clamp: boolean) => {
     const rect = drawn();
@@ -179,7 +187,17 @@ function Screen({ device }: { device: Device | null }) {
     if (text) sendInput({ Text: { text } });
   };
 
+  const videoBox = media.kind === "h264" ? fitRect(stageSize, rotatedSize(media, media.rotation)) : null;
+  const sideways = media.kind === "h264" && (media.rotation === 1 || media.rotation === 3);
+  const videoStyle = videoBox && media.kind === "h264" ? {
+    width: sideways ? videoBox.height : videoBox.width, height: sideways ? videoBox.width : videoBox.height,
+    left: videoBox.x + videoBox.width / 2, top: videoBox.y + videoBox.height / 2,
+    transform: `translate(-50%, -50%) rotate(${-90 * media.rotation}deg)`,
+  } : {};
+
   return <div className="agdevstage" ref={stage}>
+    <video ref={video} className="agdevvideo" style={videoStyle} muted autoPlay playsInline disableRemotePlayback
+      hidden={!live || media.kind !== "h264"} onLoadedMetadata={videoSizeChanged} onResize={videoSizeChanged} onPlaying={videoPlaying} onError={videoFailed} />
     <canvas ref={canvas} className="agdevscreen" hidden={!live} title={driven ? "Click to tap, drag to swipe; type while it is focused" : "Use the phone itself to tap and type"}
       onPointerDown={down} onPointerMove={moved} onPointerUp={up} onPointerCancel={up} onContextMenu={event => event.preventDefault()} />
     <textarea ref={keys} className="agdevtype" aria-label="Type into the device" autoCapitalize="off" autoCorrect="off" spellCheck={false} tabIndex={driven ? 0 : -1}

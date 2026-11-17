@@ -16,6 +16,7 @@ use beep_proto::{
         device::{
             Device, DeviceId, Frame, Input, MAX_SIDE, MAX_TEXT, PROTOCOL, Platform, Reply, Request,
         },
+        device_video::{self, Rotation},
     },
 };
 use futures::{StreamExt, stream};
@@ -47,6 +48,8 @@ const MIN_SIDE: u32 = 160;
 /// How long a frame may stay unacknowledged before the next goes anyway, so
 /// a message the window lost does not freeze the screen.
 const DRAW_STALL: Duration = Duration::from_secs(1);
+/// Distinguishes encoded bytes from the bounded JPEG width in legacy IPC.
+const VIDEO_TAG: u32 = 0x31444956;
 
 /// One machine's devices, or why it could not list them.
 #[derive(Debug, Serialize)]
@@ -215,15 +218,39 @@ fn answered(reply: Reply) -> DesktopError {
 /// What a followed device tells the window. A frame goes as raw bytes, its
 /// width and height first as four little-endian bytes each, then the JPEG;
 /// the rest goes as JSON tagged by `kind`.
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ScreenEvent {
     Attached,
     #[serde(skip)]
     Frame(Frame),
+    Video {
+        fps: u32,
+    },
+    #[serde(skip)]
+    VideoData {
+        data: Vec<u8>,
+        rotation: Rotation,
+    },
     Ended {
         reason: String,
     },
+}
+
+impl std::fmt::Debug for ScreenEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Attached => f.write_str("Attached"),
+            Self::Frame(frame) => f.debug_tuple("Frame").field(frame).finish(),
+            Self::Video { fps } => f.debug_struct("Video").field("fps", fps).finish(),
+            Self::VideoData { data, rotation } => f
+                .debug_struct("VideoData")
+                .field("bytes", &data.len())
+                .field("rotation", rotation)
+                .finish(),
+            Self::Ended { reason } => f.debug_struct("Ended").field("reason", reason).finish(),
+        }
+    }
 }
 
 impl ScreenEvent {
@@ -234,6 +261,14 @@ impl ScreenEvent {
             bytes.extend_from_slice(&frame.width.to_le_bytes());
             bytes.extend_from_slice(&frame.height.to_le_bytes());
             bytes.extend_from_slice(&frame.jpeg);
+            return Ok(InvokeResponseBody::Raw(bytes));
+        }
+
+        if let Self::VideoData { data, rotation } = self {
+            let mut bytes = Vec::with_capacity(8 + data.len());
+            bytes.extend_from_slice(&VIDEO_TAG.to_le_bytes());
+            bytes.extend_from_slice(&u32::from(rotation).to_le_bytes());
+            bytes.extend_from_slice(&data);
             return Ok(InvokeResponseBody::Raw(bytes));
         }
 
@@ -308,15 +343,29 @@ pub async fn device_attach(
     id: DeviceId,
     view: Uuid,
     max_side: u32,
+    video: Option<bool>,
     on_event: Channel<InvokeResponseBody>,
 ) -> Result<()> {
     let machine = member(&fleet, &machine_id)?;
     let client = fleet.client(machine).await?;
-    let request = Request::Attach {
-        id,
-        max_side: max_side.clamp(MIN_SIDE, MAX_SIDE),
+    let max_side = max_side.clamp(MIN_SIDE, MAX_SIDE);
+    let video = video.unwrap_or(false)
+        && fleet
+            .status()
+            .offering(device_video::PROTOCOL)
+            .contains(&machine);
+    let (tx, rx) = if video {
+        client
+            .open_sending(
+                device_video::PROTOCOL,
+                &device_video::Request::Attach { id, max_side },
+            )
+            .await?
+    } else {
+        client
+            .open_sending(PROTOCOL, &Request::Attach { id, max_side })
+            .await?
     };
-    let (tx, rx) = client.open_sending(PROTOCOL, &request).await?;
 
     let (input, up) = mpsc::channel(UP_QUEUE);
     let (drawn, draws) = watch::channel(());
@@ -339,18 +388,68 @@ pub async fn device_attach(
     on_event.send(ScreenEvent::Attached.body()?)?;
     let lost = format!("Lost the connection to {}.", fleet.name_of(machine));
 
-    follow_screen(
-        tx,
-        rx,
-        up,
-        draws,
-        |event| {
-            on_event.send(event.body()?)?;
-            Ok(())
-        },
-        &lost,
-    )
-    .await
+    let send = |event: ScreenEvent| {
+        on_event.send(event.body()?)?;
+        Ok(())
+    };
+    if video {
+        follow_video(tx, rx, up, draws, send).await
+    } else {
+        follow_screen(tx, rx, up, draws, send, &lost).await
+    }
+}
+
+/// Every encoded chunk is acknowledged before reading the next. This bounds
+/// IPC memory and preserves byte order without dropping reference frames.
+async fn follow_video(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    mut input: mpsc::Receiver<Input>,
+    mut drawn: watch::Receiver<()>,
+    mut send: impl FnMut(ScreenEvent) -> Result<()>,
+) -> Result<()> {
+    let inputs = async move {
+        while let Some(input) = input.recv().await {
+            tx.send(&device_video::Request::Input { input }).await?;
+        }
+        Ok(())
+    };
+    let frames = async {
+        loop {
+            let reply = rx
+                .recv::<device_video::Reply>()
+                .await?
+                .ok_or_else(|| DesktopError::BadRequest("The video stream ended.".into()))?;
+            match reply {
+                device_video::Reply::Started { fps } => send(ScreenEvent::Video { fps })?,
+                device_video::Reply::Data { data, rotation } => {
+                    if data.is_empty() || data.len() > device_video::MAX_CHUNK {
+                        return Err(DesktopError::BadRequest("Invalid video chunk.".into()));
+                    }
+                    send(ScreenEvent::VideoData { data, rotation })?;
+                }
+                device_video::Reply::Unsupported { reason }
+                | device_video::Reply::Ended { reason } => {
+                    return Err(DesktopError::BadRequest(reason));
+                }
+            }
+            // A lost IPC message must not strand the byte stream. The page
+            // opens a fresh JPEG view if ordered video delivery cannot continue.
+            match timeout(DRAW_STALL, drawn.changed()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => return Ok(()),
+                Err(_) => {
+                    return Err(DesktopError::BadRequest(
+                        "The video viewer stopped receiving data.".into(),
+                    ));
+                }
+            }
+        }
+    };
+    tokio::select! {
+        result = inputs => result,
+        result = frames => result,
+    }
 }
 
 async fn follow_screen(
