@@ -1,7 +1,7 @@
 // The bar's page as a pane in the window: its header, and handoffs from
 // other windows.
 import { invoke, listen } from "../ui/tauri.ts";
-import { bar, type View } from "../bar/core.ts";
+import type { View } from "../bar/core.ts";
 import { pane } from "../bar/pane.ts";
 import type { CenterTarget } from "../project/projectwindow.ts";
 import { type CenterView, type ViewHead, state } from "./state.ts";
@@ -53,9 +53,7 @@ export const paneView: CenterView<"pane"> = {
   },
 };
 
-bar.dataset.view = pane.current().view;
-pane.onChange(now => {
-  bar.dataset.view = now.view;
+pane.onChange(() => {
   syncAssistantPage();
   drawTop();
   drawSide();
