@@ -3050,7 +3050,8 @@ async fn a_running_session_moves_to_the_other_machine_with_its_conversation() {
     }
 
     assert!(source_rollout.exists());
-    // The first prompt tells the agent the session moved and from where.
+    // The first prompt tells the agent the session moved, between which
+    // machines and from which folder.
     let mut follow = ready(&conn_b, "codex/1").await;
     follow
         .tx
@@ -3086,7 +3087,8 @@ async fn a_running_session_moves_to_the_other_machine_with_its_conversation() {
         .find(|line| line.contains("session/prompt") && line.contains("continue"))
         .expect("the prompt reached the agent");
     assert!(
-        prompt.contains("moved from another machine") && prompt.contains(&from),
+        prompt.contains("moved from another machine, box-a, and now runs on box-b")
+            && prompt.contains(&from),
         "{prompt}"
     );
 }

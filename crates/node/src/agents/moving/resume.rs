@@ -72,9 +72,10 @@ pub(super) async fn resume(
 
     let cwd = folders.new.to_string_lossy().into_owned();
     let from = env.name_of(&arrival.from);
+    let here = env.name_of(&env.mesh.me());
     let note = format!("Moved here from {from}");
     let brief = format!(
-        "This session moved from another machine. Paths in the conversation so far name its old folder, {}; the same checkout is now {}.",
+        "This session moved from another machine, {from}, and now runs on {here}. Paths in the conversation so far name its old folder, {}; the same checkout is now {}.",
         folders.old.display(),
         folders.new.display()
     );
