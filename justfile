@@ -6,12 +6,13 @@ server_config := ".dev/android-server.toml"
 build-server:
     cargo build --package beep-server
 
-# Run the macOS desktop app from source
+# Run the desktop app from source: a debug build named Beep Dev, with its own
+# identifier, data and logs, so it runs next to an installed Beep.
 # The window only loads tauri://localhost, so dev serves the built bundle
 # instead of a dev server; press Cmd+R after a frontend change.
-desktop-dev:
+run:
     cd apps/desktop && npm ci --silent && npm run build
-    cd apps/desktop/src-tauri && cargo tauri dev --no-dev-server
+    cd apps/desktop/src-tauri && cargo tauri dev --no-dev-server --config tauri.dev.conf.json
 
 # Build the desktop DMG.
 desktop-build:

@@ -43,7 +43,7 @@ mesh, tickets and sync in detail.
 ## Build from source
 
 ```sh
-just desktop-dev      # run the desktop app
+just run              # run the desktop app as Beep Dev
 just desktop-build    # build it
 just desktop-check    # type checks and tests
 ```

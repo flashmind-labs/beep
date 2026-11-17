@@ -385,7 +385,7 @@ folder named by `BEEP_PLUGINS_DIR`, which runs plugins without approval records,
 described above. Phones run none.
 
 ```
-BEEP_PLUGINS_DIR=$PWD/plugins/examples just desktop-dev
+BEEP_PLUGINS_DIR=$PWD/plugins/examples just run
 ```
 
 `examples/session-notes` puts a note on each session's row, set from an input
