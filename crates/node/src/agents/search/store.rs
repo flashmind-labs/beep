@@ -229,7 +229,7 @@ impl Store {
     /// Up to `most` rows after `after`, in order.
     pub fn rows_after(&self, after: u64, most: u32) -> Result<Vec<IndexRow>> {
         let mut read = self.0.prepare(
-            "SELECT seq,id,text FROM log JOIN sessions ON key=session
+            "SELECT seq,id,text,activity FROM log JOIN sessions ON key=session
              WHERE seq>?1 ORDER BY seq LIMIT ?2",
         )?;
         let rows = read.query_map(params![i64::try_from(after)?, most], |row| {
@@ -237,15 +237,17 @@ impl Store {
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, Option<String>>(2)?,
+                row.get::<_, i64>(3)?,
             ))
         })?;
 
         rows.map(|row| {
-            let (seq, session, text) = row?;
+            let (seq, session, text, activity) = row?;
             Ok(IndexRow {
                 seq: u64::try_from(seq)?,
                 session,
                 text,
+                activity: u64::try_from(activity)?,
             })
         })
         .collect()
@@ -277,7 +279,11 @@ impl IndexCopy {
         }
 
         for row in rows {
-            tx.execute("INSERT OR IGNORE INTO sessions(id) VALUES (?1)", [&row.session])?;
+            tx.execute(
+                "INSERT INTO sessions(id,activity) VALUES (?1,?2)
+                 ON CONFLICT(id) DO UPDATE SET activity=MAX(activity,?2)",
+                params![row.session, i64::try_from(row.activity)?],
+            )?;
             let key: i64 = tx.query_row(
                 "SELECT key FROM sessions WHERE id=?1",
                 [&row.session],

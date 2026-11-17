@@ -2,7 +2,7 @@ use super::*;
 use beep_proto::AgentStatus;
 use std::time::{Duration, UNIX_EPOCH};
 
-fn session(machine: &str, id: &str) -> MachineSession {
+fn session(machine: &str, id: &str, activity: u64) -> MachineSession {
     MachineSession {
         id: id.into(),
         machine_id: machine.into(),
@@ -13,7 +13,7 @@ fn session(machine: &str, id: &str) -> MachineSession {
         status: AgentStatus::Idle {},
         doing: None,
         started_at: UNIX_EPOCH,
-        last_activity: UNIX_EPOCH + Duration::from_secs(1),
+        last_activity: UNIX_EPOCH + Duration::from_secs(activity),
         external: false,
         question: None,
         subagents: 0,
@@ -35,10 +35,11 @@ fn found(machine: &str, session: &str, activity: u64) -> Found {
 
 #[test]
 fn hits_of_listed_sessions_come_newest_first_with_an_excerpt() {
-    let sessions = [session("build-box", "old"), session("gpu-box", "new")];
+    let sessions = [session("build-box", "old", 1), session("gpu-box", "new", 2)];
+    // A copy's activity may be older than the listed one.
     let hits = vec![
-        found("build-box", "old", 1),
-        found("gpu-box", "new", 2),
+        found("gpu-box", "new", 0),
+        found("build-box", "old", 9),
         found("gpu-box", "unlisted", 3),
         found("other-box", "old", 4),
     ];

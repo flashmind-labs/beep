@@ -153,6 +153,8 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, dir: PathBuf, agents: Arc
     };
     let mut pacer = Pacer::default();
     let mut wake = None;
+    // The folders sessions were last dropped for.
+    let mut known: Option<Vec<PathBuf>> = None;
 
     loop {
         let look = Instant::now() + LOOK_EVERY;
@@ -160,11 +162,19 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, dir: PathBuf, agents: Arc
             .next_pass(&index.changed, Some(wake.map_or(look, |at: Instant| at.min(look))))
             .await;
 
-        let Some(sessions) = in_projects(&agents, &mesh, me).await else {
+        let folders = project_folders(&mesh, me);
+        let Some(sessions) = in_projects(&agents, &folders).await else {
             wake = None;
             continue;
         };
-        forget_others(&index, &sessions).await;
+
+        // Only a change of projects drops sessions: a scan that missed some,
+        // such as when one agent's files could not be read, must not.
+        if known.as_ref() != Some(&folders) {
+            forget_others(&index, &sessions).await;
+            known = Some(folders);
+        }
+
         let (due, next) = index.due(sessions);
         wake = next;
         let mut work = stream::iter(due)
@@ -208,11 +218,9 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, dir: PathBuf, agents: Arc
     }
 }
 
-/// The sessions the agents' stores hold in this machine's project folders,
-/// or `None` when they cannot be told now.
-async fn in_projects(agents: &Agents, mesh: &Mesh, me: EndpointId) -> Option<Vec<Seen>> {
-    let folders = project_folders(mesh, me);
-
+/// The sessions the agents' stores hold in `folders`, or `None` when they
+/// cannot be told now.
+async fn in_projects(agents: &Agents, folders: &[PathBuf]) -> Option<Vec<Seen>> {
     // An opening mesh is not a machine without projects.
     if folders.is_empty() {
         return None;
@@ -232,11 +240,11 @@ async fn in_projects(agents: &Agents, mesh: &Mesh, me: EndpointId) -> Option<Vec
 }
 
 /// The folders of the projects imported on this machine, from the mesh's
-/// `project/<name>/<machine>` records.
+/// `project/<name>/<machine>` records, sorted.
 fn project_folders(mesh: &Mesh, me: EndpointId) -> Vec<PathBuf> {
     let me = me.to_string();
-
-    mesh.scan("project/")
+    let mut folders: Vec<PathBuf> = mesh
+        .scan("project/")
         .into_iter()
         .filter_map(|(key, bytes)| match key {
             Key::Project(name) if name.rsplit_once('/').is_some_and(|(project, machine)| {
@@ -248,7 +256,10 @@ fn project_folders(mesh: &Mesh, me: EndpointId) -> Vec<PathBuf> {
             _ => None,
         })
         .map(|place| PathBuf::from(place.folder))
-        .collect()
+        .collect();
+    folders.sort();
+    folders.dedup();
+    folders
 }
 
 /// Resets what the index holds of sessions no longer in a project.

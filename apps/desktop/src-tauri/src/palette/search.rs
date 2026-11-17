@@ -82,7 +82,7 @@ pub(super) struct Found {
 /// The hits of sessions the menu lists, newest activity first, each with
 /// an excerpt. A hit of a session the menu does not list is left out.
 fn entries(
-    mut found: Vec<Found>,
+    found: Vec<Found>,
     sessions: &[MachineSession],
     projects: &[ImportedProject],
     query: &str,
@@ -91,17 +91,24 @@ fn entries(
         .iter()
         .map(|session| ((session.machine_id.as_str(), session.id.as_str()), session))
         .collect();
-    found.sort_by_key(|found| std::cmp::Reverse(found.hit.activity));
-
-    found
+    let mut shown: Vec<(&MachineSession, &Found)> = found
         .iter()
         .filter_map(|found| {
             let session = listed.get(&(found.machine.as_str(), found.hit.session.as_str()))?;
+            Some((*session, found))
+        })
+        .collect();
+    // The listed activity is the newest; an index's may be older.
+    shown.sort_by_key(|(session, _)| std::cmp::Reverse(session.last_activity));
+
+    shown
+        .into_iter()
+        .take(MOST_HITS)
+        .map(|(session, found)| {
             let mut entry = session_entry(session, projects);
             entry.snippet = snippet(&found.hit.texts, query);
-            Some(entry)
+            entry
         })
-        .take(MOST_HITS)
         .collect()
 }
 

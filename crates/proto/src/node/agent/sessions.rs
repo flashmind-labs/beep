@@ -389,6 +389,8 @@ pub struct IndexRow {
     /// The agent's own id for the session.
     pub session: String,
     pub text: Option<String>,
+    /// Unix milliseconds of the session's last activity when it was read.
+    pub activity: u64,
 }
 
 /// The most paths one `HashFiles` asks about.

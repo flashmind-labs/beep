@@ -111,8 +111,8 @@ fn a_file_keeps_its_epoch_and_a_new_file_gets_another() -> Result<()> {
 #[test]
 fn a_copy_follows_rows_resets_and_a_new_epoch() -> Result<()> {
     let mut node = Store::open(Path::new(":memory:"))?;
-    node.save(&indexed("kept", 1, true), &texts(&["retry the upload"]), Progress::NEW)?;
     node.save(&indexed("gone", 1, true), &texts(&["retry the build"]), Progress::NEW)?;
+    node.save(&indexed("kept", 2, true), &texts(&["retry the upload"]), Progress::NEW)?;
     let epoch = node.epoch()?;
 
     let mut copy = IndexCopy::open(Path::new(":memory:"))?;
@@ -120,7 +120,8 @@ fn a_copy_follows_rows_resets_and_a_new_epoch() -> Result<()> {
     copy.apply(&epoch, &node.rows_after(after, 1)?)?;
     let (_, after) = copy.position()?;
     copy.apply(&epoch, &node.rows_after(after, 10)?)?;
-    assert_eq!(copy.find("retry")?.len(), 2);
+    let order: Vec<String> = copy.find("retry")?.into_iter().map(|hit| hit.session).collect();
+    assert_eq!(order, ["kept", "gone"], "newest activity first");
     assert_eq!(copy.position()?, (epoch.clone(), node.newest()?));
 
     node.keep_only(&BTreeSet::from(["kept".to_owned()]))?;
