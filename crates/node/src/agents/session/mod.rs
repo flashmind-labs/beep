@@ -43,8 +43,8 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::task::AbortOnDropHandle;
 
 mod actor;
+mod cargo;
 mod orders;
-mod sccache;
 mod turns;
 mod v2;
 
@@ -349,8 +349,12 @@ impl Session {
             process.env_remove(name);
         }
 
-        if let Some(wrapper) = sccache::wrapper(cwd, &kind.env) {
+        if let Some(wrapper) = cargo::wrapper(cwd, &kind.env) {
             process.env("RUSTC_WRAPPER", wrapper);
+        }
+
+        if let Some(target) = cargo::target_dir(cwd, &kind.env) {
+            process.env("CARGO_TARGET_DIR", target);
         }
         // Its own process group, so closing it stops what it started.
         let child = own_group(&mut process)
