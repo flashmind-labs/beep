@@ -4,6 +4,10 @@
 !crates/
 crates/*/target/
 !patches/
+!tools/
+tools/*
+!tools/device-proto/
+tools/device-proto/target/
 !apps/
 apps/*
 !apps/desktop/
