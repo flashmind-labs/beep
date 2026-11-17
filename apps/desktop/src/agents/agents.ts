@@ -629,9 +629,10 @@ export function agentBack(closed = false) {
   }
 
   if (!closed && S.view === "agent" && (closeModelPicker() || closeMoveMenu())) return;
-  // A closed session, or one without a return target, goes to its project.
+  // A closed session opens the project's next running one, else the project; one without a
+  // return target goes to its project.
   const project = S.view === "agent" && windowHooks && AG.page ? windowHooks.sessionProject?.(AG.page.session) : null;
-  if (closed && project) return project.open();
+  if (closed && project && AG.page) return project.afterClose(AG.page.session);
 
   // Esc from a child opens its parent; otherwise it returns to the previous page.
   const up = !closed && S.view === "agent" && AG.open ? AG.page && parentSession(AG.page.session) : undefined;

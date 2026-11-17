@@ -338,7 +338,18 @@ export function railSessions(name: string) {
   const running = projectRunning(p, state.home?.running, sessions, moves).filter(sessionVisible);
   const past = projectPastSessions(sessions, running, moves).filter(sessionVisible);
 
-  return { project: p, running: running.toSorted((a, b) => b.started_at - a.started_at || runningKey(a).localeCompare(runningKey(b))), past };
+  return { project: p, running: running.toSorted(railOrder), past };
+}
+
+/// The rail's order for running sessions: newest start first, so activity never reshuffles them.
+const railOrder = (a: RailPlace, b: RailPlace) => b.started_at - a.started_at || runningKey(a).localeCompare(runningKey(b));
+type RailPlace = { machine_id: string; id: string; started_at: number };
+
+/// The running session after `s` in the rail's order, round to the first; null when none other runs.
+export function nextRunning(name: string, s: { machine_id: string; id: string; started_at?: number }) {
+  const running = railSessions(name)?.running.filter(row => runningKey(row) !== runningKey(s)) ?? [];
+  const at = { machine_id: s.machine_id, id: s.id, started_at: s.started_at ?? 0 };
+  return running.find(row => railOrder(at, row) < 0) ?? running[0] ?? null;
 }
 
 /// The projects whose sessions are being read, and those to read again on the
