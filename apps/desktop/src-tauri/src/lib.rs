@@ -628,9 +628,8 @@ fn setup(
 
     app.manage(Arc::new(center::home_sessions::AgentSessions::new(&views)));
     app.manage(palette::PaletteCache::load(&views)?);
-    app.manage(Arc::new(palette::prompts::PromptIndex::open(
-        &dir.join("search.sqlite"),
-    )?));
+    #[cfg(desktop)]
+    app.manage(Arc::new(palette::copies::Copies::load(&dir)));
     app.manage(views);
     app.manage(Arc::new(agents::kept_transcripts::KeptTranscripts::new(
         dir.join("transcripts"),

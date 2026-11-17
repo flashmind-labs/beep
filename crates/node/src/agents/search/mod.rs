@@ -20,6 +20,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+pub use store::IndexCopy;
 use store::{Indexed, Progress, Store, Walk};
 use tokio::{
     sync::{Notify, watch},

@@ -110,3 +110,38 @@ fn lists_come_back_from_the_views_file() {
     let back: PaletteLists = serde_json::from_value(saved).expect("they read back");
     assert_eq!(back.machines.expect("kept")[0].name, "build-box");
 }
+
+#[test]
+fn a_place_that_left_stays_out_until_imported_again() {
+    let at = |project: &str, folder: &str| ImportedProject {
+        project: project.into(),
+        machine_id: "build-box".into(),
+        machine_name: "build-box".into(),
+        folder: folder.into(),
+        url: String::new(),
+        cloned: false,
+        imported_at: SystemTime::UNIX_EPOCH,
+        display_name: None,
+    };
+    let widget = at("acme/widget", "/srv/project");
+    let tools = at("acme/tools", "/srv/tools");
+    let mut lists = PaletteLists::default();
+    lists.set_projects(vec![widget.clone(), tools.clone()]);
+    assert!(
+        lists.retired_places.is_empty(),
+        "the first list retires nothing"
+    );
+
+    lists.set_projects(vec![tools.clone()]);
+    assert_eq!(lists.retired_places, [Place::from(&widget)]);
+    assert!(lists.forgotten_projects.contains("acme/widget"));
+
+    lists.set_projects(vec![widget.clone(), tools.clone()]);
+    assert!(lists.retired_places.is_empty(), "imported again");
+    assert!(lists.forgotten_projects.is_empty());
+
+    lists.forget_project("acme/tools");
+    lists.forget_project("acme/tools");
+    assert_eq!(lists.retired_places, [Place::from(&tools)], "once");
+    assert!(lists.forgotten_projects.contains("acme/tools"));
+}

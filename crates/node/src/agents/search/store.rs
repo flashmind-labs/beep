@@ -252,6 +252,66 @@ impl Store {
     }
 }
 
+/// A copy of another machine's index: the same tables, filled from the
+/// rows its `FollowIndex` stream sends, so it is searched the same way.
+pub struct IndexCopy(Store);
+
+impl IndexCopy {
+    pub fn open(path: &Path) -> Result<Self> {
+        Ok(Self(Store::open(path)?))
+    }
+
+    /// The index this copies, and the newest row it holds.
+    pub fn position(&self) -> Result<(String, u64)> {
+        Ok((self.0.epoch()?, self.0.newest()?))
+    }
+
+    /// Applies rows of index `epoch` in order. Rows of another index than
+    /// the one copied so far replace the copy.
+    pub fn apply(&mut self, epoch: &str, rows: &[IndexRow]) -> Result<()> {
+        let tx = self.0.0.unchecked_transaction()?;
+
+        if epoch != self.0.epoch()? {
+            tx.execute_batch("DELETE FROM log; DELETE FROM sessions;")?;
+            tx.execute("UPDATE meta SET epoch=?1", [epoch])?;
+        }
+
+        for row in rows {
+            tx.execute("INSERT OR IGNORE INTO sessions(id) VALUES (?1)", [&row.session])?;
+            let key: i64 = tx.query_row(
+                "SELECT key FROM sessions WHERE id=?1",
+                [&row.session],
+                |found| found.get(0),
+            )?;
+            let seq = i64::try_from(row.seq)?;
+
+            match &row.text {
+                Some(text) => {
+                    tx.execute(
+                        "INSERT OR IGNORE INTO log(seq,session,text,hash) VALUES (?1,?2,?3,?4)",
+                        params![seq, key, text, text_hash(text)],
+                    )?;
+                }
+                None => {
+                    tx.execute("DELETE FROM log WHERE session=?1", [key])?;
+                    tx.execute(
+                        "INSERT INTO log(seq,session) VALUES (?1,?2)",
+                        params![seq, key],
+                    )?;
+                }
+            }
+        }
+
+        tx.commit()?;
+        self.0.0.execute_batch("PRAGMA incremental_vacuum;")?;
+        Ok(())
+    }
+
+    pub fn find(&self, query: &str) -> Result<Vec<SearchHit>> {
+        self.0.find(query)
+    }
+}
+
 /// Keeps a text unique in its session without a second copy of it.
 fn text_hash(text: &str) -> i64 {
     let digest = Sha256::digest(text.as_bytes());

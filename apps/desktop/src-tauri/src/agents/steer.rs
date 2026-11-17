@@ -264,12 +264,6 @@ pub(crate) async fn sent(
     steer: Steer,
 ) -> Result<Vec<String>> {
     let steer = AgentSteer::try_from(steer)?;
-    let indexed_prompt = match &steer {
-        AgentSteer::Prompt { text }
-        | AgentSteer::PromptImages { text, .. }
-        | AgentSteer::Steer { text, .. } => Some(text.clone()),
-        _ => None,
-    };
     // The keys of the images sent, which the session's log names them by.
     let keys: Vec<String> = match &steer {
         AgentSteer::PromptImages { images, .. } | AgentSteer::Steer { images, .. } => {
@@ -299,29 +293,16 @@ pub(crate) async fn sent(
         request: beep_mesh::machine::node_request(steer.clone())?,
     };
 
-    let index_prompt = |info| async {
-        if let Some(prompt) = &indexed_prompt {
-            let host = beep_mesh::machine::Host {
-                id: machine_id.clone(),
-                name: fleet.name_of(machine),
-            };
-            let metadata = beep_mesh::machine::beep_session(&host, info);
-            crate::palette::prompts::sent(&app, metadata, prompt).await;
-        }
-    };
-
     if let Some(reply) = app
         .state::<crate::fleet::events::Events>()
         .call(window, machine, operation)
         .await?
     {
-        let beep_proto::node::events::CallReply::Agent { info } = reply else {
+        let beep_proto::node::events::CallReply::Agent { .. } = reply else {
             return Err(DesktopError::BadRequest(
                 "unexpected session acknowledgement".into(),
             ));
         };
-
-        index_prompt(*info).await;
 
         if close {
             closed(&app, &machine_id, &session);
@@ -346,7 +327,6 @@ pub(crate) async fn sent(
             sent,
         )
         .await?;
-    index_prompt(opened.info.clone()).await;
 
     if close {
         // The lists show it ended once the machine says so, about two

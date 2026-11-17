@@ -17,7 +17,7 @@ pub async fn center_find_prompts(app: AppHandle, query: String) -> Result<Vec<En
     #[cfg(mobile)]
     let hits = on_machines(&app, &query).await;
     #[cfg(desktop)]
-    let hits = super::prompts::find(&app, &query).await?;
+    let hits = super::copies::find(&app, &query).await?;
 
     let cache = app.state::<PaletteCache>();
     Ok(entries(hits, &cache.sessions(), &cache.projects(), &query))

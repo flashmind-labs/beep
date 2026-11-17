@@ -1,4 +1,4 @@
-//! Project locations used to assign and retire indexed sessions.
+//! Project locations, and the removed ones whose sessions stay out of the menu.
 
 use beep_proto::{ImportedProject, MachineSession};
 use serde::{Deserialize, Serialize};

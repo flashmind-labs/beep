@@ -6,7 +6,6 @@
 use super::{
     index::build_index,
     places::{Place, retired},
-    prompts::PromptIndex,
 };
 use crate::{
     center::{
@@ -15,14 +14,14 @@ use crate::{
         section,
         view_cache::{View, ViewCache, cache_view},
     },
-    fleet::Fleet,
+    fleet::{AsyncMutex, Fleet},
     projects::branches::read_branches as read_project_branches,
 };
 use beep_fleet::Session as FleetSession;
 use beep_proto::{ImportedProject, Machine, MachineSession};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{BTreeSet, HashSet},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
@@ -61,6 +60,42 @@ pub(crate) struct PaletteLists {
 }
 
 impl PaletteLists {
+    /// A place that left is retired, so a session list read before it left
+    /// cannot bring its sessions back; one imported again is listed again.
+    fn set_projects(&mut self, projects: Vec<ImportedProject>) {
+        let current: BTreeSet<Place> = projects.iter().map(Place::from).collect();
+        let left: Vec<Place> = self.projects.iter().flatten().map(Place::from).collect();
+        self.retire(left);
+        self.retired_places.retain(|place| !current.contains(place));
+        self.forgotten_projects
+            .extend(self.retired_places.iter().map(|p| p.project.clone()));
+
+        for project in &projects {
+            self.forgotten_projects.remove(&project.project);
+        }
+
+        self.projects = Some(projects);
+    }
+
+    fn forget_project(&mut self, project: &str) {
+        self.forgotten_projects.insert(project.to_owned());
+        let places: Vec<Place> = self
+            .projects
+            .iter()
+            .flatten()
+            .filter(|p| p.project == project)
+            .map(Place::from)
+            .collect();
+        self.retire(places);
+    }
+
+    /// Adds `places` to the retired ones, each once.
+    fn retire(&mut self, places: Vec<Place>) {
+        let mut retired: BTreeSet<Place> = self.retired_places.drain(..).collect();
+        retired.extend(places);
+        self.retired_places = retired.into_iter().collect();
+    }
+
     fn prune(&mut self) {
         if let Some(projects) = &mut self.projects {
             projects.retain(|p| !self.forgotten_projects.contains(&p.project));
@@ -95,6 +130,9 @@ pub(crate) struct PaletteCache {
     held: Mutex<Held>,
     read_lists: Notify,
     read_sessions: Notify,
+    /// Held while the project list changes, so a read of the mesh taken
+    /// before a removal cannot bring the project back.
+    project_changes: AsyncMutex<()>,
 }
 
 fn index_json(lists: &PaletteLists) -> anyhow::Result<String> {
@@ -119,6 +157,7 @@ impl PaletteCache {
             held: Mutex::new(Held { lists, index }),
             read_lists: Notify::new(),
             read_sessions: Notify::new(),
+            project_changes: AsyncMutex::new(()),
         })
     }
 
@@ -134,46 +173,34 @@ impl PaletteCache {
         self.held().lists.sessions.clone().unwrap_or_default()
     }
 
-    pub(crate) fn project_list(
-        &self,
-        app: &AppHandle,
-        projects: Vec<ImportedProject>,
-        removed: Vec<Place>,
-    ) {
+    pub(crate) async fn project_lock(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.project_changes.lock().await
+    }
+
+    /// `projects` are the imports as the mesh holds them.
+    pub(crate) fn project_list(&self, app: &AppHandle, projects: Vec<ImportedProject>) {
+        let current: BTreeSet<Place> = projects.iter().map(Place::from).collect();
         let changed = {
             let held = self.held();
-            let previous: std::collections::BTreeSet<_> = held
+            let previous: BTreeSet<Place> = held
                 .lists
                 .projects
                 .iter()
                 .flatten()
                 .map(Place::from)
                 .collect();
-            let current = projects.iter().map(Place::from).collect();
-            previous != current || held.lists.retired_places != removed
+            previous != current
         };
-        self.update(app, |lists| {
-            lists
-                .forgotten_projects
-                .extend(removed.iter().map(|p| p.project.clone()));
-            for project in &projects {
-                lists.forgotten_projects.remove(&project.project);
-            }
-
-            lists.projects = Some(projects);
-            lists.retired_places = removed;
-        });
+        self.update(app, |lists| lists.set_projects(projects));
 
         if changed {
             let _ = app.emit("palette-text-changed", ());
         }
     }
 
-    pub(super) fn forget_project(&self, app: &AppHandle, project: &str, removed: Vec<Place>) {
-        self.update(app, |lists| {
-            lists.forgotten_projects.insert(project.to_owned());
-            lists.retired_places = removed;
-        });
+    pub(crate) fn forget_project(&self, app: &AppHandle, project: &str) {
+        self.update(app, |lists| lists.forget_project(project));
+        let _ = app.emit("palette-text-changed", ());
     }
 
     /// The session view supplies metadata before the lists have caught up.
@@ -198,7 +225,7 @@ impl PaletteCache {
         }
     }
 
-    pub(super) fn remember_session(&self, app: &AppHandle, session: MachineSession) {
+    pub(crate) fn remember_session(&self, app: &AppHandle, session: MachineSession) {
         self.update(app, |lists| {
             let sessions = lists.sessions.get_or_insert_default();
             sessions.retain(|old| old.machine_id != session.machine_id || old.id != session.id);
@@ -261,17 +288,17 @@ pub(crate) async fn follow(app: AppHandle) {
         });
     }
 
-    // A phone searches the machines; it reads no transcripts to index.
+    // A phone searches the machines' indexes; a desktop keeps copies.
     #[cfg(desktop)]
-    let prompts = super::prompts::follow(&app);
+    let copies = super::copies::follow(app.clone());
     #[cfg(mobile)]
-    let prompts = std::future::ready(());
+    let copies = std::future::ready(());
 
     join!(
         follow_local(&app),
         follow_branches(&app),
         follow_sessions(&app),
-        prompts
+        copies
     );
 }
 
@@ -318,18 +345,10 @@ async fn read_local_lists(app: &AppHandle) {
         return;
     }
 
-    let index = app.state::<Arc<PromptIndex>>();
-    let _projects = index.project_lock().await;
+    let cache = app.state::<PaletteCache>();
+    let _projects = cache.project_lock().await;
     let projects = mesh_imports(&fleet, &session).await;
-    let removed = match index.sync_projects(projects.clone()).await {
-        Ok(removed) => removed,
-        Err(e) => {
-            log::warn!("updating indexed projects: {e:#}");
-            return;
-        }
-    };
-    app.state::<PaletteCache>()
-        .project_list(app, projects, removed);
+    cache.project_list(app, projects);
     let machines = fleet.status().machines();
     app.state::<PaletteCache>().update(app, |lists| {
         lists.machines = Some(machines);
@@ -359,7 +378,6 @@ async fn read_sessions(app: &AppHandle) {
     };
     app.state::<PaletteCache>()
         .update(app, |lists| lists.sessions = Some(sessions));
-    app.state::<Arc<super::prompts::PromptIndex>>().changed();
 }
 
 /// Each project's are read on a machine.

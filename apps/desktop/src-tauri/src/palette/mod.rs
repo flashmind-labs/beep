@@ -3,11 +3,12 @@
 //! for the next launch (`lists`); the window ranks it in memory on each
 //! keystroke (`palette-rank.ts`), with no call to this side.
 
+#[cfg(desktop)]
+pub(crate) mod copies;
 pub(crate) mod index;
 pub(crate) mod lists;
 mod places;
 mod projects;
-pub(crate) mod prompts;
 pub(crate) mod search;
 
 pub(crate) use lists::PaletteCache;

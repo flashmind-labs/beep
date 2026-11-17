@@ -58,7 +58,7 @@ host! {
     mod processes;
     pub(crate) mod reach;
     mod repository_recovery;
-    mod search;
+    pub mod search;
     mod tool_details;
     mod requests;
     mod restart;

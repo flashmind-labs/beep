@@ -553,7 +553,6 @@ pub async fn agent_start(
         fleet.machine(machine)?;
     }
 
-    let indexed_prompt = prompt.clone();
     let request = StartAgentSession {
         machine_id,
         agent,
@@ -567,7 +566,8 @@ pub async fn agent_start(
         assistant: assistant.unwrap_or(false),
     };
     let started = direct::start(&fleet, request, images).await?;
-    crate::palette::prompts::sent(&app, started.session.clone(), &indexed_prompt).await;
+    app.state::<crate::palette::PaletteCache>()
+        .remember_session(&app, started.session.clone());
     Ok(Started {
         session: started.session.into(),
         why: started.why,
@@ -628,7 +628,6 @@ pub async fn agent_resume(
     session: SessionId,
     prompt: Option<String>,
 ) -> Result<Started> {
-    let indexed_prompt = prompt.clone();
     let request = ResumeAgentSession {
         machine_id,
         agent,
@@ -648,9 +647,8 @@ pub async fn agent_resume(
         )
         .await?;
 
-    if let Some(prompt) = indexed_prompt {
-        crate::palette::prompts::sent(&app, started.session.clone(), &prompt).await;
-    }
+    app.state::<crate::palette::PaletteCache>()
+        .remember_session(&app, started.session.clone());
 
     Ok(Started {
         session: started.session.into(),
@@ -679,9 +677,6 @@ pub async fn agent_delete(
         DesktopError::BadRequest("Only a machine in the mesh can delete sessions.".into())
     })?;
     direct::delete_session(&fleet, machine, &agent, &session).await?;
-    app.state::<Arc<crate::palette::prompts::PromptIndex>>()
-        .remove(format!("{machine_id} {session}"))
-        .await;
     // The windows read their session lists again.
     if let Err(e) = app.emit("sessions-changed", session) {
         log::warn!("could not tell the windows a session was deleted: {e}");

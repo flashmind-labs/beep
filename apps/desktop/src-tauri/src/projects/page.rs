@@ -11,7 +11,6 @@ use crate::{
 };
 use beep_proto::{AgentStatus, ProjectMachine, SyncthingPlace};
 use serde::Serialize;
-use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
 /// The sessions coding agents ran in `project`'s folders, newest first.
@@ -164,16 +163,13 @@ pub async fn project_remove_from_machine(
         )));
     }
 
-    let index = app.state::<Arc<crate::palette::prompts::PromptIndex>>();
-    let _projects = index.project_lock().await;
+    let cache = app.state::<crate::palette::PaletteCache>();
+    let _projects = cache.project_lock().await;
     let desk = desk(&fleet).await?;
     let removed = desk
         .remove_from_machine(&project, &machine_id, delete_folder.unwrap_or(false))
         .await?;
-    let projects = desk.imported().await;
-    let retired = index.sync_projects(projects.clone()).await?;
-    app.state::<crate::palette::PaletteCache>()
-        .project_list(&app, projects, retired);
+    cache.project_list(&app, desk.imported().await);
     Ok(removed)
 }
 
