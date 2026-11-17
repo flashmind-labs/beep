@@ -405,7 +405,13 @@ export function openLinked(ref: FileRef) {
     .filter(({ root, full }) => full.startsWith(`${root}/`))
     .map(({ root, full }) => ({ root, rel: full.slice(root.length + 1) }));
   const root = [shown, cwd].find(root => full.startsWith(`${root}/`)) ?? cwd;
-  const tab = openIn(root, full.startsWith(`${root}/`) ? full.slice(root.length + 1) : full, elsewhere);
+  const rel = full.startsWith(`${root}/`) ? full.slice(root.length + 1) : full;
+  // A tab that found the file at one of these places already, such as one
+  // restored under the folder it was found in, is the one to show.
+  const places = [{ root, rel }, ...elsewhere].map(place => resolvePath(place.root, place.rel));
+  const held = P.tabs.find(t => !t.closed && t.kind !== "term" && places.includes(t.rel ? resolvePath(t.root ?? cwd, t.rel) : t.path ?? ""));
+  if (held) focusTab(held.id);
+  const tab = held ?? openIn(root, rel, elsewhere);
 
   // An HTML page or Markdown file shows rendered; Source switches to its code.
   if (tab?.kind === "text" && tab.rel && hasPreview(tab.rel) && !tab.preview) previewTab(tab);

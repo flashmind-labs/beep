@@ -78,4 +78,11 @@ test("a link from a subfolder session opens a file in a worktree at the checkout
     { machineId: "build-box", root: "/srv/project/apps/web", path: ".worktrees/fix/notes.txt" },
     { machineId: "build-box", root: "/srv/project", path: ".worktrees/fix/notes.txt" },
   ]);
+
+  // Back on the session, its tab comes back from where the file was found,
+  // and the same link shows that tab instead of opening a second one.
+  await page.evaluate(agent => { window.__navigation.open("home"); window.__navigation.open({ agent }); }, session);
+  await page.getByRole("link", { name: "Notes", exact: true }).click();
+  await expect(page.getByRole("tab", { name: /^notes\.txt/ })).toHaveCount(1);
+  await expect(page.locator(".agcode")).toContainText("hello");
 });
