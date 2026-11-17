@@ -67,8 +67,8 @@ test("Work on it picks a model under the button and starts the issue's agent at 
   const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
   await expect(picker).toBeVisible();
   // It asks the machine first, nothing picked for you.
-  await expect(picker.locator('[data-agstep="machine"]')).toHaveAttribute("aria-current", "step");
-  await expect(picker.locator('[data-agstep="model"]')).toBeDisabled();
+  await expect(picker.locator(".agc-stephead")).toHaveAttribute("data-agstep", "machine");
+  await expect(picker.locator("[data-agmo]")).toHaveCount(0);
   await picker.locator('[data-agmachine="build-box"]').click();
   await picker.locator('[data-agh="codex"]').click();
   await picker.locator('[data-agmo="beta"]').click();
@@ -99,7 +99,7 @@ test("Work on it asks the machine first when the project is on several", async (
   // A machine without the project's checkout is listed but cannot be picked.
   await expect(picker.locator('[data-agmachine="spare-box"]')).toBeDisabled();
   await picker.locator('[data-agmachine="gpu-box"]').click();
-  await expect(picker.locator('[data-agstep="harness"]')).toHaveAttribute("aria-current", "step");
+  await expect(picker.locator(".agc-stephead")).toHaveAttribute("data-agstep", "harness");
   await picker.locator('[data-agh="claude"]').click();
   await picker.locator('[data-agmo="alpha"]').click();
   await picker.locator('[data-age="high"]').click();

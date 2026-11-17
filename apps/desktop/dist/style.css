@@ -833,18 +833,20 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agc-help { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 8px; font-size: 13px }
 .agc-help ol { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 3px }
 .agc-pick { position: fixed; top: 0; left: 0; z-index: 30; width: min(640px, calc(100vw - 16px)); box-sizing: border-box; display: grid; grid-template-columns: 58px minmax(0, 1fr) 184px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); box-shadow: 0 18px 50px color-mix(in srgb, var(--shade) 50%, transparent); --pick-h: 340px; max-height: var(--pick-h); overflow: hidden auto; scrollbar-width: thin }
-/* The picker under an agent button asks one step at a time; each slides in. */
-.agc-pick.steps { width: min(420px, calc(100vw - 16px)); display: flex; flex-direction: column; overflow: hidden }
-.agc-pick.steps .agc-list { flex: 1; min-height: 0; padding-top: 6px; animation: agc-step .16s ease-out }
-.agc-pick.steps .agc-think { border-left: 0; padding-top: 6px; min-height: 0; max-height: none }
+/* The picker under an agent button asks one step at a time; each slides in under its heading. */
+.agc-pick.steps { width: min(340px, calc(100vw - 16px)); display: flex; flex-direction: column; overflow: hidden }
+.agc-pick.steps .agc-list { flex: 1; min-height: 0; padding: 4px 0 6px; animation: agc-step .16s ease-out }
+.agc-pick.steps .agc-think { border-left: 0; padding: 0; min-height: 0; max-height: none }
+.agc-pick.steps .agc-find { padding-top: 4px }
 .agc-list button:disabled { opacity: .45 }
-@keyframes agc-step { from { opacity: 0; transform: translateX(10px) } }
-.agc-steps { display: flex; gap: 4px; padding: 10px 10px 0; flex: none; overflow-x: auto; scrollbar-width: none }
-.agc-steps button { all: unset; cursor: default; display: grid; gap: 1px; min-width: 0; padding: 5px 9px; border-radius: var(--radius-sm); font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.agc-steps button small { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
-.agc-steps button:not(:disabled):hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
-.agc-steps button:disabled { opacity: .45 }
-.agc-steps button[aria-current="step"] { opacity: 1; color: var(--fg); background: color-mix(in srgb, var(--fg) 6%, transparent); box-shadow: inset 0 -1px 0 var(--accent) }
+@keyframes agc-step { from { opacity: 0; transform: translateX(8px) } }
+.agc-stephead { display: flex; align-items: center; gap: 8px; padding: 12px 16px 8px; flex: none }
+.agc-stephead > div { display: grid; gap: 2px; min-width: 0; flex: 1 }
+.agc-stephead b { font-size: 13px; font-weight: 500 }
+.agc-stephead small, .agc-stephead > span { font-family: var(--mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.agc-stephead > span { color: var(--dim) }
+.agc-back { all: unset; cursor: default; display: grid; place-items: center; width: 22px; height: 22px; margin-left: -6px; border-radius: var(--radius-sm); color: var(--muted) }
+.agc-back:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); color: var(--fg) }
 .agc-rail { display: grid; align-content: start; gap: 8px; padding: 12px 11px; border-right: 1px solid var(--border); box-sizing: border-box; max-height: calc(var(--pick-h) - 2px); overflow-y: auto; scrollbar-width: none }
 .agc-rail button { all: unset; cursor: default; width: 34px; height: 34px; border-radius: var(--radius-sm); display: grid; place-items: center; position: relative }
 .agc-rail button[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent) }

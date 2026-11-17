@@ -1,5 +1,5 @@
 import type { ModelInfo } from "./agentmodels.ts";
-import { Spinner, Switch } from "../ui/kit.tsx";
+import { Button, Spinner, Switch } from "../ui/kit.tsx";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { agentKind } from "./agents.ts";
@@ -44,7 +44,7 @@ interface StepPickerProps extends PickerProps {
 /// The picker's steps, in the order it asks them.
 type Step = "machine" | "harness" | "model" | "thinking";
 
-const STEP_NAMES: Record<Step, string> = { machine: "Machine", harness: "Harness", model: "Model", thinking: "Thinking" };
+const STEP_TITLES: Record<Step, string> = { machine: "Pick a machine", harness: "Pick a harness", model: "Pick a model", thinking: "Pick the thinking level" };
 
 /// Whether `agent` asks the Thinking step after its model.
 const thinks = (agent: string) => effortsOf(agent).length > 0 || agent === "codex";
@@ -191,11 +191,12 @@ export function StepPicker({ picked, model, modelName, offered, everywhere, mach
   const dialog = useDialogRef(node);
   const list = useRef<HTMLDivElement>(null);
   const answers: Record<Step, string> = { machine: machineName ?? "", harness: name, model: modelName, thinking: "" };
+  const path = steps.slice(0, at).map(s => answers[s]).join(" · ");
   return <div className="agc-pick steps" role="dialog" aria-label="Machine, harness, model and thinking" ref={dialog} style={style}>
-    <div className="agc-steps">{steps.map((s, i) =>
-      <button key={s} type="button" data-agstep={s} aria-current={s === step ? "step" : undefined} disabled={i > at} onClick={() => setStep(s)}>
-        <small>{STEP_NAMES[s]}</small>{i < at ? answers[s] : "\u00a0"}
-      </button>)}
+    <div className="agc-stephead" data-agstep={step}>
+      {at > 0 && <Button look="plain" className="agc-back" aria-label="Back" title="Back (⌫)" onClick={back}><Icon name="back" size={14} /></Button>}
+      <div><b>{STEP_TITLES[step]}</b>{path && <small>{path}</small>}</div>
+      <span>{at + 1}/{steps.length}</span>
     </div>
     <div className="agc-list" key={step} ref={body} onKeyDown={event => { if (step !== "model") stepKeys(event, back); }}>
       {step === "machine" && machines && <div className="agc-models">{machines.map(m =>
@@ -231,7 +232,6 @@ export function StepPicker({ picked, model, modelName, offered, everywhere, mach
       </>}
       {step === "thinking" && <div className="agc-think">
         {picked.agent === "codex" && <><h5>Fast mode<Switch label="Fast mode" on={picked.fast === true} disabled={model?.fast === false} flip={() => onFast(picked.fast !== true)} /></h5><p className="none">Higher usage.</p></>}
-        <h5>Thinking</h5>
         <button type="button" data-age="" onClick={() => { onEffort(null); onDone(); }}>Default</button>
         {levels.map(level => <button key={level.value} type="button" data-age={level.value} className={effort === level.value ? "hi" : ""}
           onClick={() => { onEffort(level.value); onDone(); }}>{level.label}</button>)}
