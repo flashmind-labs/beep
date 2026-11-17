@@ -97,8 +97,8 @@ body.cbody.mb-full.mobile
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
           div#sec-running
-            div.bd-lanes
-              div.bd-lane
+            div.bd-lanes.spread
+              div.bd-lane style(flex-grow)
                 h4
                   button [type="button"] "Working"
                   span "2"
@@ -125,11 +125,11 @@ body.cbody.mb-full.mobile
                       span.cc-running "now"
                         span.drun [aria-label="Working" role="img"]
                       span.sp
-              div.bd-lane
+              div.bd-lane.empty style(flex-grow)
                 h4 "Ready to review"
                   span
                 div.bd-lane.cell
-              div.bd-lane.log
+              div.bd-lane.empty.log style(flex-grow)
                 h4
                   button [type="button"] "Done today"
                   span

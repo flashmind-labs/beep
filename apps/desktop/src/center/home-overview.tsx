@@ -147,7 +147,7 @@ export function HomeOverview({ home }: { home: HomeView }) {
 
   return <>
     {!!queue.length && <Section id="sec-needs" title="Needs you" count={queue.length}>{queue.map(card => <CardRow key={card.key} card={card}/>)}</Section>}
-    {!!lanes.length && <div id="sec-running"><Board cards={lanes} lanes={QUEUED_LANES} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/></div>}
+    {!!lanes.length && <div id="sec-running"><Board cards={lanes} lanes={QUEUED_LANES} spread more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/></div>}
     {!cards.length && <Empty home={home} />}
   </>;
 }

@@ -124,8 +124,8 @@ body.cbody
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
           div#sec-running
-            div.bd-lanes
-              div.bd-lane
+            div.bd-lanes.spread
+              div.bd-lane style(flex-grow)
                 h4
                   button [type="button"] "Working"
                   span "1"
@@ -142,7 +142,7 @@ body.cbody
                         span.drun [aria-label="Working" role="img"]
                         span.doing "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
                       span.sp
-              div.bd-lane
+              div.bd-lane style(flex-grow)
                 h4 "Ready to review"
                   span "1"
                 div.bd-lane.cell
@@ -156,7 +156,7 @@ body.cbody
                     span.ft "10m ago"
                       span.sp
                       button.bd-close.dbtn.quiet.small [type="button"] "Close"
-              div.bd-lane.log
+              div.bd-lane.empty.log style(flex-grow)
                 h4
                   button [type="button"] "Done today"
                   span
