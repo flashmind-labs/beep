@@ -189,11 +189,7 @@ impl Registry {
                     permissions: entry.info.permissions.clone(),
                     approved: entry.info.approved.clone(),
                     source: entry.info.source.clone(),
-                    tools: if cfg!(feature = "tools") {
-                        entry.info.tools.clone()
-                    } else {
-                        Vec::new()
-                    },
+                    tools: entry.info.tools.clone(),
                     style: entry.info.style.clone(),
                     enabled: entry.info.enabled,
                     state: self.state_of(entry),

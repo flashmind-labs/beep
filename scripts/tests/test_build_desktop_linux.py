@@ -45,7 +45,7 @@ esac
         result, count, args = self.run_build("retry")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(count, 2)
-        self.assertEqual(args, ["build", "--ci", "--verbose", "--bundles", "deb,appimage", "--features", "full", "--config",
+        self.assertEqual(args, ["build", "--ci", "--verbose", "--bundles", "deb,appimage", "--config",
                                 '{"bundle":{"createUpdaterArtifacts":true}}', "--", "--locked"])
 
     def test_does_not_retry_compilation_errors(self):

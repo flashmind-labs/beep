@@ -1,30 +1,22 @@
-#[cfg(all(target_os = "macos", feature = "desktop-control"))]
+#[cfg(target_os = "macos")]
 mod keys;
-#[cfg(all(target_os = "macos", feature = "desktop-control"))]
+#[cfg(target_os = "macos")]
 mod mac;
-#[cfg(all(
-    target_os = "macos",
-    feature = "desktop-control",
-    feature = "local-host"
-))]
+#[cfg(target_os = "macos")]
 mod session;
-#[cfg(all(target_os = "macos", feature = "desktop-control"))]
+#[cfg(target_os = "macos")]
 mod tree;
 
-#[cfg(all(target_os = "macos", feature = "desktop-control"))]
+#[cfg(target_os = "macos")]
 pub use mac::{permissions, request};
 
-#[cfg(all(
-    target_os = "macos",
-    feature = "desktop-control",
-    feature = "local-host"
-))]
+#[cfg(target_os = "macos")]
 pub use session::Desktop;
 
-#[cfg(all(desktop, not(all(target_os = "macos", feature = "desktop-control"))))]
+#[cfg(all(desktop, not(target_os = "macos")))]
 pub fn permissions() -> beep_proto::node::desktop::Permissions {
     beep_proto::node::desktop::Permissions::default()
 }
 
-#[cfg(all(desktop, not(all(target_os = "macos", feature = "desktop-control"))))]
+#[cfg(all(desktop, not(target_os = "macos")))]
 pub fn request(_: beep_proto::node::desktop::Permission) {}

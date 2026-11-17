@@ -644,7 +644,6 @@ dependencies = [
  "open",
  "percent-encoding",
  "pulldown-cmark",
- "pulldown-cmark-escape",
  "pulldown-latex",
  "qrcode",
  "regex",

@@ -112,7 +112,7 @@ jobs:
           # The signed archive is what the app updates itself from.
           # Only this signed build has the native updater: a local build signed
           # ad hoc cannot load Sparkle.framework under the hardened runtime.
-          PATH="/usr/bin:$PATH" cargo tauri build --bundles app --features full,sparkle \
+          PATH="/usr/bin:$PATH" cargo tauri build --bundles app --features sparkle \
             --config tauri.sparkle.conf.json \
             --config '{"bundle":{"createUpdaterArtifacts":true}}'
           app="$CARGO_TARGET_DIR/release/bundle/macos/Beep.app"

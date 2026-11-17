@@ -3,8 +3,6 @@
 //! projects of the checkouts the machines have. Each action does what the
 //! Add a project and New project sheets do.
 
-#![cfg(feature = "local-host")]
-
 use super::{
     create::{CreatedRow, ForgeRow},
     import::FoundRow,

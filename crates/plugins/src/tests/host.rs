@@ -1525,7 +1525,6 @@ const TOOLS: &str = r#"[
   { "name": "boom", "description": "Throws." }
 ]"#;
 
-#[cfg(feature = "tools")]
 const TOOL_MAIN: &str = r#"
 beep.tool("add", (input) => ({ sum: input.a + input.b }));
 beep.tool("later", () => new Promise((resolve) => beep.after(50, () => resolve("done"))));
@@ -1570,7 +1569,6 @@ fn call(
 }
 
 #[test]
-#[cfg(feature = "tools")]
 fn a_plugin_answers_the_tools_it_declares_and_registers() {
     let root = tempfile::tempdir().unwrap();
     write_tool_plugin(root.path(), "tool-one", TOOLS, TOOL_MAIN, r#"["startup"]"#);
@@ -1610,7 +1608,6 @@ fn a_plugin_answers_the_tools_it_declares_and_registers() {
 }
 
 #[test]
-#[cfg(feature = "tools")]
 fn a_throwing_handler_or_a_promise_that_never_settles_fails_one_call_only() {
     let root = tempfile::tempdir().unwrap();
     write_tool_plugin(root.path(), "tool-one", TOOLS, TOOL_MAIN, r#"["startup"]"#);
@@ -1637,7 +1634,6 @@ fn a_throwing_handler_or_a_promise_that_never_settles_fails_one_call_only() {
 }
 
 #[test]
-#[cfg(feature = "tools")]
 fn a_tool_that_is_declared_but_not_registered_or_the_other_way_stops_the_plugin() {
     let root = tempfile::tempdir().unwrap();
     write_tool_plugin(
@@ -1682,7 +1678,6 @@ fn a_tool_that_is_declared_but_not_registered_or_the_other_way_stops_the_plugin(
 }
 
 #[test]
-#[cfg(feature = "tools")]
 fn a_plugin_that_is_not_allowed_or_off_answers_with_its_state() {
     let root = tempfile::tempdir().unwrap();
     write_tool_plugin(root.path(), "tool-one", TOOLS, TOOL_MAIN, r#"["startup"]"#);
@@ -1701,7 +1696,6 @@ fn a_plugin_that_is_not_allowed_or_off_answers_with_its_state() {
 }
 
 #[test]
-#[cfg(feature = "tools")]
 fn a_plugin_that_waits_for_its_slot_starts_for_the_call_but_not_while_paused() {
     let root = tempfile::tempdir().unwrap();
     write_tool_plugin(
@@ -1724,35 +1718,6 @@ fn a_plugin_that_waits_for_its_slot_starts_for_the_call_but_not_while_paused() {
     wait_state(&host, "tool-one", PluginState::Paused);
     let error = call(&host, "tool-one", "add", json!({ "a": 1, "b": 2 })).unwrap_err();
     assert!(error.to_string().contains("paused"), "{error}");
-}
-
-#[test]
-#[cfg(not(feature = "tools"))]
-fn unavailable_tools_are_never_advertised_or_called() {
-    let root = tempfile::tempdir().unwrap();
-    write_tool_plugin(
-        root.path(),
-        "tool-one",
-        TOOLS,
-        r#"if (beep.capabilities.tools) throw new Error("tools should be unavailable");"#,
-        r#"["startup"]"#,
-    );
-    let (host, _rx) = start_with(root.path(), Policy::Dev);
-    wait_state(&host, "tool-one", PluginState::Running);
-
-    assert!(status_of(&host, "tool-one").unwrap().tools.is_empty());
-    assert!(matches!(
-        call(&host, "tool-one", "add", json!({ "a": "invalid" })),
-        Err(ToolError::Unsupported)
-    ));
-    assert!(matches!(
-        call(&host, "missing", "add", json!({})),
-        Err(ToolError::Unsupported)
-    ));
-    assert_eq!(
-        status_of(&host, "tool-one").unwrap().state,
-        PluginState::Running
-    );
 }
 
 fn write_theme(dir: &std::path::Path, id: &str, radius: &str) {

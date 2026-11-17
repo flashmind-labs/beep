@@ -1,12 +1,10 @@
-//! Local hosting when it is compiled into the desktop. The controller-only
-//! build keeps this computer's identity, but starts no node or local sessions.
+//! This computer's local node: coding agents, terminals, files and desktop
+//! control offered to the other devices while it is lent to the mesh.
 
-#[cfg(feature = "local-host")]
 use crate::platform::logfile;
 use crate::{beep::state::Prefs, machines::desktop};
-#[cfg(all(windows, feature = "local-host"))]
+#[cfg(windows)]
 use beep_node::machine::wsl::Wsl;
-#[cfg(feature = "local-host")]
 use beep_node::{
     agents::{
         mcp::{self, ProjectTools},
@@ -18,13 +16,11 @@ use beep_node::{
 use beep_proto::node::desktop::{Permission, Permissions};
 use iroh::EndpointId;
 use serde::Serialize;
-#[cfg(feature = "local-host")]
 use std::{
     future::pending,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
-#[cfg(feature = "local-host")]
 use tauri::async_runtime::{self, JoinHandle};
 
 /// Whether this Mac is lent to the mesh, as Settings shows it.
@@ -52,19 +48,16 @@ pub struct View {
 pub struct Machine {
     /// Reopens what was open when the app last quit, then keeps the note of
     /// what is open; `quit` stops it before the last word.
-    #[cfg(feature = "local-host")]
     keeping: Mutex<Option<JoinHandle<()>>>,
     /// The WSL machines this computer runs while it is lent.
-    #[cfg(all(windows, feature = "local-host"))]
+    #[cfg(windows)]
     wsl: Arc<Wsl>,
     /// The computer name, read once.
     name: String,
-    #[cfg(feature = "local-host")]
     home: Arc<NodeHome>,
 }
 
 /// The node's own folder and what it keeps there.
-#[cfg(feature = "local-host")]
 struct NodeHome {
     /// The node's folder; its MCP socket goes here, or in a short per-user
     /// folder when this path is too long for one.
@@ -80,13 +73,12 @@ struct NodeHome {
 impl Machine {
     /// The machine whose node keeps its tools, teacli config and sockets
     /// in `dir`.
-    #[cfg(feature = "local-host")]
     pub fn new(dir: &Path, project_tools: Option<Arc<dyn ProjectTools>>) -> Self {
         let provision = Provision::new(dir);
         let mut offers = Offers::local(&[], provision.clone());
         // The assistant's project tools on this Mac reach this app.
         offers.project_tools = project_tools;
-        #[cfg(all(target_os = "macos", feature = "desktop-control"))]
+        #[cfg(target_os = "macos")]
         offers.extra.push(Arc::new(desktop::Desktop));
         // The user's coding agent skills reach the mesh's other machines.
         if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
@@ -102,13 +94,13 @@ impl Machine {
         async_runtime::block_on(async { offers.offer_searches(dir, &Search::default()) });
         // Windows runs the WSL distributions added as machines, while
         // this computer is lent (`sync`).
-        #[cfg(all(windows, feature = "local-host"))]
+        #[cfg(windows)]
         let wsl = Arc::new(Wsl::new(dir, &offers));
-        #[cfg(all(windows, feature = "local-host"))]
+        #[cfg(windows)]
         offers.extra.push(wsl.clone());
         Self {
             keeping: Mutex::default(),
-            #[cfg(all(windows, feature = "local-host"))]
+            #[cfg(windows)]
             wsl,
             name: crate::beep::identity::computer_name(),
             home: Arc::new(NodeHome {
@@ -124,7 +116,6 @@ impl Machine {
     /// machine tools. Sessions run this app's executable as the server's
     /// command (`mcp_command`), which pipes to the socket the node bound,
     /// named in the session's environment.
-    #[cfg(feature = "local-host")]
     pub fn start(&self) {
         if let Err(e) = std::fs::create_dir_all(&self.home.dir) {
             log::warn!("not serving the Beep MCP server or noting what is open: {e}");
@@ -161,7 +152,6 @@ impl Machine {
 
     /// Sessions and terminals open when the app last quit or crashed open
     /// again, and the note of what is open is kept from then on.
-    #[cfg(feature = "local-host")]
     fn reopen(&self) {
         let home = self.home.clone();
         *lock(&self.keeping) = Some(async_runtime::spawn(async move {
@@ -172,7 +162,6 @@ impl Machine {
     /// For the app quitting: stops keeping the note, then notes what is
     /// open for the next start. Sessions that end from here on ended with
     /// the app and stay in the note.
-    #[cfg(feature = "local-host")]
     pub fn quit(&self) -> impl Future<Output = ()> + Send + 'static {
         let keeping = lock(&self.keeping).take();
         let home = self.home.clone();
@@ -190,25 +179,8 @@ impl Machine {
     }
 
     /// What this node serves.
-    #[cfg(feature = "local-host")]
     pub fn offers(&self) -> Offers {
         self.home.offers.clone()
-    }
-
-    #[cfg(not(feature = "local-host"))]
-    pub fn controller() -> Self {
-        Self {
-            name: crate::beep::identity::computer_name(),
-        }
-    }
-
-    #[cfg(not(feature = "local-host"))]
-    pub fn start(&self) {}
-
-    #[cfg(not(feature = "local-host"))]
-    #[allow(clippy::manual_async_fn)]
-    pub fn quit(&self) -> impl Future<Output = ()> + Send + 'static {
-        async {}
     }
 
     /// The name this Mac has in the mesh.
@@ -217,7 +189,7 @@ impl Machine {
     }
 
     pub fn view(&self, prefs: &Prefs, id: EndpointId) -> View {
-        let enabled = cfg!(feature = "local-host") && prefs.use_mac();
+        let enabled = prefs.use_mac();
         View {
             id: id.to_string(),
             name: self.name.clone(),
@@ -234,11 +206,8 @@ impl Machine {
     /// Lends this Mac to the other devices of the mesh, or not, to match the
     /// setting.
     pub fn sync(&self, prefs: &Prefs) {
-        #[cfg(feature = "local-host")]
         self.home.offers.lend_to_peers(prefs.use_mac());
-        #[cfg(not(feature = "local-host"))]
-        let _ = prefs;
-        #[cfg(all(windows, feature = "local-host"))]
+        #[cfg(windows)]
         {
             let (wsl, lent) = (self.wsl.clone(), prefs.use_mac());
             async_runtime::spawn(async move { wsl.lend(lent).await });
@@ -251,11 +220,10 @@ pub fn allow(permission: Permission) {
     desktop::request(permission);
 }
 
-#[cfg(feature = "local-host")]
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-#[cfg(all(test, feature = "local-host"))]
+#[cfg(test)]
 #[path = "../tests/machines_this_mac.rs"]
 mod tests;

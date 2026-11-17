@@ -26,13 +26,11 @@ function save(session, value) {
   keep(session, value);
   set(drafts, session, "");
 }
-if (!("capabilities" in beep) || beep.capabilities.tools) {
-  beep.tool("get_note", ({ session }) => ({ note: notes.get()[session] ?? "" }));
-  beep.tool("set_note", ({ session, note }) => {
-    keep(session, note);
-    return { note: notes.get()[session] ?? "" };
-  });
-}
+beep.tool("get_note", ({ session }) => ({ note: notes.get()[session] ?? "" }));
+beep.tool("set_note", ({ session, note }) => {
+  keep(session, note);
+  return { note: notes.get()[session] ?? "" };
+});
 beep.place({ slot: "session.row" }, (row) => {
   const note = notes.get()[row.session] ?? "";
   return note === "" ? null : beep.text(note, { tone: "accent" });

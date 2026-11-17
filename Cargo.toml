@@ -38,7 +38,7 @@ beep-fleet = { path = "crates/fleet" }
 beep-mesh = { path = "crates/mesh" }
 # The phone leaves out the host; a node and the desktop turn it on.
 beep-node = { path = "crates/node", default-features = false }
-beep-plugins = { path = "crates/plugins", default-features = false }
+beep-plugins = { path = "crates/plugins" }
 beep-projects = { path = "crates/projects" }
 beep-proto = { path = "crates/proto" }
 beep-report = { path = "crates/report" }
@@ -65,7 +65,7 @@ fastrand = "2"
 flashmind-tools = { version = "0.3.8", default-features = false }
 flashmind-types = "0.3.3"
 flate2 = "1"
-futures = "0.3"
+futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 gix = { version = "0.90", default-features = false }
 gix-revision = { version = "0.52", default-features = false, features = ["merge_base"] }
 hex = "0.4"
@@ -101,7 +101,6 @@ portable-pty = "0.9"
 prost = "0.14"
 protox = "0.10"
 pulldown-cmark = { version = "0.13", default-features = false }
-pulldown-cmark-escape = "0.11"
 pulldown-latex = "0.8"
 qrcode = { version = "0.14", default-features = false }
 rand = "0.10"

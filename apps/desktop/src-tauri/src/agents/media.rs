@@ -1,7 +1,6 @@
 //! Pictures and media files a coding-agent session refers to, read from
 //! its machine: shown, opened or saved here.
 
-#[cfg(any(mobile, feature = "blob-cache"))]
 use crate::agents::file_cache::{Cached, FileCache};
 use crate::{
     agents::work_copy,
@@ -10,25 +9,21 @@ use crate::{
     fleet::{AsyncMutex, Fleet, Machines, agents as direct},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-#[cfg(all(desktop, feature = "image-thumbnails"))]
+#[cfg(desktop)]
 use beep_mesh::machine::thumb::{Picture, thumb_of};
-#[cfg(any(mobile, feature = "blob-cache"))]
 use beep_proto::media_mime;
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, GetAgentFile, GetAgentImage, SessionId,
     image_key,
 };
-#[cfg(any(mobile, feature = "blob-cache"))]
 use iroh::EndpointId;
 use serde::Serialize;
-#[cfg(any(mobile, feature = "blob-cache"))]
 use std::sync::Arc;
 use std::{
     future::Future,
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
-#[cfg(any(mobile, feature = "blob-cache"))]
 use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 use tempfile::{NamedTempFile, TempPath};
@@ -97,7 +92,7 @@ pub async fn agent_thumb(
 }
 
 /// `image` made small, for the log to draw.
-#[cfg(all(desktop, feature = "image-thumbnails"))]
+#[cfg(desktop)]
 async fn small(image: AgentImageData) -> AgentImageData {
     let made = thumb_of(Picture {
         mime: image.mime,
@@ -112,7 +107,7 @@ async fn small(image: AgentImageData) -> AgentImageData {
 }
 
 /// A phone draws a picture from an older machine as it comes.
-#[cfg(any(mobile, not(feature = "image-thumbnails")))]
+#[cfg(mobile)]
 async fn small(image: AgentImageData) -> AgentImageData {
     image
 }
@@ -144,9 +139,9 @@ pub struct AgentFilePart {
 }
 
 /// Up to `AGENT_FILE_CHUNK` bytes of the media file `path` on `machine_id`
-/// from `offset`. With blob caching, the first part fetches a remote file
-/// into the chat store, kept for `session`; `agent-file-progress` tells how
-/// the download goes. Other builds read each part directly from the machine.
+/// from `offset`. The first part fetches a remote file into the chat store,
+/// kept for `session`; `agent-file-progress` tells how the download goes.
+/// Files from older machines are read a part at a time.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn agent_file(
@@ -157,34 +152,29 @@ pub async fn agent_file(
     offset: u64,
     session: Option<SessionId>,
 ) -> Result<AgentFilePart> {
-    #[cfg(any(mobile, feature = "blob-cache"))]
-    {
-        let cache = app.state::<Arc<FileCache>>();
-        let asked = Asked {
-            machine_id: &machine_id,
-            path: &path,
-            session: session.as_ref(),
-        };
-        // Later parts come from what the first one fetched, or the node.
-        let cached = if offset == 0 {
-            cached(&app, &fleet, &cache, asked).await?
-        } else {
-            remote(&fleet, &machine_id).and_then(|machine| cache.known(machine, &path))
-        };
+    let cache = app.state::<Arc<FileCache>>();
+    let asked = Asked {
+        machine_id: &machine_id,
+        path: &path,
+        session: session.as_ref(),
+    };
+    // Later parts come from what the first one fetched, or the node.
+    let cached = if offset == 0 {
+        cached(&app, &fleet, &cache, asked).await?
+    } else {
+        remote(&fleet, &machine_id).and_then(|machine| cache.known(machine, &path))
+    };
 
-        if let Some(cached) = cached {
-            let data = cache.read(cached, offset, AGENT_FILE_CHUNK).await?;
-            return Ok(AgentFilePart {
-                size: cached.size,
-                mime: media_mime(&path)
-                    .unwrap_or("application/octet-stream")
-                    .to_owned(),
-                data: STANDARD.encode(&data),
-            });
-        }
+    if let Some(cached) = cached {
+        let data = cache.read(cached, offset, AGENT_FILE_CHUNK).await?;
+        return Ok(AgentFilePart {
+            size: cached.size,
+            mime: media_mime(&path)
+                .unwrap_or("application/octet-stream")
+                .to_owned(),
+            data: STANDARD.encode(&data),
+        });
     }
-    #[cfg(not(any(mobile, feature = "blob-cache")))]
-    let _ = (app, session);
 
     let chunk = file_chunk(&fleet, machine_id, path, offset).await?;
     Ok(AgentFilePart {
@@ -204,24 +194,19 @@ pub async fn agent_file_open(
     path: String,
     session: Option<SessionId>,
 ) -> Result<()> {
-    #[cfg(any(mobile, feature = "blob-cache"))]
-    {
-        let cache = app.state::<Arc<FileCache>>();
-        let asked = Asked {
-            machine_id: &machine_id,
-            path: &path,
-            session: session.as_ref(),
-        };
+    let cache = app.state::<Arc<FileCache>>();
+    let asked = Asked {
+        machine_id: &machine_id,
+        path: &path,
+        session: session.as_ref(),
+    };
 
-        if let Some(cached) = cached(&app, &fleet, &cache, asked).await? {
-            let to = cache.copy_path(cached, &file_name(&path));
-            cache.export(cached, &to).await?;
-            crate::platform::open(&to)?;
-            return Ok(());
-        }
+    if let Some(cached) = cached(&app, &fleet, &cache, asked).await? {
+        let to = cache.copy_path(cached, &file_name(&path));
+        cache.export(cached, &to).await?;
+        crate::platform::open(&to)?;
+        return Ok(());
     }
-    #[cfg(not(any(mobile, feature = "blob-cache")))]
-    let _ = session;
 
     let dir = app.path().app_cache_dir()?.join("agent-files");
     tokio::fs::create_dir_all(&dir)
@@ -251,22 +236,17 @@ pub async fn agent_file_save(
     session: Option<SessionId>,
 ) -> Result<PathBuf> {
     let to = free_name(&crate::platform::saves_dir(&app)?, &file_name(&path));
-    #[cfg(any(mobile, feature = "blob-cache"))]
-    {
-        let cache = app.state::<Arc<FileCache>>();
-        let asked = Asked {
-            machine_id: &machine_id,
-            path: &path,
-            session: session.as_ref(),
-        };
+    let cache = app.state::<Arc<FileCache>>();
+    let asked = Asked {
+        machine_id: &machine_id,
+        path: &path,
+        session: session.as_ref(),
+    };
 
-        if let Some(cached) = cached(&app, &fleet, &cache, asked).await? {
-            cache.export(cached, &to).await?;
-            return Ok(to);
-        }
+    if let Some(cached) = cached(&app, &fleet, &cache, asked).await? {
+        cache.export(cached, &to).await?;
+        return Ok(to);
     }
-    #[cfg(not(any(mobile, feature = "blob-cache")))]
-    let _ = session;
 
     let dir = to
         .parent()
@@ -284,15 +264,11 @@ pub async fn agent_file_save(
 /// Conversation `session` closed: drops the files only it opened.
 #[tauri::command]
 pub async fn agent_files_forget(app: AppHandle, session: SessionId) -> Result<()> {
-    #[cfg(any(mobile, feature = "blob-cache"))]
     app.state::<Arc<FileCache>>().forget(&session).await?;
-    #[cfg(not(any(mobile, feature = "blob-cache")))]
-    let _ = (app, session);
     Ok(())
 }
 
 /// A media file asked for, from the conversation `session` when there is one.
-#[cfg(any(mobile, feature = "blob-cache"))]
 #[derive(Clone, Copy)]
 struct Asked<'a> {
     machine_id: &'a str,
@@ -301,7 +277,6 @@ struct Asked<'a> {
 }
 
 /// How far fetching a chat file has come, as `agent-file-progress` tells it.
-#[cfg(any(mobile, feature = "blob-cache"))]
 #[derive(Clone, Serialize)]
 struct FileProgress<'a> {
     machine_id: &'a str,
@@ -311,7 +286,6 @@ struct FileProgress<'a> {
 }
 
 /// Another mesh machine, whose files the chat file store keeps.
-#[cfg(any(mobile, feature = "blob-cache"))]
 fn remote(fleet: &Fleet, machine_id: &str) -> Option<EndpointId> {
     fleet
         .member(machine_id)
@@ -321,7 +295,6 @@ fn remote(fleet: &Fleet, machine_id: &str) -> Option<EndpointId> {
 /// `asked` from the chat file store, fetched unless it holds the file
 /// already. `None` for a file read another way: on this machine, in a
 /// working copy here, or from a node that cannot share.
-#[cfg(any(mobile, feature = "blob-cache"))]
 async fn cached(
     app: &AppHandle,
     fleet: &Fleet,

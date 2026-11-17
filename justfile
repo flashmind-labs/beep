@@ -11,15 +11,15 @@ build-server:
 # instead, with its own data and an unpaired key, next to an installed Beep.
 # The window only loads tauri://localhost, so dev serves the built bundle
 # instead of a dev server; press Cmd+R after a frontend change.
-run mode="shared" features="":
+run mode="shared":
     cd apps/desktop && npm install --silent && npm run build
-    cd apps/desktop/src-tauri && cargo tauri dev --no-dev-server {{ if mode == "apart" { "--config tauri.dev.conf.json" } else { "" } }} {{ if features == "" { "" } else { "--features " + features } }}
+    cd apps/desktop/src-tauri && cargo tauri dev --no-dev-server {{ if mode == "apart" { "--config tauri.dev.conf.json" } else { "" } }}
 
 # Run the desktop as an optimized release build that keeps its symbols and
 # line numbers, so `sample` and Instruments name functions. Same modes as `run`.
-run-release mode="shared" features="":
+run-release mode="shared":
     cd apps/desktop && npm install --silent && npm run build
-    cd apps/desktop/src-tauri && CARGO_PROFILE_RELEASE_STRIP=false CARGO_PROFILE_RELEASE_DEBUG=line-tables-only cargo tauri dev --release --no-dev-server {{ if mode == "apart" { "--config tauri.dev.conf.json" } else { "" } }} {{ if features == "" { "" } else { "--features " + features } }}
+    cd apps/desktop/src-tauri && CARGO_PROFILE_RELEASE_STRIP=false CARGO_PROFILE_RELEASE_DEBUG=line-tables-only cargo tauri dev --release --no-dev-server {{ if mode == "apart" { "--config tauri.dev.conf.json" } else { "" } }}
 
 # Regenerate the checked-in Android emulator and iOS simulator gRPC clients.
 device-proto:
@@ -45,7 +45,7 @@ desktop-build-signed:
     bash scripts/download-sparkle.sh
     bash scripts/sign-sparkle.sh
     (cd apps/desktop && npm ci --silent)
-    (cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app --features full,sparkle --config tauri.sparkle.conf.json)
+    (cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app --features sparkle --config tauri.sparkle.conf.json)
 
     app="${CARGO_TARGET_DIR:-target}/release/bundle/macos/Beep.app"
     codesign --verify --deep --strict "$app"

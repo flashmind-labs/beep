@@ -139,12 +139,6 @@ its data; removing it deletes the data.
 
 ## Tools for agents
 
-The lean desktop leaves plugin tools out; `plugin-tools` or `full` enables them.
-Check `beep.capabilities.tools` before registering handlers so the plugin's UI
-also works without tools. In that build, declarations stay as metadata, no tools
-are advertised, and registration or calls fail explicitly. Only enabled tools
-compile and validate their JSON Schemas.
-
 Plugin hosts can call these handlers through `Host::call_tool`. The desktop does
 not currently expose this API through Beep MCP. Calls refuse a plugin that is
 off, waiting for approval, paused or stopped; a plugin waiting for its slot

@@ -9,7 +9,7 @@ use crate::{
     fleet::Fleet,
 };
 use beep_mesh::{Key, Mesh};
-#[cfg(all(desktop, feature = "local-host"))]
+#[cfg(desktop)]
 use beep_node::agents::{local_hashes, local_read, local_tree};
 use beep_proto::{
     AgentFileChunk, ListWorkTree, WorkTree,
@@ -23,8 +23,8 @@ use std::{
 };
 use tokio::task::spawn_blocking;
 
-/// A build without a local host reads files from the remote machine.
-#[cfg(not(all(desktop, feature = "local-host")))]
+/// A phone reads files from the remote machine.
+#[cfg(mobile)]
 fn local_read(
     _root: &Path,
     _path: &str,
@@ -34,14 +34,14 @@ fn local_read(
     Ok(None)
 }
 
-/// A build without a local host asks the remote machine for file hashes.
-#[cfg(not(all(desktop, feature = "local-host")))]
+/// A phone asks the remote machine for file hashes.
+#[cfg(mobile)]
 fn local_hashes(_root: &Path, _paths: &[String]) -> anyhow::Result<Vec<Option<[u8; 32]>>> {
     anyhow::bail!("this build reads project files from a remote machine")
 }
 
-/// A build without a local host asks the remote machine for its tree.
-#[cfg(not(all(desktop, feature = "local-host")))]
+/// A phone asks the remote machine for its tree.
+#[cfg(mobile)]
 fn local_tree(_root: &Path, _path: &str, _ignored: bool, _depth: u32) -> anyhow::Result<WorkTree> {
     anyhow::bail!("this build reads project files from a remote machine")
 }

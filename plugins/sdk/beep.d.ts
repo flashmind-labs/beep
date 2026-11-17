@@ -335,7 +335,7 @@ interface Store {
 }
 
 interface Beep {
-  /** Optional APIs included in this build. Both this object and `beep` are frozen. */
+  /** Host API availability. Both this object and `beep` are frozen. */
   readonly capabilities: { readonly tools: boolean };
   readonly store: Store;
 
@@ -385,7 +385,6 @@ interface Beep {
    * on the plugin's thread under the usual CPU budget; a promise that does not settle
    * within 10 seconds fails the call, not the plugin, and a thrown error is the
    * call's error. Results over 64 KB fail. Needs the "tools" permission.
-   * Check `beep.capabilities.tools` first; unavailable builds refuse registration.
    */
   tool<Input = unknown>(name: string, handler: (input: Input) => unknown): void;
 

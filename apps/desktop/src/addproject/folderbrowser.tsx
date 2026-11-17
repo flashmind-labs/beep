@@ -193,7 +193,7 @@ export function pickFolder(o: { machine: string; start: string | null; heading: 
 /// A folder of this computer, picked in the palette; null when it is closed.
 /// Refuses while Beep does not run on this computer, as its folders are read through it.
 export async function pickHere(heading: string, start: string | null) {
-  if (!(await buildCapabilities()).local_host) throw new Error("Choosing folders on this computer requires the full build.");
+  if (!(await buildCapabilities()).local_host) throw new Error("Folder browsing is not available on this device.");
   const mac = await invoke<{ id: string | null }>("mac_control");
   if (!mac.id) throw new Error("Turn on “Let Beep use this computer” in Settings to choose its folders.");
 

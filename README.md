@@ -43,19 +43,13 @@ mesh, tickets and sync in detail.
 ## Build from source
 
 ```sh
-just run              # lean desktop controller (quit Beep first)
-just run shared full  # include local hosting and native integrations
+just run              # desktop app (quit Beep first)
 just desktop-build    # build it
 just desktop-check    # type checks and tests
 ```
 
-The lean build controls remote nodes and loads JavaScript plugins. Local agents,
-terminals, sync, rich text and optional native integrations require `full`.
-Individual Cargo features can also be selected; plugin TypeScript is compiled
-before installation, not inside the app. Signed desktop releases use `full`.
-Lean builds stream remote media without a persistent download cache. Select
-`blob-cache` for cached, resumable downloads, or `plugin-tools` for the plugin
-tool API. Plugin UI and themes work in either build.
+Normal builds include the complete app for their platform. Plugin TypeScript is
+compiled before installation, not inside the app.
 
 Add a machine from the desktop: it gives you a one-use ticket for `beep-node`.
 

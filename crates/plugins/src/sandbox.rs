@@ -18,7 +18,7 @@ use crate::manifest::{Manifest, ManifestError, Permission, PluginId};
 use crate::meter::Meter;
 use crate::source::{Imports, Sources};
 use crate::store::{DATA_DIR, Store};
-use crate::tool::{ToolCall, ToolError, Tools};
+use crate::tool::{ToolCall, Tools};
 use crate::topic::{Delivery, Subscriptions, Topic};
 use crate::ui::{
     MAX_FRAMES, Motion, Node, Placement, RawNode, RawPlace, RawPlacement, RawRepeat, RawStep,
@@ -310,11 +310,6 @@ impl Sandbox {
     /// Runs a tool's handler. A value or a settled promise answers the call at
     /// once; a pending promise answers when it settles, or times out.
     pub(crate) fn call_tool(&mut self, call: ToolCall, now: Instant) -> Result<(), SandboxError> {
-        if !cfg!(feature = "tools") {
-            let _ = call.reply.send(Err(ToolError::Unsupported));
-            return Ok(());
-        }
-
         let name = call.name.to_string();
         let input = call.input.clone();
         let id = locked(&self.tools).start(call, now);
@@ -474,7 +469,7 @@ fn native_functions<'js>(
     native.set("remove", Function::new(ctx.clone(), remove)?)?;
     native.set("tool", Function::new(ctx.clone(), tool)?)?;
     native.set("settle", Function::new(ctx.clone(), settle)?)?;
-    native.set("tools_available", cfg!(feature = "tools"))?;
+    native.set("tools_available", true)?;
 
     Ok(native)
 }

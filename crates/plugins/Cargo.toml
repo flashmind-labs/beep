@@ -7,15 +7,10 @@ rust-version.workspace = true
 publish.workspace = true
 description = "Runs JavaScript plugins in a QuickJS sandbox that places UI in named slots"
 
-[features]
-default = ["tools"]
-# JSON Schema validation is needed only when coding agents can call plugin tools.
-tools = ["dep:jsonschema"]
-
 [dependencies]
 blake3.workspace = true
 cpu-time.workspace = true
-jsonschema = { workspace = true, optional = true }
+jsonschema.workspace = true
 log.workspace = true
 mime_guess.workspace = true
 notify.workspace = true

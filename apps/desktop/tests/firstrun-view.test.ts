@@ -29,7 +29,7 @@ test("first run moves focus through the link flow and removes its fields when go
   let completions = 0;
   const join = async (_ticket: string) => {};
   try {
-    const view = render(createElement(FirstRunScreen, { localHost: true, done: () => { completions++; }, join, prepare: async () => null }));
+    const view = render(createElement(FirstRunScreen, { done: () => { completions++; }, join, prepare: async () => null }));
     const start = view.getByRole("button", { name: /^Start/ });
     assert.equal(dom.window.document.activeElement, start);
     fireEvent.click(view.getByRole("button", { name: /^Join my other computer/ }));
@@ -66,31 +66,13 @@ test("Start shows what this computer lacks and Set up starts the run", async () 
     dispose: () => {},
   };
   try {
-    const view = render(createElement(FirstRunScreen, { localHost: true, done: () => {}, join: async () => {}, prepare: async () => run }));
+    const view = render(createElement(FirstRunScreen, { done: () => {}, join: async () => {}, prepare: async () => run }));
     fireEvent.click(view.getByRole("button", { name: /^Start/ }));
     const setUp = await findByRole(view.container, "button", { name: "Set up all" });
     assert.ok(view.getByText("Installed · v2.47.1"));
     assert.equal(view.getAllByText("Not installed").length, 3);
     fireEvent.click(setUp);
     assert.equal(starts, 1);
-  } finally {
-    close();
-  }
-});
-
-test("lean first run connects machines without preparing local tools", async () => {
-  const { dom, testing: { render, fireEvent }, FirstRunScreen, close } = await page();
-  let completions = 0, preparations = 0;
-  try {
-    const view = render(createElement(FirstRunScreen, {
-      localHost: false, done: () => { completions++; }, join: async () => {},
-      prepare: async () => { preparations++; return null; },
-    }));
-    const connect = view.getByRole("button", { name: /^Connect a machine/ });
-    assert.equal(dom.window.document.activeElement, connect);
-    fireEvent.click(connect);
-    assert.equal(completions, 1);
-    assert.equal(preparations, 0);
   } finally {
     close();
   }

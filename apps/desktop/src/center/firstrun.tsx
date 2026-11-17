@@ -34,7 +34,7 @@ async function linked() {
 export async function firstRun() {
   if (stored() !== null) return;
   if (await linked()) return keep();
-  const capabilities = await buildCapabilities();
+  if (!(await buildCapabilities()).local_host) return;
   const screen = createDocumentScope<"first-run">();
   let closed = false;
   const leave = () => {
@@ -42,7 +42,7 @@ export async function firstRun() {
     closed = true;
     keep(); screen.dispose();
   };
-  screen.set([{ slot: "first-run", host: document.body, content: <div><FirstRunScreen localHost={capabilities.local_host} done={leave} join={joinTicket} prepare={prepare} /></div> }]);
+  screen.set([{ slot: "first-run", host: document.body, content: <div><FirstRunScreen done={leave} join={joinTicket} prepare={prepare} /></div> }]);
 }
 
 /// Set up for this computer, or null when there is none to run here.

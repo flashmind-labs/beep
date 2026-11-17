@@ -44,16 +44,13 @@ interface SessionInput {
   readonly session: string;
 }
 
-// Older hosts include tools but do not report capabilities.
-if (!("capabilities" in beep) || beep.capabilities.tools) {
-  beep.tool<SessionInput>("get_note", ({ session }) => ({ note: notes.get()[session] ?? "" }));
+beep.tool<SessionInput>("get_note", ({ session }) => ({ note: notes.get()[session] ?? "" }));
 
-  beep.tool<SessionInput & { readonly note: string }>("set_note", ({ session, note }) => {
-    keep(session, note);
+beep.tool<SessionInput & { readonly note: string }>("set_note", ({ session, note }) => {
+  keep(session, note);
 
-    return { note: notes.get()[session] ?? "" };
-  });
-}
+  return { note: notes.get()[session] ?? "" };
+});
 
 // Nothing is drawn for a session without a note, so its row does not change.
 beep.place({ slot: "session.row" }, (row) => {

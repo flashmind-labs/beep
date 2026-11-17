@@ -24,7 +24,7 @@ function SyncPreference({ kind }: { kind: SyncSettingKind }) {
 export function GeneralView(p: Props) {
   const s = p.settings;
   const capabilities = useBuildCapabilities();
-  return <>{!p.phone && !capabilities.local_host && <SettingRow title="Lean build" note="Connect another machine to run agents, terminals and projects. The full build can also run work on this computer.">{null}</SettingRow>}
+  return <>
     {!p.phone && capabilities.autostart && <SettingRow title="Launch at login" note="Keep Beep in the tray after a restart"><Switch id="autostart" label="Launch at login" on={s.autostart} disabled={p.busy.size > 0} flip={() => p.autostart(!s.autostart)} /></SettingRow>}
     <SettingRow title="Coding agent notifications" note={s.agent_notices ? "When a coding agent asks something or finishes a turn" : "Coding agents only show under Waiting"}><Switch id="agentNotices" label="Coding agent notifications" on={s.agent_notices} disabled={p.busy.size > 0} flip={() => p.notices(!s.agent_notices)} /></SettingRow>
     {/* A phone hosts no files and has no keyboard: these belong to the desktops. */}

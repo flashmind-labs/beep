@@ -22,15 +22,15 @@ use agents::artifacts;
 use beep::state::{Prefs, StateFile};
 use beep_proto::port::bind_endpoint;
 use fleet::Fleet;
-#[cfg(all(desktop, feature = "local-host", feature = "metrics-recording"))]
+#[cfg(desktop)]
 use metrics_exporter_prometheus::PrometheusHandle;
 use std::{sync::Arc, time::Duration};
 #[cfg(target_os = "macos")]
 use tauri::ActivationPolicy;
 use tauri::{App, AppHandle, Manager, RunEvent, WindowEvent};
-#[cfg(all(desktop, feature = "autostart"))]
+#[cfg(desktop)]
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
-#[cfg(all(desktop, feature = "window-state"))]
+#[cfg(desktop)]
 use tauri_plugin_window_state::StateFlags;
 use tokio::time::timeout;
 
@@ -57,7 +57,7 @@ pub fn run() {
     log::info!("Beep {} starting", env!("CARGO_PKG_VERSION"));
     platform::startup::stage("main");
     // Made beside the app's start, off the main thread: see `diagnostics::install`.
-    #[cfg(all(desktop, feature = "local-host", feature = "metrics-recording"))]
+    #[cfg(desktop)]
     let recorder = std::thread::spawn(beep_node::link::diagnostics::install);
     let context = tauri::generate_context!();
     // SAFETY: nothing else runs yet; Tauri starts its threads below.
@@ -80,14 +80,14 @@ pub fn run() {
     };
     #[cfg(all(desktop, not(target_os = "macos")))]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
-    #[cfg(all(desktop, feature = "autostart"))]
+    #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_autostart::init(
         MacosLauncher::LaunchAgent,
         Some(vec![LOGIN_ARG]),
     ));
     // Command center windows open where they were last, on a screen still
     // attached; the bar places itself.
-    #[cfg(all(desktop, feature = "window-state"))]
+    #[cfg(desktop)]
     let builder = builder.plugin(
         tauri_plugin_window_state::Builder::new()
             .with_state_flags(StateFlags::POSITION | StateFlags::SIZE | StateFlags::MAXIMIZED)
@@ -135,9 +135,9 @@ pub fn run() {
             }
         })
         .setup(move |app| {
-            #[cfg(all(desktop, feature = "local-host", feature = "metrics-recording"))]
+            #[cfg(desktop)]
             let started = setup(app, recorder);
-            #[cfg(not(all(desktop, feature = "local-host", feature = "metrics-recording")))]
+            #[cfg(mobile)]
             let started = setup(app);
             Ok(started?)
         })
@@ -534,7 +534,7 @@ fn hide_windows(app: &AppHandle) {
 
 /// Everything quitting does, within `QUIT_LIMIT` unless an update installs.
 fn quit(app: &AppHandle) {
-    #[cfg(all(desktop, feature = "resource-profiling"))]
+    #[cfg(desktop)]
     if let Some(sampling) = app.try_state::<platform::energy::Sampling>() {
         sampling.stop();
     }
@@ -567,20 +567,15 @@ fn quit(app: &AppHandle) {
     app.state::<Arc<agents::outbox::Outbox>>().sync();
     app.state::<Arc<agents::starts::Starts>>().sync();
     // Background tasks the agent started here end with the app.
-    #[cfg(all(desktop, feature = "local-host"))]
+    #[cfg(desktop)]
     beep_node::kill_tasks();
 }
 
 fn setup(
     app: &mut App,
-    #[cfg(all(desktop, feature = "local-host", feature = "metrics-recording"))]
-    recorder: std::thread::JoinHandle<anyhow::Result<PrometheusHandle>>,
+    #[cfg(desktop)] recorder: std::thread::JoinHandle<anyhow::Result<PrometheusHandle>>,
 ) -> anyhow::Result<()> {
     platform::startup::stage("setup");
-    #[cfg(all(desktop, not(feature = "resource-profiling")))]
-    if std::env::var_os("BEEP_DESKTOP_RESOURCE_METRICS").is_some_and(|value| value == "1") {
-        log::warn!("resource profiling unavailable: build with --features resource-profiling");
-    }
     // Kept as state so it lives as long as the app.
     #[cfg(target_os = "android")]
     if let Some(guard) = platform::logfile::start_android(&beep::identity::data_dir(app.handle())?)
@@ -589,7 +584,7 @@ fn setup(
     }
     #[cfg(target_os = "macos")]
     notices::notify::init(app.handle());
-    #[cfg(all(unix, desktop, feature = "local-host"))]
+    #[cfg(all(unix, desktop))]
     beep_node::machine::raise_open_files();
     #[cfg(target_os = "macos")]
     app.set_activation_policy(ActivationPolicy::Accessory);
@@ -646,7 +641,7 @@ fn setup(
         beep::identity::secret_key(&identity),
         beep_mesh::transport_config(),
     ))?;
-    #[cfg(all(desktop, feature = "local-host", feature = "metrics-recording"))]
+    #[cfg(desktop)]
     tauri::async_runtime::spawn_blocking({
         let (app, endpoint, file) = (
             handle.clone(),
@@ -666,7 +661,6 @@ fn setup(
                 Ok(task) => {
                     app.manage(task);
 
-                    #[cfg(feature = "resource-profiling")]
                     if let Some(sampling) = platform::energy::start(app.clone()) {
                         app.manage(sampling);
                     }
@@ -675,17 +669,10 @@ fn setup(
             }
         }
     });
-    #[cfg(any(
-        mobile,
-        all(desktop, not(feature = "local-host"), feature = "metrics-recording")
-    ))]
+    #[cfg(mobile)]
     match platform::metrics::PhoneMetrics::start(&dir.join("metrics")) {
         Ok(metrics) => {
             app.manage(metrics);
-            #[cfg(all(desktop, feature = "resource-profiling"))]
-            if let Some(sampling) = platform::energy::start(handle.clone()) {
-                app.manage(sampling);
-            }
         }
         Err(e) => log::warn!("metrics unavailable: {e:#}"),
     }
@@ -700,23 +687,15 @@ fn setup(
         Err(e) => log::warn!("plugins unavailable: {e}"),
     }
     // This Mac's node, and the mesh it is in, which opens in the background.
-    #[cfg(all(desktop, feature = "local-host"))]
+    #[cfg(desktop)]
     let machine =
         machines::this_mac::Machine::new(&dir.join("node"), Some(projects::agent::tools(&handle)));
-    #[cfg(all(desktop, feature = "local-host"))]
+    #[cfg(desktop)]
     let fleet = Arc::new(Fleet::new(
         endpoint,
         &dir.join("node"),
         machine.name(),
         machine.offers(),
-    ));
-    #[cfg(all(desktop, not(feature = "local-host")))]
-    let machine = machines::this_mac::Machine::controller();
-    #[cfg(all(desktop, not(feature = "local-host")))]
-    let fleet = Arc::new(Fleet::controller(
-        endpoint,
-        &dir.join("node"),
-        machine.name(),
     ));
     // A phone embeds no node: it observes the mesh a desktop pairs it with, if any.
     #[cfg(mobile)]
@@ -728,7 +707,6 @@ fn setup(
     };
     app.manage(fleet.clone());
     let opened_files = handle.path().app_cache_dir()?.join("agent-files");
-    #[cfg(any(mobile, feature = "blob-cache"))]
     let files = {
         let files = Arc::new(agents::file_cache::FileCache::new(
             handle.path().app_cache_dir()?.join("chat-files"),
@@ -739,7 +717,6 @@ fn setup(
     tauri::async_runtime::spawn(async move {
         loop {
             agents::media::sweep_open_files(&opened_files).await;
-            #[cfg(any(mobile, feature = "blob-cache"))]
             files.sweep().await;
             tokio::time::sleep(agents::media::SWEEP_EVERY).await;
         }
@@ -823,7 +800,7 @@ fn setup(
         }
     });
 
-    #[cfg(all(desktop, feature = "autostart"))]
+    #[cfg(desktop)]
     refresh_login_item(app.handle());
     platform::startup::stage("setup done");
     Ok(())
@@ -844,7 +821,7 @@ fn build_bar(app: &AppHandle) -> anyhow::Result<()> {
 
 /// Login items made before they carried `LOGIN_ARG` open the window at
 /// login; enabling again rewrites them with it.
-#[cfg(all(desktop, feature = "autostart"))]
+#[cfg(desktop)]
 fn refresh_login_item(app: &AppHandle) {
     let manager = app.autolaunch();
 
