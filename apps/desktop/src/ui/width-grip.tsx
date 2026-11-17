@@ -18,6 +18,8 @@ const STEP = 16;
 
 /// The command center's sidebar.
 export const SIDEBAR: Column = { property: "--side-w", key: "beep.sideWidth", min: 180, max: 420, initial: 184, label: "Resize the sidebar" };
+/// A project's sessions in place of the sidebar.
+export const RAIL: Column = { property: "--rail-w", key: "beep.railWidth", min: 200, max: 480, initial: 260, label: "Resize the sessions" };
 /// The Assistant page's chats.
 export const CHATS: Column = { property: "--asst-w", key: "beep.chatsWidth", min: 200, max: 560, initial: 300, label: "Resize the chats" };
 

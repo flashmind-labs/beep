@@ -3,13 +3,13 @@
 // elements through `windowHost`.
 import { useLayoutEffect, type ReactNode } from "react";
 import { createStore, useStore } from "zustand";
-import { SIDEBAR, WidthGrip } from "../ui/width-grip.tsx";
+import { RAIL, SIDEBAR, WidthGrip } from "../ui/width-grip.tsx";
 import { HazeArt } from "../ui/painted-art.tsx";
 import type { ViewName } from "./state.ts";
 
 /// The places of the window that modules fill.
 export type ShellPart = "sidebar" | "mobile-back" | "project-back" | "title" | "date" | "scope" | "tools" | "usage" | "notices"
-  | "mobile-settings" | "home" | "home-composer" | "pages" | "mobile-tabs" | "palette" | "assistant";
+  | "mobile-settings" | "home" | "home-composer" | "pages" | "mobile-tabs" | "palette" | "assistant" | "rail";
 
 interface Shell {
   /// The view showing; null before the first.
@@ -18,9 +18,28 @@ interface Shell {
   /// start composer is picked, which the phone shows in place of the chats.
   assistant: { picked: boolean } | null;
   parts: Partial<Record<ShellPart, ReactNode>>;
+  side: Side;
 }
 
-export const shell = createStore<Shell>(() => ({ view: null, assistant: null, parts: { title: "Home" } }));
+/// The sidebar: folded to its icons by the user, and the project whose sessions take its place
+/// while one of them shows, unless the user unfolded the sidebar there.
+interface Side { collapsed: boolean; rail: string | null; railHidden: boolean }
+
+export const shell = createStore<Shell>(() => ({ view: null, assistant: null, parts: { title: "Home" }, side: { collapsed: false, rail: null, railHidden: false } }));
+
+/// Whether the sidebar shows only its icons: beside a project's sessions, or as the user left it.
+export const sideCollapsed = ({ collapsed, rail, railHidden }: Side) => rail ? !railHidden : collapsed;
+
+/// The sidebar's toggle: beside a project's sessions it swaps the two, elsewhere it folds the sidebar.
+export function toggleSide() {
+  shell.setState(({ side }) => ({ side: side.rail ? { ...side, railHidden: !side.railHidden } : { ...side, collapsed: !side.collapsed } }));
+}
+
+/// Shows `project`'s sessions in place of the sidebar, or the sidebar again. Opening a project's
+/// session from elsewhere folds the sidebar again.
+export function setRail(project: string | null) {
+  shell.setState(now => now.side.rail === project ? now : { side: { ...now.side, rail: project, railHidden: !!project && !!now.side.rail && now.side.railHidden } });
+}
 
 /// The window's elements other modules work in.
 type Host = "side" | "main" | "top" | "home-box" | "view" | "pane-box" | "usage" | "bell";
@@ -46,7 +65,8 @@ export function windowHost(name: Host): HTMLElement {
 }
 
 export function CenterWindow() {
-  const { view, assistant, parts } = useStore(shell);
+  const { view, assistant, parts, side } = useStore(shell);
+  const collapsed = sideCollapsed(side), rail = !!side.rail && !side.railHidden;
   // The top bar's own width, which a session's title row keeps clear of (native.css).
   useLayoutEffect(() => {
     const top = hosts.get("top"), main = hosts.get("main");
@@ -57,9 +77,17 @@ export function CenterWindow() {
     return () => measured.disconnect();
   }, []);
 
+  useLayoutEffect(() => {
+    const win = hosts.get("side")?.parentElement;
+    win?.classList.toggle("side-collapsed", collapsed);
+    win?.classList.toggle("rail-on", rail);
+  }, [collapsed, rail]);
+
   return <>
     <aside className="cc-side" id="side" ref={refs.side}><HazeArt />{parts.sidebar}</aside>
     <WidthGrip column={SIDEBAR} id="side-grip" />
+    <aside className="cc-rail pj-list" id="rail" aria-label="Project sessions" hidden={!rail}>{rail && parts.rail}</aside>
+    <WidthGrip column={RAIL} id="rail-grip" />
     <div className="cc-main" id="main" ref={refs.main}>
       <div className="cc-top" data-tauri-drag-region="" ref={refs.top}>
         {parts["mobile-back"]}{parts["project-back"]}

@@ -14,15 +14,16 @@ import { Changes, UNWATCHED_MS } from "../ui/pagecache.ts";
 import { parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { FoundSection, RepoSection } from "./outside-lists.tsx";
-import type { RecentSessions } from "./split-view.tsx";
-import { foundFor, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
+import { ProjectRail, type RecentSessions } from "./split-view.tsx";
+import { shell } from "../center/window-shell.tsx";
+import { foundFor, withSyncthing, projectName, projectRunning, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { localProjectId } from "./localid.ts";
 import { state, pages, keep, pageFresh } from "../center/state.ts";
 import { openUrl, refreshGit } from "../center/openitems.ts";
 import { currentLocation, go } from "../center/views.tsx";
-import { projectRows, importSheet, addProject, importFromPage, loadFound } from "../center/sidebar.tsx";
+import { projectRows, importSheet, addProject, importFromPage, loadFound, drawSide, openProjects } from "../center/sidebar.tsx";
 import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage, repairButton } from "./sections.ts";
 import { drawProjects } from "./page.tsx";
 import { refresh, onScreen } from "../center/refresh.ts";
@@ -300,7 +301,7 @@ export function disposeSessionPanel() { if (sessionsTab) removeWindowPart("proje
 
 export function sessionsHost(project: string, rows: SessionRow[]) {
   if (sessionsTab?.project !== project) { disposeSessionPanel(); sessionsTab = { project, host: retainedHost("cc-panel") }; }
-  showWindowParts([{ part: "project-sessions:all", host: sessionsTab.host, identity: project, content: <ProjectSessions rows={rows} all /> }]);
+  showWindowParts([{ part: "project-sessions:all", host: sessionsTab.host, identity: project, content: <ProjectSessions rows={rows} all current={null} /> }]);
   return sessionsTab.host;
 }
 
@@ -317,6 +318,18 @@ export function sessionsList(p: Project, running: RunningAgent[]): RecentSession
   if (sessions === undefined) return { rows: null, empty: "Reading sessions…", count: past.length, freshness };
   if (!past.length) return { rows: null, empty: "No past sessions yet.", count: past.length, freshness };
   return { rows: past, empty: null, count: past.length, freshness };
+}
+
+/// Project `name`'s sessions beside the one on screen, `current`: read when first shown.
+export function projectRail(name: string, current: string | null) {
+  const p = projectRows()?.find(row => row.name === name);
+  if (!p) return null;
+  const sessions = state.sessions.get(name), moves = [...moveStore.getState().records.values()];
+  if ((sessions === undefined || sessionsDue.has(name)) && p.imported) loadSessions(name);
+  const running = projectRunning(p, state.home?.running, sessions, moves).filter(sessionVisible);
+  const past = projectPastSessions(sessions, running, moves).filter(sessionVisible);
+
+  return <ProjectRail project={name} label={projectName(p)} running={running} past={past} current={current} back={() => void openProjects(name)} />;
 }
 
 /// The projects whose sessions are being read, and those to read again on the
@@ -349,6 +362,7 @@ async function readSessions(name: string) {
   const { list } = nextSessions(state.sessions.get(name), got);
   state.sessions.set(name, list);
   if (got) keep("sessions", name, list);
+  if (shell.getState().side.rail === name) drawSide();
   if (currentLocation()?.view !== "projects" || state.picked !== name) return;
   // The draw also drops the Updating note.
   drawProjects();
@@ -384,10 +398,12 @@ export function elsewhereSection(rows: Project[], enabled: boolean) {
   return <div id="sec-elsewhere"><RepoSection id="section:elsewhere" title="Your PRs and issues elsewhere" note="in repos without a project" repos={body} sort="default" open={openUrl} /></div>;
 }
 
-// Reopened sessions and moves change independently of project membership.
-const projectSessionsShown = () => currentLocation()?.view === "projects" && !!state.picked;
+// Reopened sessions and moves change independently of project membership. The project's page
+// shows them, and the rail beside one of its sessions.
+const shownSessions = () => currentLocation()?.view === "projects" ? state.picked : shell.getState().side.rail;
+const projectSessionsShown = () => !!shownSessions();
 async function refreshProjectSessions() {
-  const name = state.picked;
+  const name = shownSessions();
   if (name) { sessionsDue.add(name); await loadSessions(name); }
 }
 // Agents report many times a second during turns; the list follows every two seconds.
