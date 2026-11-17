@@ -242,6 +242,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-kv { display: grid; grid-template-columns: 170px minmax(0, 1fr); font-size: 13px }
 .cc-set .dset-kv > span { padding: 8px 14px; border-bottom: 1px solid var(--border); min-width: 0; overflow-wrap: anywhere }
 .cc-set .dset-kv > span:nth-child(odd) { color: var(--muted) }
+.cc-set .dset-kv > span:nth-child(even) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px }
+.cc-set .dset-kv > span:nth-child(even) > button { margin-left: auto }
 .cc-set .dset-kv > span:nth-last-child(-n+2) { border-bottom: 0 }
 .cc-set .dset-tbl { display: table; width: 100%; border-collapse: collapse; font-size: 13px }
 .cc-set .dset-tbl th { text-align: left; font-weight: 500; font-size: 11.5px; color: var(--muted); padding: 8px 14px; border-bottom: 1px solid var(--border) }
