@@ -205,7 +205,7 @@ fn created(repo: &gix::Repository, id: &gix::oid) -> i64 {
 }
 
 /// An object name. SHA-1 names fill 20 of the bytes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(super) struct Oid(#[serde(with = "serde_bytes")] [u8; 32]);
 
 impl From<[u8; 32]> for Oid {
@@ -614,6 +614,57 @@ impl Repo {
         Ok(output)
     }
 
+    /// A file in `.git` that holds a pack while it arrives, so Git reads
+    /// only a whole one. A transfer cut short leaves nothing behind.
+    pub(super) fn incoming_pack(&self) -> Result<tempfile::NamedTempFile> {
+        tempfile::Builder::new()
+            .prefix("beep-incoming-")
+            .suffix(".pack")
+            .tempfile_in(self.root.join(GIT))
+            .context("making room for a Git pack")
+    }
+
+    /// Indexes the whole pack in `pack`, then lets Git pack its objects
+    /// together once enough packs have come.
+    pub(super) fn index_pack(&self, pack: &tempfile::NamedTempFile) -> Result<()> {
+        let before = self.unfinished_packs();
+        let output = self
+            .git()
+            .args(["index-pack", "--stdin", "--fix-thin"])
+            .stdin(pack.reopen()?)
+            .output()
+            .context("running git index-pack")?;
+
+        if !output.status.success() {
+            // Git leaves the pack it was writing when it fails.
+            for path in self.unfinished_packs().difference(&before) {
+                let _ = fs::remove_file(path);
+            }
+
+            bail!(
+                "Git could not read the object pack: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        // Below `gc.autoPackLimit` packs this returns at once.
+        if let Err(e) = self.run(&["gc", "--auto", "--quiet"]) {
+            log::warn!("{}: {e:#}", self.root.display());
+        }
+
+        Ok(())
+    }
+
+    fn unfinished_packs(&self) -> HashSet<PathBuf> {
+        let Ok(entries) = fs::read_dir(self.root.join(GIT).join("objects").join("pack")) else {
+            return HashSet::new();
+        };
+        entries
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("tmp_pack_"))
+            .map(|entry| entry.path())
+            .collect()
+    }
+
     /// This repository for questions about refs and history, answered in
     /// process instead of by a git process. Like [`Self::git`], it ignores the
     /// environment and global config that could point it elsewhere.
@@ -705,6 +756,14 @@ impl Repo {
         let hex = oid.to_string();
         self.run(&["rev-list", "--objects", "--quiet", &hex, "--not", "--all"])
             .is_ok()
+    }
+
+    /// Whether commit `oid` is here.
+    pub(super) fn has_commit(&self, oid: Oid) -> bool {
+        let Ok(repo) = self.gix() else {
+            return false;
+        };
+        gix::ObjectId::try_from(oid).is_ok_and(|id| repo.find_commit(id).is_ok())
     }
 
     /// Whether `a` is an ancestor of `b`; `None` when git cannot say, as when

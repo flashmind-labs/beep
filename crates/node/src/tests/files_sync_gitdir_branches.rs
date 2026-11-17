@@ -123,3 +123,80 @@ fn a_repeated_catalog_reports_only_the_tips_that_moved() {
     assert_eq!(repo.prepare_peer_refs(&peer, &moved).unwrap(), moved);
     assert_eq!(repo.cached_branches(&peer).unwrap(), vec![tip("main", first)]);
 }
+
+#[test]
+fn only_the_default_and_checked_out_branches_sync() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = Repo {
+        root: temp.path().to_owned(),
+    };
+    repo.run(&["init", "-q", "-b", "main"]).unwrap();
+    repo.run(&[
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "first",
+    ])
+    .unwrap();
+    repo.run(&["branch", "feature"]).unwrap();
+    repo.run(&["worktree", "add", "-q", "-b", "agent", ".worktrees/agent"])
+        .unwrap();
+    let names = |repo: &Repo| {
+        repo.branches()
+            .unwrap()
+            .into_iter()
+            .map(|tip| tip.name)
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(names(&repo), ["refs/heads/main"]);
+
+    repo.run(&["switch", "-q", "feature"]).unwrap();
+    assert_eq!(names(&repo), ["refs/heads/feature", "refs/heads/main"]);
+
+    assert!(repo.takes_branch("refs/heads/main"));
+    assert!(repo.takes_branch("refs/heads/feature"));
+    assert!(!repo.takes_branch("refs/heads/someone-elses-agent"));
+}
+
+#[test]
+fn a_new_branch_is_asked_for_with_what_is_here() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = Repo {
+        root: temp.path().to_owned(),
+    };
+    let commit = |message: &str| {
+        repo.run(&[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            message,
+        ])
+        .unwrap();
+        repo.head().unwrap()
+    };
+    repo.run(&["init", "-q", "-b", "main"]).unwrap();
+    let first = commit("first");
+    let peer = iroh::SecretKey::from_bytes(&[7; 32]).public();
+    let received = BranchTip {
+        name: "refs/heads/main".into(),
+        commit: first,
+    };
+    repo.keep_peer_branch(&peer, &received).unwrap();
+    let second = commit("second");
+
+    // No local branch of that name: HEAD, which is the default branch, and
+    // the peer's tip stand in, so the pack holds only what is new.
+    assert_eq!(repo.haves(&peer, "refs/heads/agent"), [second, first]);
+    assert_eq!(repo.haves(&peer, "refs/heads/main"), [second, first]);
+}

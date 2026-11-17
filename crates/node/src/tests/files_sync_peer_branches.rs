@@ -101,10 +101,24 @@ fn existing_pull_and_object_requests_keep_their_wire_bytes() {
         commit: Oid::from([1; 32]),
         branch: "refs/heads/main".into(),
         have: None,
+        haves: vec![Oid::from([2; 32])],
     };
+    // Old peers read the request without the haves; new peers read old
+    // requests with none.
+    let read: LegacyRequest =
+        beep_proto::lenient::from_slice(&rmp_serde::to_vec(&new).unwrap()).unwrap();
+    assert_eq!(read, old);
+    let read: Request =
+        beep_proto::lenient::from_slice(&rmp_serde::to_vec(&old).unwrap()).unwrap();
     assert_eq!(
-        rmp_serde::to_vec(&old).unwrap(),
-        rmp_serde::to_vec(&new).unwrap()
+        read,
+        Request::GitObjects {
+            project: "project".into(),
+            commit: Oid::from([1; 32]),
+            branch: "refs/heads/main".into(),
+            have: None,
+            haves: Vec::new(),
+        }
     );
 }
 

@@ -273,36 +273,48 @@ async fn mesh_syncs_main_while_both_project_checkouts_are_on_other_branches() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn mesh_receives_unknown_branches_without_creating_local_branches_or_switching() {
+async fn mesh_leaves_a_peers_other_branches_on_that_peer() {
     let (a, b) = paused_pair().await;
     git(&a.folder(), &["switch", "-c", "new-feature"]);
     let tip = commit(&a, "new.txt", "new feature commit\n");
+    exclude_worktrees(&a);
+    git(&a.folder(), &["worktree", "add", ".worktrees/main", "main"]);
+    let worktree = a.path(".worktrees/main");
+    write(&worktree.join("README.md"), "main moves on\n");
+    git(&worktree, &["add", "README.md"]);
+    git(&worktree, &["commit", "-q", "-m", "main update"]);
+    let newest = git(&worktree, &["rev-parse", "HEAD"]);
     let before = snapshot(&b.folder());
     resume_pair(&a, &b).await;
-    eventually("new feature history in the peer namespace", || {
-        ref_commit(&b, &peer_ref(&a, "new-feature")).as_deref() == Some(tip.as_str())
-    })
-    .await;
-    assert_eq!(snapshot(&b.folder()), before);
+
+    // The default branch comes; the branch `b` does not have costs nothing.
+    main_reaches(&b, &newest).await;
+    assert_eq!(ref_commit(&b, &peer_ref(&a, "new-feature")), None);
+    assert!(
+        !try_git(&b.folder(), &["cat-file", "-e", &tip])
+            .status
+            .success()
+    );
+    assert_eq!(snapshot(&b.folder()).branch, before.branch);
     assert_eq!(ref_commit(&b, "refs/heads/new-feature"), None);
-    assert!(!b.path("new.txt").exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn mesh_peer_branch_prefix_changes_keep_received_history_and_do_not_block_sync() {
+async fn mesh_peer_branch_replaced_keeps_received_history_and_does_not_block_sync() {
     let (a, b) = paused_pair().await;
-    git(&a.folder(), &["branch", "topic"]);
+    git(&b.folder(), &["branch", "topic"]);
+    git(&a.folder(), &["switch", "-c", "topic"]);
+    let first = commit(&a, "topic.txt", "topic\n");
     resume_pair(&a, &b).await;
     eventually("the first peer branch", || {
-        ref_commit(&b, &peer_ref(&a, "topic")).is_some()
+        ref_commit(&b, &peer_ref(&a, "topic")).as_deref() == Some(first.as_str())
     })
     .await;
-    git(&a.folder(), &["branch", "-d", "topic"]);
-    git(&a.folder(), &["switch", "-c", "topic/next"]);
-    let next = commit(&a, "next.txt", "next branch\n");
-    eventually("the replacement peer branch", || {
-        ref_commit(&b, &peer_ref(&a, "topic/next")).as_deref() == Some(next.as_str())
-            && ref_commit(&b, &peer_ref(&a, "topic")).is_none()
+    git(&a.folder(), &["switch", "-c", "topic-next"]);
+    git(&a.folder(), &["branch", "-D", "topic"]);
+    commit(&a, "next.txt", "next branch\n");
+    eventually("the removed peer branch to go", || {
+        ref_commit(&b, &peer_ref(&a, "topic")).is_none()
     })
     .await;
     assert!(
@@ -316,6 +328,7 @@ async fn mesh_peer_branch_prefix_changes_keep_received_history_and_do_not_block_
         )
         .is_empty()
     );
+    assert_eq!(ref_commit(&b, &peer_ref(&a, "topic-next")), None);
     assert_eq!(git(&b.folder(), &["branch", "--show-current"]), "main");
     assert!(!b.path("next.txt").exists());
     assert_sound(&b);

@@ -78,12 +78,17 @@ pub(super) async fn receive_catalog(
         return Ok(());
     }
 
-    // Only the tips that moved since the last catalog cost Git work.
-    let (root, peer_id, advertised) = (shared.root().to_owned(), *peer, tips.clone());
-    let changed = spawn_blocking(move || {
-        Repo::open(&root)
-            .context("Git checkout is unavailable")?
-            .prepare_peer_refs(&peer_id, &advertised)
+    // Only the branches this checkout takes, and of them only the tips that
+    // moved since the last catalog, cost Git work.
+    let (root, peer_id) = (shared.root().to_owned(), *peer);
+    let (tips, changed) = spawn_blocking(move || -> Result<_> {
+        let repo = Repo::open(&root).context("Git checkout is unavailable")?;
+        let tips = tips
+            .into_iter()
+            .filter(|tip| repo.takes_branch(&tip.name))
+            .collect::<Vec<_>>();
+        let changed = repo.prepare_peer_refs(&peer_id, &tips)?;
+        Ok((tips, changed))
     })
     .await??;
 
@@ -92,12 +97,12 @@ pub(super) async fn receive_catalog(
             shared.has_peer(peer) && !shared.is_stopped(),
             "Project sharing stopped"
         );
-        let (root, checked_tip) = (shared.root().to_owned(), tip.clone());
-        let (need, have) = spawn_blocking(move || -> Result<_> {
+        let (root, checked_tip, peer_id) = (shared.root().to_owned(), tip.clone(), *peer);
+        let (need, haves) = spawn_blocking(move || -> Result<_> {
             let repo = Repo::open(&root).context("Git checkout is unavailable")?;
             Ok((
                 !repo.is_complete(checked_tip.commit),
-                repo.ref_oid(&checked_tip.name),
+                repo.haves(&peer_id, &checked_tip.name),
             ))
         })
         .await??;
@@ -109,7 +114,7 @@ pub(super) async fn receive_catalog(
                 ObjectWant {
                     commit: tip.commit,
                     branch: tip.name.clone(),
-                    have,
+                    haves,
                     scope: ObjectScope::Branch,
                 },
             )

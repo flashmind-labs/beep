@@ -36,8 +36,17 @@ impl BranchTip {
 }
 
 impl Repo {
-    /// Advertise local branch tips, excluding stashes, recovery refs and peer refs.
+    /// The tips of the branches that sync: the default branch and the one
+    /// checked out here. Branches of linked worktrees stay on this machine.
     pub(in crate::files::sync) fn branches(&self) -> Result<Vec<BranchTip>> {
+        let synced = self.synced_branches();
+        let mut tips = self.local_branches()?;
+        tips.retain(|tip| synced.contains(&tip.name));
+        Ok(tips)
+    }
+
+    /// Every local branch tip, excluding stashes, recovery refs and peer refs.
+    pub(in crate::files::sync) fn local_branches(&self) -> Result<Vec<BranchTip>> {
         let tips = self
             .refs()?
             .into_iter()
@@ -51,6 +60,47 @@ impl Repo {
             .collect::<Vec<_>>();
         BranchTip::validate(&tips)?;
         Ok(tips)
+    }
+
+    /// The commits to tell `peer` this checkout has when it packs `branch`,
+    /// the closest first: the branch here, HEAD, the default branch, then
+    /// the branches it sent before.
+    pub(in crate::files::sync) fn haves(&self, peer: &EndpointId, branch: &str) -> Vec<Oid> {
+        let received = self.cached_branches(peer).unwrap_or_default();
+        let candidates = [
+            self.ref_oid(branch),
+            self.head(),
+            self.ref_oid(&self.default_branch()),
+        ]
+        .into_iter()
+        .flatten()
+        .chain(received.into_iter().map(|tip| tip.commit));
+        let mut seen = HashSet::new();
+        candidates.filter(|oid| seen.insert(*oid)).collect()
+    }
+
+    /// Whether a peer's branch `name` is one to take: the default branch, or
+    /// one this checkout has too. A peer's other branches cost no transfer.
+    pub(in crate::files::sync) fn takes_branch(&self, name: &str) -> bool {
+        name == self.default_branch() || self.ref_oid(name).is_some()
+    }
+
+    fn synced_branches(&self) -> Vec<String> {
+        let default = self.default_branch();
+        let head = self
+            .head_ref()
+            .filter(|head| head.starts_with(HEADS) && *head != default);
+        [Some(default), head].into_iter().flatten().collect()
+    }
+
+    /// The full name of `origin`'s default branch, or `main` when `origin`
+    /// names none.
+    fn default_branch(&self) -> String {
+        let name = self
+            .gix()
+            .ok()
+            .and_then(|repo| crate::agents::found::default_branch(&repo));
+        format!("{HEADS}{}", name.as_deref().unwrap_or("main"))
     }
 
     pub(in crate::files::sync) fn validate_branch(&self, name: &str) -> Result<()> {
@@ -141,7 +191,12 @@ impl Repo {
         let wanted = tips.iter().map(|tip| &tip.name).collect::<HashSet<_>>();
 
         for (branch, &oid) in held.iter().filter(|(branch, _)| !wanted.contains(branch)) {
-            self.retain_peer_history(peer, branch, oid)?;
+            // A branch no longer taken is let go of, so its history can be
+            // collected; one the peer removed keeps its history.
+            if self.takes_branch(branch) {
+                self.retain_peer_history(peer, branch, oid)?;
+            }
+
             self.delete_ref(&Self::peer_ref(peer, branch)?, oid)?;
         }
 

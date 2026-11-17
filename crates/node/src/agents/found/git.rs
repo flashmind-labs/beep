@@ -86,6 +86,13 @@ pub(crate) fn repository(dir: &Path) -> Option<gix::Repository> {
     Some(repo.to_thread_local())
 }
 
+/// The branch `origin/HEAD` names, such as `main`, if `origin` names one.
+pub(crate) fn default_branch(repo: &gix::Repository) -> Option<String> {
+    let head = repo.try_find_reference("refs/remotes/origin/HEAD").ok()??;
+    let name = head.target().try_name()?.shorten().to_string();
+    name.strip_prefix("origin/").map(str::to_owned)
+}
+
 /// The top folder of the work tree `dir` is in, and of the repository's main
 /// checkout.
 fn folders(dir: &Path) -> Option<(PathBuf, PathBuf)> {
