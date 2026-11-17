@@ -15,6 +15,12 @@ run mode="shared":
     cd apps/desktop && npm ci --silent && npm run build
     cd apps/desktop/src-tauri && cargo tauri dev --no-dev-server {{ if mode == "apart" { "--config tauri.dev.conf.json" } else { "" } }}
 
+# Run the desktop as an optimized release build that keeps its symbols and
+# line numbers, so `sample` and Instruments name functions. Same modes as `run`.
+run-release mode="shared":
+    cd apps/desktop && npm ci --silent && npm run build
+    cd apps/desktop/src-tauri && CARGO_PROFILE_RELEASE_STRIP=false CARGO_PROFILE_RELEASE_DEBUG=line-tables-only cargo tauri dev --release --no-dev-server {{ if mode == "apart" { "--config tauri.dev.conf.json" } else { "" } }}
+
 # Regenerate the checked-in Android emulator and iOS simulator gRPC clients.
 device-proto:
     cargo run -p beep-device-proto
