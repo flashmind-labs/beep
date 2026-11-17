@@ -16,9 +16,10 @@ use std::collections::{BTreeMap, VecDeque};
 /// The option that skips the whole form.
 const SKIP: &str = "skip";
 
-/// The suffix of a choice's companion field for the user's own words, as
-/// the Claude adapter names it (`question_0_custom`).
-const CUSTOM: &str = "_custom";
+/// The suffixes of a choice's companion field for the user's own words, as
+/// the Claude adapter (`question_0_custom`) and the Codex adapter
+/// (`question_0_note`) name it.
+const CUSTOM: [&str; 2] = ["_custom", "_note"];
 
 /// A form waiting for the user, its fields still to answer first in line.
 pub(in crate::agents) struct Form {
@@ -80,8 +81,10 @@ impl TryFrom<CreateElicitationRequest> for Fields {
             .iter()
             .filter(|(key, _)| !is_custom(&properties, key))
             .filter_map(|(key, schema)| {
-                let custom = format!("{key}{CUSTOM}");
-                let custom = properties.contains_key(&custom).then_some(custom);
+                let custom = CUSTOM
+                    .iter()
+                    .map(|suffix| format!("{key}{suffix}"))
+                    .find(|custom| properties.contains_key(custom));
                 field(key, schema, custom, single.then_some(&request.message))
             })
             .collect();
@@ -314,8 +317,10 @@ fn choice(id: &str, name: &str) -> AnswerOption {
 
 /// Whether `key` is the companion of a choice, for the user's own words.
 fn is_custom(properties: &BTreeMap<String, ElicitationPropertySchema>, key: &str) -> bool {
-    key.strip_suffix(CUSTOM)
-        .is_some_and(|choice| properties.contains_key(choice))
+    CUSTOM.iter().any(|suffix| {
+        key.strip_suffix(suffix)
+            .is_some_and(|choice| properties.contains_key(choice))
+    })
 }
 
 fn response(action: ElicitationAction) -> CreateElicitationResponse {

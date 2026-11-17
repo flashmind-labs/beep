@@ -13,6 +13,7 @@ fn own() -> adapters::Installed {
     adapters::Installed {
         node: PathBuf::from("/srv/node/agent-adapters/node/bin/node"),
         script: PathBuf::from("/srv/node/agent-adapters/claude/node_modules/a/dist/index.js"),
+        current: true,
     }
 }
 

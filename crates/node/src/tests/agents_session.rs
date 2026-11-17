@@ -479,12 +479,14 @@ async fn a_declining_answer_counts_steers_against_the_queue_limit() {
 }
 
 /// An adapter that asks two questions in one form, as Claude Code's
-/// AskUserQuestion reaches the node, logs the answer and ends its turn.
+/// AskUserQuestion and Codex's questions reach the node (the user's own
+/// words go in `_custom` for Claude Code, `_note` for Codex), logs the
+/// answer and ends its turn.
 const FORM_ADAPTER: &str = r#"
 handshake "$1"
 read -r line
 prompt=$(id)
-echo '{"jsonrpc":"2.0","id":"e1","method":"elicitation/create","params":{"mode":"form","sessionId":"s","message":"Please answer the following questions.","requestedSchema":{"type":"object","properties":{"question_0":{"type":"string","title":"Scope","description":"Which layout?","oneOf":[{"const":"Source","title":"Source"},{"const":"Screen","title":"Screen"}]},"question_0_custom":{"type":"string","title":"Other"},"question_1":{"type":"array","title":"Parts","description":"Which parts?","items":{"anyOf":[{"const":"Sidebar","title":"Sidebar"},{"const":"Composer","title":"Composer"}]}},"question_1_custom":{"type":"string","title":"Other"}}}}}'
+echo '{"jsonrpc":"2.0","id":"e1","method":"elicitation/create","params":{"mode":"form","sessionId":"s","message":"Please answer the following questions.","requestedSchema":{"type":"object","properties":{"question_0":{"type":"string","title":"Scope","description":"Which layout?","oneOf":[{"const":"Source","title":"Source"},{"const":"Screen","title":"Screen"}]},"question_0_custom":{"type":"string","title":"Other"},"question_1":{"type":"array","title":"Parts","description":"Which parts?","items":{"anyOf":[{"const":"Sidebar","title":"Sidebar"},{"const":"Composer","title":"Composer"}]}},"question_1_note":{"type":"string","title":"Additional answer or note"}}}}}'
 read -r line; log "$1"
 printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
 cat > /dev/null
@@ -532,7 +534,7 @@ async fn a_form_is_asked_field_by_field_and_sent_whole() {
             "content": {
                 "question_0": "Screen",
                 "question_1": ["Composer"],
-                "question_1_custom": "Toolbar",
+                "question_1_note": "Toolbar",
             },
         })
     );

@@ -804,6 +804,7 @@ dependencies = [
  "rustix",
  "rustls",
  "secrecy",
+ "semver",
  "serde",
  "serde_bytes",
  "serde_json",
