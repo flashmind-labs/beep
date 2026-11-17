@@ -8,5 +8,6 @@ pub(crate) mod lists;
 mod places;
 mod projects;
 pub(crate) mod prompts;
+pub(crate) mod search;
 
 pub(crate) use lists::PaletteCache;

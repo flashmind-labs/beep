@@ -261,11 +261,17 @@ pub(crate) async fn follow(app: AppHandle) {
         });
     }
 
+    // A phone searches the machines; it reads no transcripts to index.
+    #[cfg(desktop)]
+    let prompts = super::prompts::follow(&app);
+    #[cfg(mobile)]
+    let prompts = std::future::ready(());
+
     join!(
         follow_local(&app),
         follow_branches(&app),
         follow_sessions(&app),
-        super::prompts::follow(&app)
+        prompts
     );
 }
 

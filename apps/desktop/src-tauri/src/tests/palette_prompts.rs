@@ -250,34 +250,3 @@ fn a_broken_index_does_not_stop_the_app() -> anyhow::Result<()> {
     assert!(index.reader().find("retry", None)?.is_empty());
     Ok(())
 }
-
-#[test]
-fn excerpt_includes_a_late_match() {
-    let text = format!(
-        "{} Add a retry button. {}",
-        "earlier ".repeat(200),
-        "later ".repeat(200)
-    );
-    let found = excerpt(&text, &["retry".into()]).expect("a match");
-    assert!(found.contains("retry button"));
-    assert!(found.starts_with('…') && found.ends_with('…'));
-    assert!(found.len() < 180);
-    assert_eq!(
-        excerpt("修正 接続を再試行", &["再試行".into()]).as_deref(),
-        Some("修正 接続を再試行")
-    );
-}
-
-#[test]
-fn snippet_is_one_excerpt_without_mentions() {
-    let texts = [
-        "nothing here".to_owned(),
-        r#"the focus is on the input @"/path/to/image 31.png" and @src/main.rs, ask @alice"#
-            .to_owned(),
-    ];
-    assert_eq!(
-        snippet(&texts, "Focus input").as_deref(),
-        Some("the focus is on the input and ask @alice")
-    );
-    assert_eq!(snippet(&texts, "image"), None);
-}

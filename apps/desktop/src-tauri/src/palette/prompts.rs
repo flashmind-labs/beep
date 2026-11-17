@@ -4,10 +4,9 @@
 mod schedule;
 mod store;
 
-use super::{index::Entry, lists::PaletteCache, places::Place, projects::session_entry};
+use super::{lists::PaletteCache, places::Place, search::Found};
 use crate::{
     agents::starts::StartId,
-    error::Result,
     fleet::{AsyncMutex, Fleet},
 };
 use anyhow::{Context, bail};
@@ -16,21 +15,20 @@ use beep_node::agents::tags::own_words;
 use beep_proto::SessionId;
 use beep_proto::{
     ImportedProject, MachineSession,
-    node::agent::{EntryKind, SessionsReply, SessionsRequest},
+    node::agent::{EntryKind, SearchHit, SessionsReply, SessionsRequest},
 };
 use futures::{StreamExt, stream};
-use regex::Regex;
 use schedule::{Due, Pacer, Schedule};
 use std::{
     path::Path,
     sync::{
-        Arc, LazyLock, Mutex, MutexGuard, PoisonError,
+        Arc, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime},
 };
 use store::{Progress, Store, Walk, identity, stamp};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::{
     sync::Notify,
     task::spawn_blocking,
@@ -433,13 +431,7 @@ fn valid_page(before: u64, page: Page) -> bool {
 }
 
 /// Prompt matches from disk, even when the machine holding the log is offline.
-#[tauri::command]
-pub async fn center_find_prompts(
-    app: AppHandle,
-    index: State<'_, Arc<PromptIndex>>,
-    query: String,
-) -> Result<Vec<Entry>> {
-    let projects = app.state::<PaletteCache>().projects();
+pub(super) async fn find(app: &AppHandle, query: &str) -> anyhow::Result<Vec<Found>> {
     let fleet = app.state::<Arc<Fleet>>();
     let members: Option<Vec<_>> = fleet.mesh().map(|mesh| {
         mesh.machines()
@@ -447,69 +439,27 @@ pub async fn center_find_prompts(
             .map(|d| d.device.id.to_string())
             .collect()
     });
-    let index = index.inner().clone();
-    Ok(spawn_blocking(move || -> anyhow::Result<Vec<Entry>> {
+    let index = app.state::<Arc<PromptIndex>>().inner().clone();
+    let query = query.to_owned();
+    spawn_blocking(move || -> anyhow::Result<Vec<Found>> {
         index
             .reader()
             .find(&query, members.as_deref())?
             .into_iter()
             .map(|found| {
-                let mut entry = session_entry(&found.session, &projects);
-                entry.snippet = snippet(&found.texts, &query);
-                Ok(entry)
+                Ok(Found {
+                    machine: found.session.machine_id.clone(),
+                    hit: SearchHit {
+                        activity: crate::beep::epoch_ms(found.session.last_activity),
+                        session: found.session.id,
+                        texts: found.texts,
+                    },
+                })
             })
             .collect()
     })
     .await
-    .context("searching session prompts stopped")??)
-}
-
-/// One line from the first prompt that holds a query word, without the
-/// files it mentions.
-fn snippet(texts: &[String], query: &str) -> Option<String> {
-    let terms: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-
-    texts
-        .iter()
-        .find_map(|text| excerpt(&MENTION.replace_all(text, " "), &terms))
-}
-
-/// A file mention as `@path` or `@"path with spaces"` writes it.
-static MENTION: LazyLock<Regex> = LazyLock::new(|| {
-    // A constant pattern, checked by the tests.
-    Regex::new(r#"@"[^"]*"|@\S*[/\\]\S*"#).expect("valid mention pattern")
-});
-
-/// A short plain-text excerpt from just before the earliest query word, with
-/// Unicode offsets measured in characters so case folding cannot split a
-/// UTF-8 character.
-fn excerpt(text: &str, terms: &[String]) -> Option<String> {
-    let folded = text.to_lowercase();
-    let (folded_at, term) = terms
-        .iter()
-        .filter_map(|term| folded.find(term.as_str()).map(|at| (at, term)))
-        .min()?;
-
-    let chars: Vec<char> = text.chars().collect();
-    let mut bytes = 0;
-    let at = chars
-        .iter()
-        .take_while(|ch| {
-            let before = bytes;
-            bytes += ch.to_lowercase().map(char::len_utf8).sum::<usize>();
-            before < folded_at
-        })
-        .count();
-    let start = at.saturating_sub(24);
-    let end = (at + term.chars().count() + 120).min(chars.len());
-    let excerpt: String = chars[start.min(chars.len())..end].iter().collect();
-
-    Some(format!(
-        "{}{}{}",
-        if start > 0 { "…" } else { "" },
-        excerpt.split_whitespace().collect::<Vec<_>>().join(" "),
-        if end < chars.len() { "…" } else { "" }
-    ))
+    .context("searching session prompts stopped")?
 }
 
 #[cfg(test)]
