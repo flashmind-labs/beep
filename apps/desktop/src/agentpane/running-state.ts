@@ -28,7 +28,7 @@ export function runningTrees(processes: readonly RunningProcess[]): RunningTree[
   return [...trees.values()];
 }
 
-export function runningRow(tree: RunningTree, local: boolean) {
+export function runningRow(tree: RunningTree) {
   const { root, children } = tree;
   const at = new Date(root.started_at * 1000);
   const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
@@ -38,7 +38,7 @@ export function runningRow(tree: RunningTree, local: boolean) {
   return {
     command: shownCommand(root.command),
     detail: `since ${time}${more}${root.left_group ? " · left the group" : ""}`,
-    ports: ports.map(port => ({ label: `:${port}`, url: local ? `http://localhost:${port}` : null })),
+    ports: ports.map(port => ({ label: `:${port}`, port })),
   };
 }
 

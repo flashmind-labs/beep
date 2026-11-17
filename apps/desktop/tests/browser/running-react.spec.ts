@@ -47,9 +47,9 @@ test("a pending process read cannot update a different session", async ({ page }
       if (args?.session === "notice-one") {
         Reflect.set(window, "processReadPending", true);
         await new Promise<void>(resolve => window.addEventListener("test-release-process", () => resolve(), { once: true }));
-        return { processes: [{ pid: 41, command: "old process", started_at: 1, ports: [], left_group: false, parent: 0 }], local: false } as T;
+        return { processes: [{ pid: 41, command: "old process", started_at: 1, ports: [], left_group: false, parent: 0 }] } as T;
       }
-      return { processes: [], local: false } as T;
+      return { processes: [] } as T;
     };
   });
   const open = async (id: string) => page.evaluate(session => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: session, agent: "codex", title: session, cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }), id);
@@ -79,7 +79,7 @@ test("an older process read cannot replace a newer result in the same session", 
         await new Promise<void>(resolve => Reflect.set(window, "releaseOldProcesses", resolve));
         Reflect.set(window, "oldProcessesDelivered", true);
       }
-      return { processes: [{ pid: 41, command: read === 1 ? "old process" : "new process", started_at: 1, ports: [], left_group: false, parent: 0 }], local: false } as T;
+      return { processes: [{ pid: 41, command: read === 1 ? "old process" : "new process", started_at: 1, ports: [], left_group: false, parent: 0 }] } as T;
     };
     window.dispatchEvent(new Event("agent-pane-shown"));
   });
@@ -95,13 +95,6 @@ test("an older process read cannot replace a newer result in the same session", 
 
 test("running pane keeps its scroll and handlers after leaving and reopening the session", async ({ page }) => {
   await openDesktop(page, true);
-  await page.evaluate(() => {
-    const invoke = window.__TAURI__.core.invoke;
-    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
-      const view = await invoke<T>(command, args);
-      return command === "agent_processes" ? { ...view, local: true } as T : view;
-    };
-  });
   const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
   const rows = (last: string) => Array.from({ length: 30 }, (_, i) => ({ pid: 100 + i, command: i === 29 ? last : `process ${i}`, started_at: 1, ports: i === 0 ? [3000] : [], left_group: false, parent: 0 }));
   await page.evaluate(value => window.__navigation.open({ agent: value }), agent);
@@ -129,6 +122,7 @@ test("running pane keeps its scroll and handlers after leaving and reopening the
   const url = page.url();
   await first.getByRole("link", { name: ":3000" }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_url").map(call => call.args))).toEqual([{ url: "http://localhost:3000/" }]);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "machine_forward_port").map(call => call.args))).toEqual([{ machineId: "build-box", port: 3000 }]);
   expect(page.url()).toBe(url);
   await expect(first).toHaveClass(/whole/);
   await first.getByRole("button", { name: "Stop", exact: true }).click();

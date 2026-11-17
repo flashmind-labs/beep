@@ -97,7 +97,7 @@ async fn an_agents_question_reaches_the_desktop_and_its_answer_returns() {
     .await
     .expect("the start is sent");
     let asked = heard(&mut heard_from).await;
-    assert_eq!(asked.title, "pi on Studio asks");
+    assert_eq!(asked.title, "go");
     assert!(asked.body.contains("Which file?"), "{}", asked.body);
     let key = asked.session_id.parse::<AgentNoticeKey>().expect("a key");
     assert_eq!(key.machine_id, fleet.id().to_string());
@@ -107,7 +107,7 @@ async fn an_agents_question_reaches_the_desktop_and_its_answer_returns() {
         .await
         .expect("the answer is taken");
     let done = heard(&mut heard_from).await;
-    assert_eq!(done.title, "pi on Studio finished");
+    assert_eq!(done.title, "go");
     // Answering it again: the session no longer asks.
     let again = answer(&fleet, &key, "choice-0").await;
     assert!(

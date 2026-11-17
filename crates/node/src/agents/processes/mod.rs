@@ -4,8 +4,11 @@ use crate::AsyncMutex;
 use beep_proto::node::agent::RunningProcess;
 use beep_proto::watched;
 use std::{
-    collections::HashMap,
-    sync::{Arc, LazyLock, Mutex},
+    collections::{BTreeSet, HashMap},
+    sync::{
+        Arc, LazyLock, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::{
@@ -62,6 +65,17 @@ const WATCHED: Duration = Duration::from_secs(1);
 /// sessions share a table up to this old, so however many there are, the
 /// OS is read about once per interval.
 const UNWATCHED: Duration = Duration::from_secs(60);
+
+/// How often a standalone node checks the ports its sessions' processes
+/// listen on, so a server that binds after it started still shows up.
+const PORTS: Duration = Duration::from_secs(60);
+/// Set by a standalone node: an embedded one leaves the desktop's battery be.
+static WATCH_PORTS: AtomicBool = AtomicBool::new(false);
+
+/// Has every session check its ports each `PORTS`.
+pub(crate) fn watch_ports() {
+    WATCH_PORTS.store(true, Ordering::Relaxed);
+}
 
 /// How many topic sources follow `processes` right now.
 static DEMAND: LazyLock<watch::Sender<usize>> = LazyLock::new(|| watch::channel(0).0);
@@ -198,6 +212,8 @@ pub(super) struct Processes {
 struct Observed {
     root_birth: Option<u64>,
     processes: HashMap<u32, Process>,
+    /// The ports of the last list, by pid.
+    ports: BTreeSet<(u32, u16)>,
 }
 
 impl Processes {
@@ -217,7 +233,8 @@ impl Processes {
     /// Observe ancestry even while the desktop is closed. Remembering a child's
     /// birth time keeps it ours after its parent exits, without claiming a reused pid.
     /// The table is read every second only while the session works or a
-    /// client follows `processes`. The session's actor drops the handle
+    /// client follows `processes`. On a standalone node the ports are
+    /// checked each `PORTS` too. The session's actor drops the handle
     /// when the session ends, so an ended session reads nothing.
     pub(super) fn watch(
         self: &Arc<Self>,
@@ -227,10 +244,20 @@ impl Processes {
         let mut demand = DEMAND.subscribe();
         AbortOnDropHandle::new(tokio::spawn(async move {
             let mut max_age = WATCHED;
+            let mut ports_due = Instant::now() + PORTS;
 
             loop {
                 if let Err(e) = processes.refresh(max_age).await {
                     log::debug!("could not read session processes: {e:#}");
+                }
+
+                if WATCH_PORTS.load(Ordering::Relaxed) && Instant::now() >= ports_due {
+                    ports_due = Instant::now() + PORTS;
+                    match processes.ports_changed().await {
+                        Ok(true) => changed(),
+                        Ok(false) => {}
+                        Err(e) => log::debug!("could not read session ports: {e:#}"),
+                    }
                 }
 
                 match pace(&mut demand, &mut session, super::live::Live::works).await {
@@ -283,7 +310,7 @@ impl Processes {
         }
 
         if *known != before {
-            crate::events::system().changed(beep_proto::node::events::Topic::new("processes"));
+            changed();
         }
 
         Ok(known
@@ -314,7 +341,18 @@ impl Processes {
             })
             .collect();
         rows.sort_by_key(|p| (p.started_at, p.pid));
+        crate::lock(&self.known).ports = rows
+            .iter()
+            .flat_map(|row| row.ports.iter().map(|port| (row.pid, *port)))
+            .collect();
         Ok(rows)
+    }
+
+    /// Whether a port opened or closed since the last list.
+    async fn ports_changed(self: &Arc<Self>) -> anyhow::Result<bool> {
+        let before = crate::lock(&self.known).ports.clone();
+        self.list().await?;
+        Ok(crate::lock(&self.known).ports != before)
     }
 
     pub(super) async fn stop(self: &Arc<Self>, pid: u32) -> anyhow::Result<()> {
@@ -339,6 +377,11 @@ impl Processes {
             Err(e) => log::warn!("could not read closing session's processes: {e:#}"),
         }
     }
+}
+
+/// Tells followers of `processes` to read them again.
+fn changed() {
+    crate::events::system().changed(beep_proto::node::events::Topic::new("processes"));
 }
 
 /// Asks `pid`, the process of a session started outside Beep, to end, and

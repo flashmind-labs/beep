@@ -1,8 +1,12 @@
-//! Connections for commands and subscriptions, separate from mesh replication.
+//! Connections for commands, subscriptions and port forwards, separate from
+//! mesh replication.
 
 use super::{Inner, Mesh};
 use crate::{MeshError, OPEN_TIMEOUT, wire};
-use iroh::{EndpointAddr, EndpointId, endpoint::Connection};
+use iroh::{
+    EndpointAddr, EndpointId,
+    endpoint::{Connection, RecvStream, SendStream},
+};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex, PoisonError},
@@ -159,11 +163,12 @@ impl Inner {
 
 pub(super) type Channels = Mutex<BTreeMap<(EndpointId, &'static [u8]), Arc<ChannelConnection>>>;
 
-/// The command or subscription protocol `connection` speaks, if either.
+/// The command, subscription or forward protocol `connection` speaks, if any.
 fn protocol_alpn(connection: &Connection) -> Option<&'static [u8]> {
     [
         beep_proto::node::commands::ALPN,
         beep_proto::node::subscriptions::ALPN,
+        beep_proto::node::forward::ALPN,
     ]
     .into_iter()
     .find(|alpn| *alpn == connection.alpn())
@@ -202,6 +207,38 @@ impl Mesh {
     pub async fn subscription_connection(&self, peer: EndpointId) -> Result<Connection, MeshError> {
         self.protocol_connection(peer, beep_proto::node::subscriptions::ALPN)
             .await
+    }
+
+    /// The connection port forwards to `peer` go on. Fails for a peer that
+    /// does not forward ports.
+    pub async fn forward_connection(&self, peer: EndpointId) -> Result<Connection, MeshError> {
+        self.protocol_connection(peer, beep_proto::node::forward::ALPN)
+            .await
+    }
+
+    /// A stream to `port` on `peer`'s loopback. A connection that takes no
+    /// new stream is dropped, so the next one dials again.
+    pub async fn forward_stream(
+        &self,
+        peer: EndpointId,
+        port: u16,
+    ) -> Result<(SendStream, RecvStream), MeshError> {
+        let connection = self.forward_connection(peer).await?;
+        let opened = timeout(OPEN_TIMEOUT, async {
+            let (mut send, recv) = connection.open_bi().await.map_err(wire::net)?;
+            send.write_all(&port.to_be_bytes())
+                .await
+                .map_err(wire::net)?;
+            Ok((send, recv))
+        })
+        .await
+        .unwrap_or_else(|_| Err(wire::net("the peer took no new stream")));
+
+        if opened.is_err() {
+            self.drop_protocol_connection(&connection);
+        }
+
+        opened
     }
 
     pub(crate) async fn protocol_connection(

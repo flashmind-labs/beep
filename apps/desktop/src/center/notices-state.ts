@@ -150,7 +150,13 @@ export function opens(i: Note): "skill" | "session" | "project" | "conflict" | "
   return null;
 }
 
-/// The sub line of a row: where it came from and when.
+/// The sub line of a row: where it came from and when. A coding agent's
+/// note says only when: its title names the project.
 export function subLine(i: Note, ago: string): string {
-  return `${i.source} · ${ago}`;
+  return noteAgent(i) ? ago : `${i.source} · ${ago}`;
+}
+
+/// The coding agent a note is about, such as `claude`.
+export function noteAgent(i: Note): string | null {
+  return i.target && typeof i.target === "object" && "agent" in i.target ? i.target.agent.agent : null;
 }

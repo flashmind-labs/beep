@@ -1,15 +1,17 @@
-//! Authenticated command and subscription connections.
+//! Authenticated command, subscription and forward connections.
 
 use tracing::Instrument;
 use super::{Offers, Session, peers::Peers};
-use beep_proto::node::{LinkRx, LinkTx, link};
-use iroh::EndpointId;
-use iroh::{endpoint::Connection, protocol::AcceptError};
+use iroh::{
+    EndpointId,
+    endpoint::{Connection, RecvStream, SendStream},
+    protocol::AcceptError,
+};
 use tokio::task::JoinSet;
 
 const MAX_STREAMS: usize = 64;
 
-type ServeStream = fn(Peers, Offers, EndpointId, EndpointId, LinkTx, LinkRx) -> Session;
+type ServeStream = fn(Peers, Offers, EndpointId, EndpointId, SendStream, RecvStream) -> Session;
 
 pub(super) async fn serve_connection(
     peers: &Peers,
@@ -50,8 +52,7 @@ pub(super) async fn serve_connection(
                 let offers = offers.clone();
                 let peers = peers.clone();
                 tasks.spawn(async move {
-                    let (tx, rx) = link(send, recv);
-                    let result = serve(peers, offers, peer, mesh, tx, rx).await;
+                    let result = serve(peers, offers, peer, mesh, send, recv).await;
                     if let Err(error) = result {
                         log::debug!("peer channel stream ended: {error:#}");
                     }
