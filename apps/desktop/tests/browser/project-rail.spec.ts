@@ -105,24 +105,33 @@ test("closing a project's session opens its next running one, then the project o
   await rail.locator(".rail-live > .pj-li").filter({ hasText: "Second notification" }).click();
   await expect(current).toHaveText(/Second notification/);
 
-  // The last one hands over round to the first; the last one left goes to the project.
+  // The last one hands over round to the first; the last one left goes to the project, its
+  // sessions still beside it.
   await page.keyboard.press(`${modifier}+Shift+w`);
   await expect(current).toHaveText(/First notification/);
   await page.keyboard.press(`${modifier}+Shift+w`);
-  await expect(rail).toBeHidden();
+  await expect(rail.locator(".rail-live")).toHaveCount(0);
   await expect(page.getByRole("heading", { level: 2, name: projectName })).toBeVisible();
 });
 
-test("the project's sessions end on its painting and a card of its branch, threads and machines", async ({ page }) => {
+test("the project's sessions end on its painting and a card of its pull requests, issues, Actions and machines", async ({ page }) => {
   const past = { machine_id: "build-box", machine_name: "build-box", id: "past-0", agent: "codex", title: "Past session 0", cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100, external: false, question: null, assistant: false };
   await openDesktop(page, false, { project_sessions: [past] });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
   await page.locator(".pj-det .pv-row").filter({ hasText: "Past session 0" }).click();
   const rail = page.locator("#rail"), card = rail.locator(".rail-card");
   await expect(rail.locator("canvas.painted-art")).toHaveCount(1);
-  await expect(card.locator(".rail-card-li")).toHaveText([/main/, /Pull requests/, /Issues/, /build-box/]);
+  await expect(card.locator(".rail-card-li")).toHaveText([/Pull requests/, /Issues/, /Actions/, /Machines\s*1\/1/]);
 
+  // Each opens that part of the project's page, with the sessions still beside it.
   await card.getByRole("button", { name: /Issues/ }).click();
-  await expect(rail).toBeHidden();
   await expect(page.getByRole("heading", { level: 2, name: projectName })).toBeVisible();
+  await expect(rail).toBeVisible();
+  await card.getByRole("button", { name: /Pull requests/ }).click();
+  await expect(page.locator(".pj-det")).toContainText("No open pull requests.");
+  await expect(rail).toBeVisible();
+  // The project's name goes back to the sidebar.
+  await rail.locator(".rail-back").click();
+  await expect(rail).toBeHidden();
+  await expect(page.locator("#side")).toBeVisible();
 });

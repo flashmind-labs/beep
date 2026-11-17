@@ -16,7 +16,7 @@ import type { AgentRow } from "../agents/agents.ts";
 import { go } from "../center/views.tsx";
 import { FreshNote } from "./page-view.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
-import type { SessionRow, WhereRow } from "./projects-state.ts";
+import type { SessionRow } from "./projects-state.ts";
 
 export function ProjectNavigation({ groups, picked, openTile }: { groups: readonly SplitGroup[]; picked: string; openTile: (key: string) => void }) {
   return <>{groups.map((group, index) => <Fragment key={`${index}:${group.title}`}>
@@ -94,19 +94,19 @@ export function ProjectRail({ project, label, running, past, current, card, back
   </>;
 }
 
-/// What the rail's card shows of its project; `null` counts are still being read.
-export interface RailCard { branch: string | null; prs: number | null; issues: number | null; machines: WhereRow[] }
+/// What the rail's card shows of its project, as its page's rows count it; `null` counts are
+/// still being read.
+export interface RailCard { prs: number | null; issues: number | null; actions: string; failed: boolean; machines: string }
 
+/// The project's rows that are not sessions, each opening that tab of its page.
 function ProjectCard({ project, card }: { project: string; card: RailCard }) {
   const open = (tile: string) => () => go("projects", { project, tile });
   const count = (n: number | null) => n === null ? "" : `${n} open`;
   return <div className="rail-card">
-    {card.branch && <Button look="quiet" className="rail-card-li" onClick={open("branches")}><Icon name="branch" /><span>{card.branch}</span></Button>}
-    <Button look="quiet" className="rail-card-li" onClick={open("overview")}><Icon name="pr" /><span>Pull requests</span><small>{count(card.prs)}</small></Button>
+    <Button look="quiet" className="rail-card-li" onClick={open("prs")}><Icon name="pr" /><span>Pull requests</span><small>{count(card.prs)}</small></Button>
     <Button look="quiet" className="rail-card-li" onClick={open("issues")}><Icon name="issue" /><span>Issues</span><small>{count(card.issues)}</small></Button>
-    {card.machines.map(machine => <Button key={machine.id} look="quiet" className="rail-card-li" onClick={open("machines")}>
-      <i className={`ddot${machine.kind === "here" ? "" : " off"}`} /><span>{machine.name}</span><small>{machine.kind === "here" ? "" : machine.kind}</small>
-    </Button>)}
+    <Button look="quiet" className="rail-card-li" onClick={open("actions")}><Icon name="run" /><span>Actions</span><small className={card.failed ? "bad" : undefined}>{card.actions}</small></Button>
+    <Button look="quiet" className="rail-card-li" onClick={open("machines")}><Icon name="sync" /><span>Machines</span><small>{card.machines}</small></Button>
   </div>;
 }
 

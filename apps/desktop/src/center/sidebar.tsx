@@ -100,9 +100,13 @@ const roomy = window.matchMedia("(min-width: 1200px)");
 roomy.addEventListener("change", drawRail);
 
 /// Draws a project's sessions in place of the sidebar while one of them shows, in a window with
-/// room for both beside it, or the sidebar again. Their reads redraw only this.
+/// room for both beside it, or the sidebar again. The project's page opened from them keeps
+/// them beside it. Their reads redraw only this.
 export function drawRail() {
-  const rail = currentLocation()?.view === "pane" && !onPhone() && !windowProject && roomy.matches ? projectHere()?.project ?? null : null;
+  const view = currentLocation()?.view, side = shell.getState().side;
+  const project = view === "pane" ? projectHere()?.project ?? null
+    : view === "projects" && side.rail && !side.railHidden && state.picked === side.rail ? side.rail : null;
+  const rail = !onPhone() && !windowProject && roomy.matches ? project : null;
   setRail(rail);
   placeWindowParts({ rail: rail && projectRail(rail, openKey()) });
 }

@@ -1037,7 +1037,7 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .rail-card-li > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .rail-card-li > small { font: 11px var(--mono); color: var(--dim) }
 .rail-card-li > svg { width: 14px; height: 14px; flex: none; color: var(--muted) }
-.rail-card-li > .ddot { margin: 0 3.5px; flex: none }
+.rail-card-li > small.bad { color: var(--hot) }
 .cc-rail .rail-back { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; padding-inline: 0 }
 .cc-rail > .rail-filter { margin: 10px 0 4px; width: auto; flex: none }
 .rail-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; scrollbar-width: thin }
