@@ -34,7 +34,7 @@ pub(super) async fn watch_paths(root: &Path) -> Result<Vec<PathBuf>> {
     // Read in process: no git process for each folder the events watch.
     let root = root.to_owned();
     let found = tokio::task::spawn_blocking(move || {
-        let repo = gix::discover(&root).ok()?;
+        let repo = crate::agents::found::repository(&root)?;
         Some((repo.git_dir().to_owned(), repo.common_dir().to_owned()))
     })
     .await?;

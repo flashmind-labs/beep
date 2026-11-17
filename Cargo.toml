@@ -184,6 +184,32 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# Git reads decode packs and walk history on every scan: unoptimized, a
+# debug build spends seconds of CPU in them.
+[profile.dev.package.gix-pack]
+opt-level = 3
+
+[profile.dev.package.gix-odb]
+opt-level = 3
+
+[profile.dev.package.gix-object]
+opt-level = 3
+
+[profile.dev.package.gix-hash]
+opt-level = 3
+
+[profile.dev.package.gix-ref]
+opt-level = 3
+
+[profile.dev.package.gix-revwalk]
+opt-level = 3
+
+[profile.dev.package.gix-commitgraph]
+opt-level = 3
+
+[profile.dev.package.zlib-rs]
+opt-level = 3
+
 # iOS build fixes not released yet. Drop each once iroh pulls a release with it:
 # netdev 0.47.0 (macOS-only IPv6 flag code) and netwatch with n0-computer/net-tools#267
 # (route constants libc 0.2.190 removed on iOS).

@@ -112,7 +112,7 @@ dunce = { workspace = true, optional = true }
 fastrand.workspace = true
 flate2 = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
-gix = { workspace = true, features = ["sha1", "sha256"], optional = true }
+gix = { workspace = true, features = ["parallel", "sha1", "sha256"], optional = true }
 gix-revision = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
 humantime = { workspace = true, optional = true }

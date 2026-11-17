@@ -53,15 +53,43 @@ fn ask_checkout(dir: &Path) -> Option<Checkout> {
     Some(Checkout { root, origin })
 }
 
-/// The repository `dir` is in, found as git finds it.
-fn open(dir: &Path) -> Option<gix::Repository> {
-    gix::discover(dir).ok()
+/// Repositories opened with gitoxide, by their git folder, with the stamp
+/// of the config they were opened with.
+static REPOSITORIES: LazyLock<Mutex<HashMap<PathBuf, (Stamp, gix::ThreadSafeRepository)>>> =
+    LazyLock::new(Mutex::default);
+/// The most repositories kept open; a full cache is emptied.
+const MAX_REPOSITORIES: usize = 64;
+
+/// The repository `dir` is in, opened once and kept while its config keeps
+/// its stamp: its pack indexes load once, not on every read. Refs are read
+/// from disk each time and new packs are found when an object is missing.
+/// It ignores the environment and global config, as sync's git does.
+pub(crate) fn repository(dir: &Path) -> Option<gix::Repository> {
+    let files = GitFiles::above(dir)?;
+    let git = paths::canonicalize(&files.git).unwrap_or_else(|_| files.git.clone());
+    let stamp = files.stamp(&[files.common.join("config")]);
+
+    if let Some((kept, repo)) = lock(&REPOSITORIES).get(&git)
+        && *kept == stamp
+    {
+        return Some(repo.to_thread_local());
+    }
+
+    let repo = gix::ThreadSafeRepository::open_opts(&git, gix::open::Options::isolated()).ok()?;
+    let mut repositories = lock(&REPOSITORIES);
+
+    if repositories.len() >= MAX_REPOSITORIES {
+        repositories.clear();
+    }
+
+    repositories.insert(git, (stamp, repo.clone()));
+    Some(repo.to_thread_local())
 }
 
 /// The top folder of the work tree `dir` is in, and of the repository's main
 /// checkout.
 fn folders(dir: &Path) -> Option<(PathBuf, PathBuf)> {
-    folders_of(&open(dir)?, dir)
+    folders_of(&repository(dir)?, dir)
 }
 
 /// Both resolved, as git prints them.
@@ -78,7 +106,7 @@ fn folders_of(repo: &gix::Repository, dir: &Path) -> Option<(PathBuf, PathBuf)> 
 /// and not for every update.
 pub(crate) fn place(dir: &Path) -> Option<WorkPlace> {
     GitFiles::above(dir)?;
-    let repo = open(dir)?;
+    let repo = repository(dir)?;
     let (top, main) = folders_of(&repo, dir)?;
     let real_top = paths::canonicalize(&top).unwrap_or_else(|_| top.clone());
     let branch = repo
@@ -97,7 +125,7 @@ pub(crate) fn place(dir: &Path) -> Option<WorkPlace> {
 
 /// The `origin` remote of the checkout at `root`; empty when it has none.
 pub(super) fn origin(root: &Path) -> String {
-    open(root)
+    repository(root)
         .and_then(|repo| {
             let remote = repo.find_remote("origin").ok()?;
             let url = remote.url(gix::remote::Direction::Fetch)?;
@@ -113,7 +141,7 @@ pub(crate) fn last_commit(root: &Path) -> Option<u64> {
     let files = GitFiles::above(root)?;
     let stamp = files.stamp(&files.head_files());
     COMMITS.get(root, stamp, || {
-        let seconds = open(root)?.head_commit().ok()?.committer().ok()?.seconds();
+        let seconds = repository(root)?.head_commit().ok()?.committer().ok()?.seconds();
         u64::try_from(seconds).ok()
     })
 }
