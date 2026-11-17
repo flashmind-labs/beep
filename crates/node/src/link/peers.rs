@@ -197,27 +197,17 @@ impl Inner {
 
         trace.phase("serving");
         let offers = self.offers().clone();
-        // Diagnostics are available to a desktop or this process, even when not lent.
-        let desktop_only = match protocol {
-            SessionProtocol::LogQuery => Some("only a desktop reads another machine's log"),
-            SessionProtocol::Metrics | SessionProtocol::MetricsQuery => {
-                Some("only a desktop reads another machine's metrics")
-            }
-            SessionProtocol::Report => Some("only a desktop reads a problem report"),
-            _ => None,
-        };
+        // Diagnostics are open to every machine of the mesh, even when not lent.
+        let diagnostic = matches!(
+            protocol,
+            SessionProtocol::LogQuery
+                | SessionProtocol::Metrics
+                | SessionProtocol::MetricsQuery
+                | SessionProtocol::Report
+        );
 
-        if let Some(reason) = desktop_only {
+        if diagnostic {
             let mut tx = tx;
-
-            if let Who::Node { .. } = who {
-                return tx
-                    .send(&Opened::Refused {
-                        reason: reason.to_owned(),
-                    })
-                    .await;
-            }
-
             tx.send(&Opened::Ready {}).await?;
 
             return match protocol {
@@ -525,11 +515,10 @@ impl Peers {
     }
 
     /// What a problem report asks: this node through its own `report/1`, the others
-    /// over their live links. This node alone before it joined a mesh, and
-    /// when it is not a desktop: the others refuse a node.
+    /// over their live links. This node alone before it joined a mesh.
     pub(crate) fn report_targets(&self) -> Vec<Target> {
         let me = self.inner.endpoint.id();
-        let active = self.active().filter(|_| self.is_desktop());
+        let active = self.active();
         let own = |name: String, kind: DeviceKind| Target {
             id: me,
             name,
