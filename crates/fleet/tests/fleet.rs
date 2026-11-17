@@ -961,6 +961,61 @@ async fn the_usage_read_before_a_restart_shows_at_once() {
     assert_eq!(shown.limits[0].windows[0].used_percent, 40.0);
 }
 
+/// A plan kept from the last run does not stop a later reading of it: over a slow link Claude's
+/// plan comes after every read went quiet, and its old numbers stayed for good (#968).
+#[tokio::test]
+async fn a_late_plan_replaces_the_one_kept_from_the_last_run() {
+    let f = fleet().await;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_secs();
+    let dir = TempDir::new().expect("a temp folder");
+    let options = Options {
+        settle: Duration::from_millis(300),
+        usage_file: Some(dir.path().join("usage.msgpack")),
+        ..Options::default()
+    };
+    let earlier = Arc::new(FakeNode {
+        usage: vec![plan_reply("claude", 10.0, now - 600)],
+        ..FakeNode::default()
+    });
+    let before = Session::new(
+        peering(&f.studio, &[(&f.build, &earlier)], &[]),
+        options.clone(),
+        |_| {},
+    )
+    .expect("a session");
+    before.spend(false).await.expect("the usage reads");
+    before.settled().await;
+    drop(before);
+
+    let build = Arc::new(FakeNode {
+        usage: vec![plan_reply("codex", 20.0, now)],
+        late: vec![plan_reply("claude", 40.0, now)],
+        ..FakeNode::default()
+    });
+    let (told, mut heard) = tokio::sync::mpsc::unbounded_channel();
+    let session = Session::new(
+        peering(&f.studio, &[(&f.build, &build)], &[]),
+        options,
+        move |changed| {
+            told.send(changed).ok();
+        },
+    )
+    .expect("a session");
+    let first = session.spend(true).await.expect("the usage reads");
+    assert_eq!(first.limits[0].windows[0].used_percent, 10.0);
+    build.release.notify_one();
+    timeout(LIMIT, async {
+        while heard.recv().await != Some(Changed::Usage) {}
+    })
+    .await
+    .expect("the page hears of the newer plan");
+    let next = session.spend(false).await.expect("the usage reads");
+    assert_eq!(next.limits[0].windows[0].used_percent, 40.0);
+}
+
 #[tokio::test]
 async fn groups_pins_and_settings_replicate_to_every_desktop() {
     let f = fleet().await;

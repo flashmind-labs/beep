@@ -552,16 +552,9 @@ impl Session {
         self.spend.put((), read);
         self.save_spend();
 
-        for mut follow in follows {
-            // A plan of the agent already shown is not waited for: the next read brings it.
-            let shown = watched::read_sent(&self.plans, Clone::clone);
-            follow
-                .waiting
-                .retain(|agent| !shown.iter().any(|plan| plan.agent == *agent));
-            if follow.waiting.is_empty() {
-                continue;
-            }
-
+        // A plan shown already is waited for too: it may be one kept from the last run, and over a
+        // slow link the newer reading comes after every read went quiet.
+        for follow in follows {
             if self.following.fetch_add(1, Ordering::Relaxed) >= PLAN_FOLLOWS {
                 self.following.fetch_sub(1, Ordering::Relaxed);
                 continue;

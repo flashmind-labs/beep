@@ -44,7 +44,7 @@ pub(crate) struct PlanFollow {
     name: String,
     replies: Replies,
     /// The agents the machine runs whose plan it has not sent.
-    pub(crate) waiting: BTreeSet<AgentSlug>,
+    waiting: BTreeSet<AgentSlug>,
     opened: Instant,
 }
 
