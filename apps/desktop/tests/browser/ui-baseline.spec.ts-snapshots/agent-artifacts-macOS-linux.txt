@@ -1,7 +1,7 @@
 body.cbody
   div.cwin.rail-on [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side [inert]
-      canvas.haze.painted-art [aria-hidden="true" height="225" width="46"]
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="75"]
       div.cc-head
       div.cc-brand
         b "Beep"
@@ -66,7 +66,7 @@ body.cbody
           span "No machines linked"
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-    div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
+    div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="300" role="separator" tabindex="0"]
     aside#rail.cc-rail.pj-list [aria-label="Project sessions"]
       div.cc-head
       div.cc-brand
@@ -77,26 +77,27 @@ body.cbody
       input.ip-field.rail-filter [aria-label="Filter sessions" placeholder="Filter sessions" spellcheck="false" type="search" value] value=""
       h4 "Running"
         span.n "2"
-      button.pj-li [aria-current="true" title="First notification" type="button"]
-        span.lead
-          span.cc-ag.codex.mark
-            svg [aria-hidden="true" viewBox="0 0 24 24"]
-        span.t
-          b "First notification"
-          span
-        span.r
-          span.cc-running "now"
-            span.drun [aria-label="Working" role="img"]
-      button.pj-li [title="Second notification" type="button"]
-        span.lead
-          span.cc-ag.codex.mark
-            svg [aria-hidden="true" viewBox="0 0 24 24"]
-        span.t
-          b "Second notification"
-          span
-        span.r
-          span.cc-running "now"
-            span.drun [aria-label="Working" role="img"]
+      div.rail-live
+        button.pj-li [aria-current="true" title="First notification" type="button"]
+          span.lead
+            span.cc-ag.codex.mark
+              svg [aria-hidden="true" viewBox="0 0 24 24"]
+          span.t
+            b "First notification"
+            span
+          span.r
+            span.cc-running "now"
+              span.drun [aria-label="Working" role="img"]
+        button.pj-li [title="Second notification" type="button"]
+          span.lead
+            span.cc-ag.codex.mark
+              svg [aria-hidden="true" viewBox="0 0 24 24"]
+          span.t
+            b "Second notification"
+            span
+          span.r
+            span.cc-running "now"
+              span.drun [aria-label="Working" role="img"]
     div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
@@ -114,7 +115,7 @@ body.cbody
           svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div#home-box.cc-box [hidden]
         div#view.cc-view
-          canvas.haze.painted-art [aria-hidden="true" height="15" width="272"]
+          canvas.haze.painted-art [aria-hidden="true" height="15" width="243"]
           div.cc-mstrip
             div.m.off [title="This computer: Joining your machines"]
               span.ddot.off

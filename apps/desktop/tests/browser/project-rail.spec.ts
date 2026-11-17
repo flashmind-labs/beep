@@ -16,6 +16,13 @@ test("a project's session swaps the sidebar for the project's sessions in the sa
   await expect(rail.locator('.pj-li[aria-current="true"]')).toHaveText(/Past session 1/);
   const at = await main.boundingBox();
 
+  // The sessions take the sidebar's width, which the grip sets and keeps.
+  expect(Math.round((await rail.boundingBox())?.width ?? 0)).toBe(300);
+  await page.locator("#side-grip").press("ArrowRight");
+  await expect.poll(async () => Math.round((await rail.boundingBox())?.width ?? 0)).toBe(316);
+  expect(await page.evaluate(() => localStorage.getItem("beep.sideWidth"))).toBe("316");
+  await page.locator("#side-grip").press("ArrowLeft");
+
   await rail.getByPlaceholder("Filter sessions").fill("session 3");
   await expect(past).toHaveText([/Past session 3/]);
 

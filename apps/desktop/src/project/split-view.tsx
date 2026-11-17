@@ -60,7 +60,8 @@ export function RunningStatus({ row, doing = false }: { row: RunningAgent; doing
 
 /// A project's sessions in place of the sidebar while one of them shows. Its head mirrors the
 /// sidebar's: the project's name, which goes back to its page, and the toggle back to the
-/// sidebar. Then a filter, the running sessions and the latest past ones, one line
+/// sidebar. Then a filter, the running sessions, roomier, with what each is doing, and the
+/// latest past ones, one line
 /// each. `current` is the running key of the session on screen.
 export function ProjectRail({ project, label, running, past, current, back }: {
   project: string; label: string; running: RunningAgent[]; past: SessionRow[]; current: string | null; back(): void;
@@ -69,8 +70,8 @@ export function ProjectRail({ project, label, running, past, current, back }: {
   const needle = filter.trim().toLowerCase();
   const matches = (row: AgentRow) => !needle || (row.title || agentName(row.agent)).toLowerCase().includes(needle);
   const live = running.filter(matches), ended = past.filter(matches);
-  const row = (session: AgentRow, right: ReactNode) => <Row key={runningKey(session)} picked={current} nav={false} openTile={() => {}} item={{
-    key: runningKey(session), lead: <HarnessIcon agent={session.agent} />, title: session.title || agentName(session.agent), sub: "", right,
+  const row = (session: AgentRow, right: ReactNode, sub = "") => <Row key={runningKey(session)} picked={current} nav={false} openTile={() => {}} item={{
+    key: runningKey(session), lead: <HarnessIcon agent={session.agent} />, title: session.title || agentName(session.agent), sub, right,
     open: () => go("pane", { agent: session }),
     menu: event => void sessionMenu(event, session, picked => go("pane", { agent: picked })),
   }} />;
@@ -80,7 +81,7 @@ export function ProjectRail({ project, label, running, past, current, back }: {
     <div className="cc-brand"><Button look="quiet" className="rail-back" title={`Back to ${label}`} onClick={back}>{label}</Button><SideToggle /></div>
     <input className="ip-field rail-filter" type="search" placeholder="Filter sessions" aria-label="Filter sessions" spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
     {!!live.length && <h4>Running<span className="n">{live.length}</span></h4>}
-    {live.map(session => row(session, <RunningStatus row={session} />))}
+    {!!live.length && <div className="rail-live">{live.map(session => row(session, <RunningStatus row={session} />, session.doing ?? ""))}</div>}
     {!!ended.length && <h4>Past<span className="n">{ended.length}</span></h4>}
     {ended.slice(0, RAIL_PAST).map(session => row(session, formatAgo(session.last_activity, "short")))}
     {ended.length > RAIL_PAST && <Button look="quiet" className="rail-all" onClick={() => go("projects", { project, tile: "agents" })}>All {ended.length} sessions</Button>}
