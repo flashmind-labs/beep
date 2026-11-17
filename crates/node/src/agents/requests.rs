@@ -83,7 +83,7 @@ impl Agents {
     /// Search indexing reads without keeping the prompts' pictures.
     pub(crate) async fn read_transcript(
         &self,
-        session: &str,
+        session: &SessionId,
         last: u32,
         before: Option<u64>,
         keep_pictures: bool,

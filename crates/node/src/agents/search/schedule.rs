@@ -2,6 +2,7 @@
 //! while, not again until it has new activity, and later after each
 //! failure. Change notifications only start a pass; they cannot skip a wait.
 
+use beep_proto::SessionId;
 use std::{
     collections::HashMap,
     time::{Duration, SystemTime},
@@ -23,7 +24,7 @@ const RETRY_MOST: Duration = Duration::from_secs(600);
 
 /// What the indexer knows of each session in this run, by identity.
 #[derive(Default)]
-pub(super) struct Schedule(HashMap<String, Tracked>);
+pub(super) struct Schedule(HashMap<SessionId, Tracked>);
 
 #[derive(Default)]
 struct Tracked {
@@ -45,7 +46,7 @@ pub(super) enum Due {
 
 impl Schedule {
     /// `idle` is how long ago the session's `activity` was.
-    pub fn due(&self, id: &str, activity: SystemTime, idle: Duration, now: Instant) -> Due {
+    pub fn due(&self, id: &SessionId, activity: SystemTime, idle: Duration, now: Instant) -> Due {
         let tracked = self.0.get(id);
 
         if tracked.is_some_and(|t| t.indexed == Some(activity)) {
@@ -63,7 +64,7 @@ impl Schedule {
         Due::Now
     }
 
-    pub fn indexed(&mut self, id: String, activity: SystemTime) {
+    pub fn indexed(&mut self, id: SessionId, activity: SystemTime) {
         self.0.insert(
             id,
             Tracked {
@@ -74,7 +75,7 @@ impl Schedule {
     }
 
     /// A read saved pages before it stopped; the next pass goes on.
-    pub fn progressed(&mut self, id: &str) {
+    pub fn progressed(&mut self, id: &SessionId) {
         if let Some(tracked) = self.0.get_mut(id) {
             tracked.failures = 0;
             tracked.retry_at = None;
@@ -82,7 +83,7 @@ impl Schedule {
     }
 
     /// Records a failed read and returns when to try again.
-    pub fn failed(&mut self, id: String, now: Instant) -> Instant {
+    pub fn failed(&mut self, id: SessionId, now: Instant) -> Instant {
         let tracked = self.0.entry(id).or_default();
         tracked.failures = tracked.failures.saturating_add(1);
         let at = now + backoff(tracked.failures);

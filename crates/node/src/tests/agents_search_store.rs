@@ -26,7 +26,7 @@ fn every_word_must_be_in_one_session_newest_first() -> Result<()> {
     store.save(&indexed("partial", 3, true), &texts(&["worktree only"]), Progress::NEW)?;
 
     let found = store.find("  BAR Worktree bar  ", &[])?;
-    let sessions: Vec<&str> = found.iter().map(|hit| hit.session.as_str()).collect();
+    let sessions: Vec<&str> = found.iter().map(|hit| hit.session.as_ref()).collect();
     assert_eq!(sessions, ["split", "old"]);
     assert_eq!(found[0].texts, ["The agent polished the bar", "Add worktree support"]);
     assert!(store.find("worktree z", &[])?.is_empty());
@@ -64,16 +64,16 @@ fn a_session_outside_the_projects_is_reset_for_copies_and_read_again() -> Result
 
     let reset = store.rows_after(before, 10)?;
     assert_eq!(reset.len(), 1);
-    assert_eq!((reset[0].session.as_str(), reset[0].text.as_deref()), ("gone", None));
+    assert_eq!((reset[0].session.as_ref(), reset[0].text.as_deref()), ("gone", None));
     assert!(store.find("gone", &[])?.is_empty());
-    assert!(!store.current("gone", "1")?, "read again if it comes back");
-    assert_eq!(store.progress("gone")?, Progress::NEW);
-    assert!(store.current("kept", "1")?);
+    assert!(!store.current(&SessionId::from("gone"), "1")?, "read again if it comes back");
+    assert_eq!(store.progress(&SessionId::from("gone"))?, Progress::NEW);
+    assert!(store.current(&SessionId::from("kept"), "1")?);
 
-    let all: Vec<String> = store.rows_after(0, 10)?.into_iter().map(|row| row.session).collect();
+    let all: Vec<String> = store.rows_after(0, 10)?.into_iter().map(|row| String::from(row.session)).collect();
     assert_eq!(all, ["kept", "gone"], "the old rows went with the reset");
 
-    store.forget("kept")?;
+    store.forget(&SessionId::from("kept"))?;
     assert!(store.find("kept", &[])?.is_empty(), "a deleted session goes");
     assert_eq!(store.keep_within(&[])?, 0, "nothing left to drop");
     Ok(())
@@ -95,7 +95,7 @@ fn words_are_literal_and_fold_every_capital() -> Result<()> {
     let underscored: Vec<String> = store
         .find("my_function", &[])?
         .into_iter()
-        .map(|hit| hit.session)
+        .map(|hit| String::from(hit.session))
         .collect();
     assert_eq!(underscored, ["one"], "_ is not a wildcard");
     assert!(store.find("__", &[])?.is_empty());
@@ -111,9 +111,9 @@ fn a_search_can_keep_to_named_sessions() -> Result<()> {
     store.save(&indexed("past", 2, true), &texts(&["retry"]), Progress::NEW)?;
 
     let hits: Vec<String> = store
-        .find("retry", &["listed".to_owned()])?
+        .find("retry", &[SessionId::from("listed")])?
         .into_iter()
-        .map(|hit| hit.session)
+        .map(|hit| String::from(hit.session))
         .collect();
     assert_eq!(hits, ["listed"]);
     assert_eq!(store.find("retry", &[])?.len(), 2, "no names, any session");
@@ -128,8 +128,8 @@ fn a_walk_in_progress_is_kept_and_is_not_current() -> Result<()> {
         walk: Some(Walk { top: 600, low: 400 }),
     };
     store.save(&indexed("one", 5, false), &texts(&["Newest request"]), walking)?;
-    assert_eq!(store.progress("one")?, walking);
-    assert!(!store.current("one", "5")?);
+    assert_eq!(store.progress(&SessionId::from("one"))?, walking);
+    assert!(!store.current(&SessionId::from("one"), "5")?);
     assert_eq!(store.find("newest", &[])?.len(), 1, "saved page by page");
 
     let done = Progress {
@@ -137,8 +137,8 @@ fn a_walk_in_progress_is_kept_and_is_not_current() -> Result<()> {
         walk: None,
     };
     store.save(&indexed("one", 5, true), &[], done)?;
-    assert_eq!(store.progress("one")?, done);
-    assert!(store.current("one", "5")?);
+    assert_eq!(store.progress(&SessionId::from("one"))?, done);
+    assert!(store.current(&SessionId::from("one"), "5")?);
     Ok(())
 }
 
@@ -170,14 +170,14 @@ fn a_copy_follows_rows_resets_and_a_new_epoch() -> Result<()> {
     copy.apply(&epoch, &node.rows_after(after, 1)?)?;
     let (_, after) = copy.position()?;
     copy.apply(&epoch, &node.rows_after(after, 10)?)?;
-    let order: Vec<String> = copy.find("retry", &[])?.into_iter().map(|hit| hit.session).collect();
+    let order: Vec<String> = copy.find("retry", &[])?.into_iter().map(|hit| String::from(hit.session)).collect();
     assert_eq!(order, ["kept", "gone"], "newest activity first");
     assert_eq!(copy.position()?, (epoch.clone(), node.newest()?));
 
-    node.forget("gone")?;
+    node.forget(&SessionId::from("gone"))?;
     let (_, after) = copy.position()?;
     copy.apply(&epoch, &node.rows_after(after, 10)?)?;
-    let found: Vec<String> = copy.find("retry", &[])?.into_iter().map(|hit| hit.session).collect();
+    let found: Vec<String> = copy.find("retry", &[])?.into_iter().map(|hit| String::from(hit.session)).collect();
     assert_eq!(found, ["kept"]);
 
     copy.apply("another", &[])?;

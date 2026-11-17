@@ -2,7 +2,10 @@
 //! once, and the change log copies follow, which is the same table.
 
 use anyhow::{Result, bail};
-use beep_proto::node::agent::{IndexRow, SearchHit, folded_at};
+use beep_proto::{
+    SessionId,
+    node::agent::{IndexRow, SearchHit, folded_at},
+};
 use rusqlite::{Connection, OptionalExtension, functions::FunctionFlags, params};
 use sha2::{Digest, Sha256};
 use std::{
@@ -65,12 +68,12 @@ impl Store {
     }
 
     /// Whether session `id` was fully indexed at `stamp`.
-    pub fn current(&self, id: &str, stamp: &str) -> Result<bool> {
+    pub fn current(&self, id: &SessionId, stamp: &str) -> Result<bool> {
         let saved: Option<bool> = self
             .0
             .query_row(
                 "SELECT stamp=?2 AND walk_top IS NULL FROM sessions WHERE id=?1",
-                [id, stamp],
+                [id.as_ref(), stamp],
                 |row| row.get(0),
             )
             .optional()?;
@@ -78,12 +81,12 @@ impl Store {
     }
 
     /// How far session `id`'s transcript is indexed.
-    pub fn progress(&self, id: &str) -> Result<Progress> {
+    pub fn progress(&self, id: &SessionId) -> Result<Progress> {
         let saved = self
             .0
             .query_row(
                 "SELECT done,walk_top,walk_low FROM sessions WHERE id=?1",
-                [id],
+                [id.as_ref()],
                 |row| {
                     Ok((
                         row.get::<_, i64>(0)?,
@@ -123,7 +126,7 @@ impl Store {
              ON CONFLICT(id) DO UPDATE SET stamp=COALESCE(?2,sessions.stamp),activity=?3,
                  done=?4,walk_top=?5,walk_low=?6,cwd=?7",
             params![
-                session.id,
+                session.id.as_ref(),
                 session.stamp,
                 i64::try_from(session.activity)?,
                 i64::try_from(progress.done)?,
@@ -139,7 +142,7 @@ impl Store {
             )?;
 
             for text in texts {
-                insert.execute(params![session.id, text, text_hash(text)])?;
+                insert.execute(params![session.id.as_ref(), text, text_hash(text)])?;
             }
         }
         tx.commit()?;
@@ -164,10 +167,10 @@ impl Store {
     }
 
     /// Resets session `id`, as when it was deleted.
-    pub fn forget(&mut self, id: &str) -> Result<()> {
+    pub fn forget(&mut self, id: &SessionId) -> Result<()> {
         let key: Option<i64> = self
             .0
-            .query_row("SELECT key FROM sessions WHERE id=?1", [id], |row| row.get(0))
+            .query_row("SELECT key FROM sessions WHERE id=?1", [id.as_ref()], |row| row.get(0))
             .optional()?;
         self.reset(&key.into_iter().collect::<Vec<_>>())
     }
@@ -198,7 +201,7 @@ impl Store {
     /// The sessions holding every word of `query`, newest activity first;
     /// only those of `only` when it names any. A word of three characters
     /// or more finds its candidates by its trigrams.
-    pub fn find(&self, query: &str, only: &[String]) -> Result<Vec<SearchHit>> {
+    pub fn find(&self, query: &str, only: &[SessionId]) -> Result<Vec<SearchHit>> {
         let query = query.trim().to_lowercase();
 
         if query.chars().count() < 2 {
@@ -264,7 +267,7 @@ impl Store {
                 })
                 .collect::<Result<Vec<String>>>()?;
             Ok(SearchHit {
-                session,
+                session: SessionId::from(session),
                 activity: u64::try_from(activity)?,
                 texts,
             })
@@ -306,7 +309,7 @@ impl Store {
             bytes += text.as_ref().map_or(0, String::len);
             batch.push(IndexRow {
                 seq: u64::try_from(seq)?,
-                session,
+                session: SessionId::from(session),
                 text,
                 activity: u64::try_from(activity)?,
             });
@@ -348,11 +351,11 @@ impl IndexCopy {
             tx.execute(
                 "INSERT INTO sessions(id,activity) VALUES (?1,?2)
                  ON CONFLICT(id) DO UPDATE SET activity=MAX(activity,?2)",
-                params![row.session, i64::try_from(row.activity)?],
+                params![row.session.as_ref(), i64::try_from(row.activity)?],
             )?;
             let key: i64 = tx.query_row(
                 "SELECT key FROM sessions WHERE id=?1",
-                [&row.session],
+                [row.session.as_ref()],
                 |found| found.get(0),
             )?;
             let seq = i64::try_from(row.seq)?;
@@ -379,7 +382,7 @@ impl IndexCopy {
         Ok(())
     }
 
-    pub fn find(&self, query: &str, only: &[String]) -> Result<Vec<SearchHit>> {
+    pub fn find(&self, query: &str, only: &[SessionId]) -> Result<Vec<SearchHit>> {
         self.0.find(query, only)
     }
 }
@@ -417,7 +420,7 @@ fn text_hash(text: &str) -> i64 {
 /// A session as one page of its transcript is saved.
 pub(super) struct Indexed {
     /// The agent's own id for it.
-    pub id: String,
+    pub id: SessionId,
     /// The folder it ran in.
     pub cwd: PathBuf,
     /// Unix milliseconds.

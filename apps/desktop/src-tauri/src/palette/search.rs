@@ -5,7 +5,7 @@
 use super::{index::Entry, lists::PaletteCache, projects::session_entry};
 use crate::error::Result;
 use beep_proto::{
-    ImportedProject, MachineSession,
+    ImportedProject, MachineSession, SessionId,
     node::agent::{SearchHit, folded_at},
 };
 use regex::Regex;
@@ -31,7 +31,7 @@ pub async fn center_find_prompts(app: AppHandle, query: String) -> Result<Vec<En
 
 /// The ids of the sessions the menu lists, by machine. Only these are
 /// searched, so a machine's limit of hits is not spent on others.
-pub(super) type Listed = HashMap<String, Vec<String>>;
+pub(super) type Listed = HashMap<String, Vec<SessionId>>;
 
 fn listed_by_machine(sessions: &[MachineSession]) -> Listed {
     let mut listed = Listed::new();
@@ -114,12 +114,12 @@ fn entries(
 ) -> Vec<Entry> {
     let listed: HashMap<(&str, &str), &MachineSession> = sessions
         .iter()
-        .map(|session| ((session.machine_id.as_str(), session.id.as_str()), session))
+        .map(|session| ((session.machine_id.as_str(), session.id.as_ref()), session))
         .collect();
     let mut shown: Vec<(&MachineSession, &Found)> = found
         .iter()
         .filter_map(|found| {
-            let session = listed.get(&(found.machine.as_str(), found.hit.session.as_str()))?;
+            let session = listed.get(&(found.machine.as_str(), found.hit.session.as_ref()))?;
             Some((*session, found))
         })
         .collect();

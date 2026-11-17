@@ -361,7 +361,7 @@ pub enum SessionsRequest {
     Search {
         query: String,
         /// Only these sessions, by the agent's own id; any when empty.
-        sessions: Vec<String>,
+        sessions: Vec<SessionId>,
     },
     /// Follows the node's search index from row `after` of index `epoch`:
     /// `IndexRows` batches up to the newest row, then each change as it
@@ -376,7 +376,7 @@ pub enum SessionsRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchHit {
     /// The agent's own id for the session.
-    pub session: String,
+    pub session: SessionId,
     /// Unix milliseconds of its last activity.
     pub activity: u64,
     /// For each query word, the part around it of the first prompt or
@@ -408,7 +408,7 @@ pub fn folded_at(text: &str, word: &str) -> Option<usize> {
 pub struct IndexRow {
     pub seq: u64,
     /// The agent's own id for the session.
-    pub session: String,
+    pub session: SessionId,
     pub text: Option<String>,
     /// Unix milliseconds of the session's last activity when it was read.
     pub activity: u64,

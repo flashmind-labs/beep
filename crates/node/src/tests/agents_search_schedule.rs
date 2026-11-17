@@ -8,30 +8,31 @@ async fn a_session_is_read_once_quiet_and_not_again_until_it_changes() {
     let mut schedule = Schedule::default();
     let now = Instant::now();
     let activity = UNIX_EPOCH + Duration::from_secs(10);
+    let one = &SessionId::from("build-box one");
 
     assert_eq!(
-        schedule.due("build-box one", activity, Duration::from_secs(20), now),
+        schedule.due(one, activity, Duration::from_secs(20), now),
         Due::At(now + Duration::from_secs(40)),
         "still running"
     );
     assert_eq!(
-        schedule.due("build-box one", activity, QUIET, now),
+        schedule.due(one, activity, QUIET, now),
         Due::Now
     );
 
-    schedule.indexed("build-box one".into(), activity);
+    schedule.indexed(one.clone(), activity);
     assert_eq!(
-        schedule.due("build-box one", activity, QUIET, now),
+        schedule.due(one, activity, QUIET, now),
         Due::Current
     );
     assert_eq!(
-        schedule.due("build-box one", activity + LATER, QUIET, now),
+        schedule.due(one, activity + LATER, QUIET, now),
         Due::Now
     );
 
     schedule.clear();
     assert_eq!(
-        schedule.due("build-box one", activity, QUIET, now),
+        schedule.due(one, activity, QUIET, now),
         Due::Now
     );
 }
@@ -40,12 +41,12 @@ async fn a_session_is_read_once_quiet_and_not_again_until_it_changes() {
 async fn failures_back_off_until_a_read_saves_progress() {
     let mut schedule = Schedule::default();
     let activity = UNIX_EPOCH;
-    let id = "build-box one";
+    let id = &SessionId::from("build-box one");
     let mut waits = Vec::new();
 
     for _ in 0..7 {
         let now = Instant::now();
-        let at = schedule.failed(id.into(), now);
+        let at = schedule.failed(id.clone(), now);
         assert_eq!(schedule.due(id, activity, QUIET, now), Due::At(at));
         waits.push((at - now).as_secs());
         tokio::time::advance(at - now).await;
@@ -55,10 +56,10 @@ async fn failures_back_off_until_a_read_saves_progress() {
     assert_eq!(waits, [30, 60, 120, 240, 480, 600, 600]);
 
     let now = Instant::now();
-    schedule.failed(id.into(), now);
+    schedule.failed(id.clone(), now);
     schedule.progressed(id);
     assert_eq!(schedule.due(id, activity, QUIET, now), Due::Now);
-    assert_eq!((schedule.failed(id.into(), now) - now).as_secs(), 30);
+    assert_eq!((schedule.failed(id.clone(), now) - now).as_secs(), 30);
 }
 
 #[tokio::test(start_paused = true)]

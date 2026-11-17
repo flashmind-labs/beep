@@ -8,7 +8,10 @@ mod store;
 use super::{Agents, found::Seen};
 use crate::link::from_mesh;
 use beep_mesh::Mesh;
-use beep_proto::node::agent::{EntryKind, IndexRow, SearchHit};
+use beep_proto::{
+    SessionId,
+    node::agent::{EntryKind, IndexRow, SearchHit},
+};
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use schedule::{Due, Pacer, Schedule};
@@ -48,7 +51,7 @@ pub(crate) struct SearchIndex {
     schedule: Mutex<Schedule>,
     /// Sessions deleted while the node runs: a page read before the delete
     /// is not saved after it.
-    deleted: Mutex<HashSet<String>>,
+    deleted: Mutex<HashSet<SessionId>>,
 }
 
 /// What one read of a session did.
@@ -92,14 +95,14 @@ impl SearchIndex {
     pub async fn find(
         self: &Arc<Self>,
         query: String,
-        only: Vec<String>,
+        only: Vec<SessionId>,
     ) -> anyhow::Result<Vec<SearchHit>> {
         let index = self.clone();
         spawn_blocking(move || index.reader().find(&query, &only)).await?
     }
 
     /// Drops what the index holds of session `id`, as when it was deleted.
-    pub async fn forget(self: &Arc<Self>, id: String) {
+    pub async fn forget(self: &Arc<Self>, id: SessionId) {
         // Marked before the store is reset: a save that waits for the store
         // after this sees it.
         crate::lock(&self.deleted).insert(id.clone());
@@ -406,7 +409,7 @@ struct Page {
 
 /// The user's prompts and the agent's replies on the page before entry
 /// `before` (the newest page when `None`).
-async fn read_page(agents: &Agents, session: &str, before: Option<u64>) -> anyhow::Result<(Vec<String>, Page)> {
+async fn read_page(agents: &Agents, session: &SessionId, before: Option<u64>) -> anyhow::Result<(Vec<String>, Page)> {
     let Some((entries, earlier)) = agents.read_transcript(session, PAGE, before, false).await? else {
         anyhow::bail!("the session is gone");
     };
