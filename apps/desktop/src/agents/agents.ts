@@ -629,19 +629,18 @@ export function agentBack(closed = false) {
   }
 
   if (!closed && S.view === "agent" && (closeModelPicker() || closeMoveMenu())) return;
-  // Esc from a child opens its parent; closing returns to the previous page.
+  // A closed session, or one without a return target, goes to its project.
+  const project = S.view === "agent" && windowHooks && AG.page ? windowHooks.sessionProject?.(AG.page.session) : null;
+  if (closed && project) return project.open();
+
+  // Esc from a child opens its parent; otherwise it returns to the previous page.
   const up = !closed && S.view === "agent" && AG.open ? AG.page && parentSession(AG.page.session) : undefined;
   if (up) return openAgent(up, { back: AG.back });
   if (S.view === "agent" && windowHooks && !closed && leavePane()) return;
   if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back, !closed);
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "waiting") return renderWaiting();
-
-  // A session without a return target goes to its project.
-  if (S.view === "agent" && windowHooks) {
-    const project = AG.page && windowHooks.sessionProject?.(AG.page.session);
-    if (project) return project.open();
-  }
+  if (project) return project.open();
 
   if (windowHooks) return windowHooks.goBack({ view: "home", arg: null }, !closed);
   void invoke("hide_bar");
