@@ -10,6 +10,7 @@ members = [
     "crates/proto",
     "crates/report",
     "crates/server",
+    "tools/device-proto",
 ]
 # A bare `cargo build`, `clippy` or `test` leaves the Tauri app out: it needs
 # the platform's web view libraries. Name it with `-p beep-desktop`.
@@ -66,6 +67,7 @@ flashmind-types = "0.3.3"
 flate2 = "1"
 futures = "0.3"
 gix = { version = "0.90", default-features = false }
+gix-revision = { version = "0.52", default-features = false, features = ["merge_base"] }
 hex = "0.4"
 humantime = "2"
 hyper-util = "0.1"
@@ -94,7 +96,13 @@ objc2-core-graphics = { version = "0.3", default-features = false }
 objc2-foundation = { version = "0.3", default-features = false }
 objc2-screen-capture-kit = { version = "0.3", default-features = false }
 open = "5"
-oxc = "0.158"
+oxc_allocator = "0.158"
+oxc_codegen = { version = "0.158", default-features = false }
+oxc_diagnostics = "0.158"
+oxc_parser = { version = "0.158", features = ["regular_expression"] }
+oxc_semantic = "0.158"
+oxc_span = "0.158"
+oxc_transformer = "0.158"
 percent-encoding = "2"
 portable-pty = "0.9"
 prost = "0.14"

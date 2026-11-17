@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
 
-use oxc::allocator::Allocator;
-use oxc::codegen::Codegen;
-use oxc::parser::Parser;
-use oxc::semantic::SemanticBuilder;
-use oxc::span::SourceType;
-use oxc::transformer::{TransformOptions, Transformer};
+use oxc_allocator::Allocator;
+use oxc_codegen::Codegen;
+use oxc_diagnostics::OxcDiagnostic;
+use oxc_parser::Parser;
+use oxc_semantic::SemanticBuilder;
+use oxc_span::SourceType;
+use oxc_transformer::{TransformOptions, Transformer};
 use rquickjs::loader::{ImportAttributes, Loader, Resolver};
 use rquickjs::module::Declared;
 use rquickjs::{Ctx, Error as JsError, Module};
@@ -155,7 +156,7 @@ impl Loader for Sources {
     }
 }
 
-fn join(errors: &[oxc::diagnostics::OxcDiagnostic]) -> String {
+fn join(errors: &[OxcDiagnostic]) -> String {
     errors
         .iter()
         .map(ToString::to_string)

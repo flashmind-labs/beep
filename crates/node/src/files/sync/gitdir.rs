@@ -724,7 +724,9 @@ impl Repo {
         }
 
         // An error means part of a history has not come.
-        Some(repo.merge_base(a, b).ok()?.is_some_and(|base| base == a))
+        let cache = repo.commit_graph_if_enabled().ok()?;
+        let mut graph = repo.revision_graph(cache.as_ref());
+        Some(gix_revision::merge_base(a, &[b], &mut graph).ok()?.is_some_and(|bases| *bases.first() == a))
     }
 
     /// Sets ref `name` to `new` if it is still `old`.

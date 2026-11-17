@@ -38,9 +38,8 @@ use tonic::{
 };
 
 #[allow(dead_code, clippy::all, clippy::pedantic)]
-mod proto {
-    tonic::include_proto!("android.emulation.control");
-}
+#[path = "proto/android.emulation.control.rs"]
+mod proto;
 
 /// How long a started emulator counts as booting before it has written its
 /// discovery file.

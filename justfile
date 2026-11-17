@@ -14,6 +14,10 @@ run:
     cd apps/desktop && npm ci --silent && npm run build
     cd apps/desktop/src-tauri && cargo tauri dev --no-dev-server --config tauri.dev.conf.json
 
+# Regenerate the checked-in Android emulator and iOS simulator gRPC clients.
+device-proto:
+    cargo run -p beep-device-proto
+
 # Build the desktop DMG.
 desktop-build:
     cd apps/desktop && npm ci --silent

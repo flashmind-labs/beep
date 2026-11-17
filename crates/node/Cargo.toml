@@ -29,6 +29,7 @@ host = [
     "dep:flashmind-types",
     "dep:futures",
     "dep:gix",
+    "dep:gix-revision",
     "dep:hex",
     "dep:humantime",
     "dep:hyper-util",
@@ -45,7 +46,6 @@ host = [
     "dep:notify",
     "dep:portable-pty",
     "dep:prost",
-    "dep:protox",
     "dep:rand",
     "dep:regex",
     "dep:reqwest",
@@ -67,7 +67,6 @@ host = [
     "dep:toml_edit",
     "dep:tonic",
     "dep:tonic-prost",
-    "dep:tonic-prost-build",
     "dep:tower",
     "dep:uuid",
     "dep:which",
@@ -113,7 +112,8 @@ dunce = { workspace = true, optional = true }
 fastrand.workspace = true
 flate2 = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
-gix = { workspace = true, features = ["revision", "sha1", "sha256"], optional = true }
+gix = { workspace = true, features = ["sha1", "sha256"], optional = true }
+gix-revision = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
 humantime = { workspace = true, optional = true }
 ignore = { workspace = true, optional = true }
@@ -193,11 +193,6 @@ windows-sys = { workspace = true, optional = true, features = [
     "Win32_System_Threading",
     "Win32_System_WindowsProgramming",
 ] }
-
-[build-dependencies]
-# Compiles the vendored gRPC protos in Rust, with no `protoc` to install.
-protox = { workspace = true, optional = true }
-tonic-prost-build = { workspace = true, optional = true }
 
 [dev-dependencies]
 iroh-tickets.workspace = true
