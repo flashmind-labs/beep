@@ -8,6 +8,7 @@ mod macros;
 
 mod agents;
 mod credentials;
+pub mod dns;
 mod error;
 #[cfg(feature = "https")]
 pub mod https;

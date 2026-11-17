@@ -17,7 +17,8 @@ pub const SERVER_HTTP_PORT: u16 = 47122;
 
 /// Binds an endpoint as `identity` that serves nothing yet: the caller
 /// serves its protocols through a `Router`. HTTPS probes stay on, since
-/// without them a network that blocks QUIC never finds a home relay.
+/// without them a network that blocks QUIC never finds a home relay, and DNS
+/// is encrypted, since some networks rewrite the relays' names.
 pub async fn bind_endpoint(
     identity: SecretKey,
     transport: QuicTransportConfig,
@@ -26,6 +27,7 @@ pub async fn bind_endpoint(
     net_report.captive_portal_check = false;
     Ok(Endpoint::builder(presets::N0)
         .secret_key(identity)
+        .dns_resolver(crate::dns::resolver())
         // UPnP and PCP never work on cellular, and each probe wakes the radio.
         .portmapper_config(PortmapperConfig::Disabled)
         .net_report_config(net_report)

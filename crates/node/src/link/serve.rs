@@ -77,7 +77,7 @@ pub async fn serve(
         let preset = if relays_off {
             Endpoint::builder(presets::Minimal)
         } else {
-            Endpoint::builder(presets::N0)
+            Endpoint::builder(presets::N0).dns_resolver(beep_proto::dns::resolver())
         };
         preset
             .secret_key(state.key.clone())
