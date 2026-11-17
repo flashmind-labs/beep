@@ -78,7 +78,7 @@ test("Work on it picks a model under the button and starts the issue's agent at 
 
 test("Work on it asks the machine first when the project is on several", async ({ page }) => {
   const now = Date.now(), issue = { number: 7, title: "Example issue", url: "https://example.test/issues/7", author: "Author", opened_at: now, comments: 0, labels: [] };
-  const detail = { kind: "issue", number: 7, title: issue.title, url: issue.url, author: issue.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Issue description</p>", comments: [], earlier: 0, review: "none", checks: null };
+  const detail = { kind: "issue", number: 7, title: issue.title, url: issue.url, author: issue.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Issue description</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
   const host = (id: string, agents: string[]) => ({ machine_id: id, machine_name: id, agents, workspace: null, home: "/srv", capabilities: [] });
   await openDesktop(page, false, {
     agent_hosts: [host("build-box", ["codex"]), host("gpu-box", ["claude", "codex"]), host("spare-box", ["codex"])],
