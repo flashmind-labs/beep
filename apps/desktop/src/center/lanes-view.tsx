@@ -179,14 +179,16 @@ function shownHeight(cell: HTMLElement) {
 function pageFits(cell: HTMLElement, step: number) {
   const page = pageOf(cell);
   if (!page || isMobile()) return null;
-  const room = page.clientHeight - (cell.getBoundingClientRect().top - page.getBoundingClientRect().top + page.scrollTop);
+  // Home's lanes stop above its view's bottom padding, so Home does not scroll; a project's board is left as it was.
+  const padding = page.matches(".cc-view") ? Number.parseFloat(getComputedStyle(page).paddingBottom) || 0 : 0;
+  const room = page.clientHeight - padding - (cell.getBoundingClientRect().top - page.getBoundingClientRect().top + page.scrollTop);
 
   return Math.max(SHOWN, Math.floor(room / step));
 }
 
-/// The project page that scrolls a board's lanes.
+/// The page that scrolls a board's lanes: a project's board, or Home's view.
 function pageOf(cell: HTMLElement) {
-  return cell.closest<HTMLElement>(".pj-board");
+  return cell.closest<HTMLElement>(".pj-board, .cc-view");
 }
 
 type Places = Map<string, { x: number; y: number }>;

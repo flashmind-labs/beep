@@ -113,3 +113,12 @@ test.describe("on a touch screen without hover", () => {
     await expect(page.locator("#sec-running .bd-card", { hasText: "Lazy-load charts" }).getByRole("button", { name: "Close" })).toBeVisible();
   });
 });
+
+test("a full lane scrolls on its own and Home fits the window", async ({ page }) => {
+  const idle = Array.from({ length: 25 }, (_, index) => row(`idle-${index}`, `Finished turn ${index}`, "idle"));
+  await openDesktop(page, false, { center_home: { ...home, running: [...home.running, ...idle] }, projects_sessions: [] });
+  const lane = page.locator("#sec-running .bd-lane.cell").nth(1);
+  await expect(lane.locator(".bd-card")).toHaveCount(26);
+  await expect.poll(() => lane.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await expect.poll(() => page.locator("#view").evaluate(element => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(1);
+});
