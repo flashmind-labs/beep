@@ -39,9 +39,9 @@ impl Repo {
     /// The tips of the branches that sync: the default branch and the one
     /// checked out here. Branches of linked worktrees stay on this machine.
     pub(in crate::files::sync) fn branches(&self) -> Result<Vec<BranchTip>> {
-        let synced = self.synced_branches();
+        let (default, head) = (self.default_branch(), self.head_ref());
         let mut tips = self.local_branches()?;
-        tips.retain(|tip| synced.contains(&tip.name));
+        tips.retain(|tip| tip.name == default || head.as_ref() == Some(&tip.name));
         Ok(tips)
     }
 
@@ -89,14 +89,6 @@ impl Repo {
     fn holds(&self, branch: &str, commit: Oid) -> bool {
         self.ref_oid(branch)
             .is_some_and(|tip| self.is_ancestor(commit, tip) == Some(true))
-    }
-
-    fn synced_branches(&self) -> Vec<String> {
-        let default = self.default_branch();
-        let head = self
-            .head_ref()
-            .filter(|head| head.starts_with(HEADS) && *head != default);
-        [Some(default), head].into_iter().flatten().collect()
     }
 
     /// The full name of `origin`'s default branch, or `main` when `origin`

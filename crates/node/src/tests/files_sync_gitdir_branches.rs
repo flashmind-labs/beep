@@ -1,4 +1,5 @@
 use super::*;
+use crate::files::sync::gitdir::tests::{commit, init};
 
 #[test]
 fn advertisements_exclude_private_names_and_duplicate_branches() {
@@ -25,24 +26,10 @@ fn advertisements_exclude_private_names_and_duplicate_branches() {
 
 #[test]
 fn inactive_updates_block_checkout_in_existing_worktrees_and_release_only_their_locks() {
-    let temp = tempfile::tempdir().unwrap();
-    let repo = Repo {
-        root: temp.path().to_owned(),
-    };
-    repo.run(&["init", "-q", "-b", "main"]).unwrap();
+    let (temp, repo) = init();
     std::fs::write(temp.path().join("README.md"), "baseline\n").unwrap();
     repo.run(&["add", "README.md"]).unwrap();
-    repo.run(&[
-        "-c",
-        "user.name=Test",
-        "-c",
-        "user.email=test@example.invalid",
-        "commit",
-        "-q",
-        "-m",
-        "baseline",
-    ])
-    .unwrap();
+    commit(&repo, "baseline");
     repo.run(&["branch", "feature"]).unwrap();
     repo.run(&["branch", "linked"]).unwrap();
     repo.run(&["worktree", "add", ".worktrees/linked", "linked"])
@@ -83,28 +70,9 @@ fn inactive_updates_block_checkout_in_existing_worktrees_and_release_only_their_
 
 #[test]
 fn a_repeated_catalog_reports_only_the_tips_that_moved() {
-    let temp = tempfile::tempdir().unwrap();
-    let repo = Repo {
-        root: temp.path().to_owned(),
-    };
-    let commit = |message: &str| {
-        repo.run(&[
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.invalid",
-            "commit",
-            "-q",
-            "--allow-empty",
-            "-m",
-            message,
-        ])
-        .unwrap();
-        repo.head().unwrap()
-    };
-    repo.run(&["init", "-q", "-b", "main"]).unwrap();
-    let first = commit("first");
-    let second = commit("second");
+    let (_temp, repo) = init();
+    let first = commit(&repo, "first");
+    let second = commit(&repo, "second");
     let peer = iroh::SecretKey::from_bytes(&[7; 32]).public();
     let tip = |name: &str, commit| BranchTip {
         name: format!("refs/heads/{name}"),
@@ -126,23 +94,8 @@ fn a_repeated_catalog_reports_only_the_tips_that_moved() {
 
 #[test]
 fn only_the_default_and_checked_out_branches_sync() {
-    let temp = tempfile::tempdir().unwrap();
-    let repo = Repo {
-        root: temp.path().to_owned(),
-    };
-    repo.run(&["init", "-q", "-b", "main"]).unwrap();
-    repo.run(&[
-        "-c",
-        "user.name=Test",
-        "-c",
-        "user.email=test@example.invalid",
-        "commit",
-        "-q",
-        "--allow-empty",
-        "-m",
-        "first",
-    ])
-    .unwrap();
+    let (_temp, repo) = init();
+    commit(&repo, "first");
     repo.run(&["branch", "feature"]).unwrap();
     repo.run(&["worktree", "add", "-q", "-b", "agent", ".worktrees/agent"])
         .unwrap();
@@ -166,34 +119,15 @@ fn only_the_default_and_checked_out_branches_sync() {
 
 #[test]
 fn a_new_branch_is_asked_for_with_what_is_here() {
-    let temp = tempfile::tempdir().unwrap();
-    let repo = Repo {
-        root: temp.path().to_owned(),
-    };
-    let commit = |message: &str| {
-        repo.run(&[
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.invalid",
-            "commit",
-            "-q",
-            "--allow-empty",
-            "-m",
-            message,
-        ])
-        .unwrap();
-        repo.head().unwrap()
-    };
-    repo.run(&["init", "-q", "-b", "main"]).unwrap();
-    let first = commit("first");
+    let (_temp, repo) = init();
+    let first = commit(&repo, "first");
     let peer = iroh::SecretKey::from_bytes(&[7; 32]).public();
     let received = BranchTip {
         name: "refs/heads/main".into(),
         commit: first,
     };
     repo.keep_peer_branch(&peer, &received).unwrap();
-    let second = commit("second");
+    let second = commit(&repo, "second");
 
     // No local branch of that name: HEAD, which is the default branch, and
     // the peer's tip stand in, so the pack holds only what is new.

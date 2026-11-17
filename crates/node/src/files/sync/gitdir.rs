@@ -35,6 +35,9 @@ mod seed;
 pub(super) use branches::BranchTip;
 
 pub(super) const GIT: &str = ".git";
+/// The start of the name of a folder that holds a pack while it arrives.
+const INCOMING: &str = "beep-incoming-";
+const STALE_INCOMING: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 const PREFIX: &str = ".git/";
 /// Where a ref's losing side is kept. `git log --all` shows it, `git gc` keeps
 /// it, and `git branch` does not list it as a branch.
@@ -627,14 +630,32 @@ impl Repo {
         Ok(output)
     }
 
+    fn pack_dir(&self) -> PathBuf {
+        self.root.join(GIT).join("objects").join("pack")
+    }
+
     /// A folder for a pack while it arrives, so Git reads only a whole one.
     /// A transfer cut short leaves nothing behind. It sits with the packs,
     /// where writes wake no scan and the sync copies nothing.
     pub(super) fn incoming_pack(&self) -> Result<IncomingPack> {
-        let packs = self.root.join(GIT).join("objects").join("pack");
+        let packs = self.pack_dir();
         fs::create_dir_all(&packs)?;
+        // A node stopped mid-transfer leaves its folder; one a day old is
+        // no transfer's any more.
+        for entry in fs::read_dir(&packs)?.flatten() {
+            let stale = entry.file_name().to_string_lossy().starts_with(INCOMING)
+                && entry
+                    .metadata()
+                    .and_then(|meta| meta.modified())
+                    .is_ok_and(|at| at.elapsed().is_ok_and(|age| age > STALE_INCOMING));
+
+            if stale {
+                let _ = fs::remove_dir_all(entry.path());
+            }
+        }
+
         let dir = tempfile::Builder::new()
-            .prefix("beep-incoming-")
+            .prefix(INCOMING)
             .tempdir_in(packs)
             .context("making room for a Git pack")?;
         Ok(IncomingPack { dir })
@@ -666,7 +687,7 @@ impl Repo {
             .last()
             .filter(|name| is_hex(name))
             .context("Git did not name the pack")?;
-        let packs = self.root.join(GIT).join("objects").join("pack");
+        let packs = self.pack_dir();
 
         // Git finds a pack by its index, so the index moves in last.
         for ext in ["pack", "rev", "idx"] {

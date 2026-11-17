@@ -109,30 +109,10 @@ fn only_refs_index_and_settings_count_as_git_metadata() {
 
 #[test]
 fn a_pack_cut_short_leaves_nothing_and_a_whole_one_indexes() {
-    let make = || {
-        let temp = tempfile::tempdir().unwrap();
-        let repo = Repo {
-            root: temp.path().to_owned(),
-        };
-        repo.run(&["init", "-q", "-b", "main"]).unwrap();
-        (temp, repo)
-    };
-    let (_source_dir, source) = make();
+    let (_source_dir, source) = init();
     std::fs::write(source.root.join("a.txt"), "some content\n").unwrap();
     source.run(&["add", "a.txt"]).unwrap();
-    source
-        .run(&[
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.invalid",
-            "commit",
-            "-q",
-            "-m",
-            "first",
-        ])
-        .unwrap();
-    let commit = source.head().unwrap();
+    let commit = commit(&source, "first");
     let mut packing = source
         .git()
         .args(["pack-objects", "--stdout", "--revs"])
@@ -146,7 +126,7 @@ fn a_pack_cut_short_leaves_nothing_and_a_whole_one_indexes() {
     )
     .unwrap();
     let bytes = packing.wait_with_output().unwrap().stdout;
-    let (_target_dir, target) = make();
+    let (_target_dir, target) = init();
     // A copied repository with no commit yet has no pack folder.
     std::fs::remove_dir_all(target.root.join(".git/objects/pack")).unwrap();
     let leftovers = |repo: &Repo| {
@@ -172,4 +152,22 @@ fn a_pack_cut_short_leaves_nothing_and_a_whole_one_indexes() {
     drop(whole);
     assert!(target.is_complete(commit));
     assert_eq!(leftovers(&target), Vec::<String>::new());
+}
+
+/// A new repository in a temporary folder, with an identity to commit as.
+pub(super) fn init() -> (tempfile::TempDir, Repo) {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = Repo {
+        root: temp.path().to_owned(),
+    };
+    repo.run(&["init", "-q", "-b", "main"]).unwrap();
+    repo.run(&["config", "user.name", "Test"]).unwrap();
+    repo.run(&["config", "user.email", "test@example.invalid"]).unwrap();
+    (temp, repo)
+}
+
+/// Commits what is staged, or nothing at all, and names the new commit.
+pub(super) fn commit(repo: &Repo, message: &str) -> Oid {
+    repo.run(&["commit", "-q", "--allow-empty", "-m", message]).unwrap();
+    repo.head().unwrap()
 }

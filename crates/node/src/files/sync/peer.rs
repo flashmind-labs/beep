@@ -4,7 +4,7 @@
 
 use tracing::Instrument;
 use super::{
-    Syncs,
+    CONNECT_TIMEOUT, STALL, Syncs,
     gitdir::{BranchTip, Checkout, Oid, Repo},
     map::{Entry, Replica},
     project::{Cursor, Shared},
@@ -17,7 +17,7 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, fmt, process::Stdio, sync::Arc, time::Duration};
+use std::{fmt, process::Stdio, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     task::{JoinSet, spawn_blocking},
@@ -32,7 +32,6 @@ pub(crate) const ALPN: &[u8] = b"beep-sync/7";
 
 /// The most entries one batch carries.
 const BATCH: usize = 1000;
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 const LAST_RETRY: Duration = Duration::from_secs(60);
 /// The most projects one peer pulls at once over a connection.
@@ -40,7 +39,6 @@ const MAX_STREAMS: usize = 64;
 /// How long a Git object transfer waits for its first chunk, then for each
 /// next one.
 const FIRST_CHUNK: Duration = Duration::from_secs(300);
-const STALL: Duration = Duration::from_secs(30);
 /// The largest Git pack one transfer takes.
 const MAX_PACK: u64 = 2 << 30;
 /// The most commits a puller offers as had.
@@ -633,10 +631,9 @@ async fn serve_objects(
         // Every commit the puller has that is here too stays out of the
         // pack, related to `commit` or not, and deltas may build on them.
         let mut input = format!("{commit}\n");
-        let mut excluded = HashSet::new();
 
         for have in haves.into_iter().take(MAX_HAVES) {
-            if excluded.insert(have) && repo.has_commit(have) {
+            if repo.has_commit(have) {
                 input.push_str(&format!("^{have}\n"));
             }
         }
