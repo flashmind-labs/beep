@@ -80,11 +80,19 @@ impl Agents {
         );
         let attachment_agent = agent.to_owned();
         let attachment_id = agent_id.unwrap_or_else(|| id.clone());
+        let indexed = attachment_id.clone();
         spawn_blocking(move || super::uploads::remove(&attachment_agent, &attachment_id)).await??;
-        let mut sessions = self.lock();
 
-        for (key, _) in records {
-            sessions.remove(&key);
+        {
+            let mut sessions = self.lock();
+
+            for (key, _) in records {
+                sessions.remove(&key);
+            }
+        }
+
+        if let Some(index) = self.search.get() {
+            index.forget(indexed).await;
         }
 
         Ok(())

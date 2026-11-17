@@ -3,9 +3,12 @@
 
 use anyhow::{Result, bail};
 use beep_proto::node::agent::{IndexRow, SearchHit};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, functions::FunctionFlags, params};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 const SCHEMA: u32 = 1;
 /// The most sessions one search answers with.
@@ -17,6 +20,18 @@ impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         let mut db = Connection::open(path)?;
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;")?;
+        // Whether `text` holds the lowercase `word`, with Unicode case
+        // folding, which SQLite's LIKE does only for ASCII.
+        db.create_scalar_function(
+            "holds",
+            2,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |call| {
+                let text: Option<String> = call.get(0)?;
+                let word: String = call.get(1)?;
+                Ok(text.is_some_and(|text| text.to_lowercase().contains(&word)))
+            },
+        )?;
         let version: u32 = db.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
         if version > SCHEMA {
@@ -100,16 +115,17 @@ impl Store {
         let (top, low) = progress.walk.map(|walk| (walk.top, walk.low)).unzip();
         let column = |at: Option<u64>| at.map(i64::try_from).transpose();
         tx.execute(
-            "INSERT INTO sessions(id,stamp,activity,done,walk_top,walk_low) VALUES (?1,COALESCE(?2,''),?3,?4,?5,?6)
+            "INSERT INTO sessions(id,stamp,activity,done,walk_top,walk_low,cwd) VALUES (?1,COALESCE(?2,''),?3,?4,?5,?6,?7)
              ON CONFLICT(id) DO UPDATE SET stamp=COALESCE(?2,sessions.stamp),activity=?3,
-                 done=?4,walk_top=?5,walk_low=?6",
+                 done=?4,walk_top=?5,walk_low=?6,cwd=?7",
             params![
                 session.id,
                 session.stamp,
                 i64::try_from(session.activity)?,
                 i64::try_from(progress.done)?,
                 column(top)?,
-                column(low)?
+                column(low)?,
+                session.cwd.to_string_lossy()
             ],
         )?;
         {
@@ -126,27 +142,42 @@ impl Store {
         Ok(())
     }
 
-    /// Resets every session not in `present`: its texts go, a reset row
-    /// tells copies, and it is read again if it comes back.
-    pub fn keep_only(&mut self, present: &BTreeSet<String>) -> Result<usize> {
-        let gone: Vec<(i64, String)> = {
+    /// Resets every session that ran outside `folders`. Returns how many.
+    pub fn keep_within(&mut self, folders: &[PathBuf]) -> Result<usize> {
+        let outside: Vec<i64> = {
             let mut read = self.0.prepare(
-                "SELECT key,id FROM sessions WHERE EXISTS(SELECT 1 FROM log WHERE session=key AND text IS NOT NULL)",
+                "SELECT key,cwd FROM sessions WHERE EXISTS(SELECT 1 FROM log WHERE session=key AND text IS NOT NULL)",
             )?;
-            read.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            read.query_map([], |row| Ok((row.get(0)?, row.get::<_, String>(1)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?
                 .into_iter()
-                .filter(|(_, id)| !present.contains(id))
+                .filter(|(_, cwd)| !folders.iter().any(|folder| Path::new(cwd).starts_with(folder)))
+                .map(|(key, _)| key)
                 .collect()
         };
+        self.reset(&outside)?;
+        Ok(outside.len())
+    }
 
-        if gone.is_empty() {
-            return Ok(0);
+    /// Resets session `id`, as when it was deleted.
+    pub fn forget(&mut self, id: &str) -> Result<()> {
+        let key: Option<i64> = self
+            .0
+            .query_row("SELECT key FROM sessions WHERE id=?1", [id], |row| row.get(0))
+            .optional()?;
+        self.reset(&key.into_iter().collect::<Vec<_>>())
+    }
+
+    /// Drops the texts of the sessions `keys`, tells copies with a reset
+    /// row each, and has them read again if they come back.
+    fn reset(&mut self, keys: &[i64]) -> Result<()> {
+        if keys.is_empty() {
+            return Ok(());
         }
 
         let tx = self.0.unchecked_transaction()?;
 
-        for (key, _) in &gone {
+        for key in keys {
             tx.execute("DELETE FROM log WHERE session=?1", [key])?;
             tx.execute("INSERT INTO log(session) VALUES (?1)", [key])?;
             tx.execute(
@@ -157,40 +188,51 @@ impl Store {
 
         tx.commit()?;
         self.0.execute_batch("PRAGMA incremental_vacuum;")?;
-        Ok(gone.len())
+        Ok(())
     }
 
-    /// The sessions holding every word of `query`, newest activity first.
-    /// LIKE folds ASCII case; the index finds the candidates for words of
-    /// three characters or more and LIKE checks them.
-    pub fn find(&self, query: &str) -> Result<Vec<SearchHit>> {
+    /// The sessions holding every word of `query`, newest activity first;
+    /// only those of `only` when it names any. A word of three characters
+    /// or more finds its candidates by its trigrams.
+    pub fn find(&self, query: &str, only: &[String]) -> Result<Vec<SearchHit>> {
         let query = query.trim().to_lowercase();
 
         if query.chars().count() < 2 {
             return Ok(Vec::new());
         }
 
-        let terms: Vec<String> = query
+        let words: Vec<&str> = query
             .split_whitespace()
             .collect::<BTreeSet<_>>()
             .into_iter()
-            .map(|term| format!("%{term}%"))
             .collect();
-        let conditions: Vec<String> = (1..=terms.len())
-            .map(|at| {
-                format!(
-                    "key IN (SELECT session FROM log WHERE seq IN
-                         (SELECT rowid FROM log_search WHERE text LIKE ?{at}))"
-                )
-            })
-            .collect();
+        let mut parameters: Vec<String> = vec![serde_json::to_string(only)?];
+        let mut conditions = Vec::new();
+
+        for word in &words {
+            parameters.push((*word).to_owned());
+            let holds = format!("holds(text,?{})", parameters.len());
+            let candidates = match trigrams(word) {
+                Some(trigrams) => {
+                    parameters.push(trigrams);
+                    format!(
+                        "seq IN (SELECT rowid FROM log_search WHERE log_search MATCH ?{}) AND {holds}",
+                        parameters.len()
+                    )
+                }
+                None => holds,
+            };
+            conditions.push(format!("key IN (SELECT session FROM log WHERE {candidates})"));
+        }
+
         let sql = format!(
-            "SELECT key,id,activity FROM sessions WHERE {}
+            "SELECT key,id,activity FROM sessions
+             WHERE (?1='[]' OR id IN (SELECT value FROM json_each(?1))) AND {}
              ORDER BY activity DESC,id LIMIT {MOST_HITS}",
             conditions.join(" AND ")
         );
         let mut read = self.0.prepare(&sql)?;
-        let rows = read.query_map(rusqlite::params_from_iter(&terms), |row| {
+        let rows = read.query_map(rusqlite::params_from_iter(&parameters), |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
@@ -198,14 +240,14 @@ impl Store {
             ))
         })?;
         let mut first = self.0.prepare(
-            "SELECT text FROM log WHERE session=?1 AND text LIKE ?2 ORDER BY seq LIMIT 1",
+            "SELECT text FROM log WHERE session=?1 AND holds(text,?2) ORDER BY seq LIMIT 1",
         )?;
 
         rows.map(|row| {
             let (key, session, activity) = row?;
-            let texts = terms
+            let texts = words
                 .iter()
-                .map(|term| first.query_row(params![key, term], |row| row.get(0)))
+                .map(|word| first.query_row(params![key, word], |row| row.get(0)))
                 .collect::<rusqlite::Result<Vec<String>>>()?;
             Ok(SearchHit {
                 session,
@@ -313,9 +355,20 @@ impl IndexCopy {
         Ok(())
     }
 
-    pub fn find(&self, query: &str) -> Result<Vec<SearchHit>> {
-        self.0.find(query)
+    pub fn find(&self, query: &str, only: &[String]) -> Result<Vec<SearchHit>> {
+        self.0.find(query, only)
     }
+}
+
+/// An FTS5 query for every trigram of `word`, each quoted so it is taken
+/// as written; `None` for a word too short to have one.
+fn trigrams(word: &str) -> Option<String> {
+    let chars: Vec<char> = word.chars().collect();
+    let quoted: Vec<String> = chars
+        .windows(3)
+        .map(|three| format!("\"{}\"", three.iter().collect::<String>().replace('"', "\"\"")))
+        .collect();
+    (!quoted.is_empty()).then(|| quoted.join(" AND "))
 }
 
 /// Keeps a text unique in its session without a second copy of it.
@@ -330,6 +383,8 @@ fn text_hash(text: &str) -> i64 {
 pub(super) struct Indexed {
     /// The agent's own id for it.
     pub id: String,
+    /// The folder it ran in.
+    pub cwd: PathBuf,
     /// Unix milliseconds.
     pub activity: u64,
     /// Kept once the read reached its newest entry; `None` before.

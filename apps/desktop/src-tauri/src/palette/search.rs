@@ -14,19 +14,39 @@ const MOST_HITS: usize = 64;
 
 #[tauri::command]
 pub async fn center_find_prompts(app: AppHandle, query: String) -> Result<Vec<Entry>> {
-    #[cfg(mobile)]
-    let hits = on_machines(&app, &query).await;
-    #[cfg(desktop)]
-    let hits = super::copies::find(&app, &query).await?;
-
     let cache = app.state::<PaletteCache>();
-    Ok(entries(hits, &cache.sessions(), &cache.projects(), &query))
+    let sessions = cache.sessions();
+    let listed = listed_by_machine(&sessions);
+
+    #[cfg(mobile)]
+    let hits = on_machines(&app, &query, &listed).await;
+    #[cfg(desktop)]
+    let hits = super::copies::find(&app, &query, listed).await?;
+
+    Ok(entries(hits, &sessions, &cache.projects(), &query))
+}
+
+/// The ids of the sessions the menu lists, by machine. Only these are
+/// searched, so a machine's limit of hits is not spent on others.
+pub(super) type Listed = HashMap<String, Vec<String>>;
+
+fn listed_by_machine(sessions: &[MachineSession]) -> Listed {
+    let mut listed = Listed::new();
+
+    for session in sessions {
+        listed
+            .entry(session.machine_id.clone())
+            .or_default()
+            .push(session.id.clone());
+    }
+
+    listed
 }
 
 /// Asks each online machine at once; one that is slow or cannot search is
 /// left out.
 #[cfg(mobile)]
-async fn on_machines(app: &AppHandle, query: &str) -> Vec<Found> {
+async fn on_machines(app: &AppHandle, query: &str, listed: &Listed) -> Vec<Found> {
     use crate::fleet::Fleet;
     use beep_mesh::machine::sessions::{Reading, Sessions};
     use beep_proto::node::agent::{SessionsReply, SessionsRequest};
@@ -38,10 +58,12 @@ async fn on_machines(app: &AppHandle, query: &str) -> Vec<Found> {
     let mut asks: FuturesUnordered<_> = fleet
         .online()
         .into_iter()
-        .map(|machine| {
+        .filter_map(|machine| Some((machine, listed.get(&machine.to_string())?.clone())))
+        .map(|(machine, sessions)| {
             let fleet = fleet.inner().clone();
             let request = SessionsRequest::Search {
                 query: query.to_owned(),
+                sessions,
             };
             async move {
                 let reply = tokio::time::timeout(WAIT, async {

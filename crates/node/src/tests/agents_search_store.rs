@@ -1,8 +1,10 @@
 use super::*;
+use std::path::PathBuf;
 
 fn indexed(id: &str, activity: u64, current: bool) -> Indexed {
     Indexed {
         id: id.into(),
+        cwd: PathBuf::from("/srv/project"),
         activity,
         stamp: current.then(|| activity.to_string()),
     }
@@ -23,13 +25,13 @@ fn every_word_must_be_in_one_session_newest_first() -> Result<()> {
     )?;
     store.save(&indexed("partial", 3, true), &texts(&["worktree only"]), Progress::NEW)?;
 
-    let found = store.find("  BAR Worktree bar  ")?;
+    let found = store.find("  BAR Worktree bar  ", &[])?;
     let sessions: Vec<&str> = found.iter().map(|hit| hit.session.as_str()).collect();
     assert_eq!(sessions, ["split", "old"]);
     assert_eq!(found[0].texts, ["The agent polished the bar", "Add worktree support"]);
-    assert!(store.find("worktree z")?.is_empty());
-    assert_eq!(store.find("wo bar")?.len(), 2, "short words match too");
-    assert!(store.find("b")?.is_empty(), "one character finds nothing");
+    assert!(store.find("worktree z", &[])?.is_empty());
+    assert_eq!(store.find("wo bar", &[])?.len(), 2, "short words match too");
+    assert!(store.find("b", &[])?.is_empty(), "one character finds nothing");
     Ok(())
 }
 
@@ -48,25 +50,73 @@ fn a_text_is_kept_once_and_rows_come_in_order() -> Result<()> {
 }
 
 #[test]
-fn a_session_that_left_is_reset_for_copies_and_read_again() -> Result<()> {
+fn a_session_outside_the_projects_is_reset_for_copies_and_read_again() -> Result<()> {
     let mut store = Store::open(Path::new(":memory:"))?;
     store.save(&indexed("kept", 1, true), &texts(&["kept prompt"]), Progress::NEW)?;
-    store.save(&indexed("gone", 1, true), &texts(&["gone prompt"]), Progress::NEW)?;
+    let mut gone = indexed("gone", 1, true);
+    gone.cwd = PathBuf::from("/srv/old/.worktrees/fix");
+    store.save(&gone, &texts(&["gone prompt"]), Progress::NEW)?;
     let before = store.newest()?;
+    let projects = [PathBuf::from("/srv/project")];
 
-    assert_eq!(store.keep_only(&BTreeSet::from(["kept".to_owned()]))?, 1);
-    assert_eq!(store.keep_only(&BTreeSet::from(["kept".to_owned()]))?, 0, "once");
+    assert_eq!(store.keep_within(&projects)?, 1);
+    assert_eq!(store.keep_within(&projects)?, 0, "once");
 
     let reset = store.rows_after(before, 10)?;
     assert_eq!(reset.len(), 1);
     assert_eq!((reset[0].session.as_str(), reset[0].text.as_deref()), ("gone", None));
-    assert!(store.find("gone")?.is_empty());
+    assert!(store.find("gone", &[])?.is_empty());
     assert!(!store.current("gone", "1")?, "read again if it comes back");
     assert_eq!(store.progress("gone")?, Progress::NEW);
     assert!(store.current("kept", "1")?);
 
     let all: Vec<String> = store.rows_after(0, 10)?.into_iter().map(|row| row.session).collect();
     assert_eq!(all, ["kept", "gone"], "the old rows went with the reset");
+
+    store.forget("kept")?;
+    assert!(store.find("kept", &[])?.is_empty(), "a deleted session goes");
+    assert_eq!(store.keep_within(&[])?, 0, "nothing left to drop");
+    Ok(())
+}
+
+#[test]
+fn words_are_literal_and_fold_every_capital() -> Result<()> {
+    let mut store = Store::open(Path::new(":memory:"))?;
+    store.save(
+        &indexed("one", 1, true),
+        &texts(&["Ärger im Build", "Привет мир", "call my_function"]),
+        Progress::NEW,
+    )?;
+    store.save(&indexed("two", 2, true), &texts(&["call my function"]), Progress::NEW)?;
+
+    assert_eq!(store.find("ärger", &[])?.len(), 1);
+    assert_eq!(store.find("ÄRGER build", &[])?.len(), 1);
+    assert_eq!(store.find("привет", &[])?[0].texts, ["Привет мир"]);
+    let underscored: Vec<String> = store
+        .find("my_function", &[])?
+        .into_iter()
+        .map(|hit| hit.session)
+        .collect();
+    assert_eq!(underscored, ["one"], "_ is not a wildcard");
+    assert!(store.find("__", &[])?.is_empty());
+    assert!(store.find("%%", &[])?.is_empty());
+    assert!(store.find("\"call", &[])?.is_empty(), "quotes are taken as written");
+    Ok(())
+}
+
+#[test]
+fn a_search_can_keep_to_named_sessions() -> Result<()> {
+    let mut store = Store::open(Path::new(":memory:"))?;
+    store.save(&indexed("listed", 1, true), &texts(&["retry"]), Progress::NEW)?;
+    store.save(&indexed("past", 2, true), &texts(&["retry"]), Progress::NEW)?;
+
+    let hits: Vec<String> = store
+        .find("retry", &["listed".to_owned()])?
+        .into_iter()
+        .map(|hit| hit.session)
+        .collect();
+    assert_eq!(hits, ["listed"]);
+    assert_eq!(store.find("retry", &[])?.len(), 2, "no names, any session");
     Ok(())
 }
 
@@ -80,7 +130,7 @@ fn a_walk_in_progress_is_kept_and_is_not_current() -> Result<()> {
     store.save(&indexed("one", 5, false), &texts(&["Newest request"]), walking)?;
     assert_eq!(store.progress("one")?, walking);
     assert!(!store.current("one", "5")?);
-    assert_eq!(store.find("newest")?.len(), 1, "saved page by page");
+    assert_eq!(store.find("newest", &[])?.len(), 1, "saved page by page");
 
     let done = Progress {
         done: 600,
@@ -120,18 +170,18 @@ fn a_copy_follows_rows_resets_and_a_new_epoch() -> Result<()> {
     copy.apply(&epoch, &node.rows_after(after, 1)?)?;
     let (_, after) = copy.position()?;
     copy.apply(&epoch, &node.rows_after(after, 10)?)?;
-    let order: Vec<String> = copy.find("retry")?.into_iter().map(|hit| hit.session).collect();
+    let order: Vec<String> = copy.find("retry", &[])?.into_iter().map(|hit| hit.session).collect();
     assert_eq!(order, ["kept", "gone"], "newest activity first");
     assert_eq!(copy.position()?, (epoch.clone(), node.newest()?));
 
-    node.keep_only(&BTreeSet::from(["kept".to_owned()]))?;
+    node.forget("gone")?;
     let (_, after) = copy.position()?;
     copy.apply(&epoch, &node.rows_after(after, 10)?)?;
-    let found: Vec<String> = copy.find("retry")?.into_iter().map(|hit| hit.session).collect();
+    let found: Vec<String> = copy.find("retry", &[])?.into_iter().map(|hit| hit.session).collect();
     assert_eq!(found, ["kept"]);
 
     copy.apply("another", &[])?;
-    assert!(copy.find("retry")?.is_empty(), "another index starts over");
+    assert!(copy.find("retry", &[])?.is_empty(), "another index starts over");
     assert_eq!(copy.position()?, ("another".to_owned(), 0));
     Ok(())
 }

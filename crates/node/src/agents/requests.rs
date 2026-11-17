@@ -269,9 +269,9 @@ pub async fn serve_sessions(
         SessionsRequest::FollowIndex { epoch, after } => {
             return send_index(tx, rx, &agents, &epoch, after).await;
         }
-        SessionsRequest::Search { query } => match agents.search.get().cloned() {
+        SessionsRequest::Search { query, sessions } => match agents.search.get().cloned() {
             Some(index) => index
-                .find(query)
+                .find(query, sessions)
                 .await
                 .map_or_else(failed, |hits| SessionsReply::SearchHits { hits }),
             None => failed("this node's search index is not open yet"),

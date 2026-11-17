@@ -360,6 +360,8 @@ pub enum SessionsRequest {
     /// node from before it closes the stream.
     Search {
         query: String,
+        /// Only these sessions, by the agent's own id; any when empty.
+        sessions: Vec<String>,
     },
     /// Follows the node's search index from row `after` of index `epoch`:
     /// `IndexRows` batches up to the newest row, then each change as it

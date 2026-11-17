@@ -15,7 +15,6 @@ use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use schedule::{Due, Pacer, Schedule};
 use std::{
-    collections::BTreeSet,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -82,9 +81,26 @@ impl SearchIndex {
         self.newest.subscribe()
     }
 
-    pub async fn find(self: &Arc<Self>, query: String) -> anyhow::Result<Vec<SearchHit>> {
+    /// The sessions holding every word of `query`; only those of `only`
+    /// when it names any.
+    pub async fn find(
+        self: &Arc<Self>,
+        query: String,
+        only: Vec<String>,
+    ) -> anyhow::Result<Vec<SearchHit>> {
         let index = self.clone();
-        spawn_blocking(move || index.reader().find(&query)).await?
+        spawn_blocking(move || index.reader().find(&query, &only)).await?
+    }
+
+    /// Drops what the index holds of session `id`, as when it was deleted.
+    pub async fn forget(self: &Arc<Self>, id: String) {
+        let index = self.clone();
+
+        match spawn_blocking(move || index.store().forget(&id)).await {
+            Ok(Ok(())) => self.added(),
+            Ok(Err(e)) => log::warn!("dropping a session from the search index: {e:#}"),
+            Err(e) => log::warn!("dropping a session from the search index stopped: {e}"),
+        }
     }
 
     pub async fn rows_after(self: &Arc<Self>, after: u64, most: u32) -> anyhow::Result<Vec<IndexRow>> {
@@ -153,28 +169,36 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, dir: PathBuf, agents: Arc
     };
     let mut pacer = Pacer::default();
     let mut wake = None;
-    // The folders sessions were last dropped for.
-    let mut known: Option<Vec<PathBuf>> = None;
+    // The folders sessions were last dropped for. The first pass drops
+    // nothing: the mesh may not have given every project yet.
+    let mut dropped_for: Option<Vec<PathBuf>> = None;
+    let mut first = true;
 
     loop {
         let look = Instant::now() + LOOK_EVERY;
         pacer
-            .next_pass(&index.changed, Some(wake.map_or(look, |at: Instant| at.min(look))))
+            .next_pass(
+                &index.changed,
+                Some(wake.map_or(look, |at: Instant| at.min(look))),
+            )
             .await;
 
         let folders = project_folders(&mesh, me);
+
+        // No folders yet may be a mesh still opening; once some were seen,
+        // none means the last project left.
+        let settled = !folders.is_empty() || dropped_for.is_some();
+
+        if !first && settled && dropped_for.as_ref() != Some(&folders) {
+            drop_outside(&index, folders.clone()).await;
+            dropped_for = Some(folders.clone());
+        }
+
+        first = false;
         let Some(sessions) = in_projects(&agents, &folders).await else {
             wake = None;
             continue;
         };
-
-        // Only a change of projects drops sessions: a scan that missed some,
-        // such as when one agent's files could not be read, must not.
-        if known.as_ref() != Some(&folders) {
-            forget_others(&index, &sessions).await;
-            known = Some(folders);
-        }
-
         let (due, next) = index.due(sessions);
         wake = next;
         let mut work = stream::iter(due)
@@ -262,12 +286,11 @@ fn project_folders(mesh: &Mesh, me: EndpointId) -> Vec<PathBuf> {
     folders
 }
 
-/// Resets what the index holds of sessions no longer in a project.
-async fn forget_others(index: &Arc<SearchIndex>, sessions: &[Seen]) {
-    let present: BTreeSet<String> = sessions.iter().map(|seen| seen.id.clone()).collect();
+/// Drops what the index holds of sessions outside `folders`.
+async fn drop_outside(index: &Arc<SearchIndex>, folders: Vec<PathBuf>) {
     let store = index.clone();
 
-    match spawn_blocking(move || store.store().keep_only(&present)).await {
+    match spawn_blocking(move || store.store().keep_within(&folders)).await {
         Ok(Ok(0)) => {}
         Ok(Ok(_)) => {
             index.schedule().clear();
@@ -305,6 +328,7 @@ async fn index_new(agents: &Agents, index: &Arc<SearchIndex>, session: &Seen) ->
         let current = newest && progress.walk.is_none();
         let indexed = Indexed {
             id: session.id.clone(),
+            cwd: session.cwd.clone(),
             activity: session.last_activity.saturating_mul(1000),
             stamp: current.then(|| stamp.clone()),
         };
@@ -355,6 +379,14 @@ fn advance(progress: Progress, page: Page) -> Progress {
         // The newest page. Where it ends is at worst a page past what was
         // read before, so a page may be read twice.
         let end = page.earlier + page.entries;
+        // A transcript shorter than what was indexed was numbered again,
+        // such as a large one read from a later point: read it all again.
+        // Texts already kept are not kept twice.
+        let progress = if end < progress.done {
+            Progress::NEW
+        } else {
+            progress
+        };
 
         return if page.earlier <= progress.done {
             Progress {

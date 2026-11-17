@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     stamp TEXT NOT NULL DEFAULT '',
     -- Unix milliseconds of its last activity.
     activity INTEGER NOT NULL DEFAULT 0,
+    -- The folder it ran in, so it leaves with its project. Empty in a copy.
+    cwd TEXT NOT NULL DEFAULT '',
     -- Transcript entries before this index are indexed.
     done INTEGER NOT NULL DEFAULT 0,
     -- A walk back from walk_top toward done that has reached walk_low.
@@ -26,8 +28,8 @@ CREATE TABLE IF NOT EXISTS log (
     hash INTEGER,
     UNIQUE(session, hash)
 );
--- Without positions the index is a third of the size; LIKE checks each
--- candidate against its text.
+-- Without positions the index is a third of the size. A search asks for
+-- every trigram of a word, then `holds` checks each candidate's text.
 CREATE VIRTUAL TABLE IF NOT EXISTS log_search USING fts5(
     text, content='log', content_rowid='seq',
     tokenize='trigram', detail=none

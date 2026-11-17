@@ -88,3 +88,26 @@ fn stores_that_ignore_before_and_dropped_entries_end_a_walk() {
         }
     ));
 }
+
+#[test]
+fn a_transcript_numbered_again_is_read_again_from_the_start() {
+    let indexed = Progress {
+        done: 5000,
+        walk: None,
+    };
+    // A large file read from a later point now has fewer entries.
+    let newest = Page {
+        earlier: 1800,
+        entries: 200,
+    };
+    assert_eq!(
+        advance(indexed, newest),
+        Progress {
+            done: 0,
+            walk: Some(Walk {
+                top: 2000,
+                low: 1800
+            }),
+        }
+    );
+}
