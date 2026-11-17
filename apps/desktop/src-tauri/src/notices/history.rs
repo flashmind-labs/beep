@@ -45,7 +45,7 @@ const MAX_AGE_MS: u64 = 30 * 24 * 3600 * 1000;
 pub enum NoteKind {
     /// A coding agent's turn ended.
     Finished,
-    /// A coding agent asks the user; `done` once answered.
+    /// A coding agent asks the user; removed once answered.
     Asks,
     /// Sync left conflict copies on a machine; `done` once settled.
     Conflict,
@@ -163,13 +163,15 @@ pub struct Notes {
 impl Notes {
     /// Reads the file at `path`; a missing or unreadable one starts empty.
     pub(crate) fn load(path: PathBuf) -> Self {
-        let list: Vec<Note> = fs::read(&path)
+        let mut list: Vec<Note> = fs::read(&path)
             .map_err(anyhow::Error::from)
             .and_then(|bytes| Ok(serde_json::from_slice(&bytes)?))
             .unwrap_or_else(|e| {
                 log::info!("starting without the saved notifications: {e:#}");
                 Vec::new()
             });
+        list.retain(|note| note.kind != NoteKind::Asks || !note.done);
+
         Self {
             path,
             list: Mutex::new(list),
@@ -219,13 +221,20 @@ impl Notes {
         changed
     }
 
-    /// Marks done every note `which` picks that is not yet.
+    /// Removes answered questions and marks other matching notes done.
     fn finish(&self, which: impl Fn(&Note) -> bool) -> bool {
-        self.change(|note| {
-            let now = !note.done && which(note);
-            note.done |= now;
-            now
-        })
+        let mut changed = false;
+        self.lock().retain_mut(|note| {
+            if note.done || !which(note) {
+                return true;
+            }
+
+            changed = true;
+            note.done = true;
+            note.kind != NoteKind::Asks
+        });
+
+        changed
     }
 
     /// Marks read the notes in `ids` that are not yet; returns what was read.
@@ -384,7 +393,7 @@ pub(crate) fn record(app: &AppHandle, note: Note) {
     changed(app, notes);
 }
 
-/// Marks done the notes `which` picks.
+/// Removes matching questions and marks other matching notes done.
 pub(crate) fn finish(app: &AppHandle, which: impl Fn(&Note) -> bool) {
     let notes = notes(app);
 
