@@ -7,6 +7,16 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.27] - 2026-11-17
+
+### Changed
+
+- Desktop: node update notifications and updates follow Developer mode.
+
+### Fixed
+
+- Desktop: fixed the macOS release build so installers can be published.
+
 ## [0.9.26] - 2026-11-17
 
 ### Added
