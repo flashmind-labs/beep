@@ -28,6 +28,7 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "⌥⇧Tab", does: "Previous active conversation" },
     { keys: "⌃Tab", does: "Next running session in this project" },
     { keys: "⌃⇧Tab", does: "Previous running session in this project" },
+    { keys: "⌘E", does: "Fold the sidebar; in a project's session, swap it with the project's sessions" },
     { keys: "⌘,", does: "Settings" },
     { keys: "⌘/", does: "Keyboard shortcuts" },
     { keys: "⌘N", does: "New agent session" },

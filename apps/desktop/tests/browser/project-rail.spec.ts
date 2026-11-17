@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
-test("a project's session swaps the sidebar for the project's sessions in the same column", async ({ page }) => {
+test("a project's session swaps the sidebar for the project's sessions in the same column", async ({ page }, info) => {
+  const modifier = info.project.name === "Windows" ? "Control" : "Meta";
   const sessions = Array.from({ length: 4 }, (_, i) => ({ machine_id: "build-box", machine_name: "build-box", id: `past-${i}`, agent: "codex", title: `Past session ${i}`, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100 - i, external: false, question: null, assistant: false }));
   const busy = { ...sessions[0], id: "busy", title: "Busy session", status: "working", doing: "Running the tests", started_at: 5, last_activity: 1 };
   await openDesktop(page, false, { project_sessions: [...sessions, busy] });
@@ -54,6 +55,13 @@ test("a project's session swaps the sidebar for the project's sessions in the sa
   await side.locator(".cc-side-toggle").click();
   await expect(rail).toBeVisible();
   await expect(side).toBeHidden();
+
+  // ⌘E swaps them too.
+  await page.keyboard.press(`${modifier}+e`);
+  await expect(side).toBeVisible();
+  await expect(rail).toBeHidden();
+  await page.keyboard.press(`${modifier}+e`);
+  await expect(rail).toBeVisible();
 
   await rail.locator(".rail-back").click();
   await expect(rail).toBeHidden();
