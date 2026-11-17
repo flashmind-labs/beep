@@ -45,6 +45,7 @@ host = [
     "dep:log",
     "dep:notify",
     "dep:portable-pty",
+    "dep:semver",
     "dep:prost",
     "dep:rand",
     "dep:regex",
@@ -146,6 +147,7 @@ roxmltree = { workspace = true, optional = true }
 # flsh keeps its sessions in SQLite.
 rusqlite = { workspace = true, optional = true }
 secrecy = { workspace = true, optional = true }
+semver = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_bytes = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }

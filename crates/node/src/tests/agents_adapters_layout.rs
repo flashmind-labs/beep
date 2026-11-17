@@ -68,6 +68,32 @@ fn an_adapter_counts_only_when_node_and_its_script_are_there() {
         Some(Installed {
             node,
             script: package.join("dist/index.js"),
-        })
+            current: false,
+        }),
+        "no version, so installed again"
     );
+}
+
+#[test]
+fn an_adapter_older_than_its_minimum_is_not_current() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let codex = super::super::super::kinds::known("codex").expect("codex");
+    let root = root(dir.path());
+    let node = node_program(&node_root(&root), env::consts::OS);
+    fs::create_dir_all(node.parent().expect("a folder")).expect("folders");
+    fs::write(&node, "").expect("node");
+    let package = package_dir(&prefix(&root, "codex"), "@agentclientprotocol/codex-acp");
+    fs::create_dir_all(package.join("dist")).expect("folders");
+    fs::write(package.join("dist/index.js"), "").expect("a script");
+    let current = |version: &str| {
+        let manifest = format!(
+            r#"{{"name":"@agentclientprotocol/codex-acp","version":"{version}","bin":{{"codex-acp":"dist/index.js"}}}}"#
+        );
+        fs::write(package.join("package.json"), manifest).expect("a manifest");
+        installed(dir.path(), codex).expect("installed").current
+    };
+
+    assert!(!current("2.5.0"));
+    assert!(current("2.7.0"));
+    assert!(current("3.0.1"));
 }

@@ -149,6 +149,9 @@ pub(super) enum Adapter {
     Npm {
         bin: &'static str,
         package: &'static str,
+        /// The oldest version the node runs: an older one it installed is
+        /// installed again, and npx fetches one at least this new.
+        min: &'static str,
     },
     /// The CLI itself speaks ACP with these arguments.
     Flags(&'static [&'static str]),
@@ -163,6 +166,7 @@ pub(super) const KNOWN: &[Known] = &[
         adapter: Adapter::Npm {
             bin: "claude-agent-acp",
             package: "@agentclientprotocol/claude-agent-acp",
+            min: "0.101.0",
         },
         // Claude Code leaves its task tools off on recent models; its
         // adapter reports their calls as the session's plan.
@@ -189,6 +193,8 @@ pub(super) const KNOWN: &[Known] = &[
         adapter: Adapter::Npm {
             bin: "codex-acp",
             package: "@agentclientprotocol/codex-acp",
+            // 2.7.0 forwards Codex's questions asked mid-turn.
+            min: "2.7.0",
         },
         env: &[("INITIAL_AGENT_MODE", "agent-full-access")],
         thinking_env: &[],
@@ -226,6 +232,7 @@ pub(super) const KNOWN: &[Known] = &[
         adapter: Adapter::Npm {
             bin: "pi-acp",
             package: "pi-acp",
+            min: "0.0.34",
         },
         env: &[],
         thinking_env: &[],
@@ -363,7 +370,15 @@ pub(super) fn detection(extra: &[AgentKind], node_dir: Option<&Path>) -> Detecti
 
     for known in KNOWN {
         let own = node_dir.and_then(|dir| adapters::installed(dir, known));
-        detection.record(known, launch(known, &found, own.as_ref()), home.as_deref());
+        let launch = launch(known, &found, own.as_ref());
+        // An outdated adapter of the node's own runs until its new one is in.
+        let outdated = own.as_ref().is_some_and(|own| !own.current)
+            && matches!(launch, Some(Launch::OnOwnNode(_)));
+        detection.record(known, launch, home.as_deref());
+
+        if outdated {
+            detection.lacking.push(known);
+        }
     }
 
     let claude = detection.kinds.iter().any(|kind| kind.name == "claude");
@@ -492,9 +507,9 @@ pub(super) fn launch(
                 vec![own.script.to_string_lossy().into_owned()],
             )
         }
-        (Adapter::Npm { package, .. }, None) if found("npx") => (
+        (Adapter::Npm { package, min, .. }, None) if found("npx") => (
             "npx".to_owned(),
-            vec!["-y".to_owned(), (*package).to_owned()],
+            vec!["-y".to_owned(), format!("{package}@>={min}")],
         ),
         (Adapter::Npm { .. }, None) if known.name != "claude" => {
             return Some(Launch::LacksAdapter);

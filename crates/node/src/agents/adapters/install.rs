@@ -29,7 +29,7 @@ const LOCAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// Installs the adapter of `known` under the adapters' folder `root`, and
 /// Node.js beside it when it is not there yet.
 pub(super) async fn adapter(root: &Path, known: &Known) -> Result<Installed> {
-    let Adapter::Npm { bin, package } = known.adapter else {
+    let Adapter::Npm { bin, package, min } = known.adapter else {
         bail!("{} has no adapter to install", known.name);
     };
     let node = node(root).await.context("needs Node.js")?;
@@ -38,7 +38,7 @@ pub(super) async fn adapter(root: &Path, known: &Known) -> Result<Installed> {
     tokio::fs::create_dir_all(&stage)
         .await
         .with_context(|| format!("creating {}", stage.display()))?;
-    let installed = npm_install(root, &node, package, &stage)
+    let installed = npm_install(root, &node, &format!("{package}@>={min}"), &stage)
         .await
         .and_then(|()| {
             layout::script_in(&stage, package, bin)
@@ -52,9 +52,13 @@ pub(super) async fn adapter(root: &Path, known: &Known) -> Result<Installed> {
 
     let target = layout::prefix(root, known.name);
     swap_in(&stage, &target).await?;
-    let script = layout::script_in(&target, package, bin)
+    let (script, _) = layout::script_in(&target, package, bin)
         .with_context(|| format!("{bin} is gone from {}", target.display()))?;
-    Ok(Installed { node, script })
+    Ok(Installed {
+        node,
+        script,
+        current: true,
+    })
 }
 
 /// The node's own `node`, downloaded when it is not there yet.
