@@ -796,12 +796,12 @@ async fn send_index(
     loop {
         // Marked seen before reading, so a row added meanwhile wakes the
         // next round.
-        beep_proto::watched::read_and_update(&mut newest, |_| ());
+        let top = beep_proto::watched::read_and_update(&mut newest, |seq| *seq);
 
         loop {
             let rows = index.rows_after(after, INDEX_BATCH).await?;
-            let current = rows.len() < INDEX_BATCH as usize;
             after = rows.last().map_or(after, |row| row.seq);
+            let current = rows.is_empty() || after >= top;
             tx.send(&SessionsReply::IndexRows {
                 epoch: index.epoch().to_owned(),
                 rows,

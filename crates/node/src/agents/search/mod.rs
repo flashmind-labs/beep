@@ -27,6 +27,9 @@ use tokio::{
 };
 
 const PAGE: u32 = 200;
+/// The most of one prompt or reply that is indexed, so a row always fits a
+/// frame.
+const MOST_TEXT: usize = 256 * 1024;
 const IN_FLIGHT: usize = 4;
 /// Pages saved before this keep their progress when it runs out.
 const SESSION_WAIT: Duration = Duration::from_secs(60);
@@ -166,8 +169,12 @@ impl SearchIndex {
 pub(crate) async fn follow(mesh: Mesh, me: EndpointId, dir: PathBuf, agents: Arc<Agents>) {
     let index = match agents.search.get() {
         Some(index) => index.clone(),
-        None => match SearchIndex::open(&dir.join("search.sqlite")) {
-            Ok(index) => agents.search.get_or_init(|| Arc::new(index)).clone(),
+        None => match spawn_blocking(move || SearchIndex::open(&dir.join("search.sqlite"))).await {
+            Ok(Ok(index)) => agents.search.get_or_init(|| Arc::new(index)).clone(),
+            Ok(Err(e)) => {
+                log::warn!("no search index: {e:#}");
+                return;
+            }
             Err(e) => {
                 log::warn!("no search index: {e:#}");
                 return;
@@ -217,14 +224,20 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, dir: PathBuf, agents: Arc
                 let index = index.clone();
                 let agents = agents.clone();
                 async move {
-                    let pass = match timeout(SESSION_WAIT, index_new(&agents, &index, &session)).await {
+                    let mut saved = false;
+                    let read = timeout(SESSION_WAIT, index_new(&agents, &index, &session, &mut saved)).await;
+                    let pass = match read {
                         Ok(Ok(true)) => Pass::Indexed,
                         Ok(Ok(false)) => Pass::Current,
                         Ok(Err(e)) => {
                             log::debug!("indexing session {}: {e:#}", session.id);
                             Pass::Failed
                         }
-                        Err(_) => Pass::Partial,
+                        Err(_) if saved => Pass::Partial,
+                        Err(_) => {
+                            log::debug!("indexing session {} saved nothing in time", session.id);
+                            Pass::Failed
+                        }
                     };
                     (session, pass)
                 }
@@ -325,9 +338,14 @@ async fn drop_outside(index: &Arc<SearchIndex>, folders: Vec<PathBuf>) {
 }
 
 /// Reads the entries of `session` added since it was last indexed, newest
-/// page first, and saves each page as it arrives. False when it was
-/// already current.
-async fn index_new(agents: &Agents, index: &Arc<SearchIndex>, session: &Seen) -> anyhow::Result<bool> {
+/// page first, and saves each page as it arrives, setting `saved`. False
+/// when it was already current.
+async fn index_new(
+    agents: &Agents,
+    index: &Arc<SearchIndex>,
+    session: &Seen,
+    saved: &mut bool,
+) -> anyhow::Result<bool> {
     let stamp = session.last_activity.to_string();
     let store = index.clone();
     let (id, at) = (session.id.clone(), stamp.clone());
@@ -357,7 +375,7 @@ async fn index_new(agents: &Agents, index: &Arc<SearchIndex>, session: &Seen) ->
         };
 
         let held = index.clone();
-        let saved = spawn_blocking(move || {
+        let kept = spawn_blocking(move || {
             let mut store = held.store();
             // Checked with the store held, so a delete is wholly before or
             // after this page.
@@ -366,10 +384,11 @@ async fn index_new(agents: &Agents, index: &Arc<SearchIndex>, session: &Seen) ->
         })
         .await??;
 
-        if saved.is_none() {
+        if kept.is_none() {
             return Ok(false);
         }
 
+        *saved = true;
         index.added().await;
 
         if current {
@@ -403,6 +422,10 @@ async fn read_page(agents: &Agents, session: &str, before: Option<u64>) -> anyho
             _ => None,
         })
         .filter(|text| !text.trim().is_empty())
+        .map(|mut text| {
+            text.truncate(text.floor_char_boundary(MOST_TEXT));
+            text
+        })
         .collect();
 
     Ok((texts, page))

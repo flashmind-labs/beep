@@ -2,7 +2,7 @@
 //! once, and the change log copies follow, which is the same table.
 
 use anyhow::{Result, bail};
-use beep_proto::node::agent::{IndexRow, SearchHit};
+use beep_proto::node::agent::{IndexRow, SearchHit, folded_at};
 use rusqlite::{Connection, OptionalExtension, functions::FunctionFlags, params};
 use sha2::{Digest, Sha256};
 use std::{
@@ -13,6 +13,10 @@ use std::{
 const SCHEMA: u32 = 1;
 /// The most sessions one search answers with.
 const MOST_HITS: u32 = 64;
+/// About the most text one batch of rows carries, well under a frame.
+const BATCH_BYTES: usize = 1 << 20;
+/// The characters a hit's text keeps before and after its word.
+const AROUND: usize = 200;
 
 pub(super) struct Store(Connection);
 
@@ -208,22 +212,29 @@ impl Store {
             .collect();
         let mut parameters: Vec<String> = vec![serde_json::to_string(only)?];
         let mut conditions = Vec::new();
+        let mut short = Vec::new();
 
         for word in &words {
             parameters.push((*word).to_owned());
             let holds = format!("holds(text,?{})", parameters.len());
-            let candidates = match trigrams(word) {
+
+            match trigrams(word) {
                 Some(trigrams) => {
                     parameters.push(trigrams);
-                    format!(
-                        "seq IN (SELECT rowid FROM log_search WHERE log_search MATCH ?{}) AND {holds}",
+                    conditions.push(format!(
+                        "key IN (SELECT session FROM log WHERE seq IN
+                         (SELECT rowid FROM log_search WHERE log_search MATCH ?{}) AND {holds})",
                         parameters.len()
-                    )
+                    ));
                 }
-                None => holds,
-            };
-            conditions.push(format!("key IN (SELECT session FROM log WHERE {candidates})"));
+                // Checked last, and only in the sessions the rest leave.
+                None => short.push(format!(
+                    "EXISTS (SELECT 1 FROM log WHERE session=key AND {holds})"
+                )),
+            }
         }
+
+        conditions.append(&mut short);
 
         let sql = format!(
             "SELECT key,id,activity FROM sessions
@@ -247,8 +258,11 @@ impl Store {
             let (key, session, activity) = row?;
             let texts = words
                 .iter()
-                .map(|word| first.query_row(params![key, word], |row| row.get(0)))
-                .collect::<rusqlite::Result<Vec<String>>>()?;
+                .map(|word| {
+                    let text: String = first.query_row(params![key, word], |row| row.get(0))?;
+                    Ok(around(&text, word))
+                })
+                .collect::<Result<Vec<String>>>()?;
             Ok(SearchHit {
                 session,
                 activity: u64::try_from(activity)?,
@@ -268,7 +282,8 @@ impl Store {
         Ok(u64::try_from(seq)?)
     }
 
-    /// Up to `most` rows after `after`, in order.
+    /// Up to `most` rows after `after`, in order, ending early once they
+    /// carry about `BATCH_BYTES` of text.
     pub fn rows_after(&self, after: u64, most: u32) -> Result<Vec<IndexRow>> {
         let mut read = self.0.prepare(
             "SELECT seq,id,text,activity FROM log JOIN sessions ON key=session
@@ -283,16 +298,25 @@ impl Store {
             ))
         })?;
 
-        rows.map(|row| {
+        let mut batch = Vec::new();
+        let mut bytes = 0;
+
+        for row in rows {
             let (seq, session, text, activity) = row?;
-            Ok(IndexRow {
+            bytes += text.as_ref().map_or(0, String::len);
+            batch.push(IndexRow {
                 seq: u64::try_from(seq)?,
                 session,
                 text,
                 activity: u64::try_from(activity)?,
-            })
-        })
-        .collect()
+            });
+
+            if bytes >= BATCH_BYTES {
+                break;
+            }
+        }
+
+        Ok(batch)
     }
 }
 
@@ -369,6 +393,17 @@ fn trigrams(word: &str) -> Option<String> {
         .map(|three| format!("\"{}\"", three.iter().collect::<String>().replace('"', "\"\"")))
         .collect();
     (!quoted.is_empty()).then(|| quoted.join(" AND "))
+}
+
+/// The part of `text` around the first place it holds the lowercase `word`,
+/// so a hit stays small however long its text is.
+fn around(text: &str, word: &str) -> String {
+    let Some(at) = folded_at(text, word) else {
+        return text.chars().take(2 * AROUND).collect();
+    };
+    let start = at.saturating_sub(AROUND);
+    let keep = AROUND + word.chars().count() + AROUND;
+    text.chars().skip(start).take(keep).collect()
 }
 
 /// Keeps a text unique in its session without a second copy of it.

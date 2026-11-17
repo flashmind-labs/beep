@@ -379,8 +379,27 @@ pub struct SearchHit {
     pub session: String,
     /// Unix milliseconds of its last activity.
     pub activity: u64,
-    /// For each query word, the first prompt or reply holding it.
+    /// For each query word, the part around it of the first prompt or
+    /// reply holding it.
     pub texts: Vec<String>,
+}
+
+/// The character where `text` first holds the lowercase `word`, counted
+/// in `text`'s own characters, which lowercasing can lengthen.
+pub fn folded_at(text: &str, word: &str) -> Option<usize> {
+    let folded = text.to_lowercase();
+    let folded_at = folded.find(word)?;
+    let mut bytes = 0;
+
+    Some(
+        text.chars()
+            .take_while(|ch| {
+                let before = bytes;
+                bytes += ch.to_lowercase().map(char::len_utf8).sum::<usize>();
+                before < folded_at
+            })
+            .count(),
+    )
 }
 
 /// One change of a node's search index. A row with text adds a prompt or

@@ -4,7 +4,10 @@
 
 use super::{index::Entry, lists::PaletteCache, projects::session_entry};
 use crate::error::Result;
-use beep_proto::{ImportedProject, MachineSession, node::agent::SearchHit};
+use beep_proto::{
+    ImportedProject, MachineSession,
+    node::agent::{SearchHit, folded_at},
+};
 use regex::Regex;
 use std::{collections::HashMap, sync::LazyLock};
 use tauri::{AppHandle, Manager};
@@ -154,22 +157,12 @@ static MENTION: LazyLock<Regex> = LazyLock::new(|| {
 /// Unicode offsets measured in characters so case folding cannot split a
 /// UTF-8 character.
 fn excerpt(text: &str, terms: &[String]) -> Option<String> {
-    let folded = text.to_lowercase();
-    let (folded_at, term) = terms
+    let (at, term) = terms
         .iter()
-        .filter_map(|term| folded.find(term.as_str()).map(|at| (at, term)))
+        .filter_map(|term| folded_at(text, term).map(|at| (at, term)))
         .min()?;
 
     let chars: Vec<char> = text.chars().collect();
-    let mut bytes = 0;
-    let at = chars
-        .iter()
-        .take_while(|ch| {
-            let before = bytes;
-            bytes += ch.to_lowercase().map(char::len_utf8).sum::<usize>();
-            before < folded_at
-        })
-        .count();
     let start = at.saturating_sub(24);
     let end = (at + term.chars().count() + 120).min(chars.len());
     let excerpt: String = chars[start.min(chars.len())..end].iter().collect();

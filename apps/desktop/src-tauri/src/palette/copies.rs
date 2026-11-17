@@ -56,7 +56,7 @@ impl Copies {
     }
 
     /// The hits of each copy among the sessions `listed` for its machine.
-    fn find(&self, query: &str, listed: &Listed) -> anyhow::Result<Vec<Found>> {
+    fn find(&self, query: &str, listed: &Listed) -> Vec<Found> {
         let held: Vec<_> = self
             .held()
             .iter()
@@ -68,14 +68,17 @@ impl Copies {
             let Some(only) = listed.get(&machine.to_string()) else {
                 continue;
             };
-            let hits = lock(&copy).find(query, only)?;
-            found.extend(hits.into_iter().map(|hit| Found {
-                machine: machine.to_string(),
-                hit,
-            }));
+            // One copy that cannot be read leaves out only its machine.
+            match lock(&copy).find(query, only) {
+                Ok(hits) => found.extend(hits.into_iter().map(|hit| Found {
+                    machine: machine.to_string(),
+                    hit,
+                })),
+                Err(e) => log::warn!("searching the copy of {machine}: {e:#}"),
+            }
         }
 
-        Ok(found)
+        found
     }
 
     fn copy(&self, machine: EndpointId) -> anyhow::Result<Arc<Mutex<IndexCopy>>> {
@@ -172,7 +175,9 @@ async fn copy_from(
     copies: &Arc<Copies>,
     machine: EndpointId,
 ) -> anyhow::Result<bool> {
-    let copy = copies.copy(machine)?;
+    let opening = copies.clone();
+    // Opening a new copy writes its schema: off the async workers.
+    let copy = spawn_blocking(move || opening.copy(machine)).await??;
     let held = copy.clone();
     let (mut copied, after) = spawn_blocking(move || lock(&held).position()).await??;
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
@@ -223,5 +228,5 @@ pub(super) async fn find(
 ) -> anyhow::Result<Vec<Found>> {
     let copies = app.state::<Arc<Copies>>().inner().clone();
     let query = query.to_owned();
-    spawn_blocking(move || copies.find(&query, &listed)).await?
+    Ok(spawn_blocking(move || copies.find(&query, &listed)).await?)
 }

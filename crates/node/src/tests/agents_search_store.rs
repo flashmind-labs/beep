@@ -185,3 +185,26 @@ fn a_copy_follows_rows_resets_and_a_new_epoch() -> Result<()> {
     assert_eq!(copy.position()?, ("another".to_owned(), 0));
     Ok(())
 }
+
+#[test]
+fn a_hit_carries_only_the_text_around_its_word() -> Result<()> {
+    let mut store = Store::open(Path::new(":memory:"))?;
+    let long = format!("{}İstanbul retry button{}", "a ".repeat(2000), " b".repeat(2000));
+    store.save(&indexed("long", 1, true), &texts(&[&long]), Progress::NEW)?;
+
+    let texts = &store.find("retry", &[])?[0].texts;
+    assert!(texts[0].contains("İstanbul retry button"));
+    assert!(texts[0].chars().count() <= 2 * AROUND + "retry".len());
+    assert_eq!(folded_at("İstanbul retry", "retry"), Some(9));
+    Ok(())
+}
+
+#[test]
+fn a_batch_of_rows_ends_once_it_carries_enough_text() -> Result<()> {
+    let mut store = Store::open(Path::new(":memory:"))?;
+    let big: Vec<String> = (0..3).map(|n| format!("{n}{}", "x".repeat(BATCH_BYTES / 2))).collect();
+    store.save(&indexed("big", 1, true), &big, Progress::NEW)?;
+
+    assert_eq!(store.rows_after(0, 500)?.len(), 2);
+    Ok(())
+}
