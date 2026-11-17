@@ -121,7 +121,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
 }
 
 /// The projects in the mesh that `me` has a checkout of, with where it is.
-pub(super) fn placed_projects(
+pub(crate) fn placed_projects(
     mesh: &Mesh,
     me: EndpointId,
 ) -> impl Iterator<Item = (String, ProjectRecord, Place)> {

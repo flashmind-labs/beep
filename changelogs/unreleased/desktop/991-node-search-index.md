@@ -8,7 +8,7 @@
 
 - Desktop: after updating, each machine indexes its sessions once in the
   background. A prompt you just sent shows in search once its session has
-  been quiet for about a minute.
+  been quiet for a minute or two.
 
 ### Performance
 

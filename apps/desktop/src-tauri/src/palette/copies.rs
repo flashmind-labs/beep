@@ -174,14 +174,17 @@ async fn copy_from(
 ) -> anyhow::Result<bool> {
     let copy = copies.copy(machine)?;
     let held = copy.clone();
-    let (epoch, after) = spawn_blocking(move || lock(&held).position()).await??;
+    let (mut copied, after) = spawn_blocking(move || lock(&held).position()).await??;
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
     let client = fleet.client(machine).await?;
     let mut replies = Box::pin(
         client
             .follow::<_, SessionsReply>(
                 SESSIONS_PROTOCOL,
-                &SessionsRequest::FollowIndex { epoch, after },
+                &SessionsRequest::FollowIndex {
+                    epoch: copied.clone(),
+                    after,
+                },
             )
             .await?,
     );
@@ -191,13 +194,16 @@ async fn copy_from(
         match reply? {
             SessionsReply::IndexRows { epoch, rows, .. } => {
                 heard = true;
-                let added = !rows.is_empty();
+                // A new index replaces the copy even with no rows yet.
+                let changed = !rows.is_empty() || epoch != copied;
                 let held = copy.clone();
-                spawn_blocking(move || lock(&held).apply(&epoch, &rows))
+                let applied = epoch.clone();
+                spawn_blocking(move || lock(&held).apply(&applied, &rows))
                     .await?
                     .context("saving the rows")?;
+                copied = epoch;
 
-                if added {
+                if changed {
                     let _ = app.emit("palette-text-changed", ());
                 }
             }
