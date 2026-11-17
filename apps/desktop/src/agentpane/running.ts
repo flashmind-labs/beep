@@ -14,11 +14,10 @@ import { AGENT_READ_WAIT_MS, type AgentTask } from "../agents/agents.ts";
 import { readError } from "./read.ts";
 import { isStarting } from "../agents/starting-state.ts";
 
-interface ProcessesView { processes: RunningProcess[]; local: boolean }
+interface ProcessesView { processes: RunningProcess[] }
 let key = "";
 let unfollow: (() => void) | undefined;
 let list: RunningProcess[] = [];
-let local = false;
 let error = "";
 
 /// The background commands the session's agent runs, listed above its
@@ -50,7 +49,6 @@ function syncSession() {
   unfollow?.();
   unfollow = s?.id && !s.external ? subscribeChanges(topic("processes", s.id), { deliver: "latest", receive: readRunning }, { machine: s.machine_id, when: visible, wait: AMBIENT_MS }) : undefined;
   list = [];
-  local = false;
   error = "";
   runningModel.setState(null, true);
   stopping.clear();
@@ -74,7 +72,6 @@ export async function readRunning() {
     syncSession();
     if (view === STALE || key !== asked || !visible()) return;
     list = view.processes;
-    local = view.local;
     error = "";
   } catch (e) {
     if (key !== asked || !visible()) return;
@@ -86,7 +83,7 @@ export async function readRunning() {
 }
 
 const actions: RunningActions = {
-  open: url => { invoke("open_url", { url }).catch(e => { error = readError(e); render(); }); },
+  open: port => void openPort(port),
   toggle: pid => {
     if (!whole.delete(pid)) whole.add(pid);
     render();
@@ -97,7 +94,22 @@ const actions: RunningActions = {
 function render() {
   const session = paneSession();
   if (!session || key !== sessionKey(session)) return;
-  runningModel.setState({ model: { processes: list, local, stopping: new Set(stopping), whole: new Set(whole), machine: session.machine_name, error }, actions }, true);
+  runningModel.setState({ model: { processes: list, stopping: new Set(stopping), whole: new Set(whole), machine: session.machine_name, error }, actions }, true);
+}
+
+/// Another machine's port opens through a forward to this computer, on the same port when it is free.
+async function openPort(port: number) {
+  const s = paneSession(), asked = key;
+  if (!s) return;
+
+  try {
+    const local = await invoke<number>("machine_forward_port", { machineId: s.machine_id, port });
+    await invoke("open_url", { url: `http://localhost:${local}/` });
+  } catch (e) {
+    if (key !== asked) return;
+    error = readError(e);
+    render();
+  }
 }
 
 async function stop(pids: number[]) {

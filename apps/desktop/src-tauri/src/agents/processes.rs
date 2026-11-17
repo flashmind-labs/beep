@@ -14,7 +14,6 @@ use tokio::time::error::Elapsed;
 #[derive(Serialize)]
 pub struct ProcessesView {
     processes: Vec<RunningProcess>,
-    local: bool,
 }
 
 #[tauri::command]
@@ -26,7 +25,6 @@ pub async fn agent_processes(
     let Some(machine) = fleet.member(&machine_id) else {
         return Ok(ProcessesView {
             processes: Vec::new(),
-            local: false,
         });
     };
     let read = async {
@@ -45,10 +43,7 @@ pub async fn agent_processes(
         .asked(machine, &session, step, SMALL_LIMIT, read)
         .await?;
     match reply {
-        SessionsReply::Processes { processes } => Ok(ProcessesView {
-            processes,
-            local: machine == fleet.id(),
-        }),
+        SessionsReply::Processes { processes } => Ok(ProcessesView { processes }),
         SessionsReply::Error { message } => Err(DesktopError::BadRequest(message)),
         _ => Err(DesktopError::BadRequest(
             "The machine cannot list running commands yet.".into(),

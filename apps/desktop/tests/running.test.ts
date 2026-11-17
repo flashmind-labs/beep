@@ -9,16 +9,16 @@ const process: RunningProcess = {
 const alone = (p: RunningProcess) => ({ root: p, children: [] });
 
 test("running rows show a padded local time and escaped group label", () => {
-  assert.deepEqual(runningRow(alone(process), true), {
+  assert.deepEqual(runningRow(alone(process)), {
     command: "npm run dev", detail: "since 09:04 · left the group",
-    ports: [{ label: ":3000", url: "http://localhost:3000" }, { label: ":8080", url: "http://localhost:8080" }],
+    ports: [{ label: ":3000", port: 3000 }, { label: ":8080", port: 8080 }],
   });
 });
 
-test("remote ports are plain text and group members need no group label", () => {
-  const row = runningRow(alone({ ...process, left_group: false, ports: [3000, -1, 0, 65536, 1.5] }), false);
+test("invalid ports are dropped and group members need no group label", () => {
+  const row = runningRow(alone({ ...process, left_group: false, ports: [3000, -1, 0, 65536, 1.5] }));
   assert.equal(row.detail, "since 09:04");
-  assert.deepEqual(row.ports, [{ label: ":3000", url: null }]);
+  assert.deepEqual(row.ports, [{ label: ":3000", port: 3000 }]);
 });
 
 test("children group under the furthest listed ancestor and lend it their ports", () => {
@@ -30,9 +30,9 @@ test("children group under the furthest listed ancestor and lend it their ports"
   ];
   const trees = runningTrees(rows);
   assert.deepEqual(trees.map(t => [t.root.pid, t.children.map(c => c.pid)]), [[1, [2, 3]], [4, []]]);
-  const row = runningRow(trees[0] ?? alone(process), false);
+  const row = runningRow(trees[0] ?? alone(process));
   assert.equal(row.detail, "since 09:04 · 2 more processes · left the group");
-  assert.deepEqual(row.ports, [{ label: ":5173", url: null }]);
+  assert.deepEqual(row.ports, [{ label: ":5173", port: 5173 }]);
 });
 
 test("a parent cycle still ends", () => {

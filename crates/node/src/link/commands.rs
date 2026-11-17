@@ -9,10 +9,11 @@ use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
     commands::{Open, Reply, Request},
+    link,
 };
 use iroh::{
     EndpointId,
-    endpoint::Connection,
+    endpoint::{Connection, RecvStream, SendStream},
     protocol::{AcceptError, ProtocolHandler},
 };
 use std::{collections::HashSet, fmt, time::Duration};
@@ -41,10 +42,11 @@ fn serve_stream(
     offers: Offers,
     peer: EndpointId,
     mesh: EndpointId,
-    tx: LinkTx,
-    mut rx: LinkRx,
+    send: SendStream,
+    recv: RecvStream,
 ) -> Session {
     Box::pin(async move {
+        let (tx, mut rx) = link(send, recv);
         let open = read_open(&mut rx).await?;
         anyhow::ensure!(peers.channel_allowed(peer, mesh), "not authorized");
         match open {

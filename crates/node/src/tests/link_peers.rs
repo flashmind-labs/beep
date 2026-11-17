@@ -428,7 +428,7 @@ struct ChannelPair {
 
 async fn channel_pair(dedicated: bool) -> ChannelPair {
     use beep_mesh::{JOIN_ALPN, PEER_ALPN};
-    use beep_proto::node::{commands, subscriptions};
+    use beep_proto::node::{commands, forward, subscriptions};
     use iroh::{SecretKey, protocol::Router};
     let bind = || async {
         Endpoint::builder(iroh::endpoint::presets::Minimal)
@@ -464,7 +464,8 @@ async fn channel_pair(dedicated: bool) -> ChannelPair {
     if dedicated {
         router = router
             .accept(commands::ALPN, peers.commands_handler())
-            .accept(subscriptions::ALPN, peers.subscriptions_handler());
+            .accept(subscriptions::ALPN, peers.subscriptions_handler())
+            .accept(forward::ALPN, peers.forward_handler());
     }
     let node_router = router.spawn();
     peers.join(&ticket.encode_string()).await.unwrap();
@@ -614,9 +615,69 @@ async fn dedicated_peer_protocols_reuse_connections_and_close_when_membership_en
 }
 
 #[tokio::test]
+async fn a_forward_reaches_a_loopback_port_and_refuses_strangers() {
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+    let pair = channel_pair(true).await;
+    let peer = pair.endpoint.id();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let (mut tcp, _) = listener.accept().await.unwrap();
+        let mut asked = [0; 4];
+        tcp.read_exact(&mut asked).await.unwrap();
+        tcp.write_all(b"pong").await.unwrap();
+        asked
+    });
+
+    let (mut send, mut recv) = pair.desktop.forward_stream(peer, port).await.unwrap();
+    send.write_all(b"ping").await.unwrap();
+    let answer = timeout(Duration::from_secs(30), recv.read_to_end(16))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(answer, b"pong");
+    assert_eq!(&server.await.unwrap(), b"ping");
+
+    // A port nothing listens on resets the stream.
+    let closed = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let (_send, mut recv) = pair.desktop.forward_stream(peer, closed).await.unwrap();
+    assert!(
+        timeout(Duration::from_secs(30), recv.read_to_end(16))
+            .await
+            .unwrap()
+            .is_err()
+    );
+
+    let stranger = Endpoint::builder(iroh::endpoint::presets::Minimal)
+        .bind()
+        .await
+        .unwrap();
+    let connection = stranger
+        .connect(pair.endpoint.addr(), beep_proto::node::forward::ALPN)
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(5), connection.closed())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn peers_without_the_new_protocols_are_rejected_without_fallback() {
     let pair = channel_pair(false).await;
     let client = PeerClient::over(pair.desktop.clone(), pair.endpoint.id());
     assert!(client.open_commands().await.is_err());
     assert!(client.open_subscriptions().await.is_err());
+    assert!(
+        pair.desktop
+            .forward_connection(pair.endpoint.id())
+            .await
+            .is_err()
+    );
 }
