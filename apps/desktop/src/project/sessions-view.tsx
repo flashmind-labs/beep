@@ -3,34 +3,32 @@ import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/rea
 import { base, formatAgo } from "../ui/format.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { placeOf } from "../agents/place.ts";
-import { runningKey } from "../agents/running-state.ts";
 import { placeSub } from "../agents/place-state.ts";
 import { agentLabel, type SessionRow } from "./projects-state.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { go } from "../center/views.tsx";
 
 /// A project's past sessions: five rows tall in a scroll box, or `all` of
-/// them, virtual once there are many. Each opens its agent; `current`, a
-/// running key, marks the one on screen.
-export function ProjectSessions({ rows, all, current }: { rows: SessionRow[]; all: boolean; current: string | null }) {
+/// them, virtual once there are many. Each opens its agent.
+export function ProjectSessions({ rows, all }: { rows: SessionRow[]; all: boolean }) {
   const open = (row: SessionRow) => go("pane", { agent: { kind: "agent", ...row } });
   const menu = (event: MouseEvent, row: SessionRow) => void sessionMenu(event, row, selected => go("pane", { agent: selected }));
 
   // Keep the selected rendering mode for this mounted list so a refresh cannot
   // replace a focused row when the list crosses the threshold.
   const [virtual] = useState(() => all && rows.length > 100);
-  return virtual ? <VirtualSessions rows={rows} current={current} open={open} menu={menu}/> : <SessionList rows={rows} current={current} all={all} open={open} menu={menu}/>;
+  return virtual ? <VirtualSessions rows={rows} open={open} menu={menu}/> : <SessionList rows={rows} all={all} open={open} menu={menu}/>;
 }
 
-type SessionProps = { rows: SessionRow[]; current: string | null; open: (row: SessionRow) => void; menu: (event: MouseEvent, row: SessionRow) => void };
+type SessionProps = { rows: SessionRow[]; open: (row: SessionRow) => void; menu: (event: MouseEvent, row: SessionRow) => void };
 const sessionKey = (row: SessionRow) => `${row.machine_id}:${row.agent}:${row.id}`;
 
-function SessionRowView({ row: s, current, open, menu, index }: { row: SessionRow; current: string | null; open: SessionProps["open"]; menu: SessionProps["menu"]; index?: number }) {
+function SessionRowView({ row: s, open, menu, index }: { row: SessionRow; open: SessionProps["open"]; menu: SessionProps["menu"]; index?: number }) {
   const worktree = placeSub(placeOf(s), s.machine_name);
-  return <button data-index={index} className="pv-row" data-key={`${s.machine_id}:${s.id}`} aria-current={runningKey(s) === current ? "true" : undefined} onClick={() => open(s)} onContextMenu={e => menu(e.nativeEvent, s)}><span className="t">{s.title || "Untitled session"}</span><span className="m"><HarnessIcon agent={s.agent} title={agentLabel(s.agent)} /><span data-st={s.status}>{s.status}</span>{(worktree ? [worktree] : [s.machine_name, base(s.cwd)]).filter(Boolean).map((text, i) => <span key={i}>{text}</span>)}</span>{s.last_activity ? <span className="ago">{formatAgo(s.last_activity, "short")}</span> : null}</button>;
+  return <button data-index={index} className="pv-row" data-key={`${s.machine_id}:${s.id}`} onClick={() => open(s)} onContextMenu={e => menu(e.nativeEvent, s)}><span className="t">{s.title || "Untitled session"}</span><span className="m"><HarnessIcon agent={s.agent} title={agentLabel(s.agent)} /><span data-st={s.status}>{s.status}</span>{(worktree ? [worktree] : [s.machine_name, base(s.cwd)]).filter(Boolean).map((text, i) => <span key={i}>{text}</span>)}</span>{s.last_activity ? <span className="ago">{formatAgo(s.last_activity, "short")}</span> : null}</button>;
 }
 
-function SessionList({ rows, current, all, open, menu }: SessionProps & { all: boolean }) {
+function SessionList({ rows, all, open, menu }: SessionProps & { all: boolean }) {
   const list = useRef<HTMLDivElement>(null);
   // A short list shows five rows and scrolls the rest.
   const [maxHeight, setMaxHeight] = useState<number | null>(null);
@@ -44,11 +42,11 @@ function SessionList({ rows, current, all, open, menu }: SessionProps & { all: b
     });
     return () => cancelAnimationFrame(frame);
   }, [all, rows]);
-  const content = rows.map(row => <SessionRowView key={sessionKey(row)} row={row} current={current} open={open} menu={menu}/>);
+  const content = rows.map(row => <SessionRowView key={sessionKey(row)} row={row} open={open} menu={menu}/>);
   return all ? <>{content}</> : <div className="pj-scroll" ref={list} style={maxHeight === null ? undefined : { maxHeight }}>{content}</div>;
 }
 
-function VirtualSessions({ rows, current, open, menu }: SessionProps) {
+function VirtualSessions({ rows, open, menu }: SessionProps) {
   const list = useRef<HTMLDivElement>(null);
   const focusFrame = useRef<number | null>(null);
   const [parent, setParent] = useState<HTMLElement | null>(null);
@@ -63,7 +61,7 @@ function VirtualSessions({ rows, current, open, menu }: SessionProps) {
       let scroll: HTMLElement | null = null;
       const measure = () => {
         if (!target.isConnected) return;
-        const next = target.closest<HTMLElement>(".pj-det, .cc-rail");
+        const next = target.closest<HTMLElement>(".pj-det");
         if (next !== scroll) {
           if (scroll) observer?.unobserve(scroll);
           scroll = next; setParent(next);
@@ -133,5 +131,5 @@ function VirtualSessions({ rows, current, open, menu }: SessionProps) {
       else if (remaining) focus(remaining - 1);
     }); };
     focus(8);
-  }}>{virtual.getVirtualItems().map(item => <div key={item.key} data-index={item.index} ref={virtual.measureElement} style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start - offset}px)`, borderTop: item.index ? "1px solid var(--border)" : undefined, boxSizing: "border-box" }}><SessionRowView row={rows[item.index]} current={current} open={open} menu={menu} index={item.index}/></div>)}</div>;
+  }}>{virtual.getVirtualItems().map(item => <div key={item.key} data-index={item.index} ref={virtual.measureElement} style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start - offset}px)`, borderTop: item.index ? "1px solid var(--border)" : undefined, boxSizing: "border-box" }}><SessionRowView row={rows[item.index]} open={open} menu={menu} index={item.index}/></div>)}</div>;
 }
