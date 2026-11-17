@@ -6,7 +6,7 @@ import { flushSync } from "react-dom";
 import { createStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { onPhone } from "../ui/platform.ts";
-import { type Box, type Dock, DOCKS, onZoomKey, paneSize, SIDE_BY_SIDE_MIN, splitTabs } from "./media-state.ts";
+import { type Box, type Dock, DOCKS, frameKey, onZoomKey, paneSize, SIDE_BY_SIDE_MIN, splitTabs } from "./media-state.ts";
 import type { PaneTabItem } from "./tabs-view.tsx";
 import type { WorktreeMenuModel } from "./worktree-view.tsx";
 import { artifactCount } from "./artifacts.ts";
@@ -212,6 +212,14 @@ function toggleZoom() {
 
 // S.view stays "agent" while the center shows another page; only a session on screen zooms.
 onZoomKey(() => S.view === "agent" && !!P.session && shellSize().width > 0, toggleZoom);
+
+// A focused HTML preview keeps its keys, so its page posts the pane's
+// shortcuts (⇧esc, ⌘1 to ⌘9, ⌘W) and they are typed again on its frame.
+window.addEventListener("message", e => {
+  const key = frameKey(e.data);
+  const frame = key && [...document.querySelectorAll<HTMLIFrameElement>("iframe.agartframe")].find(f => f.contentWindow === e.source);
+  if (frame) frame.dispatchEvent(new KeyboardEvent("keydown", { ...key, bubbles: true, cancelable: true }));
+});
 
 // ⌃tab with focus in a dock: its next tab, round to the first; ⌃⇧tab the one before.
 window.addEventListener("keydown", e => {
