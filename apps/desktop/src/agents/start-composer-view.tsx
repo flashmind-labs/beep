@@ -16,6 +16,8 @@ export interface StartComposerState {
   centered: boolean; busy: boolean; welcome: string;
   /// The project the agent starts in, named under the heading by the machine pill.
   project: string | null;
+  /// The key the task field's unsent text is kept under, as `ComposeField`'s `draft`.
+  draft: string | null;
   /// The line under the field: an error, else the start's progress.
   error: string; progress: string; placeholder: string; invalid: boolean; dropping: boolean;
   /// What it says: for a coding agent's task, or for the assistant.
@@ -92,7 +94,7 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
   const machine = externalChoices ? state.machineView : <button ref={refs.machine} id={id("aghostb")} className="pill" type="button" title="The machine it runs on (Shift+Tab in the field)" aria-expanded={expanded("host")} onClick={choice("host")}>{state.choiceContents?.machine}</button>;
   return <>{state.centered && <section className="agc-intro"><DailyArt /><IntroHeading text={heading} /><p className="agc-where">{state.project && <b>{state.project}</b>}{machine}</p></section>}
     <div className={`box${state.invalid ? " err" : ""}${state.dropping ? " dropping" : ""}`} id={id("agbox")} ref={refs.box}>
-      <ComposeField ref={refs.input} images={actions.images} removeLast={actions.removeLast} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label={state.words.label} title={title} placeholder={state.placeholder}
+      <ComposeField ref={refs.input} draft={state.draft ?? undefined} images={actions.images} removeLast={actions.removeLast} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label={state.words.label} title={title} placeholder={state.placeholder}
         onInput={event => { grow(); actions.input?.(event.currentTarget.value); }}
         onPaste={paste}
         onKeyDown={event => { actions.keyDown?.(event.nativeEvent); if (event.currentTarget.readOnly || event.key !== "Enter" || event.shiftKey || isMobile() || event.nativeEvent.isComposing || event.defaultPrevented) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.form?.requestSubmit(); }} />

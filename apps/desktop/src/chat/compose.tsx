@@ -23,7 +23,8 @@ export function composeMessage(value: string) {
 }
 
 interface ComposeOptions {
-  /// A stable key for a prompt kept locally between visits and app launches.
+  /// The key of a prompt kept locally between visits and app launches. A new
+  /// key keeps the text under the old one and shows the text kept under it.
   draft?: string;
   /// Takes a picture whose path was pasted; without it the path stays text.
   images?: (files: File[]) => unknown;
@@ -38,6 +39,10 @@ type ComposeFieldProps = ComposeOptions & Omit<TextareaHTMLAttributes<HTMLTextAr
 const VALUE = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
 const draftKeyOf = (draft: string) => `beep.promptDraft.v1.${draft}`;
 
+function keptDraft(key: string | null) {
+  try { return key ? localStorage.getItem(key) ?? "" : ""; } catch { return ""; }
+}
+
 /// Puts `text` in front of the draft kept for a field not on screen, as `ComposeOptions.draft`
 /// names it, so it shows when that field is drawn.
 export function prependDraft(draft: string, text: string) {
@@ -48,12 +53,12 @@ export function prependDraft(draft: string, text: string) {
 }
 
 /// A composer's field: a textarea with the layer behind it that draws its
-/// pills and code outlines, and the preview of a clicked pill. A caller that
-/// shows another conversation gives another `draft` and a `key` with it.
+/// pills and code outlines, and the preview of a clicked pill.
 export function ComposeField({ draft, images, grow, removeLast, ref, className, onInput, onFocus, onScroll, onPaste, onKeyDown, onClick, onSelect, onKeyUp, onMouseUp, onCompositionStart, onCompositionEnd, ...rest }: ComposeFieldProps) {
   const field = useRef<HTMLTextAreaElement | null>(null), layer = useRef<HTMLDivElement>(null), pillNodes = useRef(new Map<number, HTMLSpanElement>());
   const draftKey = draft === undefined ? null : draftKeyOf(draft);
-  const [initial] = useState(() => { try { return draftKey ? localStorage.getItem(draftKey) ?? "" : ""; } catch { return ""; } });
+  const [initial] = useState(() => keptDraft(draftKey));
+  const savedTo = useRef(draftKey);
   const [value, setValue] = useState(initial);
   const [box, setBox] = useState<CSSProperties | null>(null);
   const [size, setSize] = useState(0);
@@ -63,14 +68,15 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
   const pills = pillsIn(value), fences = fenceSpans(value, pastes), shown = pills.length > 0 || fences.length > 0;
 
   const saveDraft = (text: string) => {
-    if (!draftKey) return;
+    const key = savedTo.current;
+    if (!key) return;
 
     try {
       // Pill IDs only live in this window. Keep their text without changing
       // whitespace or adding the code fences that sending would add.
       const kept = expandPills(text, pastes);
-      if (kept) localStorage.setItem(draftKey, kept);
-      else localStorage.removeItem(draftKey);
+      if (kept) localStorage.setItem(key, kept);
+      else localStorage.removeItem(key);
     } catch { /* Keep the field usable when storage is full or unavailable. */ }
   };
   const changed = (text: string) => { saveDraft(text); setValue(text); };
@@ -85,8 +91,17 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
 
     const { get, set } = VALUE;
     Object.defineProperty(node, "value", { configurable: true, get() { return get.call(this); }, set(text: string) { set.call(this, text); changed(text); } });
-  // `changed` reads only `draftKey`, which a new draft remounts the field for.
+  // `changed` reads the draft key through `savedTo`.
   }, [ref]);
+
+  // Another draft: the text typed so far is already kept under the old key.
+  useLayoutEffect(() => {
+    const node = field.current;
+    if (savedTo.current === draftKey || !node) return;
+
+    savedTo.current = draftKey;
+    node.value = keptDraft(draftKey);
+  }, [draftKey]);
   const closePop = useCallback(() => setPop(null), []);
 
   useLayoutEffect(() => {

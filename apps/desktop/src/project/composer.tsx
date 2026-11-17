@@ -262,7 +262,8 @@ export function drawProjectComp(name: string) {
     pc.adding = null;
     pc.checkout = DEFAULT_CHECKOUT;
     pc.target = null;
-    c.update({ error: "" });
+    // Each project keeps its own unsent task.
+    c.update({ error: "", draft: `project:${name}` });
     loadProjectBar(name);
   }
 
