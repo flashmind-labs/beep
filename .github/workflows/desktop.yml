@@ -1,12 +1,10 @@
 # Builds and releases desktop installers for a `desktop-v<version>` tag
 # (made by `just patch`, `just minor` or `just release`).
 # It must be signed and notarized, its version must match
-# the tag, and the DMG is attached to a Forgejo release for the tag and
+# the tag, and the DMG is attached to a GitHub release for the tag and
 # uploaded to R2 with the archive installed apps update themselves from.
 #
-# Runs on a Mac registered with the `macos` label, with Rust, tauri-cli, Node
-# and uv installed for the runner's user. The server's https:// address is the
-# repository variable BEEP_SERVER_URL.
+# The repository variable BEEP_SERVER_URL sets the report server address.
 #
 # The macOS build requires the Developer ID certificate and App Store Connect API
 # secrets. The app and disk image are signed, notarized, and verified.
@@ -21,25 +19,27 @@ concurrency:
   group: desktop-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   dmg:
-    runs-on: macos
+    runs-on: macos-26
+    permissions:
+      contents: write
     env:
       BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Set up the toolchain
-        run: |
-          set -euo pipefail
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          # Kept between runs, so a build only recompiles what changed.
-          target="$HOME/Library/Caches/beep-desktop-target"
-          echo "CARGO_TARGET_DIR=$target" >> "$GITHUB_ENV"
-          # It only grows, and a full disk fails every build: past 30 GB, start over.
-          if [ -d "$target" ] && [ "$(du -sk "$target" | cut -f1)" -gt $((30 * 1024 * 1024)) ]; then
-            rm -rf "$target"
-          fi
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Set the build directory
+        run: echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/target" >> "$GITHUB_ENV"
 
       - name: Check signing credentials and version
         env:
@@ -47,8 +47,8 @@ jobs:
           MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID || vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID || vars.APPLE_API_ISSUER_ID }}
         run: |
           set -euo pipefail
           for name in MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD \
@@ -98,8 +98,8 @@ jobs:
         working-directory: apps/desktop/src-tauri
         env:
           APPLE_SIGNING_IDENTITY: Developer ID Application
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID || vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID || vars.APPLE_API_ISSUER_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # A smaller app for downloads; only releases pay the longer link.
@@ -112,7 +112,7 @@ jobs:
           # The signed archive is what the app updates itself from.
           # Only this signed build has the native updater: a local build signed
           # ad hoc cannot load Sparkle.framework under the hardened runtime.
-          PATH="/usr/bin:$PATH" cargo tauri build --bundles app --features sparkle \
+          PATH="/usr/bin:$PATH" ../node_modules/.bin/tauri build --bundles app --features sparkle \
             --config tauri.sparkle.conf.json \
             --config '{"bundle":{"createUpdaterArtifacts":true}}'
           app="$CARGO_TARGET_DIR/release/bundle/macos/Beep.app"
@@ -123,8 +123,8 @@ jobs:
 
       - name: Package and notarize the DMG
         env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID || vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID || vars.APPLE_API_ISSUER_ID }}
         run: bash scripts/release-macos-dmg.sh
 
       - name: Sign the Sparkle update and write release notes
@@ -142,8 +142,9 @@ jobs:
           bash scripts/keychain.sh remove beep
           rm -f "$RUNNER_TEMP/signing.p12" "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/beep-keychains.txt" "$RUNNER_TEMP/beep-sparkle.key"
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: beep-macos
           path: |
             target/macos-release/*.dmg
@@ -152,12 +153,16 @@ jobs:
 
       - name: Publish the release
         env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           dmg="target/macos-release/Beep-$VERSION-$(uname -m).dmg"
-          bash scripts/forgejo-release.sh create "Beep desktop $VERSION" "$RUNNER_TEMP/release-notes.md" \
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag \
+              --title "Beep desktop $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
+          gh release upload "$GITHUB_REF_NAME" --clobber \
             "$dmg" "$dmg.sha256" target/macos-release/appcast.xml
 
       # Also into the R2 bucket under beep/macos/, served at
@@ -199,7 +204,7 @@ jobs:
 
       - name: Upload the release to R2
         if: steps.r2.outputs.files != ''
-        uses: https://github.com/ryand56/r2-upload-action@v1.5
+        uses: ryand56/r2-upload-action@v1.5
         with:
           r2-account-id: ${{ steps.r2.outputs.account }}
           r2-access-key-id: ${{ secrets.CF_ACCESS_KEY_ID }}
@@ -211,7 +216,7 @@ jobs:
       # After the archive, so no app sees an update it cannot fetch yet.
       - name: Point installed apps at the update
         if: steps.r2.outputs.files != ''
-        uses: https://github.com/ryand56/r2-upload-action@v1.5
+        uses: ryand56/r2-upload-action@v1.5
         with:
           r2-account-id: ${{ steps.r2.outputs.account }}
           r2-access-key-id: ${{ secrets.CF_ACCESS_KEY_ID }}
@@ -231,11 +236,11 @@ jobs:
         run: python3 scripts/r2-prune.py beep/macos "${VERSION%.*}.0"
 
   linux:
-    runs-on: host
+    runs-on: ubuntu-24.04
     env:
       BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check the version and signing key
         env:
@@ -258,24 +263,28 @@ jobs:
             --secret id=updater_password,env=TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
             --output type=local,dest=dist/linux .
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: beep-linux
           path: dist/linux/*
           if-no-files-found: error
 
   windows:
-    runs-on: windows
+    runs-on: windows-latest
     defaults:
       run:
         shell: powershell
     env:
       BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
       - name: Check the version and signing key
         env:
@@ -311,8 +320,9 @@ jobs:
           New-Item -ItemType Directory -Force dist/windows | Out-Null
           Copy-Item "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe*" dist/windows/
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: beep-windows
           path: dist/windows/*
           if-no-files-found: error
@@ -320,14 +330,16 @@ jobs:
   publish-installers:
     # The DMG job creates the tag's release. Attach the other installers to it.
     needs: [dmg, linux, windows]
-    runs-on: host
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         platform: [linux, windows]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v3
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: beep-${{ matrix.platform }}
           path: dist
@@ -339,11 +351,11 @@ jobs:
 
       - name: Publish the release assets
         env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          bash scripts/forgejo-release.sh attach \
+          gh release upload "$GITHUB_REF_NAME" --clobber \
             "$RUNNER_TEMP/desktop-release-${{ github.run_id }}-${{ matrix.platform }}/files/"*
 
       - name: Check the R2 configuration
@@ -358,7 +370,7 @@ jobs:
 
       - name: Upload installers to R2
         if: steps.r2.outputs.account != ''
-        uses: https://github.com/ryand56/r2-upload-action@v1.5
+        uses: ryand56/r2-upload-action@v1.5
         with:
           r2-account-id: ${{ steps.r2.outputs.account }}
           r2-access-key-id: ${{ secrets.CF_ACCESS_KEY_ID }}

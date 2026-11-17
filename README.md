@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="apps/desktop/tests/browser/ui-baseline.spec.ts-snapshots/first-run-macOS-linux.png" alt="Welcome to Beep, over a painted sunrise" width="860">
+  <img src="imgs/first-run-macos.png" alt="Welcome to Beep, over a painted sunrise" width="860">
 </p>
 
 ## What it does
@@ -34,7 +34,7 @@
   containers.
 
 <p align="center">
-  <img src="apps/desktop/tests/browser/ui-baseline.spec.ts-snapshots/agent-work-macOS-linux.png" alt="An agent session with its files, changes and running commands" width="860">
+  <img src="imgs/agent-work-macos.png" alt="An agent session with its files, changes and running commands" width="860">
 </p>
 
 Read [how Beep works](https://beep.flashmind.com/docs/architecture/) for the

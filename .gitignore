@@ -37,8 +37,7 @@ admin.sock
 # Written by the qr-scan plugin build.
 /apps/desktop/src-tauri/qr-scan/permissions/
 
-# No images in git: screenshots, renders and exports stay local. UI baseline
-# PNGs are recorded on each machine. Only the app's own art is tracked.
+# UI baselines, renders and exports stay local. Track app art and README images.
 *.png
 *.jpg
 *.jpeg
@@ -49,3 +48,5 @@ admin.sock
 !apps/desktop/src-tauri/icons/**
 !apps/desktop/dist/hermes.png
 !plugins/examples/composer-cat/art/**
+!/imgs/first-run-macos.png
+!/imgs/agent-work-macos.png
