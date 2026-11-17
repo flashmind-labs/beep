@@ -1,8 +1,8 @@
 ### Added
 
-- Desktop: Opening a session that belongs to a project, in a window
-  at least 1200px wide, folds the sidebar to its icons and shows that
-  project's sessions beside it: New session, a filter, running
-  sessions, then past ones. Clicking the project name goes back to the
-  project page. The sidebar button switches between the full sidebar
-  and the sessions list.
+- Desktop: In a window at least 1200px wide, opening a session that
+  belongs to a project shows that project's sessions in the sidebar's
+  place: a filter, the running sessions, then the latest past ones,
+  one line each. The project name goes back to the project page. The
+  sidebar button swaps between the sidebar and the sessions with a
+  short slide, and the conversation stays where it is.

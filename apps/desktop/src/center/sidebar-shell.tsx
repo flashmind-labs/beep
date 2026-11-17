@@ -47,11 +47,5 @@ export function SidebarShell({ links, groups, footer, addMachine }: { links: Sid
 export function SideToggle() {
   const side = useStore(shell, s => s.side), collapsed = sideCollapsed(side);
   const label = side.rail ? (side.railHidden ? "Show the project's sessions" : "Show the sidebar") : collapsed ? "Expand sidebar" : "Collapse sidebar";
-  // A swap leaves this button behind an inert panel, so focus follows to the one coming in.
-  const toggle = (event: React.MouseEvent<HTMLButtonElement>) => {
-    const focused = event.currentTarget === document.activeElement;
-    toggleSide();
-    if (focused && side.rail) document.querySelector<HTMLElement>(`#${side.railHidden ? "rail" : "side"} .cc-side-toggle`)?.focus();
-  };
-  return <button type="button" className="cc-side-toggle" title={label} aria-label={label} aria-expanded={!collapsed} onClick={toggle}><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg></span></button>;
+  return <button type="button" className="cc-side-toggle" title={label} aria-label={label} aria-expanded={!collapsed} onClick={toggleSide}><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg></span></button>;
 }

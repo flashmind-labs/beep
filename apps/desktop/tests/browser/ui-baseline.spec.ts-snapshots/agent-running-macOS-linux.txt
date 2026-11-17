@@ -428,8 +428,9 @@ body.cbody
                           span.t [data-whole="41" title="Click to show the whole command and its processes"]
                             b "npm run dev"
                             small "since 01:20"
+                            span.ports
+                              a [data-port="true" href="http://localhost:5173" title="Open in the browser"] ":5173"
                           span.r
-                            span ":5173"
                             button.dbtn [data-pid="41" type="button"] "Stop"
                         div.agart.agrunningrow
                           span.t [data-whole="42" title="Click to show the whole command and its processes"]
