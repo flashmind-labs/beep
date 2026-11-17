@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
-test("a project's session swaps the sidebar for the project's sessions in the same column", async ({ page }) => {
+test("a project's session swaps the sidebar for the project's sessions in the same column", async ({ page }, info) => {
+  const modifier = info.project.name === "Windows" ? "Control" : "Meta";
   const sessions = Array.from({ length: 4 }, (_, i) => ({ machine_id: "build-box", machine_name: "build-box", id: `past-${i}`, agent: "codex", title: `Past session ${i}`, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100 - i, external: false, question: null, assistant: false }));
-  await openDesktop(page, false, { project_sessions: sessions });
+  const busy = { ...sessions[0], id: "busy", title: "Busy session", status: "working", doing: "Running the tests", started_at: 5, last_activity: 1 };
+  await openDesktop(page, false, { project_sessions: [...sessions, busy] });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
   const win = page.locator(".cwin"), rail = page.locator("#rail"), side = page.locator("#side"), main = page.locator("#main");
   await expect(rail).toBeHidden();
@@ -23,14 +25,23 @@ test("a project's session swaps the sidebar for the project's sessions in the sa
   expect(await page.evaluate(() => localStorage.getItem("beep.sideWidth"))).toBe("316");
   await page.locator("#side-grip").press("ArrowLeft");
 
-  // ⌃Tab steps through the running sessions in the rail's order, round to the first.
+  // Running rows keep the line for what the agent is doing while it is idle, so they do not jump.
+  const heights = await rail.locator(".rail-live > .pj-li").evaluateAll(rows => rows.map(row => Math.round(row.getBoundingClientRect().height)));
+  expect(new Set(heights).size).toBe(1);
+
+  // Running sessions keep the order they started in, newest first, whatever their activity.
+  await expect(rail.locator(".rail-live > .pj-li .t b")).toHaveText(["Busy session", "First notification", "Second notification"]);
+
+  // ⌃Tab steps through them in that order, round to the first.
   const current = rail.locator('.pj-li[aria-current="true"]');
+  await page.keyboard.press("Control+Tab");
+  await expect(current).toHaveText(/Busy session/);
   await page.keyboard.press("Control+Tab");
   await expect(current).toHaveText(/First notification/);
   await page.keyboard.press("Control+Tab");
   await expect(current).toHaveText(/Second notification/);
   await page.keyboard.press("Control+Tab");
-  await expect(current).toHaveText(/First notification/);
+  await expect(current).toHaveText(/Busy session/);
   await page.keyboard.press("Control+Shift+Tab");
   await expect(current).toHaveText(/Second notification/);
 
@@ -44,6 +55,13 @@ test("a project's session swaps the sidebar for the project's sessions in the sa
   await side.locator(".cc-side-toggle").click();
   await expect(rail).toBeVisible();
   await expect(side).toBeHidden();
+
+  // ⌘E swaps them too.
+  await page.keyboard.press(`${modifier}+e`);
+  await expect(side).toBeVisible();
+  await expect(rail).toBeHidden();
+  await page.keyboard.press(`${modifier}+e`);
+  await expect(rail).toBeVisible();
 
   await rail.locator(".rail-back").click();
   await expect(rail).toBeHidden();

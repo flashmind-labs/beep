@@ -8,6 +8,7 @@ import "../chat/diagrams.tsx";
 import "../ui/window-defaults.ts";
 import "../ui/zoom.ts";
 import { initMobile } from "./mobile.tsx";
+import { toggleSide } from "./window-shell.tsx";
 import { closeFocusedTab } from "../agentpane/media.ts";
 import { isCloseKey, isZoomKey } from "../agentpane/media-state.ts";
 import { isNewKey } from "../terminals/newkey-state.ts";
@@ -129,6 +130,7 @@ document.addEventListener("keydown", e => {
     case "palette": return openPalette();
     case "settings": return openSettings();
     case "shortcuts": return toggleShortcuts();
+    case "sidebar": return toggleSide();
     case "new-agent":
       if (currentLocation()?.view === "terminals" && isNewKey(e) && allTerms.newLikeOpen()) return;
       return newAgentHere();

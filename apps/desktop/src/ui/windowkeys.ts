@@ -5,7 +5,7 @@ type WindowCommand =
   | { kind: "history"; forward: boolean }
   | { kind: "close" }
   | { kind: "project-window"; project: string }
-  | { kind: "palette" | "settings" | "shortcuts" | "new-agent" | "project-terminal" };
+  | { kind: "palette" | "settings" | "shortcuts" | "sidebar" | "new-agent" | "project-terminal" };
 
 export interface WindowKeyContext {
   page: ViewName | null;
@@ -26,12 +26,13 @@ export function windowCommand(event: WindowKeyEvent, at: WindowKeyContext, windo
   if (key === "k") return { kind: "palette" };
   if (key === ",") return { kind: "settings" };
   if (key === "/") return { kind: "shortcuts" };
+  if (key === "e" && !event.shiftKey) return { kind: "sidebar" };
   if (key === "n" && at.page !== "pane") return { kind: "new-agent" };
   if (key === "t" && !event.shiftKey && !event.altKey && (!event.ctrlKey || windows) && !event.defaultPrevented) return { kind: "project-terminal" };
   return null;
 }
 
-/** Window-owned shortcuts: search, Settings and the shortcuts sheet. */
+/** Window-owned shortcuts: search, Settings, the shortcuts sheet and the sidebar. */
 export function windowTakes(key: string): boolean {
-  return key === "k" || key === "K" || key === "," || key === "/";
+  return key === "k" || key === "K" || key === "," || key === "/" || key === "e" || key === "E";
 }

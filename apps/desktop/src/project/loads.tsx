@@ -28,7 +28,7 @@ import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage, repairButt
 import { drawProjects } from "./page.tsx";
 import { refresh, onScreen } from "../center/refresh.ts";
 import { openAddToMachine } from "./addmachine.tsx";
-import type { RunningAgent } from "../agents/running-state.ts";
+import { runningKey, type RunningAgent } from "../agents/running-state.ts";
 import { agentCanFix, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
 import { openHandoff } from "./handoff.tsx";
 import { perfFresh } from "../ui/perf.ts";
@@ -328,7 +328,8 @@ export function projectRail(name: string, current: string | null) {
   return <ProjectRail project={name} label={projectName(sessions.project)} running={sessions.running} past={sessions.past} current={current} back={() => void openProjects(name)} />;
 }
 
-/// Project `name`'s running sessions in the order the rail lists them, then its past ones.
+/// Project `name`'s running sessions in the order the rail lists them, newest started first,
+/// which activity never reorders, then its past ones.
 export function railSessions(name: string) {
   const p = projectRows()?.find(row => row.name === name);
   if (!p) return null;
@@ -337,7 +338,7 @@ export function railSessions(name: string) {
   const running = projectRunning(p, state.home?.running, sessions, moves).filter(sessionVisible);
   const past = projectPastSessions(sessions, running, moves).filter(sessionVisible);
 
-  return { project: p, running, past };
+  return { project: p, running: running.toSorted((a, b) => b.started_at - a.started_at || runningKey(a).localeCompare(runningKey(b))), past };
 }
 
 /// The projects whose sessions are being read, and those to read again on the
