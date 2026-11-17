@@ -60,7 +60,7 @@ test("Home lists pull requests and issues by repository, unfolded, with their bu
   await expect(pulls.locator(".it")).toHaveCount(1);
   await expect(issues.locator(".pl-head")).toContainText("1 repo · 2 open");
   await expect(issues.locator(".it")).toHaveCount(2);
-  const row = pulls.locator(".it"), review = row.getByRole("button", { name: "Review with agent" });
+  const row = pulls.locator(".it"), review = row.getByRole("button", { name: "Review", exact: true });
   await expect(review).toHaveCount(0);
   await row.hover();
   await expect(review).toBeVisible();

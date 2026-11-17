@@ -23,7 +23,7 @@ test("Home's queue opens a review on its host or hands it to an agent", async ({
   const queue = page.locator("#sec-needs");
   await expect(queue.locator(".cc-row", { hasText: "#12 Move the blog" })).toContainText("other/site · your review");
   await expect(queue.locator(".cc-row", { hasText: "#12 Move the blog" }).getByRole("button", { name: "Open" })).toBeVisible();
-  await queue.locator(".cc-row", { hasText: "#13 Fix the feed" }).getByRole("button", { name: "Review with agent" }).click();
+  await queue.locator(".cc-row", { hasText: "#13 Fix the feed" }).getByRole("button", { name: "Review", exact: true }).click();
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker).toBeVisible();
   // Placed whole inside the window, by its button.

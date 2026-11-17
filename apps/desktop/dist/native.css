@@ -424,12 +424,12 @@ body:not(.mobile) .bd-lane > h4:has(> span:empty) { opacity: .5 }
 @media (hover: hover) { body:not(.mobile) .bd-card:not(:hover, :focus-within) .bd-close { visibility: hidden } }
 body:not(.mobile) .bd-answers { display: flex; flex-wrap: wrap; justify-content: end; gap: 6px }
 body:not(.mobile) .cc-row > .r:has(> .bd-answers) { max-width: 50% }
+/* The queue's own buttons (Review, Continue, Open, Resolve) share one width; a question's answers keep theirs. */
+body:not(.mobile) #sec-needs .cc-row > .r :is(.dbtn, .dv-fb):not(.bd-answers .dbtn) { min-width: 136px; justify-content: center }
 body:not(.mobile) .bd-answers .dbtn { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-/* Home's lanes share the width by their cards: an empty lane keeps to its title, a full one
-   lays its cards out in columns. */
+/* Home's lanes share the width by their columns of one width; an empty lane keeps to its title. */
 body:not(.mobile) .bd-lanes.spread > .bd-lane { flex: 1 1 0; max-width: none }
 body:not(.mobile) .bd-lanes.spread > .bd-lane.empty { flex: 0 0 180px }
-body:not(.mobile) .bd-lanes.spread .bd-lane.cell { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) }
 body:not(.mobile) .pj-org { gap: 6px; margin-bottom: 18px }
 body:not(.mobile) .pj-org h3 { font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: var(--muted) }
 body:not(.mobile) .pj-org h3 small { color: var(--dim) }

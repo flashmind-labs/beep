@@ -32,7 +32,7 @@ export function reviewButton(item: GitItemRow, project: StartProject, machines: 
   const pr = { number: item.number, title: item.title, url: item.url, mine: item.authored };
   return homeButtons(`review ${item.url}`, {
     project: project.name, machine,
-    label: earlier ? "Review again" : "Review with agent",
+    label: earlier ? "Review again" : "Review",
     hint: earlier ? "Reviews what changed in the chat that reviewed this PR before" : "Pick a model: an agent reviews this PR and posts its comments on it",
     running: earlier && AGENT_ACTIVE.has(earlier.status) ? { agent: agentLabel(earlier.agent), open: () => go("pane", { agent: earlier }) } : null,
     start: pick => startReview(project.name, pr, pick, machine),

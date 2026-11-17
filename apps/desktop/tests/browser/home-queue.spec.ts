@@ -151,17 +151,29 @@ test("a lane's wheel moves it a row of cards at a time", async ({ page }) => {
   await expect(page.locator("#view")).toHaveJSProperty("scrollTop", 0);
 });
 
-test("Working is never narrower than another lane and spreads its cards", async ({ page }) => {
+test("Working takes one wide column, Ready to review two of the same width", async ({ page }) => {
   await page.setViewportSize({ width: 2000, height: 1300 });
-  const busy = Array.from({ length: 5 }, (_, index) => row(`busy-${index}`, `Working on ${index}`, "working"));
-  const idle = Array.from({ length: 21 }, (_, index) => row(`idle-${index}`, `Finished turn ${index}`, "idle"));
-  const ended = Array.from({ length: 8 }, (_, index) => ({ ...row(`ended-${index}`, `Ended ${index}`, "ended"), reviewer: false, parent: null, last_activity: Date.now() - index }));
+  const busy = Array.from({ length: 6 }, (_, index) => row(`busy-${index}`, `Working on ${index}`, "working"));
+  const idle = Array.from({ length: 23 }, (_, index) => row(`idle-${index}`, `Finished turn ${index}`, "idle"));
+  const ended = Array.from({ length: 6 }, (_, index) => ({ ...row(`ended-${index}`, `Ended ${index}`, "ended"), reviewer: false, parent: null, last_activity: Date.now() - index }));
   await openDesktop(page, false, { center_home: { ...home, needs_you: [], running: [...busy, ...idle] }, projects_sessions: ended, session_moves: [], session_copies: [] });
   const lanes = page.locator("#sec-running .bd-lanes > .bd-lane");
-  await expect(lanes.nth(2).locator(".cc-row")).toHaveCount(8);
-  const [working, review, done] = await Promise.all([0, 1, 2].map(index => lanes.nth(index).boundingBox()));
-  expect(working?.width ?? 0).toBeGreaterThanOrEqual(review?.width ?? 0);
-  expect(done?.width ?? 0).toBeLessThan(review?.width ?? 0);
-  const columns = await lanes.nth(0).locator(".bd-card").evaluateAll(cards => new Set(cards.map(card => Math.round(card.getBoundingClientRect().left))).size);
-  expect(columns).toBeGreaterThanOrEqual(2);
+  await expect(lanes.nth(2).locator(".cc-row")).toHaveCount(6);
+  const columns = (lane: number) => lanes.nth(lane).locator(".bd-card").evaluateAll(cards => [...new Map(cards.map(card => { const box = card.getBoundingClientRect(); return [Math.round(box.left), box.width]; })).values()]);
+  const [working, review] = await Promise.all([columns(0), columns(1)]);
+  expect(working).toHaveLength(1);
+  expect(review).toHaveLength(2);
+  expect(Math.abs(working[0] - review[0])).toBeLessThan(working[0] * 0.1);
+});
+
+test("the queue's buttons share one width", async ({ page }) => {
+  const pull = (number: number, repo: string, extra: Record<string, unknown>) => ({ host: "example.test", repo, number, kind: "pull_request", title: `Pull ${number}`, url: `https://example.test/${repo}/pull/${number}`,
+    updated_at: number, authored: false, assigned: false, review_requested: true, draft: false, review: "none", checks_failing: false, comments: 0, ...extra });
+  await openDesktop(page, false, { git_items: { items: [pull(1, "example/widget", {}), pull(2, "other/site", {})], hosts: [] },
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }] });
+  const queue = page.locator("#sec-needs");
+  await expect(queue.getByRole("button", { name: "Review", exact: true })).toBeVisible();
+  const widths = await queue.locator(".cc-row > .r :is(.dbtn, .dv-fb):visible").evaluateAll(buttons => buttons.map(button => Math.round(button.getBoundingClientRect().width)));
+  expect(widths.length).toBeGreaterThan(1);
+  expect(new Set(widths).size).toBe(1);
 });
