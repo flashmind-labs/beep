@@ -321,6 +321,8 @@ impl Actor {
         // aborted with its session included; `stop` below is the gentle way.
         let mut child = GroupLeader::new(child);
         let held = child.hold_output();
+        // A session the node resumed shows its lines before its next turn.
+        self.count_changes();
         let end = self.serve(child.child_mut(), &mut orders).await;
         // The node stopping ends its sessions, whether it closed them or the
         // service manager stopped the agents first.

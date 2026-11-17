@@ -453,7 +453,7 @@ impl Actor {
 
     /// Counts the lines changed in the checkout the session works in, for
     /// the lists to show beside it.
-    fn count_changes(&mut self) {
+    pub(super) fn count_changes(&mut self) {
         let folder = watched::read_sent(&self.live, |live| {
             live.info
                 .place
