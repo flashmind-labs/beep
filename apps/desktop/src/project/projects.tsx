@@ -9,7 +9,7 @@ import { moveStore } from "../agents/move-store.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { formatAgo, plural } from "../ui/format.ts";
 import { projectRunning, whereRows, whereCount, syncedBy, type Project, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
-import { projectSortTime, overviewGroups, type ProjectSort } from "./overview-state.ts";
+import { projectActivity, projectSortTime, overviewGroups, type ProjectSort } from "./overview-state.ts";
 import { makeCustomAgents } from "./customagents.tsx";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
 import { pages, state, warm, pageFresh } from "../center/state.ts";
@@ -39,8 +39,10 @@ export function disposeOverview() {
   overviewHost = null;
 }
 
-export function overviewSection(rows: Project[]): PagePart[] {
+export function overviewSection(listed: Project[]): PagePart[] {
   leaveProject();
+  // A card shows when something last happened, as Recent activity sorts it.
+  const rows = listed.map(p => ({ ...p, last: projectActivity(p, state.sessions.get(p.name), null) || null }));
   const groups = overviewGroups(rows, state.top, state.groups, overviewOrder(rows));
   overviewHost ??= retainedHost(null);
   showWindowParts([{ part: "project-overview", host: overviewHost, content: <ProjectsOverview groups={groups} editing={state.renaming} sort={projectSort} changeSort={changeSort}
@@ -60,14 +62,17 @@ function changeSort(sort: ProjectSort) {
 
 /// The overview's recency, taken once per look at it: when projects come or
 /// go, after a project was opened, and on a later draw while the pointer and
-/// focus are elsewhere. Ambient updates do not move cards under the user.
+/// focus are elsewhere. Ambient updates do not move cards under the user. A
+/// touch screen keeps `:hover` and focus on whatever was tapped last, so only
+/// a pointer that hovers holds the order. A phone re-ranks once a minute.
 let ranked: { names: string; at: number; activity: Map<string, number> } | null = null;
 const RANK_MS = 60_000;
+const HOVERS = matchMedia("(hover: hover)");
 
 function overviewOrder(rows: readonly Project[]) {
   const names = rows.map(p => p.name).join("\n");
   const box = overviewHost;
-  const busy = !!box && (box.matches(":hover") || box.contains(document.activeElement));
+  const busy = HOVERS.matches && !!box && (box.matches(":hover") || box.contains(document.activeElement));
   if (ranked && ranked.names === names && (busy || Date.now() - ranked.at < RANK_MS)) return ranked.activity;
 
   const activity = new Map(rows.map(p => [p.name, projectSortTime(projectSort, p, state.sessions.get(p.name) ?? null, lastProjectVisit(p.name))]));
