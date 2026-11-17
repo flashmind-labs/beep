@@ -17,7 +17,7 @@ import { artifactCount, pickArtifact } from "./artifacts.ts";
 import { changeListeners, PANE, S } from "../bar/core.ts";
 import { focusChanges, revalidateChanges } from "./changes.ts";
 import { pointFilesAt } from "./files.ts";
-import { paneRoot, startWorktrees } from "./worktree.ts";
+import { checkoutTop, paneRoot, startWorktrees } from "./worktree.ts";
 import { unfollowFiles } from "./reload.ts";
 import { dropTerm, killTerm, type PaneTerm, type TermPlace } from "./terminal.ts";
 import type { TerminalRow } from "../terminals/terminals.tsx";
@@ -110,9 +110,9 @@ export interface MediaTab {
   text?: TreeText;
   /// The line a link pointed at, marked and scrolled to in the text view.
   line?: number | null;
-  /// The same file in the session's folder, read when it is not in the
-  /// worktree it was looked for in.
-  elsewhere?: string | null;
+  /// Where else to look, in order, when the file is not where it was
+  /// looked for: the session's folder, then the top of its checkout.
+  elsewhere?: WorkFile[];
   /// Its HTML preview opens as soon as its text is read.
   previewQueued?: boolean;
   preview?: { active: boolean; loading: boolean; src: string; html: string; error: string };
@@ -363,9 +363,15 @@ export function previewTab(t: MediaTab) {
   void togglePreview(t);
 }
 
+/// A file as a folder the node reads and a path inside it.
+export interface WorkFile {
+  root: string;
+  rel: string;
+}
+
 /// Opens `rel`, a file in the worktree at `root`, and gives its tab;
 /// `elsewhere` is where else the file may be when it is not there.
-function openIn(root: string, rel: string, elsewhere: string | null = null) {
+function openIn(root: string, rel: string, elsewhere: WorkFile[] = []) {
   const full = rel.startsWith("/") ? rel : resolvePath(root, rel);
   const kind = mediaKind(full);
   // A file of the session's own folder keeps its tab through a switch.
@@ -379,8 +385,9 @@ function openIn(root: string, rel: string, elsewhere: string | null = null) {
 
 /// Opens the file a link in a reply points at, at its line. A relative
 /// path is read from the worktree the pane shows, else from the session's
-/// folder. One outside the session's folder opens as a tab saying the node
-/// would not read it.
+/// folder, else from the top of its checkout, where a session in a
+/// subfolder finds the repository's worktrees. One outside the session's
+/// folder opens as a tab saying the node would not read it.
 export function openLinked(ref: FileRef) {
   const s = P.session;
   if (!s) return;
@@ -393,9 +400,19 @@ export function openLinked(ref: FileRef) {
   const cwd = s.cwd.replace(/\/+$/, "");
   const shown = (paneRoot() || cwd).replace(/\/+$/, "");
   const full = resolvePath(shown, ref.path);
-  const elsewhere = !ref.path.startsWith("/") && shown !== cwd ? resolvePath(cwd, ref.path) : null;
+  const elsewhere = ref.path.startsWith("/") ? [] : [cwd, checkoutTop()]
+    .filter((other): other is string => other !== null && other !== shown)
+    .map(other => ({ root: other, full: resolvePath(other, ref.path) }))
+    .filter(({ root, full }) => full.startsWith(`${root}/`))
+    .map(({ root, full }) => ({ root, rel: full.slice(root.length + 1) }));
   const root = [shown, cwd].find(root => full.startsWith(`${root}/`)) ?? cwd;
-  const tab = openIn(root, full.startsWith(`${root}/`) ? full.slice(root.length + 1) : full, elsewhere);
+  const rel = full.startsWith(`${root}/`) ? full.slice(root.length + 1) : full;
+  // A tab that found the file at one of these places already, such as one
+  // restored under the folder it was found in, is the one to show.
+  const places = [{ root, rel }, ...elsewhere].map(place => resolvePath(place.root, place.rel));
+  const held = P.tabs.find(t => !t.closed && t.kind !== "term" && places.includes(t.rel ? resolvePath(t.root ?? cwd, t.rel) : t.path ?? ""));
+  if (held) focusTab(held.id);
+  const tab = held ?? openIn(root, rel, elsewhere);
 
   // An HTML page or Markdown file shows rendered; Source switches to its code.
   if (tab?.kind === "text" && tab.rel && hasPreview(tab.rel) && !tab.preview) previewTab(tab);

@@ -31,7 +31,8 @@ pub(crate) const CHAT: &str = "When the first prompt includes images, inspect th
     Markdown link, such as `src/main.rs:42`; a click opens the file in the pane at that line. \
     Write each path in full from the session's folder, including any worktree folder you work in, \
     such as `.worktrees/fix/src/main.rs`: a bare file name, or one relative to a folder named \
-    elsewhere in the reply, does not open. \
+    elsewhere in the reply, does not open. When the session's folder is inside a repository, \
+    a path from the repository's top opens too, such as a worktree there; never use `..`. \
     Image, video, audio, 3D model (glb, gltf, obj, stl) and PDF paths named in a reply open in the \
     pane too: videos and audio play there and 3D models open in a viewer with their animation \
     clips, so name the paths of renders and exports in your reply. HTML, Markdown, SVG, image and PDF files you \
