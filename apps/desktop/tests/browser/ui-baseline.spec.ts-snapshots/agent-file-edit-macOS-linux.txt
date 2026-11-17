@@ -76,7 +76,7 @@ body.cbody
           span
             svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
       input.ip-field.rail-filter [aria-label="Filter sessions" placeholder="Filter sessions" spellcheck="false" type="search" value] value=""
-      div.rail-scroll
+      div.rail-scroll [data-clear="true"]
         h4 "Running"
           span.n "2"
         div.rail-live

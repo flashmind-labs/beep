@@ -1,4 +1,4 @@
-import { Fragment, useState, type ReactElement, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { moveLabel } from "../agents/move-store.ts";
 import { closingNote } from "../agents/closing.ts";
 import { agentName, runningKey, runningWhen, type RunningAgent } from "../agents/running-state.ts";
@@ -70,6 +70,20 @@ export function ProjectRail({ project, label, running, past, current, card, back
 }) {
   const [filter, setFilter] = useState("");
   const needle = filter.trim().toLowerCase();
+  // The painting shows clearer while no row reaches into it.
+  const list = useRef<HTMLDivElement>(null), [clear, setClear] = useState(false);
+  useLayoutEffect(() => {
+    const box = list.current, art = box?.parentElement?.querySelector<HTMLElement>(":scope > .painted-art");
+    if (!box || !art) return;
+    const check = () => {
+      const end = box.lastElementChild?.getBoundingClientRect().bottom ?? 0, top = art.getBoundingClientRect();
+      setClear(box.scrollHeight <= box.clientHeight && end < top.top + top.height * 0.3);
+    };
+    check();
+    const sized = new ResizeObserver(check);
+    sized.observe(box);
+    return () => sized.disconnect();
+  });
   const matches = (row: AgentRow) => !needle || (row.title || agentName(row.agent)).toLowerCase().includes(needle);
   const live = running.filter(matches), ended = past.filter(matches);
   const row = (session: AgentRow, right: ReactNode, sub: ReactNode = "") => <Row key={runningKey(session)} picked={current} nav={false} openTile={() => {}} item={{
@@ -83,7 +97,7 @@ export function ProjectRail({ project, label, running, past, current, card, back
     <div className="cc-head" data-tauri-drag-region="" />
     <div className="cc-brand"><Button look="quiet" className="rail-back" title={`Back to ${label}`} onClick={back}>{label}</Button><SideToggle /></div>
     <input className="ip-field rail-filter" type="search" placeholder="Filter sessions" aria-label="Filter sessions" spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
-    <div className="rail-scroll">
+    <div className="rail-scroll" ref={list} data-clear={clear || undefined}>
     {!!live.length && <h4>Running<span className="n">{live.length}</span></h4>}
     {!!live.length && <div className="rail-live">{live.map(session => row(session, <><RunningStatus row={session} /><LineCounts changes={session.changes} /></>, runningLine(session)))}</div>}
     {!!ended.length && <h4>Past<span className="n">{ended.length}</span></h4>}

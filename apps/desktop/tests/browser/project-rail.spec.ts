@@ -88,6 +88,8 @@ test("the project's sessions scroll under a header that stays put, and an idle o
   await list.evaluate(node => { node.scrollTop = node.scrollHeight; });
   await expect.poll(() => list.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
   expect(await rail.evaluate(node => node.scrollTop)).toBe(0);
+  // Rows over the painting dim it.
+  await expect(list).not.toHaveAttribute("data-clear");
   expect((await filter.boundingBox())?.y).toBe(before?.y);
   // No row slides up under the filter and the window buttons.
   const top = await list.evaluate(node => node.getBoundingClientRect().top);
@@ -121,6 +123,8 @@ test("the project's sessions end on its painting and a card of its pull requests
   await page.locator(".pj-det .pv-row").filter({ hasText: "Past session 0" }).click();
   const rail = page.locator("#rail"), card = rail.locator(".rail-card");
   await expect(rail.locator("canvas.painted-art")).toHaveCount(1);
+  // With no row over it, the painting shows clearer.
+  await expect(rail.locator(".rail-scroll[data-clear]")).toHaveCount(1);
   await expect(card.locator(".rail-card-li")).toHaveText([/Pull requests/, /Issues/, /Actions/, /Machines\s*1\/1/]);
 
   // Each opens that part of the project's page, with the sessions still beside it.
