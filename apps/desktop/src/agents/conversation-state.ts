@@ -147,12 +147,6 @@ export function nextConversation(index: number, count: number, backwards: boolea
   if (index < 0) return backwards ? count - 1 : 0;
   return (index + (backwards ? -1 : 1) + count) % count;
 }
-/// The conversations a switcher key cycles: Option+Tab every active one, Ctrl+Tab those of the
-/// open session's project.
-export type ConversationScope = "all" | "project";
-
-/// The scope `e` opens or moves the switcher in; null for any other key.
-export function conversationScope(e: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "isComposing">): ConversationScope | null {
-  if (e.key !== "Tab" || e.metaKey || e.isComposing || e.altKey === e.ctrlKey) return null;
-  return e.altKey ? "all" : "project";
+export function isConversationKey(e: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "isComposing">) {
+  return e.key === "Tab" && e.altKey && !e.ctrlKey && !e.metaKey && !e.isComposing;
 }

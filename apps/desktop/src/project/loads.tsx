@@ -322,6 +322,14 @@ export function sessionsList(p: Project, running: RunningAgent[]): RecentSession
 
 /// Project `name`'s sessions beside the one on screen, `current`: read when first shown.
 export function projectRail(name: string, current: string | null) {
+  const sessions = railSessions(name);
+  if (!sessions) return null;
+
+  return <ProjectRail project={name} label={projectName(sessions.project)} running={sessions.running} past={sessions.past} current={current} back={() => void openProjects(name)} />;
+}
+
+/// Project `name`'s running sessions in the order the rail lists them, then its past ones.
+export function railSessions(name: string) {
   const p = projectRows()?.find(row => row.name === name);
   if (!p) return null;
   const sessions = state.sessions.get(name), moves = [...moveStore.getState().records.values()];
@@ -329,7 +337,7 @@ export function projectRail(name: string, current: string | null) {
   const running = projectRunning(p, state.home?.running, sessions, moves).filter(sessionVisible);
   const past = projectPastSessions(sessions, running, moves).filter(sessionVisible);
 
-  return <ProjectRail project={name} label={projectName(p)} running={running} past={past} current={current} back={() => void openProjects(name)} />;
+  return { project: p, running, past };
 }
 
 /// The projects whose sessions are being read, and those to read again on the

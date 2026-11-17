@@ -23,6 +23,17 @@ test("a project's session swaps the sidebar for the project's sessions in the sa
   expect(await page.evaluate(() => localStorage.getItem("beep.sideWidth"))).toBe("316");
   await page.locator("#side-grip").press("ArrowLeft");
 
+  // ⌃Tab steps through the running sessions in the rail's order, round to the first.
+  const current = rail.locator('.pj-li[aria-current="true"]');
+  await page.keyboard.press("Control+Tab");
+  await expect(current).toHaveText(/First notification/);
+  await page.keyboard.press("Control+Tab");
+  await expect(current).toHaveText(/Second notification/);
+  await page.keyboard.press("Control+Tab");
+  await expect(current).toHaveText(/First notification/);
+  await page.keyboard.press("Control+Shift+Tab");
+  await expect(current).toHaveText(/Second notification/);
+
   await rail.getByPlaceholder("Filter sessions").fill("session 3");
   await expect(past).toHaveText([/Past session 3/]);
 
