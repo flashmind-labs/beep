@@ -2,6 +2,16 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.21] - 2026-11-17
+
+### Fixed
+
+- Node: resumed Claude sessions recover available earlier messages from native history.
+
+### Performance
+
+- Node: session lists load faster by reading known checkout folders directly.
+
 ## [0.7.20] - 2026-11-17
 
 ### Added
