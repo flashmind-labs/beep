@@ -135,3 +135,26 @@ test("the project's sessions end on its painting and a card of its pull requests
   await expect(rail).toBeHidden();
   await expect(page.locator("#side")).toBeVisible();
 });
+
+test("a project window shows its sessions in the sidebar's place, and its Back clears the traffic lights without room for them", async ({ page }, info) => {
+  const modifier = info.project.name === "Windows" ? "Control" : "Meta";
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await openDesktop(page, false, { center_window_project: projectName });
+  const rail = page.locator("#rail");
+  await expect(rail).toBeVisible();
+  await expect(rail.locator(".cc-side-toggle")).toBeHidden();
+  await expect(page.locator("#side")).toBeHidden();
+
+  await rail.locator(".rail-live > .pj-li").first().click();
+  await expect(rail.locator('.pj-li[aria-current="true"]')).toHaveText(/First notification/);
+  await expect(page.locator("#pw-back")).toBeHidden();
+  // There is no sidebar to swap them for.
+  await page.keyboard.press(`${modifier}+e`);
+  await expect(rail).toBeVisible();
+
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await expect(rail).toBeHidden();
+  const back = page.locator("#pw-back");
+  await expect(back).toBeVisible();
+  expect((await back.boundingBox())?.x ?? 0).toBeGreaterThanOrEqual(78);
+});

@@ -101,12 +101,13 @@ roomy.addEventListener("change", drawRail);
 
 /// Draws a project's sessions in place of the sidebar while one of them shows, in a window with
 /// room for both beside it, or the sidebar again. The project's page opened from them keeps
-/// them beside it. Their reads redraw only this.
+/// them beside it. A project window, which has no sidebar, shows its project's sessions on every
+/// page. Their reads redraw only this.
 export function drawRail() {
   const view = currentLocation()?.view, side = shell.getState().side;
-  const project = view === "pane" ? projectHere()?.project ?? null
-    : view === "projects" && side.rail && !side.railHidden && state.picked === side.rail ? side.rail : null;
-  const rail = !onPhone() && !windowProject && roomy.matches ? project : null;
+  const project = windowProject ?? (view === "pane" ? projectHere()?.project ?? null
+    : view === "projects" && side.rail && !side.railHidden && state.picked === side.rail ? side.rail : null);
+  const rail = !onPhone() && roomy.matches ? project : null;
   setRail(rail);
   placeWindowParts({ rail: rail && projectRail(rail, openKey()) });
 }

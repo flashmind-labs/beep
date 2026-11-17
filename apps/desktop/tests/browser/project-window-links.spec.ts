@@ -86,6 +86,8 @@ test("project notifications open windows without dismissing the row", async ({ p
 });
 
 test("the project window back button reuses the project window", async ({ page }) => {
+  // Too narrow for the project's sessions, which go back to the project with its name.
+  await page.setViewportSize({ width: 1000, height: 800 });
   await openDesktop(page, false, { center_window_project: projectName });
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await gestures(page, page.locator("#pw-back"));

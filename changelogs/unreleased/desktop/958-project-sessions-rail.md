@@ -14,7 +14,14 @@
   project page. The sidebar button swaps between the sidebar and the
   sessions with a short slide, and the conversation stays where it
   is. Cmd+E (Ctrl+E on Windows and Linux) swaps between the sidebar
-  and the project's sessions, and elsewhere folds the sidebar.
+  and the project's sessions, and elsewhere folds the sidebar. A
+  project window shows its sessions in the sidebar's place on every
+  page.
+
+### Fixed
+
+- Desktop: In a project window too narrow for its sessions, the Back
+  button no longer sits under the window's traffic lights.
 
 ### Changed
 

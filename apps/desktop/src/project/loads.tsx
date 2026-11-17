@@ -23,7 +23,7 @@ import { localProjectId, projectRef } from "./localid.ts";
 import { machineTile } from "./board.ts";
 import { state, pages, keep, pageFresh } from "../center/state.ts";
 import { openUrl, refreshGit } from "../center/openitems.ts";
-import { currentLocation, go } from "../center/views.tsx";
+import { currentLocation, go, windowProject } from "../center/views.tsx";
 import { projectRows, importSheet, addProject, importFromPage, loadFound, drawRail, openProjects } from "../center/sidebar.tsx";
 import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage, repairButton } from "./sections.ts";
 import { drawProjects } from "./page.tsx";
@@ -326,7 +326,7 @@ export function projectRail(name: string, current: string | null) {
   const sessions = railSessions(name);
   if (!sessions) return null;
 
-  return <ProjectRail project={name} label={projectName(sessions.project)} running={sessions.running} past={sessions.past} current={current} card={railCard(sessions.project)} back={() => { hideRail(); void openProjects(name); }} />;
+  return <ProjectRail project={name} label={projectName(sessions.project)} running={sessions.running} past={sessions.past} current={current} card={railCard(sessions.project)} back={() => { if (!windowProject) hideRail(); void openProjects(name); }} />;
 }
 
 /// What the rail's card shows of a project, as its page's rows count them: open pull requests
