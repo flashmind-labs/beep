@@ -278,13 +278,25 @@ pub struct Updated {
     pub note: String,
 }
 
-/// Has the node install the newest release and restart, once its agent
-/// sessions are idle or, with `now`, at once.
-pub async fn update_node(client: &PeerClient, now: bool) -> Result<Updated, MeshError> {
-    let request = update::Request::Update { now };
+/// Updates within the caller's release channel. Minor-only requests are never
+/// retried as an unrestricted update when an older node rejects them.
+pub async fn update_node(
+    client: &PeerClient,
+    now: bool,
+    channel: update::ReleaseChannel,
+) -> Result<Updated, MeshError> {
+    let request = match channel {
+        update::ReleaseChannel::All => update::Request::Update { now },
+        update::ReleaseChannel::Minor => update::Request::Minor { now },
+    };
     let words = Words {
         silent: "the update took too long",
-        closed: "the node closed the update without an answer",
+        closed: match channel {
+            update::ReleaseChannel::All => "the node closed the update without an answer",
+            update::ReleaseChannel::Minor => {
+                "the node closed the minor-release update without an answer; update older nodes once with `beep-node update`"
+            }
+        },
     };
     let event = exchange(client, NODE_INSTALL, update::PROTOCOL, &request, words).await?;
     updated(event)

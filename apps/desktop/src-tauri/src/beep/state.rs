@@ -1,6 +1,7 @@
 //! What the app remembers between launches, in `state.json`, and `Prefs`,
 //! which holds it for the windows.
 
+use beep_proto::node::update::ReleaseChannel;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -190,9 +191,17 @@ impl Prefs {
         self.update(|s| s.save_folder = folder);
     }
 
-    /// Whether this desktop updates to every release, patches included.
+    /// Whether app and node updates include patch releases.
     pub fn developer(&self) -> bool {
         self.saved().developer
+    }
+
+    pub fn node_release_channel(&self) -> ReleaseChannel {
+        if self.developer() {
+            ReleaseChannel::All
+        } else {
+            ReleaseChannel::Minor
+        }
     }
 
     pub fn set_developer(&self, on: bool) {

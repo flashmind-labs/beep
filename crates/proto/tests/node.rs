@@ -99,6 +99,28 @@ mod admin {
         }
 
         #[test]
+        fn minor_updates_round_trip_and_older_nodes_reject_them() {
+            #[derive(Debug, Deserialize)]
+            enum Older {
+                Update { now: bool },
+            }
+            for now in [false, true] {
+                let request = Request::Minor { now };
+                let bytes = rmp_serde::to_vec(&request).expect("encodes");
+                assert_eq!(
+                    beep_proto::lenient::from_slice::<Request>(&bytes).expect("decodes"),
+                    request
+                );
+                assert!(beep_proto::lenient::from_slice::<Older>(&bytes).is_err());
+
+                let bytes = rmp_serde::to_vec(&Request::Update { now }).expect("encodes");
+                let Older::Update { now: decoded } =
+                    beep_proto::lenient::from_slice::<Older>(&bytes).expect("legacy update");
+                assert_eq!(decoded, now);
+            }
+        }
+
+        #[test]
         fn events_round_trip() {
             for event in [
                 Event::Newest {

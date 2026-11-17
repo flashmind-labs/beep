@@ -34,6 +34,7 @@ use beep_proto::{
         agent::DiffAsk,
         events::{GitOutput, GitRead, Read, Value},
         tool_update::Tool,
+        update::ReleaseChannel,
     },
 };
 use futures::{StreamExt, stream};
@@ -399,9 +400,10 @@ pub(crate) async fn update_machine(
     fleet: &Fleet,
     machine: EndpointId,
     now: bool,
+    channel: ReleaseChannel,
 ) -> Result<MachineUpdate> {
     let client = fleet.client(machine).await?;
-    let updated = machine::update_node(&client, now)
+    let updated = machine::update_node(&client, now, channel)
         .await
         .map_err(|e| DesktopError::BadRequest(format!("{e:#}")))?;
     Ok(MachineUpdate {
