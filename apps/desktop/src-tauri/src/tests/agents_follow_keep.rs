@@ -68,6 +68,8 @@ fn pushed(kind: UpdateKind, earlier: u32, texts: &[&str], start: u64) -> Pushed 
         resumed: false,
         view: AgentSessionView {
             session: MachineSession {
+                reply: None,
+                changes: None,
                 machine_id: "build-box".into(),
                 machine_name: "build-box".into(),
                 id: "one".into(),

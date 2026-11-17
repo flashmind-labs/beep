@@ -1,10 +1,10 @@
-// The harness and model picker opened from a button, as Review with agent
-// in a diff and on a pull request, and Work on it on an issue, show it: it
-// opens under the button, closes on Esc or a click outside, and a model pick
-// closes it and starts.
+// The machine, harness, model and thinking picker opened from a button, as
+// Review with agent in a diff and on a pull request, and Work on it on an
+// issue, show it: it opens under the button, closes on Esc or a click
+// outside, and its last step closes it and starts.
 import type { ReactElement } from "react";
 import type { Picked } from "./agentpicker.tsx";
-import { keepEffort } from "./agentpick.ts";
+import { keepEffort, type MachineRow } from "./agentpick.ts";
 
 // The picker module pulls in the whole session view, so it loads the first
 // time a picker opens.
@@ -16,9 +16,11 @@ export interface PickPopoverOpts {
   machine: () => { id: string; name: string; agents: readonly string[] } | null;
   /// The harnesses any machine has.
   everywhere: () => readonly string[];
+  /// The Machine step's rows and what picking one does; null where the machine is fixed.
+  machines: () => { rows: readonly MachineRow[]; pick: (id: string) => void } | null;
   /// Sets the pick's defaults as the picker opens; false keeps it shut.
   opening: () => boolean;
-  /// A model was picked and the picker closed.
+  /// The last step was picked and the picker closed.
   start: () => void;
   /// Draws the button again; `sync` is false while React is committing.
   draw: (sync: boolean) => void;
@@ -70,6 +72,12 @@ export function pickPopover(o: PickPopoverOpts): PickPopover {
     button?.focus();
   };
 
+  /// The Machine step, its pick drawing the picker for the machine.
+  function machinesStep() {
+    const step = o.machines();
+    return step && { rows: step.rows, pick: (id: string) => { step.pick(id); void redraw(); } };
+  }
+
   async function redraw() {
     if (open && !connected()) { close(); return; }
     const machine = o.machine();
@@ -86,9 +94,10 @@ export function pickPopover(o: PickPopoverOpts): PickPopover {
       everywhere: o.everywhere(),
       machine: { id: machine.id, name: machine.name },
       noMachine: "",
+      steps: { machines: machinesStep() },
       anchor: () => currentButton,
       changed: what => {
-        if (what === "model") { close(); o.draw(true); o.start(); return; }
+        if (what === "done") { close(); o.draw(true); o.start(); return; }
         if (what === "agent") o.picked.effort = keepEffort(o.picked.agent, o.picked.effort);
         if (what !== "models") void redraw();
         if (what === "agent") focusSearch(currentSlot);

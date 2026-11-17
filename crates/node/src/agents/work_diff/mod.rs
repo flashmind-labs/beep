@@ -14,6 +14,27 @@ use parse::{Caps, DiffParser, Keep};
 #[cfg(feature = "host")]
 pub(super) use read::{git, read};
 
+/// The lines added and removed in the checkout at `folder`, as the diff
+/// viewer counts them against the default branch with the working tree.
+/// `None` outside a git checkout. Blocks on git.
+#[cfg(feature = "host")]
+pub(super) fn changes(folder: &std::path::Path) -> Option<beep_proto::node::agent::LineChanges> {
+    let ask = DiffAsk {
+        root: folder.to_string_lossy().into_owned(),
+        base: String::new(),
+        head: String::new(),
+        only: Vec::new(),
+        lockfiles: false,
+        context: 0,
+    };
+    let diff = read(folder, &ask).ok()?;
+
+    Some(beep_proto::node::agent::LineChanges {
+        additions: diff.additions,
+        deletions: diff.deletions,
+    })
+}
+
 /// Bytes of text one file keeps, and all of them.
 const FILE_BYTES: usize = 512 * 1024;
 const TOTAL_BYTES: usize = 4 * 1024 * 1024;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { OLDER_MAX, OLDER_PAGE, answersBefore, drawsEachPage, joinRuns, lacksPrompt, newestRead, olderBefore, olderNote, takeOlder } from "../src/agents/older-state.ts";
+import { OLDER_MAX, OLDER_PAGE, answersBefore, drawsEachPage, joinRuns, lacksPrompt, newestRead, olderBefore, viewRead, olderNote, takeOlder } from "../src/agents/older-state.ts";
 import { onlyNotes, splitTurns } from "../src/agents/agentturns.ts";
 
 const at = (from: number, to: number, kind = "agent") => Array.from({ length: to - from }, (_, i) => ({ kind, text: `e${from + i}` }));
@@ -122,16 +122,19 @@ test("a run that starts mid-turn has no prompt for its first turn", () => {
   assert.equal(turns[0].key, 40);
 });
 
-test("a session opens with a full page of its newest entries, then polls ask for fewer and keep it", () => {
-  assert.equal(newestRead(null, 60), OLDER_PAGE);
-  assert.equal(newestRead({ earlier: 0, entries: [] }, 60), OLDER_PAGE);
+test("a session opens with a view's worth of its newest entries, then polls ask for fewer and keep it", () => {
+  assert.equal(viewRead(1000), 70);
+  assert.equal(viewRead(0), 20);
+  assert.equal(viewRead(10_000), OLDER_PAGE);
+  assert.equal(newestRead(null, 60, 1000), 70);
+  assert.equal(newestRead({ earlier: 0, entries: [] }, 60, 1000), 70);
   const total = 900;
-  const opened = run(total - newestRead(null, 60), total);
-  assert.equal(olderBefore(opened, ""), total - OLDER_PAGE);
-  assert.equal(newestRead(opened, 60), 60);
+  const opened = run(total - newestRead(null, 60, 1000), total);
+  assert.equal(olderBefore(opened, ""), total - 70);
+  assert.equal(newestRead(opened, 60, 1000), 60);
   const polled = joinRuns(opened, run(total - 58, total + 2));
-  assert.equal(polled.earlier, total - OLDER_PAGE);
-  assert.equal(polled.entries.length, OLDER_PAGE + 2);
+  assert.equal(polled.earlier, total - 70);
+  assert.equal(polled.entries.length, 72);
 });
 
 test("only a reader scrolling up sees older pages drawn one by one", () => {

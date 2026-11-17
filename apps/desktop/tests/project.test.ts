@@ -20,6 +20,8 @@ test("a new agent starts in the project on screen or of the shown session, else 
   assert.deepEqual(to({ shown: "pane", view: "agent", agent: { machine_id: "mac", cwd: "/w/widget/" } }), { project: "acme/widget", machine: "mac" });
   assert.deepEqual(to({ shown: "pane", view: "agent", agent: { machine_id: "mac", cwd: "/w/widget-fix", main: "/w/widget" } }), { project: "acme/widget", machine: "mac" });
   assert.equal(to({ shown: "pane", view: "agent", agent: { machine_id: "mac", cwd: "/w/widget-fix" } }), null);
+  // A session of one project now working in another's checkout stays with the project it started in.
+  assert.deepEqual(to({ shown: "pane", view: "agent", agent: { machine_id: "mac", cwd: "/w/other", main: "/w/widget" } }), { project: "acme/other", machine: "mac" });
   // A session outside every project, other pages and Home.
   assert.equal(to({ shown: "pane", view: "agent", agent: { machine_id: "box", cwd: "/tmp/x" } }), null);
   assert.equal(to({ shown: "projects", picked: null }), null);

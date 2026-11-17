@@ -63,7 +63,7 @@ pub(crate) struct ChildView {
     pub(crate) tokens: u64,
     pub(crate) cost_usd: Option<f64>,
     pub(crate) error: Option<String>,
-    /// Said when `wait` ran out of time.
+    /// Said when `wait` ran out of time or the child's turn is done.
     #[serde(default)]
     pub(crate) note: Option<String>,
     /// The project whose checkout holds its folder, in a list of every agent.
@@ -724,6 +724,14 @@ impl Reach<'_> {
                     return view;
                 }
             }
+        }
+
+        if view.state == "idle" {
+            view.note = Some(
+                "Continue it with send_to_agent, or stop it with stop_agent once you need \
+                 nothing more from it."
+                    .to_owned(),
+            );
         }
 
         view

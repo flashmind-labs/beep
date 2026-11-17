@@ -254,6 +254,7 @@ function drawPicker(c: StartComposer) {
     everywhere: [...new Set((AG.hosts ?? []).flatMap(m => m.agents))],
     machine: machine && name ? { id: machine, name: host?.machine_name ?? name } : null,
     noMachine: "Pick a machine to list its models.",
+    steps: null,
     anchor: () => c.harness.isConnected ? c.harness : null,
     changed: what => {
       if (what === "models") return drawPill(c, false);

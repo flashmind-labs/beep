@@ -27,7 +27,7 @@ use agent_client_protocol::{
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
-    AlertKind, Effort, Entry, EntryKind, ModeOption, Question, Status, StopReason, WorkPlace,
+    AlertKind, Effort, Entry, EntryKind, LineChanges, ModeOption, Question, Status, StopReason, WorkPlace,
 };
 use beep_proto::watched;
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
@@ -140,6 +140,8 @@ pub(super) enum Reply {
     Made(Vec<String>),
     /// The linked worktrees a finished turn's commands added.
     Worktrees(Vec<String>),
+    /// The lines changed in the session's checkout as a turn ended.
+    Changed(Option<LineChanges>),
 }
 
 /// A permission question waiting for its answer.
@@ -964,6 +966,13 @@ impl Actor {
                     self.live
                         .send_if_modified(|live| live.created_worktrees(trees));
                 }
+            }
+            Reply::Changed(changes) => {
+                self.live.send_if_modified(|live| {
+                    let changed = live.info.changes != changes;
+                    live.info.changes = changes;
+                    changed
+                });
             }
             Reply::Made(paths) => {
                 if !paths.is_empty() {

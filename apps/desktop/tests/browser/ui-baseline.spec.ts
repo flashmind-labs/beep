@@ -237,7 +237,7 @@ test("home first start", async ({ page }) => {
 
   await prompt.press("Enter");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").map(call => call.args))).toEqual([
-    { machineId: null, agent: "flsh", cwd: null, prompt: "Import my projects", images: [], model: null, effort: "high", checkout: null, assistant: true },
+    { machineId: null, agent: "flsh", cwd: null, prompt: "Import my projects", images: [], model: null, effort: "high", fast: null, checkout: null, assistant: true },
   ]);
 });
 

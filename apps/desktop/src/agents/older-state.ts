@@ -19,9 +19,20 @@ export const OLDER_MAX = 5000;
 /// The most reads one search for a turn's prompt makes in a row.
 export const PROMPT_READS = 5;
 
-/// How many of the newest entries a poll asks for: a page when none are
-/// held, so a session opens with the view full at once, else `poll`.
-export const newestRead = (held: Run | null, poll: number) => held?.entries.length ? poll : OLDER_PAGE;
+/// The shortest an entry is drawn, in pixels: one line of the log.
+const ENTRY_MIN_PX = 20;
+/// Entries read past a full view, so the first scroll up has rows at once
+/// while older ones load.
+const VIEW_EXTRA = 20;
+
+/// How many of the newest entries fill a view `height` pixels tall, with
+/// a margin: what a session reads when it opens.
+export const viewRead = (height: number) =>
+  Math.min(OLDER_PAGE, Math.ceil(Math.max(0, height) / ENTRY_MIN_PX) + VIEW_EXTRA);
+
+/// How many of the newest entries a poll asks for: a view's worth when
+/// none are held, so a session opens with the view full at once, else `poll`.
+export const newestRead = (held: Run | null, poll: number, height: number) => held?.entries.length ? poll : viewRead(height);
 
 /// What a run of older reads is for: the reader near the top, the oldest
 /// turn's prompt, or the whole log (Home).

@@ -29,6 +29,7 @@ import { draw, homeTab, jump } from "./home.tsx";
 import { currentLocation, windowProject, go, goHistory, hasHistory, setWindowProject, goTo } from "./views.tsx";
 import { reloadGroup, paneOn, projectHere, openProjects, projectWindowProps, openProjectWindow, addProject } from "./sidebar.tsx";
 import { escUp } from "./escup-state.ts";
+import { nextRunning } from "../project/loads.tsx";
 import { itemScroll, setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
 import { openTile } from "../project/split.tsx";
 import { pa } from "../project/sections.ts";
@@ -130,7 +131,8 @@ document.addEventListener("keydown", e => {
     case "palette": return openPalette();
     case "settings": return openSettings();
     case "shortcuts": return toggleShortcuts();
-    case "sidebar": return toggleSide();
+    // A project window's sessions are its sidebar: there is nothing to swap them for.
+    case "sidebar": return windowProject ? undefined : toggleSide();
     case "new-agent":
       if (currentLocation()?.view === "terminals" && isNewKey(e) && allTerms.newLikeOpen()) return;
       return newAgentHere();
@@ -179,7 +181,14 @@ pane.connect({
   projectWindowProps,
   sessionProject(s) {
     const projects = state.home?.projects ?? [], p = projectOf(s, projects);
-    return p ? { label: repoOf(s, projects) || p.name, name: p.name, open: () => void openProjects(p.name) } : null;
+    if (!p) return null;
+    const open = () => void openProjects(p.name);
+    // A closed session hands over to the project's next running one, else to the project.
+    const afterClose = (closed: { machine_id: string; id: string; started_at?: number }) => {
+      const next = nextRunning(p.name, closed);
+      if (next) go("pane", { agent: next }); else open();
+    };
+    return { label: repoOf(s, projects) || p.name, name: p.name, open, afterClose };
   },
 });
 

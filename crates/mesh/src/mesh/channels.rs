@@ -3,10 +3,12 @@
 
 use super::{Inner, Mesh};
 use crate::{MeshError, OPEN_TIMEOUT, wire};
+use futures::StreamExt;
 use iroh::{
     EndpointAddr, EndpointId,
-    endpoint::{Connection, RecvStream, SendStream},
+    endpoint::{Connection, PathEvent, RecvStream, SendStream},
 };
+use std::fmt::Write as _;
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex, PoisonError},
@@ -344,6 +346,7 @@ impl Mesh {
             connection: connection.clone(),
             peer_session,
         });
+        tokio::spawn(log_paths(connection.clone(), peer, alpn));
         Ok(connection)
     }
 
@@ -377,7 +380,7 @@ impl Mesh {
         }
 
         if connection.close_reason().is_none() {
-            tracing::warn!(peer = ?connection.remote_id(), protocol = %String::from_utf8_lossy(connection.alpn()), "a protocol connection took no new stream; dialing again");
+            tracing::warn!(peer = ?connection.remote_id(), protocol = %String::from_utf8_lossy(connection.alpn()), state = %describe(connection), "a protocol connection took no new stream; dialing again");
             connection.close(4u32.into(), b"stalled");
         }
     }
@@ -391,6 +394,59 @@ impl Mesh {
             ))
         }
     }
+}
+
+/// Logs when a protocol connection changes or loses a path, so a stall can
+/// be matched to a path that stopped delivering.
+async fn log_paths(connection: Connection, peer: EndpointId, alpn: &'static [u8]) {
+    let protocol = String::from_utf8_lossy(alpn);
+    let mut events = connection.path_events();
+
+    while let Some(event) = events.next().await {
+        match event {
+            PathEvent::Selected { remote_addr, .. } => {
+                tracing::info!(?peer, %protocol, %remote_addr, "a protocol connection selected a path");
+            }
+            PathEvent::Closed {
+                remote_addr,
+                last_stats,
+                ..
+            } => {
+                tracing::info!(?peer, %protocol, %remote_addr, rtt_ms = last_stats.rtt.as_millis(), lost = last_stats.lost_packets, "a protocol connection closed a path");
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A connection's paths, the selected one marked, and its packet counts.
+/// Blocked streams count the STREAMS_BLOCKED frames sent: this side had no
+/// credit left to open another stream.
+fn describe(connection: &Connection) -> String {
+    let mut out = String::new();
+
+    for path in connection.paths().iter() {
+        let mark = if path.is_selected() { "*" } else { "" };
+        let _ = write!(
+            out,
+            "{mark}{} rtt={}ms; ",
+            path.remote_addr(),
+            path.rtt().as_millis()
+        );
+    }
+
+    let stats = connection.stats();
+    let _ = write!(
+        out,
+        "datagrams tx={} rx={} lost={} streams_blocked tx={} rx={}",
+        stats.udp_tx.datagrams,
+        stats.udp_rx.datagrams,
+        stats.lost_packets,
+        stats.frame_tx.streams_blocked_bidi,
+        stats.frame_rx.streams_blocked_bidi,
+    );
+
+    out
 }
 
 #[cfg(test)]

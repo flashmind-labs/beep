@@ -2,7 +2,7 @@
 //! the last entries as the node answers a transcript request with them.
 
 use super::{Agent, Stores, codex_run};
-use crate::agents::{claude::Excerpt, cut, tags, window::window};
+use crate::agents::{SubagentRun, claude::Excerpt, cut, subagent::Subagent, tags, window::window};
 use anyhow::{Result, bail};
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
@@ -331,6 +331,18 @@ fn flsh(path: &Path) -> io::Result<Vec<Entry>> {
 
                 for call in message["toolCalls"].as_array().into_iter().flatten() {
                     let name = call["name"].as_str().unwrap_or("tool");
+                    if let Some(sub) = Subagent::of_call(
+                        Some(name), name, Some(&call["arguments"]),
+                    ) {
+                        entries.push(SubagentRun {
+                            task: sub.title,
+                            name: sub.name,
+                            model: sub.model,
+                            ..Default::default()
+                        }.entry());
+                        continue;
+                    }
+
                     let title = match codex_run::detail(&call["arguments"]) {
                         Some(detail) if !detail.is_empty() => format!("{name}: {detail}"),
                         _ => name.to_owned(),

@@ -1,4 +1,4 @@
-import { Fragment, useState, type ReactElement, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { moveLabel } from "../agents/move-store.ts";
 import { closingNote } from "../agents/closing.ts";
 import { agentName, runningKey, runningWhen, type RunningAgent } from "../agents/running-state.ts";
@@ -8,7 +8,8 @@ import type { Freshness } from "../ui/pagecache.ts";
 import type { TileData } from "./board.ts";
 import type { LabelFilter, SplitGroup, SplitItem } from "./split.tsx";
 import { Button, EmptyPanel, LineRow, Section, SectionHead } from "../ui/kit.tsx";
-import { HarnessIcon } from "../ui/icons.tsx";
+import { HarnessIcon, Icon } from "../ui/icons.tsx";
+import { ProjectArt } from "../ui/painted-art.tsx";
 import { SideToggle } from "../center/sidebar-shell.tsx";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import type { AgentRow } from "../agents/agents.ts";
@@ -62,30 +63,81 @@ export function RunningStatus({ row, doing = false }: { row: RunningAgent; doing
 /// sidebar's: the project's name, which goes back to its page, and the toggle back to the
 /// sidebar. Then a filter, the running sessions, roomier, with what each is doing, and the
 /// latest past ones, one line
-/// each. `current` is the running key of the session on screen.
-export function ProjectRail({ project, label, running, past, current, back }: {
-  project: string; label: string; running: RunningAgent[]; past: SessionRow[]; current: string | null; back(): void;
+/// each. `current` is the running key of the session on screen. At the foot, over the project's
+/// painting, a card with its branch, pull requests, issues and machines.
+export function ProjectRail({ project, label, running, past, current, card, back }: {
+  project: string; label: string; running: RunningAgent[]; past: SessionRow[]; current: string | null; card: RailCard | null; back(): void;
 }) {
   const [filter, setFilter] = useState("");
   const needle = filter.trim().toLowerCase();
+  // The painting shows clearer while no row reaches into it.
+  const list = useRef<HTMLDivElement>(null), [clear, setClear] = useState(false);
+  useLayoutEffect(() => {
+    const box = list.current, art = box?.parentElement?.querySelector<HTMLElement>(":scope > .painted-art");
+    if (!box || !art) return;
+    const check = () => {
+      const end = box.lastElementChild?.getBoundingClientRect().bottom ?? 0, top = art.getBoundingClientRect();
+      setClear(box.scrollHeight <= box.clientHeight && end < top.top + top.height * 0.3);
+    };
+    check();
+    const sized = new ResizeObserver(check);
+    sized.observe(box);
+    return () => sized.disconnect();
+  });
   const matches = (row: AgentRow) => !needle || (row.title || agentName(row.agent)).toLowerCase().includes(needle);
   const live = running.filter(matches), ended = past.filter(matches);
-  const row = (session: AgentRow, right: ReactNode, sub = "") => <Row key={runningKey(session)} picked={current} nav={false} openTile={() => {}} item={{
+  const row = (session: AgentRow, right: ReactNode, sub: ReactNode = "") => <Row key={runningKey(session)} picked={current} nav={false} openTile={() => {}} item={{
     key: runningKey(session), lead: <HarnessIcon agent={session.agent} />, title: session.title || agentName(session.agent), sub, right,
     open: () => go("pane", { agent: session }),
     menu: event => void sessionMenu(event, session, picked => go("pane", { agent: picked })),
   }} />;
 
   return <>
+    <ProjectArt project={project} />
     <div className="cc-head" data-tauri-drag-region="" />
     <div className="cc-brand"><Button look="quiet" className="rail-back" title={`Back to ${label}`} onClick={back}>{label}</Button><SideToggle /></div>
     <input className="ip-field rail-filter" type="search" placeholder="Filter sessions" aria-label="Filter sessions" spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
+    <div className="rail-scroll" ref={list} data-clear={clear || undefined}>
     {!!live.length && <h4>Running<span className="n">{live.length}</span></h4>}
-    {!!live.length && <div className="rail-live">{live.map(session => row(session, <RunningStatus row={session} />, session.doing ?? ""))}</div>}
+    {!!live.length && <div className="rail-live">{live.map(session => row(session, <><RunningStatus row={session} /><LineCounts changes={session.changes} /></>, runningLine(session)))}</div>}
     {!!ended.length && <h4>Past<span className="n">{ended.length}</span></h4>}
     {ended.slice(0, RAIL_PAST).map(session => row(session, formatAgo(session.last_activity, "short")))}
     {ended.length > RAIL_PAST && <Button look="quiet" className="rail-all" onClick={() => go("projects", { project, tile: "agents" })}>All {ended.length} sessions</Button>}
+    </div>
+    {card && <ProjectCard project={project} card={card} />}
   </>;
+}
+
+/// What the rail's card shows of its project, as its page's rows count it; `null` counts are
+/// still being read.
+export interface RailCard { prs: number | null; issues: number | null; actions: string; failed: boolean; machines: string }
+
+/// The project's rows that are not sessions, each opening that tab of its page.
+function ProjectCard({ project, card }: { project: string; card: RailCard }) {
+  const open = (tile: string) => () => go("projects", { project, tile });
+  const count = (n: number | null) => n === null ? "" : `${n} open`;
+  return <div className="rail-card">
+    <Button look="quiet" className="rail-card-li" onClick={open("prs")}><Icon name="pr" /><span>Pull requests</span><small>{count(card.prs)}</small></Button>
+    <Button look="quiet" className="rail-card-li" onClick={open("issues")}><Icon name="issue" /><span>Issues</span><small>{count(card.issues)}</small></Button>
+    <Button look="quiet" className="rail-card-li" onClick={open("actions")}><Icon name="run" /><span>Actions</span><small className={card.failed ? "bad" : undefined}>{card.actions}</small></Button>
+    <Button look="quiet" className="rail-card-li" onClick={open("machines")}><Icon name="sync" /><span>Machines</span><small>{card.machines}</small></Button>
+  </div>;
+}
+
+/// A running row's second line: what it does, else the first line of its last reply, with
+/// its emphasis and code as notifications show them.
+function runningLine(session: RunningAgent) {
+  if (session.doing) return session.doing;
+  return session.reply_html ? <i className="rail-reply nt-md" dangerouslySetInnerHTML={{ __html: session.reply_html }} /> : "";
+}
+
+/// The lines its checkout changed, green and red, as its last turn left them.
+function LineCounts({ changes }: { changes: RunningAgent["changes"] }) {
+  if (!changes?.additions && !changes?.deletions) return null;
+  return <span className="rail-diff" title="Lines added and removed in its checkout">
+    {!!changes.additions && <i className="dv-plus">+{changes.additions}</i>}
+    {!!changes.deletions && <i className="dv-minus">-{changes.deletions}</i>}
+  </span>;
 }
 
 /// The past sessions the rail lists; the project's page has them all.

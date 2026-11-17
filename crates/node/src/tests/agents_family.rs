@@ -343,6 +343,7 @@ async fn a_parent_is_told_once_each_time_its_child_finishes() {
     let log = rig.read("top.log");
     assert_eq!(notes(&log), 1, "{log}");
     assert!(log.contains(&told), "{log}");
+    assert!(log.contains("stop it with stop_agent"), "{log}");
     assert!(log.contains("state=\\\"finished\\\""), "{log}");
     // The next turn of the child is the next note, and the first is not
     // sent again.

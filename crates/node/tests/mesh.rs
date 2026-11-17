@@ -36,7 +36,7 @@ use beep_proto::{
         sync::{PROTOCOL as SYNC, Reply as SyncReply, Request as SyncRequest},
     },
 };
-use beep_report::Answer;
+use beep_report::{Answer, Share};
 use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets, protocol::Router};
 use iroh_tickets::Ticket;
 use serde_json::json;
@@ -714,7 +714,7 @@ async fn another_node_gets_no_shell_but_can_use_agent_tools() {
 }
 
 #[tokio::test]
-async fn another_node_is_refused_a_report() {
+async fn another_node_reads_a_report() {
     let desktop = desktop().await;
     let node = Node::start(Config {
         name: Some("build-box"),
@@ -725,11 +725,11 @@ async fn another_node_is_refused_a_report() {
     let other = peer_node(&desktop).await;
     let conn = other.reach(node.id).await;
     let (_, opened) = open(&conn, REPORT).await;
-    assert!(matches!(opened, Opened::Refused { .. }), "{opened:?}");
+    assert!(matches!(opened, Opened::Ready { .. }), "{opened:?}");
 }
 
 #[tokio::test]
-async fn a_node_in_a_mesh_reports_only_itself_for_the_cli() {
+async fn a_node_in_a_mesh_reports_the_other_nodes_for_the_cli() {
     let desktop = desktop().await;
     let a = Node::start(Config {
         name: Some("box-a"),
@@ -743,15 +743,32 @@ async fn a_node_in_a_mesh_reports_only_itself_for_the_cli() {
     .await;
     a.join(&desktop.ticket(DeviceKind::Node).await).await;
     b.join(&desktop.ticket(DeviceKind::Node).await).await;
-    let shares = beep_node::link::peers::collect_report(a.dir.path(), 0)
-        .await
-        .expect("the node collects")
-        .expect("the node runs");
-    assert_eq!(shares.len(), 1, "{shares:?}");
-    let own = &shares[0];
-    assert_eq!(own.id, a.id);
-    assert_eq!(own.answer, Answer::Answered);
-    assert!(own.status.contains("box-a"), "{}", own.status);
+    let answered = |shares: &[Share], id| {
+        shares
+            .iter()
+            .any(|share| share.id == id && share.answer == Answer::Answered)
+    };
+    // box-a learns of box-b and links to it a moment after it joined.
+    let shares = timeout(LIMIT, async {
+        loop {
+            let shares = beep_node::link::peers::collect_report(a.dir.path(), 0)
+                .await
+                .expect("the node collects")
+                .expect("the node runs");
+
+            if answered(&shares, a.id) && answered(&shares, b.id) {
+                return shares;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("box-a reads box-b in time");
+    let b_share = shares.iter().find(|share| share.id == b.id);
+    assert!(
+        b_share.is_some_and(|share| share.status.contains("box-b")),
+        "{shares:?}"
+    );
 }
 
 #[cfg(unix)]

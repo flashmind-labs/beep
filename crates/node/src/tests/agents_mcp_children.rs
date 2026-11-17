@@ -393,6 +393,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
         ("idle", "kid")
     );
     assert_eq!(done.turns, 1);
+    assert!(done.note.as_deref().is_some_and(|note| note.contains("stop_agent")));
 
     // A child that is still working returns at once without `wait`.
     let (failed, text) = tool(

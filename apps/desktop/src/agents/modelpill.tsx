@@ -78,10 +78,11 @@ function drawModelPicker() {
     everywhere: [s.agent],
     machine: { id: s.machine_id, name: s.machine_name },
     noMachine: "",
+    steps: null,
     anchor: () => modelPill.current,
     changed: what => {
       if (what === "models") return drawModelPill();
-      if (what === "agent") return;
+      if (what === "agent" || what === "done") return;
       // A search such as `opus high` picks the thinking level with the model.
       const both = what === "model" && picked.effort !== was;
       if (what === "model") { AG.modelOpen = false; drawModelPicker(); }

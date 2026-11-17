@@ -242,6 +242,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-kv { display: grid; grid-template-columns: 170px minmax(0, 1fr); font-size: 13px }
 .cc-set .dset-kv > span { padding: 8px 14px; border-bottom: 1px solid var(--border); min-width: 0; overflow-wrap: anywhere }
 .cc-set .dset-kv > span:nth-child(odd) { color: var(--muted) }
+.cc-set .dset-kv > span:nth-child(even) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px }
+.cc-set .dset-kv > span:nth-child(even) > button { margin-left: auto }
 .cc-set .dset-kv > span:nth-last-child(-n+2) { border-bottom: 0 }
 .cc-set .dset-tbl { display: table; width: 100%; border-collapse: collapse; font-size: 13px }
 .cc-set .dset-tbl th { text-align: left; font-weight: 500; font-size: 11.5px; color: var(--muted); padding: 8px 14px; border-bottom: 1px solid var(--border) }
@@ -879,9 +881,10 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 
 /* A project window (project/projectwindow.ts): no sidebar, the traffic lights over the header, and the
    project's sections as tabs. The board's own back row gives way to the tabs. */
-.pw .cwin { grid-template-columns: minmax(0, 1fr) }
-.pw #side, .pw #side-grip { display: none }
-.pw .cc-top { padding-left: 84px }
+/* With room, the project's sessions take the sidebar's column, under the traffic lights. */
+.pw .cwin:not(.rail-on) { grid-template-columns: minmax(0, 1fr) }
+.pw #side, .pw .cwin:not(.rail-on) > #side-grip, .pw .cc-rail .cc-side-toggle, .pw .cwin.rail-on #pw-back { display: none }
+.pw .cwin:not(.rail-on) .cc-top { padding-left: 84px }
 .pw-back[hidden] { display: none }
 /* A failed action's banner: one line, the output under Details, a dismiss. */
 .fb-err { min-width: 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--err) 45%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--err) 8%, transparent); font-size: 12.5px }
@@ -1027,11 +1030,19 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .cwin.rail-on > .cc-side { translate: -12px 0 }
 .cwin:not(.rail-on) > .cc-rail { translate: 12px 0 }
 @starting-style { .cwin.rail-on > .cc-rail { opacity: 0; translate: 12px 0 } }
-.cc-rail:not([hidden]) { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 10px 8px 10px; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--ink) 55%, transparent) }
+.cc-rail:not([hidden]) { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; padding: 10px 8px 10px; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--ink) 55%, transparent) }
 .cc-rail > .cc-brand { justify-content: space-between }
+.cc-rail { position: relative; isolation: isolate }
+.rail-card { flex: none; display: grid; margin: 8px 0 0; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--ink) 72%, transparent); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px) }
+.rail-card > .rail-card-li { display: flex; align-items: center; justify-content: flex-start; gap: 10px; min-width: 0; padding: 5px 6px; font-weight: 400; text-align: left }
+.rail-card-li > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.rail-card-li > small { font: 11px var(--mono); color: var(--dim) }
+.rail-card-li > svg { width: 14px; height: 14px; flex: none; color: var(--muted) }
+.rail-card-li > small.bad { color: var(--hot) }
 .cc-rail .rail-back { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; padding-inline: 0 }
 .cc-rail > .rail-filter { margin: 10px 0 4px; width: auto; flex: none }
-.cc-rail > h4 { padding: 10px 6px 3px }
+.rail-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; scrollbar-width: thin }
+.rail-scroll > h4 { padding: 10px 6px 3px }
 .cc-rail .pj-li { flex: none; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; padding: 4px 6px; border-radius: var(--radius-sm) }
 .cc-rail .pj-li .lead svg, .cc-rail .pj-li .lead > * { width: 14px; height: 14px }
 .cc-rail .pj-li .t > span:empty { display: none }
@@ -1044,7 +1055,10 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .rail-live > .pj-li .t b { font-weight: 500 }
 /* Its line stays when the agent goes idle, so the list does not jump as agents start and stop. */
 .cc-rail .rail-live > .pj-li .t > span { display: block; min-height: 18px; font-family: var(--mono); font-size: 11px; color: var(--dim) }
-.cc-rail > .rail-all { margin-top: 6px; justify-content: flex-start }
+.cc-rail .rail-live > .pj-li > .r { display: flex; flex-direction: column; align-items: flex-end; gap: 2px }
+.cc-rail .rail-diff { display: flex; gap: 6px; font: 11px var(--mono) }
+.cc-rail .rail-reply { font: 11.5px var(--body); color: color-mix(in srgb, var(--muted) 85%, var(--ink)) }
+.rail-scroll > .rail-all { margin-top: 6px; justify-content: flex-start }
 /* A phone has no window buttons to clear: the rail is as narrow as its icons. */
 html[data-phone] .cwin.side-collapsed { grid-template-columns: 32px minmax(0, 1fr) }
 html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }

@@ -47,6 +47,7 @@ export function AssistantView() {
       everywhere: offered,
       machine: machineFor(hosts, own, picked.agent),
       noMachine: "No machine is online to list models.",
+      steps: null,
       anchor: () => pill.current,
       changed: what => {
         if (what === "models") return listed(n => n + 1);

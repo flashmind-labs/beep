@@ -68,6 +68,7 @@ body.cbody
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="300" role="separator" tabindex="0"]
     aside#rail.cc-rail.pj-list [aria-label="Project sessions"]
+      canvas.lilies.painted-art [aria-hidden="true" height="113" width="75"]
       div.cc-head
       div.cc-brand
         button.dbtn.quiet.rail-back [title="Back to example/widget" type="button"] "example/widget"
@@ -75,29 +76,47 @@ body.cbody
           span
             svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
       input.ip-field.rail-filter [aria-label="Filter sessions" placeholder="Filter sessions" spellcheck="false" type="search" value] value=""
-      h4 "Running"
-        span.n "2"
-      div.rail-live
-        button.pj-li [aria-current="true" title="First notification" type="button"]
-          span.lead
-            span.cc-ag.codex.mark
-              svg [aria-hidden="true" viewBox="0 0 24 24"]
-          span.t
-            b "First notification"
-            span
-          span.r
-            span.cc-running "now"
-              span.drun [aria-label="Working" role="img"]
-        button.pj-li [title="Second notification" type="button"]
-          span.lead
-            span.cc-ag.codex.mark
-              svg [aria-hidden="true" viewBox="0 0 24 24"]
-          span.t
-            b "Second notification"
-            span
-          span.r
-            span.cc-running "now"
-              span.drun [aria-label="Working" role="img"]
+      div.rail-scroll [data-clear="true"]
+        h4 "Running"
+          span.n "2"
+        div.rail-live
+          button.pj-li [aria-current="true" title="First notification" type="button"]
+            span.lead
+              span.cc-ag.codex.mark
+                svg [aria-hidden="true" viewBox="0 0 24 24"]
+            span.t
+              b "First notification"
+              span
+            span.r
+              span.cc-running "now"
+                span.drun [aria-label="Working" role="img"]
+          button.pj-li [title="Second notification" type="button"]
+            span.lead
+              span.cc-ag.codex.mark
+                svg [aria-hidden="true" viewBox="0 0 24 24"]
+            span.t
+              b "Second notification"
+              span
+            span.r
+              span.cc-running "now"
+                span.drun [aria-label="Working" role="img"]
+      div.rail-card
+        button.dbtn.quiet.rail-card-li [type="button"]
+          svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+          span "Pull requests"
+          small
+        button.dbtn.quiet.rail-card-li [type="button"]
+          svg [fill="none" height="13" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+          span "Issues"
+          small "0 open"
+        button.dbtn.quiet.rail-card-li [type="button"]
+          svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          span "Actions"
+          small
+        button.dbtn.quiet.rail-card-li [type="button"]
+          svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          span "Machines"
+          small "1/1"
     div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]

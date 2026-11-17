@@ -24,6 +24,8 @@ fn agent_session(
     at: u64,
 ) -> MachineSession {
     MachineSession {
+        reply: None,
+        changes: None,
         machine_id: machine.to_owned(),
         machine_name: machine.to_owned(),
         id: id.to_owned(),

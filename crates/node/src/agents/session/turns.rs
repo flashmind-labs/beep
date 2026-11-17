@@ -9,7 +9,7 @@ use crate::agents::{
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, TurnEnd},
     image_files,
     live::{TurnFiles, TurnMade, TurnTokens, TurnWorktrees, cut},
-    made_files, worktrees,
+    made_files, work_diff, worktrees,
 };
 use agent_client_protocol::{
     Agent, ConnectionTo,
@@ -24,6 +24,7 @@ use futures::FutureExt;
 use serde_json::Value;
 use std::{
     collections::VecDeque,
+    path::Path,
     time::{Duration, Instant},
 };
 use tokio::task::spawn_blocking;
@@ -369,6 +370,8 @@ impl Actor {
             self.find_worktrees(worktrees);
         }
 
+        self.count_changes();
+
         let (usage, commands) = watched::read_sent(&self.live, |live| {
             (live.info.context, live.commands.clone())
         });
@@ -443,6 +446,27 @@ impl Actor {
                     Vec::new()
                 });
                 Reply::Worktrees(trees)
+            }
+            .boxed(),
+        );
+    }
+
+    /// Counts the lines changed in the checkout the session works in, for
+    /// the lists to show beside it.
+    fn count_changes(&mut self) {
+        let folder = watched::read_sent(&self.live, |live| {
+            live.info
+                .place
+                .as_ref()
+                .map_or_else(|| live.info.cwd.clone(), |place| place.folder.clone())
+        });
+        let counted = spawn_blocking(move || work_diff::changes(Path::new(&folder)));
+        self.replies.push(
+            async move {
+                Reply::Changed(counted.await.unwrap_or_else(|e| {
+                    log::warn!("counting a session's changed lines failed: {e}");
+                    None
+                }))
             }
             .boxed(),
         );

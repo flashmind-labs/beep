@@ -575,7 +575,7 @@ function closeDestination(t: test.TestContext, from: BackTo = { view: "home", ar
   const previous = windowHooks;
   connectWindow({
     goBack() { assert.fail("should open the session's project"); },
-    sessionProject() { return { label: "widget", name: "acme/widget", open() { S.view = "agents"; } }; },
+    sessionProject() { return { label: "widget", name: "acme/widget", open() { S.view = "agents"; }, afterClose() { S.view = "agents"; } }; },
   } as unknown as WindowHooks);
   AG.back = from;
   t.after(() => connectWindow(previous!));

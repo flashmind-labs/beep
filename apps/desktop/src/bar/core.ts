@@ -76,7 +76,7 @@ export interface WindowHooks {
   /// The project a coding session runs in, and how to open it.
   sessionDestinations?(s: { machine_id: string; cwd: string }): { name: string; folder: string }[];
   projectWindowProps?(project: string): ProjectWindowProps;
-  sessionProject?(s: { machine_id: string; cwd: string }): { label: string; name: string; open(): void } | null;
+  sessionProject?(s: { machine_id: string; cwd: string }): { label: string; name: string; open(): void; afterClose(s: { machine_id: string; id: string; started_at?: number }): void } | null;
 }
 
 /// A window view to go back to, as the window opened an agent view from it.

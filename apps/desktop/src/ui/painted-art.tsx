@@ -52,6 +52,14 @@ export function PaintedEmpty({ children }: { children: ReactNode }) {
 
 type Scene = "sunrise" | "haze" | "wanderer" | "haystacks" | "lilies" | "parliament";
 const DAILY: readonly Scene[] = ["sunrise", "haystacks", "lilies", "parliament"];
+/// A project's own painting, one of the scenes picked by its name, so projects differ and each
+/// keeps the same one.
+export function ProjectArt({ project }: { project: string }) {
+  const at = [...project].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7);
+  return <PaintedArt key={project} scene={PROJECT_SCENES[at % PROJECT_SCENES.length]} />;
+}
+const PROJECT_SCENES: readonly Scene[] = ["sunrise", "haystacks", "lilies", "parliament", "wanderer"];
+
 /// When each scene began to paint itself. A scene drawn again, on another
 /// screen or after a resize, goes on from there instead of starting over.
 const began = new Map<Scene, number>();

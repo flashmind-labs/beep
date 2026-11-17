@@ -2,7 +2,7 @@
 
 use crate::{
     ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
-    node::agent::{CheckoutPlan, Effort, SessionDevice, StopReason},
+    node::agent::{CheckoutPlan, Effort, LineChanges, SessionDevice, StopReason},
 };
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -379,6 +379,16 @@ wire_structs! {
         /// The home assistant; false from an older node.
         #[serde(default)]
         pub assistant: bool,
+        /// The first line of its last reply, cut short, for the lists to
+        /// show while it is idle; `None` before the first and from an older
+        /// node.
+        #[serde(default)]
+        pub reply: Option<String>,
+        /// The lines changed in its checkout when its last turn ended;
+        /// `None` before then, outside a git checkout and from an older
+        /// node.
+        #[serde(default)]
+        pub changes: Option<LineChanges>,
     }
 }
 
