@@ -143,6 +143,7 @@ async fn new_pulls_fall_back_after_a_legacy_reader_rejects_the_new_variant() {
         peers: vec![server.addr()],
         file: base.join("state"),
         paused: false,
+        rules: String::new(),
     })
     .unwrap();
     // A downgraded peer must not keep an earlier branch-aware advertisement.

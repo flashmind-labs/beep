@@ -57,6 +57,7 @@ async fn selected_ignored_folders_are_independent_datasets_with_the_same_peers_a
     let spec = SyncSpec {
         folders: [(me, "/srv/project".to_owned())].into(),
         paused: true,
+        rules: String::new(),
         ignored: IgnoredSync {
             enabled: true,
             folders: vec!["assets/models".into()],
@@ -127,6 +128,7 @@ async fn a_project_naming_a_machine_that_has_not_joined_is_pending() {
         ignored: Default::default(),
         folders: ids.iter().map(|id| (*id, "/srv/app".to_owned())).collect(),
         paused: false,
+        rules: String::new(),
     };
 
     for (name, ids) in [("alone", vec![me]), ("waiting", vec![me, other])] {

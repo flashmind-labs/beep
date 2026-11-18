@@ -60,6 +60,7 @@ async fn a_removed_device_is_refused_on_a_list_the_server_set() {
                 .to_string(),
             peers: vec![node.addr()],
             paused: false,
+            rules: String::new(),
         }])
         .await;
     assert!(refused.is_empty(), "{refused:?}");
@@ -120,6 +121,7 @@ async fn a_project_handed_to_syncthing_forgets_its_state() {
         folder: folder.display().to_string(),
         peers: Vec::new(),
         paused: false,
+        rules: String::new(),
     };
     let refused = syncs.configure(vec![project]).await;
     assert!(refused.is_empty(), "{refused:?}");

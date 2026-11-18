@@ -81,6 +81,7 @@ impl Project {
             peers: Vec::new(),
             file: base.join("state"),
             paused: false,
+            rules: String::new(),
         })
         .unwrap();
         let watcher = Watcher::with_budget(None, None);
@@ -647,7 +648,7 @@ fn a_peer_cannot_name_paths_outside_the_folder_or_in_git() {
         map,
         ..Saved::default()
     });
-    let work = plan(&state, &Rules::load(dir.path()).unwrap());
+    let work = plan(&state, &Rules::load(dir.path(), "").unwrap());
     let paths: Vec<_> = work.iter().map(|work| work.path.as_str()).collect();
     assert_eq!(paths, ["src/ok.rs"]);
 }
@@ -656,7 +657,7 @@ fn a_peer_cannot_name_paths_outside_the_folder_or_in_git() {
 fn only_refs_are_removed_from_git_and_git_comes_in_the_order_it_needs() {
     let mut map = Map::new(1);
     let dir = TempDir::new().unwrap();
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     let seen_here = [
         ".git/objects/ab/0123456789012345678901234567890123456f",
         ".git/config",
@@ -907,7 +908,7 @@ fn an_edit_after_a_won_conflict_builds_on_the_merge() {
 fn content_never_moves_into_a_path_the_rules_skip() {
     let dir = tempfile::TempDir::new().unwrap();
     fs::write(dir.path().join("Cargo.toml"), "").unwrap();
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     let mut map = Map::new(1);
     map.edit("a.bin", &Version::default(), Some(meta(2)));
     map.edit("target/a.bin", &Version::default(), Some(meta(1)));

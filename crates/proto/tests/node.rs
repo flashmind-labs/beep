@@ -566,6 +566,7 @@ mod mesh_state {
             folders: BTreeMap<EndpointId, String>,
             paused: bool,
             ignored: beep_proto::node::sync::IgnoredSync,
+            rules: String,
             added_later: u8,
         }
         let id = SecretKey::generate().public();
@@ -573,12 +574,14 @@ mod mesh_state {
             folders: BTreeMap::from([(id, "/srv/project".to_owned())]),
             paused: true,
             ignored: Default::default(),
+            rules: "logs/".to_owned(),
             added_later: 1,
         };
         let bytes = rmp_serde::to_vec(&sent).unwrap();
         let spec = SyncSpec::from_bytes(&bytes).unwrap();
         assert!(spec.paused);
         assert_eq!(spec.folders.len(), 1);
+        assert_eq!(spec.rules, "logs/");
         // A value from an older build, which wrote maps, still reads.
         let named = rmp_serde::to_vec_named(&sent).unwrap();
         assert!(SyncSpec::from_bytes(&named).unwrap().paused);
@@ -720,11 +723,15 @@ mod mesh_state {
             ignored: Default::default(),
             folders: BTreeMap::from([(id, "/srv/project".to_owned())]),
             paused: false,
+            rules: "logs/\n!keep.log".to_owned(),
         };
         assert_eq!(
             SyncSpec::from_bytes(&spec.to_bytes().unwrap()).unwrap(),
             spec
         );
+        // A spec written before the rules reads with none.
+        let older = rmp_serde::to_vec(&(&spec.folders, spec.paused, &spec.ignored)).unwrap();
+        assert_eq!(SyncSpec::from_bytes(&older).unwrap().rules, "");
         let credential = Credential::Env(EnvSecret {
             name: "GH_TOKEN".to_owned(),
             value: SecretText::new("ghp_example1234"),
@@ -773,6 +780,7 @@ mod sync {
             folder: "/srv/project".into(),
             peers: Vec::new(),
             paused: true,
+            rules: String::new(),
         };
         let bytes = rmp_serde::to_vec_named(&project).expect("encodes");
         let old: OldProject = rmp_serde::from_slice(&bytes).expect("decodes");

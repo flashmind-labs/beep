@@ -398,6 +398,7 @@ pub fn run() {
             projects::file_sync::project_git_auto_recovery,
             projects::file_sync::project_syncthing_mode,
             projects::file_sync::project_ignored_sync,
+            projects::file_sync::project_sync_rules,
             projects::git_sync::project_git_state,
             projects::file_sync::project_sync_detail,
             projects::file_sync::project_sync_pause,

@@ -55,6 +55,18 @@ pub async fn project_ignored_sync(
 }
 
 #[tauri::command]
+pub async fn project_sync_rules(
+    fleet: FleetState<'_>,
+    project: String,
+    rules: Option<String>,
+) -> Result<String> {
+    Ok(desk(&fleet)
+        .await?
+        .project_sync_rules(&project, rules)
+        .await?)
+}
+
+#[tauri::command]
 pub async fn project_handoff_work(
     fleet: FleetState<'_>,
     project: String,

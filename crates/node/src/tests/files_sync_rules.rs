@@ -30,7 +30,7 @@ fn skipped(rules: &Rules, path: &str, is_dir: bool) -> Option<Rule> {
 #[test]
 fn a_marker_one_folder_down_counts_and_markers_combine() {
     let dir = project(&["app/package.json", "Cargo.toml", "deep/er/pyproject.toml"]);
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     assert_eq!(rules.markers(), ["Cargo.toml", "package.json"]);
     assert_eq!(
         skipped(&rules, "app/node_modules", true),
@@ -48,7 +48,7 @@ fn a_marker_one_folder_down_counts_and_markers_combine() {
 #[test]
 fn only_the_roots_git_syncs_and_own_partials_are_hidden() {
     let dir = project(&["notes.txt"]);
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     assert_eq!(skipped(&rules, ".git", true), None);
     assert_eq!(skipped(&rules, ".git/objects/pack", true), None);
     assert_eq!(skipped(&rules, ".git/HEAD", false), None);
@@ -79,7 +79,7 @@ fn only_the_roots_git_syncs_and_own_partials_are_hidden() {
 #[test]
 fn generic_build_output_and_syncthings_files_stay_in_any_project() {
     let dir = project(&["notes.txt"]);
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     for path in [
         "target",
         "app/node_modules",
@@ -109,7 +109,7 @@ fn generic_build_output_and_syncthings_files_stay_in_any_project() {
 #[test]
 fn editor_and_os_temporary_files_stay_out() {
     let dir = project(&["notes.txt"]);
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     for name in [
         ".a.txt.swp",
         "a.txt~",
@@ -133,7 +133,7 @@ fn editor_and_os_temporary_files_stay_out() {
 #[test]
 fn a_path_inside_a_skipped_folder_is_skipped() {
     let dir = project(&["Cargo.toml"]);
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     assert!(rules.skips_any(Path::new("target/debug/app"), false));
     assert!(rules.skips_any(Path::new("crates/x/target"), true));
     assert!(rules.skips_any(Path::new(".git/index"), false));
@@ -145,7 +145,7 @@ fn a_path_inside_a_skipped_folder_is_skipped() {
 fn a_gitignore_outside_git_is_not_read() {
     let dir = project(&["Cargo.toml", ".env", "run.log"]);
     fs::write(dir.path().join(".gitignore"), ".env\n*.log\ntarget/\n").unwrap();
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     assert_eq!(skipped(&rules, ".env", false), None);
     assert_eq!(skipped(&rules, "run.log", false), None);
     assert_eq!(skipped(&rules, "target", true), Some(Rule::Default));
@@ -155,7 +155,7 @@ fn a_gitignore_outside_git_is_not_read() {
 fn beepignore_adds_rules_and_keeps_what_others_leave_out() {
     let dir = project(&["Cargo.toml", "package.json"]);
     fs::write(dir.path().join(".beepignore"), "renders/\n!dist/\n*.tmp\n").unwrap();
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     assert_eq!(skipped(&rules, "renders", true), Some(Rule::BeepIgnore));
     assert_eq!(skipped(&rules, "a.tmp", false), Some(Rule::BeepIgnore));
     // `!dist/` keeps the folder the package.json defaults leave out.
@@ -163,7 +163,7 @@ fn beepignore_adds_rules_and_keeps_what_others_leave_out() {
     assert_eq!(skipped(&rules, "target", true), Some(Rule::Default));
 
     fs::write(dir.path().join(".beepignore"), "!target/\n").unwrap();
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     assert_eq!(skipped(&rules, "target", true), None);
 }
 
@@ -181,7 +181,7 @@ fn a_tracked_file_stays_in_spite_of_the_defaults() {
     };
     git(&["init", "-q"]);
     git(&["add", "-f", "package.json", "dist/kept.js"]);
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     assert_eq!(skipped(&rules, "dist", true), None);
     assert_eq!(skipped(&rules, "dist/kept.js", false), None);
     assert_eq!(skipped(&rules, "dist/built.js", false), Some(Rule::Default));
@@ -192,13 +192,28 @@ fn a_tracked_file_stays_in_spite_of_the_defaults() {
 fn a_git_file_or_a_rule_keeps_git_here() {
     let dir = project(&["notes.txt"]);
     fs::write(dir.path().join(".git"), "gitdir: /path/to/work\n").unwrap();
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     assert!(!rules.syncs_git());
     assert_eq!(skipped(&rules, ".git", false), Some(Rule::Git));
 
     let dir = project(&["notes.txt", ".git/HEAD"]);
     fs::write(dir.path().join(".beepignore"), ".git/\n").unwrap();
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     assert!(!rules.syncs_git());
     assert_eq!(skipped(&rules, ".git/HEAD", false), Some(Rule::BeepIgnore));
+}
+
+#[test]
+fn mesh_rules_follow_the_beepignore() {
+    let dir = project(&["Cargo.toml"]);
+    fs::write(dir.path().join(BEEPIGNORE), "*.log\n").unwrap();
+    let rules = Rules::load(dir.path(), "datasets/\n!keep.log\n!target/release/app").unwrap();
+    assert_eq!(skipped(&rules, "datasets", true), Some(Rule::BeepIgnore));
+    assert_eq!(skipped(&rules, "run.log", false), Some(Rule::BeepIgnore));
+    assert_eq!(skipped(&rules, "keep.log", false), None);
+    assert_eq!(skipped(&rules, "target/release/app", false), None);
+    // Without a .beepignore, the mesh rules alone apply.
+    let bare = project(&["notes.txt"]);
+    let rules = Rules::load(bare.path(), "notes.txt").unwrap();
+    assert_eq!(skipped(&rules, "notes.txt", false), Some(Rule::BeepIgnore));
 }

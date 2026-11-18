@@ -40,3 +40,35 @@ function IgnoredSyncView({ initial, save, cancel }: { initial: IgnoredSync; save
     <div className="am-sub">Beep waits while Syncthing manages these folders. Turning this off leaves local files in place.</div>
     <div className="am-msg bad" role="status" hidden={!error}>{error}</div><div className="am-line ip-acts"><Button look="quiet" onClick={cancel}>Cancel</Button><Button look="primary" disabled={busy} onClick={() => save(enabled, paths, setError, setBusy)}>{busy ? "Saving…" : "Save"}</Button></div></>;
 }
+
+/// Edits the project's sync rules, which every machine applies after its `.beepignore`.
+export function editSyncRules(project: string, initial: string, onChanged: () => void) {
+  let busy = false;
+  const { close, render } = openSheet("Sync rules", "am-sheet", { canClose: () => !busy });
+  const save = async (rules: string, setError: (message: string) => void, setBusy: (value: boolean) => void) => {
+    if (busy) return;
+    busy = true;
+    setBusy(true);
+    try {
+      await invoke("project_sync_rules", { project, rules });
+      busy = false;
+      close();
+      onChanged();
+    } catch (error) {
+      busy = false;
+      setError(reason(error));
+      setBusy(false);
+    }
+  };
+  flushSync(() => render(<SyncRulesView initial={initial} save={save} cancel={() => { if (!busy) close(); }} />));
+}
+
+function SyncRulesView({ initial, save, cancel }: { initial: string; save(rules: string, setError: (message: string) => void, setBusy: (value: boolean) => void): void; cancel(): void }) {
+  const [rules, setRules] = useState(initial), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => { textarea.current?.focus(); }, []);
+  return <><SheetHead title="Sync rules" />
+    <div className="am-label">Rules in .gitignore syntax, one per line</div><textarea ref={textarea} className="ip-path ip-list" rows={8} value={rules} placeholder={"datasets/\n*.log\n!target/release/app"} aria-label="Rules in .gitignore syntax, one per line" disabled={busy} onChange={event => setRules(event.currentTarget.value)} />
+    <div className="am-sub">Every machine leaves out matching paths, after the project's .beepignore. A ! rule keeps a path the defaults leave out, such as build output.</div>
+    <div className="am-msg bad" role="status" hidden={!error}>{error}</div><div className="am-line ip-acts"><Button look="quiet" onClick={cancel}>Cancel</Button><Button look="primary" disabled={busy} onClick={() => save(rules, setError, setBusy)}>{busy ? "Saving…" : "Save"}</Button></div></>;
+}

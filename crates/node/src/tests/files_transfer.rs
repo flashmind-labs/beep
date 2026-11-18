@@ -63,6 +63,7 @@ async fn quitting_saves_the_projects_while_a_peer_hangs() {
             folder: folder.display().to_string(),
             peers: vec![peer.addr()],
             paused: false,
+            rules: String::new(),
         }])
         .await;
     assert!(refused.is_empty(), "{refused:?}");

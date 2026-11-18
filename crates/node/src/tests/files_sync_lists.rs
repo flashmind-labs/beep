@@ -11,6 +11,7 @@ fn project(name: &str, peers: &[EndpointId]) -> Project {
         folder: format!("/srv/{name}"),
         peers: peers.iter().map(|id| EndpointAddr::new(*id)).collect(),
         paused: false,
+        rules: String::new(),
     }
 }
 

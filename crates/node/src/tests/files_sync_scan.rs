@@ -11,7 +11,7 @@ fn changed_paths_do_not_follow_links_or_visit_unrelated_subtrees() {
     fs::create_dir(dir.path().join("unrelated")).unwrap();
     fs::write(dir.path().join("unrelated/two.txt"), "two").unwrap();
     symlink(outside.path(), dir.path().join("link")).unwrap();
-    let rules = Rules::load(dir.path()).unwrap();
+    let rules = Rules::load(dir.path(), "").unwrap();
     let selected = [PathBuf::from("one.txt"), PathBuf::from("link/private.txt")].into();
     let walked = walk_changed(dir.path(), &rules, &selected, false, false).unwrap();
     assert_eq!(
@@ -41,7 +41,7 @@ fn a_walk_keeps_files_lists_folders_and_says_what_it_left_out() {
     }
     fs::create_dir(root.join(".beep-1.partial")).unwrap();
     symlink("/etc/hostname", root.join("link")).unwrap();
-    let rules = Rules::load(root).unwrap();
+    let rules = Rules::load(root, "").unwrap();
     let walked = walk(root, &rules, 10).unwrap();
     let files: Vec<_> = walked.files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(files, ["Cargo.toml", "assets/a.png", "src/main.rs"]);

@@ -450,7 +450,10 @@ impl Syncs {
                 let mut running = lock(&self.inner.projects);
                 running
                     .get_mut(&project.name)
-                    .filter(|running| running.project.folder == project.folder)
+                    .filter(|running| {
+                        running.project.folder == project.folder
+                            && running.project.rules == project.rules
+                    })
                     .map(|running| {
                         running.project = project.clone();
                         running.from = from;
@@ -597,6 +600,7 @@ impl Syncs {
             peers: project.peers.clone(),
             file: self.state_file(key),
             paused: project.paused,
+            rules: project.rules.clone(),
         };
         let shared = spawn_blocking(move || Shared::load(start)).await??;
         shared.set_recovery(lock(&self.inner.recoveries).get(&project.name).cloned());
@@ -898,10 +902,10 @@ impl Syncs {
         let Some(shared) = self.project(project) else {
             bail!("{project} is not synced on this machine");
         };
-        let root = shared.root().to_owned();
+        let (root, extra) = (shared.root().to_owned(), shared.rules_text.clone());
         let limit = usize::try_from(limit.min(beep_proto::node::sync::MAX_SKIPPED))?;
         let walked = spawn_blocking(move || {
-            let rules = rules::Rules::load(&root)?;
+            let rules = rules::Rules::load(&root, &extra)?;
             scan::walk(&root, &rules, limit)
         })
         .await??;

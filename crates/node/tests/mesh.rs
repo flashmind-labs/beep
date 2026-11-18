@@ -1238,6 +1238,7 @@ impl Bare {
             ]
             .into(),
             paused: false,
+            rules: String::new(),
         };
         self.desktop
             .mesh
@@ -2717,6 +2718,7 @@ async fn synced_pair_env(
         ]
         .into(),
         paused: false,
+        rules: String::new(),
     };
     desktop
         .mesh
@@ -3450,6 +3452,7 @@ async fn status_shows_the_devices_and_how_each_project_syncs() {
         ]
         .into(),
         paused: false,
+        rules: String::new(),
     };
     pair.desktop
         .mesh

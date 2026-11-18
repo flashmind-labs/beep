@@ -47,6 +47,7 @@ fn a_child_is_started_in_the_same_project_on_the_other_machine() {
         ]
         .into(),
         paused: false,
+        rules: String::new(),
     };
     assert_eq!(
         folder_on(

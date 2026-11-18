@@ -47,6 +47,8 @@ pub(in crate::files::sync) struct Shared {
     pub(super) replica: Replica,
     pub(super) state: Mutex<State>,
     pub(super) rules: Arc<RwLock<Rules>>,
+    /// The project's sync rules from the mesh, read with its `.beepignore`.
+    pub(in crate::files::sync) rules_text: String,
     /// The list's last change.
     pub(super) seq: watch::Sender<u64>,
     pub(super) status: watch::Sender<ProjectStatus>,
@@ -91,6 +93,8 @@ pub(in crate::files::sync) struct Start {
     /// Where its state is kept.
     pub(in crate::files::sync) file: PathBuf,
     pub(in crate::files::sync) paused: bool,
+    /// The project's sync rules from the mesh.
+    pub(in crate::files::sync) rules: String,
 }
 
 impl Shared {
@@ -121,7 +125,7 @@ impl Shared {
         state.unsaved |= migrated || mode_changed;
         let rules = match &ignored {
             Some(scope) => scope.rules(start.root.path())?,
-            None => Rules::load(start.root.path())?,
+            None => Rules::load(start.root.path(), &start.rules)?,
         };
         let replica = state.saved.map.replica();
         let seq = state.saved.map.seq();
@@ -165,6 +169,7 @@ impl Shared {
             replica,
             state: Mutex::new(state),
             rules: Arc::new(RwLock::new(rules)),
+            rules_text: start.rules,
             seq: watch::Sender::new(seq),
             status: watch::Sender::new(status),
             peers: watch::Sender::new(start.peers),

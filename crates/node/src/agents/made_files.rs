@@ -37,7 +37,7 @@ pub(crate) fn note(paths: &[String]) -> String {
 /// to `cwd`), `.git`, `.beep` (including legacy uploads), links, and whatever
 /// project sync leaves out. Blocks.
 pub(crate) fn find(cwd: &Path, since: SystemTime, written: &[PathBuf]) -> Vec<String> {
-    let rules = match Rules::load(cwd) {
+    let rules = match Rules::load(cwd, "") {
         Ok(rules) => rules,
         Err(e) => {
             log::debug!("no made files looked for in {}: {e:#}", cwd.display());

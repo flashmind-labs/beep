@@ -1,4 +1,4 @@
-import { chooseIgnoredFolders } from "./ignored-sync.tsx";
+import { chooseIgnoredFolders, editSyncRules } from "./ignored-sync.tsx";
 import type { IgnoredSync } from "./ignored-sync-state.ts";
 // A project-wide Syncthing preference, applied by each machine.
 import { createStore } from "zustand/vanilla";
@@ -111,6 +111,10 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
     insert("ignored", [{ kind: "toggle", label: "Sync ignored folders", checked: settings.enabled, on: change }, ...(settings.enabled ? [choose] : [])]);
   }, e => insert("ignored", [{ label: `Ignored folders: ${reason(e)} (retry)`, on: reopen }]));
 
+  invoke<string>("project_sync_rules", { project: project.name }).then(rules => {
+    insert("rules", [{ label: "Sync rules…", on: () => editSyncRules(project.name, rules, onChanged) }]);
+  }, e => insert("rules", [{ label: `Sync rules: ${reason(e)} (retry)`, on: reopen }]));
+
   // Unset keeps each folder's own Syncthing share, so it reads as Syncthing.
   // The line shows once set, or while some machine shares the folder.
   const shared = Promise.any(project.machines.map(place =>
@@ -133,5 +137,5 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
 }
 
 /// The sync settings, in the order the menu shows them.
-const SYNC_LINES = ["recovery", "ignored", "syncthing"] as const;
+const SYNC_LINES = ["recovery", "ignored", "rules", "syncthing"] as const;
 type SyncLine = typeof SYNC_LINES[number];

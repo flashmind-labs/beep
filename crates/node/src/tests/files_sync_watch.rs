@@ -26,7 +26,7 @@ fn dropped_events_wake_every_project() {
 
     for (key, root) in [(1, "/a"), (2, "/b")] {
         let (wake, rx) = mpsc::channel(1);
-        let rules = Arc::new(RwLock::new(Rules::load(dir.path()).unwrap()));
+        let rules = Arc::new(RwLock::new(Rules::load(dir.path(), "").unwrap()));
         lock(&routes).insert(
             key,
             Route {
@@ -51,7 +51,7 @@ fn dropped_events_wake_every_project() {
 #[test]
 fn event_paths_survive_a_full_wake_channel_and_directory_changes_coalesce() {
     let dir = tempfile::TempDir::new().unwrap();
-    let rules = Arc::new(RwLock::new(Rules::load(dir.path()).unwrap()));
+    let rules = Arc::new(RwLock::new(Rules::load(dir.path(), "").unwrap()));
     let (wake, mut woken) = mpsc::channel(1);
     let routes = Mutex::new(HashMap::from([(
         1,
@@ -98,7 +98,7 @@ async fn a_new_file_wakes_its_project() {
     let dir = tempfile::TempDir::new().unwrap();
     let root = paths::canonicalize(dir.path()).unwrap();
     let watcher = Watcher::with_budget(None, None);
-    let rules = Arc::new(RwLock::new(Rules::load(&root).unwrap()));
+    let rules = Arc::new(RwLock::new(Rules::load(&root, "").unwrap()));
     let (wake, mut woken) = mpsc::channel(1);
     watcher.add(1, &root, rules, wake);
     assert_eq!(
@@ -124,7 +124,7 @@ async fn a_project_that_does_not_fit_is_rescanned_and_others_still_watch() {
         .collect();
     // Room for three folders beside the reserve.
     let watcher = Watcher::with_budget(Some(Budget::new(MIN_RESERVE + 3, 0)), None);
-    let rules = Arc::new(RwLock::new(Rules::load(dir.path()).unwrap()));
+    let rules = Arc::new(RwLock::new(Rules::load(dir.path(), "").unwrap()));
     let (wake, _woken) = mpsc::channel(1);
     watcher.add(1, dir.path(), rules.clone(), wake.clone());
     watcher.add(2, dir.path(), rules, wake);
@@ -168,7 +168,7 @@ async fn counting_watches_leaves_the_async_worker_free() {
     let (tx, rx) = std::sync::mpsc::channel();
     *lock(&RECOUNTED) = Some(rx);
     let watcher = Watcher::with_budget(Some(Budget::new(100_000, 0)), Some(recount_beside_a_task));
-    let rules = Arc::new(RwLock::new(Rules::load(dir.path()).unwrap()));
+    let rules = Arc::new(RwLock::new(Rules::load(dir.path(), "").unwrap()));
     let (wake, _woken) = mpsc::channel(1);
     watcher.add(1, dir.path(), rules, wake);
     // Runs on the only worker only if counting does not hold it.

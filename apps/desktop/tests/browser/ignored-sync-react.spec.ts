@@ -41,3 +41,20 @@ test("the ignored folder list takes the sheet's width", async ({ page }) => {
   const [field, text] = await Promise.all([paths.boundingBox(), label.boundingBox()]);
   expect(field && text && Math.abs(field.width - text.width)).toBeLessThan(2);
 });
+
+test("sync rules open with the project's rules and save them", async ({ page }) => {
+  await openDesktop(page, false, { project_sync_rules: "datasets/", project_ignored_sync: { enabled: false, folders: [] }, project_git_auto_recovery: false, project_syncthing_mode: null });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: "example/widget" } }));
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Sync rules…" }).click();
+  const sheet = page.getByRole("dialog", { name: "Sync rules" });
+  const rules = sheet.getByRole("textbox", { name: "Rules in .gitignore syntax, one per line" });
+  await expect(rules).toBeFocused();
+  await expect(rules).toHaveValue("datasets/");
+  await rules.fill("datasets/\n*.log");
+  await sheet.getByRole("button", { name: "Save" }).click();
+  await expect(sheet).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_sync_rules" && "rules" in call.args).map(call => call.args))).toEqual([
+    { project: projectName, rules: "datasets/\n*.log" },
+  ]);
+});

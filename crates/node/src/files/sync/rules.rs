@@ -262,8 +262,8 @@ struct Found {
 ///    or a submodule) stays on its machine (see `scan::walk`).
 /// 2. The `.stignore` of every folder at or above the project: what the user
 ///    told Syncthing to leave out stays out once Syncthing pauses.
-/// 3. `.beepignore` (`.gitignore` syntax) adds rules; a `!` rule keeps a
-///    path the rules below leave out.
+/// 3. `.beepignore` (`.gitignore` syntax), then the project's rules from the
+///    mesh, add rules; a `!` rule keeps a path the rules below leave out.
 /// 4. `ALWAYS`, and the defaults for the project kinds its marker files show
 ///    (`target/` beside `Cargo.toml`). A file git tracks stays in spite of
 ///    them, or `git status` would call it deleted elsewhere. A `.gitignore`
@@ -304,17 +304,18 @@ pub(super) fn is_syncthings(name: &str) -> bool {
 
 impl Rules {
     /// Reads the rules of the project in `root`: the defaults for the
-    /// marker files in it and its first-level folders, its `.beepignore`,
-    /// and the `.stignore` files at or above it. Fails on a `.stignore` it
-    /// cannot read, since syncing then could send what the user left out.
-    pub(crate) fn load(root: &Path) -> Result<Self> {
+    /// marker files in it and its first-level folders, its `.beepignore`
+    /// followed by `extra` (the project's rules from the mesh), and the
+    /// `.stignore` files at or above it. Fails on a `.stignore` it cannot
+    /// read, since syncing then could send what the user left out.
+    pub(crate) fn load(root: &Path, extra: &str) -> Result<Self> {
         let mut rules = Self {
             tracked: tracked(root),
             ignored_parent: None,
             git_stays: None,
             stignores: Stignore::load_above(root)?,
             defaults: defaults(root)?,
-            beepignore: read_ignore(root, BEEPIGNORE)?,
+            beepignore: read_ignore(root, BEEPIGNORE, extra)?,
         };
         let git = Path::new(gitdir::GIT);
         rules.git_stays = if fs::symlink_metadata(root.join(git)).is_ok_and(|meta| !meta.is_dir()) {
@@ -467,20 +468,29 @@ impl Rules {
     }
 }
 
-fn read_ignore(root: &Path, name: &str) -> Result<Option<Gitignore>> {
+/// The rules of the ignore file `name` in `root`, then the lines of `extra`.
+fn read_ignore(root: &Path, name: &str, extra: &str) -> Result<Option<Gitignore>> {
     let path = root.join(name);
-
-    match fs::symlink_metadata(&path) {
-        Ok(meta) if meta.is_file() => {}
-        Ok(_) => return Ok(None),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+    let file = match fs::symlink_metadata(&path) {
+        Ok(meta) => meta.is_file(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+
+    if !file && extra.trim().is_empty() {
+        return Ok(None);
     }
 
     let mut builder = GitignoreBuilder::new(root);
 
-    if let Some(e) = builder.add(&path) {
+    if file && let Some(e) = builder.add(&path) {
         log::warn!("some rules in {} were skipped: {e}", path.display());
+    }
+
+    for line in extra.lines() {
+        if let Err(e) = builder.add_line(None, line) {
+            log::warn!("the sync rule {line:?} was skipped: {e}");
+        }
     }
 
     let built = builder

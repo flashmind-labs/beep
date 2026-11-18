@@ -107,7 +107,7 @@ impl IgnoredRoot {
         }
 
         ensure!(
-            !Rules::load(&self.repository)?.skips_any(&self.relative, true),
+            !Rules::load(&self.repository, "")?.skips_any(&self.relative, true),
             "{path} is excluded by Beep's sync rules."
         );
         Ok(())
@@ -130,8 +130,8 @@ impl IgnoredRoot {
     }
 
     pub(super) fn rules(&self, folder: &Path) -> Result<Rules> {
-        let mut rules = Rules::load(folder)?;
-        rules.ignored_within(self.relative.clone(), Rules::load(&self.repository)?);
+        let mut rules = Rules::load(folder, "")?;
+        rules.ignored_within(self.relative.clone(), Rules::load(&self.repository, "")?);
         Ok(rules)
     }
 

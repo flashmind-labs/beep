@@ -98,6 +98,7 @@ async fn a_pull_that_fails_after_head_keeps_backing_off() {
         peers: Vec::new(),
         file: base.join("state"),
         paused: false,
+        rules: String::new(),
     })
     .unwrap();
     // The task answers the scan a pull asks for before matching the peer.

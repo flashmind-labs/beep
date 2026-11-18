@@ -23,6 +23,10 @@ pub struct SyncSpec {
     /// Selected ignored folders use independent file sync; off by default.
     #[serde(default)]
     pub ignored: super::sync::IgnoredSync,
+    /// Lines in `.gitignore` syntax that every machine applies after the
+    /// project's `.beepignore`.
+    #[serde(default)]
+    pub rules: String,
 }
 
 /// `skills/sync`: whether coding agent skills sync across the mesh.

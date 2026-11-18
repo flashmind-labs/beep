@@ -163,9 +163,10 @@ impl Task {
         if paths.is_none() {
             let root = root.clone();
             let ignored = self.shared.ignored.clone();
+            let extra = self.shared.rules_text.clone();
             let rules = spawn_blocking(move || match ignored {
                 Some(scope) => scope.rules(&root),
-                None => Rules::load(&root),
+                None => Rules::load(&root, &extra),
             })
             .await??;
             *write_lock(&self.shared.rules) = rules;

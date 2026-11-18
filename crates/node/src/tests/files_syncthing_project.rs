@@ -96,7 +96,7 @@ async fn the_api_hands_one_project_between_syncthing_and_beep() {
     );
     assert!(syncthing.check(&project).await.is_none());
     assert!(syncthing.check(&other).await.is_some());
-    let rules = crate::files::sync::Rules::load(&project).unwrap();
+    let rules = crate::files::sync::Rules::load(&project, "").unwrap();
     assert!(!rules.leaves_out(Path::new("src/main.rs"), false));
     assert!(rules.leaves_out(Path::new("cache.tmp"), false));
     assert!(

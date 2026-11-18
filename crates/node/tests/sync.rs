@@ -135,6 +135,7 @@ impl Node {
                 folder: self.folder().to_string_lossy().into_owned(),
                 peers,
                 paused,
+                rules: String::new(),
             }])
             .await
     }
@@ -577,6 +578,7 @@ async fn a_node_taken_out_of_a_project_stops_getting_its_changes() {
             folder: a.folder().to_string_lossy().into_owned(),
             peers: Vec::new(),
             paused: false,
+            rules: String::new(),
         }])
         .await;
     assert!(refused.is_empty(), "{refused:?}");
@@ -599,6 +601,7 @@ async fn a_folder_named_another_way_keeps_syncing() {
             folder: format!("{}/", a.folder().display()),
             peers: vec![b.addr()],
             paused: false,
+            rules: String::new(),
         }])
         .await;
     assert!(refused.is_empty(), "{refused:?}");
@@ -772,6 +775,7 @@ async fn a_project_the_server_sets_outside_the_shared_folders_is_refused() {
             folder: outside.path().to_string_lossy().into_owned(),
             peers: Vec::new(),
             paused: false,
+            rules: String::new(),
         }])
         .await;
     assert_eq!(refused.len(), 1, "{refused:?}");
@@ -2328,6 +2332,7 @@ async fn ignored_config(node: &Node, peer: &Node, enabled: bool, paused: bool) {
         folder: node.folder().to_string_lossy().into_owned(),
         peers: vec![peer.addr()],
         paused,
+        rules: String::new(),
     }];
 
     if enabled {
@@ -2336,6 +2341,7 @@ async fn ignored_config(node: &Node, peer: &Node, enabled: bool, paused: bool) {
             folder: node.path("assets/models").to_string_lossy().into_owned(),
             peers: vec![peer.addr()],
             paused,
+            rules: String::new(),
         });
     }
 

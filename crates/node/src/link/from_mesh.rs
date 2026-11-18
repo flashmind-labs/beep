@@ -441,6 +441,7 @@ fn projects(
                 folder,
                 peers,
                 paused: spec.paused || !sync_enabled,
+                rules: spec.rules.clone(),
             };
             let mut all = vec![main.clone()];
 
@@ -456,6 +457,7 @@ fn projects(
                             .into_owned(),
                         peers: main.peers.clone(),
                         paused: main.paused,
+                        rules: String::new(),
                     }
                 }));
             }

@@ -108,6 +108,9 @@ pub struct Project {
     /// it is resumed.
     #[serde(default)]
     pub paused: bool,
+    /// The project's sync rules from the mesh, in `.gitignore` syntax.
+    #[serde(default)]
+    pub rules: String,
 }
 
 /// What the node answers.
