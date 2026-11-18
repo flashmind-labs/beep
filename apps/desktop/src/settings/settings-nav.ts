@@ -1,18 +1,19 @@
 // Where the window's Settings sheet stands: the page picked in its left pane
 // and the subpage open under it, such as Machines then one machine.
 
-/// The pages of Settings, in the order the left pane lists them.
+/// The pages of Settings, in the order the left pane lists them, with the
+/// words its search also finds them by.
 const SETTINGS_PAGES = [
-  ["general", "General"],
-  ["appearance", "Appearance"],
-  ["mac", "This computer"],
-  ["machines", "Machines"],
-  ["agents", "Agent accounts"],
-  ["assistant", "Assistant"],
-  ["creds", "Credentials"],
-  ["instr", "Instructions"],
-  ["skills", "Skills"],
-  ["plugins", "Plugins"],
+  ["general", "General", "name updates developer version"],
+  ["appearance", "Appearance", "skin theme colors paintings motion"],
+  ["mac", "This computer", "autostart notifications save folder downloads"],
+  ["machines", "Machines", "nodes devices"],
+  ["agents", "Agent accounts", "login sign in models coding agents"],
+  ["assistant", "Assistant", ""],
+  ["creds", "Credentials", "tokens keys api github forgejo gitea secrets"],
+  ["instr", "Instructions", "agents.md claude.md prompt rules"],
+  ["skills", "Skills", ""],
+  ["plugins", "Plugins", "extensions"],
 ] as const;
 
 export type SettingsPage = (typeof SETTINGS_PAGES)[number][0];
@@ -125,8 +126,31 @@ export function rememberPath(store: Store | null | undefined, path: SettingsPath
   }
 }
 
+/// Whether `query` finds `page`: each of its words starts a word of the
+/// page's name or search words.
+function pageMatches(page: SettingsPage, query: string) {
+  const entry = SETTINGS_PAGES.find(([p]) => p === page);
+  return entry ? wordsMatch(`${entry[1]} ${entry[2]}`, query) : false;
+}
+
+function wordsMatch(text: string, query: string) {
+  const words = text.toLowerCase().split(/\s+/);
+  return query.toLowerCase().split(/\s+/).filter(Boolean).every(q => words.some(w => w.startsWith(q)));
+}
+
+/// The left pane while searching: each page `query` finds, then each
+/// subpage whose name it finds, such as Codex under Agent accounts.
+export function searchEntries(shown: readonly SettingsPage[], path: SettingsPath, query: string, subs: (page: SettingsPage) => readonly SettingsSub[], subName: (sub: SettingsSub) => string): NavEntry[] {
+  return shown.flatMap(page => {
+    const own: NavEntry[] = pageMatches(page, query) ? [{ page, sub: null, current: path.page === page && !path.sub }] : [];
+    const kids = subs(page).filter(sub => wordsMatch(subName(sub), query))
+      .map(sub => ({ page, sub, current: path.sub?.kind === sub.kind && path.sub.id === sub.id }));
+    return [...own, ...kids];
+  });
+}
+
 /// One entry of the left pane: a page, or a subpage nested under it.
-interface NavEntry {
+export interface NavEntry {
   page: SettingsPage;
   sub: SettingsSub | null;
   /// The entry open in the right pane.

@@ -195,7 +195,9 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-nav { padding: 14px 8px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; overflow-y: auto; background: color-mix(in srgb, var(--fg) 1.2%, transparent); scrollbar-width: thin }
 .cc-set .dset-nav > b { padding: 0 10px; margin-bottom: 10px; font-size: 15px; font-weight: 600 }
 .cc-set .dset-nav > small.dset-ver { margin-top: auto; padding: 10px 10px 0; font-size: 11.5px; color: var(--muted) }
+.cc-set .dset-nav > .dset-find { flex: none; margin: 0 2px 8px; padding: 6px 10px; font-family: var(--mono); font-size: 12px }
 .cc-set .dset-pages { display: flex; flex-direction: column; gap: 2px }
+.cc-set .dset-pages .dset-none { padding: 6px 10px; font-family: var(--mono); font-size: 11.5px; color: var(--muted) }
 .cc-set .dset-pages .cc-si { padding: 6px 10px }
 .cc-set .dset-pages .cc-si.sub { padding: 4px 10px 4px 24px; font-size: 12.5px; color: var(--muted) }
 .cc-set .dset-pages .cc-si.sub[aria-current="true"] { color: var(--fg) }

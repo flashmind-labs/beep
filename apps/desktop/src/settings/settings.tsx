@@ -156,7 +156,8 @@ function drawSheet() {
   const path = SET.path = fitPath(SET.path ?? recallPath(store()), shown, subExists);
   rememberPath(store(), path);
   const changed = shownSheet !== el || !renderedPath || !samePath(renderedPath, path);
-  const previousFocus = document.activeElement instanceof HTMLElement && el.contains(document.activeElement) ? document.activeElement : null;
+  // The sheet itself held focus: the search field takes it when it mounts.
+  const previousFocus = document.activeElement instanceof HTMLElement && document.activeElement !== el && el.contains(document.activeElement) ? document.activeElement : null;
   const focus = focusKey(el);
   if (changed) leavePage();
   renderShell(el, shown, path, local.set.version);

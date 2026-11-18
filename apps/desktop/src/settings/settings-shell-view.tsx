@@ -1,7 +1,8 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { Button } from "../ui/kit.tsx";
-import { useLayoutEffect, type ReactNode, type Ref } from "react";
-import { navEntries, subKey, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
+import { useLayoutEffect, useState, type ReactNode, type Ref } from "react";
+import { onPhone } from "../ui/platform.ts";
+import { navEntries, searchEntries, subKey, type NavEntry, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
 
 interface NavigationProps {
   pages: SettingsPage[]; path: SettingsPath; version: string;
@@ -9,9 +10,21 @@ interface NavigationProps {
   openPage(page: SettingsPage): void; openSub(sub: SettingsSub): void;
 }
 export function SettingsNavigation(p: NavigationProps) {
-  return <><b>Settings</b><div className="dset-pages">{navEntries(p.pages, p.path, p.subs).map(entry => entry.sub
-    ? <button className="cc-si sub" key={subKey(entry.sub)} data-sub={subKey(entry.sub)} aria-current={entry.current ? "true" : undefined} onClick={() => { if (entry.sub) p.openSub(entry.sub); }}><span className="tt">{p.subName(entry.sub)}</span></button>
-    : <button className="cc-si" key={entry.page} data-goto={entry.page} aria-current={entry.current ? "true" : undefined} onClick={() => p.openPage(entry.page)}><span className="tt">{p.pageName(entry.page)}</span>{p.count(entry.page) > 0 && <span className="n">{p.count(entry.page)}</span>}</button>)}</div><small className="dset-ver">Beep desktop {p.version}</small></>;
+  const [query, setQuery] = useState("");
+  const searching = query.trim() !== "";
+  const entries = searching ? searchEntries(p.pages, p.path, query, p.subs, p.subName) : navEntries(p.pages, p.path, p.subs);
+  const open = (entry: NavEntry) => {
+    setQuery("");
+    if (entry.sub) p.openSub(entry.sub);
+    else p.openPage(entry.page);
+  };
+
+  return <><b>Settings</b><input className="ip-field dset-find" type="search" placeholder="Search settings" aria-label="Search settings" autoComplete="off" spellCheck={false} autoFocus={!onPhone()} value={query}
+    onChange={e => setQuery(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter" && entries[0]) { e.preventDefault(); open(entries[0]); } }} />
+    <div className="dset-pages">{entries.map(entry => entry.sub
+      ? <button className={searching ? "cc-si" : "cc-si sub"} key={subKey(entry.sub)} data-sub={subKey(entry.sub)} aria-current={entry.current ? "true" : undefined} onClick={() => open(entry)}><span className="tt">{p.subName(entry.sub)}</span>{searching && <span className="n">{p.pageName(entry.page)}</span>}</button>
+      : <button className="cc-si" key={entry.page} data-goto={entry.page} aria-current={entry.current ? "true" : undefined} onClick={() => open(entry)}><span className="tt">{p.pageName(entry.page)}</span>{p.count(entry.page) > 0 && <span className="n">{p.count(entry.page)}</span>}</button>)}
+      {searching && !entries.length && <small className="dset-none">No settings match.</small>}</div><small className="dset-ver">Beep desktop {p.version}</small></>;
 }
 export function SettingsBreadcrumb({ path, page, sub, openPage }: { path: SettingsPath; page: string; sub: string | null; openPage(page: SettingsPage): void }) {
   if (sub === null) return <b>{page}</b>;

@@ -189,6 +189,7 @@ body.cbody.mb-home.mobile
     div.cc-set [aria-label="Settings" aria-modal="true" role="dialog" tabindex="-1"]
       nav.dset-nav [aria-label="Settings pages"]
         b "Settings"
+        input.dset-find.ip-field [aria-label="Search settings" autocomplete="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
         div.dset-pages
           button.cc-si [data-goto="general"]
             span.tt "General"
@@ -239,8 +240,7 @@ body.cbody.mb-home.mobile
                     b.dtitle "Claude Code"
                     span.dsub "signs in on each machine"
                   span.dacts
-                    button.dbtn [type="button"] "Sign in for all"
-                    button.dbtn.quiet [type="button"] "Paste a token"
+                    button.dbtn [type="button"] "Paste a token"
                 div.dmt6
                   div.dline.dpy.dsm
                     span.ddot
@@ -255,7 +255,7 @@ body.cbody.mb-home.mobile
                     span.ddot.off
                     span "offline-box"
                     span.dacts.dmut "not checked"
-                div.dfine.dmt6 "Sign in for all to give every machine one token. Beep keeps it encrypted and never writes it to their disks."
+                div.dfine.dmt6 "Paste a token from claude setup-token to give every machine one token. Beep"
               div.dbox
                 div.dline
                   span.cc-ag.codex.mark

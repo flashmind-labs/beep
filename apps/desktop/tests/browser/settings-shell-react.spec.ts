@@ -71,3 +71,20 @@ test("closing Settings during its initial read disposes the frame and ignores th
   await expect(settings.getByRole("navigation", { name: "Settings pages" })).toBeVisible();
   await expect(settings.locator(".cc-skel")).toHaveCount(0);
 });
+
+test("Settings search opens the first page it finds on Enter", async ({ page }) => {
+  await openDesktop(page, false, { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false }, list_machines: [] });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  const nav = settings.getByRole("navigation", { name: "Settings pages" });
+  const search = nav.getByRole("searchbox", { name: "Search settings" });
+  await expect(search).toBeFocused();
+  await search.fill("skil");
+  await expect(nav.getByRole("button")).toHaveText(["Skills"]);
+  await page.keyboard.press("Enter");
+  await expect(nav.getByRole("button", { name: "Skills", exact: true })).toHaveAttribute("aria-current", "true");
+  await expect(search).toHaveValue("");
+  await search.fill("codex");
+  await nav.getByRole("button", { name: /Codex/ }).click();
+  await expect(settings.getByRole("button", { name: "Back to Agent accounts" })).toBeVisible();
+});
