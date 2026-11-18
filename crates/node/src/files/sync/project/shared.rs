@@ -51,6 +51,8 @@ pub(in crate::files::sync) struct Shared {
     pub(in crate::files::sync) rules_text: String,
     /// The list's last change.
     pub(super) seq: watch::Sender<u64>,
+    /// The latest list that can be sent without losing a peer's cursor on restart.
+    pub(super) saved_seq: watch::Sender<u64>,
     pub(super) status: watch::Sender<ProjectStatus>,
     pub(super) peers: watch::Sender<Vec<EndpointAddr>>,
     /// Wakes the task when a pull merged something.
@@ -171,6 +173,7 @@ impl Shared {
             rules: Arc::new(RwLock::new(rules)),
             rules_text: start.rules,
             seq: watch::Sender::new(seq),
+            saved_seq: watch::Sender::new(seq),
             status: watch::Sender::new(status),
             peers: watch::Sender::new(start.peers),
             merged: Notify::new(),
@@ -253,6 +256,10 @@ impl Shared {
 
     pub(in crate::files::sync) fn subscribe(&self) -> watch::Receiver<u64> {
         self.seq.subscribe()
+    }
+
+    pub(in crate::files::sync) fn watch_saved(&self) -> watch::Receiver<u64> {
+        self.saved_seq.subscribe()
     }
 
     pub(in crate::files::sync) fn status(&self) -> ProjectStatus {
@@ -362,7 +369,18 @@ impl Shared {
             bail!("the file list changed base before this batch was sent");
         }
 
-        Ok(state.saved.map.since(since, limit))
+        let map = &state.saved.map;
+
+        // An unsaved edit can move a path past this page. If a crash restores
+        // its old position, peers that got the page would skip the path.
+        if map.seq() > watched::read_sent(&self.saved_seq, |saved| *saved) {
+            return Ok(Changes {
+                entries: Vec::new(),
+                upto: since,
+            });
+        }
+
+        Ok(map.since(since, limit))
     }
 
     pub(in crate::files::sync) fn may_export(&self, path: &str) -> bool {

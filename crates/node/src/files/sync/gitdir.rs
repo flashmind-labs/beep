@@ -933,4 +933,4 @@ impl Repo {
 
 #[cfg(test)]
 #[path = "../../tests/files_sync_gitdir.rs"]
-mod tests;
+pub(super) mod tests;

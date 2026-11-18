@@ -4,7 +4,7 @@ use super::{
     list::{Merged, merge_peer, move_target, plan, record},
     scanning::has_baseline,
     shared::{Shared, Start},
-    state::{Saved, Seen, State},
+    state::{Saved, Seen, State, read_saved},
     task::{ChangeTimer, DELETE_SETTLE, DeleteTimer, MAX_SETTLE, SETTLE, Task},
 };
 use crate::files::paths;
@@ -135,6 +135,79 @@ fn watcher_batches_wait_for_quiet_but_cannot_starve() {
     assert_eq!(timer.due, Some(start + Duration::from_secs(5) + SETTLE));
     timer.changed(start + Duration::from_secs(29));
     assert_eq!(timer.due, Some(start + MAX_SETTLE));
+}
+
+#[tokio::test]
+async fn a_partial_page_can_resume_after_reloading_the_published_list() {
+    let mut project = Project::new(&["a", "b"]).await;
+    let shared = project.task.shared.clone();
+    let checkout = shared.head().await.unwrap();
+    assert!(project.task.save(true).await);
+
+    fs::write(project.path("a"), "updated a").unwrap();
+    project.task.scan(Reason::Request).await;
+
+    // The edit moved a after b. Sending b now could skip the saved a after a crash.
+    assert!(shared.changes(0, 1, checkout).unwrap().entries.is_empty());
+    assert!(project.task.save(true).await);
+    let first = shared.changes(0, 1, checkout).unwrap();
+    assert_eq!(first.entries[0].path, "b");
+
+    let restored = read_saved(shared.file());
+    let next = restored.map.since(first.upto, 1);
+    assert_eq!(next.entries[0].path, "a");
+    project.stop().await;
+}
+
+#[tokio::test]
+async fn consecutive_crashes_do_not_reuse_a_published_edit() {
+    let mut project = Project::new(&["a"]).await;
+    let checkout = project.task.shared.head().await.unwrap();
+    assert!(project.task.save(true).await);
+    let mut published = project.task.shared.changes(0, 1, checkout).unwrap();
+
+    for content in ["first edit after restart", "second edit after restart"] {
+        let old = &project.task.shared;
+        let shared = Shared::load(Start {
+            name: old.name.clone(),
+            key: old.key,
+            root: old.root.clone(),
+            peers: Vec::new(),
+            file: old.file.clone(),
+            paused: false,
+            rules: String::new(),
+        })
+        .unwrap();
+        project.task = Task::new(
+            shared.clone(),
+            project.task.parts.clone(),
+            project.task.watcher.clone(),
+            Mode::Watching,
+        );
+        fs::write(project.path("a"), content).unwrap();
+        project.task.scan(Reason::Startup).await;
+
+        assert!(
+            shared
+                .changes(published.upto, 1, checkout)
+                .unwrap()
+                .entries
+                .is_empty()
+        );
+        assert!(project.task.save(true).await);
+        let page = shared.changes(published.upto, 1, checkout).unwrap();
+        assert_eq!(page.entries[0].path, "a");
+        assert!(page.upto > published.upto);
+        assert_eq!(
+            page.entries[0]
+                .version
+                .compare(&published.entries[0].version),
+            Order::Newer
+        );
+        published = page;
+    }
+
+    project.stop().await;
 }
 
 #[tokio::test]

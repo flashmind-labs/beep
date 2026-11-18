@@ -334,6 +334,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     })
     .await?;
     let mut seq = shared.subscribe();
+    let mut saved = shared.watch_saved();
 
     loop {
         // A device removed meanwhile gets nothing more, not even what is
@@ -399,6 +400,9 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
 
         tokio::select! {
             changed = seq.changed() => if changed.is_err() {
+                return Ok(());
+            },
+            changed = saved.changed() => if changed.is_err() {
                 return Ok(());
             },
             () = shared.stopped() => return Ok(()),

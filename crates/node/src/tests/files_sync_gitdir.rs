@@ -155,19 +155,28 @@ fn a_pack_cut_short_leaves_nothing_and_a_whole_one_indexes() {
 }
 
 /// A new repository in a temporary folder, with an identity to commit as.
-pub(super) fn init() -> (tempfile::TempDir, Repo) {
+pub(in crate::files::sync) fn init() -> (tempfile::TempDir, Repo) {
     let temp = tempfile::tempdir().unwrap();
     let repo = Repo {
         root: temp.path().to_owned(),
     };
     repo.run(&["init", "-q", "-b", "main"]).unwrap();
     repo.run(&["config", "user.name", "Test"]).unwrap();
-    repo.run(&["config", "user.email", "test@example.invalid"]).unwrap();
+    repo.run(&["config", "user.email", "test@example.invalid"])
+        .unwrap();
     (temp, repo)
 }
 
 /// Commits what is staged, or nothing at all, and names the new commit.
-pub(super) fn commit(repo: &Repo, message: &str) -> Oid {
-    repo.run(&["commit", "-q", "--allow-empty", "-m", message]).unwrap();
+pub(in crate::files::sync) fn commit(repo: &Repo, message: &str) -> Oid {
+    repo.run(&[
+        "commit",
+        "--no-gpg-sign",
+        "-q",
+        "--allow-empty",
+        "-m",
+        message,
+    ])
+    .unwrap();
     repo.head().unwrap()
 }

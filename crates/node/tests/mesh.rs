@@ -1405,24 +1405,24 @@ async fn a_new_empty_folder_takes_only_the_committed_checkout_with_its_git() {
     fs::write(from.join("local.env"), "ignored").expect("a file");
     fs::write(from.join("src/main.rs"), "fn main() { todo!() }\n").expect("an edit");
     let head = git_in(&from, &["rev-parse", "HEAD"]);
+    let side = git_in(&from, &["rev-parse", "refs/heads/side"]);
     let log = git_in(&from, &["log", "--format=%H"]);
 
     pair.sync().await;
 
     let conn_b = pair.desktop.reach(pair.b.id).await;
     timeout(LIMIT, async {
-        while !git_is_at(&to, &head) || !git_in(&to, &["status", "--porcelain"]).is_empty() {
+        while !git_ref_is_at(&to, "HEAD", &head)
+            || !git_ref_is_at(&to, "refs/heads/side", &side)
+            || !git_in(&to, &["status", "--porcelain"]).is_empty()
+        {
             tokio::task::yield_now().await;
         }
     })
     .await
-    .expect("the branch and index came in time");
+    .expect("the branches and index came in time");
 
     assert_eq!(git_in(&to, &["log", "--format=%H"]), log);
-    assert_eq!(
-        git_in(&to, &["rev-parse", "side"]),
-        git_in(&from, &["rev-parse", "side"])
-    );
     assert_eq!(
         git_in(&to, &["remote", "get-url", "origin"]),
         "https://example.com/acme/widget.git"
@@ -3190,13 +3190,15 @@ fn git_in(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
 
-/// Whether the checkout in `dir` has its `HEAD` at `commit`.
-fn git_is_at(dir: &Path, commit: &str) -> bool {
+/// Whether `reference` in `dir` points at `commit`.
+fn git_ref_is_at(dir: &Path, reference: &str, commit: &str) -> bool {
     std::process::Command::new("git")
-        .args(["rev-parse", "HEAD"])
+        .args(["rev-parse", "--verify", reference])
         .current_dir(dir)
         .output()
-        .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim() == commit)
+        .is_ok_and(|out| {
+            out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == commit
+        })
 }
 
 /// Starts a session on the node at `conn`, in `cwd`, and waits for its turn.

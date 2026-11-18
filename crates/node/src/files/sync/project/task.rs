@@ -443,6 +443,7 @@ impl Task {
         };
         self.saved_at = Instant::now();
         let file = self.shared.file.clone();
+        let seq = snapshot.map.seq();
         let written = spawn_blocking(move || {
             let bytes = rmp_serde::to_vec(&snapshot)?;
             crate::link::note::write(&file, &bytes)
@@ -458,6 +459,14 @@ impl Task {
             return false;
         }
 
+        self.shared.saved_seq.send_if_modified(|saved| {
+            if *saved == seq {
+                return false;
+            }
+
+            *saved = seq;
+            true
+        });
         true
     }
 

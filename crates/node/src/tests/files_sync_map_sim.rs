@@ -170,14 +170,9 @@ struct Node {
     /// The folder, which outlives every restart.
     disk: BTreeMap<String, FileMeta>,
     saved: Option<Saved>,
-    /// Crashes are left out where `Map` is known not to recover: after a load
-    /// not saved since, as `Map::loaded` moves counts on
-    /// in memory only, so a second crash hands them out again.
-    unsaved_load: bool,
-    /// A page that left a peer behind since the last save. An entry changed
-    /// since the save has moved past that peer's cursor, and a crash puts it
-    /// back before the cursor, so the peer never gets it.
-    unsaved_partial_page: bool,
+    saved_seq: u64,
+    crashed_since_save: bool,
+    sent_partial_page: bool,
     /// How far this node's clock is off, in milliseconds.
     skew: i64,
 }
@@ -245,6 +240,8 @@ struct Tally {
     dropped: u64,
     restarts: u64,
     crashes: u64,
+    consecutive_crashes: u64,
+    crashes_after_partial_page: u64,
 }
 
 impl Tally {
@@ -254,6 +251,8 @@ impl Tally {
         self.dropped += other.dropped;
         self.restarts += other.restarts;
         self.crashes += other.crashes;
+        self.consecutive_crashes += other.consecutive_crashes;
+        self.crashes_after_partial_page += other.crashes_after_partial_page;
     }
 }
 
@@ -347,8 +346,9 @@ impl Sim {
                 cursors: BTreeMap::new(),
                 disk: BTreeMap::new(),
                 saved: None,
-                unsaved_load: false,
-                unsaved_partial_page: false,
+                saved_seq: 0,
+                crashed_since_save: false,
+                sent_partial_page: false,
                 skew: if cfg.skew {
                     // Up to some 17 years either way.
                     (rng.next() as i64) >> 24
@@ -647,7 +647,12 @@ impl Sim {
                 0
             }
         });
-        let changes = self.nodes[server].map.since(since, self.cfg.page);
+        let node = &mut self.nodes[server];
+        if node.map.seq() > node.saved_seq {
+            return Ok(None);
+        }
+
+        let changes = node.map.since(since, self.cfg.page);
 
         if changes.entries.is_empty() {
             return Ok(None);
@@ -663,7 +668,7 @@ impl Sim {
         }
 
         self.streams.insert((client, server), changes.upto);
-        self.nodes[server].unsaved_partial_page |= changes.upto < self.nodes[server].map.seq();
+        node.sent_partial_page |= changes.upto < node.map.last_change();
         Ok(Some(Message {
             from: server,
             to: client,
@@ -788,8 +793,9 @@ impl Sim {
     fn save(&mut self, n: usize) -> Result<(), String> {
         let node = &mut self.nodes[n];
         let map = rmp_serde::to_vec_named(&node.map).map_err(|e| e.to_string())?;
-        node.unsaved_load = false;
-        node.unsaved_partial_page = false;
+        node.saved_seq = node.map.seq();
+        node.crashed_since_save = false;
+        node.sent_partial_page = false;
         node.saved = Some(Saved {
             map,
             seen: node.seen.clone(),
@@ -820,7 +826,7 @@ impl Sim {
         if self.cfg.restarts {
             kinds.push("restarts");
         }
-        if self.cfg.crashes && !self.nodes[n].unsaved_load && !self.nodes[n].unsaved_partial_page {
+        if self.cfg.crashes {
             kinds.push("crashes");
         }
         if self.cfg.lost_state {
@@ -836,7 +842,12 @@ impl Sim {
 
         match kind {
             "restarts" => self.save(n)?,
-            "crashes" => self.tally.crashes += 1,
+            "crashes" => {
+                let node = &self.nodes[n];
+                self.tally.crashes += 1;
+                self.tally.consecutive_crashes += u64::from(node.crashed_since_save);
+                self.tally.crashes_after_partial_page += u64::from(node.sent_partial_page);
+            }
             _ => self.nodes[n].saved = None,
         }
         // Its connections end. What it sent may still arrive, not what was
@@ -856,7 +867,7 @@ impl Sim {
                 }
 
                 let node = &mut self.nodes[n];
-                node.unsaved_load = true;
+                node.saved_seq = map.seq();
                 node.map = map;
                 node.seen = saved.seen;
                 node.cursors = saved.cursors;
@@ -866,11 +877,14 @@ impl Sim {
                 self.next_replica += 1;
                 let node = &mut self.nodes[n];
                 node.map = Map::new(replica);
+                node.saved_seq = 0;
                 node.seen.clear();
                 node.cursors.clear();
             }
         }
 
+        self.nodes[n].crashed_since_save = kind == "crashes";
+        self.nodes[n].sent_partial_page = false;
         self.scan(n);
         Ok(())
     }
@@ -928,6 +942,10 @@ impl Sim {
     /// seen all that server holds, or `since` skipped something.
     fn drain(&mut self, client: usize, server: usize) -> Result<(), String> {
         self.streams.remove(&(client, server));
+
+        if self.nodes[server].map.seq() > self.nodes[server].saved_seq {
+            self.save(server)?;
+        }
 
         while let Some(message) = self.page(client, server)? {
             self.receive(&message)?;
@@ -1325,6 +1343,7 @@ fn map_sim_seeds_hold() {
             // The seeds must keep reaching what the checks are about.
             assert!(tally.conflicts > 0 && tally.tombstones > 0 && tally.dropped > 0);
             assert!(tally.restarts > 0 && tally.crashes > 0);
+            assert!(tally.consecutive_crashes > 0 && tally.crashes_after_partial_page > 0);
         }
         Err(seed) => panic!("{}", report(seed, &run(seed, true))),
     }
