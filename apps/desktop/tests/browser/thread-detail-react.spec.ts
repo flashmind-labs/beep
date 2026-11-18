@@ -131,7 +131,7 @@ test("Work on it asks the machine first when the project is on several", async (
   expect(args).toMatchObject({ machineId: "gpu-box", agent: "claude", model: "alpha", effort: "high" });
 });
 
-test("Review with agent starts a named reviewer on a pull request's branch, and Continue starts there too", async ({ page }) => {
+test("Review with agent stays in the checkout and Continue targets the PR branch", async ({ page }) => {
   const reviewer = { machine_id: "build-box", machine_name: "build-box", id: "reviewer", agent: "codex", cwd: "/srv/project", status: "working", external: false, question: null };
   const now = Date.now(), pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, updated_at: now, labels: [] };
   const detail = { kind: "pr", number: 9, title: pr.title, url: pr.url, author: pr.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
@@ -152,8 +152,10 @@ test("Review with agent starts a named reviewer on a pull request's branch, and 
   await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-age=""]').click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").length)).toBe(1);
   const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_begin")?.args);
-  expect(args).toMatchObject({ agent: "codex", model: "alpha", checkout: { branch_worktree: { branch: "example-change" } } });
+  expect(args).toMatchObject({ agent: "codex", model: "alpha", cwd: "/srv/project", checkout: null });
   expect(String(args?.prompt)).toContain("Review PR #9");
+  expect(String(args?.prompt)).toContain("refs/pull/9/head");
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_pull_request_head"))).toEqual([]);
 
   // The review is named once its machine names the session.
   const titles = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_title_save").map(call => call.args));

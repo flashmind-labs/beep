@@ -19,10 +19,11 @@ use tokio::task::spawn_blocking;
 /// Beep's standing rule for a session in a git repository. A session runs
 /// in the project folder, the main checkout, and works in worktrees under it.
 pub(super) const GIT_RULE: &str = "This folder is the project's git checkout, where this session runs. Before you \
-    change any file, create a new branch and a git worktree for it under the repository's \
+    change project files, create a new branch and a git worktree for it under the repository's \
     .worktrees/ folder, both named for the work, and work there, unless this session already \
     has a worktree for that work. A session may use several worktrees and branches. Work that \
-    changes nothing stays here. After a merge, remove every worktree this session created for \
+    changes nothing stays here. For read-only PR reviews, inspect the PR head by ref without \
+    switching branches or creating a worktree. After a merge, remove every worktree this session created for \
     the merged work, with its folder and everything left in it (build output and other \
     artifacts), delete its branch and close the issues the merge resolves.";
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addHosts, barPlace, blockedHosts, barPrompt, barReadiness, nextBarMachine, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt, fixedTitle, reviewTitled, taskSession, taskTitle } from "../src/project/projectbar.ts";
+import { addHosts, type BarTarget, barPlace, blockedHosts, barPrompt, barReadiness, nextBarMachine, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt, fixedTitle, reviewTitled, taskSession, taskTitle } from "../src/project/projectbar.ts";
 
 const HOSTS = [
   { machine_id: "m", machine_name: "mac-box", agents: ["claude"] },
@@ -83,6 +83,15 @@ test("a session already in the target's worktree is found, newest first", () => 
   assert.equal(sessionIn(sessions, "b", ["/srv/widget/.worktrees/nope"]), null);
 });
 
+test("a review starts in the current checkout or points to its earlier session", () => {
+  const target: BarTarget = { kind: "review", task: { kind: "review", number: 41 }, earlier: null };
+  assert.equal(targetPlan(target), null);
+  assert.deepEqual(targetCheckout(target), { label: "Current checkout", sub: "PR #41" });
+
+  const earlier = { machine_id: "b", machine_name: "build-box", agent: "codex", id: "s1", cwd: "/w", status: "ended", external: false };
+  assert.deepEqual(targetCheckout({ ...target, earlier }), { label: "Earlier review", sub: "PR #41" });
+});
+
 const PR = { number: 41, title: "Login screen copy", url: "https://github.com/acme/widget/pull/41", mine: true };
 
 test("forgeOf tells github.com from any other host", () => {
@@ -95,28 +104,29 @@ test("reviewPrompt names the PR and how to post on GitHub", () => {
   assert.match(text, /^Review PR #41: Login screen copy \(https:\/\/github\.com\/acme\/widget\/pull\/41\)\. /);
   assert.match(text, /never approve, merge or push/);
   assert.match(text, /gh api repos\/acme\/widget\/pulls\/41\/reviews --method POST --input <file>/);
-  assert.doesNotMatch(text, /Someone else|not checked out/);
+  assert.match(text, /gh pr diff 41 --repo acme\/widget/);
+  assert.match(text, /git ls-remote <remote> refs\/pull\/41\/head/);
+  assert.match(text, /git show <head-sha>:<path>/);
+  assert.doesNotMatch(text, /Someone else/);
 });
 
-test("reviewPrompt on Forgejo uses teacli, and warns about others' and forked PRs", () => {
-  const text = reviewPrompt({ ...PR, url: "https://git.example.org/acme/widget/pulls/41", mine: false }, "forgejo", true);
+test("reviewPrompt on Forgejo uses teacli and keeps someone else's code read-only", () => {
+  const text = reviewPrompt({ ...PR, url: "https://git.example.org/acme/widget/pulls/41", mine: false }, "forgejo");
   assert.match(text, /teacli pr review submit acme\/widget 41 --state comment/);
   assert.match(text, /teacli pr diff acme\/widget 41/);
+  assert.match(text, /refs\/pull\/41\/head/);
   assert.match(text, /Someone else wrote this PR: do not build or run its code\./);
-  assert.match(reviewPrompt(PR, "github", true), /gh pr diff 41/);
 });
 
 test("reviewPrompt reads the reviews already there; again, it reviews what changed in the same session", () => {
   const first = reviewPrompt(PR, "github");
   assert.match(first, /Read the reviews and comments already on it first/);
   assert.match(first, /gh api repos\/acme\/widget\/pulls\/41\/comments/);
-  const again = reviewPrompt(PR, "github", false, true);
+  const again = reviewPrompt(PR, "github", true);
   assert.match(again, /^Review PR #41 again: /);
   assert.match(again, /which of your earlier comments are fixed/);
-  assert.match(again, /git pull --ff-only/);
-  assert.doesNotMatch(reviewPrompt(PR, "github", true, true), /git pull/);
-  const pr = { kind: "pr" as const, number: 41, branch: "fix/login", task: null, review: { number: 41, earlier: { machine_id: "b", machine_name: "build-box", agent: "codex", id: "s1", cwd: "/w", status: "ended", external: false } } };
-  assert.deepEqual(targetCheckout(pr), { label: "Earlier review", sub: "PR #41" });
+  assert.match(again, /git ls-remote <remote> refs\/pull\/41\/head/);
+  assert.doesNotMatch(again, /git pull|git switch/);
 });
 
 test("a task's session is found by its fixed name, the newest on any machine", () => {

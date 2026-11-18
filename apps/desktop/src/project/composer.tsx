@@ -283,7 +283,7 @@ export function drawProjectComp(name: string) {
     machine: pc.adding?.machine_name ?? (place ? place.machine_name : readiness.kind === "no agent" ? "Install a coding agent" : pc.hosts ? "Add to a machine" : "Machine"),
     on: !!place && !pc.adding, adding: !!pc.adding, machineDisabled: !!pc.adding || pc.starting,
     folder: co.label, folderSub: co.sub, folderDisabled: !place || pc.starting,
-    branch: t?.kind === "issue" ? t.branch : "", showBranch: t?.kind === "issue" && !t.review?.earlier,
+    branch: t?.kind === "issue" ? t.branch : "", showBranch: t?.kind === "issue",
     showClear: !!t,
   });
   const { host, offered, agent } = barHarness(pc.adding ?? place ?? addHosts(pc.hosts ?? [])[0] ?? null);
@@ -313,13 +313,13 @@ export function drawProjectComp(name: string) {
 /// The newest session of ours in the bar target's worktree on the bar's
 /// machine, or null; none without a target.
 function barExisting(name: string, place: { machine_id: string; cwd: string }, t: BarTarget | null) {
-  if (!t || !t.branch.trim()) return null;
+  if (!t || t.kind === "review" || !t.branch.trim()) return null;
   return sessionIn(sessions, place.machine_id, targetFolders(t, place.cwd, knownWorktree(name, place.machine_id, t)));
 }
 
 /// Where the branch list of project `name`, read on one machine, found the
 /// worktree of `t`'s branch when that machine is `machine`.
-function knownWorktree(name: string, machine: string, t: BarTarget) {
+function knownWorktree(name: string, machine: string, t: { branch: string }) {
   const listed = pc.branches.get(name) as unknown as { machine_id?: string; branches: readonly { name: string; worktree?: string | null }[] } | null | undefined;
   return listed?.machine_id === machine ? listed.branches.find(b => b.name === t.branch.trim())?.worktree : null;
 }
@@ -430,7 +430,7 @@ export async function continuePr(name: string, pr: PullRequestRow) {
 export async function startContinue(name: string, pr: ContinuedPr, pick: ProjectPick, machine: string | null = null) {
   const task = await continueTask(name, pr);
   await ensureSessions().catch(e => console.warn("agent sessions:", e));
-  const earlier = task.target && branchSession(name, task.target);
+  const earlier = branchSession(name, task.target);
   if (!earlier) await startTask(name, task, pick, machine);
   else if (AGENT_ACTIVE.has(earlier.status)) go("pane", { agent: earlier });
   else await steer(earlier, task.prompt, []);
@@ -441,10 +441,11 @@ type ContinuedPr = Pick<PullRequestRow, "number" | "title" | "url">;
 
 /// Continue's task: the PR's branch. A fork's branch is not on `origin`, so
 /// it is refused.
-async function continueTask(name: string, pr: ContinuedPr): Promise<AgentTask> {
+async function continueTask(name: string, pr: ContinuedPr) {
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: localProjectId(name), number: pr.number });
   if (head.fork) throw new Error(`PR #${pr.number} comes from a fork, so its branch ${head.branch} is not in this repository.`);
-  return { prompt: `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, target: { kind: "pr", number: pr.number, branch: head.branch, task: null } };
+  const target: BarTarget = { kind: "pr", number: pr.number, branch: head.branch, task: null };
+  return { prompt: `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, target };
 }
 
 /// The fields of a pull request a review reads.
@@ -462,23 +463,17 @@ export async function reviewPr(name: string, pr: PullRequestRow) {
 /// reviewed the PR before.
 export async function startReview(name: string, pr: ReviewedPr, pick: ProjectPick, machine: string | null = null) {
   const task = await reviewTask(name, pr);
-  const earlier = task.target?.review?.earlier;
+  const { earlier } = task.target;
   if (earlier) return steerReview(pr.number, earlier, task.prompt, []);
   await startTask(name, task, pick, machine);
 }
 
-/// A review of `pr`. A fork's branch is not on `origin`, so that review
-/// starts on a new worktree from the default branch and reads the diff
-/// through the forge CLI.
-async function reviewTask(name: string, pr: ReviewedPr): Promise<AgentTask> {
-  const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: localProjectId(name), number: pr.number });
+/// A review of `pr` reads the forge diff and inspects the PR head by ref.
+async function reviewTask(name: string, pr: ReviewedPr) {
   await ensureSessions().catch(e => console.warn("agent sessions:", e));
-  const review = { number: pr.number, earlier: earlierReview(name, pr.number) };
-  const task: SessionTask = { kind: "review", number: pr.number };
-  const target: BarTarget = head.fork
-    ? { kind: "issue", number: pr.number, branch: `review-pr-${pr.number}`, base: baseFor(null, pc.branches.get(name)), task, review }
-    : { kind: "pr", number: pr.number, branch: head.branch, task, review };
-  return { prompt: reviewPrompt(pr, forgeOf(pr.url), head.fork, !!review.earlier), target };
+  const earlier = earlierReview(name, pr.number);
+  const target: BarTarget = { kind: "review", task: { kind: "review", number: pr.number }, earlier };
+  return { prompt: reviewPrompt(pr, forgeOf(pr.url), earlier !== null), target };
 }
 
 /// Fix this from the menu: fills the bar with the fix.
@@ -563,10 +558,11 @@ async function startFromBar() {
   if (!p || !place || (!text && !barAttachments.count) || barAttachments.reading || pc.starting || pc.adding) return;
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.update({ error: "Name the branch first." }); return; }
-  const review = t?.review, earlier = review?.earlier;
-  if (review && earlier) return continueInBar(earlier, text, (prompt, images) => steerReview(review.number, earlier, prompt, images));
-  // A first review starts its own chat, apart from the one coding on the branch.
-  const chat = t?.kind === "pr" && !review ? branchSession(p.name, t) : null;
+  if (t?.kind === "review" && t.earlier) {
+    const { earlier } = t;
+    return continueInBar(earlier, text, (prompt, images) => steerReview(t.task.number, earlier, prompt, images));
+  }
+  const chat = t?.kind === "pr" ? branchSession(p.name, t) : null;
   if (chat) return continueInBar(chat, text, (prompt, images) => steer(chat, prompt, images));
   const { agent } = barHarness(place);
   c.update({ error: "" });
@@ -595,8 +591,8 @@ async function startFromBar() {
 type Image = { name: string; mime: string; data: string };
 
 /// Starts a coding agent of project `name` on `place` with `prompt`: in
-/// `target`'s worktree, beside a session already there, or without a target
-/// in `checkout`. This device keeps the start and answers at once with the
+/// the current checkout for reviews, a worktree for other targets, or
+/// `checkout` without a target. This device answers at once with the
 /// session it shows as until its machine names it. A session for a task is
 /// named for it then.
 async function startSession(name: string, place: BarPlace, pick: Omit<ProjectPick, "agent"> & { agent: string | null }, prompt: string, images: Image[], target: BarTarget | null, checkout: CheckoutPick) {
@@ -784,7 +780,7 @@ export function sessionState(s: TaskSession | null, working: string): SessionSta
 
 /// The newest chat of ours in `target`'s worktree on any machine of
 /// `project`, as it is now; review chats are left to their PR's reviews.
-function branchSession(project: string, target: BarTarget): TaskSession | null {
+function branchSession(project: string, target: { branch: string }): TaskSession | null {
   const places = projectOf(project)?.places ?? [];
   const chats = projectSessions(project).filter(s => !reviewTitled(s.title));
   const found = places.map(p => sessionIn(chats, p.machine, targetFolders(target, p.cwd, knownWorktree(project, p.machine, target)))).filter(s => s !== null).sort((a, b) => b.last_activity - a.last_activity)[0];
