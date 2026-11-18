@@ -56,6 +56,9 @@ pub struct ExternalSession {
     /// Where it works now, as the node worked it out from the agent's
     /// records; `None` when it does not know.
     pub place: Option<WorkPlace>,
+    /// The home assistant, as the node that ran it in Beep kept it; false
+    /// from an older node.
+    pub assistant: bool,
 }
 
 /// An external Claude Code session as its hooks report it, for

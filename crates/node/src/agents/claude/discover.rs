@@ -501,6 +501,7 @@ fn describe(
         last_message: gist.said.last_message.unwrap_or_default(),
         cwd: gist.said.cwd.unwrap_or_default(),
         taken_over: snapshot.owned.get(&transcript.id).cloned(),
+        assistant: false,
     })
 }
 

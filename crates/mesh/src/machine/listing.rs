@@ -320,7 +320,7 @@ pub fn external_session(host: &Host, session: ExternalSession) -> MachineSession
         question: None,
         subagents: 0,
         model: None,
-        assistant: false,
+        assistant: session.assistant,
         reply: None,
         changes: None,
     }
@@ -397,7 +397,7 @@ pub fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
         question: None,
         subagents: 0,
         model: None,
-        assistant: false,
+        assistant: session.assistant,
         reply: None,
         changes: None,
     }

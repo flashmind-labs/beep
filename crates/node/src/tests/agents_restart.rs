@@ -611,6 +611,30 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
 }
 
 #[test]
+fn an_ended_assistant_kept_from_before_is_still_the_assistant() {
+    let agents = Agents::new(Vec::new());
+    let kept = |id: &str, assistant: bool, reviewer: bool| SavedSession {
+        info: SessionInfo {
+            id: id.into(),
+            agent: "flsh".into(),
+            assistant,
+            reviewer,
+            ..SessionInfo::default()
+        },
+        effort: None,
+        fast: None,
+    };
+    agents.keep_saved(vec![
+        kept("chat", true, false),
+        kept("task", false, false),
+        kept("review", true, true),
+    ]);
+
+    let assistants = agents.assistants();
+    assert_eq!(assistants, HashSet::from([SessionId::from("chat")]));
+}
+
+#[test]
 fn a_note_from_before_saved_sessions_reads() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     // `s1` was open; `s2` ended, so nothing but its model is known.

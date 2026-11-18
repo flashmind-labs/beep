@@ -164,8 +164,9 @@ impl Agents {
 
     /// The Claude Code sessions started outside Beep, newest first.
     pub async fn external_sessions(&self, limit: u32) -> Result<Vec<ExternalSession>> {
-        let sessions = self.external.list(limit, None, self.owned()).await?;
+        let mut sessions = self.external.list(limit, None, self.owned()).await?;
         self.observe_external(&sessions);
+        self.mark_assistants(&mut sessions);
         Ok(sessions)
     }
 
@@ -348,10 +349,23 @@ impl Agents {
         limit: u32,
         session: Option<SessionId>,
     ) -> Result<Vec<ExternalSession>> {
-        if agent == Agent::Claude.as_ref() {
-            self.external.list(limit, session, self.owned()).await
+        let mut sessions = if agent == Agent::Claude.as_ref() {
+            self.external.list(limit, session, self.owned()).await?
         } else {
-            self.stores_external(agent, limit, session).await
+            self.stores_external(agent, limit, session).await?
+        };
+
+        self.mark_assistants(&mut sessions);
+        Ok(sessions)
+    }
+
+    /// Marks those of `sessions` that ran here as the home assistant, so
+    /// they stay with its chats once they ended.
+    fn mark_assistants(&self, sessions: &mut [ExternalSession]) {
+        let assistants = self.assistants();
+
+        for session in sessions {
+            session.assistant = assistants.contains(&session.id);
         }
     }
 
