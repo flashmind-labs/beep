@@ -2,7 +2,7 @@
 // reply and what came with a prompt (Beep's context, another session's
 // message, a child's reply). Their bodies are sanitized Markdown HTML.
 import { conversationBlocked } from "./turnrows.ts";
-import { createContext, memo, useContext } from "react";
+import { memo } from "react";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { CopyButton, useHtml } from "../ui/kit.tsx";
 import { sessionMessageTitle, type PromptPart } from "./promptparts-state.ts";
@@ -11,18 +11,15 @@ import { SubIcon } from "./activity-view.tsx";
 
 /// Replies already contain the sanitized Markdown produced by the node.
 /// `text` is the reply as the agent wrote it, which its copy button copies.
-export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string; text: string; sentAt?: number | null }
+export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string; text: string; copy: boolean; sentAt?: number | null }
 export interface BlockedRow { kind: "blocked"; id: string; message: string }
 export interface PromptRow { kind: "prompt"; row: string; html: string; files: string[]; pictures: string; sentAt?: number | null }
 export type ContextRow = { kind: "context"; id: string; type: "context"; text: string } | { kind: "context"; id: string; type: "session"; name: string; project: string | null; html: string } | { kind: "context"; id: string; type: "child"; part: Extract<PromptPart, { kind: "child" }>; body: string; agent: string | null; name: string; project: string | null };
 
-export const LatestReplyRow = createContext<string | null>(null);
-
 /// Reconciled rather than set as HTML, so a streamed chunk leaves finished blocks, and their diagrams, in place.
 export const AgentReply = memo(function AgentReply({ reply }: { reply: ReplyRow }) {
-  const latest = useContext(LatestReplyRow);
   const body = useHtml(reply.html);
-  return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row}><EntryTime at={reply.sentAt ?? null} /><div className="reply-body">{body}</div>{reply.row === latest && reply.text && <CopyButton text={reply.text} look="quiet" small icon className="reply-copy" />}</div>;
+  return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row}><EntryTime at={reply.sentAt ?? null} />{reply.copy && <CopyButton text={reply.text} look="quiet" small icon className="reply-copy" />}<div className="reply-body">{body}</div></div>;
 });
 
 export function AgentError({ message }: { message: string }) {

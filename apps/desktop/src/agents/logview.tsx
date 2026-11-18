@@ -87,8 +87,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
     : !AG.sig && p.entries.length ? { text: connectingNote(s.machine_name || "the machine"), tone: "connecting" } : null;
   const retry = !!(AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone");
   const subs = paneSubs(p);
-  const latestReply = p.entries.findLastIndex(entry => entry.kind === "agent");
-  const shell = { latestReply: latestReply < 0 ? null : String(p.earlier + latestReply), why, starting: s.status === "starting", log: !!units,
+  const shell = { why, starting: s.status === "starting", log: !!units,
     question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
     questionKey: question ? questionKey(question, openOf(s)) : null,
     answering: !!question && question.id === AG.answering,
@@ -587,7 +586,7 @@ function agentReply(en: AgentEntry, at: number): (ReplyRow | BlockedRow)[] {
   const html = en.html ?? esc(text);
   const block = blockedReply(text, html);
   const body = block?.html ?? html;
-  const replies: (ReplyRow | BlockedRow)[] = body || pics ? [{ kind: "reply", sentAt: en.sent_at ?? null, row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(body)) : linked(body)) + pics, text: (block ? text.slice(0, text.lastIndexOf(block.error)) : text).trim() }] : [];
+  const replies: (ReplyRow | BlockedRow)[] = body || pics ? [{ kind: "reply", sentAt: en.sent_at ?? null, row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(body)) : linked(body)) + pics, text: (block ? text.slice(0, text.lastIndexOf(block.error)) : text).trim(), copy: false }] : [];
   if (block) replies.push({ kind: "blocked", id: `${at}:blocked`, message: block.error });
   return replies;
 }
@@ -716,6 +715,9 @@ function turnUnits(p: AgentPage, news: boolean): Unit[] {
         const collapse: ActivityRow | null = opened ? { kind: "note", id: `collapse:${key}`, at: key, value: { kind: "collapse" } } : null;
         return [...(head ? [head] : []), ...(pics ? [pics] : []), ...shownRows, ...(collapse ? [collapse] : [])];
       });
+      const reply = work.findLast(row => row.kind === "reply" && row.text);
+      if (reply?.kind === "reply") reply.copy = true;
+
       const head = turnHeading({ state, start: start ?? null, ms, stats: "", turn: null, opened: false });
       const shownTitle = newest != null ? toolParts(entry(newest))?.title.trim() : "";
       const liveDoing = state === "working" && doing !== "Thinking" && !(shownTitle && (shownTitle.includes(doing) || doing.includes(shownTitle))) ? doing : "";

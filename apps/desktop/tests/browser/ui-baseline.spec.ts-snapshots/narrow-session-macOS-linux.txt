@@ -1,11 +1,11 @@
 body.cbody
-  div.cwin [aria-label="Beep" role="main"] style(--side-w)
-    aside#side.cc-side
+  div.cwin.rail-on [aria-label="Beep" role="main"] style(--side-w)
+    aside#side.cc-side [inert]
       canvas.haze.painted-art [aria-hidden="true" height="208" width="75"]
       div.cc-head
       div.cc-brand
         b "Beep"
-        button.cc-side-toggle [aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar" type="button"]
+        button.cc-side-toggle [aria-expanded="true" aria-label="Show the sidebar" title="Show the sidebar" type="button"]
           span
             svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
       div#side-content.cc-side-list
@@ -67,7 +67,56 @@ body.cbody
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="300" role="separator" tabindex="0"]
-    aside#rail.cc-rail.pj-list [aria-label="Project sessions" hidden inert]
+    aside#rail.cc-rail.pj-list [aria-label="Project sessions"]
+      canvas.lilies.painted-art [aria-hidden="true" height="104" width="75"]
+      div.cc-head
+      div.cc-brand
+        button.dbtn.quiet.rail-back [title="Back to example/widget" type="button"] "example/widget"
+        button.cc-side-toggle [aria-expanded="true" aria-label="Show the sidebar" title="Show the sidebar" type="button"]
+          span
+            svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
+      input.ip-field.rail-filter [aria-label="Filter sessions" placeholder="Filter sessions" spellcheck="false" type="search" value] value=""
+      div.rail-scroll [data-clear="true"]
+        h4 "Running"
+          span.n "2"
+        div.rail-live
+          button.pj-li [aria-current="true" title="First notification" type="button"]
+            span.lead
+              span.cc-ag.codex.mark
+                svg [aria-hidden="true" viewBox="0 0 24 24"]
+            span.t
+              b "First notification"
+              span
+            span.r
+              span.cc-running "now"
+                span.drun [aria-label="Working" role="img"]
+          button.pj-li [title="Second notification" type="button"]
+            span.lead
+              span.cc-ag.codex.mark
+                svg [aria-hidden="true" viewBox="0 0 24 24"]
+            span.t
+              b "Second notification"
+              span
+            span.r
+              span.cc-running "now"
+                span.drun [aria-label="Working" role="img"]
+      div.rail-card
+        button.dbtn.quiet.rail-card-li [type="button"]
+          svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+          span "Pull requests"
+          small
+        button.dbtn.quiet.rail-card-li [type="button"]
+          svg [fill="none" height="13" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+          span "Issues"
+          small "0 open"
+        button.dbtn.quiet.rail-card-li [type="button"]
+          svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          span "Actions"
+          small
+        button.dbtn.quiet.rail-card-li [type="button"]
+          svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          span "Machines"
+          small "1/1"
     div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
@@ -187,6 +236,8 @@ body.cbody
                                   svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                             div style(display)
                               div.agent.dcoderen [data-row="3"]
+                                button.dbtn.quiet.reply-copy.small [aria-label="Copy" title="Copy" type="button"]
+                                  svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                                 div.reply-body "The redirect reads `next` before the session cookie is set. - Moved the read after the cookie write - Added a test for the empty `next` case All tests pass."
                             div style(display)
                               div.dcoderen.other [data-row="4"] "Switched to thinking medium from the next turn"
@@ -198,9 +249,9 @@ body.cbody
                                   p "Also keep the query string."
                             div style(display)
                               div.agent.dcoderen [data-row="6"]
-                                div.reply-body "Done. The query string now survives the redirect."
                                 button.dbtn.quiet.reply-copy.small [aria-label="Copy" title="Copy" type="button"]
                                   svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+                                div.reply-body "Done. The query string now survives the redirect."
                             div style(display)
                               div.dlive.dthink.live
                                 span.lb [title="Working"] "Working"

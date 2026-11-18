@@ -48,6 +48,8 @@ body
                             svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                       div style(display)
                         div.agent.dcoderen [data-row="3"]
+                          button.dbtn.quiet.reply-copy.small [aria-label="Copy" title="Copy" type="button"]
+                            svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                           div.reply-body "The redirect reads `next` before the session cookie is set. - Moved the read after the cookie write - Added a test for the empty `next` case All tests pass."
                       div style(display)
                         div.dcoderen.other [data-row="4"] "Switched to thinking medium from the next turn"
@@ -59,9 +61,9 @@ body
                             p "Also keep the query string."
                       div style(display)
                         div.agent.dcoderen [data-row="6"]
-                          div.reply-body "Done. The query string now survives the redirect."
                           button.dbtn.quiet.reply-copy.small [aria-label="Copy" title="Copy" type="button"]
                             svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+                          div.reply-body "Done. The query string now survives the redirect."
                       div style(display)
                         div.dlive.dthink
                           span.lb "Waiting for you"

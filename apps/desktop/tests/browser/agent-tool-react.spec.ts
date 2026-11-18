@@ -111,7 +111,7 @@ test("an opened command's output can be selected", async ({ page }) => {
   await expect(row).toHaveAttribute("aria-expanded", "true");
 });
 
-test("only the latest reply shows its copy button once it is finished", async ({ page }) => {
+test("each prompt has a copy button on its finished reply, clear of the timestamp", async ({ page }) => {
   await openDesktop(page);
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
@@ -120,8 +120,18 @@ test("only the latest reply shows its copy button once it is finished", async ({
       if (command !== "agent_view" || !value || typeof value !== "object") return value;
       const session = Reflect.get(value, "session");
       const status = Reflect.get(window, "replyStatus");
-      return { ...value, session: { ...session, status }, entries: [{ kind: "user", text: "Start it" }, { kind: "agent", text: "Earlier answer" }, { kind: "user", text: "Draft it" }, { kind: "agent", text: "Earlier progress" }, { kind: "tool", text: "Read: draft.md [completed]" }, { kind: "agent", text: "> First\n\n> Second", html: "<blockquote><p>First</p></blockquote><blockquote><p>Second</p></blockquote>" }] } as T;
+      return { ...value, session: { ...session, status }, entries: [
+        { kind: "user", text: "Start it" },
+        { kind: "agent", text: "Earlier answer", html: "<p>Earlier answer</p>", sent_at: 2 },
+        { kind: "user", text: "Draft it" },
+        { kind: "agent", text: "Earlier progress" },
+        { kind: "tool", text: "Read: draft.md [completed]" },
+        { kind: "agent", text: "> First\n\n> Second", html: "<blockquote><p>First</p></blockquote><blockquote><p>Second</p></blockquote>" },
+      ] } as T;
     };
+    Object.defineProperty(navigator, "clipboard", { value: {
+      writeText: async (text: string) => { Reflect.set(window, "copiedReply", text); },
+    } });
   });
   await page.evaluate(() => Reflect.set(window, "replyStatus", "working"));
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
@@ -129,17 +139,30 @@ test("only the latest reply shows its copy button once it is finished", async ({
   await expect(copies).toHaveCount(2);
   await expect(copies.first()).toBeVisible();
   await expect(copies.last()).toBeHidden();
-  const reply = page.locator(".dcoderen.agent .reply-copy");
-  await expect(reply).toHaveCount(1);
-  await expect(page.locator(".dcoderen.agent").filter({ hasText: "Earlier" }).locator(".reply-copy")).toHaveCount(0);
-  await expect(reply).toBeHidden();
+  const replies = page.locator(".dcoderen.agent");
+  const earlier = replies.filter({ hasText: "Earlier answer" });
+  const earlierCopy = earlier.locator(".reply-copy");
+  const currentCopy = replies.last().locator(".reply-copy");
+  await expect(earlierCopy).toHaveCount(1);
+  await expect(replies.filter({ hasText: "Earlier progress" }).locator(".reply-copy")).toHaveCount(0);
+  await expect(currentCopy).toBeHidden();
+
+  await earlier.hover();
+  await expect(earlierCopy).toHaveCSS("opacity", "1");
+  const timestamp = earlier.locator("time");
+  await expect(timestamp).toBeVisible();
+  const [button, time] = await Promise.all([earlierCopy.boundingBox(), timestamp.boundingBox()]);
+  expect(button && time && button.x + button.width <= time.x).toBe(true);
+  await earlierCopy.click();
+  await expect(earlierCopy).toHaveAttribute("aria-label", "Copied");
+  expect(await page.evaluate(() => Reflect.get(window, "copiedReply"))).toBe("Earlier answer");
 
   await page.evaluate(() => Reflect.set(window, "replyStatus", "idle"));
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "idle", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await expect(copies.last()).toBeVisible();
-  await page.locator(".dcoderen.agent").last().hover();
-  await expect(reply).toHaveCSS("opacity", "1");
-  await reply.click();
-  await expect(reply).toHaveAttribute("aria-label", "Copied");
-  await expect(reply).toHaveAttribute("aria-label", "Copy");
+  await replies.last().hover();
+  await expect(currentCopy).toHaveCSS("opacity", "1");
+  await currentCopy.click();
+  await expect(currentCopy).toHaveAttribute("aria-label", "Copied");
+  await expect(currentCopy).toHaveAttribute("aria-label", "Copy");
 });

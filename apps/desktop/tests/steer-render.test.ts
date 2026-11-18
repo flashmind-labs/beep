@@ -105,7 +105,7 @@ test("session status shows the latest state for writable and read-only sessions"
   assert.equal(stateHost.textContent, "Ended");
 });
 
-test("copy moves to the latest reply while earlier replies stay mounted", t => {
+test("each prompt keeps its final reply copy control as the session grows", t => {
   const { page } = setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
   page.session.status = "idle";
@@ -113,7 +113,8 @@ test("copy moves to the latest reply while earlier replies stay mounted", t => {
   drawAgentBody();
   const first = bar.querySelector(".dcoderen.agent");
   assert.ok(first);
-  assert.ok(first.querySelector(".reply-copy"));
+  const firstCopy = first.querySelector(".reply-copy");
+  assert.ok(firstCopy);
 
   page.entries.push({ kind: "user", text: "Continue" });
   drawAgentBody(undefined, true);
@@ -122,9 +123,9 @@ test("copy moves to the latest reply while earlier replies stay mounted", t => {
   page.entries.push({ kind: "agent", text: "Second" });
   drawAgentBody(undefined, true);
   assert.equal(bar.querySelector(".dcoderen.agent"), first);
-  assert.equal(first.querySelector(".reply-copy"), null);
-  assert.equal(bar.querySelectorAll(".reply-copy").length, 1);
-  assert.equal(bar.querySelector(".reply-copy")?.closest(".dcoderen.agent")?.textContent, "Second");
+  assert.equal(first.querySelector(".reply-copy"), firstCopy);
+  assert.equal(bar.querySelectorAll(".reply-copy").length, 2);
+  assert.equal(bar.querySelectorAll(".reply-copy")[1]?.closest(".dcoderen.agent")?.textContent, "Second");
 });
 
 test("attachment updates preserve the file-count control and upload choices", async t => {
