@@ -176,6 +176,18 @@ test("Review with agent starts a named reviewer on a pull request's branch, and 
   expect(String(next?.prompt)).toContain("Continue PR #9");
 });
 
+test("Open on GitHub opens the current pull request in the browser", async ({ page }) => {
+  const now = Date.now();
+  const pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, updated_at: now, labels: [] };
+  const detail = { kind: "pr", number: pr.number, title: pr.title, url: pr.url, author: pr.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
+  await openDesktop(page, false, { center_project_lists: { issues: [], prs: [pr], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "pr:9" } }), projectName);
+  const pane = page.locator(".pj-split > .pj-det");
+  await expect(pane.getByText("Change", { exact: true })).toBeVisible();
+  await pane.getByRole("button", { name: "Open on GitHub", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_url").map(call => call.args))).toEqual([{ url: pr.url }]);
+});
+
 test("an issue's linked pull requests open here or on the host", async ({ page }) => {
   const now = Date.now(), issue = { number: 1, title: "Example issue", url: "https://github.com/example/widget/issues/1", author: "Author", opened_at: now, comments: 0, labels: [], linked_pr: true };
   const pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, updated_at: now, labels: [] };
