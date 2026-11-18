@@ -24,6 +24,16 @@ test("notification keyboard focus survives updates and dismissals", async ({ pag
   await expect(page.getByRole("button", { name: "Search", exact: true })).toBeFocused();
 });
 
+test("x dismisses the focused notification and focuses the next", async ({ page }) => {
+  await openDesktop(page, false, { notes_list: [note("first", 2), note("second", 1)] });
+  await page.keyboard.press(test.info().project.name === "macOS" ? "Meta+b" : "Control+b");
+  await expect(page.locator('.nt-row[data-id="first"]')).toBeFocused();
+  await page.keyboard.press("x");
+  await expect(page.locator('.nt-row[data-id="first"]')).toHaveCount(0);
+  await expect(page.locator('.nt-row[data-id="second"]')).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "notes_dismiss").map(call => call.args))).toEqual([{ ids: ["first"] }]);
+});
+
 test("opening a build dismisses its notification and keeps the others", async ({ page }) => {
   const target = { projects: { project: "example/widget", run: { id: 7, host: "example.test" } } };
   const build = { ...note("build:7", 2), kind: "run", title: "Build passed", target };
