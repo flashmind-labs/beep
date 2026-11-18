@@ -83,7 +83,13 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
             p.machine_name.clone(),
         );
         let keys = [p.project.as_str(), name.as_str()];
-        entries.push(Entry::new(HitKind::Project, id, name.clone(), machine, &keys));
+        entries.push(Entry::new(
+            HitKind::Project,
+            id,
+            name.clone(),
+            machine,
+            &keys,
+        ));
     }
 
     let mut folders: Vec<FolderRow> = Vec::new();
