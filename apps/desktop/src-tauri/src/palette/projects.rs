@@ -82,13 +82,8 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
             p.display_name.as_ref().unwrap_or(&p.project).clone(),
             p.machine_name.clone(),
         );
-        entries.push(Entry::new(
-            HitKind::Project,
-            id,
-            name,
-            machine,
-            &[&p.project],
-        ));
+        let keys = [p.project.as_str(), name.as_str()];
+        entries.push(Entry::new(HitKind::Project, id, name.clone(), machine, &keys));
     }
 
     let mut folders: Vec<FolderRow> = Vec::new();
