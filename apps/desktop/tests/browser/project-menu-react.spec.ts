@@ -186,6 +186,6 @@ test("a long .gitignore shows eight folder chips until more is asked for", async
   const chips = page.getByRole("group", { name: "Folders in .gitignore" }).getByRole("button");
   await expect(page.getByRole("textbox", { name: "Folders relative to the project, one per line" })).toHaveAttribute("placeholder", "data0\ndata1\ndata2");
   await expect(chips).toHaveCount(9);
-  await page.getByRole("button", { name: "+12 more" }).click();
+  await page.getByRole("button", { name: "Show 12 more" }).click();
   await expect(chips).toHaveCount(20);
 });

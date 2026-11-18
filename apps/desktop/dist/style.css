@@ -188,10 +188,13 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dover .vt .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
 .dover .vt b { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dchips { display: flex; flex-wrap: wrap; gap: 6px }
-.dchip { min-height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font-size: 12.5px }
+.dchip { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font-size: 12.5px }
 .dchip[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 28%, transparent); border-color: var(--accent) }
 .dchip.day { min-width: 34px; padding: 0 8px }
 .dchip:disabled { opacity: .5 }
+.ig-picks { margin-top: 8px }
+.ig-picks .dchip svg { color: var(--muted) }
+.ig-picks .dchip[aria-pressed="true"] svg { color: var(--accent) }
 #setModel { flex: none; max-width: 46%; min-height: 28px; padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12.5px }
 .dfield textarea { padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; line-height: 20px; outline: 0; resize: none; caret-color: var(--accent) }
 .dfield input[type="time"], .dfield input[type="date"] { color-scheme: dark }

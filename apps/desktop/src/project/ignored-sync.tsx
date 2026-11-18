@@ -29,29 +29,36 @@ export function chooseIgnoredFolders(project: string, places: readonly ProjectPl
       setBusy(false);
     }
   };
-  const suggested = Promise.any(places.map(place => readFile(place.id, `${place.folder}/.gitignore`, null, () => {})))
-    .then(file => gitignoreSuggestions(new TextDecoder().decode(file.bytes)), () => ({ folders: [], files: [] }));
-  flushSync(() => render(<IgnoredSyncView initial={initial} suggested={suggested} save={save} cancel={() => { if (!busy) close(); }} />));
+  flushSync(() => render(<IgnoredSyncView initial={initial} places={places} save={save} cancel={() => { if (!busy) close(); }} />));
 }
 
 /// Folder chips shown before "more".
 const SHOWN = 8;
+const NONE: GitignoreSuggestions = { folders: [], files: [] };
 
-function IgnoredSyncView({ initial, suggested, save, cancel }: { initial: IgnoredSync; suggested: Promise<GitignoreSuggestions>; save(enabled: boolean, paths: string, setError: (message: string) => void, setBusy: (value: boolean) => void): void; cancel(): void }) {
+function IgnoredSyncView({ initial, places, save, cancel }: { initial: IgnoredSync; places: readonly ProjectPlace[]; save(enabled: boolean, paths: string, setError: (message: string) => void, setBusy: (value: boolean) => void): void; cancel(): void }) {
   const [enabled, setEnabled] = useState(initial.enabled), [paths, setPaths] = useState(initial.folders.join("\n"));
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
-  const [suggestions, setSuggestions] = useState<GitignoreSuggestions>({ folders: [], files: [] }), [all, setAll] = useState(false);
+  const [suggestions, setSuggestions] = useState<GitignoreSuggestions>(NONE), [all, setAll] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => { textarea.current?.focus(); }, []);
-  useEffect(() => { suggested.then(setSuggestions); }, [suggested]);
+  useEffect(() => {
+    let open = true;
+    Promise.any(places.map(place => readFile(place.id, `${place.folder}/.gitignore`, null, () => {})))
+      .then(file => gitignoreSuggestions(new TextDecoder().decode(file.bytes)), () => NONE)
+      .then(found => { if (open) setSuggestions(found); });
+    return () => { open = false; };
+  }, [places]);
+
   const listed = listedFolders(paths);
   const toggle = (folder: string) => setPaths(listed.includes(folder) ? listed.filter(p => p !== folder).join("\n") : [...listed, folder].join("\n"));
+
   return <><SheetHead title="Sync gitignored" />
     <label className="am-line"><Checkbox checked={enabled} disabled={busy} change={setEnabled} />Sync selected ignored folders on all machines</label>
     <div className="am-label">Folders relative to the project, one per line</div><textarea ref={textarea} className="ip-path ip-list" rows={4} value={paths} placeholder={suggestions.folders.length ? suggestions.folders.slice(0, 3).join("\n") : "assets/models\ndata/captures"} aria-label="Folders relative to the project, one per line" disabled={busy} onChange={event => setPaths(event.currentTarget.value)} />
-    {!!suggestions.folders.length && <div className="dchips" role="group" aria-label="Folders in .gitignore">
-      {(all ? suggestions.folders : suggestions.folders.slice(0, SHOWN)).map(folder => <ChipToggle key={folder} label={folder} selected={listed.includes(folder)} onToggle={() => toggle(folder)} />)}
-      {!all && suggestions.folders.length > SHOWN && <ChipToggle label={`+${suggestions.folders.length - SHOWN} more`} selected={false} onToggle={() => setAll(true)} />}
+    {!!suggestions.folders.length && <div className="dchips ig-picks" role="group" aria-label="Folders in .gitignore">
+      {(all ? suggestions.folders : suggestions.folders.slice(0, SHOWN)).map(folder => <ChipToggle key={folder} label={folder} icon={listed.includes(folder) ? "check" : "plus"} selected={listed.includes(folder)} onToggle={() => toggle(folder)} />)}
+      {!all && suggestions.folders.length > SHOWN && <Button look="quiet" onClick={() => setAll(true)}>Show {suggestions.folders.length - SHOWN} more</Button>}
     </div>}
     {!!suggestions.files.length && <div className="am-sub">Files stay on each machine: {suggestions.files.join(", ")}</div>}
     <div className="am-sub">Each folder must be wholly ignored by Git and contain no tracked or staged files. These folders use file sync, including conflict copies. Other uncommitted edits stay local. Build output, linked repositories and paths excluded in .beepignore stay local.</div>

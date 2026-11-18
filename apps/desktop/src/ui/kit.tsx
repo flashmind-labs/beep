@@ -5,7 +5,7 @@ import { cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useR
 import parse from "html-react-parser";
 import { ErrorBoundary } from "react-error-boundary";
 import { copy } from "./parts.tsx";
-import { Icon } from "./icons.tsx";
+import { Icon, type IconName } from "./icons.tsx";
 
 /// Sanitized HTML as React elements keyed by place, so a block that stays keeps its
 /// element: the reader's selection, and a diagram drawn next to it, survive an update.
@@ -71,9 +71,9 @@ export function Chip({ kind, text, spin = false, title }: { kind: string; text: 
   return <span className={kind ? `chip ${kind}` : "chip"} title={title}>{spin && <Spinner dot />}{text}</span>;
 }
 
-/// A chip that toggles a choice on and off.
-export function ChipToggle({ label, selected, onToggle }: { label: string; selected: boolean; onToggle(): void }) {
-  return <button type="button" className="dbtn dchip" aria-pressed={selected} onClick={onToggle}>{label}</button>;
+/// A chip that toggles a choice on and off, with `icon` before its label.
+export function ChipToggle({ label, selected, onToggle, icon = null }: { label: string; selected: boolean; onToggle(): void; icon?: IconName | null }) {
+  return <button type="button" className="dbtn dchip" aria-pressed={selected} onClick={onToggle}>{icon && <Icon name={icon} size={11} />}{label}</button>;
 }
 
 /// How much a button stands out. A dialog or form has one `primary`, its main action;
