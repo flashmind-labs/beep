@@ -1,34 +1,49 @@
-//! The app's own executable as the command of the agents' Beep MCP server.
-//! The embedded node names it in each session's `session/new`, with
-//! `--dir <node folder> mcp --session <id>`; run that way, the executable
-//! only pipes stdin and stdout to the running app's node and never starts
-//! the app. Being the app itself, it is signed and notarized with it.
+//! The app's own executable as a command the embedded node runs: the
+//! agents' Beep MCP server, named in each session's `session/new` with
+//! `--dir <node folder> mcp --session <id>`, and the bridges that run a
+//! coding agent, such as `claude-acp`. Run that way, the executable serves
+//! that command and never starts the app; otherwise each agent would start
+//! another app, whose node would start another. Being the app itself, it is
+//! signed and notarized with it.
 
-use beep_node::agents::mcp::Invocation;
+use beep_node::agents::{Bridge, mcp::Invocation};
 use std::ffi::OsString;
+use std::future::Future;
 use tokio::runtime::Builder;
 
-/// Runs the pipe when `args` (after the executable) are a session's `mcp`
-/// command, returning the exit status; `None` when they are not, and the
-/// app starts as usual.
+/// Serves the command `args` (after the executable) name, returning the
+/// exit status; `None` when they name none, and the app starts as usual.
 pub fn run<I>(args: I) -> Option<i32>
 where
     I: IntoIterator<Item = OsString>,
 {
-    let invocation = Invocation::parse(args)?;
+    let args: Vec<OsString> = args.into_iter().collect();
+
+    if let Some(invocation) = Invocation::parse(args.clone()) {
+        // Stdout is the MCP stream; the agent logs stderr.
+        return Some(serve("beep mcp", invocation.run()));
+    }
+
+    let bridge = Bridge::parse(args)?;
+    Some(serve("beep agent bridge", bridge.run()))
+}
+
+/// Runs `work` to its end on a runtime of its own, with its error on stderr:
+/// stdout carries the protocol.
+fn serve(name: &str, work: impl Future<Output = anyhow::Result<()>>) -> i32 {
     let ended = Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(anyhow::Error::from)
-        .and_then(|runtime| runtime.block_on(invocation.run()));
-    Some(match ended {
+        .and_then(|runtime| runtime.block_on(work));
+
+    match ended {
         Ok(()) => 0,
         Err(e) => {
-            // Stdout is the MCP stream; the agent logs stderr.
-            eprintln!("beep mcp: {e:#}");
+            eprintln!("{name}: {e:#}");
             1
         }
-    })
+    }
 }
 
 #[cfg(test)]

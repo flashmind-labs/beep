@@ -13,3 +13,11 @@ fn a_session_command_runs_the_pipe_and_fails_without_a_node() {
     let args = ["--dir", "/srv/node", "mcp", "--session", "a3f9c1"].map(OsString::from);
     assert_eq!(run(args), Some(1));
 }
+
+#[test]
+fn a_bridge_command_runs_the_bridge_instead_of_the_app() {
+    // A relay into a distribution that cannot exist fails rather than the
+    // app starting, which would start another node and another bridge.
+    let args = ["wsl-acp", "--wsl", "no such distro!", "--", "/bin/agent"].map(OsString::from);
+    assert_eq!(run(args), Some(1));
+}

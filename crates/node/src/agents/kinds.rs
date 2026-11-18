@@ -6,6 +6,7 @@ use beep_proto::node::harness::{AutoCompact, ModelCompact};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
+    ffi::OsString,
     path::{Path, PathBuf},
     sync::LazyLock,
 };
@@ -89,6 +90,104 @@ pub const RELAY_COMMAND: &str = "wsl-acp";
 /// distribution the agent runs in.
 const WSL_FLAG: &str = "--wsl";
 
+/// A command line, after the binary, that the node starts this executable
+/// with to run a coding agent. `beep-node` reads it with its own parser;
+/// the desktop app, whose own executable it is, reads it with `parse`
+/// before it starts, or every agent would start another app.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Bridge {
+    /// `DIRECT_COMMAND`: Claude Code's CLI `cli` driven over ACP, inside
+    /// WSL when `wsl` is given; `args` go to the CLI.
+    Direct {
+        cli: String,
+        wsl: Option<String>,
+        home: Option<String>,
+        args: Vec<String>,
+    },
+    /// `RELAY_COMMAND`: the ACP `program` run in the distribution `wsl`.
+    Relay {
+        wsl: String,
+        program: String,
+        args: Vec<String>,
+    },
+}
+
+impl Bridge {
+    fn args(&self) -> Vec<String> {
+        let mut line = Vec::new();
+
+        match self {
+            Self::Direct { cli, wsl, home, args } => {
+                line.extend([DIRECT_COMMAND.to_owned(), "--cli".to_owned(), cli.clone()]);
+                line.extend(wsl.iter().flat_map(|wsl| [WSL_FLAG.to_owned(), wsl.clone()]));
+                line.extend(home.iter().flat_map(|home| ["--home".to_owned(), home.clone()]));
+                line.push("--".to_owned());
+                line.extend(args.iter().cloned());
+            }
+            Self::Relay { wsl, program, args } => {
+                line.extend([RELAY_COMMAND.to_owned(), WSL_FLAG.to_owned(), wsl.clone()]);
+                line.extend(["--".to_owned(), program.clone()]);
+                line.extend(args.iter().cloned());
+            }
+        }
+
+        line
+    }
+
+    /// The bridge `args` (after the binary) make, when they are a line
+    /// `args` builds; `None` for anything else.
+    pub fn parse<I>(args: I) -> Option<Self>
+    where
+        I: IntoIterator,
+        I::Item: Into<OsString>,
+    {
+        let args: Vec<String> = args
+            .into_iter()
+            .map(|arg| Into::<OsString>::into(arg).into_string().ok())
+            .collect::<Option<_>>()?;
+        let (command, rest) = args.split_first()?;
+        let split = rest.iter().position(|arg| arg == "--")?;
+        let (flags, tail) = (&rest[..split], &rest[split + 1..]);
+
+        let mut values = BTreeMap::new();
+        for pair in flags.chunks(2) {
+            let [flag, value] = pair else { return None };
+            values.insert(flag.as_str(), value.clone()).is_none().then_some(())?;
+        }
+        let mut take = |flag: &str| values.remove(flag);
+
+        let bridge = match command.as_str() {
+            DIRECT_COMMAND => Self::Direct {
+                cli: take("--cli").unwrap_or_else(|| "claude".to_owned()),
+                wsl: take(WSL_FLAG),
+                home: take("--home"),
+                args: tail.to_vec(),
+            },
+            RELAY_COMMAND => {
+                let (program, args) = tail.split_first()?;
+                Self::Relay {
+                    wsl: take(WSL_FLAG)?,
+                    program: program.clone(),
+                    args: args.to_vec(),
+                }
+            }
+            _ => return None,
+        };
+
+        values.is_empty().then_some(bridge)
+    }
+
+    /// Serves the agent's ACP on this process's stdio until either side ends.
+    pub async fn run(self) -> anyhow::Result<()> {
+        match self {
+            Self::Direct { cli, wsl, home, args } => {
+                super::claude_direct::serve(cli, args, wsl.as_deref(), home.as_deref()).await
+            }
+            Self::Relay { wsl, program, args } => crate::machine::wsl::relay(&wsl, &program, &args).await,
+        }
+    }
+}
+
 /// `kind` runs inside WSL, on the bridge or the relay, which only this node
 /// can start: its program and arguments stay as detection made them.
 pub(super) fn in_wsl(kind: &AgentKind) -> bool {
@@ -130,7 +229,13 @@ pub(super) fn direct(kind: &AgentKind) -> Option<AgentKind> {
         .map_or_else(|| "claude".to_owned(), |path| path.display().to_string());
     Some(AgentKind {
         program: exe.display().to_string(),
-        args: vec![DIRECT_COMMAND.to_owned(), "--cli".to_owned(), cli, "--".to_owned()],
+        args: Bridge::Direct {
+            cli,
+            wsl: None,
+            home: None,
+            args: Vec::new(),
+        }
+        .args(),
         ..kind.clone()
     })
 }
@@ -428,20 +533,24 @@ fn in_wsl_kind(known: &'static Known) -> Option<AgentKind> {
     };
 
     let (args, env) = if known.name == "claude" {
-        let mut args = vec![DIRECT_COMMAND.to_owned(), "--cli".to_owned(), path(known.cli)?];
-        args.extend([WSL_FLAG.to_owned(), distro.to_string()]);
-        args.extend(found.home.iter().flat_map(|home| ["--home".to_owned(), home.to_string()]));
-        args.push("--".to_owned());
-        (args, env(known))
+        let bridge = Bridge::Direct {
+            cli: path(known.cli)?,
+            wsl: Some(distro.to_string()),
+            home: found.home.as_ref().map(ToString::to_string),
+            args: Vec::new(),
+        };
+        (bridge.args(), env(known))
     } else {
         let kind = match launch(known, &|name| path(name).is_some(), None)? {
             Launch::Ready(kind) | Launch::ViaNpx(kind) => kind,
             _ => return None,
         };
-        let mut args = vec![RELAY_COMMAND.to_owned(), WSL_FLAG.to_owned(), distro.to_string()];
-        args.extend(["--".to_owned(), path(&kind.program)?]);
-        args.extend(kind.args);
-        (args, kind.env)
+        let bridge = Bridge::Relay {
+            wsl: distro.to_string(),
+            program: path(&kind.program)?,
+            args: kind.args,
+        };
+        (bridge.args(), kind.env)
     };
     log::info!("{} found in WSL {distro}", known.title);
 

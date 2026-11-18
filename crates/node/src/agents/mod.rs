@@ -80,7 +80,7 @@ host! {
 
     pub(crate) use acp::{Line, LineReader, MAX_MESSAGE};
     pub(crate) use images::{Picture, block_picture};
-    pub use kinds::{AgentKind, DIRECT_COMMAND, RELAY_COMMAND, detect};
+    pub use kinds::{AgentKind, Bridge, DIRECT_COMMAND, RELAY_COMMAND, detect};
     pub(crate) use kinds::adapter_bins;
     pub use moving::SESSIONS_ALPN;
     pub use moving::SessionsAlpn;
