@@ -116,13 +116,30 @@ const DIFF = /^\[diff\] (\S.*?) \+\d+ -\d+$/;
 const NESTED = /^(.*?\/(?:\.worktrees|\.claude\/worktrees)\/[^/]+)/;
 const WORKTREE_WORD = /\bworktree\b/i;
 const MOVES = /^(Enter|Exit)Worktree\b/;
+const FLASHMIND_WORKTREE = /^worktree: Worktree (?:create|switch|list|status)$/;
+
+/// Flashmind reports the active worktree as one record or as part of a list.
+function currentWorktree(output: string): string | null {
+  try {
+    const result: unknown = JSON.parse(output);
+    const rows: unknown[] = Array.isArray(result) ? result : [result];
+    const paths = rows.flatMap(row => {
+      if (!row || typeof row !== "object" || !("current" in row) || row.current !== true) return [];
+      if (!("available" in row) || row.available !== true || !("bare" in row) || row.bare !== false) return [];
+      if (!("path" in row) || typeof row.path !== "string" || !row.path.startsWith("/")) return [];
+      return [bare(row.path)];
+    });
+    return paths.length === 1 ? paths[0] : null;
+  } catch {
+    return null;
+  }
+}
 
 /// The places a tool entry's text names, resolved against `base` (relative
 /// paths) and `cwd` (the paths of diffs, which the node cuts the session's
 /// folder from), in the order they appear. `exit` is an ExitWorktree call
 /// that names none.
-function places(text: string, base: string, cwd: string, directoriesOnly = false) {
-  const { title, output } = parseTool(text);
+function places({ title, output }: ReturnType<typeof parseTool>, base: string, cwd: string, directoriesOnly = false) {
   const found: string[] = [];
   const moves = MOVES.exec(title)?.[1];
   const scan = (words: string) => {
@@ -171,20 +188,29 @@ export function follow(entries: readonly Entry[], trees: readonly Tree[], cwd: s
   const out: Followed = { last, hit: false, done: 0, kept: last, unknown: [] };
   let settled = true;
   entries.forEach((en, i) => {
-    const { title, status } = parseTool(en.kind === "tool" ? en.text : "");
+    const parsed = parseTool(en.kind === "tool" ? en.text : "");
+    const { title, status, output } = parsed;
     const running = status === "pending" || status === "in_progress";
 
     if (en.kind === "tool" && status !== "failed") {
       if (WORKTREE_WORD.test(title)) out.unknown.push(title.split("\n")[0].slice(0, 200));
-      if (trees.length) {
+      if (FLASHMIND_WORKTREE.test(title)) {
+        const current = status === "completed" ? currentWorktree(output) : null;
+        if (current) {
+          // Match a listed root, even when the agent returned to its launch checkout.
+          const tree = trees.find(t => bare(t.path) === current);
+          if (tree) { out.last = rootOf(tree, cwd); out.hit = true; }
+          else out.unknown.push(current);
+        }
+      } else if (trees.length) {
         // Creating a worktree alone is not a move. A directory in the same
         // command still confirms usage, including `worktree add ... && cd ...`.
         const creating = WORKTREE_WORD.test(title) && !MOVES.test(title);
-        const { found, exit } = places(en.text, out.last, cwd, creating);
+        const { found, exit } = places(parsed, out.last, cwd, creating);
         const directory = workingDirectory(en);
         if (directory) found.push(resolvePath(cwd, directory));
         const editing = /^(?:Edit|Write|Create|Delete|Move|apply_patch)\b/i.test(title)
-          || parseTool(en.text).output.split("\n").some(line => DIFF.test(line));
+          || output.split("\n").some(line => DIFF.test(line));
         if (exit) { out.last = bare(cwd); out.hit = true; }
 
         for (const path of found) {

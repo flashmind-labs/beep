@@ -85,6 +85,17 @@ test("EnterWorktree and ExitWorktree move the agent by the path they report", ()
   assert.equal(left.hit, true);
 });
 
+test("Flashmind follows the active row in a list and can switch back to the launch checkout", () => {
+  const row = (path: string, current: boolean) => ({ path, current, available: true, bare: false });
+  const create = tool(`worktree: Worktree create [completed]\n${JSON.stringify(row(fix.path, false))}`);
+  const list = tool(`worktree: Worktree list [completed]\n${JSON.stringify([row(main.path, false), row(fix.path, true), row(side.path, false)])}`);
+  const back = tool(`worktree: Worktree switch [completed]\n${JSON.stringify(row(main.path, true))}`);
+  assert.equal(where([create]).hit, false);
+  assert.equal(where([create, list]).last, fix.path);
+  assert.equal(where([create, list, back]).last, main.path);
+  assert.equal(where([tool(`worktree: Worktree status [completed]\n${JSON.stringify(row(`${fix.path}/missing`, true))}`)]).hit, false);
+});
+
 test("a running call is read again: only the entries before it are settled", () => {
   const got = where([
     tool("cd /srv/app-side [completed]"),

@@ -114,6 +114,21 @@ test("Git list changes reveal candidates, edits confirm usage, and main reads pr
   assert.equal(paneRoot(), main.path);
 });
 
+test("Flashmind's active worktree appears in the picker after Git refreshes the list", async () => {
+  const host = setup("flashmind", [main]);
+  await flush();
+  answers.agent_worktrees = [main, { ...fix, created: false }];
+  followAgent([
+    tool(`worktree: Worktree create [completed]\n${JSON.stringify({ path: fix.path, current: true, available: true, bare: false })}`),
+    tool("exec: cargo check [completed]"),
+  ], 0, null);
+  await flush();
+  assert.equal(paneRoot(), fix.path);
+  assert.equal(host.querySelector(".agwt code")?.textContent, fix.branch);
+  click(host, ".agwt");
+  assert.match(host.querySelector('[aria-checked="true"][role="menuitemradio"]')?.textContent ?? "", /\.worktrees\/fix.*agent here/);
+});
+
 test("the menu lists the worktrees the session made, and every one with Show all", async () => {
   const other: Tree = {path: "/srv/app/.worktrees/other", branch: "other", head: "abc1234", own: false, created: false};
   const host = setup("made", [main, fix, other]);
