@@ -4,9 +4,9 @@
 /// The pages of Settings, in the order the left pane lists them, with the
 /// words its search also finds them by.
 const SETTINGS_PAGES = [
-  ["general", "General", "name updates developer version"],
+  ["general", "General", "name updates version"],
   ["appearance", "Appearance", "skin theme colors paintings motion"],
-  ["mac", "This computer", "autostart notifications save folder downloads"],
+  ["mac", "This computer", "control screen recording accessibility"],
   ["machines", "Machines", "nodes devices"],
   ["agents", "Agent accounts", "login sign in models coding agents"],
   ["assistant", "Assistant", ""],
@@ -17,6 +17,24 @@ const SETTINGS_PAGES = [
 ] as const;
 
 export type SettingsPage = (typeof SETTINGS_PAGES)[number][0];
+
+/// The rows search finds by title, under the page that shows them, titled
+/// as the page titles them.
+export const SETTING_ROWS: readonly (readonly [SettingsPage, string])[] = [
+  ["general", "Launch at login"],
+  ["general", "Coding agent notifications"],
+  ["general", "Sync coding agent skills"],
+  ["general", "Project sync"],
+  ["general", "Save files to"],
+  ["general", "Keyboard shortcuts"],
+  ["general", "Developer mode"],
+  ["general", "Report a problem"],
+  ["appearance", "Projects"],
+  ["appearance", "Conversation scrollbar"],
+  ["appearance", "Prompt marks"],
+  ["mac", "Let Beep use this computer"],
+  ["assistant", "Harness"],
+];
 
 /// A subpage, by what it shows: a machine, or a coding agent's settings.
 export type SettingsSub =
@@ -126,33 +144,37 @@ export function rememberPath(store: Store | null | undefined, path: SettingsPath
   }
 }
 
-/// Whether `query` finds `page`: each of its words starts a word of the
-/// page's name or search words.
-function pageMatches(page: SettingsPage, query: string) {
-  const entry = SETTINGS_PAGES.find(([p]) => p === page);
-  return entry ? wordsMatch(`${entry[1]} ${entry[2]}`, query) : false;
-}
-
 function wordsMatch(text: string, query: string) {
   const words = text.toLowerCase().split(/\s+/);
   return query.toLowerCase().split(/\s+/).filter(Boolean).every(q => words.some(w => w.startsWith(q)));
 }
 
-/// The left pane while searching: each page `query` finds, then each
-/// subpage whose name it finds, such as Codex under Agent accounts.
+/// The left pane while searching. First what `query` finds by name: pages,
+/// subpages such as Codex under Agent accounts, and rows such as Developer
+/// mode under General. Then the pages it finds only by their search words.
+/// Each word of `query` starts a word of what it finds.
 export function searchEntries(shown: readonly SettingsPage[], path: SettingsPath, query: string, subs: (page: SettingsPage) => readonly SettingsSub[], subName: (sub: SettingsSub) => string): NavEntry[] {
-  return shown.flatMap(page => {
-    const own: NavEntry[] = pageMatches(page, query) ? [{ page, sub: null, current: path.page === page && !path.sub }] : [];
-    const kids = subs(page).filter(sub => wordsMatch(subName(sub), query))
-      .map(sub => ({ page, sub, current: path.sub?.kind === sub.kind && path.sub.id === sub.id }));
+  const page = (page: SettingsPage): NavEntry => ({ page, sub: null, setting: null, current: path.page === page && !path.sub });
+  const named = shown.flatMap(p => {
+    const own = wordsMatch(pageLabel(p), query) ? [page(p)] : [];
+    const kids = subs(p).filter(sub => wordsMatch(subName(sub), query))
+      .map(sub => ({ page: p, sub, setting: null, current: path.sub?.kind === sub.kind && path.sub.id === sub.id }));
     return [...own, ...kids];
   });
+  const rows = SETTING_ROWS.filter(([p, title]) => shown.includes(p) && wordsMatch(title, query))
+    .map(([p, setting]) => ({ page: p, sub: null, setting, current: false }));
+  const byWords = SETTINGS_PAGES.filter(([p, label, words]) => shown.includes(p) && !wordsMatch(label, query) && wordsMatch(`${label} ${words}`, query)).map(([p]) => page(p));
+
+  return [...named, ...rows, ...byWords];
 }
 
-/// One entry of the left pane: a page, or a subpage nested under it.
+/// One entry of the left pane: a page, a subpage nested under it, or, while
+/// searching, a row of the page.
 export interface NavEntry {
   page: SettingsPage;
   sub: SettingsSub | null;
+  /// The title of the row this entry points at.
+  setting: string | null;
   /// The entry open in the right pane.
   current: boolean;
 }
@@ -162,9 +184,9 @@ export interface NavEntry {
 export function navEntries(shown: readonly SettingsPage[], path: SettingsPath, subs: (page: SettingsPage) => readonly SettingsSub[]): NavEntry[] {
   return shown.flatMap(page => {
     const here = path.page === page;
-    const own: NavEntry = { page, sub: null, current: here && !path.sub };
+    const own: NavEntry = { page, sub: null, setting: null, current: here && !path.sub };
     if (!here) return [own];
-    const kids = subs(page).map(sub => ({ page, sub, current: !!path.sub && path.sub.kind === sub.kind && path.sub.id === sub.id }));
+    const kids = subs(page).map(sub => ({ page, sub, setting: null, current: !!path.sub && path.sub.kind === sub.kind && path.sub.id === sub.id }));
     return [own, ...kids];
   });
 }

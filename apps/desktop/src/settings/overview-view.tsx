@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { CODING_AGENTS, subKey, type SettingsSub } from "./settings-nav.ts";
 import { onRowKey, SkeletonRows } from "../ui/kit.tsx";
@@ -6,9 +8,23 @@ import { harnessName } from "./providers-state.ts";
 import type { Machine } from "../machines/machines.tsx";
 import { Button } from "../ui/kit.tsx";
 
+/// The row Settings search picked: it scrolls into view, takes focus and
+/// shows marked for a moment.
+export const pointedSetting = createStore<{ title: string | null }>()(() => ({ title: null }));
+
 /// A settings row: title and note on the left, its control on the right. `extra` goes under the note.
 export function SettingRow({ title, note, id, extra = null, children }: { title: ReactNode; note: ReactNode; id?: string; extra?: ReactNode; children: ReactNode }) {
-  return <div id={id} className="dtoggle"><span><b>{title}</b><small>{note}</small>{extra}</span>{children}</div>;
+  const pointed = useStore(pointedSetting, state => state.title !== null && state.title === title);
+  const row = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!pointed) return;
+    row.current?.scrollIntoView({ block: "center" });
+    row.current?.querySelector<HTMLElement>("button:not([disabled]), input:not([disabled])")?.focus({ preventScroll: true });
+    const done = setTimeout(() => pointedSetting.setState({ title: null }), 1600);
+    return () => clearTimeout(done);
+  }, [pointed]);
+
+  return <div ref={row} id={id} className={pointed ? "dtoggle pointed" : "dtoggle"}><span><b>{title}</b><small>{note}</small>{extra}</span>{children}</div>;
 }
 
 export function CodingAgentOverview({ open }: { open(sub: SettingsSub): void }) {

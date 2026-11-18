@@ -29,10 +29,13 @@ test("a restored page falls back when it is not shown or its subpage is gone", (
 
 test("search finds pages by name or search word, and subpages by name", () => {
   const subs = (page: SettingsPage): SettingsSub[] => page === "agents" ? [{ kind: "agent", id: "codex" }] : [];
-  const find = (query: string) => searchEntries(ALL, FIRST_PAGE, query, subs, () => "Codex").map(e => e.sub ? e.sub.id : e.page);
+  const find = (query: string) => searchEntries(ALL, FIRST_PAGE, query, subs, () => "Codex").map(e => e.setting ?? e.sub?.id ?? e.page);
   assert.deepEqual(find("cred"), ["creds"]);
   assert.deepEqual(find("TOKENS"), ["creds"]);
-  assert.deepEqual(find("this comp"), ["mac"]);
+  assert.deepEqual(find("this comp"), ["mac", "Let Beep use this computer"]);
+  assert.deepEqual(find("dev mode"), ["Developer mode"]);
+  // A row's title comes before a page found only by its search words.
+  assert.deepEqual(find("prompt"), ["Prompt marks", "instr"]);
   assert.deepEqual(find("codex"), ["codex"]);
   assert.deepEqual(find("xyz"), []);
 });

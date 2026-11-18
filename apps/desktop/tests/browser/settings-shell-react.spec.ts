@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
+import { SETTING_ROWS } from "../../src/settings/settings-nav.ts";
 
 test("Settings navigation survives refresh, supports subpages and cleans up", async ({ page }) => {
   await openDesktop(page, false, { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [] });
@@ -80,11 +81,29 @@ test("Settings search opens the first page it finds on Enter", async ({ page }) 
   const search = nav.getByRole("searchbox", { name: "Search settings" });
   await expect(search).toBeFocused();
   await search.fill("skil");
-  await expect(nav.getByRole("button")).toHaveText(["Skills"]);
+  await expect(nav.getByRole("button")).toHaveText(["Skills", /^Sync coding agent skills/]);
   await page.keyboard.press("Enter");
   await expect(nav.getByRole("button", { name: "Skills", exact: true })).toHaveAttribute("aria-current", "true");
   await expect(search).toHaveValue("");
   await search.fill("codex");
   await nav.getByRole("button", { name: /Codex/ }).click();
   await expect(settings.getByRole("button", { name: "Back to Agent accounts" })).toBeVisible();
+});
+
+test("Settings search points at a row, and every row it finds is on its page", async ({ page }) => {
+  await openDesktop(page, false, { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false }, list_machines: [] });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  const nav = settings.getByRole("navigation", { name: "Settings pages" });
+  const search = nav.getByRole("searchbox", { name: "Search settings" });
+  await search.fill("developer");
+  await page.keyboard.press("Enter");
+  await expect(settings.locator(".dtoggle.pointed")).toContainText("Developer mode");
+  await expect(settings.getByRole("switch", { name: "Developer mode" })).toBeFocused();
+  for (const [where, title] of SETTING_ROWS) {
+    const button = nav.locator(`[data-goto="${where}"]`);
+    if (!await button.count()) continue;
+    await button.click();
+    await expect(settings.locator(".dset-page .dtoggle > span > b", { hasText: new RegExp(`^${title}$`) }), `${title} under ${where}`).toHaveCount(1);
+  }
 });

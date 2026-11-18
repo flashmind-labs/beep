@@ -175,7 +175,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dfield input.mono { font-family: var(--mono); letter-spacing: .12em; font-size: 15px; text-transform: var(--label-case) }
 .dfield .note { font-size: 12px; color: var(--muted) } .dfield .note.why { color: var(--fg) } .dfield .note.why:empty { display: none } .dfield.err .note { color: var(--err) }
 .dform .row { display: flex; gap: 8px; align-items: center; justify-content: flex-end }
-.dtoggle { display: flex; gap: 12px; align-items: center }
+.dtoggle { display: flex; gap: 12px; align-items: center; transition: background-color .4s }
+.dtoggle.pointed { background: var(--ctl-fill-hi); box-shadow: 0 0 0 6px var(--ctl-fill-hi); border-radius: var(--radius-sm) }
 .dtoggle span { flex: 1; display: grid; line-height: 19px }
 .dtoggle span.dtag { flex: none; display: inline-block; line-height: 15px }
 .dtoggle b { font-weight: 500; font-size: 13.5px }
