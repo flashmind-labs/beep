@@ -7,6 +7,30 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.1] - 2026-11-18
+
+### Added
+
+- Desktop: the project menu has "Sync rules…" under "Sync on all
+  machines". It opens a sheet to write rules in .gitignore syntax.
+  Every machine applies them to the project's sync, so no
+  .beepignore needs to be committed.
+
+### Changed
+
+- Desktop: downloads are available from GitHub Releases.
+- Desktop: deleting a session that is open in a terminal or IDE first ends the process holding it, asking it to exit and stopping it after 5 seconds. A session with no known process still refuses to delete.
+- Desktop: project issue numbers appear beneath the title with the issue details.
+
+### Fixed
+
+- Desktop: earlier assistant chats stay listed on the Assistant page
+  after they end or the machine's node restarts. Before, only chats
+  still running showed there.
+- Desktop: with Claude Code on the Direct driver, opening Beep no longer starts copies of itself over and over; the Claude Code bridge runs without starting the app.
+- Desktop: the palette finds a project by its displayed name, not only its id.
+- Desktop: a project's sessions list now shows in the left bar in small windows too, not only above 1200px.
+
 ## [0.10.0] - 2026-11-17
 
 ### Added
