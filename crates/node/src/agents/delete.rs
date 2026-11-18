@@ -5,7 +5,11 @@ use super::{Agents, found::Agent};
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::Status;
 use beep_proto::watched;
-use tokio::task::spawn_blocking;
+use std::time::Duration;
+use tokio::{
+    task::spawn_blocking,
+    time::{sleep, timeout},
+};
 
 /// The longest session id accepted.
 const MAX_ID: usize = 128;
@@ -22,7 +26,7 @@ pub(super) fn valid_id(id: &str) -> bool {
 
 impl Agents {
     /// Deletes session `id` of the harness `agent`, the agent's own id or
-    /// this node's. It refuses one that runs or that a process has open,
+    /// this node's. It refuses one that runs here, ends the process that has it open,
     /// and the harnesses that keep sessions in a database. The agent's
     /// files go first, then the node's record of it, so a failure leaves
     /// the session listed. What it spent stays in the spend totals.
@@ -132,7 +136,26 @@ impl Agents {
         Ok(())
     }
 
+    /// Ends the process that has the session's files open, so the delete
+    /// that follows finds them closed. Nothing happens for a session no
+    /// process is known to hold.
+    async fn end_holder(&self, agent: Agent, id: &SessionId) -> Result<()> {
+        let mut owned = self.owned();
+        owned.remove(id);
+
+        if let Some(pid) = self
+            .find_external(agent, id, owned)
+            .await?
+            .and_then(|found| found.pid)
+        {
+            end_process(pid).await?;
+        }
+
+        Ok(())
+    }
+
     async fn delete_files(&self, agent: Agent, id: &SessionId, ours: bool) -> Result<bool> {
+        self.end_holder(agent, id).await?;
         self.check_closed_files(agent, id, ours).await?;
 
         match agent {
@@ -144,6 +167,52 @@ impl Agents {
             }
         }
     }
+}
+
+/// How long a process gets to exit after being asked to.
+const EXIT_WAIT: Duration = Duration::from_secs(5);
+
+/// Asks process `pid` to exit and waits for it; kills it when it does not.
+#[cfg(unix)]
+async fn end_process(pid: u32) -> Result<()> {
+    use rustix::process::{Pid, Signal, kill_process, test_kill_process};
+
+    let pid = i32::try_from(pid)
+        .ok()
+        .and_then(Pid::from_raw)
+        .with_context(|| format!("{pid} is not a process id"))?;
+    let gone = || test_kill_process(pid).is_err();
+
+    if kill_process(pid, Signal::TERM).is_err() {
+        return Ok(());
+    }
+
+    let _ = timeout(EXIT_WAIT, async {
+        while !gone() {
+            sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await;
+
+    if !gone() {
+        let _ = kill_process(pid, Signal::KILL);
+        sleep(Duration::from_millis(200)).await;
+    }
+
+    Ok(())
+}
+
+/// Ends process `pid` and its children with `taskkill`.
+#[cfg(windows)]
+async fn end_process(pid: u32) -> Result<()> {
+    let status = tokio::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .status()
+        .await
+        .context("could not run taskkill")?;
+    ensure!(status.success(), "could not end process {pid}");
+
+    Ok(())
 }
 
 #[cfg(all(test, unix))]
