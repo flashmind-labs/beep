@@ -2,6 +2,28 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.1] - 2026-11-18
+
+### Added
+
+- Node: applies a project's sync rules from the mesh after its
+  .beepignore, and rescans the project when those rules change.
+
+### Changed
+
+- Node: downloads are available from GitHub Releases, and container images are published to GitHub Container Registry.
+- Node: deleting a session that is open in a terminal or IDE first ends the process holding it, asking it to exit and stopping it after 5 seconds. A session with no known process still refuses to delete.
+- Node: read-only PR reviews inspect the PR head by ref and keep the current checkout intact.
+
+### Fixed
+
+- Node: ended assistant chats are remembered across restarts and
+  reported as assistant chats, so they stay listed on the Assistant
+  page after they end or the node restarts. Before, only chats still
+  running showed there.
+- Node: Conversation search includes supported agent histories outside imported projects.
+- Node: file sync no longer misses changes after abrupt restarts.
+
 ## [0.8.0] - 2026-11-17
 
 ### Added

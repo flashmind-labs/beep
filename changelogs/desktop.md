@@ -7,6 +7,38 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.2] - 2026-11-18
+
+### Added
+
+- Desktop: the Sync gitignored sheet reads the project's .gitignore and
+  suggests the plain folders it lists, as the text box placeholder and as
+  chips you click to add or remove a folder. A long list shows eight chips
+  and a "more" chip. Ignored files it lists are named on one line, since
+  only folders sync for now.
+- Desktop: in the notifications pane (Cmd+B), pressing X dismisses the
+  focused notification and moves focus to the next one.
+- Desktop: the Settings sheet (cmd+,) has a search field at the top of
+  its left pane, focused as soon as the sheet opens. It finds pages,
+  subpages such as a coding agent or a machine, and single settings such
+  as Developer mode; Enter opens the first match and a setting is
+  scrolled to and marked.
+
+### Changed
+
+- Desktop: the Reply button on Home's Issues and Pull requests lists is
+  now a three-dot menu. Issues offer "Fix with agent" (opens the project
+  with its agent bar ready to work the issue in a new worktree), "Reply
+  with agent" and "Open project". Pull requests offer "Reply with agent"
+  and "Open project", which opens the project at its pull requests.
+- Desktop: agent PR reviews run in the existing checkout without creating a worktree.
+
+### Fixed
+
+- Desktop: Cmd+K finds and opens conversations across your history.
+- Desktop: Open on GitHub and Open on Forgejo now open the pull request in your browser.
+- Desktop: Files and Changes follow the active worktree and show the correct branch in the picker.
+
 ## [0.10.1] - 2026-11-18
 
 ### Added
