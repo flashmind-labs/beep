@@ -4,8 +4,9 @@ import { invoke } from "../ui/tauri.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.tsx";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.tsx";
-import { projectStart, projectsWithOpen, type GitItemRow, type GitItemsView, type Hosts, type StartProject } from "./openitems-state.ts";
-import { agentButtons, earlierReview, startContinue, startReview } from "../project/composer.tsx";
+import { projectStart, projectsWithOpen, replyStart, type GitItemRow, type GitItemsView, type Hosts, type StartProject } from "./openitems-state.ts";
+import { agentButtons, earlierReview, startContinue, startReview, workOnIssue } from "../project/composer.tsx";
+import type { MenuItem } from "../ui/menu.tsx";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import type { AgentButtonItem } from "../review/feedback-view.tsx";
@@ -49,6 +50,17 @@ export function continueButton(item: GitItemRow, project: StartProject, machines
   });
 }
 
+/// The row menu of an item of `project`: Fix with agent fills the project's
+/// bar to work on an issue, Reply with agent opens the start form, and Open
+/// project shows the project's issues or pull requests.
+export function itemMenu(item: GitItemRow, project: StartProject, machines: Hosts): MenuItem[] {
+  const reply = { label: "Reply with agent", on: () => go("pane", { agentnew: { ...replyStart(item, project, machines), assistant: false } }) };
+  const open = { label: "Open project", on: () => go("projects", { project: project.name, tile: item.kind === "issue" ? "issues" : "prs" }) };
+  if (item.kind === "pull_request") return [reply, open];
+
+  const fix = { label: "Fix with agent", on: () => { go("projects", { project: project.name }); workOnIssue(project.name, item); } };
+  return [fix, reply, { kind: "separator" }, open];
+}
 
 export type OpenRepo = ReturnType<typeof projectsWithOpen>[number];
 

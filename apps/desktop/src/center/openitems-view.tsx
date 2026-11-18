@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Dropdown } from "../ui/dropdown.tsx";
 import { Icon } from "../ui/icons.tsx";
 import { RepoSection } from "../project/outside-lists.tsx";
-import { GIT_SORTS, parseGitSort, replyStart, projectsWithOpen, type GitItemRow, type GitItemsView, type GitSort } from "./openitems-state.ts";
-import { continueButton, openUrl, quickImport, reviewButton, rowImports } from "./openitems.ts";
+import { GIT_SORTS, parseGitSort, projectsWithOpen, type GitItemRow, type GitItemsView, type GitSort } from "./openitems-state.ts";
+import { continueButton, itemMenu, openUrl, quickImport, reviewButton, rowImports } from "./openitems.ts";
 import { projectRows, projectWindowProps } from "./sidebar.tsx";
 import { state } from "./state.ts";
 import { go } from "./views.tsx";
@@ -17,7 +17,7 @@ function Column({ kind, title, none, view, sort }: { kind: GitItemRow["kind"]; t
   const machines = state.home?.machines?.filter(m => m.can_host !== false);
   const repos = rows.map(row => {
     const importing = rowImports.get(row.key), project = row.project;
-    const start = project && { continue: (item: GitItemRow) => continueButton(item, project, machines), review: (item: GitItemRow) => reviewButton(item, project, machines), reply: (item: GitItemRow) => go("pane", { agentnew: { ...replyStart(item, project, machines), assistant: false } }) };
+    const start = project && { continue: (item: GitItemRow) => continueButton(item, project, machines), review: (item: GitItemRow) => reviewButton(item, project, machines), menu: (item: GitItemRow) => itemMenu(item, project, machines) };
     return { key: `${kind} ${row.key}`, name: row.repo, failed: importing && importing !== "busy" ? importing.error : null, last: row.last, open: true, items: row.items, start: start || null,
       action: project ? { label: "Open project", windowProps: projectWindowProps(project.name), run: () => go("projects", { project: project.name }) } : { label: importing === "busy" ? "Importing…" : "Import project", disabled: importing === "busy", run: () => { void quickImport(row); } } };
   });

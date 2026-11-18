@@ -346,15 +346,18 @@ export function pointBar(name: string, machine: string | null) {
   if (machine && barProject()?.places.some(p => p.machine === machine)) pc.machine = machine;
 }
 
+/// What working on an issue needs of it.
+type IssueStart = Pick<IssueRow, "number" | "title" | "url">;
+
 /// Work on it: the bar on a new worktree for the issue, from the default
 /// branch, with the issue's prompt.
-export function workOnIssue(name: string, issue: IssueRow) {
+export function workOnIssue(name: string, issue: IssueStart) {
   const task = issueTask(name, issue);
   fillBar(name, task.prompt, task.target);
 }
 
 /// Work on it's task: a new worktree for the issue, from the default branch.
-function issueTask(name: string, issue: IssueRow): AgentTask {
+function issueTask(name: string, issue: IssueStart): AgentTask {
   const base = baseFor(null, pc.branches.get(name));
   return { prompt: issuePrompt(issue), target: { kind: "issue", number: issue.number, branch: issueBranch(issue.number, issue.title), base, task: { kind: "issue", number: issue.number } } };
 }
