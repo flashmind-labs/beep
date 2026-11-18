@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cachedCommandHtml, commandHtml, heredocLang, segments } from "../src/agents/command-state.ts";
+import { cachedCommandHtml, heredocLang, segments } from "../src/agents/command-state.ts";
 
 test("a heredoc body takes the language of the interpreter that reads it", () => {
   assert.equal(heredocLang("python3 - "), "Python");
@@ -40,14 +40,10 @@ test("a heredoc with no end line runs to the end of the command", () => {
 });
 
 test("the command is colored and everything is escaped", () => {
-  const html = commandHtml("echo \"<b>hi</b>\" # <script>\npython3 - <<'PY'\nif x:\n    print('<img onerror=1>')\nPY");
+  const html = cachedCommandHtml("echo \"<b>hi</b>\" # <script>\npython3 - <<'PY'\nif x:\n    print('<img onerror=1>')\nPY");
   assert.ok(html.includes('<span class="s">&quot;&lt;b&gt;hi&lt;/b&gt;&quot;</span>'));
   assert.ok(html.includes('<span class="c"># &lt;script&gt;</span>'));
   assert.ok(html.includes('<span class="k">if</span>'));
   assert.ok(!/<(b|script|img)[ >]/.test(html));
-});
-
-test("a colored command is kept by its text", () => {
-  assert.equal(cachedCommandHtml("echo 1"), cachedCommandHtml("echo 1"));
-  assert.equal(cachedCommandHtml("echo 1"), commandHtml("echo 1"));
+  assert.equal(cachedCommandHtml("echo done"), "echo done");
 });

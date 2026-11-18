@@ -68,18 +68,6 @@ fn snapshot_subscriptions_roundtrip_compact_messagepack() {
 }
 
 #[test]
-fn subscriptions_match_a_resource_a_namespace_or_everything() {
-    let event = Topic::keyed("files", "/srv/project");
-    assert!(event.matches(&event));
-    assert!(Topic::new("files").matches(&event));
-    assert!(Topic::new("*").matches(&event));
-    assert!(!Topic::keyed("files", "/srv/other").matches(&event));
-    assert!(!Topic::new("reviews").matches(&event));
-    assert!(event.matches(&Topic::new("files")));
-    assert!(!Topic::keyed("files", "bad\0path").valid());
-}
-
-#[test]
 fn dedicated_protocols_reject_each_others_operations() {
     use crate::node::{commands, subscriptions};
     let call = commands::Request::Call {

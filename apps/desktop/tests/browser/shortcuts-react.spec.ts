@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-test("shortcuts filter keeps focus and closes with Escape", async ({ page }, testInfo) => {
+test("shortcuts filter keeps focus and closes with Escape", { tag: "@windows" }, async ({ page }, testInfo) => {
   await openDesktop(page, true);
   const modifier = testInfo.project.name === "Windows" ? "Control" : "Meta";
   await page.keyboard.press(`${modifier}+/`);

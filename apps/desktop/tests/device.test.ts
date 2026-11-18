@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   type DeviceInput, type DeviceMachine, buttonsFor, defaultPick, fitRect, rotatedSize, keyInput, maxSide, missingLine, pickValue, queueInput,
-  keptPick, readKeptDevice, readMachines, readPickValue, readPlatforms, readScreenMessage, showsDeviceTab, touchPoint, commandName, deviceCall, followedDevice, targetPick,
+  keptPick, readKeptDevice, readMachines, readPickValue, readPlatforms, readScreenMessage, touchPoint, commandName, deviceCall, followedDevice, targetPick,
 } from "../src/agentpane/device-state.ts";
 
 const device = (id: string, state: "Off" | "Booting" | "On" = "Off") => ({ id, name: id, platform: "Android" as const, state, os: null, phone: false });
@@ -37,13 +37,6 @@ test("the pick is a device of the project's platform, wherever it is", () => {
   // No device of the platform: nothing picked.
   assert.equal(defaultPick([mixed[0]], "linux", null, ["Ios"]), null);
   assert.equal(defaultPick(mixed, "linux", null, []), null);
-});
-
-test("only a mobile project with a device host has the tab", () => {
-  const hosts = [{ machine_id: "mac", machine_name: "mac-box" }];
-  assert.equal(showsDeviceTab(["Ios"], hosts), true);
-  assert.equal(showsDeviceTab([], hosts), false);
-  assert.equal(showsDeviceTab(["Android"], []), false);
 });
 
 test("a platform no machine has a device for gets one line", () => {

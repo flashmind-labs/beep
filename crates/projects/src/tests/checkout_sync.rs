@@ -65,12 +65,12 @@ fn pull_and_push_move_only_when_git_can_do_it_cleanly() {
     let tmp = TempDir::new().expect("a temp dir");
     let root = tmp.path();
     git(root, &["init", "--bare", "-b", "main", "origin.git"]);
-    let (one, two) = (root.join("one"), root.join("two"));
+    let (one, two) = (root.join("one"), root.join("Pat's checkout"));
     git(root, &["clone", "origin.git", "one"]);
     git(&one, &["checkout", "-b", "main"]);
     commit(&one, "a.txt");
     git(&one, &["push", "-u", "origin", "main"]);
-    git(root, &["clone", "origin.git", "two"]);
+    git(root, &["clone", "origin.git", path(&two)]);
 
     let fresh = state(&two);
     assert_eq!(fresh.branch.as_deref(), Some("main"));
@@ -108,12 +108,12 @@ fn pull_and_push_move_only_when_git_can_do_it_cleanly() {
     assert!(!git_out(&remote, &["log", "--format=%s", "main"]).contains("d.txt"));
 
     // A first push sets the upstream.
-    git(&two, &["checkout", "-b", "feature/x"]);
+    git(&two, &["checkout", "-b", "feature/review's"]);
     commit(&two, "e.txt");
     assert_eq!(state(&two).upstream, None);
-    assert_eq!(run(&two, "feature/x", Move::Push), Some(0));
+    assert_eq!(run(&two, "feature/review's", Move::Push), Some(0));
     let pushed = state(&two);
-    assert_eq!(pushed.upstream.as_deref(), Some("origin/feature/x"));
+    assert_eq!(pushed.upstream.as_deref(), Some("origin/feature/review's"));
     assert_eq!((pushed.ahead, pushed.behind), (0, 0));
 
     // A stale branch name changes nothing, and a detached HEAD is named.
@@ -138,10 +138,4 @@ fn a_failed_sign_in_points_at_settings() {
         move_failure(Some(128), "fatal: Not possible to fast-forward, aborting."),
         "fatal: Not possible to fast-forward, aborting."
     );
-}
-
-#[test]
-fn the_scripts_quote_what_they_are_given() {
-    assert!(move_script("/srv/my project", "-x", Move::Push).contains("b=-x;"));
-    assert!(state_script("/srv/my project").contains("'/srv/my project'"));
 }

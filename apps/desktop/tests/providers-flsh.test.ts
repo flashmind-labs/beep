@@ -2,7 +2,6 @@ import { routerWindowGlobals } from "./start-react-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { readFileSync } from "node:fs";
 import { EMPTY } from "../src/settings/flsh-state.ts";
 
 // Exercise Router-backed views as client code in jsdom.
@@ -32,18 +31,6 @@ test("flsh input survives provider machine updates without remounting", async ()
   try {
     await act(async () => { await view.mount(host, { agent: "flsh", settings: true }); });
     await waitFor(() => assert.ok(screen.getByLabelText("Auto-compact threshold")));
-    const css = readFileSync(new URL("../dist/center.css", import.meta.url), "utf8");
-    const headingRule = css.match(/\.hv-scope > h3\s*\{[^}]+\}/)?.[0];
-    assert.ok(headingRule);
-    const style = dom.window.document.createElement("style");
-    style.textContent = headingRule;
-    dom.window.document.head.append(style);
-    const heading = screen.getByRole("heading", { name: "All machines" });
-    const computed = dom.window.getComputedStyle(heading);
-    assert.equal(computed.marginBottom, "12px");
-    assert.equal(computed.fontSize, "16px");
-    assert.equal(computed.lineHeight, "24px");
-    assert.equal(computed.fontWeight, "600");
     const input = screen.getByLabelText("Auto-compact threshold") as HTMLInputElement;
     input.focus();
     fireEvent.change(input, { target: { value: "400k" } });

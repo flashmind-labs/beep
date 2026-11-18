@@ -143,6 +143,23 @@ fn branches_join_local_and_pushed_and_put_the_default_first() {
 }
 
 #[test]
-fn the_branches_script_quotes_what_it_is_given() {
-    assert!(branches_script("/srv/project", "two words").contains("d='two words'"));
+fn branches_are_listed_for_a_checkout_with_spaces_and_an_apostrophe() {
+    let tmp = TempDir::new().expect("a temp dir");
+    let folder = tmp.path().join("Pat's checkout");
+    fs::create_dir(&folder).expect("a checkout folder");
+    git(&folder, &["init", "-b", "main"]);
+    git(&folder, &["commit", "--allow-empty", "-m", "Initial"]);
+    git(&folder, &["branch", "release/one"]);
+
+    let script = branches_script(folder.to_str().expect("a UTF-8 path"), "release/one");
+    let output = Command::new("sh")
+        .args(["-c", &script])
+        .output()
+        .expect("sh runs");
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8(output.stdout).expect("branch listing is UTF-8");
+    let (default, branches) = parse_branches(&text).expect("the branch listing parses");
+    assert_eq!(default, "release/one");
+    let names: Vec<_> = branches.iter().map(|branch| branch.name.as_str()).collect();
+    assert_eq!(names, ["release/one", "main"]);
 }

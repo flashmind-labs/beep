@@ -1,21 +1,12 @@
 import { calls, answers, nativeEvent } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { matchesTopic, type MeshEvent, refreshTopicSubscriptions, subscribeChanges, subscribeEach, topic } from "../src/ui/mesh-events.ts";
+import { type MeshEvent, refreshTopicSubscriptions, subscribeChanges, subscribeEach, topic } from "../src/ui/mesh-events.ts";
 import { invoke } from "../src/ui/tauri.ts";
 import { clearViews, installViews, snapshotView } from "../src/ui/snapshot-state.ts";
 
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));
 type Reader = { id: string; topics: unknown[]; onEvent: { onmessage(event: MeshEvent): void } };
-
-test("resource, namespace and all-topic subscriptions match plugin events", () => {
-  const event = topic("plugin.example", "resource");
-  assert.equal(matchesTopic(topic("*"), event), true);
-  assert.equal(matchesTopic(topic("plugin.example"), event), true);
-  assert.equal(matchesTopic(event, event), true);
-  assert.equal(matchesTopic(topic("plugin.example", "another"), event), false);
-  assert.equal(matchesTopic(topic("files"), event), false);
-});
 
 test("direct dotted subscriptions send canonical strings and filter hierarchical events", async () => {
   nativeEvent("center-shown");

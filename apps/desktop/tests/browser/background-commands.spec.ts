@@ -67,4 +67,15 @@ test("on a phone the line opens the Running tab in place of the log", async ({ p
   await expect(page.locator(".agtaskrow").first()).toBeVisible();
   await expect(page.locator("#agbody")).toBeHidden();
   await page.screenshot({ path: "../../.artifacts/background-commands-phone.png" });
+
+  const tabs = page.locator("#agmnav");
+  const chat = tabs.getByRole("button", { name: "Chat", exact: true });
+  const running = tabs.getByRole("button", { name: /Running/ });
+  await expect(running).toHaveAttribute("aria-selected", "true");
+  await chat.focus();
+  await chat.press("Enter");
+  await expect(chat).toBeFocused();
+  await expect(chat).toHaveAttribute("aria-selected", "true");
+  await expect(running).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("#agbody")).toBeVisible();
 });

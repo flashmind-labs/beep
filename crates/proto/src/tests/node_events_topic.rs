@@ -71,6 +71,7 @@ fn malformed_strings_stay_invalid_through_wire_decode_for_correlated_errors() {
         assert!(!decoded.valid(), "{text}");
     }
     assert!(Topic::parse(&"a".repeat(MAX_TOPIC_BYTES + 1)).is_err());
+    assert!(!Topic::keyed("files", "bad\0path").valid());
     assert!(!Topic::keyed("files", "a".repeat(4097)).valid());
 }
 

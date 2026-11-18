@@ -59,7 +59,7 @@ test("palette project results open a separate window and close search", async ({
 });
 
 
-test("draft project breadcrumbs support window gestures", async ({ page }) => {
+test("draft project breadcrumbs support window gestures", { tag: "@windows" }, async ({ page }) => {
   await openDesktop(page);
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await expect(page.locator(".pj-strip")).toBeVisible();

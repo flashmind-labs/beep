@@ -12,8 +12,9 @@ test("the filter matches words and keys", () => {
 });
 
 test("a section title keeps all its rows", () => {
-  const review = filterShortcuts(SHORTCUTS, "review");
-  assert.equal(review[0].rows.length, SHORTCUTS.find(s => s.title === "Review")!.rows.length);
+  const rows = [{ keys: "a", does: "Accept" }, { keys: "x", does: "Dismiss" }];
+  const sections = [{ title: "Review", rows }, { title: "Navigation", rows: [{ keys: "r", does: "Review" }] }];
+  assert.deepEqual(filterShortcuts(sections, "review"), sections);
 });
 
 test("zoom is under General", () => {

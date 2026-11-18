@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import zlib from "node:zlib";
-import { Attr, Ghostty, loadGhostty, RenderState, RowCells, Terminal, trampoline, type TerminalEffects } from "../src/terminals/ghostty.ts";
+import { Attr, Ghostty, loadGhostty, RenderState, RowCells, Terminal, type TerminalEffects } from "../src/terminals/ghostty.ts";
 
 const WASM = new URL("../ghostty/ghostty-vt.wasm", import.meta.url);
 const SUM = new URL("../ghostty/ghostty-vt.wasm.sha256", import.meta.url);
@@ -63,17 +63,6 @@ function rows(state: RenderState, term: Terminal): { text: string[]; cells: RowC
 test("the committed module matches its checksum", () => {
   const [sum] = readFileSync(SUM, "utf8").split(/\s+/);
   assert.equal(createHash("sha256").update(readFileSync(WASM)).digest("hex"), sum);
-});
-
-test("a trampoline calls its function with the signature asked", () => {
-  const calls: number[][] = [];
-  const f = trampoline(3, true, (a, b, c) => {
-    calls.push([a, b, c]);
-    return a + b + c;
-  });
-  assert.equal(typeof f, "function");
-  assert.equal((f as (...args: number[]) => number)(1, 2, 3), 6);
-  assert.deepEqual(calls, [[1, 2, 3]]);
 });
 
 test("text and colours reach the rows", async () => {

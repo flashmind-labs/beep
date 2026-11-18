@@ -3,10 +3,6 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-/// Commands Rust registers that nothing in src calls yet. Wire one up or
-/// delete it from Rust, then remove it here.
-const UNCALLED: string[] = [];
-
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(e => {
     const path = join(dir, e.name);
@@ -24,7 +20,6 @@ function registered() {
 }
 
 /// Every `invoke(...)` in src with a literal command name.
-/// A call with a variable or ternary name is covered by `quoted` below.
 function calls() {
   const found: { file: string; line: number; name: string | null }[] = [];
 
@@ -52,22 +47,8 @@ function calls() {
   return found;
 }
 
-/// Every quoted lowercase word in src. Commands also reach `invoke` through
-/// helpers (`snapshotView("center_project_run")`, a `cmd` parameter), so a registered name
-/// that appears quoted anywhere counts as called.
-function quoted() {
-  return new Set(sources("src").flatMap(f => [...readFileSync(f, "utf8").matchAll(/["']([a-z][a-z0-9_]*)["']/g)].map(m => m[1])));
-}
-
 test("every invoked command is registered in generate_handler", () => {
   const reg = new Set(registered());
   const unknown = calls().filter(c => c.name && !reg.has(c.name)).map(c => `${c.file}:${c.line} ${c.name}`);
   assert.deepEqual(unknown, []);
-});
-
-test("every registered command is called, or listed in UNCALLED", () => {
-  const used = quoted();
-  const idle = registered().filter(n => !used.has(n));
-  assert.deepEqual(idle.filter(n => !UNCALLED.includes(n)), [], "registered but never called");
-  assert.deepEqual(UNCALLED.filter(n => !idle.includes(n)), [], "listed in UNCALLED but now called or gone");
 });

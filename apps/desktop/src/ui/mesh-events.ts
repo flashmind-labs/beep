@@ -2,7 +2,7 @@
 import { onShownChange, pageShown } from "./active.ts";
 import { matchesTopic, normalizeTopic, type Topic } from "./topic-state.ts";
 import { clearViews, installViews } from "./snapshot-state.ts";
-export { matchesTopic, topic, type Topic } from "./topic-state.ts";
+export { topic, type Topic } from "./topic-state.ts";
 
 /// `seq` orders the updates native code retains, so a reader that attaches again asks only for newer ones.
 export interface MeshEvent { machine_id: string; topic: Topic; revision: number; query?: number | null; initial?: boolean; data?: unknown; seq?: number }

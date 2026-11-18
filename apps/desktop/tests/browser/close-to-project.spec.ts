@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-test("closing a session opened from Home opens its next running session", async ({ page }, info) => {
+test("closing a session opened from Home opens its next running session", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page);
   await page.locator("#sec-running .bd-card").first().click();
   await expect(page.locator("#agfield")).toBeVisible();

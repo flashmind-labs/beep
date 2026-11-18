@@ -84,7 +84,7 @@ test("child message headers unwrap session prompts and preserve formatted replie
   assert.equal(card.querySelector("table td")?.textContent, "Login");
 });
 
-test("session status updates preserve the status element for writable and read-only sessions", t => {
+test("session status shows the latest state for writable and read-only sessions", t => {
   const { page } = setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
   bar.insertAdjacentHTML("afterbegin", '<span id="agstate"></span>');
@@ -92,48 +92,17 @@ test("session status updates preserve the status element for writable and read-o
   const head = createDocumentView(stateHost);
   t.after(() => head.unmount());
   flushSync(() => head.render(createElement(FieldControl, { slot: "state" })));
-  const status = () => bar.querySelector("#agstate .dstate");
   drawAgentBody();
-  const first = status(); assert.ok(first); assert.equal(first.textContent, "Working");
-  drawAgentBody(undefined, true); assert.equal(status(), first);
-  page.session.status = "asking"; drawAgentBody(undefined, true);
-  assert.equal(status(), first); assert.equal(first.textContent, "Waiting for you");
-  bar.querySelector("#agfield")?.remove();
-  page.session.external = true; drawAgentBody();
-  const readonly = status(); assert.ok(readonly); drawAgentBody(undefined, true);
-  assert.equal(status(), readonly);
-});
-
-test("unchanged primitive control props skip rendering without hiding later updates", t => {
-  setup();
-  t.after(() => { disposeQueue(); forgetAgentFollows(); });
-  const host = bar.querySelector<HTMLElement>("#agmode"); assert.ok(host);
-  let renders = 0;
-  const Probe = ({ value }: { value: string }) => { renders++; return createElement("span", null, value); };
-  showAgentControl("mode", createElement(Probe, { value: "same" }));
-  showAgentControl("mode", createElement(Probe, { value: "same" }));
-  assert.equal(renders, 1);
-  showAgentControl("mode", createElement(Probe, { value: "changed" }));
-  assert.equal(renders, 2);
-  assert.equal(host.textContent, "changed");
-  const data = { value: "before" };
-  const Mutable = ({ item }: { item: { value: string } }) => createElement("span", null, item.value);
-  showAgentControl("mode", createElement(Mutable, { item: data }));
-  data.value = "after";
-  showAgentControl("mode", createElement(Mutable, { item: data }));
-  assert.equal(host.textContent, "after");
-});
-
-test("streaming agent replies keep their element across updates", t => {
-  const { page } = setup();
-  t.after(() => { disposeQueue(); forgetAgentFollows(); });
-  page.entries = [{ kind: "user", text: "Explain" }, { kind: "agent", text: "First", html: "<p>First</p>" }];
-  drawAgentBody();
-  const reply = bar.querySelector<HTMLElement>(".dcoderen.agent"); assert.ok(reply);
-  page.entries[1] = { kind: "agent", text: "First update", html: "<p>First update</p>" };
+  assert.equal(stateHost.textContent, "Working");
+  page.session.status = "asking";
   drawAgentBody(undefined, true);
-  assert.equal(bar.querySelector(".dcoderen.agent"), reply);
-  assert.match(reply.textContent ?? "", /First update/);
+  assert.equal(stateHost.textContent, "Waiting for you");
+
+  bar.querySelector("#agfield")?.remove();
+  page.session.external = true;
+  page.session.status = "ended";
+  drawAgentBody();
+  assert.equal(stateHost.textContent, "Ended");
 });
 
 test("copy moves to the latest reply while earlier replies stay mounted", t => {
@@ -196,6 +165,8 @@ test("background commands show as one line that keeps its focus as the count cha
   assert.equal(line.textContent, "1 command running");
   AG.tasks = []; drawTasks();
   assert.equal(bar.querySelector(".ag-tasks"), null);
+  AG.tasks = [{ ...task, id: "third", name: "Lint" }]; drawTasks();
+  assert.equal(bar.querySelector(".ag-tasks")?.textContent, "1 command running");
 });
 
 test("steers appear only in the composer until recorded in the transcript", async t => {

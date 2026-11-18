@@ -27,9 +27,11 @@ test("touch keys preserve terminal focus and apply modifiers once", () => {
   assert.equal(ctrl.getAttribute("aria-pressed"), "true");
   assert.equal(bar.apply("c"), "\x03");
   assert.equal(ctrl.getAttribute("aria-pressed"), "false");
+  assert.equal(bar.apply("c"), "c");
   button("↑").click();
   button("↑").click();
-  assert.deepEqual(sent, ["\x1b[A", "\x1b[A"]);
+  button("|").click();
+  assert.deepEqual(sent, ["\x1b[A", "\x1b[A", "|"]);
   ctrl.click();
   assert.equal(bar.apply("paste"), "paste");
   bar.show(40);

@@ -39,7 +39,7 @@ test("the sidebar's Assistant lists the chats and opens one beside them", async 
   await expect(page.locator("#side").getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-current", "true");
 });
 
-test("Cmd+N on Home opens the Assistant page and starts the assistant with its harness in the home folder", async ({ page }, info) => {
+test("Cmd+N on Home opens the Assistant page and starts the assistant with its harness in the home folder", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page, false, {
     agent_hosts: [host],
     assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null },

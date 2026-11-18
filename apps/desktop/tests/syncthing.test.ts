@@ -1,44 +1,36 @@
+import { answers, calls } from "./dom-env.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { syncthingImportChoice, type SyncthingFiles } from "../src/project/syncthing.ts";
 
 test("import preserves existing Syncthing rules and ignores stale folder lookups", async () => {
-  class Element {
-    checked = false;
-    indeterminate = false;
-    disabled = false;
-    children: (Element | string)[] = [];
-    events = new Map<string, () => void>();
-    append(...children: (Element | string)[]) { this.children.push(...children); }
-    addEventListener(name: string, on: () => void) { this.events.set(name, on); }
-  }
-  const reads: { args: Record<string, unknown>; reply: (files: unknown) => void }[] = [];
-  Object.defineProperty(globalThis, "window", { configurable: true, value: {
-    __TAURI__: { core: { Channel: class {}, invoke: (cmd: string, args: Record<string, unknown>) =>
-      cmd === "build_capabilities" || cmd === "log_webview" || cmd === "desktop_trace_enabled" ? Promise.resolve(null) : cmd === "project_sync_get" ? Promise.resolve(false) : new Promise(reply => reads.push({ args, reply })) }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } },
-    addEventListener: () => {},
-  } });
-  Object.defineProperty(globalThis, "document", { configurable: true, value: {
-    createElement: () => new Element(), addEventListener: () => {},
-  } });
-  const { syncthingImportChoice } = await import("../src/project/syncthing.ts");
   const choice = syncthingImportChoice();
-  assert.equal(choice.value(), null);
-  const first = choice.follow("build-box", "/srv/projects/one");
-  const second = choice.follow("build-box", "/srv/projects/two");
-  reads[1].reply({ available: true, enabled: false, label: "Projects" });
-  await second;
-  reads[0].reply({ available: true, enabled: true, label: "Projects" });
-  await first;
-  assert.equal(choice.state.getState().checked, false);
+  answers.project_sync_get = false;
+  const follow = (folder: string) => {
+    let reply = (_files: SyncthingFiles) => {};
+    answers.project_syncthing_files = new Promise<SyncthingFiles>(resolve => { reply = resolve; });
+    const done = choice.follow("build-box", folder);
+    return { reply, done };
+  };
+
+  const first = follow("/srv/projects/one");
+  const second = follow("/srv/projects/two");
+  second.reply({ available: true, enabled: false, label: "Current" });
+  await second.done;
+  first.reply({ available: true, enabled: true, label: "Previous" });
+  await first.done;
+
+  assert.deepEqual(choice.state.getState(), { available: true, checked: false, indeterminate: false, label: "Current" });
   assert.equal(choice.value(), null, "reading the setting must not change it during import");
-  assert.ok(reads.every(read => read.args.enabled === undefined));
+  assert.deepEqual(calls.filter(call => call.cmd === "project_syncthing_files").map(call => call.args), [
+    { machineId: "build-box", folder: "/srv/projects/one" },
+    { machineId: "build-box", folder: "/srv/projects/two" },
+  ]);
   choice.change(true);
-  assert.equal(choice.value(), true);
-  const third = choice.follow("build-box", "/srv/projects/three");
-  reads[2].reply({ available: true, enabled: false, label: "Projects" });
-  await third;
-  assert.equal(reads.length, 3);
+  const third = follow("/srv/projects/three");
+  third.reply({ available: true, enabled: false, label: "Next" });
+  await third.done;
+
   assert.equal(choice.value(), true, "a chosen import preference must survive folder changes");
-  assert.equal(choice.state.getState().checked, true);
-  assert.equal(choice.state.getState().available, true);
+  assert.deepEqual(choice.state.getState(), { available: true, checked: true, indeterminate: false, label: "Next" });
 });

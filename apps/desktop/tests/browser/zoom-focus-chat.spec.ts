@@ -5,7 +5,7 @@ import { openDesktop } from "./harness.ts";
 // The script the app puts at the start of every HTML page it serves.
 const paneKeys = /const PANE_KEYS: &\[u8\] = br#"(.*)"#;/.exec(readFileSync(new URL("../../src-tauri/src/agents/artifacts.rs", import.meta.url), "utf8"))?.[1] ?? "";
 
-test("a focused HTML preview hands ⇧esc, ⌘1 and ⌘W to the pane", async ({ page }, info) => {
+test("a focused HTML preview hands ⇧esc, ⌘1 and ⌘W to the pane", { tag: "@windows" }, async ({ page }, info) => {
   expect(paneKeys).toContain("<script>");
   const command = info.project.name === "Windows" ? "Control" : "Meta";
   await page.addInitScript(() => localStorage.setItem("beep.projectView.build-box\nnotice-one", JSON.stringify({

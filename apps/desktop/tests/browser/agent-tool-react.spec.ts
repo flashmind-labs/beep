@@ -141,4 +141,5 @@ test("only the latest reply shows its copy button once it is finished", async ({
   await expect(reply).toHaveCSS("opacity", "1");
   await reply.click();
   await expect(reply).toHaveAttribute("aria-label", "Copied");
+  await expect(reply).toHaveAttribute("aria-label", "Copy");
 });

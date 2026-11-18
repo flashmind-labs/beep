@@ -24,7 +24,7 @@ test("Escape restores the project's Running section after repeated native notifi
   await expect(page.locator("#sec-project-agents")).toContainText("First notification");
 });
 
-test("a notification opened from a project draft returns to that project", async ({ page }, info) => {
+test("a notification opened from a project draft returns to that project", { tag: "@windows" }, async ({ page }, info) => {
   await openProject(page);
   await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
   await expect(page.locator("#agdraft textarea")).toBeFocused();
@@ -48,33 +48,20 @@ async function notification(page: Page, id: string, title: string): Promise<void
   await expect(page.locator("#agtitle")).toHaveText(title);
 }
 
-test("Git panels stay visible across unchanged project redraws", async ({ page }) => {
+test("project redraw keeps Git panels attached and preserves history scroll", async ({ page }) => {
   await openProject(page);
   const branch = page.locator(".pj-strip button").filter({ hasText: "branch" });
-  await expect(branch).toBeVisible();
   await branch.click();
-  await expect(page.locator(".gh-nav")).toBeVisible();
-  await expect(page.locator(".gh-tree")).toContainText("No commits yet.");
+  const tree = page.locator(".gh-tree");
+  await expect(tree).toContainText("No commits yet.");
 
-  for (let i = 0; i < 5; ++i) {
-    await branch.click();
-    await expect(page.locator(".gh-nav")).toBeVisible();
-    await expect(page.locator(".gh-detail")).toBeVisible();
-    await expect(page.locator(".gh-tree")).toContainText("No commits yet.");
-  }
-});
-
-test("project redraw keeps Git panels attached and preserves history scroll", async ({ page }) => {
   await page.evaluate(() => window.__navigation.respond("project_git_history", {
     machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], next: null,
     commits: Array.from({ length: 50 }, (_, i) => ({ id: `commit-${i}`, parents: [], author: "Example", committed_at: 1, subject: `Commit ${i}` })),
   }));
   await page.evaluate(() => window.__navigation.respond("project_git_files", []));
   await page.evaluate(() => window.__navigation.respond("project_git_diff", { root: "/srv/project", base: "", merge_base: "", working_tree: false, files: [], additions: 0, deletions: 0, more: 0 }));
-  await openProject(page);
-  const branch = page.locator(".pj-strip button").filter({ hasText: "branch" });
-  await branch.click();
-  const tree = page.locator(".gh-tree");
+  await page.locator(".gh-nav-head").getByRole("button", { name: "Refresh" }).click();
   await expect(tree).toContainText("Commit 49");
   const before = await tree.evaluate(el => { el.scrollTop = el.scrollHeight; return el.scrollTop; });
   expect(before).toBeGreaterThan(0);
@@ -137,7 +124,7 @@ test("project header actions retain focus during refresh", async ({ page }) => {
   await expect.poll(() => page.evaluate(project => window.__navigation.calls().some(call => call.command === "pin_project_to_top" && call.args.project === project), projectName)).toBe(true);
 });
 
-test("route changes and history preserve retained scroll", async ({ page }, info) => {
+test("route changes and history preserve retained scroll", { tag: "@windows" }, async ({ page }, info) => {
   await page.evaluate(() => {
     const original = window.scrollTo.bind(window);
     (window as any).__routeScrolls = 0;
@@ -194,7 +181,7 @@ test("collapsed sidebar retains project colors and folder navigation", async ({ 
   await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
 });
 
-test("a project draft fits a narrow chat pane without scrolling sideways", async ({ page }, info) => {
+test("a project draft fits a narrow chat pane without scrolling sideways", { tag: "@windows" }, async ({ page }, info) => {
   await page.setViewportSize({ width: 900, height: 700 });
   await openProject(page);
   await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");

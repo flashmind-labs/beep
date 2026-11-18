@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
 const note = (id: string, at: number) => ({ id, at, kind: "finished", title: id, text: "", source: "build-box", read: false, done: false, target: null });
-test("notification keyboard focus survives updates and dismissals", async ({ page }) => {
+test("notification keyboard focus survives updates and dismissals", { tag: "@windows" }, async ({ page }) => {
   const notes = [note("first", 3), note("second", 2), note("third", 1)];
   await openDesktop(page, false, { notes_list: notes });
   await page.getByRole("button", { name: "Search", exact: true }).focus();
@@ -47,7 +47,7 @@ test("opening a build dismisses its notification and keeps the others", async ({
   await expect(page.locator('.nt-row[data-id="other"]')).toBeVisible();
 });
 
-test("an empty open pane focuses notifications that arrive later", async ({ page }) => {
+test("an empty open pane focuses notifications that arrive later", { tag: "@windows" }, async ({ page }) => {
   await openDesktop(page, false, { notes_list: [] });
   const shortcut = test.info().project.name === "macOS" ? "Meta+b" : "Control+b";
   await page.keyboard.press(shortcut);

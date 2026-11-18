@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
 for (const width of [1280, 640]) {
-  test(`Find overlays the conversation without moving messages at ${width}px`, async ({ page }, info) => {
+  test(`Find overlays the conversation without moving messages at ${width}px`, { tag: width === 1280 ? "@windows" : [] }, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 900 });
     await openDesktop(page, true);
     await page.evaluate(() => window.__navigation.open({ agent: {

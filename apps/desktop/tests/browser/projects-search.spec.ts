@@ -57,7 +57,7 @@ test("search filters across groups and keeps its text across pages", async ({ pa
   await expect(page.locator(".cc-view[data-project]")).toBeVisible();
 });
 
-test("slash and the find shortcut focus the search", async ({ page }, info) => {
+test("slash and the find shortcut focus the search", { tag: "@windows" }, async ({ page }, info) => {
   await openOverview(page);
   const field = page.getByRole("searchbox", { name: "Search projects" });
   await page.locator(".pj-card").first().focus();

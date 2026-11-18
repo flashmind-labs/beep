@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../src/bar/bar-app.tsx";
 import { S, connectWindow, windowHooks, type BackTo, type AgentReturn, type WindowHooks } from "../src/bar/core.ts";
-import { AG, type AgentPage, type AgentRow, type AgentTask, agentBack, agentKeys, agentsList, drawAgents, usageLine } from "../src/agents/agents.ts";
+import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, agentsList, drawAgents, usageLine } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
 import { closeOpenSession, pollAgent, sessionPicks } from "../src/agents/session.tsx";
@@ -19,7 +19,6 @@ import { createDocumentView } from "../src/ui/document-root.tsx";
 import type { Waiting } from "../src/agents/agentqueue.ts";
 import { MN } from "../src/agents/workdrop.ts";
 import { agentMessage } from "../src/agents/session-frame.tsx";
-import { drawTasks } from "../src/agents/tasks.tsx";
 import type { TranscriptUpdate } from "../src/agents/transcript-cache-state.ts";
 
 /// Polls follow the session only while the page shows.
@@ -716,32 +715,4 @@ test("session model choices survive a window reload", async t => {
   assert.deepEqual(new SessionPicks().get("saved-model-session"), { model: "model-sol", effort: "high", fast: null });
   choices.delete("saved-model-session");
   assert.equal(new SessionPicks().has("saved-model-session"), false);
-});
-
-test("the running commands line keeps its dot while the count holds, and a new one goes on in the same turn", t => {
-  openSession("running");
-  const line = fieldControl(t, "tasks");
-  const task = (id: string, state = "running"): AgentTask => ({ id, name: id, description: "", state, can_stop: true, output_file: null, summary: null, entry: null });
-
-  AG.tasks = [task("t1")];
-  drawTasks();
-  const spinner = line.querySelector(".drun");
-  assert.ok(spinner);
-  assert.match(line.textContent ?? "", /1 command running/);
-
-  // Another read with the same count, or a different command, leaves the dot in place.
-  AG.tasks = [task("t2"), task("t1", "completed")];
-  drawTasks();
-  assert.equal(line.querySelector(".drun"), spinner);
-
-  // Gone and back, a new one shows.
-  AG.tasks = [];
-  drawTasks();
-  assert.equal(line.querySelector(".drun"), null);
-  AG.tasks = [task("t3")];
-  drawTasks();
-  const again = line.querySelector<HTMLElement>(".drun");
-  assert.ok(again && again !== spinner);
-  AG.tasks = [];
-  drawTasks();
 });

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-test("bar Settings shares its page root and preserves controls on refresh", async ({ page }, info) => {
+test("bar Settings shares its page root and preserves controls on refresh", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page, false, {
     settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
     list_machines: [], list_credentials: [], list_github_accounts: [],

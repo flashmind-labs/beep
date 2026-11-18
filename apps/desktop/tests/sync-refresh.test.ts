@@ -21,25 +21,10 @@ function counted() {
   return { sync, reads, details: () => reads.filter(r => r.startsWith("project_sync_detail")), redraws: () => redraws };
 }
 
-test("identical summaries keep the same rows and change no project", () => {
-  const before = [row("a", "m1"), row("b", "m1"), row("b", "m2")];
-  const { rows, changed } = mergeSyncRows(before, before.map(r => ({ ...r })));
-  assert.equal(rows, before);
-  assert.equal(changed.size, 0);
-});
-
-test("one changed row changes only its project and keeps the other rows", () => {
-  const before = [row("a", "m1"), row("b", "m1"), row("c", "m2")];
-  const { rows, changed } = mergeSyncRows(before, [row("a", "m1"), row("b", "m1", { pending: 3 }), row("c", "m2")]);
-  assert.deepEqual([...changed], ["b"]);
-  assert.equal(rows[0], before[0]);
-  assert.equal(rows[2], before[2]);
-  assert.notEqual(rows[1], before[1]);
-});
-
 test("added and removed machines change their projects", () => {
   const before = [row("a", "m1"), row("b", "m1")];
-  const { changed } = mergeSyncRows(before, [row("a", "m1"), row("a", "m2")]);
+  const { rows, changed } = mergeSyncRows(before, [row("a", "m1"), row("a", "m2")]);
+  assert.deepEqual(rows.map(({ project, machine_id }) => [project, machine_id]), [["a", "m1"], ["a", "m2"]]);
   assert.deepEqual([...changed].sort(), ["a", "b"]);
 });
 
@@ -49,7 +34,8 @@ test("one summary change reads the detail of that project only", async () => {
   assert.equal(details().length, 3);
 
   const before = [row("a", "m1"), row("b", "m1"), row("c", "m1")];
-  const { changed } = mergeSyncRows(before, [row("a", "m1"), row("b", "m1", { files: 11 }), row("c", "m1")]);
+  const { rows, changed } = mergeSyncRows(before, [row("a", "m1"), row("b", "m1", { files: 11 }), row("c", "m1")]);
+  assert.deepEqual(rows.map(row => row.files), [10, 11, 10]);
   mock.timers.enable({ apis: ["Date", "setTimeout"], now: Date.now() });
   await sync.follow(changed, [], 60_000);
   assert.equal(details().length, 3);

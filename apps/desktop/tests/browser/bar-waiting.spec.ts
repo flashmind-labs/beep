@@ -59,7 +59,7 @@ test("double tap opens the waiting list; Enter opens a session to reply, Esc com
   await expect.poll(() => calls(page, ["hide_bar"])).toBe(1);
 });
 
-test("typing filters the list and Cmd+N opens Projects in the window", async ({ page }) => {
+test("typing filters the list and Cmd+N opens Projects in the window", { tag: "@windows" }, async ({ page }) => {
   await openBar(page, rows);
   await shown(page);
   await expect(page.locator("#wtlist [role=option]")).toHaveCount(4);

@@ -339,7 +339,7 @@ export class Ghostty {
 
 /// A WebAssembly function calling `fn`, so the table can hold it: a module
 /// that imports `fn` with the given signature and exports it again.
-export function trampoline(params: number, returns: boolean, fn: (...args: number[]) => unknown): WebAssembly.ExportValue {
+function trampoline(params: number, returns: boolean, fn: (...args: number[]) => unknown): WebAssembly.ExportValue {
   const I32 = 0x7f;
   const type = [0x01, 0x60, params, ...Array<number>(params).fill(I32), ...(returns ? [0x01, I32] : [0x00])];
   const imports = [0x01, 0x01, 0x65, 0x01, 0x66, 0x00, 0x00]; // "e" "f", a function of type 0

@@ -292,7 +292,7 @@ test("a resting cursor highlights no model row; a moved one picks its row on Ent
   await expect(pill).toContainText("Beta");
 });
 
-test("⇧⌘M then `opus 5.5 h` and Enter picks the model and thinking across harnesses", async ({ page }, info) => {
+test("⇧⌘M then `opus 5.5 h` and Enter picks the model and thinking across harnesses", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page, false, { agent_hosts: hosts, agent_models: null });
   await page.evaluate(() => {
     const lists: Record<string, unknown> = {

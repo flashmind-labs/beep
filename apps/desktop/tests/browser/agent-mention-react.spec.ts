@@ -47,7 +47,7 @@ test("agent file picker preserves composer focus and attaches an image", async (
   await expect(page.getByRole("dialog", { name: "Attachments", exact: true }).getByRole("button", { name: "Preview example.png", exact: true })).toBeVisible();
 });
 
-test("a failed background session close shows a dismissible error", async ({ page }, info) => {
+test("a failed background session close shows a dismissible error", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page, true);
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;

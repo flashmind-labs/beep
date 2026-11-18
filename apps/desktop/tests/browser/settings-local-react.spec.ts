@@ -22,7 +22,7 @@ test("Appearance keeps the chosen control focused across refresh", async ({ page
   await expect.poll(() => page.evaluate(() => { const host: unknown = Reflect.get(window, "appearanceHost"); return host instanceof HTMLElement ? host.isConnected : null; })).toBe(false);
 });
 
-test("computer controls call the existing native commands", async ({ page }, info) => {
+test("computer controls call the existing native commands", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page, false, responses);
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });

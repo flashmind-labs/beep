@@ -81,7 +81,7 @@ export function segments(command: string): Segment[] {
 const MAX_CHARS = 20000;
 
 /// A command as HTML, every character escaped.
-export function commandHtml(command: string) {
+function commandHtml(command: string) {
   if (command.length > MAX_CHARS) return esc(command);
   return segments(command).flatMap(s => s.lines.map(l => highlight(l, s.lang))).join("\n");
 }

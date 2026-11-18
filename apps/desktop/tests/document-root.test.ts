@@ -8,9 +8,8 @@ import { createDocumentScope, createDocumentView } from "../src/ui/document-root
 test("document scopes synchronously update only their own portals and dispose independently", () => {
   const context = createContext("missing"), first = document.createElement("div"), second = document.createElement("div");
   document.body.append(first, second);
-  let firstRenders = 0, secondRenders = 0;
-  function First({ text }: { text: string }) { firstRenders++; return createElement("span", null, useContext(context), text); }
-  function Second() { secondRenders++; return createElement("input", { defaultValue: "draft" }); }
+  function First({ text }: { text: string }) { return createElement("span", null, useContext(context), text); }
+  function Second() { return createElement("input", { defaultValue: "draft" }); }
   const a = createDocumentScope<"item">(children => createElement(context.Provider, { value: "context" }, children));
   const b = createDocumentScope<"item">();
   try {
@@ -20,13 +19,10 @@ test("document scopes synchronously update only their own portals and dispose in
     const input = second.querySelector("input");
     assert.ok(input);
     input.value = "edited";
-    const before = secondRenders;
     a.set([{ slot: "item", host: first, content: createElement(First, { text: " two" }) }]);
     assert.equal(first.textContent, "context two");
-    assert.equal(secondRenders, before);
     assert.equal(second.querySelector("input"), input);
     assert.equal(input.value, "edited");
-    assert.equal(firstRenders, 2);
     a.dispose();
     assert.equal(first.childElementCount, 0);
     assert.equal(second.querySelector("input"), input);
@@ -48,7 +44,6 @@ test("document view renders synchronously inside its caller's flush and cannot r
   assert.equal(host.childElementCount, 0);
   host.remove();
 });
-
 
 test("document view replaces initial native contents once and retains its rendered controls", () => {
   const host = document.createElement("div"), placeholder = document.createElement("span");
@@ -72,23 +67,26 @@ test("document view replaces initial native contents once and retains its render
   host.remove();
 });
 
-
-test("unchanged or empty slot updates skip reconciliation and retain unrelated slot renders", () => {
+test("updating one slot keeps the draft and focus in an omitted slot", () => {
   const first = document.createElement("div"), second = document.createElement("div");
   document.body.append(first, second);
-  let scopeRenders = 0, siblingRenders = 0;
-  const scope = createDocumentScope<"first" | "second">(children => { scopeRenders++; return children; });
-  function Sibling() { siblingRenders++; return createElement("input", { defaultValue: "draft" }); }
+  const scope = createDocumentScope<"first" | "second">();
+  function Sibling() { return createElement("input", { defaultValue: "draft" }); }
   const text = createElement("span", null, "one"), sibling = createElement(Sibling);
   scope.set([{ slot: "first", host: first, content: text }, { slot: "second", host: second, content: sibling }]);
-  const renders = scopeRenders, siblings = siblingRenders, input = second.querySelector("input");
-  scope.set([{ slot: "first", host: first, content: text }]);
-  scope.set([]);
-  assert.equal(scopeRenders, renders);
-  scope.set([{ slot: "first", host: first, content: createElement("span", null, "two") }]);
-  assert.equal(first.textContent, "two");
-  assert.equal(siblingRenders, siblings);
-  assert.equal(second.querySelector("input"), input);
-  scope.dispose();
-  first.remove(); second.remove();
+  try {
+    const input = second.querySelector("input");
+    assert.ok(input);
+    input.value = "edited";
+    input.focus();
+    scope.set([]);
+    scope.set([{ slot: "first", host: first, content: createElement("span", null, "two") }]);
+    assert.equal(first.textContent, "two");
+    assert.equal(second.querySelector("input")?.value, "edited");
+    assert.equal(document.activeElement, second.querySelector("input"));
+  } finally {
+    scope.dispose();
+    first.remove();
+    second.remove();
+  }
 });

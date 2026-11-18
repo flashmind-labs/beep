@@ -134,11 +134,11 @@ test("add folder takes the checkout shown and submits its sync preference", asyn
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").map(call => call.args))).toEqual([{ repo: "https://example.test/example/project.git", machineId: "one", folder: "/srv", worktrees: [], parent: null, syncthingFiles: false }]);
 });
 
-test("with project sync on, a shared folder starts off Syncthing and an untouched add follows the setting", async ({ page }) => {
+test("with project sync on, a shared folder starts off Syncthing and an untouched add follows the setting", { tag: "@windows" }, async ({ page }, info) => {
   const sheet = await openAddFolder(page, { project_sync_get: true, project_syncthing_files: { available: true, enabled: true, label: "Projects" } });
   await expect(sheet.getByRole("checkbox", { name: "Keep Syncthing file sync" })).not.toBeChecked();
   await page.evaluate(() => window.__navigation.hold("import_project"));
-  await sheet.getByRole("combobox").press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
+  await sheet.getByRole("combobox").press(info.project.name === "Windows" ? "Control+Enter" : "Meta+Enter");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").map(call => call.args.syncthingFiles))).toEqual([null]);
 });
 

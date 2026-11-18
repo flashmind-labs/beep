@@ -23,7 +23,7 @@ test("file menu keeps focus as local actions arrive and ignores late results aft
   await expect(menu).toHaveCount(0);
 });
 
-test("file tree keeps its menu and rows during refresh, and confirms bulk deletion", async ({ page }, info) => {
+test("file tree keeps its menu and rows during refresh, and confirms bulk deletion", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page, true, { agent_tree: listing(["a.txt", "b.txt", "report.html"]) });
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await page.getByRole("tab", { name: "Files", exact: true }).click();

@@ -15,8 +15,3 @@ test("startup shows Home before any machine answers", () => {
   assert.equal(seed(state, { home: cached }), true);
   assert.deepEqual(homeForDisplay(state.home), cached);
 });
-
-test("live Home replaces the startup display", () => {
-  const live: HomeView = { machines: [], running: [], needs_you: [], projects: [] };
-  assert.equal(homeForDisplay(live), live);
-});

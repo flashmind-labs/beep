@@ -31,6 +31,7 @@ test("opaque resource keys and plugin namespaces keep literal dots and wildcard 
   assert.equal(matchesTopic("files.%2a", "files.%2A"), true);
   assert.equal(matchesTopic(topic("plugin.example"), "plugin%2Eexample.resource"), true);
   assert.equal(matchesTopic(topic("plugin.example"), "plugin.example.resource"), false);
+  assert.equal(matchesTopic(topic("files"), topic("plugin.example", "resource")), false);
 });
 
 test("topic normalization canonicalizes escapes and namespace subscriptions", () => {

@@ -64,8 +64,8 @@ test("the Device tab shows a device live, takes touches, keys and buttons, and s
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "device_detach"))).toBe(true);
 });
 
-test("no Device tab while no machine serves devices", async ({ page }) => {
-  await openDesktop(page, true);
+test("no Device tab while no machine serves devices for a mobile project", async ({ page }) => {
+  await openDesktop(page, true, { device_hosts: [], device_platforms: ["Android"] });
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await expect(page.getByRole("tab", { name: "Files", exact: true })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Device" })).toHaveCount(0);

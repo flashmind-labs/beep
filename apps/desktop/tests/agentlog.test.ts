@@ -116,6 +116,7 @@ test("exitCode reads every spelling and takes the last by default", () => {
   assert.equal(exitCode("Process exited with status 3"), 3);
   assert.equal(exitCode("status 1"), 1);
   assert.equal(exitCode("exit code: 101"), 101);
+  assert.equal(exitCode("exit 101"), 101);
   assert.equal(exitCode("exit code 1\nrun exit 0 to quit"), 0);
   assert.equal(exitCode("exit code 1\nrun exit 0 to quit", true), 1);
   assert.equal(exitCode("nothing"), null);

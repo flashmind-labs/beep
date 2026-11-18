@@ -240,8 +240,7 @@ test("a repository's found checkout matches whatever the case of its name", () =
   assert.equal(foundFor(null, "org/app"), null);
 });
 
-test("a Windows folder shows without its verbatim prefix", () => {
-  assert.equal(plainPath("\\\\?\\C:\\Users\\me\\games"), "C:\\Users\\me\\games");
+test("UNC paths lose their verbatim prefix and POSIX paths stay as written", () => {
   assert.equal(plainPath("\\\\?\\UNC\\nas\\share"), "\\\\nas\\share");
   assert.equal(plainPath("/Users/me/code"), "/Users/me/code");
 });

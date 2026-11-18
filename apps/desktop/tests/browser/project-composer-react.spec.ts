@@ -115,7 +115,7 @@ for (const typed of ["Inspect the attachment", ""]) test(`project composer submi
   expect(args?.images).toEqual([expect.objectContaining({ name: "example.png", mime: "image/png" })]);
 });
 
-test("a draft's start opens as a session at once, and the session its machine names takes it over", async ({ page }, info) => {
+test("a draft's start opens as a session at once, and the session its machine names takes it over", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: "/srv/project", home: "/srv", capabilities: [] }],
     agent_begin: { session: start, why: "" },
@@ -276,7 +276,7 @@ test("newer host availability wins over a delayed initial read", async ({ page }
   await expect(input).toHaveJSProperty("selectionEnd", 5);
 });
 
-test("the model shortcut returns focus to the project task after using the picker", async ({ page }, info) => {
+test("the model shortcut returns focus to the project task after using the picker", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page, false, { agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }] });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   const form = page.locator(".cc-pjc:visible");
@@ -299,7 +299,7 @@ test("the model shortcut returns focus to the project task after using the picke
   await expect(input).toBeFocused();
 });
 
-test("⇧⌘M and the pill open the model picker in a project's new conversation", async ({ page }, info) => {
+test("⇧⌘M and the pill open the model picker in a project's new conversation", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page, false, { agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }] });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await expect(page.locator(".pj-strip")).toBeVisible();

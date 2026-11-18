@@ -79,37 +79,52 @@ fn orders<T: Clone>(items: &[T]) -> Vec<Vec<T>> {
 }
 
 #[test]
-fn keys_round_trip_through_text() {
+fn keys_keep_their_released_wire_names() {
     let keys = [
-        project("a b"),
-        Key::Sync("x".into()),
-        Key::Group("7".into()),
-        Key::Pin("p".into()),
-        Key::Credential("c".into()),
-        Key::Harness("claude".into()),
-        Key::Flsh,
-        Key::SkillSync,
-        Key::ProjectSync,
-        Key::Assistant,
-        Key::InstructionVersion("1793000000000.a".into()),
-        Key::Terminal("t1".into()),
-        Key::SessionMove("0b1c2d3e".into()),
-        Key::Unmoved("credential/7".into()),
-        Key::Temporary("abc".into()),
-        Key::Observer("abc".into()),
-        Key::NoticeRead("abc".into()),
-        Key::SkillLibrary("firecrawl".into()),
-        Key::ProjectSkills("acme/widget".into()),
-        Key::MachineName("abc".into()),
-        Key::Other("future-kind/x y".into()),
+        ("project/a b", project("a b")),
+        ("sync/x", Key::Sync("x".into())),
+        ("group/7", Key::Group("7".into())),
+        ("pin/p", Key::Pin("p".into())),
+        ("credential/c", Key::Credential("c".into())),
+        ("harness/claude", Key::Harness("claude".into())),
+        ("flsh", Key::Flsh),
+        ("skills/sync", Key::SkillSync),
+        ("settings/project-sync", Key::ProjectSync),
+        ("settings/assistant", Key::Assistant),
+        (
+            "instructions/1793000000000.a",
+            Key::InstructionVersion("1793000000000.a".into()),
+        ),
+        ("terminal/t1", Key::Terminal("t1".into())),
+        ("session-move/0b1c2d3e", Key::SessionMove("0b1c2d3e".into())),
+        ("unmoved/credential/7", Key::Unmoved("credential/7".into())),
+        ("temporary/abc", Key::Temporary("abc".into())),
+        ("observer/abc", Key::Observer("abc".into())),
+        ("notice-read/abc", Key::NoticeRead("abc".into())),
+        (
+            "skill-library/firecrawl",
+            Key::SkillLibrary("firecrawl".into()),
+        ),
+        (
+            "project-skills/acme/widget",
+            Key::ProjectSkills("acme/widget".into()),
+        ),
+        ("machine-name/abc", Key::MachineName("abc".into())),
+        ("future-kind/x y", Key::Other("future-kind/x y".into())),
     ];
 
-    for key in keys {
-        assert_eq!(key.to_string().parse::<Key>().expect("parses"), key);
+    for (name, key) in keys {
+        let bytes = rmp_serde::to_vec(name).expect("encodes the wire name");
+        assert_eq!(rmp_serde::to_vec(&key).expect("encodes the key"), bytes);
+        assert_eq!(
+            beep_proto::lenient::from_slice::<Key>(&bytes).expect("reads the wire name"),
+            key
+        );
     }
+}
 
-    assert_eq!(Key::Assistant.to_string(), "settings/assistant");
-    assert_eq!(project("a").to_string(), "project/a");
+#[test]
+fn key_text_rejects_malformed_names() {
     assert!("project/".parse::<Key>().is_err());
     assert!("flsh/x".parse::<Key>().is_err());
     assert!("Nope/x".parse::<Key>().is_err());

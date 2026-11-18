@@ -23,7 +23,7 @@ test("Open in Zed reports a launch failure in the Codex session", async ({ page 
   await page.getByRole("button", { name: "Open in Zed", exact: true }).click();
 
   await expect(page.locator("#saved")).toContainText("Could not open Zed: Error: Cannot launch application");
-  await expect(page.locator("#saved")).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Could not open Zed" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "open_in_editor"))).toEqual([
     { command: "open_in_editor", args: { editor: "zed", path: "/srv/project" } },
   ]);
@@ -47,4 +47,5 @@ test("session editor controls keep focus and open another editor", async ({ page
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "open_in_editor"))).toEqual([
     { command: "open_in_editor", args: { editor: "code", path: "/srv/project" } },
   ]);
+  await expect(page.getByText("Could not open VS Code", { exact: false })).toHaveCount(0);
 });

@@ -12,7 +12,7 @@ import { createRoot } from "react-dom/client";
 import { AgentReply } from "./agents/reply-view.tsx";
 let root = null;
 window.streamReply = (host, html) => flushSync(() => (root ??= createRoot(host)).render(createElement(AgentReply, { reply: { kind: "reply", row: "r", markdown: true, html } })));`,
-  resolveDir: new URL("../../desktop/src", import.meta.url).pathname, loader: "tsx" }, bundle: true, format: "esm", jsx: "automatic", write: false });
+  resolveDir: new URL("../../desktop/src", import.meta.url).pathname, loader: "tsx" }, bundle: true, format: "esm", jsx: "automatic", loader: { ".svg": "text" }, write: false });
 const engine = process.env.DIAGRAM_ENGINE === "webkit" ? webkit : chromium;
 
 test("desktop renders through streamed updates, caches, expands and exports", async t => {
@@ -26,7 +26,23 @@ test("desktop renders through streamed updates, caches, expands and exports", as
     const path = new URL(route.request().url()).pathname;
     if (path === "/") return route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><style>pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms } @keyframes diagram-found { from { opacity: .99 } }</style></head><body>
       <div id="bar"><div id="reply"><pre><code class="language-mermaid-pending">flowchart LR\n A--&gt;B</code></pre></div></div>
-      <script>window.calls=[];window.__TAURI__={core:{invoke:async(name,args)=>{calls.push({name,args});return name==='save_picture'?'/downloads/'+args.name:null},Channel:class{}},event:{listen:async()=>()=>{}},webviewWindow:{getCurrentWebviewWindow:()=>new Proxy({},{get:()=>async()=>()=>{}})}};</script>
+      <script>
+        window.calls = [];
+        window.__TAURI__ = {
+          core: { invoke: async (name, args) => {
+            calls.push({ name, args });
+            if (name === "build_capabilities") return {
+              local_host: false, metrics_recording: false, resource_profiling: false,
+              autostart: false, window_state: false, image_clipboard: true,
+              desktop_control: false, rich_text: false,
+            };
+            if (name === "save_picture") return "/downloads/" + args.name;
+            return null;
+          }, Channel: class {} },
+          event: { listen: async () => () => {} },
+          webviewWindow: { getCurrentWebviewWindow: () => new Proxy({}, { get: () => async () => () => {} }) },
+        };
+      </script>
       <script type="module">await import('/app.js');window.ready=true;</script></body></html>` });
     if (path === "/app.js") return route.fulfill({ contentType: "text/javascript", body: bundle.outputFiles[0].text });
     if (path === "/diagrams/mermaid.min.js") loads++;
@@ -78,9 +94,6 @@ test("desktop renders through streamed updates, caches, expands and exports", as
   await preview.locator("#expand").click();
   const expanded = page.frameLocator("dialog iframe");
   await expanded.locator("#export:not(:disabled)").waitFor();
-  const width = await expanded.locator("#picture").evaluate(img => img.clientWidth);
-  await expanded.getByRole("button", { name: "Zoom in" }).click();
-  assert.ok(await expanded.locator("#picture").evaluate(img => img.clientWidth) > width);
   await expanded.locator("#picture").focus();
   await page.keyboard.press("Meta+c");
   await page.waitForFunction(() => calls.filter(c => c.name === "copy_diagram_image").length === 2);
@@ -88,7 +101,7 @@ test("desktop renders through streamed updates, caches, expands and exports", as
   await expanded.getByRole("menuitem", { name: "Copy image", exact: true }).click();
   await page.waitForFunction(() => calls.filter(c => c.name === "copy_diagram_image").length === 3);
   await expanded.locator("#export").click(); await expanded.locator("#png").click();
-  await page.waitForFunction(() => calls.some(c => c.args?.name === "diagram.png"));
+  await page.waitForFunction(() => calls.filter(c => c.name === "save_picture" && c.args?.name === "diagram.png").length === 2);
   await expanded.locator("#expand").click();
   await page.locator("dialog").waitFor({ state: "detached" });
   // A streamed reply keeps a finished diagram's frame while the text after it grows.

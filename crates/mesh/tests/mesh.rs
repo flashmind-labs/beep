@@ -2,9 +2,9 @@
 //! and outer timeouts; nothing sleeps.
 
 use beep_mesh::{
-    DEADLINE, DeviceKind, InUse, Invitation, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError,
-    MeshProtocol, OPEN_TIMEOUT, PEER_ALPN, PeerClient, PeerStream, SessionFn, ShortTicket,
-    StreamHandler, transport_config, with_deadline,
+    DEADLINE, DeviceKind, InUse, Invitation, JOIN_ALPN, JoinSecret, JoinTicket, Key, Mesh,
+    MeshError, MeshProtocol, OPEN_TIMEOUT, PEER_ALPN, PeerClient, PeerStream, SessionFn,
+    ShortTicket, StreamHandler, transport_config, with_deadline,
 };
 use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link};
 use beep_proto::watched;
@@ -477,13 +477,21 @@ async fn a_mesh_closes_once_it_is_the_only_handle_and_not_before() {
 }
 
 #[tokio::test]
-async fn a_ticket_works_once() {
+async fn only_the_issued_ticket_works_and_only_once() {
     let a = create("a").await;
     let ticket = a
         .mesh
         .invite(DeviceKind::Desktop, Duration::from_secs(3600))
         .await
         .expect("ticket");
+    let mut wrong = ticket.clone();
+    wrong.secret = JoinSecret::generate();
+    match join_with(&wrong, "x").await {
+        Err(MeshError::Refused(message)) => assert_eq!(message, "ticket not valid"),
+        other => panic!("wrong secret must be refused, got {:?}", other.map(|_| ())),
+    }
+    assert_eq!(a.mesh.devices().len(), 1);
+
     let _b = join_with(&ticket, "b").await.expect("first use works");
     let before = a.mesh.devices().len();
     let again = join_with(&ticket, "x").await;
@@ -1255,13 +1263,6 @@ mod tickets {
             "hello".parse::<Invitation>(),
             Err(TicketError::Unreadable)
         ));
-    }
-
-    #[test]
-    fn a_secret_verifies_only_itself() {
-        let (a, b) = (JoinSecret::generate(), JoinSecret::generate());
-        assert!(a.verify(&a.clone()));
-        assert!(!a.verify(&b));
     }
 
     #[test]

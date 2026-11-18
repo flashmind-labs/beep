@@ -13,14 +13,22 @@ test("settings redraw preserves the agent account input and closes its root", as
   await settings.getByRole("button", { name: "Paste a token" }).click();
   const input = settings.getByRole("textbox", { name: "Claude Code token" });
   await input.focus();
-  await input.evaluate(el => { Reflect.set(window, "agentInput", el); Reflect.set(window, "agentHost", el.closest("#set-agents")); });
-  // Coming back to the window redraws Settings while no token is typed.
+  await input.evaluate(el => { Reflect.set(window, "agentHost", el.closest("#set-agents")); });
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length)).toBeGreaterThan(1);
-  expect(await input.evaluate(el => el === Reflect.get(window, "agentInput") && document.activeElement === el)).toBe(true);
+  await expect(input).toBeFocused();
   await input.fill("example-secret");
+  await input.evaluate(el => { if (el instanceof HTMLInputElement) el.setSelectionRange(2, 5); });
+  await page.evaluate(() => window.__navigation.hold("save_agent_token"));
   await input.press("Enter");
+  await expect(settings.getByRole("button", { name: "Saving…", exact: true })).toBeDisabled();
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue("example-secret");
+  await expect(input).toHaveJSProperty("selectionStart", 2);
+  await expect(input).toHaveJSProperty("selectionEnd", 5);
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "save_agent_token" && call.args.agentSlug === "claude" && call.args.secret === "example-secret"))).toBe(true);
+  await page.evaluate(() => window.__navigation.release("save_agent_token"));
+  await expect(input).toHaveCount(0);
   const edges = await settings.evaluate(sheet => {
     const buttons = [...sheet.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
     buttons.at(-1)?.focus();

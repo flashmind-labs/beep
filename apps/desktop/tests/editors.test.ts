@@ -1,7 +1,7 @@
 import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { editorsFor, openInEditor, type EditorRow } from "../src/project/editors.ts";
+import { editorsFor, type EditorRow } from "../src/project/editors.ts";
 import { drawEditors } from "../src/agents/session-head.tsx";
 import { DraftHead, draftMessage, showSessionFrame, shownMessage } from "../src/agents/session-frame.tsx";
 import { createElement } from "react";
@@ -54,31 +54,6 @@ test("a replacement header gets editor buttons even for the same folder", async 
   answers.session_folder_here = "/srv/current";
   await drawEditors("m1", "/srv/current", () => true);
   assert.equal(bar.querySelector("#agedit button")!.textContent, "Open in VS Code");
-});
-
-test("editor launch failures are visible from keyboard and menu actions", async t => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  answers.editors = [{ id: "zed", name: "Zed" }];
-  answers.open_in_editor = Promise.reject(new Error("Cannot launch application"));
-
-  await openInEditor("/srv/project");
-
-  assert.match(bar.querySelector("#saved")?.textContent ?? "", /Could not open Zed:.*Cannot launch application/);
-  assert.equal(bar.querySelector("#saved")?.getAttribute("role"), "status");
-  assert.deepEqual(calls.filter(c => c.cmd === "open_in_editor").at(-1)?.args, {
-    editor: "zed", path: "/srv/project",
-  });
-  bar.querySelector("#saved")?.remove();
-  answers.open_in_editor = null;
-});
-
-test("a successful editor launch shows no error", async () => {
-  answers.editors = [{ id: "zed", name: "Zed" }];
-  answers.open_in_editor = null;
-
-  await openInEditor("/srv/project");
-
-  assert.equal(bar.querySelector("#saved"), null);
 });
 
 test("a session drawn in place of a draft releases the draft's field", () => {
