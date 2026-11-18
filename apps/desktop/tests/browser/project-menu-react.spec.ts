@@ -161,3 +161,17 @@ test("GitHub and Forgejo rename independently and retry sends only the failed re
     { project: projectName, name: projectName, repositories: [{ url: forgejo, name: "new" }] },
   ]);
 });
+
+test("the ignored folder sheet suggests the folders the project's .gitignore names", async ({ page }) => {
+  const gitignore = "/assets/models/\ndata/captures\n*.log\ndist/\n";
+  await openDesktop(page, false, { project_ignored_sync: { enabled: true, folders: [] }, project_git_auto_recovery: false, project_syncthing_mode: null, agent_file: { size: gitignore.length, mime: "text/plain", data: Buffer.from(gitignore).toString("base64") } });
+  const menu = await openMenu(page);
+  await menu.getByRole("menuitem", { name: "Choose ignored folders…" }).click();
+
+  const folders = page.getByRole("textbox", { name: "Folders relative to the project, one per line" });
+  await expect(folders).toHaveAttribute("placeholder", "assets/models\ndata/captures");
+  await page.getByRole("button", { name: "data/captures" }).click();
+  await expect(folders).toHaveValue("data/captures");
+  await expect(page.getByRole("button", { name: "data/captures" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "dist" })).toHaveCount(0);
+});

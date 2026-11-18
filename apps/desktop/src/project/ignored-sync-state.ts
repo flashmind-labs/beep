@@ -3,15 +3,33 @@ export interface IgnoredSync {
   folders: string[];
 }
 
+/// The folders a `.gitignore` names plainly, as suggestions: no globs,
+/// negations, hidden folders, file-like names or build output.
+export function gitignoredFolders(gitignore: string): string[] {
+  const folders = gitignore.split(/\r?\n/).map(line => line.trim())
+    .filter(line => line && !/^[#!]|[*?[\\]/.test(line))
+    .map(line => line.replace(/^\/+|\/+$/g, ""))
+    .filter(path => plainFolder(path) && !path.split("/").some(part => part.includes(".") || BUILD.includes(part.toLowerCase())));
+  return [...new Set(folders)].slice(0, 16);
+}
+
+/// Folder names that read as build output, which stays on each machine.
+const BUILD = ["dist", "build", "out", "coverage", "venv"];
+
+function plainFolder(path: string) {
+  return path.length <= 1024 && !/[\\:\0\r\n]/.test(path) && path.split("/").every(p => p && !/[ .]$/.test(p) && ![".", "..", ".git", ".worktrees", "target", "node_modules"].includes(p.toLowerCase()));
+}
+
+/// The folders listed in `text`, one per line.
+export function listedFolders(text: string): string[] {
+  return text.split(/\r?\n/).map(p => p.trim().replace(/\/+$/, "")).filter(Boolean);
+}
+
 export function ignoredSelection(enabled: boolean, text: string): IgnoredSync {
-  const folders = [...new Set(text.split(/\r?\n/).map(p => p.trim().replace(/\/+$/, "")).filter(Boolean))].sort();
+  const folders = [...new Set(listedFolders(text))].sort();
   if (folders.length > 16) throw new Error("Choose at most 16 ignored folders.");
 
-  for (const path of folders) {
-    if (path.length > 1024 || /[\\:\0\r\n]/.test(path) || path.split("/").some(p => !p || /[ .]$/.test(p) || [".", "..", ".git", ".worktrees", "target", "node_modules"].includes(p.toLowerCase()))) {
-      throw new Error("Use plain project-relative folders outside Git metadata, worktrees and build output.");
-    }
-  }
+  if (!folders.every(plainFolder)) throw new Error("Use plain project-relative folders outside Git metadata, worktrees and build output.");
 
   for (let i = 0; i < folders.length; i++) for (const other of folders.slice(i + 1)) {
     const a = folders[i].toLowerCase(), b = other.toLowerCase();

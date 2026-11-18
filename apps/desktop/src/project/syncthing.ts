@@ -96,7 +96,7 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
   invoke<IgnoredSync>("project_ignored_sync", { project: project.name }).then(settings => {
     const change = async () => {
       if (!settings.enabled && !settings.folders.length) {
-        chooseIgnoredFolders(project.name, { ...settings, enabled: true }, onChanged);
+        chooseIgnoredFolders(project.name, project.machines, { ...settings, enabled: true }, onChanged);
         return;
       }
 
@@ -107,7 +107,7 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
         retry(e, change);
       }
     };
-    const choose = { label: "Choose ignored folders…", on: () => chooseIgnoredFolders(project.name, settings, onChanged) };
+    const choose = { label: "Choose ignored folders…", on: () => chooseIgnoredFolders(project.name, project.machines, settings, onChanged) };
     insert("ignored", [{ kind: "toggle", label: "Sync ignored folders", checked: settings.enabled, on: change }, ...(settings.enabled ? [choose] : [])]);
   }, e => insert("ignored", [{ label: `Ignored folders: ${reason(e)} (retry)`, on: reopen }]));
 
