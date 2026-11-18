@@ -174,5 +174,18 @@ test("the ignored folder sheet suggests the folders and files the project's .git
   await expect(folders).toHaveValue("data/captures");
   await expect(page.getByRole("button", { name: "data/captures" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "dist" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: ".env" })).toBeDisabled();
+  await expect(page.getByText("Files stay on each machine: .env")).toBeVisible();
+});
+
+test("a long .gitignore shows eight folder chips until more is asked for", async ({ page }) => {
+  const gitignore = Array.from({ length: 20 }, (_, i) => `data${i}`).join("\n");
+  await openDesktop(page, false, { project_ignored_sync: { enabled: true, folders: [] }, project_git_auto_recovery: false, project_syncthing_mode: null, agent_file: { size: gitignore.length, mime: "text/plain", data: Buffer.from(gitignore).toString("base64") } });
+  const menu = await openMenu(page);
+  await menu.getByRole("menuitem", { name: "Choose ignored folders…" }).click();
+
+  const chips = page.getByRole("group", { name: "Folders in .gitignore" }).getByRole("button");
+  await expect(page.getByRole("textbox", { name: "Folders relative to the project, one per line" })).toHaveAttribute("placeholder", "data0\ndata1\ndata2");
+  await expect(chips).toHaveCount(9);
+  await page.getByRole("button", { name: "+12 more" }).click();
+  await expect(chips).toHaveCount(20);
 });

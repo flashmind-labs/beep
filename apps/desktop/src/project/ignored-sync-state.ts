@@ -18,7 +18,7 @@ export function gitignoreSuggestions(gitignore: string): GitignoreSuggestions {
     .filter(path => plainFolder(path) && !path.split("/").some(part => part.includes(".") || BUILD.includes(part.toLowerCase())));
   const files = paths.filter(path => !path.endsWith("/") && /\.[^/]*$/.test(path)).map(plain)
     .filter(path => path && path !== ".DS_Store" && !path.split("/").some(part => BUILD.includes(part.toLowerCase())));
-  return { folders: [...new Set(folders)].slice(0, 16), files: [...new Set(files)].slice(0, 16) };
+  return { folders: [...new Set(folders)], files: [...new Set(files)] };
 }
 
 /// Folder names that read as build output, which stays on each machine.

@@ -72,8 +72,8 @@ export function Chip({ kind, text, spin = false, title }: { kind: string; text: 
 }
 
 /// A chip that toggles a choice on and off.
-export function ChipToggle({ label, selected, onToggle, disabled = false, title = null }: { label: string; selected: boolean; onToggle(): void; disabled?: boolean; title?: string | null }) {
-  return <button type="button" className="dbtn dchip" aria-pressed={selected} disabled={disabled} title={title ?? undefined} onClick={onToggle}>{label}</button>;
+export function ChipToggle({ label, selected, onToggle }: { label: string; selected: boolean; onToggle(): void }) {
+  return <button type="button" className="dbtn dchip" aria-pressed={selected} onClick={onToggle}>{label}</button>;
 }
 
 /// How much a button stands out. A dialog or form has one `primary`, its main action;
