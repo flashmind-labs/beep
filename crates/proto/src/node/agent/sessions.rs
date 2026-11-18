@@ -382,6 +382,21 @@ pub struct SearchHit {
     /// For each query word, the part around it of the first prompt or
     /// reply holding it.
     pub texts: Vec<String>,
+    /// The details the app needs to open a hit absent from its session list.
+    #[serde(default)]
+    pub metadata: Option<SearchSession>,
+}
+
+/// A conversation as it appears in the search index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchSession {
+    pub agent: String,
+    pub cwd: String,
+    pub title: Option<String>,
+    /// Unix seconds.
+    pub started_at: u64,
+    /// Beep's id when it owns the conversation.
+    pub managed: Option<SessionId>,
 }
 
 /// The character where `text` first holds the lowercase `word`, counted
@@ -412,6 +427,10 @@ pub struct IndexRow {
     pub text: Option<String>,
     /// Unix milliseconds of the session's last activity when it was read.
     pub activity: u64,
+    /// An empty text with metadata updates the session without adding a
+    /// searchable message. Older copies treat it as an empty message.
+    #[serde(default)]
+    pub metadata: Option<SearchSession>,
 }
 
 /// The most paths one `HashFiles` asks about.
@@ -987,3 +1006,7 @@ pub struct RunningProcess {
     #[serde(default)]
     pub parent: u32,
 }
+
+#[cfg(test)]
+#[path = "../../tests/node_agent_search.rs"]
+mod tests;

@@ -21,7 +21,7 @@ use beep_fleet::Session as FleetSession;
 use beep_proto::{ImportedProject, Machine, MachineSession};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
@@ -171,6 +171,16 @@ impl PaletteCache {
 
     pub(super) fn sessions(&self) -> Vec<MachineSession> {
         self.held().lists.sessions.clone().unwrap_or_default()
+    }
+
+    pub(super) fn machine_names(&self) -> HashMap<String, String> {
+        self.held()
+            .lists
+            .machines
+            .iter()
+            .flatten()
+            .map(|machine| (machine.id.clone(), machine.name.clone()))
+            .collect()
     }
 
     pub(crate) async fn project_lock(&self) -> tokio::sync::MutexGuard<'_, ()> {

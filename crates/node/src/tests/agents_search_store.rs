@@ -1,10 +1,8 @@
 use super::*;
-use std::path::PathBuf;
 
 fn indexed(id: &str, activity: u64, current: bool) -> Indexed {
     Indexed {
         id: id.into(),
-        cwd: PathBuf::from("/srv/project"),
         activity,
         stamp: current.then(|| activity.to_string()),
     }
@@ -50,32 +48,106 @@ fn a_text_is_kept_once_and_rows_come_in_order() -> Result<()> {
 }
 
 #[test]
-fn a_session_outside_the_projects_is_reset_for_copies_and_read_again() -> Result<()> {
+fn deleting_a_session_resets_its_text_and_progress() -> Result<()> {
     let mut store = Store::open(Path::new(":memory:"))?;
-    store.save(&indexed("kept", 1, true), &texts(&["kept prompt"]), Progress::NEW)?;
-    let mut gone = indexed("gone", 1, true);
-    gone.cwd = PathBuf::from("/srv/old/.worktrees/fix");
+    store.save(
+        &indexed("kept", 1, true),
+        &texts(&["kept prompt"]),
+        Progress::NEW,
+    )?;
+    let gone = indexed("gone", 1, true);
     store.save(&gone, &texts(&["gone prompt"]), Progress::NEW)?;
     let before = store.newest()?;
-    let projects = [PathBuf::from("/srv/project")];
-
-    assert_eq!(store.keep_within(&projects)?, 1);
-    assert_eq!(store.keep_within(&projects)?, 0, "once");
+    store.forget(&gone.id)?;
 
     let reset = store.rows_after(before, 10)?;
     assert_eq!(reset.len(), 1);
-    assert_eq!((reset[0].session.as_ref(), reset[0].text.as_deref()), ("gone", None));
+    assert_eq!(
+        (reset[0].session.as_ref(), reset[0].text.as_deref()),
+        ("gone", None)
+    );
     assert!(store.find("gone", &[])?.is_empty());
-    assert!(!store.current(&SessionId::from("gone"), "1")?, "read again if it comes back");
+    assert!(
+        !store.current(&SessionId::from("gone"), "1")?,
+        "read again if it comes back"
+    );
     assert_eq!(store.progress(&SessionId::from("gone"))?, Progress::NEW);
     assert!(store.current(&SessionId::from("kept"), "1")?);
 
-    let all: Vec<String> = store.rows_after(0, 10)?.into_iter().map(|row| String::from(row.session)).collect();
+    let all: Vec<String> = store
+        .rows_after(0, 10)?
+        .into_iter()
+        .map(|row| String::from(row.session))
+        .collect();
     assert_eq!(all, ["kept", "gone"], "the old rows went with the reset");
 
     store.forget(&SessionId::from("kept"))?;
-    assert!(store.find("kept", &[])?.is_empty(), "a deleted session goes");
-    assert_eq!(store.keep_within(&[])?, 0, "nothing left to drop");
+    assert!(
+        store.find("kept", &[])?.is_empty(),
+        "a deleted session goes"
+    );
+    Ok(())
+}
+
+#[test]
+fn existing_text_gets_openable_metadata_without_a_transcript_reread() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("search.sqlite");
+    let mut store = Store::open(&path)?;
+    let session = indexed("archived", 1000, true);
+    store.save(&session, &texts(&["retry in the archive"]), Progress::NEW)?;
+    let old_epoch = store.epoch()?;
+    // The previous schema had no metadata but did hold the text and its cursor.
+    store
+        .0
+        .execute_batch("ALTER TABLE sessions DROP COLUMN metadata; PRAGMA user_version=1;")?;
+    drop(store);
+
+    let mut node = Store::open(&path)?;
+    assert_ne!(node.epoch()?, old_epoch);
+    assert!(node.current(&session.id, "1000")?);
+    let mut copy = IndexCopy::open(Path::new(":memory:"))?;
+    let epoch = node.epoch()?;
+    copy.apply(&epoch, &node.rows_after(0, 10)?)?;
+    assert!(copy.find("retry", &[])?[0].metadata.is_none());
+
+    let mut metadata = SearchSession {
+        agent: "codex".into(),
+        cwd: "/path/to/unimported".into(),
+        title: Some("Retry".into()),
+        started_at: 1,
+        managed: None,
+    };
+    let (_, after) = copy.position()?;
+    assert!(node.set_metadata(&session.id, session.activity, &metadata)?);
+    assert!(!node.set_metadata(&session.id, session.activity, &metadata)?);
+    let rows = node.rows_after(after, 10)?;
+    assert_eq!(rows.len(), 1);
+    copy.apply(&epoch, &rows)?;
+    assert_eq!(
+        node.find("retry", &[])?[0].metadata.as_ref(),
+        Some(&metadata)
+    );
+    assert_eq!(
+        copy.find("retry", &[])?[0].metadata.as_ref(),
+        Some(&metadata)
+    );
+
+    let (_, after) = copy.position()?;
+    metadata.title = Some("Revised title".into());
+    assert!(node.set_metadata(&session.id, session.activity, &metadata)?);
+    copy.apply(&epoch, &node.rows_after(after, 10)?)?;
+    copy.apply(&epoch, &rows)?;
+    assert_eq!(
+        copy.find("retry", &[])?[0].metadata.as_ref(),
+        Some(&metadata)
+    );
+    assert_eq!(copy.find("title archive", &[])?.len(), 1);
+
+    let (_, after) = copy.position()?;
+    node.forget(&session.id)?;
+    copy.apply(&epoch, &node.rows_after(after, 10)?)?;
+    assert!(copy.find("retry", &[])?.is_empty());
     Ok(())
 }
 

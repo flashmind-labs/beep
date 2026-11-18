@@ -1,25 +1,24 @@
-//! The node's search index: the prompts and agent replies of the sessions
-//! in this machine's project folders, read from the agents' own stores.
+//! The node's search index: prompts and replies from this machine's
+//! conversations, including the agents' own stores.
 //! Phones search it with `Search`; desktops keep a copy with `FollowIndex`.
 
 mod schedule;
 mod store;
 
-use super::{Agents, found::Seen};
-use crate::link::from_mesh;
+use super::Agents;
 use beep_mesh::Mesh;
 use beep_proto::{
     SessionId,
-    node::agent::{EntryKind, IndexRow, SearchHit},
+    node::agent::{EntryKind, IndexRow, SearchHit, SearchSession, SessionInfo},
 };
 use futures::{StreamExt, stream};
-use iroh::EndpointId;
 use schedule::{Due, Pacer, Schedule};
 use std::{
-    collections::HashSet,
+    cmp::Reverse,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 pub use store::IndexCopy;
 use store::{Indexed, Progress, Store, Walk};
@@ -62,6 +61,13 @@ enum Pass {
     /// Stopped after saving some pages: the next pass goes on.
     Partial,
     Failed,
+}
+
+#[derive(PartialEq, Eq)]
+struct Conversation {
+    id: SessionId,
+    last_activity: u64,
+    metadata: SearchSession,
 }
 
 impl SearchIndex {
@@ -115,7 +121,11 @@ impl SearchIndex {
         }
     }
 
-    pub async fn rows_after(self: &Arc<Self>, after: u64, most: u32) -> anyhow::Result<Vec<IndexRow>> {
+    pub async fn rows_after(
+        self: &Arc<Self>,
+        after: u64,
+        most: u32,
+    ) -> anyhow::Result<Vec<IndexRow>> {
         let index = self.clone();
         spawn_blocking(move || index.reader().rows_after(after, most)).await?
     }
@@ -138,7 +148,8 @@ impl SearchIndex {
 
         match spawn_blocking(move || index.store().newest()).await {
             Ok(Ok(seq)) => {
-                self.newest.send_if_modified(|was| std::mem::replace(was, seq) != seq);
+                self.newest
+                    .send_if_modified(|was| std::mem::replace(was, seq) != seq);
             }
             Ok(Err(e)) => log::warn!("reading the search index's newest row: {e:#}"),
             Err(e) => log::warn!("reading the search index's newest row stopped: {e}"),
@@ -146,17 +157,14 @@ impl SearchIndex {
     }
 
     /// The sessions to read now, and when the next of the others is due.
-    fn due(&self, sessions: Vec<Seen>) -> (Vec<Seen>, Option<Instant>) {
-        let (now, wall) = (Instant::now(), SystemTime::now());
+    fn due(&self, sessions: Vec<Conversation>) -> (Vec<Conversation>, Option<Instant>) {
+        let now = Instant::now();
         let schedule = self.schedule();
         let mut next = None;
         let mut due = Vec::new();
 
         for session in sessions {
-            let activity = UNIX_EPOCH + Duration::from_secs(session.last_activity);
-            let idle = wall.duration_since(activity).unwrap_or_default();
-
-            match schedule.due(&session.id, activity, idle, now) {
+            match schedule.due(&session, now) {
                 Due::Current => {}
                 Due::At(at) => next = sooner(next, at),
                 Due::Now => due.push(session),
@@ -169,7 +177,7 @@ impl SearchIndex {
 
 /// Opens the index in `dir` once, for the node's life, and keeps it up to
 /// date while the mesh is open.
-pub(crate) async fn follow(mesh: Mesh, me: EndpointId, dir: PathBuf, agents: Arc<Agents>) {
+pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, agents: Arc<Agents>) {
     let index = match agents.search.get() {
         Some(index) => index.clone(),
         None => match spawn_blocking(move || SearchIndex::open(&dir.join("search.sqlite"))).await {
@@ -186,11 +194,6 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, dir: PathBuf, agents: Arc
     };
     let mut pacer = Pacer::default();
     let mut wake = None;
-    // The folders sessions were last dropped for. The first pass drops
-    // nothing: the mesh may not have given every project yet.
-    let mut dropped_for: Option<Vec<PathBuf>> = None;
-    let mut first = true;
-
     let wakes = wake_on_changes(&index, &agents, &mesh);
     tokio::pin!(wakes);
 
@@ -203,23 +206,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, dir: PathBuf, agents: Arc
             () = &mut wakes => return,
         }
 
-
-        let folders = project_folders(&mesh, me);
-
-        // No folders yet may be a mesh still opening; once some were seen,
-        // none means the last project left.
-        let settled = !folders.is_empty() || dropped_for.is_some();
-
-        if !first && settled && dropped_for.as_ref() != Some(&folders) {
-            drop_outside(&index, folders.clone()).await;
-            dropped_for = Some(folders.clone());
-        }
-
-        first = false;
-        let Some(sessions) = in_projects(&agents, &folders).await else {
-            wake = None;
-            continue;
-        };
+        let sessions = conversations(&agents).await;
         let (due, next) = index.due(sessions);
         wake = next;
         let mut work = stream::iter(due)
@@ -228,7 +215,11 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, dir: PathBuf, agents: Arc
                 let agents = agents.clone();
                 async move {
                     let mut saved = false;
-                    let read = timeout(SESSION_WAIT, index_new(&agents, &index, &session, &mut saved)).await;
+                    let read = timeout(
+                        SESSION_WAIT,
+                        index_new(&agents, &index, &session, &mut saved),
+                    )
+                    .await;
                     let pass = match read {
                         Ok(Ok(true)) => Pass::Indexed,
                         Ok(Ok(false)) => Pass::Current,
@@ -248,10 +239,8 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, dir: PathBuf, agents: Arc
             .buffer_unordered(IN_FLIGHT);
 
         while let Some((session, pass)) = work.next().await {
-            let activity = UNIX_EPOCH + Duration::from_secs(session.last_activity);
-
             match pass {
-                Pass::Current | Pass::Indexed => index.schedule().indexed(session.id, activity),
+                Pass::Current | Pass::Indexed => index.schedule().indexed(session),
                 Pass::Partial => {
                     index.schedule().progressed(&session.id);
                     wake = sooner(wake, Instant::now());
@@ -261,17 +250,14 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, dir: PathBuf, agents: Arc
                     wake = sooner(wake, at);
                 }
             }
-
-            if matches!(pass, Pass::Indexed | Pass::Partial) {
-                index.added().await;
-            }
         }
+
+        index.added().await;
     }
 }
 
-/// Wakes a pass when a session's transcript or presence changes, or the
-/// mesh's projects may have; the pacer keeps passes a minute apart. Ends
-/// when the node's events or the mesh close.
+/// Wakes a pass on session or mesh changes. Ends when the node's events
+/// or the mesh close.
 async fn wake_on_changes(index: &SearchIndex, agents: &Agents, mesh: &Mesh) {
     let mut events = agents.events.subscribe();
     let mut updates = mesh.updates();
@@ -294,50 +280,72 @@ async fn wake_on_changes(index: &SearchIndex, agents: &Agents, mesh: &Mesh) {
     }
 }
 
-/// The sessions the agents' stores hold in `folders`, or `None` when they
-/// cannot be told now.
-async fn in_projects(agents: &Agents, folders: &[PathBuf]) -> Option<Vec<Seen>> {
-    // An opening mesh is not a machine without projects.
-    if folders.is_empty() {
-        return None;
-    }
-
-    match agents.sightings().await {
-        Ok(seen) => Some(
-            seen.into_iter()
-                .filter(|seen| folders.iter().any(|folder| seen.cwd.starts_with(folder)))
-                .collect(),
-        ),
+/// Keep the agent's id as the index key so taking over a conversation
+/// changes how it opens without creating another copy of its messages.
+async fn conversations(agents: &Agents) -> Vec<Conversation> {
+    let stores = agents.stores.clone();
+    let archived = spawn_blocking(move || stores.archived_codex());
+    let (sightings, archived) = tokio::join!(agents.sightings(), archived);
+    let mut seen = match sightings {
+        Ok(seen) => seen,
         Err(e) => {
             log::warn!("listing sessions to index: {e:#}");
-            None
+            Vec::new()
         }
+    };
+    match archived {
+        Ok(archived) => seen.extend(archived),
+        Err(e) => log::warn!("listing archived sessions to index: {e:#}"),
     }
-}
 
-/// The folders of the projects imported on this machine, sorted.
-fn project_folders(mesh: &Mesh, me: EndpointId) -> Vec<PathBuf> {
-    let mut folders: Vec<PathBuf> = from_mesh::placed_projects(mesh, me)
-        .map(|(_, _, place)| PathBuf::from(place.folder))
+    let owned = agents.owned();
+    let mut live: HashMap<SessionId, SessionInfo> = agents
+        .listed(true)
+        .into_iter()
+        .map(|info| (info.id.clone(), info))
         .collect();
-    folders.sort();
-    folders.dedup();
-    folders
-}
+    let mut sessions = Vec::new();
 
-/// Drops what the index holds of sessions outside `folders`.
-async fn drop_outside(index: &Arc<SearchIndex>, folders: Vec<PathBuf>) {
-    let store = index.clone();
-
-    match spawn_blocking(move || store.store().keep_within(&folders)).await {
-        Ok(Ok(0)) => {}
-        Ok(Ok(_)) => {
-            index.schedule().clear();
-            index.added().await;
-        }
-        Ok(Err(e)) => log::warn!("dropping sessions from the search index: {e:#}"),
-        Err(e) => log::warn!("dropping sessions from the search index stopped: {e}"),
+    for seen in seen {
+        let managed = owned
+            .get(&seen.id)
+            .and_then(|id| live.remove(id))
+            .or_else(|| live.remove(&seen.id));
+        let last_activity = managed.as_ref().map_or(seen.last_activity, |info| {
+            info.last_activity.max(seen.last_activity)
+        });
+        let metadata = SearchSession {
+            agent: seen.agent.to_string(),
+            cwd: seen.cwd.to_string_lossy().into_owned(),
+            title: managed
+                .as_ref()
+                .and_then(|info| info.title.clone())
+                .or(seen.title),
+            started_at: seen.started_at,
+            managed: managed.map(|info| info.id),
+        };
+        sessions.push(Conversation {
+            id: seen.id,
+            last_activity,
+            metadata,
+        });
     }
+
+    sessions.extend(live.into_values().map(|info| Conversation {
+        id: info.id.clone(),
+        last_activity: info.last_activity.max(info.started_at),
+        metadata: SearchSession {
+            agent: info.agent,
+            cwd: info.cwd,
+            title: info.title,
+            started_at: info.started_at,
+            managed: Some(info.id),
+        },
+    }));
+    sessions.sort_by_key(|session| Reverse(session.last_activity));
+    let mut known = HashSet::new();
+    sessions.retain(|session| known.insert(session.id.clone()));
+    sessions
 }
 
 /// Reads the entries of `session` added since it was last indexed, newest
@@ -346,14 +354,30 @@ async fn drop_outside(index: &Arc<SearchIndex>, folders: Vec<PathBuf>) {
 async fn index_new(
     agents: &Agents,
     index: &Arc<SearchIndex>,
-    session: &Seen,
+    session: &Conversation,
     saved: &mut bool,
 ) -> anyhow::Result<bool> {
     let stamp = session.last_activity.to_string();
+    let activity = session.last_activity.saturating_mul(1000);
     let store = index.clone();
     let (id, at) = (session.id.clone(), stamp.clone());
+    let metadata = session.metadata.clone();
+    let prepared = spawn_blocking(move || -> anyhow::Result<_> {
+        let mut held = store.store();
+        if crate::lock(&store.deleted).contains(&id) {
+            return Ok((true, false));
+        }
 
-    if spawn_blocking(move || store.store().current(&id, &at)).await?? {
+        let changed = held.set_metadata(&id, activity, &metadata)?;
+        Ok((held.current(&id, &at)?, changed))
+    })
+    .await??;
+
+    let (current, changed) = prepared;
+    if changed {
+        index.added().await;
+    }
+    if current {
         return Ok(false);
     }
 
@@ -372,8 +396,7 @@ async fn index_new(
         let current = newest && progress.walk.is_none();
         let indexed = Indexed {
             id: session.id.clone(),
-            cwd: session.cwd.clone(),
-            activity: session.last_activity.saturating_mul(1000),
+            activity,
             stamp: current.then(|| stamp.clone()),
         };
 
@@ -383,7 +406,9 @@ async fn index_new(
             // Checked with the store held, so a delete is wholly before or
             // after this page.
             let deleted = crate::lock(&held.deleted).contains(&indexed.id);
-            (!deleted).then(|| store.save(&indexed, &texts, progress)).transpose()
+            (!deleted)
+                .then(|| store.save(&indexed, &texts, progress))
+                .transpose()
         })
         .await??;
 
@@ -409,8 +434,13 @@ struct Page {
 
 /// The user's prompts and the agent's replies on the page before entry
 /// `before` (the newest page when `None`).
-async fn read_page(agents: &Agents, session: &SessionId, before: Option<u64>) -> anyhow::Result<(Vec<String>, Page)> {
-    let Some((entries, earlier)) = agents.read_transcript(session, PAGE, before, false).await? else {
+async fn read_page(
+    agents: &Agents,
+    session: &SessionId,
+    before: Option<u64>,
+) -> anyhow::Result<(Vec<String>, Page)> {
+    let Some((entries, earlier)) = agents.read_transcript(session, PAGE, before, false).await?
+    else {
         anyhow::bail!("the session is gone");
     };
     let page = Page {

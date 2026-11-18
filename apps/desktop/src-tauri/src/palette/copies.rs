@@ -2,7 +2,7 @@
 //! kept current over the machine's `FollowIndex` stream. Cmd+K searches the
 //! copies, so it answers at once and finds sessions of offline machines too.
 
-use super::search::{Found, Listed};
+use super::search::Found;
 use crate::fleet::Fleet;
 use anyhow::{Context, bail};
 use beep_fleet::alerts::each_machine;
@@ -55,8 +55,8 @@ impl Copies {
         copies
     }
 
-    /// The hits of each copy among the sessions `listed` for its machine.
-    fn find(&self, query: &str, listed: &Listed) -> Vec<Found> {
+    /// The hits of each copy.
+    fn find(&self, query: &str) -> Vec<Found> {
         let held: Vec<_> = self
             .held()
             .iter()
@@ -65,11 +65,8 @@ impl Copies {
         let mut found = Vec::new();
 
         for (machine, copy) in held {
-            let Some(only) = listed.get(&machine.to_string()) else {
-                continue;
-            };
             // One copy that cannot be read leaves out only its machine.
-            match lock(&copy).find(query, only) {
+            match lock(&copy).find(query, &[]) {
                 Ok(hits) => found.extend(hits.into_iter().map(|hit| Found {
                     machine: machine.to_string(),
                     hit,
@@ -220,13 +217,9 @@ async fn copy_from(
     Ok(heard)
 }
 
-/// The hits of every copy among the `listed` sessions, for the window.
-pub(super) async fn find(
-    app: &AppHandle,
-    query: &str,
-    listed: Listed,
-) -> anyhow::Result<Vec<Found>> {
+/// The hits of every copy, for the window.
+pub(super) async fn find(app: &AppHandle, query: &str) -> anyhow::Result<Vec<Found>> {
     let copies = app.state::<Arc<Copies>>().inner().clone();
     let query = query.to_owned();
-    Ok(spawn_blocking(move || copies.find(&query, &listed)).await?)
+    Ok(spawn_blocking(move || copies.find(&query)).await?)
 }

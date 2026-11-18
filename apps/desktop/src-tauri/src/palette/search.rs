@@ -3,13 +3,17 @@
 //! copy it keeps.
 
 use super::{index::Entry, lists::PaletteCache, projects::session_entry};
-use crate::error::Result;
+use crate::{error::Result, fleet::Fleet};
 use beep_proto::{
-    ImportedProject, MachineSession, SessionId,
+    AgentStatus, ImportedProject, MachineSession,
     node::agent::{SearchHit, folded_at},
 };
 use regex::Regex;
-use std::{collections::HashMap, sync::LazyLock};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, LazyLock},
+    time::{Duration, UNIX_EPOCH},
+};
 use tauri::{AppHandle, Manager};
 
 /// The most sessions one search shows.
@@ -19,54 +23,46 @@ const MOST_HITS: usize = 64;
 pub async fn center_find_prompts(app: AppHandle, query: String) -> Result<Vec<Entry>> {
     let cache = app.state::<PaletteCache>();
     let sessions = cache.sessions();
-    let listed = listed_by_machine(&sessions);
+    let fleet = app.state::<Arc<Fleet>>();
+    let machines: HashMap<_, _> = match fleet.mesh() {
+        Some(mesh) => mesh
+            .code_hosts()
+            .into_iter()
+            .map(|host| (host.device.id.to_string(), host.device.name))
+            .collect(),
+        None => cache.machine_names(),
+    };
 
     #[cfg(mobile)]
-    let hits = on_machines(&app, &query, &listed).await;
+    let hits = on_machines(&fleet, &query).await;
     #[cfg(desktop)]
-    let hits = super::copies::find(&app, &query, listed).await?;
+    let hits = super::copies::find(&app, &query).await?;
 
-    Ok(entries(hits, &sessions, &cache.projects(), &query))
-}
-
-/// The ids of the sessions the menu lists, by machine. Only these are
-/// searched, so a machine's limit of hits is not spent on others.
-pub(super) type Listed = HashMap<String, Vec<SessionId>>;
-
-fn listed_by_machine(sessions: &[MachineSession]) -> Listed {
-    let mut listed = Listed::new();
-
-    for session in sessions {
-        listed
-            .entry(session.machine_id.clone())
-            .or_default()
-            .push(session.id.clone());
-    }
-
-    listed
+    Ok(entries(
+        hits,
+        &sessions,
+        &cache.projects(),
+        &machines,
+        &query,
+    ))
 }
 
 /// Asks each online machine at once; one that is slow or cannot search is
 /// left out.
 #[cfg(mobile)]
-async fn on_machines(app: &AppHandle, query: &str, listed: &Listed) -> Vec<Found> {
-    use crate::fleet::Fleet;
+async fn on_machines(fleet: &Arc<Fleet>, query: &str) -> Vec<Found> {
     use beep_mesh::machine::sessions::{Reading, Sessions};
     use beep_proto::node::agent::{SessionsReply, SessionsRequest};
     use futures::{StreamExt, stream::FuturesUnordered};
-    use std::{sync::Arc, time::Duration};
 
     const WAIT: Duration = Duration::from_millis(1500);
-    let fleet = app.state::<Arc<Fleet>>();
     let mut asks: FuturesUnordered<_> = fleet
         .online()
         .into_iter()
-        .filter_map(|machine| Some((machine, listed.get(&machine.to_string())?.clone())))
-        .map(|(machine, sessions)| {
-            let fleet = fleet.inner().clone();
+        .map(|machine| {
             let request = SessionsRequest::Search {
                 query: query.to_owned(),
-                sessions,
+                sessions: Vec::new(),
             };
             async move {
                 let reply = tokio::time::timeout(WAIT, async {
@@ -104,37 +100,80 @@ pub(super) struct Found {
     pub hit: SearchHit,
 }
 
-/// The hits of sessions the menu lists, newest activity first, each with
-/// an excerpt. A hit of a session the menu does not list is left out.
+/// The hits of current mesh machines, newest activity first. Live metadata
+/// takes precedence when the app already has it.
 fn entries(
     found: Vec<Found>,
     sessions: &[MachineSession],
     projects: &[ImportedProject],
+    machines: &HashMap<String, String>,
     query: &str,
 ) -> Vec<Entry> {
     let listed: HashMap<(&str, &str), &MachineSession> = sessions
         .iter()
         .map(|session| ((session.machine_id.as_str(), session.id.as_ref()), session))
         .collect();
-    let mut shown: Vec<(&MachineSession, &Found)> = found
+    let mut shown: Vec<(MachineSession, &Found)> = found
         .iter()
         .filter_map(|found| {
-            let session = listed.get(&(found.machine.as_str(), found.hit.session.as_ref()))?;
-            Some((*session, found))
+            let machine_name = machines.get(&found.machine)?;
+            let hit = &found.hit;
+            let id = hit
+                .metadata
+                .as_ref()
+                .and_then(|meta| meta.managed.as_ref())
+                .unwrap_or(&hit.session);
+            let session = match listed.get(&(found.machine.as_str(), id.as_ref())) {
+                Some(session) => (*session).clone(),
+                None => indexed_session(found, machine_name)?,
+            };
+            Some((session, found))
         })
         .collect();
     // The listed activity is the newest; an index's may be older.
     shown.sort_by_key(|(session, _)| std::cmp::Reverse(session.last_activity));
 
+    let mut seen = HashSet::new();
     shown
         .into_iter()
-        .take(MOST_HITS)
-        .map(|(session, found)| {
-            let mut entry = session_entry(session, projects);
+        .filter_map(|(session, found)| {
+            if !seen.insert((session.machine_id.clone(), session.id.clone())) {
+                return None;
+            }
+
+            let mut entry = session_entry(&session, projects);
             entry.snippet = snippet(&found.hit.texts, query);
-            entry
+            Some(entry)
         })
+        .take(MOST_HITS)
         .collect()
+}
+
+fn indexed_session(found: &Found, machine_name: &str) -> Option<MachineSession> {
+    let hit = &found.hit;
+    let metadata = hit.metadata.as_ref()?;
+    Some(MachineSession {
+        machine_id: found.machine.clone(),
+        machine_name: machine_name.to_owned(),
+        id: metadata
+            .managed
+            .clone()
+            .unwrap_or_else(|| hit.session.clone()),
+        agent: metadata.agent.clone(),
+        title: metadata.title.clone(),
+        cwd: metadata.cwd.clone(),
+        status: AgentStatus::Ended {},
+        doing: None,
+        started_at: UNIX_EPOCH.checked_add(Duration::from_secs(metadata.started_at))?,
+        last_activity: UNIX_EPOCH.checked_add(Duration::from_millis(hit.activity))?,
+        external: metadata.managed.is_none(),
+        question: None,
+        subagents: 0,
+        model: None,
+        assistant: false,
+        reply: None,
+        changes: None,
+    })
 }
 
 /// One line from the first text that holds a query word, without the files

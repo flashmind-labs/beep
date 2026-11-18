@@ -25,7 +25,7 @@ const MAX_TAIL: u64 = 2 * 1024 * 1024;
 /// Codex's folder, when it has sessions here.
 pub(super) fn locate() -> Option<PathBuf> {
     let root = configured()?;
-    root.join("sessions").is_dir().then_some(root)
+    (root.join("sessions").is_dir() || root.join("archived_sessions").is_dir()).then_some(root)
 }
 
 pub(crate) fn configured() -> Option<PathBuf> {
@@ -45,11 +45,19 @@ pub(super) fn is_rollout(path: &Path) -> bool {
 
 /// The newest sessions under `root`, sub-agents left out.
 pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
+    sessions_in(root, memos, "sessions", 3)
+}
+
+pub(super) fn archived(root: &Path, memos: &Memos) -> Vec<Seen> {
+    sessions_in(root, memos, "archived_sessions", 0)
+}
+
+fn sessions_in(root: &Path, memos: &Memos, folder: &str, depth: usize) -> Vec<Seen> {
     let index = root.join("session_index.jsonl");
     let Ok(names) = memos
         .names
         .read(&index, || Ok::<_, Infallible>(Arc::new(titles(&index))));
-    newest_files(&root.join("sessions"), 3, &is_rollout)
+    newest_files(&root.join(folder), depth, &is_rollout)
         .into_iter()
         .filter_map(|(path, at)| {
             let read = || first_line(&path).map(|line| line.as_deref().and_then(header));

@@ -269,6 +269,25 @@ impl Stores {
         seen
     }
 
+    /// Archived Codex conversations are searchable and can be opened by id.
+    pub(crate) fn archived_codex(&self) -> Vec<Seen> {
+        let mut seen = self.codex.as_deref()
+            .map(|root| codex::archived(root, &self.memos))
+            .unwrap_or_default();
+
+        if !self.in_wsl {
+            for (distro, stores) in wsl_stores() {
+                let mut found = stores.archived_codex();
+                for one in &mut found {
+                    one.cwd = crate::machine::wsl::windows_folder(&distro, &one.cwd.to_string_lossy());
+                }
+                seen.extend(found);
+            }
+        }
+
+        seen
+    }
+
     /// `seen` as `describe` lists it, its title read from its file when the
     /// store gave none.
     pub(crate) fn describe(&self, mut seen: Seen, now: SystemTime) -> ExternalSession {
@@ -390,7 +409,16 @@ impl Stores {
                 .flatten();
         }
 
-        self.sessions(agent).into_iter().find(|seen| seen.id == *id)
+        self.sessions(agent)
+            .into_iter()
+            .find(|seen| seen.id == *id)
+            .or_else(|| {
+                if agent.is_some_and(|agent| agent != Agent::Codex) {
+                    return None;
+                }
+
+                self.archived_codex().into_iter().find(|seen| seen.id == *id)
+            })
     }
 
     /// One session of `agent` by its id, described.

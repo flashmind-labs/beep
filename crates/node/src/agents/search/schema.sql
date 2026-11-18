@@ -9,13 +9,13 @@ CREATE TABLE IF NOT EXISTS sessions (
     stamp TEXT NOT NULL DEFAULT '',
     -- Unix milliseconds of its last activity.
     activity INTEGER NOT NULL DEFAULT 0,
-    -- The folder it ran in, so it leaves with its project. Empty in a copy.
-    cwd TEXT NOT NULL DEFAULT '',
     -- Transcript entries before this index are indexed.
     done INTEGER NOT NULL DEFAULT 0,
     -- A walk back from walk_top toward done that has reached walk_low.
     walk_top INTEGER,
-    walk_low INTEGER
+    walk_low INTEGER,
+    -- Session details sent to search clients with an empty text row.
+    metadata TEXT
 );
 -- The index is its own change log: copies apply rows in `seq` order. A row
 -- with text adds a prompt or reply; one without is a reset, after which a

@@ -90,12 +90,15 @@ impl Agents {
         {
             let mut sessions = self.lock();
 
-            for (key, _) in records {
-                sessions.remove(&key);
+            for (key, _) in &records {
+                sessions.remove(key);
             }
         }
 
         if let Some(index) = self.search.get() {
+            for (key, _) in records.into_iter().filter(|(key, _)| *key != indexed) {
+                index.forget(key).await;
+            }
             index.forget(indexed).await;
         }
 

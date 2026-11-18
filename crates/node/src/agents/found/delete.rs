@@ -17,7 +17,7 @@ impl Stores {
     /// run it with `spawn_blocking`.
     pub(crate) fn delete(&self, agent: Agent, id: &SessionId) -> Result<bool> {
         let root = match agent {
-            Agent::Codex => self.codex.as_deref().map(|root| root.join("sessions")),
+            Agent::Codex => self.codex.clone(),
             Agent::Pi => self.pi.clone(),
             Agent::Claude | Agent::Flsh | Agent::OpenCode => {
                 bail!("{} sessions cannot be deleted here", agent.as_ref())
@@ -28,6 +28,12 @@ impl Stores {
         };
         let Some(file) = self.file(Some(agent), id) else {
             return Ok(false);
+        };
+        let root = if agent == Agent::Codex {
+            let archive = root.join("archived_sessions");
+            if file.starts_with(&archive) { archive } else { root.join("sessions") }
+        } else {
+            root
         };
         remove_file_in(&root, &file)?;
         Ok(true)

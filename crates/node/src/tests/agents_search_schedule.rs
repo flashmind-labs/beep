@@ -1,56 +1,53 @@
 use super::*;
-use std::time::UNIX_EPOCH;
+use beep_proto::node::agent::SearchSession;
 
 const LATER: Duration = Duration::from_secs(1);
 
+fn conversation() -> Conversation {
+    Conversation {
+        id: "test-session".into(),
+        last_activity: 10,
+        metadata: SearchSession {
+            agent: "codex".into(),
+            cwd: "/path/to/work".into(),
+            title: None,
+            started_at: 1,
+            managed: None,
+        },
+    }
+}
+
 #[tokio::test(start_paused = true)]
-async fn a_session_is_read_once_quiet_and_not_again_until_it_changes() {
+async fn a_session_is_read_immediately_and_again_when_it_changes() {
     let mut schedule = Schedule::default();
     let now = Instant::now();
-    let activity = UNIX_EPOCH + Duration::from_secs(10);
-    let one = &SessionId::from("build-box one");
+    let mut one = conversation();
 
-    assert_eq!(
-        schedule.due(one, activity, Duration::from_secs(20), now),
-        Due::At(now + Duration::from_secs(40)),
-        "still running"
-    );
-    assert_eq!(
-        schedule.due(one, activity, QUIET, now),
-        Due::Now
-    );
+    assert_eq!(schedule.due(&one, now), Due::Now);
 
-    schedule.indexed(one.clone(), activity);
-    assert_eq!(
-        schedule.due(one, activity, QUIET, now),
-        Due::Current
-    );
-    assert_eq!(
-        schedule.due(one, activity + LATER, QUIET, now),
-        Due::Now
-    );
-
-    schedule.clear();
-    assert_eq!(
-        schedule.due(one, activity, QUIET, now),
-        Due::Now
-    );
+    schedule.indexed(conversation());
+    assert_eq!(schedule.due(&one, now), Due::Current);
+    one.metadata.title = Some("New title".into());
+    assert_eq!(schedule.due(&one, now), Due::Now);
+    one = conversation();
+    one.last_activity += 1;
+    assert_eq!(schedule.due(&one, now), Due::Now);
 }
 
 #[tokio::test(start_paused = true)]
 async fn failures_back_off_until_a_read_saves_progress() {
     let mut schedule = Schedule::default();
-    let activity = UNIX_EPOCH;
-    let id = &SessionId::from("build-box one");
+    let session = conversation();
+    let id = &session.id;
     let mut waits = Vec::new();
 
     for _ in 0..7 {
         let now = Instant::now();
         let at = schedule.failed(id.clone(), now);
-        assert_eq!(schedule.due(id, activity, QUIET, now), Due::At(at));
+        assert_eq!(schedule.due(&session, now), Due::At(at));
         waits.push((at - now).as_secs());
         tokio::time::advance(at - now).await;
-        assert_eq!(schedule.due(id, activity, QUIET, Instant::now()), Due::Now);
+        assert_eq!(schedule.due(&session, Instant::now()), Due::Now);
     }
 
     assert_eq!(waits, [30, 60, 120, 240, 480, 600, 600]);
@@ -58,7 +55,7 @@ async fn failures_back_off_until_a_read_saves_progress() {
     let now = Instant::now();
     schedule.failed(id.clone(), now);
     schedule.progressed(id);
-    assert_eq!(schedule.due(id, activity, QUIET, now), Due::Now);
+    assert_eq!(schedule.due(&session, now), Due::Now);
     assert_eq!((schedule.failed(id.clone(), now) - now).as_secs(), 30);
 }
 

@@ -31,12 +31,13 @@ fn found(machine: &str, session: &str, activity: u64) -> Found {
             session: session.into(),
             activity,
             texts: vec![format!("retry in {session}")],
+            metadata: None,
         },
     }
 }
 
 #[test]
-fn hits_of_listed_sessions_come_newest_first_with_an_excerpt() {
+fn legacy_hits_use_listed_metadata_and_come_newest_first_with_an_excerpt() {
     let sessions = [session("build-box", "old", 1), session("gpu-box", "new", 2)];
     // A copy's activity may be older than the listed one.
     let hits = vec![
@@ -46,9 +47,70 @@ fn hits_of_listed_sessions_come_newest_first_with_an_excerpt() {
         found("other-box", "old", 4),
     ];
 
-    let shown = entries(hits, &sessions, &[], "retry");
+    let machines = [
+        ("build-box".into(), "build-box".into()),
+        ("gpu-box".into(), "gpu-box".into()),
+    ]
+    .into();
+    let shown = entries(hits, &sessions, &[], &machines, "retry");
     let snippets: Vec<_> = shown.iter().map(|entry| entry.snippet.as_deref()).collect();
     assert_eq!(snippets, [Some("retry in new"), Some("retry in old")]);
+}
+
+#[test]
+#[cfg(desktop)]
+fn copied_history_opens_without_projects_or_listed_sessions() -> anyhow::Result<()> {
+    use beep_node::agents::search::IndexCopy;
+    use beep_proto::node::agent::{IndexRow, SearchSession};
+    use std::path::Path;
+
+    let mut copy = IndexCopy::open(Path::new(":memory:"))?;
+    let metadata = SearchSession {
+        agent: "codex".into(),
+        cwd: "/path/to/unimported".into(),
+        title: Some("Archived work".into()),
+        started_at: 1,
+        managed: None,
+    };
+    copy.apply(
+        "test",
+        &[
+            IndexRow {
+                seq: 1,
+                session: "archived".into(),
+                text: Some("retry before publishing".into()),
+                activity: 2000,
+                metadata: None,
+            },
+            IndexRow {
+                seq: 2,
+                session: "archived".into(),
+                text: Some(String::new()),
+                activity: 2000,
+                metadata: Some(metadata),
+            },
+        ],
+    )?;
+    let hits = copy.find("retry", &[])?;
+    let found = hits
+        .into_iter()
+        .map(|hit| Found {
+            machine: "build-box".into(),
+            hit,
+        })
+        .collect();
+    let machines = [("build-box".into(), "Build box".into())].into();
+    let entries = entries(found, &[], &[], &machines, "retry");
+    let [entry] = entries.as_slice() else {
+        panic!("expected one historical hit");
+    };
+    assert_eq!(entry.title, "Archived work");
+    assert_eq!(entry.snippet.as_deref(), Some("retry before publishing"));
+    let session = serde_json::to_value(&entry.session)?;
+    assert_eq!(session["agent"], "codex");
+    assert_eq!(session["id"], "archived");
+    assert_eq!(session["external"], true);
+    Ok(())
 }
 
 #[test]

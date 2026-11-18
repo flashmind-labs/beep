@@ -4,16 +4,13 @@
 use anyhow::{Result, bail};
 use beep_proto::{
     SessionId,
-    node::agent::{IndexRow, SearchHit, folded_at},
+    node::agent::{IndexRow, SearchHit, SearchSession, folded_at},
 };
 use rusqlite::{Connection, OptionalExtension, functions::FunctionFlags, params};
 use sha2::{Digest, Sha256};
-use std::{
-    collections::BTreeSet,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeSet, path::Path};
 
-const SCHEMA: u32 = 1;
+const SCHEMA: u32 = 2;
 /// The most sessions one search answers with.
 const MOST_HITS: u32 = 64;
 /// About the most text one batch of rows carries, well under a frame.
@@ -46,17 +43,27 @@ impl Store {
         }
 
         if version < SCHEMA {
-            db.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
+            if version == 0 {
+                db.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
+            }
             let tx = db.transaction()?;
-            tx.execute_batch(include_str!("schema.sql"))?;
-            tx.execute(
-                "INSERT INTO meta(epoch) VALUES (?1)",
-                [format!("{:016x}", fastrand::u64(..))],
-            )?;
+            let epoch = format!("{:016x}", fastrand::u64(..));
+
+            if version == 0 {
+                tx.execute_batch(include_str!("schema.sql"))?;
+                tx.execute("INSERT INTO meta(epoch) VALUES (?1)", [&epoch])?;
+            } else {
+                // Keep indexed text and replay the copy stream so upgraded
+                // desktops also get metadata for text they already copied.
+                tx.execute_batch("ALTER TABLE sessions ADD COLUMN metadata TEXT;")?;
+                tx.execute("UPDATE meta SET epoch=?1", [&epoch])?;
+            }
+
             tx.pragma_update(None, "user_version", SCHEMA)?;
             tx.commit()?;
-            // Applies auto_vacuum to a file made before it.
-            db.execute_batch("VACUUM;")?;
+            if version == 0 {
+                db.execute_batch("VACUUM;")?;
+            }
         }
 
         Ok(Self(db))
@@ -64,7 +71,37 @@ impl Store {
 
     /// Names this index: copies of another start over.
     pub fn epoch(&self) -> Result<String> {
-        Ok(self.0.query_row("SELECT epoch FROM meta", [], |row| row.get(0))?)
+        Ok(self
+            .0
+            .query_row("SELECT epoch FROM meta", [], |row| row.get(0))?)
+    }
+
+    /// Publishes session details even when the transcript needs no reads.
+    pub fn set_metadata(
+        &mut self,
+        id: &SessionId,
+        activity: u64,
+        metadata: &SearchSession,
+    ) -> Result<bool> {
+        let metadata = serde_json::to_string(metadata)?;
+        let tx = self.0.transaction()?;
+        let key: Option<i64> = tx
+            .query_row(
+                "INSERT INTO sessions(id,activity,metadata) VALUES (?1,?2,?3)
+             ON CONFLICT(id) DO UPDATE SET activity=?2,metadata=?3
+             WHERE activity<>?2 OR metadata IS NOT ?3 RETURNING key",
+                params![id.as_ref(), i64::try_from(activity)?, metadata],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        if let Some(key) = key {
+            tx.execute("DELETE FROM log WHERE session=?1 AND text=''", [key])?;
+            tx.execute("INSERT INTO log(session,text) VALUES (?1,'')", [key])?;
+        }
+
+        tx.commit()?;
+        Ok(key.is_some())
     }
 
     /// Whether session `id` was fully indexed at `stamp`.
@@ -122,9 +159,9 @@ impl Store {
         let (top, low) = progress.walk.map(|walk| (walk.top, walk.low)).unzip();
         let column = |at: Option<u64>| at.map(i64::try_from).transpose();
         tx.execute(
-            "INSERT INTO sessions(id,stamp,activity,done,walk_top,walk_low,cwd) VALUES (?1,COALESCE(?2,''),?3,?4,?5,?6,?7)
+            "INSERT INTO sessions(id,stamp,activity,done,walk_top,walk_low) VALUES (?1,COALESCE(?2,''),?3,?4,?5,?6)
              ON CONFLICT(id) DO UPDATE SET stamp=COALESCE(?2,sessions.stamp),activity=?3,
-                 done=?4,walk_top=?5,walk_low=?6,cwd=?7",
+                 done=?4,walk_top=?5,walk_low=?6",
             params![
                 session.id.as_ref(),
                 session.stamp,
@@ -132,7 +169,6 @@ impl Store {
                 i64::try_from(progress.done)?,
                 column(top)?,
                 column(low)?,
-                session.cwd.to_string_lossy()
             ],
         )?;
         {
@@ -149,49 +185,27 @@ impl Store {
         Ok(())
     }
 
-    /// Resets every session that ran outside `folders`. Returns how many.
-    pub fn keep_within(&mut self, folders: &[PathBuf]) -> Result<usize> {
-        let outside: Vec<i64> = {
-            let mut read = self.0.prepare(
-                "SELECT key,cwd FROM sessions WHERE EXISTS(SELECT 1 FROM log WHERE session=key AND text IS NOT NULL)",
-            )?;
-            read.query_map([], |row| Ok((row.get(0)?, row.get::<_, String>(1)?)))?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-                .into_iter()
-                .filter(|(_, cwd)| !folders.iter().any(|folder| Path::new(cwd).starts_with(folder)))
-                .map(|(key, _)| key)
-                .collect()
-        };
-        self.reset(&outside)?;
-        Ok(outside.len())
-    }
-
     /// Resets session `id`, as when it was deleted.
     pub fn forget(&mut self, id: &SessionId) -> Result<()> {
         let key: Option<i64> = self
             .0
-            .query_row("SELECT key FROM sessions WHERE id=?1", [id.as_ref()], |row| row.get(0))
+            .query_row(
+                "SELECT key FROM sessions WHERE id=?1",
+                [id.as_ref()],
+                |row| row.get(0),
+            )
             .optional()?;
-        self.reset(&key.into_iter().collect::<Vec<_>>())
-    }
-
-    /// Drops the texts of the sessions `keys`, tells copies with a reset
-    /// row each, and has them read again if they come back.
-    fn reset(&mut self, keys: &[i64]) -> Result<()> {
-        if keys.is_empty() {
+        let Some(key) = key else {
             return Ok(());
-        }
+        };
 
-        let tx = self.0.unchecked_transaction()?;
-
-        for key in keys {
-            tx.execute("DELETE FROM log WHERE session=?1", [key])?;
-            tx.execute("INSERT INTO log(session) VALUES (?1)", [key])?;
-            tx.execute(
-                "UPDATE sessions SET stamp='',done=0,walk_top=NULL,walk_low=NULL WHERE key=?1",
-                [key],
-            )?;
-        }
+        let tx = self.0.transaction()?;
+        tx.execute("DELETE FROM log WHERE session=?1", [key])?;
+        tx.execute("INSERT INTO log(session) VALUES (?1)", [key])?;
+        tx.execute(
+            "UPDATE sessions SET stamp='',done=0,walk_top=NULL,walk_low=NULL,metadata=NULL WHERE key=?1",
+            [key],
+        )?;
 
         tx.commit()?;
         self.0.execute_batch("PRAGMA incremental_vacuum;")?;
@@ -220,19 +234,23 @@ impl Store {
         for word in &words {
             parameters.push((*word).to_owned());
             let holds = format!("holds(text,?{})", parameters.len());
+            let title = format!(
+                "holds(json_extract(metadata,'$.title'),?{})",
+                parameters.len()
+            );
 
             match trigrams(word) {
                 Some(trigrams) => {
                     parameters.push(trigrams);
                     conditions.push(format!(
-                        "key IN (SELECT session FROM log WHERE seq IN
-                         (SELECT rowid FROM log_search WHERE log_search MATCH ?{}) AND {holds})",
+                        "(key IN (SELECT session FROM log WHERE seq IN
+                         (SELECT rowid FROM log_search WHERE log_search MATCH ?{}) AND {holds}) OR {title})",
                         parameters.len()
                     ));
                 }
                 // Checked last, and only in the sessions the rest leave.
                 None => short.push(format!(
-                    "EXISTS (SELECT 1 FROM log WHERE session=key AND {holds})"
+                    "(EXISTS (SELECT 1 FROM log WHERE session=key AND {holds}) OR {title})"
                 )),
             }
         }
@@ -240,7 +258,7 @@ impl Store {
         conditions.append(&mut short);
 
         let sql = format!(
-            "SELECT key,id,activity FROM sessions
+            "SELECT key,id,activity,metadata FROM sessions
              WHERE (?1='[]' OR id IN (SELECT value FROM json_each(?1))) AND {}
              ORDER BY activity DESC,id LIMIT {MOST_HITS}",
             conditions.join(" AND ")
@@ -251,6 +269,7 @@ impl Store {
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, i64>(2)?,
+                row.get::<_, Option<String>>(3)?,
             ))
         })?;
         let mut first = self.0.prepare(
@@ -258,18 +277,21 @@ impl Store {
         )?;
 
         rows.map(|row| {
-            let (key, session, activity) = row?;
+            let (key, session, activity, metadata) = row?;
             let texts = words
                 .iter()
                 .map(|word| {
-                    let text: String = first.query_row(params![key, word], |row| row.get(0))?;
-                    Ok(around(&text, word))
+                    let text: Option<String> = first
+                        .query_row(params![key, word], |row| row.get(0))
+                        .optional()?;
+                    Ok(text.map(|text| around(&text, word)))
                 })
-                .collect::<Result<Vec<String>>>()?;
+                .collect::<Result<Vec<_>>>()?;
             Ok(SearchHit {
                 session: SessionId::from(session),
                 activity: u64::try_from(activity)?,
-                texts,
+                texts: texts.into_iter().flatten().collect(),
+                metadata: metadata.as_deref().map(serde_json::from_str).transpose()?,
             })
         })
         .collect()
@@ -277,11 +299,9 @@ impl Store {
 
     /// The newest row's `seq`, 0 for none.
     pub fn newest(&self) -> Result<u64> {
-        let seq: i64 = self.0.query_row(
-            "SELECT COALESCE(MAX(seq),0) FROM log",
-            [],
-            |row| row.get(0),
-        )?;
+        let seq: i64 = self
+            .0
+            .query_row("SELECT COALESCE(MAX(seq),0) FROM log", [], |row| row.get(0))?;
         Ok(u64::try_from(seq)?)
     }
 
@@ -289,7 +309,8 @@ impl Store {
     /// carry about `BATCH_BYTES` of text.
     pub fn rows_after(&self, after: u64, most: u32) -> Result<Vec<IndexRow>> {
         let mut read = self.0.prepare(
-            "SELECT seq,id,text,activity FROM log JOIN sessions ON key=session
+            "SELECT seq,id,text,activity,CASE WHEN text='' THEN metadata END
+             FROM log JOIN sessions ON key=session
              WHERE seq>?1 ORDER BY seq LIMIT ?2",
         )?;
         let rows = read.query_map(params![i64::try_from(after)?, most], |row| {
@@ -298,6 +319,7 @@ impl Store {
                 row.get::<_, String>(1)?,
                 row.get::<_, Option<String>>(2)?,
                 row.get::<_, i64>(3)?,
+                row.get::<_, Option<String>>(4)?,
             ))
         })?;
 
@@ -305,13 +327,15 @@ impl Store {
         let mut bytes = 0;
 
         for row in rows {
-            let (seq, session, text, activity) = row?;
-            bytes += text.as_ref().map_or(0, String::len);
+            let (seq, session, text, activity, metadata) = row?;
+            bytes +=
+                text.as_ref().map_or(0, String::len) + metadata.as_ref().map_or(0, String::len);
             batch.push(IndexRow {
                 seq: u64::try_from(seq)?,
                 session: SessionId::from(session),
                 text,
                 activity: u64::try_from(activity)?,
+                metadata: metadata.as_deref().map(serde_json::from_str).transpose()?,
             });
 
             if bytes >= BATCH_BYTES {
@@ -347,7 +371,8 @@ impl IndexCopy {
             tx.execute("UPDATE meta SET epoch=?1", [epoch])?;
         }
 
-        for row in rows {
+        let after = self.0.newest()?;
+        for row in rows.iter().filter(|row| row.seq > after) {
             tx.execute(
                 "INSERT INTO sessions(id,activity) VALUES (?1,?2)
                  ON CONFLICT(id) DO UPDATE SET activity=MAX(activity,?2)",
@@ -360,19 +385,35 @@ impl IndexCopy {
             )?;
             let seq = i64::try_from(row.seq)?;
 
-            match &row.text {
-                Some(text) => {
+            match (&row.text, &row.metadata) {
+                (Some(text), Some(metadata)) if text.is_empty() => {
+                    tx.execute(
+                        "UPDATE sessions SET metadata=?1,activity=?2 WHERE key=?3",
+                        params![
+                            serde_json::to_string(metadata)?,
+                            i64::try_from(row.activity)?,
+                            key
+                        ],
+                    )?;
+                    tx.execute("DELETE FROM log WHERE session=?1 AND text=''", [key])?;
+                    tx.execute(
+                        "INSERT INTO log(seq,session,text) VALUES (?1,?2,'')",
+                        params![seq, key],
+                    )?;
+                }
+                (Some(text), _) => {
                     tx.execute(
                         "INSERT OR IGNORE INTO log(seq,session,text,hash) VALUES (?1,?2,?3,?4)",
                         params![seq, key, text, text_hash(text)],
                     )?;
                 }
-                None => {
+                (None, _) => {
                     tx.execute("DELETE FROM log WHERE session=?1", [key])?;
                     tx.execute(
                         "INSERT INTO log(seq,session) VALUES (?1,?2)",
                         params![seq, key],
                     )?;
+                    tx.execute("UPDATE sessions SET metadata=NULL WHERE key=?1", [key])?;
                 }
             }
         }
@@ -393,7 +434,12 @@ fn trigrams(word: &str) -> Option<String> {
     let chars: Vec<char> = word.chars().collect();
     let quoted: Vec<String> = chars
         .windows(3)
-        .map(|three| format!("\"{}\"", three.iter().collect::<String>().replace('"', "\"\"")))
+        .map(|three| {
+            format!(
+                "\"{}\"",
+                three.iter().collect::<String>().replace('"', "\"\"")
+            )
+        })
         .collect();
     (!quoted.is_empty()).then(|| quoted.join(" AND "))
 }
@@ -421,8 +467,6 @@ fn text_hash(text: &str) -> i64 {
 pub(super) struct Indexed {
     /// The agent's own id for it.
     pub id: SessionId,
-    /// The folder it ran in.
-    pub cwd: PathBuf,
     /// Unix milliseconds.
     pub activity: u64,
     /// Kept once the read reached its newest entry; `None` before.
@@ -449,7 +493,10 @@ pub(super) struct Walk {
 }
 
 impl Progress {
-    pub const NEW: Self = Self { done: 0, walk: None };
+    pub const NEW: Self = Self {
+        done: 0,
+        walk: None,
+    };
 }
 
 #[cfg(test)]

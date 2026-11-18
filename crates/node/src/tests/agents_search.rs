@@ -1,5 +1,42 @@
 use super::*;
 
+#[tokio::test]
+async fn an_archived_conversation_outside_projects_is_indexed_and_can_be_read() -> anyhow::Result<()>
+{
+    let root = tempfile::tempdir()?;
+    let archive = root.path().join("archived_sessions");
+    std::fs::create_dir(&archive)?;
+    let header = serde_json::json!({
+        "type": "session_meta", "payload": {
+            "id": "archived-session", "cwd": "/path/to/unimported", "source": "cli"
+        }
+    });
+    let message = serde_json::json!({
+        "type": "event_msg", "payload": {"type": "user_message", "message": "retry the upgrade"}
+    });
+    std::fs::write(
+        archive.join("rollout-test.jsonl"),
+        format!("{header}\n{message}\n"),
+    )?;
+    let agents = Agents {
+        external: crate::agents::claude::External::at(root.path()),
+        stores: crate::agents::found::Stores::at(Some(root.path()), None, None),
+        ..Agents::default()
+    };
+    let sessions = conversations(&agents).await;
+    let [session] = sessions.as_slice() else {
+        anyhow::bail!("expected the archived conversation");
+    };
+    let index = Arc::new(SearchIndex::open(&root.path().join("search.sqlite"))?);
+    assert!(index_new(&agents, &index, session, &mut false).await?);
+    let hits = index.find("retry".into(), Vec::new()).await?;
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].session, session.id);
+    assert_eq!(hits[0].metadata.as_ref(), Some(&session.metadata));
+    assert_eq!(hits[0].texts, ["retry the upgrade"]);
+    Ok(())
+}
+
 #[test]
 fn a_read_walks_back_from_the_newest_page_to_what_was_indexed() {
     let indexed = Progress {
