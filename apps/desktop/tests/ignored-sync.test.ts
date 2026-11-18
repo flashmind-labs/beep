@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { gitignoredFolders, ignoredSelection } from "../src/project/ignored-sync-state.ts";
+import { gitignoreSuggestions, ignoredSelection } from "../src/project/ignored-sync-state.ts";
 
 test("ignored sync requires an explicit folder and keeps the selection when disabled", () => {
   assert.deepEqual(ignoredSelection(false, ""), { enabled:false, folders:[] });
@@ -14,7 +14,7 @@ test("ignored folder paths cannot escape, overlap, or select Git and build state
   }
 });
 
-test("a .gitignore suggests the plain folders it names", () => {
+test("a .gitignore suggests the plain folders and files it names", () => {
   const gitignore = "# models\n/assets/models/\ndata/captures\n*.log\n!keep/\n.env\n.cache/\ndist/\nnode_modules\nnotes.txt\nsrc/**/gen\n\nassets/models\n";
-  assert.deepEqual(gitignoredFolders(gitignore), ["assets/models", "data/captures"]);
+  assert.deepEqual(gitignoreSuggestions(gitignore), { folders: ["assets/models", "data/captures"], files: [".env", "notes.txt"] });
 });

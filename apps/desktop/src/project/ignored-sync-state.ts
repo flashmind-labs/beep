@@ -3,14 +3,22 @@ export interface IgnoredSync {
   folders: string[];
 }
 
-/// The folders a `.gitignore` names plainly, as suggestions: no globs,
-/// negations, hidden folders, file-like names or build output.
-export function gitignoredFolders(gitignore: string): string[] {
-  const folders = gitignore.split(/\r?\n/).map(line => line.trim())
-    .filter(line => line && !/^[#!]|[*?[\\]/.test(line))
-    .map(line => line.replace(/^\/+|\/+$/g, ""))
+/// What a `.gitignore` names plainly, as suggestions: no globs, negations
+/// or build output. Folders can sync; files cannot yet.
+export interface GitignoreSuggestions {
+  folders: string[];
+  files: string[];
+}
+
+export function gitignoreSuggestions(gitignore: string): GitignoreSuggestions {
+  const paths = gitignore.split(/\r?\n/).map(line => line.trim())
+    .filter(line => line && !/^[#!]|[*?[\\]/.test(line));
+  const plain = (path: string) => path.replace(/^\/+|\/+$/g, "");
+  const folders = paths.map(plain)
     .filter(path => plainFolder(path) && !path.split("/").some(part => part.includes(".") || BUILD.includes(part.toLowerCase())));
-  return [...new Set(folders)].slice(0, 16);
+  const files = paths.filter(path => !path.endsWith("/") && /\.[^/]*$/.test(path)).map(plain)
+    .filter(path => path && path !== ".DS_Store" && !path.split("/").some(part => BUILD.includes(part.toLowerCase())));
+  return { folders: [...new Set(folders)].slice(0, 16), files: [...new Set(files)].slice(0, 16) };
 }
 
 /// Folder names that read as build output, which stays on each machine.

@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { openSheet } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
-import { gitignoredFolders, ignoredSelection, listedFolders, type IgnoredSync } from "./ignored-sync-state.ts";
+import { gitignoreSuggestions, ignoredSelection, listedFolders, type GitignoreSuggestions, type IgnoredSync } from "./ignored-sync-state.ts";
 import { Button, Checkbox, ChipToggle, SheetHead } from "../ui/kit.tsx";
 import { readFile } from "../agentpane/read.ts";
 import type { ProjectPlace } from "./projects-state.ts";
@@ -30,14 +30,14 @@ export function chooseIgnoredFolders(project: string, places: readonly ProjectPl
     }
   };
   const suggested = Promise.any(places.map(place => readFile(place.id, `${place.folder}/.gitignore`, null, () => {})))
-    .then(file => gitignoredFolders(new TextDecoder().decode(file.bytes)), () => []);
+    .then(file => gitignoreSuggestions(new TextDecoder().decode(file.bytes)), () => ({ folders: [], files: [] }));
   flushSync(() => render(<IgnoredSyncView initial={initial} suggested={suggested} save={save} cancel={() => { if (!busy) close(); }} />));
 }
 
-function IgnoredSyncView({ initial, suggested, save, cancel }: { initial: IgnoredSync; suggested: Promise<string[]>; save(enabled: boolean, paths: string, setError: (message: string) => void, setBusy: (value: boolean) => void): void; cancel(): void }) {
+function IgnoredSyncView({ initial, suggested, save, cancel }: { initial: IgnoredSync; suggested: Promise<GitignoreSuggestions>; save(enabled: boolean, paths: string, setError: (message: string) => void, setBusy: (value: boolean) => void): void; cancel(): void }) {
   const [enabled, setEnabled] = useState(initial.enabled), [paths, setPaths] = useState(initial.folders.join("\n"));
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<GitignoreSuggestions>({ folders: [], files: [] });
   const textarea = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => { textarea.current?.focus(); }, []);
   useEffect(() => { suggested.then(setSuggestions); }, [suggested]);
@@ -45,8 +45,11 @@ function IgnoredSyncView({ initial, suggested, save, cancel }: { initial: Ignore
   const toggle = (folder: string) => setPaths(listed.includes(folder) ? listed.filter(p => p !== folder).join("\n") : [...listed, folder].join("\n"));
   return <><SheetHead title="Sync gitignored" />
     <label className="am-line"><Checkbox checked={enabled} disabled={busy} change={setEnabled} />Sync selected ignored folders on all machines</label>
-    <div className="am-label">Folders relative to the project, one per line</div><textarea ref={textarea} className="ip-path ip-list" rows={4} value={paths} placeholder={suggestions.length ? suggestions.join("\n") : "assets/models\ndata/captures"} aria-label="Folders relative to the project, one per line" disabled={busy} onChange={event => setPaths(event.currentTarget.value)} />
-    {!!suggestions.length && <div className="dchips" aria-label="Folders in .gitignore">{suggestions.map(folder => <ChipToggle key={folder} label={folder} selected={listed.includes(folder)} onToggle={() => toggle(folder)} />)}</div>}
+    <div className="am-label">Folders relative to the project, one per line</div><textarea ref={textarea} className="ip-path ip-list" rows={4} value={paths} placeholder={suggestions.folders.length ? suggestions.folders.join("\n") : "assets/models\ndata/captures"} aria-label="Folders relative to the project, one per line" disabled={busy} onChange={event => setPaths(event.currentTarget.value)} />
+    {!!(suggestions.folders.length || suggestions.files.length) && <div className="dchips" aria-label="In .gitignore">
+      {suggestions.folders.map(folder => <ChipToggle key={folder} label={folder} selected={listed.includes(folder)} onToggle={() => toggle(folder)} />)}
+      {suggestions.files.map(file => <ChipToggle key={file} label={file} selected={false} disabled title="Only folders sync for now; files stay on each machine" onToggle={() => {}} />)}
+    </div>}
     <div className="am-sub">Each folder must be wholly ignored by Git and contain no tracked or staged files. These folders use file sync, including conflict copies. Other uncommitted edits stay local. Build output, linked repositories and paths excluded in .beepignore stay local.</div>
     <div className="am-sub">Beep waits while Syncthing manages these folders. Turning this off leaves local files in place.</div>
     <div className="am-msg bad" role="status" hidden={!error}>{error}</div><div className="am-line ip-acts"><Button look="quiet" onClick={cancel}>Cancel</Button><Button look="primary" disabled={busy} onClick={() => save(enabled, paths, setError, setBusy)}>{busy ? "Saving…" : "Save"}</Button></div></>;
