@@ -107,7 +107,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
         warn: true,
         on: () => confirmSheet({
           title: "Delete this session?",
-          text: `Its conversation is removed from ${s.machine_name || "the machine"} for good.`,
+          text: `Its conversation is removed from ${s.machine_name || "the machine"} for good. A terminal or IDE that has it open is closed.`,
           action: "Delete",
           run: async () => {
             await invoke("agent_delete", at);
