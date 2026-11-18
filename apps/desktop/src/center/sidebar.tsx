@@ -95,19 +95,14 @@ export function projectHere() {
 
 shell.subscribe((now, was) => { if (!now.assistant !== !was.assistant) drawSide(); });
 
-/// A window wide enough for the project's sessions beside one of them.
-const roomy = window.matchMedia("(min-width: 1200px)");
-roomy.addEventListener("change", drawRail);
-
-/// Draws a project's sessions in place of the sidebar while one of them shows, in a window with
-/// room for both beside it, or the sidebar again. The project's page opened from them keeps
+/// Draws a project's sessions in place of the sidebar while one of them shows, or the sidebar again. The project's page opened from them keeps
 /// them beside it. A project window, which has no sidebar, shows its project's sessions on every
 /// page. Their reads redraw only this.
 export function drawRail() {
   const view = currentLocation()?.view, side = shell.getState().side;
   const project = windowProject ?? (view === "pane" ? projectHere()?.project ?? null
     : view === "projects" && side.rail && !side.railHidden && state.picked === side.rail ? side.rail : null);
-  const rail = !onPhone() && roomy.matches ? project : null;
+  const rail = !onPhone() ? project : null;
   setRail(rail);
   placeWindowParts({ rail: rail && projectRail(rail, openKey()) });
 }
