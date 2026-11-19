@@ -17,14 +17,21 @@ use tokio_util::task::AbortOnDropHandle;
 /// How many frames wait to be handled before the reader stops reading.
 const FRAMES: usize = 256;
 
+/// A line the CLI wrote.
+pub(super) enum Frame {
+    Json(Value),
+    /// A line over `MAX_MESSAGE`, dropped.
+    TooLong,
+}
+
 /// A running CLI. Dropping it kills its process group.
 pub(super) struct Pipe {
     lines: mpsc::UnboundedSender<String>,
     /// It runs in WSL: the paths in what it is sent and what it writes are
     /// turned across.
     in_wsl: bool,
-    /// Its stdout, one JSON frame each; closed when it exits.
-    pub(super) frames: mpsc::Receiver<Value>,
+    /// Its stdout, one frame each; closed when it exits.
+    pub(super) frames: mpsc::Receiver<Frame>,
     process: Process,
     _tasks: [AbortOnDropHandle<()>; 2],
 }
@@ -58,6 +65,10 @@ impl Pipe {
                     Line::Text(text) => text,
                     Line::TooLong(length) => {
                         log::warn!("dropped a {length} byte line from {name}");
+
+                        if sent.send(Frame::TooLong).await.is_err() {
+                            return;
+                        }
                         continue;
                     }
                 };
@@ -68,7 +79,7 @@ impl Pipe {
                             wsl::translate(&mut frame, Toward::Windows);
                         }
 
-                        if sent.send(frame).await.is_err() {
+                        if sent.send(Frame::Json(frame)).await.is_err() {
                             return;
                         }
                     }

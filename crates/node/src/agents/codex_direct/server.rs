@@ -2,11 +2,23 @@
 //! `jsonrpc` field. A call waits for its answer; what Codex sends meanwhile
 //! waits, in order, for the bridge.
 
-use crate::agents::{launch::Cli, pipe::Pipe};
+use crate::agents::{
+    acp::MAX_MESSAGE,
+    launch::Cli,
+    pipe::{Frame, Pipe},
+};
 use crate::machine::wsl::DistroName;
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 use std::{collections::VecDeque, path::Path};
+
+/// Codex wrote a line too long to read while a call waited, most likely
+/// its answer, which is then lost.
+#[derive(Debug, thiserror::Error)]
+#[error("Codex's answer to {method} was over {MAX_MESSAGE} bytes")]
+pub(super) struct TooLong {
+    method: String,
+}
 
 /// What Codex sends of its own accord.
 #[derive(Debug, Clone, PartialEq)]
@@ -54,12 +66,16 @@ impl AppServer {
         self.pipe.write(&json!({"id": id, "method": method, "params": params}));
 
         loop {
-            let frame = self
-                .pipe
-                .frames
-                .recv()
-                .await
-                .with_context(|| format!("Codex exited before it answered {method}"))?;
+            let frame = match self.pipe.frames.recv().await {
+                Some(Frame::Json(frame)) => frame,
+                Some(Frame::TooLong) => {
+                    return Err(TooLong {
+                        method: method.to_owned(),
+                    }
+                    .into());
+                }
+                None => anyhow::bail!("Codex exited before it answered {method}"),
+            };
 
             if frame.get("method").is_none() && frame["id"] == id {
                 return match frame.get("error") {
@@ -82,11 +98,19 @@ impl AppServer {
         }
 
         loop {
-            let frame = self.pipe.frames.recv().await?;
-            if let Some(incoming) = incoming(frame) {
+            if let Frame::Json(frame) = self.pipe.frames.recv().await?
+                && let Some(incoming) = incoming(frame)
+            {
                 return Some(incoming);
             }
         }
+    }
+
+    /// Codex sent the notification `method`, which waits to be read.
+    pub(super) fn sent(&self, method: &str) -> bool {
+        self.backlog
+            .iter()
+            .any(|incoming| matches!(incoming, Incoming::Notification { method: sent, .. } if sent == method))
     }
 
     /// Ends Codex, gently first.

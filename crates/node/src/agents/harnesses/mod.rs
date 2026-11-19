@@ -131,8 +131,9 @@ impl Settings {
 
 /// `kind` with `config` applied: its program swapped, its home variable
 /// and env vars set, and its arguments added after the node's own. With the
-/// `Direct` driver the node's own bridge runs Claude Code's CLI; the program
-/// and arguments set for its adapter do not apply.
+/// `Direct` driver the node's own bridge runs the CLI; the program and
+/// arguments set for its adapter do not apply. An agent found without its
+/// adapter stays on the bridge unless an adapter program is set.
 fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
     let direct = match config.driver {
         HarnessDriver::Direct => direct(kind),
@@ -146,8 +147,12 @@ fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
         let program = config.program.as_deref().map(str::trim);
         if let Some(program) = program.filter(|program| !program.is_empty()) {
             kind.program = program.to_owned();
+            kind.bridge = None;
         }
-        kind.args.extend(config.args.iter().cloned());
+
+        if kind.bridge.is_none() {
+            kind.args.extend(config.args.iter().cloned());
+        }
     }
 
     // A home set for Windows is no path inside WSL.

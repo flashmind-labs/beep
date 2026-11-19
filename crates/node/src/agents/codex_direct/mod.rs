@@ -10,3 +10,7 @@ mod server;
 mod settings;
 
 pub(in crate::agents) use bridge::{NAME, serve};
+
+#[cfg(test)]
+#[path = "../../tests/agents_codex_direct.rs"]
+mod tests;

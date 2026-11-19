@@ -218,7 +218,7 @@ struct Observed {
 }
 
 impl Processes {
-    #[cfg(all(test, target_os = "linux"))]
+    #[cfg(test)]
     pub(super) fn root(&self) -> u32 {
         self.root.load(Ordering::Relaxed)
     }

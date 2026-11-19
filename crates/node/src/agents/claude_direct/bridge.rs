@@ -6,7 +6,7 @@ use super::{
     cli::{Cli, Launch},
     updates,
 };
-use crate::agents::{acp, launch};
+use crate::agents::{acp, launch, pipe::Frame};
 use agent_client_protocol::{
     Agent, Builder, Client, ConnectionTo, Dispatch, Handled, JsonRpcMessage,
     Responder, UntypedMessage, on_receive_dispatch,
@@ -741,11 +741,17 @@ fn replayed(path: Option<PathBuf>, id: &str, in_wsl: bool) -> Vec<SessionUpdate>
     })
 }
 
-/// The CLI's next frame, once it runs; `None` when it exited.
+/// The CLI's next frame, once it runs; `None` when it exited. A line too
+/// long to read is skipped: nothing waits on one.
 async fn next_frame(session: &mut Option<Session>) -> Option<Value> {
-    match session {
-        Some(session) => session.cli.pipe.frames.recv().await,
-        None => std::future::pending().await,
+    let Some(session) = session else {
+        return std::future::pending().await;
+    };
+
+    loop {
+        if let Frame::Json(frame) = session.cli.pipe.frames.recv().await? {
+            return Some(frame);
+        }
     }
 }
 

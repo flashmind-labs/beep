@@ -100,7 +100,8 @@ pub(super) fn started(item: &Value) -> Option<Value> {
 pub(super) fn completed(item: &Value, whole: bool) -> Option<Value> {
     let id = item["id"].as_str()?;
     let mut update = match item["type"].as_str()? {
-        "agentMessage" if whole => return text_update("agent_message_chunk", item["text"].as_str()?),
+        // A plan item is the plan Plan mode proposes, shown as its text.
+        "agentMessage" | "plan" if whole => return text_update("agent_message_chunk", item["text"].as_str()?),
         "reasoning" if whole => {
             let parts = match item["summary"].as_array().is_some_and(|summary| !summary.is_empty()) {
                 true => &item["summary"],
@@ -161,18 +162,32 @@ pub(super) fn completed(item: &Value, whole: bool) -> Option<Value> {
 pub(super) fn replayed(item: &Value) -> Vec<Value> {
     match item["type"].as_str() {
         Some("userMessage") => {
-            let said: Vec<&str> = item["content"]
-                .as_array()
-                .into_iter()
-                .flatten()
+            let inputs = item["content"].as_array().into_iter().flatten();
+            let said: Vec<&str> = inputs
+                .clone()
                 .filter(|input| input["type"] == "text")
                 .filter_map(|input| input["text"].as_str())
                 .collect();
-            text_update("user_message_chunk", &said.join("\n")).into_iter().collect()
+            let images = inputs.filter(|input| input["type"] == "image").filter_map(image);
+            text_update("user_message_chunk", &said.join("\n")).into_iter().chain(images).collect()
         }
-        Some("agentMessage" | "reasoning") => completed(item, true).into_iter().collect(),
+        Some("agentMessage" | "reasoning" | "plan") => completed(item, true).into_iter().collect(),
         _ => started(item).into_iter().chain(completed(item, false)).collect(),
     }
+}
+
+/// The prompt's image `input` as Codex keeps it: a picture sent as a data
+/// URL comes back whole, one from the web as its link.
+fn image(input: &Value) -> Option<Value> {
+    static DATA: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^data:([^;,]+);base64,(.*)$").expect("a valid pattern"));
+    let url = input["url"].as_str()?;
+    let content = match DATA.captures(url) {
+        Some(data) => json!({"type": "image", "mimeType": &data[1], "data": &data[2]}),
+        None => json!({"type": "text", "text": format!("[@image]({url})")}),
+    };
+
+    Some(json!({"sessionUpdate": "user_message_chunk", "content": content}))
 }
 
 /// A plan update from `turn/plan/updated`.

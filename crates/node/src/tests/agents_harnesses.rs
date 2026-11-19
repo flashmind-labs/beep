@@ -132,6 +132,31 @@ fn the_direct_driver_runs_claude_code_and_codex_on_the_nodes_own_bridges() {
 }
 
 #[test]
+fn an_agent_found_without_its_adapter_stays_on_the_bridge_until_an_adapter_is_set() {
+    let bridged = AgentKind {
+        program: "/usr/local/bin/codex".into(),
+        bridge: Some(Bridge::Codex { wsl: None }),
+        ..kind("codex")
+    };
+    let config = HarnessConfig {
+        args: vec!["--flag".into()],
+        driver: HarnessDriver::Acp,
+        ..HarnessConfig::new("codex")
+    };
+    let settings = Settings::default();
+    settings.set(AgentSettings { harnesses: vec![config.clone()], ..AgentSettings::default() });
+
+    // The adapter's arguments do not go to the CLI.
+    assert_eq!(settings.configured(&bridged).unwrap(), bridged);
+
+    let adapter = HarnessConfig { program: Some("/opt/codex-acp".into()), ..config };
+    settings.set(AgentSettings { harnesses: vec![adapter], ..AgentSettings::default() });
+    let started = settings.configured(&bridged).unwrap();
+    assert_eq!((started.program.as_str(), started.bridge), ("/opt/codex-acp", None));
+    assert_eq!(started.args.last().map(String::as_str), Some("--flag"));
+}
+
+#[test]
 fn sign_ins_are_read_from_each_status() {
     let claude = r#"{"loggedIn":true,"email":"you@example.com","subscriptionType":"max"}"#;
     let read = read_sign_in("claude", true, claude);

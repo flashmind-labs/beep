@@ -555,7 +555,8 @@ pub(super) fn launch(
             "npx".to_owned(),
             vec!["-y".to_owned(), format!("{package}@>={min}")],
         ),
-        (Adapter::Npm { .. }, None) if known.name != "claude" => {
+        // Claude Code and Codex run on the node's own bridge meanwhile.
+        (Adapter::Npm { .. }, None) if !matches!(known.name, "claude" | "codex") => {
             return Some(Launch::LacksAdapter);
         }
         (Adapter::Npm { .. }, None) => {

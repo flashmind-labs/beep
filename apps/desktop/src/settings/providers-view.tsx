@@ -64,7 +64,7 @@ function SharedSettings({ value, p }: { value: SharedProviderSettings; p: Provid
       <Switch label={`Auto-compact for ${harnessName(value.agent)}`} on={compact.draft.compactOn} disabled={!compact.loaded || compact.busy} flip={() => p.changeCompact(value.agent, { compactOn: !compact.draft.compactOn })} />
       {compactKind(value.agent) === "percent" && <input className="hv-in" value={compact.draft.compactPercent} placeholder="80% or 350000" aria-label="Auto-compact threshold" autoComplete="off" spellCheck={false} disabled={!compact.loaded || compact.busy} onChange={event => p.changeCompact(value.agent, { compactPercent: event.currentTarget.value })} />}
     </span></div><div className="hv-acts"><Button look="primary" disabled={!compact.canSave} onClick={() => p.saveCompact(value.agent)}>{compact.busy ? "Saving…" : "Save auto-compact"}</Button><Button look="quiet" hidden={!compact.edited} disabled={compact.busy} onClick={() => p.discardCompact(value.agent)}>Discard</Button><span className="derr">{compact.error}</span></div></>}
-    {directCli && <DriverField agent={value.agent} cli={directCli} invoke={p.invoke} />}
+    {directCli && <DriverField key={value.agent} agent={value.agent} cli={directCli} invoke={p.invoke} />}
     {value.agent === "flsh" && <FlshView panel={p.flsh} />}
     {value.machineName && <div className="hv-note">Model choices and reported limits come from {value.machineName}.</div>}
     {p.machine && <ModelContextView panel={p.contexts} machine={p.machine} agent={value.agent} />}

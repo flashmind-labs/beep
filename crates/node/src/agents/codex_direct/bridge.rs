@@ -4,7 +4,7 @@
 use super::{
     ask::{self, Reply, Request},
     items,
-    server::{AppServer, Incoming},
+    server::{AppServer, Incoming, TooLong},
     settings::{INITIAL_MODE, Mode, Model, Settings, Started},
 };
 use crate::agents::{acp, launch::Cli};
@@ -33,6 +33,8 @@ use tokio::{
     sync::mpsc,
 };
 
+/// The command that compacts the thread.
+const COMPACT: &str = "/compact";
 /// How many messages from the client wait to be handled.
 const EVENTS: usize = 64;
 /// The name the node knows this agent by, which says it steers.
@@ -40,7 +42,10 @@ pub(in crate::agents) const NAME: &str = "beep-node codex-acp";
 /// Codex settings the node gives, as a JSON object, for every thread.
 const CONFIG: &str = "CODEX_CONFIG";
 /// The most pages of a thread's turns a loaded session replays.
-const MAX_PAGES: usize = 50;
+const MAX_PAGES: usize = 250;
+/// How many turns a page of history asks for; fewer when a page is too
+/// long to read.
+const PAGE: u64 = 20;
 
 /// Serves ACP read from `input` and written to `output`, driving Codex's
 /// CLI `cli`, in the WSL distribution `wsl` when given, until the client
@@ -351,6 +356,15 @@ impl Bridge {
             }
         }
 
+        // The node asks for compaction with the command it advertises.
+        let commands = json!({
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": [{"name": COMPACT.trim_start_matches('/'), "description": "Summarize the conversation to free context"}],
+        });
+        if let Some(update) = items::update(commands) {
+            notify(&self.cx, &session.id, update)?;
+        }
+
         log::info!("Codex runs thread {} in {}", session.id.0, cwd.display());
         self.session = Some(session);
         Ok(())
@@ -419,11 +433,19 @@ impl Bridge {
             return Ok(responder.respond_with_error(running)?);
         }
 
-        let mut params = session.settings.turn();
-        params.insert("threadId".to_owned(), json!(session.id));
-        params.insert("input".to_owned(), json!(input(prompt)));
+        // `/compact` runs as a turn of its own.
+        let compact = matches!(prompt, [ContentBlock::Text(said)] if said.text.trim() == COMPACT);
+        let called = match compact {
+            true => session.server.call("thread/compact/start", json!({"threadId": session.id})).await,
+            false => {
+                let mut params = session.settings.turn();
+                params.insert("threadId".to_owned(), json!(session.id));
+                params.insert("input".to_owned(), json!(input(prompt)));
+                session.server.call("turn/start", Value::Object(params)).await
+            }
+        };
 
-        match session.server.call("turn/start", Value::Object(params)).await {
+        match called {
             Ok(started) => {
                 session.turn = started["turn"]["id"].as_str().map(str::to_owned).or(session.turn.take());
                 session.prompt = Some(responder);
@@ -453,8 +475,14 @@ impl Bridge {
         let steer = json!({"threadId": session.id, "expectedTurnId": turn, "input": input(&prompt)});
         match session.server.call("turn/steer", steer).await {
             Ok(_) => "injected",
-            // The turn ended meanwhile.
-            Err(_) if session.prompt.is_none() || session.turn.as_ref() != Some(&turn) => "promptRequired",
+            // The turn ended meanwhile, though its end may not be read yet.
+            Err(_)
+                if session.prompt.is_none()
+                    || session.turn.as_ref() != Some(&turn)
+                    || session.server.sent("turn/completed") =>
+            {
+                "promptRequired"
+            }
             Err(e) => {
                 log::warn!("Codex took no steer: {e:#}");
                 "failed"
@@ -481,7 +509,7 @@ impl Bridge {
                 let whole = item["id"].as_str().is_none_or(|id| !session.streamed.remove(id));
                 items::completed(item, whole)
             }
-            "item/agentMessage/delta" => {
+            "item/agentMessage/delta" | "item/plan/delta" => {
                 session.streamed.insert(item_id());
                 Some(items::chunk("agent_message_chunk", params["delta"].as_str().unwrap_or_default()))
             }
@@ -728,11 +756,18 @@ async fn models(server: &mut AppServer) -> Vec<Model> {
 async fn history(server: &mut AppServer, id: &str) -> Vec<SessionUpdate> {
     let mut updates = Vec::new();
     let mut cursor = Value::Null;
+    let mut limit = PAGE;
 
     for _ in 0..MAX_PAGES {
-        let params = json!({"threadId": id, "cursor": cursor, "sortDirection": "asc", "itemsView": "full", "limit": 100});
+        let params = json!({"threadId": id, "cursor": cursor, "sortDirection": "asc", "itemsView": "full", "limit": limit});
         let page = match server.call("thread/turns/list", params).await {
             Ok(page) => page,
+            // Images and long tool output can make a page too long: the
+            // same turns are asked for in smaller pages.
+            Err(e) if e.is::<TooLong>() && limit > 1 => {
+                limit /= 2;
+                continue;
+            }
             Err(e) => {
                 log::warn!("the history of {id} was not replayed: {e:#}");
                 break;

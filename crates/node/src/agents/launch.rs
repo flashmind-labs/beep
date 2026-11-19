@@ -248,11 +248,11 @@ fn spawn(
     let forward = async move {
         let mut stderr = LineReader::new(BufReader::new(stderr), MAX_STDERR_LINE);
 
+        // Read to the end, dropping what no one reads in time, as the model
+        // probe reads none: a full pipe would stop the agent.
         while let Ok(Some(line)) = stderr.next().await {
-            if let Line::Text(line) = line
-                && lines.send(line).await.is_err()
-            {
-                return;
+            if let Line::Text(line) = line {
+                let _ = lines.try_send(line);
             }
         }
     };
