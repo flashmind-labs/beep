@@ -110,7 +110,7 @@ export type DiscussionTopic = Pick<IssueRow, "number" | "title" | "url"> & { kin
 export interface RepoActs {
   workOn: (issue: IssueRow) => void;
   startIssue: (issue: IssueRow, pick: ProjectPick, machine: string | null) => Promise<void>;
-  startDiscussion: (topic: DiscussionTopic, pick: ProjectPick, machine: string | null) => Promise<void>;
+  discuss: (topic: DiscussionTopic) => void;
   workOnPr: (pr: PullRequestRow) => Promise<void>;
   prSession: (url: string, redraw: () => void) => TaskSession | "checking" | null;
   startPrWork: (pr: PullRequestRow, pick: ProjectPick, machine: string | null) => Promise<void>;
@@ -256,8 +256,8 @@ export function makeThreads(deps: ThreadDeps) {
         : { kind: "ready", label: "Review with agent", hint: "Pick a model: an agent reviews this PR and posts its comments on it" };
       buttons.push({ kind: "agent", key: "agent-review", button, state });
     }
-    const discuss = discussionButton(project, ctx, { ...pr, kind: "pr" });
-    return actsEl(s, [`c${n}`, `a${n}`, discuss.key], [...buttons, discuss]);
+    buttons.push(discussionButton(ctx, { ...pr, kind: "pr" }));
+    return actsEl(s, [`c${n}`, `a${n}`], buttons);
   }
 
   /// An open issue's work and discussion actions on the project page.
@@ -266,23 +266,12 @@ export function makeThreads(deps: ThreadDeps) {
     const key = `w${i.number}`;
     const button = buttonOf(s, key, () => ctx.button((pick, machine) => void act(project.project_id, key, () => ctx.startIssue(s.issues?.find(x => x.number === i.number) ?? i, pick, machine))));
     const state: AgentState = ctx.issueSession(i) ?? (s.busy.has(key) ? { kind: "starting" } : { kind: "ready", label: "Work on it", hint: "Pick a model: an agent starts on a new branch for this issue" });
-    const discuss = discussionButton(project, ctx, { ...i, kind: "issue" });
-    return actsEl(s, [key, discuss.key], [{ kind: "agent", key: "work", button, state }, discuss]);
+    return actsEl(s, [key], [{ kind: "agent", key: "work", button, state }, discussionButton(ctx, { ...i, kind: "issue" })]);
   }
 
-  /// A discussion starts in the project's checkout with the current thread details.
-  function discussionButton(project: ProjectRef, ctx: RepoActs, topic: DiscussionTopic): ThreadAction {
-    const s = of(project.project_id);
-    const { kind, number } = topic;
-    const key = `discuss:${kind}:${number}`;
-    const button = buttonOf(s, key, () => ctx.button((pick, machine) => void act(project.project_id, key, () => {
-      const rows = kind === "issue" ? s.issues : s.prs;
-      const current = rows?.find(row => row.number === number) ?? topic;
-      return ctx.startDiscussion({ ...current, kind }, pick, machine);
-    })));
-    const state: AgentState = s.busy.has(key) ? { kind: "starting" }
-      : { kind: "ready", label: "Discuss with agent", hint: "Start a chat about this thread" };
-    return { kind: "agent", key, button, state };
+  /// Fills the agent composer with a prompt about the thread.
+  function discussionButton(ctx: RepoActs, topic: DiscussionTopic): ThreadAction {
+    return { kind: "run", key: "discuss", label: "Discuss with agent", primary: false, disabled: false, title: "Fill the agent prompt for this thread", run: () => ctx.discuss(topic) };
   }
 
   /// The agent button of row `key`, made once.

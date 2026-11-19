@@ -239,7 +239,7 @@ for (const { kind, subject, path } of [
   { kind: "issue", subject: "issue", path: "issues" },
   { kind: "pr", subject: "pull request", path: "pull" },
 ]) {
-  test(`Discuss with agent starts a chat about the ${subject}`, async ({ page }) => {
+  test(`Discuss with agent fills an editable ${subject} prompt before sending`, async ({ page }) => {
     const now = Date.now(), number = 7, title = "Example change";
     const url = `https://github.com/example/widget/${path}/${number}`;
     const thread = { number, title, url, author: "Author", opened_at: now, labels: [] };
@@ -255,12 +255,21 @@ for (const { kind, subject, path } of [
     });
     await page.evaluate(tile => window.__navigation.open({ projects: { project: tile.project, tile: tile.key } }), { project: projectName, key: `${kind}:${number}` });
     await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Discuss with agent" }).click();
-    const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
-    await picker.locator('[data-agmachine="build-box"]').click();
-    await picker.locator('[data-agh="codex"]').click();
-    await picker.locator('[data-agmo="alpha"]').click();
-    await picker.locator('[data-age=""]').click();
+    const composer = page.locator(".cc-pjc:visible");
+    const input = composer.getByRole("textbox", { name: "Task for a coding agent" });
+    const prompt = `I want to discuss about ${subject} #${number}: ${title} (${url}).`;
+    await expect(input).toHaveValue(prompt);
+    await expect(input).toBeEditable();
+
     const starts = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").map(call => call.args));
-    await expect.poll(starts).toMatchObject([{ cwd: "/srv/project", checkout: null, prompt: `I want to discuss about ${subject} #${number}: ${title} (${url}).` }]);
+    expect(await starts()).toEqual([]);
+    const edited = `${prompt} What options do you see?`;
+    await input.fill(edited);
+    if (await page.locator("body").evaluate(body => body.classList.contains("mobile"))) {
+      await composer.getByRole("button", { name: "Start", exact: true }).click();
+    } else {
+      await input.press("Enter");
+    }
+    await expect.poll(starts).toMatchObject([{ cwd: "/srv/project", checkout: null, prompt: edited }]);
   });
 }

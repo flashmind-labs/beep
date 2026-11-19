@@ -1,3 +1,3 @@
 ### Added
 
-- Desktop: Discuss with agent starts a chat about an issue or pull request from its details.
+- Desktop: Discuss with agent prefills an editable prompt about an issue or pull request.

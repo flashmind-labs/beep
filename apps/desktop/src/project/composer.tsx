@@ -371,11 +371,11 @@ export const fixSession = (name: string, detail: RunDetail) => sessionFor(name, 
 /// Work on it on the issue's page: starts the agent at once.
 export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick, machine: string | null) => startTask(name, issueTask(name, issue), pick, machine);
 
-/// Starts a chat about a thread in the project's current checkout.
-export function startDiscussion(name: string, topic: DiscussionTopic, pick: ProjectPick, machine: string | null) {
+/// Prefills the project composer with a discussion prompt.
+export function discussThread(name: string, topic: DiscussionTopic) {
   const subject = topic.kind === "issue" ? "issue" : "pull request";
   const prompt = `I want to discuss about ${subject} #${topic.number}: ${topic.title} (${topic.url}).`;
-  return startTask(name, { prompt, target: null }, pick, machine);
+  fillBar(name, prompt, null);
 }
 
 /// Where each picked issue starts, on the machine and harness the bar has
