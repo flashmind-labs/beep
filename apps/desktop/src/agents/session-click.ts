@@ -1,7 +1,7 @@
 // What a click in the open session's log and pane does.
 import { S } from "../bar/core.ts";
-import { openViewer } from "../chat/media.tsx";
-import { linkedPath } from "../agentpane/media-state.ts";
+import { openFileViewer, openViewer } from "../chat/media.tsx";
+import { linkedPath, resolvePath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, showArtifact, showRunning, showSubagents } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
 import { copyCode } from "./turnrows.ts";
@@ -19,6 +19,15 @@ import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { nativeSession } from "./native-session-state.ts";
 import { isOpen, openAgent, resumeAgent } from "./session.tsx";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
+
+/// The assistant's chat has no pane beside it: its files open over the
+/// window, read from its machine. False for another session.
+function openOver(path: string) {
+  const s = AG.page?.session;
+  if (!s?.assistant) return false;
+  openFileViewer(s.machine_id, s.id, resolvePath(s.cwd, path));
+  return true;
+}
 
 /// Opens the conversation of the subagent whose call is entry `at`; false when it has none to open.
 function openNative(at: number) {
@@ -130,23 +139,23 @@ export function agentClick(e: MouseEvent) {
 
   // A file a step names opens in the media pane.
   const step = inLog<HTMLElement>("[data-media]");
-  if (step) { openPath(step.dataset.media!); return; }
+  if (step) { if (!openOver(step.dataset.media!)) openPath(step.dataset.media!); return; }
   const attachment = inLog<HTMLElement>("[data-attachment-path]");
-  if (attachment?.dataset.attachmentPath) { openPath(attachment.dataset.attachmentPath); return; }
+  if (attachment?.dataset.attachmentPath) { if (!openOver(attachment.dataset.attachmentPath)) openPath(attachment.dataset.attachmentPath); return; }
 
   // A markdown link to a file opens it in the pane; bar/events.ts sends web links out.
   const fileLink = inLog<HTMLAnchorElement>("a[href]");
   const linkedFile = fileLink && linkedPath(fileLink.getAttribute("href")!);
-  if (linkedFile) { openLinked(linkedFile); return; }
+  if (linkedFile) { if (!openOver(linkedFile.path)) openLinked(linkedFile); return; }
   // Inline code that names a file opens it the same way.
   const codeRef = inLog("code.fref[data-file]");
   const codeFile = codeRef && linkedPath(codeRef.dataset.file ?? "");
-  if (codeFile) { openLinked(codeFile); return; }
+  if (codeFile) { if (!openOver(codeFile.path)) openLinked(codeFile); return; }
   // A file the reply names opens its picture, as its thumbnail does, or
   // else the file itself from the machine, in the media pane.
   const link = inLog<HTMLElement>("a.imgl");
   const linked = link?.dataset.img != null ? link.closest(".dcoderen")?.querySelectorAll<HTMLImageElement>(":scope > .pics img.pic, :scope > [data-tool-content] > .pics img.pic")[Number(link.dataset.img)] : null;
-  if (link && !linked?.getAttribute("src")) { if (link.dataset.path) openPath(link.dataset.path); return; }
+  if (link && !linked?.getAttribute("src")) { if (link.dataset.path && !openOver(link.dataset.path)) openPath(link.dataset.path); return; }
   // The agent's pictures open in the media pane, the user's own full size.
   // One still loading opens once it is here. The tile may be a thumbnail, so
   // what opens is read whole.

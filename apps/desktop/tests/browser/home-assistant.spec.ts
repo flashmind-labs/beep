@@ -39,6 +39,31 @@ test("the sidebar's Assistant lists the chats and opens one beside them", async 
   await expect(page.locator("#side").getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-current", "true");
 });
 
+test("a file an assistant chat links to opens over the window, read from its machine", async ({ page }) => {
+  const reply = "Read [notes.txt](notes.txt), then play [a.wav](tts-samples/a.wav).";
+  const done = { ...session, status: "idle" };
+  await openDesktop(page, false, {
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null },
+    agent_sessions: [{ ...done, title: "Make voice samples" }], agent_view: { ...view(done, reply), entries: [{ kind: "agent", text: reply, html: '<p>Read <a href="notes.txt">notes.txt</a>, then play <a href="tts-samples/a.wav">a.wav</a>.</p>' }] },
+    agent_file: { size: 6, mime: "text/plain", data: "aGVsbG8K" },
+  });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  await page.locator(".asst-list").getByRole("button", { name: /Make voice samples/ }).click();
+  const files = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_file").map(call => (call.args as { path: string }).path));
+
+  await page.locator("#agbody").getByRole("link", { name: "notes.txt" }).click();
+  const viewer = page.getByRole("dialog", { name: "notes.txt" });
+  await expect(viewer.locator("pre")).toHaveText("hello\n");
+  expect(await files()).toEqual(["/srv/notes.txt"]);
+  await page.keyboard.press("Escape");
+  await expect(viewer).toBeHidden();
+
+  await page.evaluate(() => window.__navigation.respond("agent_file", { size: 1, mime: "audio/wav", data: "AA==" }));
+  await page.locator("#agbody").getByRole("link", { name: "a.wav" }).click();
+  await expect(page.getByRole("dialog", { name: "a.wav" }).locator("audio")).toHaveCount(1);
+  expect(await files()).toEqual(["/srv/notes.txt", "/srv/tts-samples/a.wav"]);
+});
+
 test("Cmd+N on Home opens the Assistant page and starts the assistant with its harness in the home folder", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page, false, {
     agent_hosts: [host],

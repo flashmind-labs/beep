@@ -4,10 +4,10 @@ import { hintModel } from "../bar/hints.ts";
 import { HintView } from "../bar/hints-view.tsx";
 import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
 import { COPY_ICON, ICON } from "../ui/icons.tsx";
-import { viewerAct, viewerKeys, type ViewerPic } from "./media.tsx";
+import { openFileElsewhere, viewerAct, viewerKeys, type ViewerFile, type ViewerPic } from "./media.tsx";
 import { useDialogRef } from "../ui/parts.tsx";
 import { pinchStep, zoomAt, type ImageView, type Touches } from "../agentpane/media-state.ts";
-import { Button } from "../ui/kit.tsx";
+import { Button, Spinner } from "../ui/kit.tsx";
 
 function ViewerImage({ picture }: { picture: ViewerPic }) {
   const [gone, setGone] = useState(false);
@@ -87,6 +87,29 @@ export function Viewer({ pictures, at }: { pictures: ViewerPic[]; at: number }) 
     <div className="vt"><span className="tt"><b>{name}</b><small>{about}</small></span>{keeps ? <>{capabilities.image_clipboard && <Button data-v="copy" onClick={() => viewerAct("copy")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: COPY_ICON }} />Copy<kbd>⌘C</kbd></Button>}<Button look="primary" data-v="save" onClick={() => viewerAct("save")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.save }} />Save<kbd>⌘S</kbd></Button></> : !picture.url.startsWith("data:") && <Button data-v="open" onClick={() => viewerAct("open")}>Open in browser</Button>}<Button ref={close}  data-v="close" aria-label="Close" onClick={() => viewerAct("close")} dangerouslySetInnerHTML={{ __html: ICON.x }} /></div>
     <div className="vi">{many && <Button look="plain" className="nav prev" data-v="prev" aria-label="Previous" disabled={at === 0} onClick={() => viewerAct("prev")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}<ViewerImage key={at} picture={picture} />{many && <Button look="plain" className="nav" data-v="next" aria-label="Next" disabled={at === pictures.length - 1} onClick={() => viewerAct("next")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}</div>
     <div className="cap">{picture.caption}</div><HintView value={hintModel(keys)} />
+  </div>;
+}
+
+/// A file from a machine over the window: a picture, a player, its text, or
+/// a note to open it in this computer's app.
+export function FileViewer({ file }: { file: ViewerFile }) {
+  const close = useRef<HTMLButtonElement>(null), dialog = useDialogRef();
+  useLayoutEffect(() => { close.current?.focus(); }, []);
+  const { read } = file;
+  const body = read.kind === "loading" ? <Spinner label={`Reading ${file.name}`} />
+    : read.kind === "failed" ? <div className="dmuted dcenter dfill">{read.error}</div>
+    : read.kind === "elsewhere" ? <div className="dmuted dcenter dfill">No preview for this file. Open it in its app.</div>
+    : read.kind === "text" ? <pre>{read.text}</pre>
+    : read.media === "image" ? <ViewerImage picture={{ url: read.url, caption: file.name }} />
+    : read.media === "video" ? <video controls autoPlay playsInline src={read.url} />
+    : <audio controls autoPlay src={read.url} />;
+
+  return <div ref={dialog} className="dover dviewer dfile" id="viewer" role="dialog" aria-modal="true" aria-label={file.name} onKeyDown={event => {
+    event.stopPropagation();
+    if (event.key === "Escape") { event.preventDefault(); viewerAct("close"); }
+  }}>
+    <div className="vt"><span className="tt"><b>{file.name}</b><small>{file.path}</small></span><Button data-v="open" onClick={() => openFileElsewhere(file)}>Open</Button><Button ref={close} data-v="close" aria-label="Close" onClick={() => viewerAct("close")} dangerouslySetInnerHTML={{ __html: ICON.x }} /></div>
+    <div className="vi">{body}</div><HintView value={hintModel([["esc", "close"]])} />
   </div>;
 }
 

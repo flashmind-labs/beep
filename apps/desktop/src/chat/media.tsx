@@ -1,11 +1,20 @@
 import { createDocumentScope } from "../ui/document-root.tsx";
-import { Viewer, ViewerNotice } from "./viewer-view.tsx";
+import { FileViewer, Viewer, ViewerNotice } from "./viewer-view.tsx";
+import { baseName, mediaKind } from "../agentpane/media-state.ts";
+import { readError, readFile } from "../agentpane/read.ts";
 import { bar } from "../bar/core.ts";
 import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
 import { savedIn } from "../ui/platform.ts";
 
 /// A picture the viewer shows; one it `saves` can be saved and copied.
 export interface ViewerPic { url: string; saves?: boolean; caption?: string; name?: string }
+
+/// A file on a machine that the viewer shows over the window, and where reading it got.
+export interface ViewerFile { machine: string; session: string; path: string; name: string; read: FileRead }
+/// A picture, audio or video plays from its bytes and text reads as text. A PDF
+/// or 3D model is not read: it opens in this computer's app, as anything can.
+type FileRead = { kind: "loading" } | { kind: "media"; media: "image" | "audio" | "video"; url: string } | { kind: "text"; text: string }
+  | { kind: "elsewhere" } | { kind: "failed"; error: string };
 
 export function fileSize(n: number) {
   if (n < 1024) return `${n} B`;
@@ -16,8 +25,8 @@ export function fileSize(n: number) {
 /// What Rust says for a picture that is no longer there.
 export const GONE = "No longer available";
 
-/// The pictures the viewer goes through, and the one it shows.
-const V: { pics: ViewerPic[]; at: number } = { pics: [], at: 0 };
+/// The pictures the viewer goes through, and the one it shows, or the file it shows instead.
+const V: { pics: ViewerPic[]; at: number; file: ViewerFile | null } = { pics: [], at: 0, file: null };
 let viewerHost = bar;
 let viewerFocus: HTMLElement | null = null;
 /// The viewer and its notes, drawn at the end of the element they cover.
@@ -26,15 +35,22 @@ let viewerOpen = false;
 
 function disposeViewer() {
   viewerOpen = false;
+  if (V.file?.read.kind === "media") URL.revokeObjectURL(V.file.read.url);
+  V.file = null;
   overlays.remove(["viewer"]);
 }
 
 export function openViewer(pics: ViewerPic[], at: number, host = bar) {
+  takeOver(host);
+  Object.assign(V, { pics, at });
+  drawViewer();
+}
+
+/// Replaces what the viewer shows, keeping where the focus goes back to.
+function takeOver(host: HTMLElement) {
   viewerFocus = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
   disposeViewer();
   viewerHost = host;
-  Object.assign(V, { pics, at });
-  drawViewer();
 }
 
 function closeViewer() {
@@ -45,13 +61,52 @@ function closeViewer() {
 
 type ViewerAct = "prev" | "next" | "close" | "save" | "copy" | "open";
 
+/// Shows `path`, a file on `machine`, over the window while it is read.
+export function openFileViewer(machine: string, session: string, path: string) {
+  const media = mediaKind(path);
+  const elsewhere = media === "pdf" || media === "model";
+  const file: ViewerFile = { machine, session, path, name: baseName(path), read: elsewhere ? { kind: "elsewhere" } : { kind: "loading" } };
+  takeOver(bar);
+  V.file = file;
+  drawViewer();
+  if (elsewhere) return;
+
+  readFile(machine, path, session, () => {})
+    .then(({ bytes, mime }) => {
+      if (V.file !== file) return;
+      file.read = media === "image" || media === "audio" || media === "video" ? { kind: "media", media, url: URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime || "application/octet-stream" })) } : asText(bytes);
+      drawViewer();
+    })
+    .catch(e => {
+      if (V.file !== file) return;
+      file.read = { kind: "failed", error: readError(e) };
+      drawViewer();
+    });
+}
+
+/// The bytes as text, or opened elsewhere when they are not text.
+function asText(bytes: Uint8Array): FileRead {
+  try {
+    return bytes.includes(0) ? { kind: "elsewhere" } : { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+  } catch {
+    return { kind: "elsewhere" };
+  }
+}
+
+/// Opens the file the viewer shows in this computer's app for it.
+export function openFileElsewhere(file: ViewerFile) {
+  invoke("agent_file_open", { machineId: file.machine, path: file.path, session: file.session }).catch(e => notice(readError(e), { bad: true }));
+}
+
 /// The open picture over the whole bar, with arrows when there are more.
 function drawViewer() {
   viewerOpen = true;
-  overlays.set([{ slot: "viewer", host: viewerHost, content: <Viewer pictures={V.pics} at={V.at} /> }]);
+  const content = V.file ? <FileViewer key={V.file.path} file={{ ...V.file }} /> : <Viewer pictures={V.pics} at={V.at} />;
+  overlays.set([{ slot: "viewer", host: viewerHost, content }]);
 }
 
 export function viewerAct(a: ViewerAct) {
+  if (V.file) return void (a === "close" && closeViewer());
   const p = V.pics[V.at];
 
   if (a === "prev" || a === "next") {

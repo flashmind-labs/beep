@@ -211,6 +211,10 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 /* Pictures in a reply: a row of thumbnails; hover shows Save, a click opens the viewer. */
 .dviewer .vi { flex: 1; min-height: 0; display: flex; align-items: center; gap: 10px; padding: 14px }
 .dviewer .vi { overflow: hidden }
+.dfile .vi { justify-content: center }
+.dfile .vi video { max-width: 100%; max-height: 100%; border-radius: var(--radius-sm) }
+.dfile .vi audio { width: min(480px, 100%) }
+.dfile .vi pre { flex: 1; align-self: stretch; margin: 0; overflow: auto; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text }
 .dviewer .vi img { flex: 1; min-width: 0; height: 100%; object-fit: contain; border-radius: var(--radius-sm); touch-action: none; transform-origin: 0 0; user-select: none; -webkit-user-drag: none }
 .dviewer .nav { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); background: var(--elev); color: var(--fg); display: grid; place-items: center; padding: 0; flex: none }
 .dviewer .nav:disabled { opacity: .3 }
