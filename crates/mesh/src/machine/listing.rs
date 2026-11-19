@@ -450,6 +450,7 @@ pub fn beep_view(host: &Host, info: SessionInfo) -> AgentSessionView {
     let model = info.model.as_ref().map(ToString::to_string);
     AgentSessionView {
         model,
+        usage: Some((&info).into()),
         session: beep_session(host, info),
         plan: state
             .plan

@@ -59,9 +59,6 @@ impl Live {
         self.info.tokens = self
             .flsh_tokens
             .unwrap_or_else(|| self.info.tokens.saturating_add(tokens.total));
-        if let Some(cost) = cost_usd {
-            *self.info.cost_usd.get_or_insert(0.0) += cost;
-        }
 
         self.usage.record(TurnUsage {
             session: self.info.id.clone(),
@@ -81,10 +78,24 @@ impl Live {
         cost: Option<(f64, &str)>,
         meta: Option<&serde_json::Map<String, Value>>,
     ) {
-        if let Some((amount, "USD")) = cost
-            && amount.is_finite()
-            && amount >= 0.0
-        {
+        let flsh_usage = (self.info.agent == "flsh")
+            .then(|| meta.and_then(|meta| meta.get("flsh/sessionUsage")))
+            .flatten();
+        let amount = cost
+            .filter(|(amount, currency)| *currency == "USD" && amount.is_finite() && *amount >= 0.0)
+            .map(|(amount, _)| amount)
+            .or_else(|| {
+                // flsh omits the ACP cost if any request was unpriced.
+                // Its metadata still carries the subtotal of priced requests.
+                flsh_usage?
+                    .get("total_cost")?
+                    .as_str()?
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|amount| amount.is_finite() && *amount > 0.0)
+            });
+
+        if let Some(amount) = amount {
             // A total lower than before starts again, as after a restart.
             let delta = if amount >= self.cost_seen {
                 amount - self.cost_seen
@@ -94,12 +105,12 @@ impl Live {
             self.cost_seen = amount;
 
             if delta > 0.0 {
+                *self.info.cost_usd.get_or_insert(0.0) += delta;
                 *self.unbilled.get_or_insert(0.0) += delta;
             }
         }
 
-        if self.info.agent == "flsh"
-            && let Some(total) = meta.and_then(|meta| meta.get("flsh/sessionUsage"))
+        if let Some(total) = flsh_usage
             && total.get("tokens_unknown") == Some(&Value::Bool(false))
             && let Some(tokens) = total
                 .get("input_tokens")

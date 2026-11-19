@@ -72,7 +72,6 @@ const sessionStub = ([log, session, delays]) => {
     if (cmd === "agent_thumb" || cmd === "agent_image") return later(delays.thumb, `data:image/svg+xml,${encodeURIComponent(svg)}`);
     if (cmd === "agent_modes") return later(delays.view, null);
     if (cmd === "agent_tasks") return later(delays.view, []);
-    if (cmd === "agent_usage") return later(delays.view, null);
     return inner(cmd, a);
   };
 };

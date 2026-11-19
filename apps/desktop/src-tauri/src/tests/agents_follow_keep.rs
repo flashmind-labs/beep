@@ -97,6 +97,7 @@ fn pushed(kind: UpdateKind, earlier: u32, texts: &[&str], start: u64) -> Pushed 
             queued_messages: Vec::new(),
             model: None,
             last_stop: None,
+            usage: None,
         },
         modes: None,
         tasks: Vec::new(),

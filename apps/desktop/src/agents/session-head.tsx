@@ -3,7 +3,7 @@
 import { agentMessage, removeSessionPortal, sessionEditHost, setSessionPortal, updateSessionHead, updateSessionHints } from "./session-frame.tsx";
 import { PANE, windowHooks } from "../bar/core.ts";
 import { hintModel, type Hint } from "../bar/hints.ts";
-import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, type SessionUsage, AG, sessionUsage, agentKind, folderName, where } from "./agents.ts";
+import { type AgentRow, AG, sessionUsage, agentKind, folderName } from "./agents.ts";
 import { hasModes } from "./modepill.tsx";
 import { editorsFor, openInEditor } from "../project/editors.ts";
 import { ProjectEditors } from "../project/header-view.tsx";
@@ -14,7 +14,7 @@ import { placeName, placeRepo } from "./place-state.ts";
 import { agentKey } from "./conversation-state.ts";
 import { isNativeSession } from "./native-session-state.ts";
 import { isStarting } from "./starting-state.ts";
-import { followsOnly, isOpen, stoppingNow, turnRuns } from "./session.tsx";
+import { followsOnly, stoppingNow, turnRuns } from "./session.tsx";
 
 /// The session's keys on one small line.
 export function agentHints() {
@@ -56,29 +56,6 @@ function shortCwd(cwd: string) {
   return folderName(cwd) || cwd;
 }
 
-/// The header's usage line, the session it is of, and the turns it counts.
-let usage: { of: string; turns: number; shown: SessionUsage | null } = { of: "", turns: -1, shown: null };
-
-/// The usage line read last for `s`, else nothing.
-export const shownUsage = (s: AgentRow) => usage.of === agentKey(s) ? usage.shown : null;
-
-/// Reads the open session's usage once per finished turn into the header.
-export async function readUsage(o: OpenAgent, page: AgentPage) {
-  const s = page.session, of = agentKey(s);
-  if (s.external || isStarting(s.id) || (usage.of === of && usage.turns === page.turns)) return;
-  usage = { of, turns: page.turns, shown: usage.of === of ? usage.shown : null };
-
-  try {
-    const u = await invoke<AgentUsage | null>("agent_usage", where(o));
-    if (usage.of !== of || usage.turns !== page.turns || !u) return;
-    usage.shown = sessionUsage(u);
-    if (isOpen(o)) updateSessionHead({ usage: usage.shown });
-  } catch (e) {
-    console.warn("agent usage not read", e);
-    if (usage.of === of) usage.turns = -1;
-  }
-}
-
 /// The folder on this Mac the head's Open in button opens, for ⌘O.
 let editorFolder: string | null = null;
 let editorHead: { target: HTMLElement; key: string } | null = null;
@@ -109,10 +86,14 @@ export async function drawEditors(machine: string, cwd: string, current: () => b
   draw();
 }
 
-// Titles and checkout details can arrive after the frame first draws.
+// Titles, usage and checkout details can arrive after the frame first draws.
 export function drawAgentHeading() {
-  const s = AG.page?.session;
-  if (!s || !updateSessionHead({ ...headText(s), machine: s.machine_name })) return;
+  const page = AG.page;
+  if (!page) return;
+
+  const s = page.session;
+  const usage = page.usage ? sessionUsage(page.usage) : null;
+  if (!updateSessionHead({ ...headText(s), machine: s.machine_name, usage })) return;
   void drawEditors(s.machine_id, s.cwd, () => !!AG.page && agentKey(AG.page.session) === agentKey(s));
 }
 onPlaces(drawAgentHeading);

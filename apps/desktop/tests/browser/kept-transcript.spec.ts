@@ -13,13 +13,15 @@ test("a session kept on disk draws at once and follows on from its cursor", asyn
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
       if (command !== "transcript_kept") return invoke<T>(command, args);
       const base = await invoke<Record<string, unknown>>("agent_view", { session: "notice-one" });
-      return { page: { ...base, entries: [{ kind: "user", text: "Kept question" }, { kind: "assistant", text: "Kept answer" }], earlier: 0 }, cursor: kept } as T;
+      const usage = { context: null, tokens: 0, cost_usd: 0.25 };
+      return { page: { ...base, usage, entries: [{ kind: "user", text: "Kept question" }, { kind: "assistant", text: "Kept answer" }], earlier: 0 }, cursor: kept } as T;
     };
     window.__navigation.hold("agent_follow");
   }, cursor);
 
   await page.evaluate(session => window.__navigation.open({ agent: session }), running);
   await expect(page.locator("#agbody")).toContainText("Kept answer");
+  await expect(page.locator("#aguse")).toHaveText("$0.25");
   await expect.poll(() => calls(page, "agent_follow")).toHaveLength(1);
   expect((await calls(page, "agent_follow"))[0].after).toEqual(cursor);
   // The follow has not answered: no read goes around it.

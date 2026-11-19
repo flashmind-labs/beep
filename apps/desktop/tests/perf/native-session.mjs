@@ -37,7 +37,7 @@ try {
       if (cmd === "agent_sessions") return [parent];
       if (cmd === "editors") return [];
       if (cmd === "agent_tree") return { folders: [{ path: "", git: true, more: 0, entries: [{ name: "tests", folder: true, size: 0, ignored: false, change: null }] }], truncated: false };
-      if (cmd === "agent_modes" || cmd === "agent_usage") return null;
+      if (cmd === "agent_modes") return null;
       if (cmd === "agent_tasks") return [];
       return inner(cmd, args);
     };

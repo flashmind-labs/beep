@@ -50,7 +50,7 @@ const field = (value = "") => ({ value, placeholder: "", disabled: false, focus(
 function openSession(status: string, polls = false): AgentPage {
   forgetAgentFollows();
   const session: AgentRow = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", cwd: "/srv/project", status, external: false, question: null };
-  const page: AgentPage = { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
+  const page: AgentPage = { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0, usage: null };
   S.view = "agent";
   Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: "s1" }, page, queue: [], note: "", att: [], inflight: null, stopping: null });
   visible(polls);
@@ -175,20 +175,20 @@ test("a transcript burst draws once per frame and ends with the full text", asyn
   args.onEvent.onmessage({ kind: "snapshot", cursor: { start: 0, next: 1, fingerprint: "initial" }, resumed: false, page: { ...page, entries: [{ kind: "user", text: "hello" }] }, modes: null, tasks: [] });
   runFrames();
   assert.deepEqual(AG.page?.entries.map(entry => entry.text), ["hello"]);
-  calls.length = 0;
-  // Each delta changes the turn count, so each draw asks for usage once.
+  // Each delta carries the latest usage with the transcript.
   let text = "";
 
   for (let i = 1; i <= 30; i++) {
     text += `word${i} `;
     const entries = i % 10 ? [{ kind: "agent", text }] : [{ kind: "agent", text }, { kind: "tool", text: `Read: file-${i}.ts [completed]` }];
-    args.onEvent.onmessage({ kind: "delta", cursor: { start: 0, next: 1 + entries.length, fingerprint: `delta-${i}` }, resumed: false, page: { ...page, turns: i, earlier: 1, entries }, modes: null, tasks: [] });
+    const usage = { context: null, tokens: i, cost_usd: null };
+    args.onEvent.onmessage({ kind: "delta", cursor: { start: 0, next: 1 + entries.length, fingerprint: `delta-${i}` }, resumed: false, page: { ...page, turns: i, earlier: 1, entries, usage }, modes: null, tasks: [] });
   }
 
   assert.deepEqual(AG.page?.entries.map(entry => entry.text), ["hello"], "nothing draws before the frame");
   assert.equal(frames.size, 1);
   runFrames();
-  assert.equal(calls.filter(c => c.cmd === "agent_usage").length, 1, "one draw for the burst");
+  assert.equal(AG.page?.usage?.tokens, 30);
   assert.deepEqual(AG.page?.entries.map(entry => entry.text), ["hello", text, "Read: file-30.ts [completed]"]);
   assert.equal(AG.page?.turns, 30);
   assert.equal(frames.size, 0);

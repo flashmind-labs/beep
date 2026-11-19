@@ -26,8 +26,8 @@ use beep_proto::node::agent::LineChanges;
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
     AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask, AgentToolCall,
-    ApiError, GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage,
-    ListAgentModels, MachineSession, ModelId, ResumeAgentSession, StartAgentSession,
+    ApiError, GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, ListAgentModels,
+    MachineSession, ModelId, ResumeAgentSession, StartAgentSession,
     node::{
         agent::{CheckoutPlan, Effort, StopReason},
         harness::HarnessConfig,
@@ -233,6 +233,7 @@ pub struct SessionPage {
     last_stop: Option<StopReason>,
     entries: Vec<EntryRow>,
     earlier: u32,
+    usage: Option<AgentSessionUsage>,
 }
 
 impl From<AgentSessionView> for SessionPage {
@@ -259,6 +260,7 @@ impl From<AgentSessionView> for SessionPage {
             last_stop: view.last_stop,
             entries: view.entries.into_iter().map(EntryRow::from).collect(),
             earlier: view.earlier,
+            usage: view.usage,
         }
     }
 }
@@ -827,32 +829,6 @@ pub async fn session_folder_here(
 ) -> Result<Option<String>> {
     let folder = work_copy::folder_here(&fleet, &machine_id, &cwd).await;
     Ok(folder.map(|f| f.to_string_lossy().into_owned()))
-}
-
-/// How full a Beep session's context is and what its finished turns
-/// used; `None` from a machine too old to say.
-#[tauri::command]
-pub async fn agent_usage(
-    fleet: Machines<'_>,
-    machine_id: String,
-    agent: String,
-    session: SessionId,
-) -> Result<Option<AgentSessionUsage>> {
-    let request = GetAgentSessionUsage {
-        machine_id,
-        agent,
-        session,
-    };
-    {
-        let machine = fleet.machine(&request.machine_id)?;
-        let read = direct::usage(&fleet, machine, &request);
-        let step = "reading the session's usage";
-        known(
-            fleet
-                .asked(machine, &request.session, step, SMALL_LIMIT, read)
-                .await,
-        )
-    }
 }
 
 /// The device a session uses, as its machine keeps it.

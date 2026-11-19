@@ -20,7 +20,7 @@ test("the open conversation follows a completed move even when its target lists 
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const source: AgentRow = { machine_id: "laptop", machine_name: "laptop", id: "s1", agent: "codex", cwd: "/srv/project", status: "idle", external: false };
   const target = { ...source, machine_id: "studio", machine_name: "studio" };
-  const page: AgentPage = { session: source, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
+  const page: AgentPage = { session: source, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0, usage: null };
   const record = { session: "s1", agent: "codex", from: "laptop", to: "studio", project: "acme/app", at: Date.now() };
   const progress = { answer: "known" as const, phase: "done" as const, copied: 0, total: 0, source_away: false, reason: null, worktree: null, worktree_at: 0, worktrees: 0, edits_left: false };
   S.view = "agent";
@@ -64,7 +64,7 @@ test("replayed user images are shown even when more prompt text follows them", (
 
 test("taking over an external session retains the transcript and dock", t => {
   const session: AgentRow = { machine_id: "machine", machine_name: "Machine", id: "external", agent: "codex", cwd: "/srv/project", status: "working", external: true };
-  const page: AgentPage = { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
+  const page: AgentPage = { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0, usage: null };
   Object.assign(AG, { open: { machine_id: session.machine_id, agent: session.agent, session: session.id }, page, modes: null, tasks: [], queue: [] });
   Object.assign(answers, { agent_tasks: [], editors: [], agent_hosts: [], session_moves: [] });
   S.view = "agent";
@@ -82,7 +82,7 @@ test("taking over an external session retains the transcript and dock", t => {
 
 test("a cached transcript survives reattachment and is released when replaced", t => {
   const session: AgentRow = { machine_id: "machine", machine_name: "Machine", id: "retained", agent: "codex", cwd: "/srv/project", status: "working", external: false };
-  const page: AgentPage = { session, plan: [], files: [], entries: [{ kind: "user", text: "Check" }, { kind: "agent", text: "Answer" }], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
+  const page: AgentPage = { session, plan: [], files: [], entries: [{ kind: "user", text: "Check" }, { kind: "agent", text: "Answer" }], earlier: 0, last_message: "", error: null, queued: 0, turns: 0, usage: null };
   Object.assign(AG, { open: { machine_id: session.machine_id, agent: session.agent, session: session.id }, page, modes: null, tasks: [], queue: [] });
   Object.assign(answers, { agent_tasks: [], editors: [], agent_hosts: [], session_moves: [] });
   S.view = "agent";

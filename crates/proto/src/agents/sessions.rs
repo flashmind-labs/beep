@@ -3,7 +3,7 @@
 use crate::SessionId;
 use crate::{
     ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
-    node::agent::{CheckoutPlan, Effort, LineChanges, SessionDevice, StopReason},
+    node::agent::{CheckoutPlan, Effort, LineChanges, SessionDevice, SessionInfo, StopReason},
 };
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -100,9 +100,12 @@ wire_structs! {
         /// Why its last turn ended; none before the first.
         #[serde(default)]
         pub last_stop: Option<StopReason>,
+        /// The latest usage of a session Beep runs.
+        #[serde(default)]
+        pub usage: Option<AgentSessionUsage>,
     }
 
-    /// What a session Beep runs has used, as `GetAgentSessionUsage` gives it.
+    /// What a session Beep runs has used.
     #[derive(Default)]
     pub struct AgentSessionUsage {
         /// How full its context window is, as the agent last said; `None`
@@ -110,7 +113,7 @@ wire_structs! {
         pub context: Option<AgentContext>,
         /// Every token its finished turns used.
         pub tokens: u64,
-        /// What its finished turns cost at API prices, in US dollars; `None`
+        /// What it cost so far at API prices, in US dollars; `None`
         /// for an agent that reports no cost, as Codex and Gemini do.
         pub cost_usd: Option<f64>,
         /// Provider balances as this session last reported them.
@@ -519,13 +522,15 @@ pub struct GetAgentFile {
     pub offset: u64,
 }
 
-/// What a session Beep runs has used: how full its context is, and the
-/// tokens and cost of its finished turns.
-#[derive(Debug, Clone, PartialEq)]
-pub struct GetAgentSessionUsage {
-    pub machine_id: String,
-    pub agent: String,
-    pub session: SessionId,
+impl From<&SessionInfo> for AgentSessionUsage {
+    fn from(info: &SessionInfo) -> Self {
+        Self {
+            context: info.context,
+            tokens: info.tokens,
+            cost_usd: info.cost_usd,
+            credits: info.credits.clone(),
+        }
+    }
 }
 
 /// The modes of a session Beep runs, the one it is in, and the plan it

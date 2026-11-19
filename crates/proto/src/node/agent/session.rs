@@ -147,8 +147,7 @@ pub struct SessionInfo {
     pub context: Option<AgentContext>,
     /// Every token the finished turns used.
     pub tokens: u64,
-    /// What the finished turns cost at API prices, in US dollars, when the
-    /// agent reports a cost.
+    /// The known cost so far at API prices, in US dollars, when the agent reports it.
     pub cost_usd: Option<f64>,
     /// The modes it can be switched between, in the order a switch goes
     /// through them; empty for an agent that offers none.

@@ -52,6 +52,7 @@ fn pushed(kind: UpdateKind, earlier: u32, texts: &[&str], status: AgentStatus) -
             queued_messages: Vec::new(),
             model: None,
             last_stop: None,
+            usage: None,
         },
         modes: None,
         tasks: Vec::new(),

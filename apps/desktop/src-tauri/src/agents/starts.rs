@@ -203,6 +203,7 @@ impl Start {
             queued_messages: Vec::new(),
             model: self.model.clone(),
             last_stop: None,
+            usage: None,
         }
     }
 

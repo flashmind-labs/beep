@@ -500,6 +500,7 @@ pub async fn agent_follow(
                             entries: Vec::new(),
                             earlier: 0,
                             last_stop: None,
+                            usage: None,
                         },
                         None,
                         Vec::new(),

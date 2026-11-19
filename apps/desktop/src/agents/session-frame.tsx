@@ -121,7 +121,10 @@ function UsageBits({ usage }: { usage: SessionUsage }) {
 export function updateSessionHead(change: Partial<Pick<SessionHeadProps, "title" | "folder" | "branch" | "usage" | "machine">>) {
   const owner = current, head = owner?.frame.head;
   if (!owner || !isValidElement<SessionHeadProps>(head) || head.type !== SessionHead) return false;
-  if (Object.entries(change).every(([key, value]) => head.props[key as keyof typeof change] === value)) return true;
+  const unchanged = Object.entries(change).every(([key, value]) => key === "usage"
+    ? JSON.stringify(head.props.usage) === JSON.stringify(value)
+    : head.props[key as keyof typeof change] === value);
+  if (unchanged) return true;
   owner.frame = { ...owner.frame, head: cloneElement(head, change) };
   draw(owner);
   return true;

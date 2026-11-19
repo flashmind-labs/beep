@@ -140,6 +140,7 @@ export interface AgentPage {
   queued: number;
   queued_messages?: string[];
   turns: number;
+  usage: AgentUsage | null;
   /// Why the last turn ended, as the node's `StopReason` names it; null before the first.
   last_stop?: string | null;
   /// The entries held, newest last, and how many came before them. A read
@@ -148,7 +149,7 @@ export interface AgentPage {
   earlier: number;
 }
 
-/// What a session used, as `agent_usage` returns it.
+/// What a session used, as reported in its latest page.
 export interface AgentUsage {
   context: { used: number; size: number } | null;
   tokens: number;

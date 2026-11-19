@@ -21,11 +21,11 @@ use beep_mesh::{
 use beep_proto::SessionId;
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, AgentHarness, AgentHarnesses, AgentHost, AgentImageData,
-    AgentModels, AgentSessionModes, AgentSessionTasks, AgentSessionUsage, AgentSessionView,
-    ApiError, CodexLogin, CodexLoginState, CustomAgent, GetAgentFile, GetAgentImage,
-    GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage, HarnessEnv,
-    HarnessSettings, HarnessSignIn, ListAgentModels, MachineSession, ResumeAgentSession,
-    StartAgentSession, StartedAgent, SteerAgentSession, Upload, agent_name, image_key, media_mime,
+    AgentModels, AgentSessionModes, AgentSessionTasks, AgentSessionView, ApiError, CodexLogin,
+    CodexLoginState, CustomAgent, GetAgentFile, GetAgentImage, GetAgentSession,
+    GetAgentSessionModes, GetAgentSessionTasks, HarnessEnv, HarnessSettings, HarnessSignIn,
+    ListAgentModels, MachineSession, ResumeAgentSession, StartAgentSession, StartedAgent,
+    SteerAgentSession, Upload, agent_name, image_key, media_mime,
     node::{
         agent::{self, AgentCommand, Request, WorkPlace, Worktree},
         harness::{HarnessConfig, HarnessInfo, harness},
@@ -282,6 +282,7 @@ pub(crate) async fn session(
                 entries: Vec::new(),
                 earlier: 0,
                 last_stop: None,
+                usage: None,
             }
         }
     };
@@ -362,21 +363,6 @@ pub(crate) async fn created_worktrees(
     read.await.unwrap_or_else(|e| {
         log::warn!("could not read the worktrees of session {session}: {e}");
         Vec::new()
-    })
-}
-
-pub(crate) async fn usage(
-    fleet: &Fleet,
-    machine: EndpointId,
-    get: &GetAgentSessionUsage,
-) -> Result<AgentSessionUsage> {
-    let client = fleet.client(machine).await?;
-    let info = info(&client, &get.agent, &get.session).await?;
-    Ok(AgentSessionUsage {
-        context: info.context,
-        tokens: info.tokens,
-        cost_usd: info.cost_usd,
-        credits: info.credits,
     })
 }
 

@@ -19,7 +19,7 @@ import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/med
 import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, activateMentions, currentMentions, rememberMentionImages } from "./workdrop.ts";
-import { type AgentRow, type AgentPage, type OpenAgent, AG, drawAgents, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
+import { type AgentRow, type AgentPage, type OpenAgent, AG, drawAgents, sessionUsage, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
 import { agentAttachError, drawAgentAttached } from "./images.tsx";
 import { removeLastAttachment } from "./attachments-view.tsx";
 import { keepNativeSession, ensureSessions, loadSessions, sessions, sessionsRead } from "./sessions.ts";
@@ -46,7 +46,7 @@ import { sameSession } from "./running-state.ts";
 import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
 import { type AgentStarted, isStarting } from "./starting-state.ts";
 import { feed, flushDraw, keptTranscript, offScreen, transcripts } from "./session-follow.ts";
-import { drawAgentHeading, headText, readUsage, redrawAgentHints, agentHints, shownUsage } from "./session-head.tsx";
+import { drawAgentHeading, headText, redrawAgentHints, agentHints } from "./session-head.tsx";
 import { agentClick, openParent, toolKey } from "./session-click.ts";
 import { askContinueHere, continueAfterTurn, keepContinuing } from "./continue-here.ts";
 
@@ -140,7 +140,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   const held = keptPage(log, transcripts.get(transcriptKey(open))?.page ?? null);
   Object.assign(AG, {
     open,
-    page: withFirstMessage(held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 }),
+    page: withFirstMessage(held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0, usage: null }),
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
     attError: "", opened: new Set(), steps: new Map(), all: new Set(),
     queue: steerQueues.get(transcriptKey(open)) ?? [],
@@ -170,7 +170,11 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     // The session row it opened with is newer than the kept one, and the steers it held went long ago.
     if (page && !AG.sig && AG.page) {
       AG.page = { ...page, session: AG.page.session, queued: 0, queued_messages: [] };
-      if (isOpen(open)) { drawAgentBody(); keptFresh = { open, done: perfFresh("session") }; }
+      if (isOpen(open)) {
+        drawAgentHeading();
+        drawAgentBody();
+        keptFresh = { open, done: perfFresh("session") };
+      }
     }
 
     void pollAgent(true);
@@ -200,7 +204,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     await invoke("agent_title_save", { ...where(openOf(s)), title });
     await retitleOpen({ ...openOf(s), title: title || null });
   };
-  const head = <SessionHead agent={s.agent} {...headText(s)} openProject={project?.open ?? null} windowProps={project ? windowHooks?.projectWindowProps?.(project.name) ?? null : null} cwd={s.cwd} machine={s.machine_name} machineId={s.machine_id} session={s.id} usage={shownUsage(s)} moveKey={agentKey(s)} saveTitle={starting ? null : saveTitle} />;
+  const head = <SessionHead agent={s.agent} {...headText(s)} openProject={project?.open ?? null} windowProps={project ? windowHooks?.projectWindowProps?.(project.name) ?? null : null} cwd={s.cwd} machine={s.machine_name} machineId={s.machine_id} session={s.id} usage={page.usage ? sessionUsage(page.usage) : null} moveKey={agentKey(s)} saveTitle={starting ? null : saveTitle} />;
   const field = <SessionField mode={mode} name={k.name} banner={banner} moveKey={agentKey(s)} machine={s.machine_id} session={s.id} continueHere={continueHere} attach={agentDrop} draft={conversationKey(s)} removeLast={removeLastAttachment} send={submitAgentMessage} stop={() => void interruptAgent()} openParent={openParent} retry={starting && s.status !== "starting" ? () => void retryStart() : null} cancel={() => void closeOpenSession()} />;
   showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
   activateMentions(s);
@@ -478,7 +482,6 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
   syncSteers(AG.queue, page, read);
   drawRest(moved, placed);
   finishFirstRead(o, "ok");
-  void readUsage(o, page);
   // The oldest turn shown has its prompt: read back until it does.
   if (lacksPrompt(AG.page) && !AG.older.gaveUp) void loadOlder("prompt");
 }
@@ -517,10 +520,10 @@ function shownFromModel(o: OpenAgent) {
   AG.changed = Date.now();
   // Steers the node delivered while the session was away go.
   if (AG.page) syncSteers(AG.queue, AG.page, read);
+  drawAgentHeading();
   // Live: the connecting line under the kept log goes.
   drawRest(true);
   finishFirstRead(o, "ok");
-  if (AG.page) void readUsage(o, AG.page);
 }
 
 /// Follows the open session again after showing it or sending a message.

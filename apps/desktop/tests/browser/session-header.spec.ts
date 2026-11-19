@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import type { AgentUsage } from "../../src/agents/agents.ts";
 import { bundleFixture, openDesktop, sessionSettled } from "./harness.ts";
 
 const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
-const usages = {
-  short: { context: null, tokens: 0, cost_usd: 0, credits: [{ unit: "usd", remaining: null }] },
+const usages: Record<"short" | "long", AgentUsage> = {
+  short: { context: null, tokens: 0, cost_usd: 0, credits: [{ provider: "openrouter", scope: "account", unit: "usd", remaining: null, total: null, used: null, resets: null }] },
   long: { context: { used: 250_000, size: 1_000_000 }, tokens: 54_200_000, cost_usd: 34.9 },
 };
 /// What the session-notes plugin places in the header: a text input and a Save button.
@@ -45,10 +46,11 @@ async function layout(page: Page) {
 for (const width of [1557, 1100, 900, 760]) for (const usage of ["short", "long"] as const) {
   test(`the session header fits at ${width}px with ${usage} usage and a focused plugin input`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 900 });
-    await openDesktop(page, true, { agent_usage: usages[usage] });
+    await openDesktop(page, true);
     await page.evaluate(session => window.__navigation.open({ agent: session }), agent);
     await expect(page.locator("#agfield")).toBeVisible();
     await sessionSettled(page);
+    await page.evaluate(value => window.__navigation.sessionUsage("notice-one", value), usages[usage]);
     await expect(page.locator("#aguse")).not.toBeEmpty();
     await page.evaluate(list => window.__navigation.emit("plugins-changed", list), [placement]);
     await expect(page.locator(".ag-head .pluginhere")).toBeAttached();
@@ -85,6 +87,22 @@ for (const width of [1557, 1100, 900, 760]) for (const usage of ["short", "long"
     if (width >= 1100) expect(found.plugin).not.toBeNull();
   });
 }
+
+test("session spend updates before the running turn finishes", async ({ page }) => {
+  await openDesktop(page, true);
+  await page.evaluate(session => window.__navigation.open({ agent: session }), agent);
+  await sessionSettled(page);
+  const shown = page.locator("#aguse");
+  const spend = (cost: number) => page.evaluate(cost_usd => {
+    window.__navigation.sessionUsage("notice-one", { context: null, tokens: 0, cost_usd });
+  }, cost);
+
+  await spend(0.25);
+  await expect(shown).toHaveText("$0.25");
+  await spend(1.50);
+  await expect(shown).toHaveText("$1.50");
+  await expect(page.locator("#agstate")).toContainText(/working/i);
+});
 
 /// Every element from `target` up to the window, and the ones inside it, that was scrolled.
 const scrolledFrom = (page: Page, selector: string) => page.evaluate(selector => {

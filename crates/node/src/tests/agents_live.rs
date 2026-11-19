@@ -483,6 +483,7 @@ async fn a_running_cost_is_counted_per_turn() {
     };
     live.apply(&cost(0.5));
     live.apply(&cost(1.25));
+    assert_eq!(live.info.cost_usd, Some(1.25));
     live.spent(TurnTokens {
         total: 900,
         models: Vec::new(),
@@ -990,6 +991,43 @@ fn flsh_credit_snapshots_preserve_context_and_do_not_count_as_session_cost() {
         watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()),
         None
     );
+}
+
+#[tokio::test]
+async fn flsh_keeps_counting_priced_calls_after_a_call_without_a_price() {
+    let usage = Arc::new(UsageHub::default());
+    let mut live = Live::new(
+        SessionInfo {
+            agent: "flsh".into(),
+            ..SessionInfo::default()
+        },
+        Arc::default(),
+        usage.clone(),
+    );
+    let subtotal = |amount: &str| {
+        update(json!({
+            "sessionUpdate": "usage_update", "used": 10, "size": 1000,
+            "_meta": {"flsh/sessionUsage": {"total_cost": amount, "cost_unknown": true}}
+        }))
+    };
+
+    live.apply(&update(json!({
+        "sessionUpdate": "usage_update", "used": 10, "size": 1000,
+        "cost": {"amount": 0.25, "currency": "USD"},
+        "_meta": {"flsh/sessionUsage": {"total_cost": "0.25", "cost_unknown": false}}
+    })));
+    live.spent(TurnTokens::default());
+    assert_eq!(usage.next_turn().await.cost_usd, Some(0.25));
+
+    live.apply(&subtotal("0.25"));
+    live.apply(&subtotal("1.75"));
+    live.apply(&subtotal("1.75"));
+    live.apply(&subtotal("NaN"));
+    assert_eq!(live.info.cost_usd, Some(1.75));
+
+    live.spent(TurnTokens::default());
+    assert_eq!(usage.next_turn().await.cost_usd, Some(1.50));
+    assert_eq!(live.info.cost_usd, Some(1.75));
 }
 
 #[tokio::test]

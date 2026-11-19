@@ -6,6 +6,7 @@ import type { Tree } from "../../src/agentpane/worktree-state.ts";
 import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import type { HomeView } from "../../src/center/home-state.ts";
+import type { AgentUsage } from "../../src/agents/agents.ts";
 import type { RunningAgent } from "../../src/agents/running-state.ts";
 import type { ProjectRow } from "../../src/project/projects-state.ts";
 import type { RunningProcess } from "../../src/agentpane/running-state.ts";
@@ -36,6 +37,7 @@ interface NavigationHarness {
   ready(): boolean;
   processes(rows: RunningProcess[]): void;
   worktrees(rows: Tree[]): void;
+  sessionUsage(id: string, usage: AgentUsage): void;
   calls(): NativeCall[];
   respond(command: string, value: unknown): void;
   notify(topic: string): void;
@@ -139,9 +141,11 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   const heldOnce = new Set<string>();
   const releases = new Map<string, () => void>();
   const readers = new Map<string, { channel: EventChannel; topics: { machine: string | null; topic: string }[] }>();
+  const follows = new Map<string, EventChannel>();
   let processes: RunningProcess[] = [];
   let revision = 0;
-  const agentPage = (id: unknown) => ({ session: data.sessions.find(row => row.id === id) ?? data.sessions[0], plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 });
+  const agentPage = (id: unknown) => ({ session: data.sessions.find(row => row.id === id) ?? data.sessions[0], plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0, usage: null });
+  const empty = { start: 0, next: 0, fingerprint: "empty" };
   const interests = (value: unknown): { machine: string | null; topic: string }[] => Array.isArray(value) ? value.filter((v: unknown): v is { machine: string | null; topic: string } => v !== null && typeof v === "object" && "machine" in v && (v.machine === null || typeof v.machine === "string") && "topic" in v && typeof v.topic === "string") : [];
   const calls: NativeCall[] = [];
   const handlers = new Map<string, Set<NativeHandler>>();
@@ -182,8 +186,9 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
           return null;
         }
 
-        if (command === "agent_follow" && data.streaming && channel(args.onEvent)) {
-          args.onEvent.onmessage({ kind: "snapshot", resumed: false, cursor: { start: 0, next: 0, fingerprint: "empty" }, page: agentPage(args.session), modes: null, tasks: [] });
+        if (command === "agent_follow" && data.streaming && typeof args.session === "string" && channel(args.onEvent)) {
+          follows.set(args.session, args.onEvent);
+          args.onEvent.onmessage({ kind: "snapshot", resumed: false, cursor: empty, page: agentPage(args.session), modes: null, tasks: [] });
           return new Promise<never>(() => {});
         }
 
@@ -248,6 +253,9 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       for (const reader of readers.values()) if (reader.topics.some(interest => interest.topic === event.topic || interest.topic === "processes.*")) reader.channel.onmessage(event);
     },
     worktrees(rows) { answers.agent_worktrees = rows; },
+    sessionUsage(id, usage) {
+      follows.get(id)?.onmessage({ kind: "delta", resumed: false, cursor: empty, page: { ...agentPage(id), usage }, modes: null, tasks: [] });
+    },
     emit(name, payload) { for (const handler of handlers.get(name) ?? []) handler({ payload }); },
     rejectOnce(command) { rejected.add(command); },
     hold(command) { held.add(command); },

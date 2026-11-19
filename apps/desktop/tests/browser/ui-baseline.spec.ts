@@ -58,7 +58,7 @@ const transcript = [
   { kind: "user", text: "Also keep the query string." },
   { kind: "agent", text: "Done. The query string now survives the redirect." },
 ];
-const agentView = { session: { ...session, question: null }, plan: [], files: [], entries: transcript, earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 2 };
+const agentView = { session: { ...session, question: null }, plan: [], files: [], entries: transcript, earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 2, usage: null };
 const sessionUsage = { context: { used: 250_000, size: 1_000_000 }, tokens: 54_200_000, cost_usd: 34.9 };
 const listing = { folders: [{ path: "", entries: [{ name: "src", folder: true, size: 0, ignored: false, change: null }, { name: "README.md", folder: false, size: 1200, ignored: false, change: null }, { name: "package.json", folder: false, size: 640, ignored: false, change: "modified" }, { name: "sample.ts", folder: false, size: 300, ignored: false, change: "modified" }], more: 0, git: true }], truncated: false };
 
@@ -143,7 +143,7 @@ async function baseline(page: Page, name: string, root = "body") {
 }
 
 async function openAgent(page: Page, responses: Record<string, unknown> = {}) {
-  await openDesktop(page, false, { agent_view: agentView, agent_tree: listing, agent_usage: sessionUsage, ...responses });
+  await openDesktop(page, false, { agent_view: { ...agentView, usage: sessionUsage }, agent_tree: listing, ...responses });
   await page.evaluate(target => window.__navigation.open({ agent: target }), session);
   await expect(page.getByText("The query string now survives the redirect.")).toBeVisible();
 }
@@ -646,7 +646,7 @@ test("another screen keeps its title after a session was open", async ({ page })
 
 test("agent question", async ({ page }) => {
   const question = { id: 1, text: "Run cargo test?", detail: "cargo test --workspace", options: [{ id: "allow", name: "Allow", allow: true }, { id: "always", name: "Always allow", allow: true }, { id: "deny", name: "Deny", allow: false }] };
-  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "asking", question } } });
+  await openAgent(page, { agent_view: { ...agentView, usage: sessionUsage, session: { ...session, status: "asking", question } } });
   await expect(page.locator(".dcoder .q")).toBeVisible();
   await baseline(page, "agent-question");
 });
@@ -659,7 +659,7 @@ test("agent plan with the subagents of a step", async ({ page }) => {
     { content: "Write the changelog", status: "pending", started_at: null, ended_at: null },
   ];
   const entries = [...transcript, sub("Build the flag", "completed", 110), sub("Review the flag", "completed", 150), sub("Build the tool", "in_progress", 210)];
-  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "working" }, plan, entries } });
+  await openAgent(page, { agent_view: { ...agentView, usage: sessionUsage, session: { ...session, status: "working" }, plan, entries } });
   const line = page.locator(".ag-plan");
   await expect(line).toHaveText("Plan 1/3Answer the projects tool");
   await baseline(page, "agent-plan-folded");
@@ -675,14 +675,14 @@ test("agent plan with the subagents of a step", async ({ page }) => {
 test("agent with commands running and messages queued", async ({ page }) => {
   const steers = ["Also log each retry", "Then run clippy"];
   const tasks = ["cargo test -p sync", "npm run dev"].map((name, i) => ({ id: `task-${i}`, name, description: name, state: "running", can_stop: true, output_file: null, summary: null, entry: null }));
-  await openAgent(page, { agent_view: { ...agentView, queued: steers.length, queued_messages: steers }, agent_tasks: tasks, agent_steer: [] });
+  await openAgent(page, { agent_view: { ...agentView, usage: sessionUsage, queued: steers.length, queued_messages: steers }, agent_tasks: tasks, agent_steer: [] });
   await expect(page.locator(".ag-tasks")).toHaveText("2 commands running");
   await baseline(page, "agent-work");
 });
 
 test("agent compacting after its reply, with a command running", async ({ page }) => {
   const tasks = [{ id: "task-0", name: "npm run dev", description: "npm run dev", state: "running", can_stop: true, output_file: null, summary: null, entry: null }];
-  await openAgent(page, { agent_view: { ...agentView, session: { ...session, doing: "Compacting the conversation" } }, agent_tasks: tasks });
+  await openAgent(page, { agent_view: { ...agentView, usage: sessionUsage, session: { ...session, doing: "Compacting the conversation" } }, agent_tasks: tasks });
   await expect(page.getByText("Compacting the conversation")).toBeVisible();
   await expect(page.getByText(/Waiting for/)).toHaveCount(0);
 });
@@ -715,7 +715,7 @@ test("agent running", async ({ page }) => {
 
 test("agent artifacts", async ({ page }) => {
   const entries = [...transcript, { kind: "tool", text: "Artifact: /srv/project/report.html" }, { kind: "tool", text: "Artifact: /srv/project/chart.html" }];
-  await openAgent(page, { agent_view: { ...agentView, entries }, agent_artifact: { kind: "html", size: 30, src: "data:text/html,%3Cp%3EPreview%3C%2Fp%3E" } });
+  await openAgent(page, { agent_view: { ...agentView, usage: sessionUsage, entries }, agent_artifact: { kind: "html", size: 30, src: "data:text/html,%3Cp%3EPreview%3C%2Fp%3E" } });
   await page.getByRole("tab", { name: /Artifacts/ }).click();
   await expect(page.getByRole("listbox", { name: "Artifacts" }).getByRole("option", { name: /report.html/ })).toBeVisible();
   await expect(page.locator(".agartframe")).toBeVisible();
@@ -748,7 +748,7 @@ const barRows = [
 
 async function openBar(page: Page) {
   const done = { id: "n1", kind: "finished", title: "Codex finished", text: "Done", source: machineId, at: NOW, read: false, done: false, target: { agent: barRows[1] } };
-  await openDesktop(page, false, { agent_sessions: barRows, notes_list: [done], session_moves: [], agent_tree: listing, agent_view: { ...agentView, session: barRows[0] }, agent_usage: sessionUsage });
+  await openDesktop(page, false, { agent_sessions: barRows, notes_list: [done], session_moves: [], agent_tree: listing, agent_view: { ...agentView, session: barRows[0], usage: sessionUsage } });
   await page.goto("https://app.test/index.html");
   await expect(page.locator("#bar")).toBeAttached();
   await page.evaluate(() => window.__navigation.emit("bar-shown", null));
