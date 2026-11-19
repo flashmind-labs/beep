@@ -34,7 +34,7 @@ import { draftPlace } from "../agents/draft.tsx";
 import { S } from "../bar/core.ts";
 import { ensureSessions, sessions } from "../agents/sessions.ts";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
-import { issueBranch, issuePrompt, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
+import { issueBranch, issuePrompt, type DiscussionTopic, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
 import { planStarts, type StartEntry, type StartRow } from "./openlist-state.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.tsx";
 import { conflictPrompt, type Conflict } from "./filesync.ts";
@@ -370,6 +370,13 @@ export const fixSession = (name: string, detail: RunDetail) => sessionFor(name, 
 
 /// Work on it on the issue's page: starts the agent at once.
 export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick, machine: string | null) => startTask(name, issueTask(name, issue), pick, machine);
+
+/// Starts a chat about a thread in the project's current checkout.
+export function startDiscussion(name: string, topic: DiscussionTopic, pick: ProjectPick, machine: string | null) {
+  const subject = topic.kind === "issue" ? "issue" : "pull request";
+  const prompt = `I want to discuss about ${subject} #${topic.number}: ${topic.title} (${topic.url}).`;
+  return startTask(name, { prompt, target: null }, pick, machine);
+}
 
 /// Where each picked issue starts, on the machine and harness the bar has
 /// picked (the one last picked for another project, and the first harness);

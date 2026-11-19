@@ -234,3 +234,33 @@ test("an issue's linked pull requests open here or on the host", async ({ page }
   await pane.locator(".cc-line").filter({ hasText: "Example change" }).click();
   await expect(page.locator('.pj-list .pj-li[title="Example change"]')).toHaveAttribute("aria-current", "true");
 });
+
+for (const { kind, subject, path } of [
+  { kind: "issue", subject: "issue", path: "issues" },
+  { kind: "pr", subject: "pull request", path: "pull" },
+]) {
+  test(`Discuss with agent starts a chat about the ${subject}`, async ({ page }) => {
+    const now = Date.now(), number = 7, title = "Example change";
+    const url = `https://github.com/example/widget/${path}/${number}`;
+    const thread = { number, title, url, author: "Author", opened_at: now, labels: [] };
+    const issue = { ...thread, comments: 0 };
+    const pr = { ...thread, draft: false, mine: false, created_at: now, updated_at: now };
+    const detail = { ...thread, kind, state: "open", draft: false, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
+    await openDesktop(page, false, {
+      agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
+      agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] },
+      agent_begin: { session: { machine_id: "build-box", machine_name: "build-box", id: "start:discussion", agent: "codex", cwd: "/srv/project", status: "starting", external: false, question: null } },
+      center_project_lists: { issues: kind === "issue" ? [issue] : [], prs: kind === "pr" ? [pr] : [], issues_error: null, prs_error: null, synced_at: now },
+      center_thread_detail: detail,
+    });
+    await page.evaluate(tile => window.__navigation.open({ projects: { project: tile.project, tile: tile.key } }), { project: projectName, key: `${kind}:${number}` });
+    await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Discuss with agent" }).click();
+    const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+    await picker.locator('[data-agmachine="build-box"]').click();
+    await picker.locator('[data-agh="codex"]').click();
+    await picker.locator('[data-agmo="alpha"]').click();
+    await picker.locator('[data-age=""]').click();
+    const starts = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").map(call => call.args));
+    await expect.poll(starts).toMatchObject([{ cwd: "/srv/project", checkout: null, prompt: `I want to discuss about ${subject} #${number}: ${title} (${url}).` }]);
+  });
+}

@@ -28,7 +28,7 @@ import { openUrl } from "../center/openitems.ts";
 import { currentLocation, go, drawTop } from "../center/views.tsx";
 import { openTile } from "./split.tsx";
 import { AG } from "../agents/agents.ts";
-import { barOn, drawProjectComp, workOnIssue, startIssue, workOnPr, startPrWork, reviewPr, startReview, pickButton, earlierReview, issueSession, fixSession, sessionState, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";
+import { barOn, drawProjectComp, workOnIssue, startIssue, startDiscussion, workOnPr, startPrWork, reviewPr, startReview, pickButton, earlierReview, issueSession, fixSession, sessionState, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
 import { redrawSync } from "./syncpage.ts";
 import { drawProjects } from "./page.tsx";
@@ -139,6 +139,7 @@ export function repoActs(p: Project): RepoActs {
   return {
     workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
     startIssue: (issue: IssueRow, pick: ProjectPick, machine: string | null) => startIssue(p.name, issue, pick, machine),
+    startDiscussion: (topic, pick, machine) => startDiscussion(p.name, topic, pick, machine),
     prSession,
     workOnPr: (pr: PullRequestRow) => workOnPr(p.name, pr),
     startPrWork: (pr: PullRequestRow, pick: ProjectPick, machine: string | null) => startPrWork(p.name, pr, pick, machine),

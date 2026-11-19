@@ -4,7 +4,7 @@ import type { Ago } from "../ui/format.ts";
 import { plural, reason } from "../ui/format.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
-import type { ThreadActions } from "./threaddetail-view.tsx";
+import type { ThreadAction, ThreadActions } from "./threaddetail-view.tsx";
 import type { AgentState, PickButton } from "../review/feedback-view.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
@@ -102,13 +102,15 @@ interface ListsRow {
   issues_error: string | null;
 }
 
-/// What the project page hands the Pull requests and Issues sections: what
-/// Work on it, Work on PR, Continue and the review buttons do. `workOn` and
-/// `workOnPr` and `reviewPr` fill the bar; the `start` ones start a
-/// session at once.
+/// The thread a discussion starts from.
+export type DiscussionTopic = Pick<IssueRow, "number" | "title" | "url"> & { kind: "issue" | "pr" };
+
+/// The project page's thread actions. The menu can fill the bar, and the
+/// agent pickers start a session at once.
 export interface RepoActs {
   workOn: (issue: IssueRow) => void;
   startIssue: (issue: IssueRow, pick: ProjectPick, machine: string | null) => Promise<void>;
+  startDiscussion: (topic: DiscussionTopic, pick: ProjectPick, machine: string | null) => Promise<void>;
   workOnPr: (pr: PullRequestRow) => Promise<void>;
   prSession: (url: string, redraw: () => void) => TaskSession | "checking" | null;
   startPrWork: (pr: PullRequestRow, pick: ProjectPick, machine: string | null) => Promise<void>;
@@ -233,9 +235,7 @@ export function makeThreads(deps: ThreadDeps) {
     return { buttons, error: keys.map(k => s.failed.get(k)).find(Boolean) ?? null };
   }
 
-  /// A pull request's agent buttons on the project page: Continue, and Review
-  /// with agent (Reviewing while its review runs) or Open review, and why
-  /// the last one failed.
+  /// A pull request's work, review and discussion actions on the project page.
   function prButtons(project: ProjectRef, ctx: RepoActs, pr: PullRequestRow) {
     const s = of(project.project_id);
     const n = pr.number;
@@ -256,17 +256,33 @@ export function makeThreads(deps: ThreadDeps) {
         : { kind: "ready", label: "Review with agent", hint: "Pick a model: an agent reviews this PR and posts its comments on it" };
       buttons.push({ kind: "agent", key: "agent-review", button, state });
     }
-    return actsEl(s, [`c${n}`, `a${n}`], buttons);
+    const discuss = discussionButton(project, ctx, { ...pr, kind: "pr" });
+    return actsEl(s, [`c${n}`, `a${n}`, discuss.key], [...buttons, discuss]);
   }
 
-  /// An open issue's button: Work on it, which starts an agent on a new
-  /// branch for it, or the session working on it, which it opens.
+  /// An open issue's work and discussion actions on the project page.
   function issueButtons(project: ProjectRef, ctx: RepoActs, i: IssueRow): ThreadActions {
     const s = of(project.project_id);
     const key = `w${i.number}`;
     const button = buttonOf(s, key, () => ctx.button((pick, machine) => void act(project.project_id, key, () => ctx.startIssue(s.issues?.find(x => x.number === i.number) ?? i, pick, machine))));
     const state: AgentState = ctx.issueSession(i) ?? (s.busy.has(key) ? { kind: "starting" } : { kind: "ready", label: "Work on it", hint: "Pick a model: an agent starts on a new branch for this issue" });
-    return actsEl(s, [key], [{ kind: "agent", key: "work", button, state }]);
+    const discuss = discussionButton(project, ctx, { ...i, kind: "issue" });
+    return actsEl(s, [key, discuss.key], [{ kind: "agent", key: "work", button, state }, discuss]);
+  }
+
+  /// A discussion starts in the project's checkout with the current thread details.
+  function discussionButton(project: ProjectRef, ctx: RepoActs, topic: DiscussionTopic): ThreadAction {
+    const s = of(project.project_id);
+    const { kind, number } = topic;
+    const key = `discuss:${kind}:${number}`;
+    const button = buttonOf(s, key, () => ctx.button((pick, machine) => void act(project.project_id, key, () => {
+      const rows = kind === "issue" ? s.issues : s.prs;
+      const current = rows?.find(row => row.number === number) ?? topic;
+      return ctx.startDiscussion({ ...current, kind }, pick, machine);
+    })));
+    const state: AgentState = s.busy.has(key) ? { kind: "starting" }
+      : { kind: "ready", label: "Discuss with agent", hint: "Start a chat about this thread" };
+    return { kind: "agent", key, button, state };
   }
 
   /// The agent button of row `key`, made once.
