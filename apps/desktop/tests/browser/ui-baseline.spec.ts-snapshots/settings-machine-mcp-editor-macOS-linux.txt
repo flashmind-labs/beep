@@ -1,0 +1,51 @@
+div.am-sheet [aria-label="Edit docs" aria-modal="true" role="dialog"]
+  div.am-head
+    b "Edit docs"
+      small "Codex user configuration"
+    kbd "esc"
+  form.dform.mcp-editor [autocomplete="off"]
+    label.dfield "Name"
+      input [autocapitalize="none" maxlength="128" name="name" required spellcheck="false" value="docs"] value="docs" (focused)
+    label.dfield "Transport"
+      select [aria-label="Transport"] value="http"
+        option [value="stdio"] "Stdio"
+        option [value="http"] "Streamable HTTP"
+    label.dfield "Server URL"
+      input.url [autocapitalize="none" required spellcheck="false" value="https://tools.example.test/mcp"] value="https://tools.example.test/mcp"
+    fieldset.dfield.mcp-fields
+      legend "Headers"
+      div
+        button.dbtn.quiet.small [type="button"] "+ Add header"
+    label.dfield "Bearer token variable"
+      input.url [autocapitalize="none" spellcheck="false" value] value=""
+    fieldset.dfield.mcp-fields
+      legend "Headers from environment variables"
+      div
+        button.dbtn.quiet.small [type="button"] "+ Add header variable"
+    label.dline "Enabled"
+      input.dcheck [type="checkbox"] value="on" unchecked
+    details.mcp-options
+      summary "Startup and tool settings"
+      div.dform
+        label.dline "Required at startup"
+          input.dcheck [type="checkbox"] value="on" unchecked
+        label.dfield "Startup timeout (seconds)"
+          input [step="any" type="number" value] value=""
+        label.dfield "Tool timeout (seconds)"
+          input [step="any" type="number" value] value=""
+        label.dfield "Default tool approval"
+          select [aria-label="Default tool approval"] value=""
+            option [value] "Use Codex default"
+            option [value="auto"] "Auto"
+            option [value="prompt"] "Prompt"
+            option [value="writes"] "Writes"
+            option [value="approve"] "Approve"
+        label.dline "Only allow listed tools"
+          input.dcheck [type="checkbox"] value="on" unchecked
+        fieldset.dfield.mcp-fields
+          legend "Blocked tools"
+          div
+            button.dbtn.quiet.small [type="button"] "+ Add blocked tool"
+    div.gp-foot
+      button.dbtn.quiet [type="button"] "Cancel"
+      button.dbtn.pri [type="submit"] "Save server"

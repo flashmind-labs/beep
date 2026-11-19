@@ -2,7 +2,7 @@ import { refreshTopicSubscriptions, subscribeEach, topic } from "../ui/mesh-even
 import { commandKey } from "../ui/platform.ts";
 // Settings as a sheet over the command center window.
 import { formatAgo } from "../ui/format.ts";
-import { mountSheetFrame, sheetAbove } from "../ui/parts.tsx";
+import { mountSheetFrame, dialogAbove } from "../ui/parts.tsx";
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import { PageTiming } from "../center/page-timing.ts";
 import { perfLayer, perfOpened } from "../ui/perf.ts";
@@ -34,7 +34,7 @@ export function openSettings(section?: string) {
   // While open, keys stay in the sheet: Esc closes it, and nothing reaches
   // the page behind.
   const keys = (e: KeyboardEvent) => {
-    if (sheetAbove(scrim)) return;
+    if (dialogAbove(scrim)) return;
 
     // Esc on a subpage, such as Apps then Gmail, goes back to its page first.
     if (e.key === "Escape") { e.preventDefault(); if (!pane.settingsBack()) closeSettings(); }

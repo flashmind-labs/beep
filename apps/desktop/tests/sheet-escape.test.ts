@@ -1,14 +1,14 @@
 import "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { openSheet, sheetAbove } from "../src/ui/parts.tsx";
+import { openSheet, dialogAbove } from "../src/ui/parts.tsx";
 
 test("Escape closes the top sheet before Settings and other sheets", () => {
   const settings = document.createElement("div");
   document.body.append(settings);
   let settingsClosed = false;
   const settingsKeys = (event: KeyboardEvent) => {
-    if (event.key === "Escape" && !sheetAbove(settings)) settingsClosed = true;
+    if (event.key === "Escape" && !dialogAbove(settings)) settingsClosed = true;
   };
   document.addEventListener("keydown", settingsKeys, true);
   const first = openSheet("First", "sheet");

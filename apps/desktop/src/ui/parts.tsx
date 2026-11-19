@@ -51,9 +51,10 @@ type SheetOptions = {
 
 const openSheets: HTMLElement[] = [];
 
-/// Whether a sheet was placed above this element.
-export function sheetAbove(element: HTMLElement) {
-  return openSheets.some(root => !!(element.compareDocumentPosition(root) & Node.DOCUMENT_POSITION_FOLLOWING));
+/// Whether a floating dialog was placed above this element.
+export function dialogAbove(element: HTMLElement) {
+  return [...dialogs].some(dialog => dialog.isConnected && !element.contains(dialog)
+    && !!(element.compareDocumentPosition(dialog) & Node.DOCUMENT_POSITION_FOLLOWING));
 }
 
 /// The dialogs drawn now: sheets, menus that ask, the palette, popovers. Page

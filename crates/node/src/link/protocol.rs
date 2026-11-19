@@ -52,6 +52,8 @@ host! {
         DeviceVideo,
         #[strum(serialize = "sign-in/1")]
         SignIn,
+        #[strum(serialize = "mcp-servers/1")]
+        McpServers,
         #[strum(serialize = "tool-updates/1")]
         ToolCheck,
         #[strum(serialize = "tool-update/1")]

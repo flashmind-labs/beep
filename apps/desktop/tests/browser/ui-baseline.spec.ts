@@ -457,13 +457,24 @@ test("settings machine with WSL", async ({ page }) => {
   const wsl = (name: string, agents: string[]) => ({ name, agents, node: null, machine_id: null, kept: false, problem: null, probed: true });
   const env = { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 16, memory_mb: 32768, home: "C:\\Users\\user", tools: [], logins: [], avds: [], gpus: [], wsl: [wsl("Ubuntu", ["claude", "codex"]), wsl("Debian", ["gemini"])] };
   const machines = [{ ...machine("desk-pc", "desk-pc", true, 0), env }];
-  await openDesktop(page, false, { ...settingsResponses, list_machines: machines });
+  const machine_mcp_servers = [
+    { name: "build-tools", settings: { enabled: true, codex: null, claude_oauth: null, connection: { stdio: { command: "build-tools", args: [], env: {}, cwd: null } } } },
+    { name: "docs", settings: { enabled: false, codex: null, claude_oauth: null, connection: { remote: {
+      transport: "http", url: "https://tools.example.test/mcp", headers: {}, env_http_headers: {}, bearer_token_env_var: null,
+    } } } },
+  ];
+  await openDesktop(page, false, { ...settingsResponses, list_machines: machines, machine_mcp_harnesses: ["codex", "claude"], machine_mcp_servers });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const nav = page.getByRole("dialog", { name: "Settings" }).getByRole("navigation", { name: "Settings pages" });
   await nav.getByRole("button", { name: /^Machines/ }).click();
   await page.locator("[data-machine='desk-pc']").click();
   await expect(page.getByText("Claude Code, Codex")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^build-tools/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Harness Codex" })).toBeVisible();
   await baseline(page, "settings-machine-wsl");
+  await page.getByRole("button", { name: /^docs/ }).click();
+  await expect(page.getByRole("dialog", { name: "Edit docs" })).toBeVisible();
+  await baseline(page, "settings-machine-mcp-editor", ".am-sheet");
 });
 
 test("settings plugins", async ({ page }) => {

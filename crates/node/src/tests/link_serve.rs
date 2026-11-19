@@ -16,6 +16,7 @@ fn a_machine_not_lent_keeps_its_status_but_gives_no_shell_task_or_screen() {
         "process/1",
         "desktop/1",
         "sign-in/1",
+        mcp_servers::PROTOCOL,
         "agents/1",
         "agent-view/1",
         "events/1",
@@ -43,7 +44,7 @@ fn a_machine_not_lent_keeps_its_status_but_gives_no_shell_task_or_screen() {
 #[test]
 fn known_protocol_names_round_trip_and_compare_as_variants() {
     use beep_proto::node::{
-        agent, device, events, metrics, process, report, shell, sign_in, skill_library, skills,
+        agent, device, events, mcp_servers, metrics, process, report, shell, sign_in, skill_library, skills,
         status, terminal, tool_update, tools, version,
     };
 
@@ -69,6 +70,7 @@ fn known_protocol_names_round_trip_and_compare_as_variants() {
             SessionProtocol::DeviceVideo,
         ),
         (sign_in::PROTOCOL, SessionProtocol::SignIn),
+        (mcp_servers::PROTOCOL, SessionProtocol::McpServers),
         (tool_update::CHECK, SessionProtocol::ToolCheck),
         (tool_update::PROTOCOL, SessionProtocol::ToolUpdate),
         (tool_update::FLSH, SessionProtocol::FlshUpdate),
@@ -113,4 +115,30 @@ fn another_node_opens_devices_only_while_this_machine_is_lent() {
     assert_eq!(withheld(device::PROTOCOL, true), None);
     assert!(withheld(device::PROTOCOL, false).is_some());
     assert!(withheld(beep_proto::node::device_video::PROTOCOL, false).is_some());
+}
+
+#[tokio::test]
+async fn only_a_controller_can_read_or_change_mcp_servers() -> Result<()> {
+    use beep_proto::node::{local_link, mcp_servers::{Reply, Request}};
+    let dir = tempfile::tempdir()?;
+    let offers = Offers::local(&[], Provision::new(dir.path()));
+    let peer = iroh::SecretKey::generate().public();
+    let protocol = SessionProtocol::McpServers;
+
+    let link = local_link();
+    let (_, mut rx) = link.caller;
+    let (node_tx, node_rx) = link.node;
+    serve_open(node_tx, node_rx, protocol.clone(), offers.clone(), Who::Node { peer, desktop_here: false }).await?;
+    assert!(matches!(rx.recv::<Opened>().await?, Some(Opened::Refused { .. })));
+
+    let link = local_link();
+    let (mut tx, mut rx) = link.caller;
+    let (node_tx, node_rx) = link.node;
+    let node = tokio::spawn(serve_open(node_tx, node_rx, protocol, offers, Who::Everything(peer)));
+    tx.send(&Request::Harnesses).await?;
+    assert!(matches!(rx.recv::<Opened>().await?, Some(Opened::Ready {})));
+    assert!(matches!(rx.recv::<Reply>().await?, Some(Reply::Harnesses(_))));
+    node.await??;
+
+    Ok(())
 }

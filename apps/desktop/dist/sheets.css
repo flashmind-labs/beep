@@ -15,6 +15,12 @@
 .am-tick { display: flex; gap: 8px; align-items: center; color: var(--fg); cursor: default }
 /* An agent's sign-in: numbered steps, each with its action under its name. */
 .am-head b small { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; color: var(--muted) }
+.dform.mcp-editor { padding: 0 }
+.mcp-fields { border: 0; padding: 0; margin: 0; min-width: 0 }
+.mcp-fields legend { padding: 0 }
+.mcp-fields input { flex: 1; min-width: 0 }
+.mcp-options > summary { cursor: pointer; font: 12px var(--mono); color: var(--muted) }
+.mcp-options > .dform { padding: 8px 0 0 }
 .si-steps { display: grid; gap: 14px; margin-bottom: 14px; counter-reset: step }
 .si-steps:empty { display: none }
 .si-step { position: relative; display: grid; gap: 6px; padding-left: 30px; counter-increment: step }

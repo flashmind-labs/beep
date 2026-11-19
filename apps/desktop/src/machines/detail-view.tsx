@@ -1,9 +1,11 @@
 import { Fragment, useCallback, useLayoutEffect, useRef } from "react";
+import type { invoke as Invoke } from "../ui/tauri.ts";
 import { bytes } from "../ui/format.ts";
 import { Button, CopyButton } from "../ui/kit.tsx";
 import { gpuLine, machineTag, nodeBehind, coders, isCoder, nodeVersion, removalNote, shownVersion, updatedNotes, updateOffered, type NodeUpdate } from "./machines-state.ts";
 import { signInOffer } from "./signin-state.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
+import { MachineMcpServers } from "./mcp-servers-view.tsx";
 import { RemoveAsk } from "./list-view.tsx";
 import { WslRows } from "./wsl-view.tsx";
 import { wslHosts } from "./wsl-state.ts";
@@ -16,6 +18,7 @@ interface DetailProps {
   tools: readonly ToolUpdate[]; toolUps: ReadonlyMap<string, { busy: boolean; error: string }>;
   installed: ReadonlyMap<string, string>; traffic: MachineTraffic | undefined; asking: Asking | null;
   age: (ms: number) => string;
+  invoke: typeof Invoke;
   searchEdit: () => void; searchSave: (value: string) => void; searchCancel: () => void;
   signIn: (tool: string) => void; updateNode: () => void; updateTool: (tool: string) => void;
   logRead: () => void; logSave: () => void; rename: () => void; askRemove: () => void; remove: () => void; cancelRemove: () => void;
@@ -51,6 +54,7 @@ export function MachineDetail(p: DetailProps) {
     {wslHosts([m]).map(host => <Fragment key={host.id}><div className="dset-h">WSL</div><div className="dset-box"><div className="dmach"><WslRows host={host} /></div></div></Fragment>)}
     {m.can_host !== false && !!env?.logins.length && <><div className="dset-h">Sign-ins</div><table className="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Account</th><th /></tr></thead><tbody>{env.logins.map(l => { const offer = l.signed_in ? null : signInOffer(l.tool, m.name, m.online, m.id === p.mac); return <tr key={l.tool}><td className="dmono">{l.tool}</td><td>{l.signed_in ? l.account ?? "Signed in" : <span className="dtag ask">Not signed in</span>}</td><td style={{ textAlign: "right" }}>{offer && ("how" in offer ? <small className="dmuted">{offer.how}</small> : <Button small onClick={() => p.signIn(l.tool)}>Sign in</Button>)}</td></tr>; })}</tbody></table></>}
     {m.can_host !== false && !!tools.length && <><div className="dset-hrow"><div className="dset-h">Tools</div>{tools.map(t => { const update = p.tools.find(u => u.machine_id === m.id && u.tool === t.name); if (!update || !m.online || !updateOffered(p.installed, `${m.id} ${t.name}`, update.latest)) return null; const busy = p.toolUps.get(`${m.id} ${t.name}`)?.busy; return <Button key={t.name} small disabled={busy} onClick={() => p.updateTool(t.name)}>{busy ? `Updating ${t.name}…` : `Update ${t.name} to ${update.latest}`}</Button>; })}{notes.map((n, i) => <small key={i} className="dmuted">{n}</small>)}{failures.map(([key, v]) => <small key={key} className="derr">{`${key.slice(m.id.length + 1)}: ${v.error}`}</small>)}</div><table className="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>{tools.map(t => <tr key={t.name}><td className="dmono">{t.name}</td><td className="dmono">{shownVersion(p.installed, `${m.id} ${t.name}`, t.name, t.version) ?? ""}</td><td>{isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>)}</tbody></table></>}
+    {m.can_host !== false && <MachineMcpServers key={`mcp:${m.id}`} machineId={m.id} online={m.online} invoke={p.invoke} />}
     {!!traffic.length && <><div className="dset-h">Traffic</div><table className="dset-box dset-tbl"><thead><tr><th>Protocol</th><th>Sent</th><th>Received</th></tr></thead><tbody>{traffic.map(r => <tr key={r.label}><td>{r.label}</td><td className="dmono">{bytes(r.sent)}</td><td className="dmono">{bytes(r.received)}</td></tr>)}</tbody></table>{relay && <div className="dmuted">Through a relay: {relay}.</div>}</>}
     {m.can_host !== false && (log || m.online) && <LogSection key={m.id} log={log} read={p.logRead} save={p.logSave} />}
     <div className="dmach dset-rm">{m.id !== p.mac && !asking && <div className="dset-rm-row"><span className="t"><b>Remove this machine</b><small>{note}</small></span><Button danger aria-label={`Remove ${m.name}`} onClick={p.askRemove}>Remove…</Button></div>}{asking && m.id !== p.mac && <RemoveAsk machine={m} asking={asking} remove={p.remove} cancel={p.cancelRemove} />}</div>

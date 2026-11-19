@@ -24,6 +24,7 @@ pub mod events;
 pub mod files;
 pub mod forward;
 pub mod harness;
+pub mod mcp_servers;
 pub mod mesh_state;
 pub mod metrics;
 pub mod process;

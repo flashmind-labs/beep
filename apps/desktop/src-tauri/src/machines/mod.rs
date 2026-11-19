@@ -8,6 +8,7 @@ pub(crate) mod forwards;
 pub(crate) mod list;
 #[cfg(desktop)]
 pub(crate) mod mcp_command;
+pub(crate) mod mcp_servers;
 #[cfg(desktop)]
 pub(crate) mod node_updates;
 pub(crate) mod sign_in;

@@ -31,6 +31,7 @@ pub(crate) use super::brief::{ASSISTANT, BRIEF, CHAT};
 pub(crate) mod calls;
 mod catalog;
 pub(crate) mod children;
+pub(crate) mod configured;
 mod debug;
 mod desktop;
 mod devices;

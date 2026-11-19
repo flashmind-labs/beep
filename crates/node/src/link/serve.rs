@@ -28,7 +28,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_proto::node::{
-    LinkRx, LinkTx, Open, Opened, agent, desktop, setup, sign_in, tool_update, version,
+    LinkRx, LinkTx, Open, Opened, agent, desktop, mcp_servers, setup, sign_in, tool_update, version,
 };
 use beep_proto::watched;
 use iroh::{Endpoint, EndpointId, endpoint::presets};
@@ -423,6 +423,7 @@ impl Offers {
             device::PROTOCOL.to_owned(),
             device::video::PROTOCOL.to_owned(),
             sign_in::PROTOCOL.to_owned(),
+            mcp_servers::PROTOCOL.to_owned(),
         ]
         .into_iter()
         .chain(self.agents.offers())
@@ -489,6 +490,7 @@ pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
         tasks::PROTOCOL,
         desktop::PROTOCOL,
         sign_in::PROTOCOL,
+        mcp_servers::PROTOCOL,
     ];
     let agent = matches!(
         protocol,
@@ -608,6 +610,9 @@ pub(super) async fn serve_open(
             SessionProtocol::Device => device::serve(tx, rx, offers.agents.clone()).await,
             SessionProtocol::DeviceVideo => device::video::serve(tx, rx).await,
             SessionProtocol::SignIn => crate::machine::sign_in::serve(tx, rx).await,
+            SessionProtocol::McpServers => {
+                mcp::configured::serve(offers.agents, tx, rx).await
+            }
             SessionProtocol::Commands => {
                 super::commands::serve_open(tx, rx, offers, who.id()).await
             }
@@ -660,6 +665,7 @@ fn route(protocol: &SessionProtocol, offers: &Offers) -> Option<Route> {
         | SessionProtocol::Device
         | SessionProtocol::DeviceVideo
         | SessionProtocol::SignIn
+        | SessionProtocol::McpServers
         | SessionProtocol::Commands
         | SessionProtocol::Subscriptions
         | SessionProtocol::Events

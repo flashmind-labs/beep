@@ -233,6 +233,31 @@ body.cbody
                       span.am-mac-text
                         b "Debian"
                         span.dmono.dmuted "Gemini CLI"
+              section.mcp-servers [aria-label="MCP servers"]
+                div.cc-sec
+                  h4 "MCP servers"
+                  button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Harness Codex" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+                    span.cc-ag.codex.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    span "Codex"
+                    svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
+                div.cc-panel
+                  div.cc-line.cc-row
+                    svg [aria-hidden="true" fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
+                    button.t [title="build-tools" type="button"]
+                      b "build-tools"
+                      span "Stdio"
+                    span.r
+                      button.dbtn.quiet.small [aria-haspopup="menu" aria-label="More for build-tools" type="button"] "⋯"
+                  div.cc-line.cc-row
+                    svg [aria-hidden="true" fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
+                    button.t [title="docs" type="button"]
+                      b "docs"
+                      span "Streamable HTTP · Disabled"
+                    span.r
+                      button.dbtn.quiet.small [aria-haspopup="menu" aria-label="More for docs" type="button"] "⋯"
+                div.dline.dmt6
+                  button.dbtn.small [type="button"] "+ Add server"
               div.dset-h "Log"
               button.dbtn [type="button"] "Show"
               div.dmach.dset-rm

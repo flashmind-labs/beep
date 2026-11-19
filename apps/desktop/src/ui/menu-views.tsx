@@ -2,12 +2,14 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import { reason } from "./format.ts";
 import type { ConfirmOptions, RenameOptions } from "./menu.tsx";
 import { Button, Checkbox, SheetHead } from "./kit.tsx";
+import { useDialogRef } from "./parts.tsx";
 
 /// The box of a right-click menu at `at`, kept inside the window. A click
 /// outside it, leaving the window or the user scrolling closes it; Esc also
 /// gives focus back.
 export function MenuBox({ at, close, escape, children }: { at: { x: number; y: number }; close(): void; escape(): void; children?: ReactNode }) {
   const menuBox = useRef<HTMLDivElement>(null);
+  const dialog = useDialogRef(menuBox);
   const [place, setPlace] = useState<CSSProperties>({});
   useLayoutEffect(() => {
     const box = menuBox.current;
@@ -49,7 +51,7 @@ export function MenuBox({ at, close, escape, children }: { at: { x: number; y: n
     };
   }, [close, escape]);
 
-  return <div className="cc-menu" ref={menuBox} style={place}>{children}</div>;
+  return <div className="cc-menu" ref={dialog} style={place}>{children}</div>;
 }
 
 export function ConfirmView({ options, close, pending }: { options: ConfirmOptions; close(): void; pending(value: boolean): void }) {

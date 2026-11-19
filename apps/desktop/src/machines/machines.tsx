@@ -443,7 +443,7 @@ function drawList(at: MachinesHost | null) {
 
 function drawDetail(at: MachinesHost | null, machine: Machine) {
   showScreen(at, { view: "machine", props: {
-    machine, error: MC.error, mac: MC.mac, newest: newest(), updatable: MC.updatable.has(machine.id),
+    machine, invoke, error: MC.error, mac: MC.mac, newest: newest(), updatable: MC.updatable.has(machine.id),
     nodeUpdate: MC.updates.get(machine.id) ?? null, search, log, tools: MC.tools, toolUps: MC.toolUps,
     installed: MC.installed, traffic: MC.traffic.find(t => t.id === machine.id), asking: MC.asking, age: span,
     searchEdit: () => { if (search) { search.draft = search.folder; drawMachines(); } },
