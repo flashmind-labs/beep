@@ -108,7 +108,7 @@ export function FileViewer({ file }: { file: ViewerFile }) {
     event.stopPropagation();
     if (event.key === "Escape") { event.preventDefault(); viewerAct("close"); }
   }}>
-    <div className="vt"><span className="tt"><b>{file.name}</b><small>{file.path}</small></span><Button data-v="open" onClick={() => openFileElsewhere(file)}>Open</Button><Button ref={close} data-v="close" aria-label="Close" onClick={() => viewerAct("close")} dangerouslySetInnerHTML={{ __html: ICON.x }} /></div>
+    <div className="vt"><span className="tt"><b>{file.name}</b><small>{read.kind === "text" && read.cut ? `${file.path}, the start of it` : file.path}</small></span><Button data-v="open" onClick={() => openFileElsewhere(file)}>Open</Button><Button ref={close} data-v="close" aria-label="Close" onClick={() => viewerAct("close")} dangerouslySetInnerHTML={{ __html: ICON.x }} /></div>
     <div className="vi">{body}</div><HintView value={hintModel([["esc", "close"]])} />
   </div>;
 }

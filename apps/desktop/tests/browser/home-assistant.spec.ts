@@ -45,23 +45,23 @@ test("a file an assistant chat links to opens over the window, read from its mac
   await openDesktop(page, false, {
     agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null },
     agent_sessions: [{ ...done, title: "Make voice samples" }], agent_view: { ...view(done, reply), entries: [{ kind: "agent", text: reply, html: '<p>Read <a href="notes.txt">notes.txt</a>, then play <a href="tts-samples/a.wav">a.wav</a>.</p>' }] },
-    agent_file: { size: 6, mime: "text/plain", data: "aGVsbG8K" },
+    agent_tree_text: { size: 6, text: "hello\n", cut: false, binary: false, editable: true },
   });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
   await page.locator(".asst-list").getByRole("button", { name: /Make voice samples/ }).click();
-  const files = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_file").map(call => (call.args as { path: string }).path));
+  const reads = (command: string) => page.evaluate(name => window.__navigation.calls().filter(call => call.command === name).map(call => call.args), command);
 
   await page.locator("#agbody").getByRole("link", { name: "notes.txt" }).click();
   const viewer = page.getByRole("dialog", { name: "notes.txt" });
   await expect(viewer.locator("pre")).toHaveText("hello\n");
-  expect(await files()).toEqual(["/srv/notes.txt"]);
+  expect(await reads("agent_tree_text")).toEqual([{ machineId: "build-box", root: "/srv", path: "notes.txt" }]);
   await page.keyboard.press("Escape");
   await expect(viewer).toBeHidden();
 
   await page.evaluate(() => window.__navigation.respond("agent_file", { size: 1, mime: "audio/wav", data: "AA==" }));
   await page.locator("#agbody").getByRole("link", { name: "a.wav" }).click();
   await expect(page.getByRole("dialog", { name: "a.wav" }).locator("audio")).toHaveCount(1);
-  expect(await files()).toEqual(["/srv/notes.txt", "/srv/tts-samples/a.wav"]);
+  expect(await reads("agent_file")).toEqual([{ machineId: "build-box", path: "/srv/tts-samples/a.wav", offset: 0, session: "assistant-one" }]);
 });
 
 test("Cmd+N on Home opens the Assistant page and starts the assistant with its harness in the home folder", { tag: "@windows" }, async ({ page }, info) => {

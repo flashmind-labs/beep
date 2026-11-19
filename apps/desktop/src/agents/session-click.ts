@@ -1,5 +1,6 @@
 // What a click in the open session's log and pane does.
 import { S } from "../bar/core.ts";
+import { shell } from "../center/window-shell.tsx";
 import { openFileViewer, openViewer } from "../chat/media.tsx";
 import { linkedPath, resolvePath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, showArtifact, showRunning, showSubagents } from "../agentpane/media.ts";
@@ -20,12 +21,12 @@ import { nativeSession } from "./native-session-state.ts";
 import { isOpen, openAgent, resumeAgent } from "./session.tsx";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 
-/// The assistant's chat has no pane beside it: its files open over the
-/// window, read from its machine. False for another session.
+/// A chat on the Assistant page has no pane beside it: its files open over
+/// the window, read from its machine. False elsewhere.
 function openOver(path: string) {
   const s = AG.page?.session;
-  if (!s?.assistant) return false;
-  openFileViewer(s.machine_id, s.id, resolvePath(s.cwd, path));
+  if (!s || !shell.getState().assistant) return false;
+  openFileViewer(s.machine_id, s.id, s.cwd, resolvePath(s.cwd, path));
   return true;
 }
 

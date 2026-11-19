@@ -2,6 +2,7 @@ import { createDocumentScope } from "../ui/document-root.tsx";
 import { FileViewer, Viewer, ViewerNotice } from "./viewer-view.tsx";
 import { baseName, mediaKind } from "../agentpane/media-state.ts";
 import { readError, readFile } from "../agentpane/read.ts";
+import type { TreeText } from "../agentpane/media.ts";
 import { bar } from "../bar/core.ts";
 import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
 import { savedIn } from "../ui/platform.ts";
@@ -13,7 +14,7 @@ export interface ViewerPic { url: string; saves?: boolean; caption?: string; nam
 export interface ViewerFile { machine: string; session: string; path: string; name: string; read: FileRead }
 /// A picture, audio or video plays from its bytes and text reads as text. A PDF
 /// or 3D model is not read: it opens in this computer's app, as anything can.
-type FileRead = { kind: "loading" } | { kind: "media"; media: "image" | "audio" | "video"; url: string } | { kind: "text"; text: string }
+type FileRead = { kind: "loading" } | { kind: "media"; media: "image" | "audio" | "video"; url: string } | { kind: "text"; text: string; cut: boolean }
   | { kind: "elsewhere" } | { kind: "failed"; error: string };
 
 export function fileSize(n: number) {
@@ -61,8 +62,8 @@ function closeViewer() {
 
 type ViewerAct = "prev" | "next" | "close" | "save" | "copy" | "open";
 
-/// Shows `path`, a file on `machine`, over the window while it is read.
-export function openFileViewer(machine: string, session: string, path: string) {
+/// Shows `path`, a file in or under `cwd` on `machine`, over the window while it is read.
+export function openFileViewer(machine: string, session: string, cwd: string, path: string) {
   const media = mediaKind(path);
   const elsewhere = media === "pdf" || media === "model";
   const file: ViewerFile = { machine, session, path, name: baseName(path), read: elsewhere ? { kind: "elsewhere" } : { kind: "loading" } };
@@ -71,26 +72,25 @@ export function openFileViewer(machine: string, session: string, path: string) {
   drawViewer();
   if (elsewhere) return;
 
-  readFile(machine, path, session, () => {})
-    .then(({ bytes, mime }) => {
-      if (V.file !== file) return;
-      file.read = media === "image" || media === "audio" || media === "video" ? { kind: "media", media, url: URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime || "application/octet-stream" })) } : asText(bytes);
-      drawViewer();
-    })
-    .catch(e => {
-      if (V.file !== file) return;
-      file.read = { kind: "failed", error: readError(e) };
+  const read: Promise<FileRead> = media === "image" || media === "audio" || media === "video"
+    ? readFile(machine, path, session, () => {}).then(({ bytes, mime }) => ({ kind: "media", media, url: URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime || "application/octet-stream" })) }))
+    : readText(machine, cwd, path);
+
+  read
+    .catch((e): FileRead => ({ kind: "failed", error: readError(e) }))
+    .then(read => {
+      if (V.file !== file) return read.kind === "media" && URL.revokeObjectURL(read.url);
+      file.read = read;
       drawViewer();
     });
 }
 
-/// The bytes as text, or opened elsewhere when they are not text.
-function asText(bytes: Uint8Array): FileRead {
-  try {
-    return bytes.includes(0) ? { kind: "elsewhere" } : { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
-  } catch {
-    return { kind: "elsewhere" };
-  }
+/// The start of a text file, as the pane reads it, or opened elsewhere when it is not text.
+async function readText(machine: string, cwd: string, path: string): Promise<FileRead> {
+  const top = cwd.replace(/\/+$/, "");
+  const [root, rel] = path.startsWith(`${top}/`) ? [top, path.slice(top.length + 1)] : [path.slice(0, path.lastIndexOf("/")) || "/", baseName(path)];
+  const text = await invoke<TreeText>("agent_tree_text", { machineId: machine, root, path: rel });
+  return text.binary ? { kind: "elsewhere" } : { kind: "text", text: text.text, cut: text.cut };
 }
 
 /// Opens the file the viewer shows in this computer's app for it.
