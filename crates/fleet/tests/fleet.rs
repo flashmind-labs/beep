@@ -3897,4 +3897,15 @@ async fn a_named_agent_account_sits_beside_the_default_one() {
             .await
             .is_err()
     );
+    // A Codex API key would lose to the machine's own sign-in.
+    assert!(
+        studio
+            .save_agent_token(
+                "codex",
+                Some("Home"),
+                &SecretText::new("sk-proj-example-1234")
+            )
+            .await
+            .is_err()
+    );
 }

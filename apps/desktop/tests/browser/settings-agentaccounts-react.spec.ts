@@ -112,7 +112,7 @@ test("a named account is added beside the default one", async ({ page }) => {
   await settings.getByRole("button", { name: "Add account" }).click();
   await settings.locator(".dchip").filter({ hasText: "Codex" }).click();
   await settings.getByRole("textbox", { name: "Account name" }).fill("default");
-  await settings.getByRole("textbox", { name: "Codex API key or access token" }).fill("example-token");
+  await settings.getByRole("textbox", { name: "Codex access token" }).fill("example-token");
   await settings.locator("#agNamedSave").click();
   await expect(settings.locator("#agNamedErr")).toContainText("pick another name");
   await settings.getByRole("textbox", { name: "Account name" }).fill(" Work ");

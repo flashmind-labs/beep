@@ -259,18 +259,16 @@ impl AgentAccount {
         }
     }
 
-    /// The env var a token of this agent goes in: a Codex token that is no
-    /// API key is a ChatGPT personal access token.
-    pub fn env_var_for(self, token: &str) -> &'static str {
+    /// The env var a named account's token goes in. Codex's is a ChatGPT
+    /// personal access token, which wins over the machine's own sign-in; an
+    /// API key in `CODEX_API_KEY` does not.
+    pub fn named_env_var(self) -> &'static str {
         match self {
-            Self::Codex if !token.starts_with("sk-") => CODEX_ACCESS_TOKEN,
-            agent => agent.env_var(),
+            Self::Claude => "CLAUDE_CODE_OAUTH_TOKEN",
+            Self::Codex => "CODEX_ACCESS_TOKEN",
         }
     }
 }
-
-/// The env var Codex reads a ChatGPT personal access token from.
-pub const CODEX_ACCESS_TOKEN: &str = "CODEX_ACCESS_TOKEN";
 
 /// The name the user gave one of their accounts, such as `Work`. A start
 /// that names one runs signed in as that account of its agent; the same

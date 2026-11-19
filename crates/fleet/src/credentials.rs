@@ -775,6 +775,12 @@ impl Desk {
         };
 
         if let Some(name) = name {
+            if agent == AgentAccount::Codex && secret.expose_secret().starts_with("sk-") {
+                return Err(FleetError::refused(
+                    "A named Codex account takes a ChatGPT personal access token. An API key goes in Codex's own row above.",
+                ));
+            }
+
             for old in self.named_ids(agent, &name) {
                 self.drop_keys(&old).await?;
             }
@@ -783,7 +789,7 @@ impl Desk {
             let login = AgentLogin {
                 agent,
                 env: EnvSecret {
-                    name: agent.env_var_for(secret.expose_secret()).to_owned(),
+                    name: agent.named_env_var().to_owned(),
                     value: SecretText::new(secret.expose_secret()),
                 },
                 name,

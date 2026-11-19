@@ -21,11 +21,11 @@ function AddAccount({ state, agent, error, actions }: { state: AgentAccountsStat
   return <div className="dgrid8 dmt6">
     <div className="dline">{(["claude", "codex"] as const).map(a => <ChipToggle key={a} label={AGENT_NAMES[a]} selected={a === agent} onToggle={() => actions.add(a)} />)}</div>
     <div className="dline"><input ref={name} id="agName" type="text" autoComplete="off" spellCheck={false} placeholder="Work" aria-label="Account name" className="dsecret" /></div>
-    <div className="dline"><input ref={secret} id="agNamedSecret" type="password" autoComplete="off" spellCheck={false} placeholder={agent === "claude" ? "sk-ant-oat01-…" : "sk-… or a personal access token"} aria-label={agent === "claude" ? "Claude Code token" : "Codex API key or access token"} className="dsecret" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }} />
+    <div className="dline"><input ref={secret} id="agNamedSecret" type="password" autoComplete="off" spellCheck={false} placeholder={agent === "claude" ? "sk-ant-oat01-…" : "Personal access token"} aria-label={agent === "claude" ? "Claude Code token" : "Codex access token"} className="dsecret" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }} />
       <Button look="primary" id="agNamedSave" disabled={!!state.busy || state.claudeFlow} onClick={save}>{state.busy === "add" ? "Saving…" : "Save"}</Button>
       {agent === "claude" && !phone && <Button disabled={!!state.busy || state.claudeFlow} onClick={() => actions.addSign(name.current?.value ?? "")}>Sign in instead</Button>}
       <Button look="quiet" onClick={() => actions.add(null)}>Cancel</Button></div>
-    {state.claudeFlow ? <div className="dfine dline"><Spinner />Approve in your browser, signed in to the account this name is for.</div> : <span className="dsub">{agent === "claude" ? <>Paste the token <code>claude setup-token</code> prints while signed in to this account, or sign in here.</> : "An OpenAI API key, or a ChatGPT personal access token for a subscription."}</span>}
+    {state.claudeFlow ? <div className="dfine dline"><Spinner />Approve in your browser, signed in to the account this name is for.</div> : <span className="dsub">{agent === "claude" ? <>Paste the token <code>claude setup-token</code> prints while signed in to this account, or sign in here.</> : "A ChatGPT personal access token for that subscription."}</span>}
     <span className="derr" id="agNamedErr">{error}</span></div>;
 }
 function NamedAccounts({ state, data, ago, actions }: { state: AgentAccountsState; data: AgentAccounts; ago: (ms: number) => string; actions: Actions }) {

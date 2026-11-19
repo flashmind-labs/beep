@@ -246,6 +246,7 @@ const agentActions: AgentAccountActions = {
     if (ACC.busy || !add) return;
     const named = accountName(name), draft = tokenDraft(add.agent, secret);
     if (named.name === null || !draft.agent) { add.error = named.error ?? draft.error ?? ""; renderAgents(); return; }
+    if (draft.agent === "codex" && draft.secret.startsWith("sk-")) { add.error = "A named Codex account takes a ChatGPT personal access token. An API key goes in Codex's own row above."; renderAgents(); return; }
     ACC.busy = "add"; add.error = ""; renderAgents();
     try { await invoke("save_agent_token", { agentSlug: draft.agent, name: named.name, secret: draft.secret }); if (ACC.add === add) ACC.add = null; }
     catch (error) { add.error = String(error); }
