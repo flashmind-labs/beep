@@ -11,7 +11,7 @@ mod compare;
 pub(crate) mod disk;
 mod follow;
 
-pub(crate) use follow::{follow, serve};
+pub(crate) use follow::{follow, online, serve};
 
 use super::skill_library::Libraries;
 use beep_mesh::{Key, Mesh};

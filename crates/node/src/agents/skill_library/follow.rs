@@ -1,5 +1,6 @@
 //! The task that keeps every library's copy at its revision and its skills installed where they
-//! are picked, and the `skill-library/1` answers.
+//! are picked, and the `skill-library/1` answers. Only the node that read a library's repository
+//! clones it; the others take the picked skills' files from a machine that has them.
 
 use super::{
     Libraries, find,
@@ -7,18 +8,22 @@ use super::{
     store,
 };
 use crate::{
-    agents::{project_folder, skills::Skills, skills::disk},
+    agents::{
+        project_folder,
+        skills::{Skills, disk, online},
+    },
     files::syncthing::expand,
 };
 use anyhow::{Context, Result, bail};
-use beep_mesh::{Key, Mesh};
+use beep_mesh::{Key, Mesh, PeerClient};
 use beep_proto::watched;
 use beep_proto::node::{
     LinkRx, LinkTx,
     mesh_state::{ProjectSkills, SkillLibrary, StateValue},
-    skill_library::{Problem, Reply, Request},
+    skill_library::{PROTOCOL, Problem, Reply, Request},
 };
-use futures::{StreamExt, stream};
+use futures::{StreamExt, stream, stream::FuturesUnordered};
+use iroh::EndpointId;
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -42,7 +47,7 @@ const READ_LIMIT: Duration = Duration::from_secs(10);
 const INSPECT_LIMIT: Duration = Duration::from_secs(5 * 60);
 
 /// Installs the libraries' skills now, whenever a library, a project's checkouts or its skill
-/// settings change, and every `EVERY`, until the mesh stops. Nothing when the host keeps Beep out of the skills folders.
+/// settings change, a machine comes or goes, and every `EVERY`, until the mesh stops. Nothing when the host keeps Beep out of the skills folders.
 pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
     let libraries = skills.libraries().clone();
     // The same folder each time the task starts over.
@@ -51,6 +56,7 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
         return;
     };
     let mut changes = mesh.changes();
+    let mut updates = mesh.updates();
     let file_dir = dir.clone();
     let mut record = match spawn_blocking(move || Record::load(&file_dir)).await {
         Ok(Ok(record)) => record,
@@ -70,6 +76,7 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
     let mut said = None;
 
     loop {
+        let now = online(&mesh);
         let pass = Pass {
             mesh: &mesh,
             dir: &dir,
@@ -96,6 +103,15 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
                     Err(RecvError::Closed) => return,
                     Ok(_) => {}
                 },
+                changed = updates.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+
+                    if online(&mesh) != now {
+                        break;
+                    }
+                }
             }
         }
 
@@ -259,15 +275,84 @@ impl Pass<'_> {
         )
     }
 
-    /// Puts the library's clone at its revision and returns its folder.
+    /// The library's copy at its revision: the clone on the node that read the repository, else
+    /// the plain copy with every picked skill, the missing ones taken from the other machines.
     async fn copy(&self, library: &SkillLibrary) -> Result<PathBuf, String> {
         let dir = self.dir.to_owned();
         let url = library.url.clone();
         let revision = library.revision.clone();
-        spawn_blocking(move || store::ensure_git(&dir, &url, &revision))
+
+        if store::cloned(&dir, &url) {
+            return spawn_blocking(move || store::ensure_git(&dir, &url, &revision))
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| format!("{e:#}"));
+        }
+
+        let root = store::copy_root(&dir, &url, &revision).map_err(|e| format!("{e:#}"))?;
+        let missing: Vec<String> = library
+            .skills
+            .iter()
+            .map(|skill| &skill.name)
+            .filter(|name| picked(library, name) && !root.join(name).join("SKILL.md").is_file())
+            .cloned()
+            .collect();
+        let peers = online(self.mesh);
+        let taken: Vec<Result<(), String>> = stream::iter(missing)
+            .map(|skill| self.take(library, &root, skill, &peers))
+            .buffer_unordered(FETCHES)
+            .collect()
+            .await;
+        taken.into_iter().collect::<Result<(), String>>()?;
+        spawn_blocking(move || store::prune_copies(&dir, &url, &revision))
             .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| format!("{e:#}"))
+            .map_err(|e| e.to_string())?;
+        Ok(root)
+    }
+
+    /// Writes the library's skill `skill` into the copy at `root`, from the first of `peers`
+    /// that has it.
+    async fn take(
+        &self,
+        library: &SkillLibrary,
+        root: &Path,
+        skill: String,
+        peers: &BTreeSet<EndpointId>,
+    ) -> Result<(), String> {
+        let request = &Request::Files {
+            url: library.url.clone(),
+            revision: library.revision.clone(),
+            skill: skill.clone(),
+        };
+        let mut asks: FuturesUnordered<_> = peers
+            .iter()
+            .map(|&peer| async move {
+                PeerClient::over(self.mesh.clone(), peer)
+                    .call::<_, Reply>(PROTOCOL, request)
+                    .await
+            })
+            .collect();
+
+        while let Some(reply) = asks.next().await {
+            let files = match reply {
+                Ok(Reply::Files { files }) if !files.is_empty() => files,
+                Ok(_) => continue,
+                Err(e) => {
+                    log::debug!("skill libraries: {skill} not taken: {e}");
+                    continue;
+                }
+            };
+            let path = root.join(&skill);
+
+            return spawn_blocking(move || install::write(&path, &files))
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| format!("{e:#}"));
+        }
+
+        Err(format!(
+            "no machine online has {skill}; it is copied from the machine that added the library"
+        ))
     }
 
     /// Logs each problem that is new, and keeps them for `Request::Problems`.
@@ -328,9 +413,32 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, skills: Skills) -> Res
         Request::Problems {} => Reply::Problems {
             problems: watched::read_sent(&libraries.shared.problems, Clone::clone),
         },
+        Request::Files {
+            url,
+            revision,
+            skill,
+        } => {
+            let read = spawn_blocking(move || {
+                store::skill_here(&dir, &url, &revision, &skill).map(|path| disk::read(&path))
+            })
+            .await
+            .context("reading the skill stopped")?;
+
+            match read {
+                Some(Ok(Some(files))) => Reply::Files { files },
+                _ => Reply::Failed {
+                    message: "this machine has no copy of it".to_owned(),
+                },
+            }
+        }
     };
     tx.send(&reply).await?;
     tx.finish().await
+}
+
+/// Whether any place picks the library's skill `name`.
+fn picked(library: &SkillLibrary, name: &str) -> bool {
+    library.global.has(name) || library.projects.values().any(|pick| pick.has(name))
 }
 
 /// Fetches the repository at `url` and lists its skills.

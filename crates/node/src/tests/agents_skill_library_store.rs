@@ -110,3 +110,37 @@ fn a_git_library_is_inspected_and_checked_out_at_a_revision() {
     assert!(text.contains("better"), "{text}");
     assert!(inspect_git(&node, "/no/such/repository").is_err());
 }
+
+#[test]
+fn a_node_without_the_clone_installs_from_a_copy_another_node_serves() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    let reader = temp.path().join("reader");
+    let other = temp.path().join("other");
+    fs::create_dir_all(&repo).unwrap();
+    run_git(&repo, &["init", "--quiet"]);
+    put(&repo, "skills/pdf", "Reads PDFs.", "Body");
+    run_git(&repo, &["add", "."]);
+    run_git(&repo, &["commit", "--quiet", "-m", "one"]);
+    let url = repo.to_str().unwrap();
+    let (revision, _) = inspect_git(&reader, url).unwrap();
+    ensure_git(&reader, url, &revision).unwrap();
+    assert!(cloned(&reader, url));
+    assert!(!cloned(&other, url));
+    assert!(skill_here(&reader, url, "0000000", "pdf").is_none());
+    assert!(skill_here(&reader, url, &revision, "../pdf").is_none());
+
+    let served = skill_here(&reader, url, &revision, "pdf").unwrap();
+    let files = disk::read(&served).unwrap().unwrap();
+    let old = copy_root(&other, url, "abcdef0").unwrap();
+    fs::create_dir_all(&old).unwrap();
+    let root = copy_root(&other, url, &revision).unwrap();
+    super::super::install::write(&root.join("pdf"), &files).unwrap();
+    prune_copies(&other, url, &revision);
+
+    assert!(!old.exists());
+    assert_eq!(skills_in(&root).into_keys().collect::<Vec<_>>(), ["pdf"]);
+    let again = skill_here(&other, url, &revision, "pdf").unwrap();
+    assert_eq!(disk::read(&again).unwrap().unwrap(), files);
+    assert!(copy_root(&other, url, "../x").is_err());
+}

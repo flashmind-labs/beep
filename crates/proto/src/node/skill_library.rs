@@ -1,7 +1,9 @@
 //! `skill-library/1`: a node fetches a skill library's repository, finds libraries already in
-//! the agents' skills folders, and says what it could not install. A stream starts with `Open`, then carries one `Request` and its `Reply`.
+//! the agents' skills folders, says what it could not install, and hands a library's skill to a
+//! node that does not clone the repository itself. A stream starts with `Open`, then carries one
+//! `Request` and its `Reply`.
 
-use super::mesh_state::LibrarySkill;
+use super::{mesh_state::LibrarySkill, skills::SkillFile};
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL: &str = "skill-library/1";
@@ -16,6 +18,13 @@ pub enum Request {
     Find {},
     /// What the node could not fetch or install: `Reply::Problems`.
     Problems {},
+    /// The files of the library's skill `skill` at `revision`, from the node's own copy:
+    /// `Reply::Files`, or `Reply::Failed` when it has none. A node from before it fails.
+    Files {
+        url: String,
+        revision: String,
+        skill: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +41,9 @@ pub enum Reply {
     },
     Problems {
         problems: Vec<Problem>,
+    },
+    Files {
+        files: Vec<SkillFile>,
     },
 }
 

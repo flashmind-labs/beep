@@ -160,7 +160,7 @@ async fn watch(home: &Path, edited: mpsc::Sender<()>) -> Option<Paths> {
 }
 
 /// The other members online now.
-fn online(mesh: &Mesh) -> BTreeSet<EndpointId> {
+pub(crate) fn online(mesh: &Mesh) -> BTreeSet<EndpointId> {
     let me = mesh.me();
     mesh.code_hosts()
         .into_iter()

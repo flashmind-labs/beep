@@ -314,7 +314,7 @@ fn install(record: &mut Record, want: &Want, files: &[SkillFile], hash: &str) ->
 
 /// Writes `files` as the skill folder `path`, in place of what is there: staged beside it and
 /// renamed in, so an agent never reads half a skill.
-fn write(path: &Path, files: &[SkillFile]) -> Result<()> {
+pub(super) fn write(path: &Path, files: &[SkillFile]) -> Result<()> {
     let dir = path.parent().context("a skill folder has a parent")?;
     let name = path
         .file_name()

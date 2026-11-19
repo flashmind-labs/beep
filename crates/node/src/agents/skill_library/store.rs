@@ -1,6 +1,7 @@
 //! The node's copy of each library, under `skill-libraries` in its folder: a clone per Git
-//! repository, checked out at the library's revision. Also listing a repository's skills.
-//! Every function here blocks.
+//! repository, checked out at the library's revision, on the node that read the repository. Every
+//! other node keeps a plain copy per revision of the skills it installs, taken from a machine that
+//! has them. Also listing a repository's skills. Every function here blocks.
 
 use crate::agents::{custom_agents::parse::skill_description, skills::disk};
 use anyhow::{Context, Result, bail};
@@ -25,8 +26,13 @@ const SKILL_MD: &str = "SKILL.md";
 /// The clone of the repository at `url`, one per repository, so inspecting it and installing
 /// from it share one download.
 pub(super) fn git_root(node_dir: &Path, url: &str) -> PathBuf {
+    node_dir.join(ROOT).join(folder(url))
+}
+
+/// The clone's folder name for the repository at `url`, which its plain copies start with.
+fn folder(url: &str) -> String {
     let digest = hex::encode(Sha256::digest(url.as_bytes()));
-    node_dir.join(ROOT).join(&digest[..16])
+    digest[..16].to_owned()
 }
 
 /// Fetches the default branch of the repository at `url` and lists the skills at its newest
@@ -75,6 +81,66 @@ pub(super) fn ensure_git(node_dir: &Path, url: &str, revision: &str) -> Result<P
     }
 
     Ok(root)
+}
+
+/// Whether this node clones the repository at `url`: it read it when the library was added.
+pub(super) fn cloned(node_dir: &Path, url: &str) -> bool {
+    git_root(node_dir, url).join(".git").is_dir()
+}
+
+/// The plain copy of the library at `url` and `revision`: a folder per skill.
+pub(super) fn copy_root(node_dir: &Path, url: &str, revision: &str) -> Result<PathBuf> {
+    let commit = (7..=64).contains(&revision.len()) && revision.chars().all(|c| c.is_ascii_hexdigit());
+
+    if !commit {
+        bail!("{revision:?} is not a commit");
+    }
+
+    Ok(node_dir.join(ROOT).join(format!("{}-{revision}", folder(url))))
+}
+
+/// The folder of the library's skill `skill` at `revision` on this node: in the plain copy, or
+/// in the clone while it is checked out at `revision`.
+pub(super) fn skill_here(node_dir: &Path, url: &str, revision: &str, skill: &str) -> Option<PathBuf> {
+    if !disk::valid_part(skill) {
+        return None;
+    }
+
+    let copied = copy_root(node_dir, url, revision).ok()?.join(skill);
+
+    if copied.join(SKILL_MD).is_file() {
+        return Some(copied);
+    }
+
+    let root = git_root(node_dir, url);
+    let head = git(&root, &["rev-parse", "--verify", "--quiet", "HEAD"]).ok()?;
+
+    if head.trim() != revision {
+        return None;
+    }
+
+    skills_in(&root).remove(skill)
+}
+
+/// Removes the plain copies of the library at `url` from revisions other than `revision`.
+pub(super) fn prune_copies(node_dir: &Path, url: &str, revision: &str) {
+    let prefix = format!("{}-", folder(url));
+    let Ok(entries) = fs::read_dir(node_dir.join(ROOT)) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(rest) = name.to_str().and_then(|name| name.strip_prefix(&prefix)) else {
+            continue;
+        };
+
+        if rest != revision
+            && let Err(e) = fs::remove_dir_all(entry.path())
+        {
+            log::debug!("skill libraries: {} not removed: {e}", entry.path().display());
+        }
+    }
 }
 
 /// Clones `url` into `root` unless it is there. The clone is made beside `root` and renamed in,
