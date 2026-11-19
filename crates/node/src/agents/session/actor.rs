@@ -60,6 +60,8 @@ pub(super) enum Event {
 
 /// The answer to a request the session sent, with what it was for.
 pub(super) enum Reply {
+    /// What pi's log says the session spent so far, when it could be read.
+    PiCost(Option<f64>),
     /// Capabilities for the protocol selected by the agent.
     Initialized(Result<acp::Capabilities, agent_client_protocol::Error>),
     Accepted {
@@ -195,6 +197,8 @@ pub(super) struct Actor {
     /// What the adapter said it sends as the session's first message, which
     /// is left out.
     pub(super) banner: Option<String>,
+    /// pi's log is being read for what the session spent.
+    pub(super) reading_cost: bool,
     pub(super) protocol: acp::Protocol,
     pub(super) foreground: bool,
     pub(super) ready_for_prompts: bool,
@@ -731,6 +735,12 @@ impl Actor {
                     self.show_stopping(stopping);
                 }
 
+                if finished
+                    || matches!(&update, SessionUpdate::UsageUpdate(usage) if usage.cost.is_none())
+                {
+                    self.read_pi_cost();
+                }
+
                 if finished {
                     self.steer_now(cx)?;
                 }
@@ -784,6 +794,14 @@ impl Actor {
 
     fn reply(&mut self, cx: &ConnectionTo<Agent>, reply: Reply) -> Result<Option<End>> {
         match reply {
+            Reply::PiCost(cost) => {
+                self.reading_cost = false;
+
+                if let Some(cost) = cost {
+                    self.live
+                        .send_modify(|live| live.usage_update(Some((cost, "USD")), None));
+                }
+            }
             Reply::Configured { answer, reply } => {
                 self.v2_options(cx, &answer);
                 return self.reply(cx, *reply);
@@ -1069,6 +1087,31 @@ impl Actor {
             }
         }
         None
+    }
+
+    /// pi's adapter reports no cost: reads what the session spent from pi's
+    /// own log, one read at a time.
+    fn read_pi_cost(&mut self) {
+        if self.agent != "pi" || self.reading_cost {
+            return;
+        }
+
+        let Some(session) = &self.acp_session else {
+            return;
+        };
+        let id = Into::<beep_proto::SessionId>::into(&*session.0);
+        self.reading_cost = true;
+        self.replies.push(
+            async move {
+                let read = tokio::task::spawn_blocking(move || {
+                    let sessions = crate::agents::found::pi_sessions()?;
+                    crate::agents::spend::pi_session_cost(&sessions, &id)
+                });
+                let cost = read.await.ok().flatten();
+                Reply::PiCost(cost)
+            }
+            .boxed(),
+        );
     }
 
     /// Whether `text` is what the adapter says before the session's first

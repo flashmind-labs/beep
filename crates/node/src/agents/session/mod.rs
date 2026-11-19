@@ -440,6 +440,7 @@ impl Session {
             cwd: cwd.to_path_buf(),
             acp_session: None,
             banner: None,
+            reading_cost: false,
             protocol,
             foreground: false,
             ready_for_prompts: false,

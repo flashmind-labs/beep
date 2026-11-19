@@ -15,6 +15,7 @@ mod ledger;
 mod pi;
 mod scan;
 
+pub(crate) use pi::session_cost as pi_session_cost;
 pub(crate) use scan::Roots;
 
 use crate::{agents::found::Agent, agents::prices::Tokens, lock};

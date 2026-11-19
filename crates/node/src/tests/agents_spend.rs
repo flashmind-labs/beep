@@ -340,3 +340,13 @@ fn a_moved_codex_session_keeps_its_folder_and_provider_for_what_runs_here() {
     );
     assert_eq!(report.hours[0].billing, Billing::Metered);
 }
+
+#[test]
+fn a_pi_sessions_cost_is_read_from_its_log() {
+    let fixture = fixture();
+    let sessions = fixture.roots.pi.as_deref().expect("pi's folder");
+    let cost = super::pi_session_cost(sessions, &SessionId::from(&"p1".to_owned()));
+
+    assert!(cost.is_some_and(|cost| (cost - 0.5).abs() < 1e-9), "{cost:?}");
+    assert_eq!(super::pi_session_cost(sessions, &SessionId::from(&"p2".to_owned())), None);
+}

@@ -3,9 +3,10 @@
 //! in US dollars when the provider priced it), `model` and `timestamp`.
 
 use beep_proto::SessionId;
-use super::{Line, Request};
+use super::{Line, Request, ledger::{Bucket, UNKNOWN_MODEL}};
 use crate::{agents::claude::unix_seconds, agents::prices::Tokens};
 use serde::Deserialize;
+use std::{fs, path::Path};
 
 #[derive(Deserialize)]
 struct Entry {
@@ -41,6 +42,36 @@ struct Usage {
 #[serde(default)]
 struct Cost {
     total: f64,
+}
+
+/// What pi's session `id` spent so far, as its log in the sessions folder
+/// `sessions` says: what the provider priced, else the model's list price.
+/// Blocking: it reads the whole log.
+pub(crate) fn session_cost(sessions: &Path, id: &SessionId) -> Option<f64> {
+    let name = format!("_{}.jsonl", String::from(id));
+    let log = fs::read_dir(sessions)
+        .ok()?
+        .flatten()
+        .filter_map(|folder| fs::read_dir(folder.path()).ok())
+        .flatten()
+        .flatten()
+        .map(|file| file.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|file| file.to_str())
+                .is_some_and(|file| file.ends_with(&name))
+        })?;
+    let text = fs::read_to_string(log).ok()?;
+    let mut spent = Bucket::default();
+
+    for request in text.lines().filter(|text| wanted(text)).filter_map(line) {
+        if let Line::Request(request) = request {
+            let model = request.model.as_deref().unwrap_or(UNKNOWN_MODEL);
+            spent.add(model, &request.tokens, request.cost_usd);
+        }
+    }
+
+    Some(spent.cost_usd)
 }
 
 /// Whether `line` may matter, before parsing it.

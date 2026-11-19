@@ -73,7 +73,7 @@ impl Live {
     }
 
     /// Takes a `usage_update`'s running cost and the rate limits it carries.
-    pub(super) fn usage_update(
+    pub(crate) fn usage_update(
         &mut self,
         cost: Option<(f64, &str)>,
         meta: Option<&serde_json::Map<String, Value>>,

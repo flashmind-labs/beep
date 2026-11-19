@@ -14,6 +14,7 @@ fn actor() -> Actor {
         cwd: PathBuf::from("/srv/project"),
         acp_session: Some(SessionId::new("session-test")),
         banner: None,
+        reading_cost: false,
         protocol: acp::Protocol::V2,
         foreground: false,
         ready_for_prompts: true,
