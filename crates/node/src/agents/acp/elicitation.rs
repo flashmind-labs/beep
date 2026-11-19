@@ -70,6 +70,7 @@ impl TryFrom<CreateElicitationRequest> for Fields {
         let ElicitationMode::Form(form) = request.mode else {
             return Err(agent_client_protocol::Error::invalid_params());
         };
+        let codex = request.meta.is_some_and(|meta| meta.contains_key("codex"));
         let properties = form.requested_schema.properties;
         let single = properties
             .keys()
@@ -85,7 +86,8 @@ impl TryFrom<CreateElicitationRequest> for Fields {
                     .iter()
                     .map(|suffix| format!("{key}{suffix}"))
                     .find(|custom| properties.contains_key(custom));
-                field(key, schema, custom, single.then_some(&request.message))
+                let message = (single || codex).then_some(request.message.as_str());
+                field(key, schema, custom, message, codex)
             })
             .collect();
         if fields.is_empty() {
@@ -227,13 +229,13 @@ impl Field {
     }
 }
 
-/// The field `key` of a form as a question; `message` is the form's own
-/// words, which ask its only field.
+/// The field `key` of a form as a question.
 fn field(
     key: &str,
     schema: &ElicitationPropertySchema,
     custom: Option<String>,
-    message: Option<&String>,
+    message: Option<&str>,
+    codex: bool,
 ) -> Option<Field> {
     let titled = |options: &[EnumOption]| {
         options
@@ -280,13 +282,25 @@ fn field(
         _ => return None,
     };
 
-    let text = description
-        .as_ref()
-        .or(message)
-        .or(title.as_ref())
-        .map_or_else(|| key.to_owned(), Clone::clone);
-    let detail = (value == Value::Picks)
-        .then(|| "Pick several by their numbers, such as 1, 3".to_owned());
+    let title = title.as_deref();
+    let description = description.as_deref();
+    // Codex puts the question in the title and the form's status in the message.
+    let text = if codex {
+        title.or(description).or(message)
+    } else {
+        description.or(message).or(title)
+    }
+    .unwrap_or(key);
+    let details = [
+        codex.then_some(description).flatten(),
+        codex.then_some(message).flatten(),
+        (value == Value::Picks).then_some("Pick several by their numbers, such as 1, 3"),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|part| !part.trim().is_empty() && *part != text)
+    .collect::<Vec<_>>();
+    let detail = (!details.is_empty()).then(|| details.join("\n"));
     let mut options = options;
     options.push(AnswerOption {
         id: SKIP.into(),
@@ -300,7 +314,7 @@ fn field(
         value,
         question: Question {
             id: 0,
-            text: crate::agents::live::cut(&text, beep_proto::node::agent::MAX_QUESTION_LINE),
+            text: crate::agents::live::cut(text, beep_proto::node::agent::MAX_QUESTION_LINE),
             detail,
             options,
         },

@@ -541,6 +541,37 @@ async fn a_form_is_asked_field_by_field_and_sent_whole() {
     session.close().await;
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn codex_async_form_shows_the_question_and_timing_note() {
+    const ADAPTER: &str = r#"
+handshake "$1"
+read -r line
+echo '{"jsonrpc":"2.0","id":"e1","method":"elicitation/create","params":{"mode":"form","sessionId":"s","_meta":{"codex":{"delivery":"async"}},"message":"Codex keeps working while you answer.","requestedSchema":{"type":"object","properties":{"question_0":{"type":"string","title":"Which layout should I use?","oneOf":[{"const":"Wide","title":"Wide"},{"const":"Compact","title":"Compact"}]},"question_0_note":{"type":"string","title":"Additional answer or note"}}}}}'
+cat > /dev/null
+"#;
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let session = Session::start(start_on(
+        &script("codex", ADAPTER, &dir.join("sent.jsonl")),
+        dir,
+        None,
+    ))
+    .unwrap();
+    settle(&session).await;
+
+    let question = session.info().question.expect("the Codex question");
+    assert_eq!(question.text, "Which layout should I use?");
+    assert_eq!(
+        question.detail.as_deref(),
+        Some("Codex keeps working while you answer.")
+    );
+    let names: Vec<&str> = question.options.iter().map(|o| o.name.as_str()).collect();
+    assert_eq!(names, ["Wide", "Compact", "Skip"]);
+
+    session.close().await;
+}
+
 /// An adapter that puts a choice to the user, then ends its turn without
 /// waiting for it, logs the answer the node gives and exits.
 const ABANDONING_ADAPTER: &str = r#"
