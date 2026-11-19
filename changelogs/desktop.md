@@ -7,6 +7,13 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.3] - 2026-11-19
+
+### Fixed
+
+- Desktop: copy each prompt's final reply without covering its timestamp.
+- Desktop: session spend updates during a turn and includes known costs when some calls have no price.
+
 ## [0.10.2] - 2026-11-18
 
 ### Added
