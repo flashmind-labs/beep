@@ -785,8 +785,8 @@ pub struct OlderPage {
     earlier: u32,
 }
 
-/// The `last` entries before entry `before` of a session, for scrolling back. A machine of the
-/// mesh reads only the transcript, not the session list `agent_view` reads too.
+/// The newest `last` entries of a session, or the entries before `before`.
+/// Reads only the transcript, without marking the session as viewed.
 #[tauri::command]
 pub async fn agent_older(
     fleet: Machines<'_>,
@@ -794,14 +794,14 @@ pub async fn agent_older(
     agent: String,
     session: SessionId,
     last: u32,
-    before: u64,
+    before: Option<u64>,
 ) -> Result<OlderPage, ViewError> {
     let request = GetAgentSession {
         machine_id,
         agent,
         session,
         last,
-        before: Some(before),
+        before,
     };
     let machine = fleet.machine(&request.machine_id)?;
     let read = direct::older(&fleet, machine, &request);

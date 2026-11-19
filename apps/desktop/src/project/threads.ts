@@ -103,21 +103,22 @@ interface ListsRow {
 }
 
 /// What the project page hands the Pull requests and Issues sections: what
-/// Work on it, Continue, Review with agent and Open review do. `workOn` and
-/// `continuePr` and `reviewPr` fill the bar; the `start` ones start a
+/// Work on it, Work on PR, Continue and the review buttons do. `workOn` and
+/// `workOnPr` and `reviewPr` fill the bar; the `start` ones start a
 /// session at once.
 export interface RepoActs {
   workOn: (issue: IssueRow) => void;
   startIssue: (issue: IssueRow, pick: ProjectPick, machine: string | null) => Promise<void>;
-  continuePr: (pr: PullRequestRow) => Promise<void>;
-  startContinue: (pr: PullRequestRow, pick: ProjectPick, machine: string | null) => Promise<void>;
+  workOnPr: (pr: PullRequestRow) => Promise<void>;
+  prSession: (url: string, redraw: () => void) => TaskSession | "checking" | null;
+  startPrWork: (pr: PullRequestRow, pick: ProjectPick, machine: string | null) => Promise<void>;
   reviewPr: (pr: PullRequestRow) => Promise<void>;
   startReview: (pr: PullRequestRow, pick: ProjectPick, machine: string | null) => Promise<void>;
   /// The agent button's picker, whose pick runs `start`.
   button: (start: (pick: ProjectPick, machine: string | null) => void) => PickButton;
   /// The session that reviewed the PR before, which Open review opens.
   reviewOf: (pr: PullRequestRow) => TaskSession | null;
-  openReview: (s: TaskSession) => void;
+  openSession: (s: TaskSession) => void;
   /// The session working on the issue, which its button opens.
   issueSession: (issue: IssueRow) => SessionState | null;
 }
@@ -239,13 +240,18 @@ export function makeThreads(deps: ThreadDeps) {
     const s = of(project.project_id);
     const n = pr.number;
     const row = () => s.prs?.find(p => p.number === n) ?? pr;
-    const go = buttonOf(s, `c${n}`, () => ctx.button((pick, machine) => void act(project.project_id, `c${n}`, () => ctx.startContinue(row(), pick, machine))));
-    const buttons: ThreadActions["buttons"] = [{ kind: "agent", key: "continue", button: go, state: s.busy.has(`c${n}`) ? { kind: "starting" } : { kind: "ready", label: "Continue", hint: "Pick a model: an agent starts on this pull request's branch" } }];
+    const session = ctx.prSession(pr.url, redraw);
+    const work = buttonOf(s, `c${n}`, () => ctx.button((pick, machine) => void act(project.project_id, `c${n}`, () => ctx.startPrWork(row(), pick, machine))));
+    const workState: AgentState = session === "checking" ? { kind: "checking" }
+      : session ? { kind: "done", label: "Continue", hint: "Open the session that created this PR", open: () => ctx.openSession(session) }
+      : s.busy.has(`c${n}`) ? { kind: "starting" }
+      : { kind: "ready", label: "Work on PR", hint: "Start an agent on this pull request's branch" };
+    const buttons: ThreadActions["buttons"] = [{ kind: "agent", key: "continue", button: work, state: workState }];
     const reviewed = ctx.reviewOf(pr);
-    if (reviewed && !AGENT_ACTIVE.has(reviewed.status)) buttons.push({ kind: "run", key: "open-review", label: "Open review", primary: false, disabled: false, title: "Opens the agent's review of this PR. Right-click to review it again.", run: () => ctx.openReview(reviewed) });
+    if (reviewed && !AGENT_ACTIVE.has(reviewed.status)) buttons.push({ kind: "run", key: "open-review", label: "Open review", primary: false, disabled: false, title: "Opens the agent's review of this PR. Right-click to review it again.", run: () => ctx.openSession(reviewed) });
     else {
       const button = buttonOf(s, `a${n}`, () => ctx.button((pick, machine) => void act(project.project_id, `a${n}`, () => ctx.startReview(row(), pick, machine))));
-      const state: AgentState = reviewed ? { kind: "running", label: "Reviewing", agent: agentLabel(reviewed.agent), hint: "Open the review", open: () => ctx.openReview(reviewed) }
+      const state: AgentState = reviewed ? { kind: "running", label: "Reviewing", agent: agentLabel(reviewed.agent), hint: "Open the review", open: () => ctx.openSession(reviewed) }
         : s.busy.has(`a${n}`) ? { kind: "starting" }
         : { kind: "ready", label: "Review with agent", hint: "Pick a model: an agent reviews this PR and posts its comments on it" };
       buttons.push({ kind: "agent", key: "agent-review", button, state });
@@ -273,14 +279,19 @@ export function makeThreads(deps: ThreadDeps) {
   /// A pull request row's right-click menu: what its buttons do.
   function prMenu(e: MouseEvent, project: ProjectRef, ctx: RepoActs, pr: PullRequestRow) {
     const n = pr.number;
-    const items: MenuItem[] = [
-      { label: "Open on forge", on: () => openUrl(pr.url) },
-      { label: "Continue", on: () => void act(project.project_id, `c${n}`, () => ctx.continuePr(pr)) },
-    ];
-    const reviewed = ctx.reviewOf(pr);
-    if (reviewed) items.push({ label: "Open review", on: () => ctx.openReview(reviewed) });
-    items.push({ label: reviewed ? "Review again" : "Agent review", on: () => void act(project.project_id, `a${n}`, () => ctx.reviewPr(pr)) });
-    openMenu(e, `#${n} ${pr.title}`, items);
+    const items = (): MenuItem[] => {
+      const session = ctx.prSession(pr.url, () => update(items()));
+      const actions: MenuItem[] = [{ label: "Open on forge", on: () => openUrl(pr.url) }];
+      if (session === "checking") actions.push({ label: "Finding session", disabled: true, on: () => {} });
+      else if (session) actions.push({ label: "Continue", on: () => ctx.openSession(session) });
+      else actions.push({ label: "Work on PR", on: () => void act(project.project_id, `c${n}`, () => ctx.workOnPr(pr)) });
+
+      const reviewed = ctx.reviewOf(pr);
+      if (reviewed) actions.push({ label: "Open review", on: () => ctx.openSession(reviewed) });
+      actions.push({ label: reviewed ? "Review again" : "Agent review", on: () => void act(project.project_id, `a${n}`, () => ctx.reviewPr(pr)) });
+      return actions;
+    };
+    const update = openMenu(e, `#${n} ${pr.title}`, items());
   }
 
   /// An issue row's right-click menu: what its buttons do.

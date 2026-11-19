@@ -91,7 +91,7 @@ impl PullRequestRow {
     }
 }
 
-/// The branch pull request `number` is made from, for Continue.
+/// The branch pull request `number` is made from, for Work on PR.
 #[tauri::command]
 pub async fn center_pull_request_head(
     fleet: FleetState<'_>,

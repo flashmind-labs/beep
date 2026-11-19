@@ -1,3 +1,4 @@
+import { prSession } from "./pr-session.ts";
 // A project page's sections (terminals, file sync, Git history, pull
 // requests and issues, runs).
 import { drawRail } from "../center/sidebar.tsx";
@@ -27,7 +28,7 @@ import { openUrl } from "../center/openitems.ts";
 import { currentLocation, go, drawTop } from "../center/views.tsx";
 import { openTile } from "./split.tsx";
 import { AG } from "../agents/agents.ts";
-import { barOn, drawProjectComp, workOnIssue, startIssue, continuePr, startContinue, reviewPr, startReview, pickButton, earlierReview, issueSession, fixSession, sessionState, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";
+import { barOn, drawProjectComp, workOnIssue, startIssue, workOnPr, startPrWork, reviewPr, startReview, pickButton, earlierReview, issueSession, fixSession, sessionState, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
 import { redrawSync } from "./syncpage.ts";
 import { drawProjects } from "./page.tsx";
@@ -133,18 +134,19 @@ export function redrawProjectsPage() {
 }
 
 /// What the Pull requests and Issues sections do on project `p`'s page:
-/// Work on it and Continue fill the bar.
+/// Work on it and Work on PR fill the bar.
 export function repoActs(p: Project): RepoActs {
   return {
     workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
     startIssue: (issue: IssueRow, pick: ProjectPick, machine: string | null) => startIssue(p.name, issue, pick, machine),
-    continuePr: (pr: PullRequestRow) => continuePr(p.name, pr),
-    startContinue: (pr: PullRequestRow, pick: ProjectPick, machine: string | null) => startContinue(p.name, pr, pick, machine),
+    prSession,
+    workOnPr: (pr: PullRequestRow) => workOnPr(p.name, pr),
+    startPrWork: (pr: PullRequestRow, pick: ProjectPick, machine: string | null) => startPrWork(p.name, pr, pick, machine),
+    openSession: (session: TaskSession) => go("pane", { agent: session }),
     reviewPr: (pr: PullRequestRow) => reviewPr(p.name, pr),
     startReview: (pr: PullRequestRow, pick: ProjectPick, machine: string | null) => startReview(p.name, pr, pick, machine),
     button: start => pickButton(p.name, start),
     reviewOf: (pr: PullRequestRow) => earlierReview(p.name, pr.number),
-    openReview: (session: TaskSession) => go("pane", { agent: session }),
     issueSession: (issue: IssueRow) => sessionState(issueSession(p.name, issue), "Working"),
   };
 }
@@ -171,7 +173,7 @@ export const pc = {
   modelFor: "",
   /// Whether the picker shows.
   open: false,
-  /// What Work on it or Continue put in the bar, until it starts or is
+  /// What Work on it or Work on PR put in the bar, until it starts or is
   /// cleared.
   target: null as BarTarget | null,
 };

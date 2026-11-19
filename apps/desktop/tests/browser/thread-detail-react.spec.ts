@@ -131,7 +131,7 @@ test("Work on it asks the machine first when the project is on several", async (
   expect(args).toMatchObject({ machineId: "gpu-box", agent: "claude", model: "alpha", effort: "high" });
 });
 
-test("Review with agent stays in the checkout and Continue targets the PR branch", async ({ page }) => {
+test("Review stays in the checkout and Work on PR targets the branch when a session only mentions the PR", async ({ page }) => {
   const reviewer = { machine_id: "build-box", machine_name: "build-box", id: "reviewer", agent: "codex", cwd: "/srv/project", status: "working", external: false, question: null };
   const now = Date.now(), pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, updated_at: now, labels: [] };
   const detail = { kind: "pr", number: 9, title: pr.title, url: pr.url, author: pr.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
@@ -139,6 +139,13 @@ test("Review with agent stays in the checkout and Continue targets the PR branch
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] },
     agent_begin: { session: { ...reviewer, id: "start:review", status: "starting" } },
+    center_find_prompts: [{ session: reviewer }],
+    agent_older: { earlier: 0, entries: [
+      { kind: "agent", text: `Reviewed ${pr.url}` },
+      { kind: "tool", text: `Bash: gh pr view 9 --json url [completed]\n${pr.url}` },
+      { kind: "tool", text: `Bash: gh pr create [failed]\n${pr.url}` },
+      { kind: "tool", text: `Bash: gh pr create [completed]\n${pr.url}0` },
+    ] },
     center_pull_request_head: { branch: "example-change", fork: false },
     center_project_lists: { issues: [], prs: [pr], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail,
   });
@@ -163,11 +170,11 @@ test("Review with agent stays in the checkout and Continue targets the PR branch
   await page.evaluate(session => window.__navigation.emit("agent-started", { start: "start:review", session, first_message: "Review PR #9" }), reviewer);
   await expect.poll(titles).toEqual([{ machineId: "build-box", agent: "codex", session: "reviewer", title: "Review #9" }]);
 
-  // Back on the PR, Continue starts on its branch.
+  // Back on the PR, Work on PR starts on its branch.
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await page.locator(".pj-strip button").filter({ hasText: "1 PR" }).click();
   await page.locator('.pj-split:not(.gh-layout) > .pj-list .pj-li[title="Example change"] .t > b').click();
-  await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Continue" }).click();
+  await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Work on PR" }).click();
   await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-agmachine="build-box"]').click();
   await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-agh="codex"]').click();
   await page.getByRole("dialog", { name: "Machine, harness, model and thinking" }).locator('[data-agmo="alpha"]').click();
@@ -175,7 +182,30 @@ test("Review with agent stays in the checkout and Continue targets the PR branch
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").length)).toBe(2);
   const next = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin")[1]?.args);
   expect(next).toMatchObject({ agent: "codex", checkout: { branch_worktree: { branch: "example-change" } } });
-  expect(String(next?.prompt)).toContain("Continue PR #9");
+  expect(String(next?.prompt)).toContain("Work on PR #9");
+});
+
+test("Continue opens the PR creator's session without a model picker", async ({ page }) => {
+  const now = Date.now();
+  const pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: true, created_at: now, updated_at: now, labels: [] };
+  const detail = { kind: "pr", number: pr.number, title: pr.title, url: pr.url, author: pr.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
+  const creator = { machine_id: "build-box", machine_name: "build-box", id: "creator", agent: "codex", title: "Original work", cwd: "/srv/project", status: "ended", external: false, question: null };
+  await openDesktop(page, false, {
+    center_project_lists: { issues: [], prs: [pr], issues_error: null, prs_error: null, synced_at: now },
+    center_thread_detail: detail,
+    center_find_prompts: [{ session: creator }],
+    agent_older: { earlier: 0, entries: [{
+      kind: "tool",
+      text: "Open a pull request [completed]",
+      tool: { name: "exec_command", input: JSON.stringify({ cmd: "git push && gh -R example/widget pr create" }), input_truncated: false, result: JSON.stringify(pr.url), result_truncated: false },
+    }] },
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "pr:9" } }), projectName);
+  await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Continue", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "agent_view" && call.args.session === "creator"))).toBe(true);
+  await expect(page.getByRole("dialog", { name: "Machine, harness, model and thinking" })).toHaveCount(0);
+  const starts = await page.evaluate(() => window.__navigation.calls().filter(call => ["agent_begin", "agent_resume", "agent_steer", "center_pull_request_head"].includes(call.command)));
+  expect(starts).toEqual([]);
 });
 
 test("Open on GitHub opens the current pull request in the browser", async ({ page }) => {

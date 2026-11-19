@@ -111,7 +111,7 @@ export function barCheckout(pick: CheckoutPick, base: string | null): { label: s
   return { label: pick.worktree.split("/").pop() || pick.worktree, sub: "worktree" };
 }
 
-/// Work on it, Continue and Fix this target a branch in a worktree.
+/// Work on it, Work on PR and Fix this target a branch in a worktree.
 type WorktreeTarget =
   | { kind: "issue"; number: number; branch: string; base: string | null; task: SessionTask | null }
   | { kind: "pr"; number: number; branch: string; task: SessionTask | null }

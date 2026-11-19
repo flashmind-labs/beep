@@ -7,6 +7,7 @@ import type { Feedback } from "./feedback.ts";
 /// Work on it on an issue. `hint` is its tooltip, `reason` why it cannot start.
 export type FeedbackState =
   | { kind: "running"; label: string; agent: string; hint: string }
+  | { kind: "checking" }
   | { kind: "starting" }
   | { kind: "ready"; label: string; hint: string; reason: string; open: boolean };
 
@@ -36,13 +37,14 @@ export function FeedbackNoteBox({ feedback }: { feedback: Feedback }) {
 }
 
 export function FeedbackControl({ state, setButton, setSlot, onClick, picker }: FeedbackButtonProps) {
-  const disabled = state.kind === "starting" || (state.kind === "ready" && !!state.reason);
-  const title = state.kind === "running" ? state.hint : state.kind === "starting" ? "" : state.reason || state.hint;
+  const disabled = state.kind === "checking" || state.kind === "starting" || (state.kind === "ready" && !!state.reason);
+  const title = state.kind === "running" ? state.hint : state.kind === "ready" ? state.reason || state.hint : "";
   const expanded = state.kind === "ready" && !state.reason ? state.open : undefined;
   return <>
     <button ref={setButton} type="button" className="dv-btn dv-fb" disabled={disabled} title={title} aria-expanded={expanded}
       onClick={event => { event.stopPropagation(); onClick(); }}>
       {state.kind === "running" ? <><Spinner />{state.label} <small>{state.agent}</small></>
+        : state.kind === "checking" ? <><Spinner />Finding session</>
         : state.kind === "starting" ? <><Spinner />Starting</>
         : <>{state.label}<span style={{ display: "grid" }}><Icon name="caretDown" size={12} /></span></>}
     </button>
@@ -60,6 +62,7 @@ export function FeedbackNote({ text, onDismiss }: { text: string; onDismiss: () 
 /// `running` and `done` open the session it started.
 export type AgentState =
   | { kind: "ready"; label: string; hint: string }
+  | { kind: "checking" }
   | { kind: "starting" }
   | { kind: "running"; label: string; agent: string; hint: string; open(): void }
   | { kind: "done"; label: string; hint: string; open(): void };

@@ -418,34 +418,27 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
   return { started, failed: null, error: null };
 }
 
-/// Continue from the menu: fills the bar to start on the PR's branch.
-export async function continuePr(name: string, pr: PullRequestRow) {
-  const task = await continueTask(name, pr);
+/// Work on PR from the menu fills the bar to start on its branch.
+export async function workOnPr(name: string, pr: PullRequestRow) {
+  const task = await prTask(name, pr);
   fillBar(name, task.prompt, task.target);
 }
 
-/// Continue on the PR's page and on Home: goes on in the chat on the PR's
-/// branch, opening it while it works, or starts an agent there at once, on
-/// `machine` when it can.
-export async function startContinue(name: string, pr: ContinuedPr, pick: ProjectPick, machine: string | null = null) {
-  const task = await continueTask(name, pr);
-  await ensureSessions().catch(e => console.warn("agent sessions:", e));
-  const earlier = branchSession(name, task.target);
-  if (!earlier) await startTask(name, task, pick, machine);
-  else if (AGENT_ACTIVE.has(earlier.status)) go("pane", { agent: earlier });
-  else await steer(earlier, task.prompt, []);
+/// Work on PR starts a session on the PR's branch on the chosen machine.
+export async function startPrWork(name: string, pr: PrForWork, pick: ProjectPick, machine: string | null) {
+  await startTask(name, await prTask(name, pr), pick, machine);
 }
 
-/// The fields of a pull request Continue reads.
-type ContinuedPr = Pick<PullRequestRow, "number" | "title" | "url">;
+/// The fields needed to start work on a pull request.
+type PrForWork = Pick<PullRequestRow, "number" | "title" | "url">;
 
-/// Continue's task: the PR's branch. A fork's branch is not on `origin`, so
+/// The task targets the PR's branch. A fork's branch is not on `origin`, so
 /// it is refused.
-async function continueTask(name: string, pr: ContinuedPr) {
+async function prTask(name: string, pr: PrForWork) {
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: localProjectId(name), number: pr.number });
   if (head.fork) throw new Error(`PR #${pr.number} comes from a fork, so its branch ${head.branch} is not in this repository.`);
   const target: BarTarget = { kind: "pr", number: pr.number, branch: head.branch, task: null };
-  return { prompt: `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, target };
+  return { prompt: `Work on PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, target };
 }
 
 /// The fields of a pull request a review reads.
@@ -562,8 +555,6 @@ async function startFromBar() {
     const { earlier } = t;
     return continueInBar(earlier, text, (prompt, images) => steerReview(t.task.number, earlier, prompt, images));
   }
-  const chat = t?.kind === "pr" ? branchSession(p.name, t) : null;
-  if (chat) return continueInBar(chat, text, (prompt, images) => steer(chat, prompt, images));
   const { agent } = barHarness(place);
   c.update({ error: "" });
   pc.starting = true;
@@ -642,7 +633,7 @@ export async function startTask(name: string, task: AgentTask, pick: ProjectPick
   go("pane", { agent: session, adopt: true });
 }
 
-/// An agent button of project `name` (Continue, Review with agent, Work on
+/// An agent button of project `name` (Work on PR, Review with agent, Work on
 /// it, Fix this, Fix with an agent): the picker under it, on `machine` when
 /// it can start there, whose last step runs `start` with the machine picked.
 /// `choose` offers the project's other machines as its first step.
@@ -709,8 +700,8 @@ export interface AgentButtonOpts {
   choose: boolean;
   label: string;
   hint: string;
-  /// The session it started, which the button opens.
-  session: SessionState | null;
+  /// The session it opens, or whether that session is still being looked up.
+  session: SessionState | { kind: "checking" } | null;
   start: (pick: ProjectPick, machine: string | null) => Promise<void>;
 }
 

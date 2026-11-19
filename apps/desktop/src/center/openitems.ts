@@ -5,7 +5,7 @@ import { keepLastImport, lastImport, openImportProject } from "../addproject/imp
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.tsx";
 import { projectStart, projectsWithOpen, replyStart, type GitItemRow, type GitItemsView, type Hosts, type StartProject } from "./openitems-state.ts";
-import { agentButtons, earlierReview, startContinue, startReview, workOnIssue } from "../project/composer.tsx";
+import { agentButtons, earlierReview, startPrWork, startReview, workOnIssue } from "../project/composer.tsx";
 import type { MenuItem } from "../ui/menu.tsx";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { agentLabel } from "../project/projects-state.ts";
@@ -16,6 +16,7 @@ import { currentLocation, go } from "./views.tsx";
 import { loadFound } from "./sidebar.tsx";
 import { refresh } from "./refresh.ts";
 import { single } from "../ui/active.ts";
+import { prSession } from "../project/pr-session.ts";
 
 export function openUrl(url: string) {
   invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
@@ -40,13 +41,15 @@ export function reviewButton(item: GitItemRow, project: StartProject, machines: 
   });
 }
 
-/// Continue on one of the user's PRs of `project`: goes on in the chat on
-/// its branch, or starts an agent there, as the project page's does.
+/// Continue opens the session that created the PR. Work on PR starts a session on its branch.
 export function continueButton(item: GitItemRow, project: StartProject, machines: Hosts): AgentButtonItem {
   const machine = projectStart(project, machines).machine;
+  const session = prSession(item.url, draw);
   return homeButtons(`continue ${item.url}`, {
-    project: project.name, machine, choose: true, label: "Continue", hint: "Pick a model: goes on in the chat on this pull request's branch, or starts an agent there",
-    session: null, start: (pick, at) => startContinue(project.name, item, pick, at),
+    project: project.name, machine, choose: true, label: "Work on PR", hint: "Start an agent on this pull request's branch",
+    session: session === "checking" ? { kind: "checking" } : session
+      ? { kind: "done", label: "Continue", hint: "Open the session that created this PR", open: () => go("pane", { agent: session }) } : null,
+    start: (pick, at) => startPrWork(project.name, item, pick, at),
   });
 }
 
