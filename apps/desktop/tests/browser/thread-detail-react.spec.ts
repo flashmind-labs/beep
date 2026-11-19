@@ -257,14 +257,17 @@ for (const { kind, subject, path } of [
     await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Discuss with agent" }).click();
     const composer = page.locator(".cc-pjc:visible");
     const input = composer.getByRole("textbox", { name: "Task for a coding agent" });
-    const prompt = `I want to discuss about ${subject} #${number}: ${title} (${url}).`;
+    const prompt = `I want to discuss about ${subject} #${number}: ${title} (${url}).\n\n`;
     await expect(input).toHaveValue(prompt);
     await expect(input).toBeEditable();
+    await expect(input).toBeFocused();
 
     const starts = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").map(call => call.args));
     expect(await starts()).toEqual([]);
-    const edited = `${prompt} What options do you see?`;
-    await input.fill(edited);
+    const followUp = "What options do you see?";
+    await page.keyboard.insertText(followUp);
+    const edited = prompt + followUp;
+    await expect(input).toHaveValue(edited);
     if (await page.locator("body").evaluate(body => body.classList.contains("mobile"))) {
       await composer.getByRole("button", { name: "Start", exact: true }).click();
     } else {

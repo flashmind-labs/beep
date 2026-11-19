@@ -374,8 +374,9 @@ export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick, mac
 /// Prefills the project composer with a discussion prompt.
 export function discussThread(name: string, topic: DiscussionTopic) {
   const subject = topic.kind === "issue" ? "issue" : "pull request";
-  const prompt = `I want to discuss about ${subject} #${topic.number}: ${topic.title} (${topic.url}).`;
+  const prompt = `I want to discuss about ${subject} #${topic.number}: ${topic.title} (${topic.url}).\n\n`;
   fillBar(name, prompt, null);
+  projectComp.input.setSelectionRange(prompt.length, prompt.length);
 }
 
 /// Where each picked issue starts, on the machine and harness the bar has
