@@ -32,6 +32,7 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "⌘,", does: "Settings" },
     { keys: "⌘/", does: "Keyboard shortcuts" },
     { keys: "⌘N", does: "New agent session" },
+    { keys: "⌘L", does: "Assistant" },
     { keys: "⌘[", does: "Back" },
     { keys: "⌘]", does: "Forward" },
     { keys: "⌘W", does: "Close tab, else hide" },

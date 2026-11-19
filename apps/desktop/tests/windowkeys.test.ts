@@ -5,8 +5,8 @@ import { windowCommand, windowTakes, type WindowKeyContext } from "../src/ui/win
 const at: WindowKeyContext = { page: "home", project: null, projectWindow: false };
 const key = (key: string, extra: Partial<KeyboardEvent> = {}) => ({ key, ctrlKey: false, metaKey: true, shiftKey: false, altKey: false, defaultPrevented: false, ...extra });
 
-test("the window owns search, Settings, the shortcuts sheet and the sidebar", () => {
-  for (const owned of ["k", "K", ",", "/", "e"]) assert.equal(windowTakes(owned), true);
+test("the window owns search, Settings, the shortcuts sheet, the sidebar and the Assistant", () => {
+  for (const owned of ["k", "K", ",", "/", "e", "l"]) assert.equal(windowTakes(owned), true);
   for (const pane of ["m", "r", "n"]) assert.equal(windowTakes(pane), false);
 });
 
@@ -15,6 +15,8 @@ test("window shortcuts resolve to domain commands", () => {
   assert.deepEqual(windowCommand(key(","), at, false), { kind: "settings" });
   assert.deepEqual(windowCommand(key("/"), at, false), { kind: "shortcuts" });
   assert.deepEqual(windowCommand(key("e"), at, false), { kind: "sidebar" });
+  assert.deepEqual(windowCommand(key("l"), at, false), { kind: "assistant" });
+  assert.equal(windowCommand(key("l"), { ...at, projectWindow: true }, false), null);
   assert.deepEqual(windowCommand(key("n"), at, false), { kind: "new-agent" });
   assert.equal(windowCommand(key("q"), at, false), null);
 });
