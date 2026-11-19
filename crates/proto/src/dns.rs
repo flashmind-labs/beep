@@ -3,6 +3,11 @@
 //! answers, such as a hotel filter that sends every iroh relay name to its
 //! block page. A rewritten answer is not a failure, so racing the system's
 //! nameservers or keeping them first lets it win.
+//!
+//! An answer from encrypted DNS is final, "no such name" and "no records"
+//! included. Only a timeout, an unreachable server or another failure asks
+//! the system, so a rewriting network cannot answer names public DNS says do
+//! not exist.
 
 use futures::future::BoxFuture;
 use iroh::dns::{BoxIter, DnsError, DnsResolver, NameserverConfig, Resolver, TxtRecordData};
@@ -40,9 +45,12 @@ struct EncryptedFirst {
 
 impl EncryptedFirst {
     fn new() -> Self {
+        // HTTPS before TLS: the resolver starts the first few servers in this
+        // order, and a network that drops port 853 must not hold every slot.
         let encrypted = PUBLIC
             .into_iter()
-            .flat_map(|ip| [NameserverConfig::tls(ip), NameserverConfig::https(ip)]);
+            .map(NameserverConfig::https)
+            .chain(PUBLIC.into_iter().map(NameserverConfig::tls));
 
         Self {
             encrypted: DnsResolver::builder()
@@ -54,8 +62,14 @@ impl EncryptedFirst {
     }
 }
 
-/// Runs `lookup` on the encrypted resolver, then on the system's when that
-/// fails, keeping the records `pick` takes.
+/// Whether `error` means encrypted DNS got no answer, so the system should be
+/// asked. An answer, even "no such name", is final.
+fn unanswered(error: &DnsError) -> bool {
+    !matches!(error, DnsError::NxDomain { .. })
+}
+
+/// Runs `lookup` on the encrypted resolver, then on the system's when that got
+/// no answer, keeping the records `pick` takes.
 macro_rules! encrypted_first {
     ($self:ident, $lookup:ident, $host:ident, $pick:expr) => {{
         let encrypted = $self.encrypted.clone();
@@ -63,7 +77,7 @@ macro_rules! encrypted_first {
         Box::pin(async move {
             let found = match encrypted.$lookup(&$host, ENCRYPTED_WAIT).await {
                 Ok(found) => found.filter_map($pick).collect::<Vec<_>>(),
-                Err(e) => {
+                Err(e) if unanswered(&e) => {
                     log::debug!("encrypted DNS failed for {}, asking the system: {e}", $host);
                     system
                         .$lookup(&$host, SYSTEM_WAIT)
@@ -71,6 +85,7 @@ macro_rules! encrypted_first {
                         .filter_map($pick)
                         .collect()
                 }
+                Err(e) => return Err(e),
             };
             let found: BoxIter<_> = Box::new(found.into_iter());
             Ok(found)
@@ -110,3 +125,7 @@ impl Resolver for EncryptedFirst {
         Box::new(Self::new())
     }
 }
+
+#[cfg(test)]
+#[path = "tests/dns.rs"]
+mod tests;

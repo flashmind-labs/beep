@@ -87,6 +87,7 @@ mac-notification-sys = "0.6"
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 mime_guess = { version = "2", default-features = false }
+n0-error = "1.0.3"
 notify = "8"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false }

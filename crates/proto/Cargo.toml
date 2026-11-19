@@ -40,5 +40,6 @@ uuid = { workspace = true, features = ["serde"] }
 webpki-roots = { workspace = true, optional = true }
 
 [dev-dependencies]
+n0-error.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
