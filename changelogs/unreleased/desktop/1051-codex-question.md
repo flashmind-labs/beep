@@ -1,3 +1,3 @@
 ### Fixed
 
-- Desktop: shows the Codex question and timing note above the answer choices.
+- Desktop: shows the Codex question above its answer choices.

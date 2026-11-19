@@ -70,13 +70,19 @@ impl TryFrom<CreateElicitationRequest> for Fields {
         let ElicitationMode::Form(form) = request.mode else {
             return Err(agent_client_protocol::Error::invalid_params());
         };
-        let codex = request.meta.is_some_and(|meta| meta.contains_key("codex"));
+        let codex_meta = request.meta.as_ref().and_then(|meta| meta.get("codex"));
+        let codex = codex_meta.is_some();
+        let background = codex_meta
+            .and_then(|meta| meta.get("delivery"))
+            .and_then(|delivery| delivery.as_str())
+            == Some("async");
         let properties = form.requested_schema.properties;
         let single = properties
             .keys()
             .filter(|key| !is_custom(&properties, key))
             .count()
             == 1;
+        let message = (!background && (single || codex)).then_some(request.message.as_str());
 
         let fields: VecDeque<Field> = properties
             .iter()
@@ -86,7 +92,6 @@ impl TryFrom<CreateElicitationRequest> for Fields {
                     .iter()
                     .map(|suffix| format!("{key}{suffix}"))
                     .find(|custom| properties.contains_key(custom));
-                let message = (single || codex).then_some(request.message.as_str());
                 field(key, schema, custom, message, codex)
             })
             .collect();

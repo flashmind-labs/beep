@@ -1,3 +1,3 @@
 ### Fixed
 
-- iOS: shows the Codex question and timing note above the answer choices.
+- iOS: shows the Codex question above its answer choices.

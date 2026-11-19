@@ -1,3 +1,3 @@
 ### Fixed
 
-- Node: sends the Codex question and timing note with its answer choices.
+- Node: sends the actual question with Codex answer choices.

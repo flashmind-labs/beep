@@ -543,7 +543,7 @@ async fn a_form_is_asked_field_by_field_and_sent_whole() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn codex_async_form_shows_the_question_and_timing_note() {
+async fn codex_async_form_shows_the_question_without_the_timing_note() {
     const ADAPTER: &str = r#"
 handshake "$1"
 read -r line
@@ -562,10 +562,7 @@ cat > /dev/null
 
     let question = session.info().question.expect("the Codex question");
     assert_eq!(question.text, "Which layout should I use?");
-    assert_eq!(
-        question.detail.as_deref(),
-        Some("Codex keeps working while you answer.")
-    );
+    assert_eq!(question.detail, None);
     let names: Vec<&str> = question.options.iter().map(|o| o.name.as_str()).collect();
     assert_eq!(names, ["Wide", "Compact", "Skip"]);
 
