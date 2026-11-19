@@ -5,7 +5,8 @@
 
 use crate::agents::{custom_agents::parse::skill_description, skills::disk};
 use anyhow::{Context, Result, bail};
-use beep_proto::node::mesh_state::LibrarySkill;
+use beep_proto::node::{mesh_state::LibrarySkill, skills::SkillFile};
+use serde_bytes::ByteBuf;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -99,27 +100,66 @@ pub(super) fn copy_root(node_dir: &Path, url: &str, revision: &str) -> Result<Pa
     Ok(node_dir.join(ROOT).join(format!("{}-{revision}", folder(url))))
 }
 
-/// The folder of the library's skill `skill` at `revision` on this node: in the plain copy, or
-/// in the clone while it is checked out at `revision`.
-pub(super) fn skill_here(node_dir: &Path, url: &str, revision: &str, skill: &str) -> Option<PathBuf> {
+/// The files of the library's skill `skill` at `revision` on this node: from the plain copy, or
+/// from the clone's objects, so a clone not yet checked out at `revision` serves it too. `None`
+/// when this node has neither, or the skill is too big to send.
+pub(super) fn skill_at(
+    node_dir: &Path,
+    url: &str,
+    revision: &str,
+    skill: &str,
+) -> Result<Option<Vec<SkillFile>>> {
     if !disk::valid_part(skill) {
-        return None;
+        return Ok(None);
     }
 
-    let copied = copy_root(node_dir, url, revision).ok()?.join(skill);
+    let copied = copy_root(node_dir, url, revision)?.join(skill);
 
     if copied.join(SKILL_MD).is_file() {
-        return Some(copied);
+        return disk::read(&copied);
     }
 
     let root = git_root(node_dir, url);
-    let head = git(&root, &["rev-parse", "--verify", "--quiet", "HEAD"]).ok()?;
 
-    if head.trim() != revision {
-        return None;
+    if !root.join(".git").is_dir()
+        || git(&root, &["cat-file", "-e", &format!("{revision}^{{commit}}")]).is_err()
+    {
+        return Ok(None);
     }
 
-    skills_in(&root).remove(skill)
+    let listed = git(&root, &["ls-tree", "-r", "-z", "--name-only", revision])?;
+    let paths: Vec<String> = listed.split('\0').map(str::to_owned).collect();
+    let Some(rel) = skill_dirs(paths.iter().cloned()).remove(skill) else {
+        return Ok(None);
+    };
+    let prefix = format!("{rel}/");
+    let mut files = Vec::new();
+    let mut bytes = 0;
+
+    for path in &paths {
+        let Some(inner) = path.strip_prefix(&prefix) else {
+            continue;
+        };
+
+        if !inner.split('/').all(disk::valid_part) {
+            continue;
+        }
+
+        let data = git_bytes(&root, &["cat-file", "blob", &format!("{revision}:{path}")])?;
+        bytes += data.len() as u64;
+
+        if files.len() >= disk::MAX_FILES || bytes > disk::MAX_BYTES {
+            return Ok(None);
+        }
+
+        files.push(SkillFile {
+            path: inner.to_owned(),
+            data: ByteBuf::from(data),
+        });
+    }
+
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(Some(files))
 }
 
 /// Removes the plain copies of the library at `url` from revisions other than `revision`.
@@ -171,6 +211,11 @@ fn clone(root: &Path, url: &str) -> Result<()> {
 
 /// What `git <args>` printed in `dir`; its error output when it failed.
 pub(super) fn git(dir: &Path, args: &[&str]) -> Result<String> {
+    git_bytes(dir, args).map(|out| String::from_utf8_lossy(&out).into_owned())
+}
+
+/// The bytes `git <args>` printed in `dir`.
+fn git_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>> {
     let out = crate::run::process::background_command("git")
         .args(args)
         .current_dir(dir)
@@ -189,7 +234,7 @@ pub(super) fn git(dir: &Path, args: &[&str]) -> Result<String> {
         );
     }
 
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(out.stdout)
 }
 
 /// The skills among `paths` (files under a library's root, `/` between parts): each folder with

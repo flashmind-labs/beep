@@ -33,9 +33,9 @@ const AGENTS_READERS: [&str; 5] = [".agents", ".codex", ".pi", ".gemini", ".conf
 const KEPT: &str = "kept";
 
 /// The most files one skill may have and still sync.
-const MAX_FILES: usize = 256;
+pub(crate) const MAX_FILES: usize = 256;
 /// The most bytes one skill may hold and still sync.
-const MAX_BYTES: u64 = 2 * 1024 * 1024;
+pub(crate) const MAX_BYTES: u64 = 2 * 1024 * 1024;
 /// How deep a skill's folders may go.
 const MAX_DEPTH: usize = 8;
 

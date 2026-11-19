@@ -123,15 +123,17 @@ fn a_node_without_the_clone_installs_from_a_copy_another_node_serves() {
     run_git(&repo, &["add", "."]);
     run_git(&repo, &["commit", "--quiet", "-m", "one"]);
     let url = repo.to_str().unwrap();
+    // Served from the clone before it is checked out at the revision.
     let (revision, _) = inspect_git(&reader, url).unwrap();
-    ensure_git(&reader, url, &revision).unwrap();
     assert!(cloned(&reader, url));
     assert!(!cloned(&other, url));
-    assert!(skill_here(&reader, url, "0000000", "pdf").is_none());
-    assert!(skill_here(&reader, url, &revision, "../pdf").is_none());
+    assert!(skill_at(&reader, url, "0000000", "pdf").unwrap().is_none());
+    assert!(skill_at(&reader, url, &revision, "../pdf").unwrap().is_none());
+    assert!(skill_at(&other, url, &revision, "pdf").unwrap().is_none());
 
-    let served = skill_here(&reader, url, &revision, "pdf").unwrap();
-    let files = disk::read(&served).unwrap().unwrap();
+    let files = skill_at(&reader, url, &revision, "pdf").unwrap().unwrap();
+    let root = ensure_git(&reader, url, &revision).unwrap();
+    assert_eq!(disk::read(&root.join("skills/pdf")).unwrap().unwrap(), files);
     let old = copy_root(&other, url, "abcdef0").unwrap();
     fs::create_dir_all(&old).unwrap();
     let root = copy_root(&other, url, &revision).unwrap();
@@ -140,7 +142,6 @@ fn a_node_without_the_clone_installs_from_a_copy_another_node_serves() {
 
     assert!(!old.exists());
     assert_eq!(skills_in(&root).into_keys().collect::<Vec<_>>(), ["pdf"]);
-    let again = skill_here(&other, url, &revision, "pdf").unwrap();
-    assert_eq!(disk::read(&again).unwrap().unwrap(), files);
+    assert_eq!(skill_at(&other, url, &revision, "pdf").unwrap().unwrap(), files);
     assert!(copy_root(&other, url, "../x").is_err());
 }

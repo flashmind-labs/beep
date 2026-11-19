@@ -418,14 +418,12 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, skills: Skills) -> Res
             revision,
             skill,
         } => {
-            let read = spawn_blocking(move || {
-                store::skill_here(&dir, &url, &revision, &skill).map(|path| disk::read(&path))
-            })
-            .await
-            .context("reading the skill stopped")?;
+            let read = spawn_blocking(move || store::skill_at(&dir, &url, &revision, &skill))
+                .await
+                .context("reading the skill stopped")?;
 
             match read {
-                Some(Ok(Some(files))) => Reply::Files { files },
+                Ok(Some(files)) => Reply::Files { files },
                 _ => Reply::Failed {
                     message: "this machine has no copy of it".to_owned(),
                 },
