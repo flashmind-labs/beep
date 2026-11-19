@@ -97,8 +97,14 @@ fn the_brief_lists_each_skill_with_its_file() {
     fs::create_dir_all(dir.join("empty")).unwrap();
 
     let brief = brief(dir).unwrap();
-    let github = format!("- github: Use for GitHub. (`{}`)", dir.join("github/SKILL.md").display());
-    let notes = format!("- notes: Write notes. (`{}`)", dir.join("notes/SKILL.md").display());
+    let github = format!(
+        "- github: Use for GitHub. (`{}`)",
+        dir.join("github/SKILL.md").display()
+    );
+    let notes = format!(
+        "- notes: Write notes. (`{}`)",
+        dir.join("notes/SKILL.md").display()
+    );
     assert!(brief.ends_with(&format!("\n{github}\n{notes}")), "{brief}");
     assert!(!brief.contains("empty"));
 }

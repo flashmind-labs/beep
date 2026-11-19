@@ -2,9 +2,9 @@
 //! own skills folder, `beep_dir` (`~/.config/beep/skills`), never into an
 //! agent's. `brief` lists that folder's skills for the sessions Beep starts.
 
+use crate::agents::custom_agents::parse;
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
-use crate::agents::custom_agents::parse;
 use std::{
     collections::BTreeSet,
     env, fs, io,
