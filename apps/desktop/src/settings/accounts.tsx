@@ -1,7 +1,7 @@
 import { CredentialsView, type CredentialActions } from "./credentials-view.tsx";
 import { AgentAccountsView, type AgentAccountActions } from "./agentaccounts-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { tokenDraft } from "./agentaccounts.ts";
+import { accountName, tokenDraft } from "./agentaccounts.ts";
 import type { AgentAccounts, AgentAccountsState, CodexFlow, CodexLogin } from "./agentaccounts.ts";
 import { cliHost, draft as credentialDraft, editFor } from "./credentials.ts";
 import type { ApiProvider, CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount } from "./credentials.ts";
@@ -240,6 +240,33 @@ function renderAgents() {
   if (agentsShown) redrawSettings();
 }
 const agentActions: AgentAccountActions = {
+  add(agent) { agentEditVersion++; ACC.add = agent ? { agent, error: "" } : null; ACC.edit = null; renderAgents(); },
+  async addSave(name, secret) {
+    const add = ACC.add;
+    if (ACC.busy || !add) return;
+    const named = accountName(name), draft = tokenDraft(add.agent, secret);
+    if (named.name === null || !draft.agent) { add.error = named.error ?? draft.error ?? ""; renderAgents(); return; }
+    ACC.busy = "add"; add.error = ""; renderAgents();
+    try { await invoke("save_agent_token", { agentSlug: draft.agent, name: named.name, secret: draft.secret }); if (ACC.add === add) ACC.add = null; }
+    catch (error) { add.error = String(error); }
+    ACC.busy = ""; await loadAgentAccounts();
+  },
+  async addSign(name) {
+    const add = ACC.add;
+    if (ACC.claudeFlow || !add) return;
+    const named = accountName(name);
+    if (named.name === null) { add.error = named.error; renderAgents(); return; }
+    ACC.claudeFlow = true; add.error = ""; renderAgents();
+    try { await invoke("claude_sign_in", { name: named.name }); if (ACC.add === add) ACC.add = null; } catch (error) { add.error = String(error); }
+    ACC.claudeFlow = false; await loadAgentAccounts();
+  },
+  async removeNamed(agent, name) {
+    ACC.busy = `remove:${agent}/${name}`; renderAgents();
+    ACC.namedError = "";
+    try { await invoke("revoke_agent_token", { agentSlug: agent, name }); }
+    catch (error) { ACC.namedError = String(error); }
+    ACC.busy = ""; await loadAgentAccounts();
+  },
   edit(agent) { agentEditVersion++; ACC.edit = agent; ACC.error = ""; renderAgents(); },
   cancel() { agentEditVersion++; ACC.edit = null; ACC.error = ""; renderAgents(); },
   async save(secret, clear) {

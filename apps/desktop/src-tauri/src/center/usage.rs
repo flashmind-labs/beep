@@ -4,8 +4,8 @@
 
 use crate::{beep::epoch_ms, error::Result, fleet::projects::FleetState};
 use beep_proto::{
-    AgentSlug, AgentTokens, CreditUnit, HarnessBill, ModelSpend, PlanLimits, PlanWindow,
-    ProjectBill, ProviderCredits, SpendPeriod, SpendReport,
+    AccountName, AgentSlug, AgentTokens, CreditUnit, HarnessBill, ModelSpend, PlanLimits,
+    PlanWindow, ProjectBill, ProviderCredits, SpendPeriod, SpendReport,
 };
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
@@ -32,6 +32,8 @@ pub struct PeriodRow {
 #[derive(Debug, Serialize)]
 pub struct PlanRow {
     agent: AgentSlug,
+    /// The agent's named account; `None` for the default one.
+    account: Option<AccountName>,
     plan: Option<String>,
     machine_name: String,
     as_of: u64,
@@ -104,6 +106,7 @@ impl From<PlanLimits> for PlanRow {
         Self {
             credits: p.credits.into_iter().map(Into::into).collect(),
             agent: p.agent,
+            account: p.account,
             plan: p.plan,
             machine_name: p.machine_name,
             as_of: epoch_ms(p.as_of),

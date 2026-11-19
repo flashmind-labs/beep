@@ -4,7 +4,7 @@
 
 use crate::lock;
 use beep_proto::{
-    AgentSlug, ProviderCredits,
+    AccountName, AgentSlug, ProviderCredits,
     node::usage::{LimitWindow, PlanUsage, TurnUsage},
 };
 use serde_json::Value;
@@ -17,8 +17,12 @@ use tokio::sync::{Notify, watch};
 /// The most turns waiting for the caller; the oldest go.
 const MAX_UNSENT: usize = 500;
 
-/// The plan usage of each agent, by agent.
-pub(crate) type Plans = BTreeMap<AgentSlug, PlanUsage>;
+/// Whose plan a report is: an agent, and its named account or `None` for
+/// its default one.
+pub(crate) type PlanOf = (AgentSlug, Option<AccountName>);
+
+/// The plan usage of each agent's account.
+pub(crate) type Plans = BTreeMap<PlanOf, PlanUsage>;
 
 #[derive(Debug)]
 pub(crate) struct UsageHub {
@@ -28,10 +32,11 @@ pub(crate) struct UsageHub {
     plans: watch::Sender<Plans>,
 }
 
-/// `agent`'s entry in `plans`, empty when there is none.
-fn plan_of<'a>(plans: &'a mut Plans, agent: &AgentSlug) -> &'a mut PlanUsage {
-    plans.entry(agent.clone()).or_insert_with(|| PlanUsage {
-        agent: agent.clone(),
+/// `of`'s entry in `plans`, empty when there is none.
+fn plan_of<'a>(plans: &'a mut Plans, of: &PlanOf) -> &'a mut PlanUsage {
+    plans.entry(of.clone()).or_insert_with(|| PlanUsage {
+        agent: of.0.clone(),
+        account: of.1.clone(),
         ..PlanUsage::default()
     })
 }
@@ -87,8 +92,9 @@ impl UsageHub {
     /// Takes `plan` in place of the agent's report before.
     pub(crate) fn set_plan(&self, plan: PlanUsage) {
         let changed = self.plans.send_if_modified(|plans| {
-            let changed = plans.get(&plan.agent) != Some(&plan);
-            plans.insert(plan.agent.clone(), plan);
+            let of = (plan.agent.clone(), plan.account.clone());
+            let changed = plans.get(&of) != Some(&plan);
+            plans.insert(of, plan);
             changed
         });
 
@@ -98,9 +104,9 @@ impl UsageHub {
     }
 
     /// Replaces a provider's last balance without changing session spend or plan windows.
-    pub(crate) fn update_credits(&self, agent: &AgentSlug, credits: ProviderCredits, at: u64) {
+    pub(crate) fn update_credits(&self, of: &PlanOf, credits: ProviderCredits, at: u64) {
         let changed = self.plans.send_if_modified(|plans| {
-            let plan = plan_of(plans, agent);
+            let plan = plan_of(plans, of);
             let before = plan.clone();
 
             if let Some(kept) = plan
@@ -125,15 +131,15 @@ impl UsageHub {
         }
     }
 
-    /// Puts `windows`, seen `at` (Unix seconds), into `agent`'s report,
+    /// Puts `windows`, seen `at` (Unix seconds), into `of`'s report,
     /// replacing the same windows and keeping the others.
-    pub(crate) fn update_windows(&self, agent: &AgentSlug, windows: Vec<LimitWindow>, at: u64) {
+    pub(crate) fn update_windows(&self, of: &PlanOf, windows: Vec<LimitWindow>, at: u64) {
         if windows.is_empty() {
             return;
         }
 
         let changed = self.plans.send_if_modified(|plans| {
-            let plan = plan_of(plans, agent);
+            let plan = plan_of(plans, of);
             let before = plan.clone();
 
             for window in windows {

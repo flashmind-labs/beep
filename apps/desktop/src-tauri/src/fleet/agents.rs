@@ -4,7 +4,7 @@
 
 use super::Fleet;
 use crate::{
-    agents::steer::{BEFORE_ASSISTANT, newer_than},
+    agents::steer::{BEFORE_ACCOUNTS, BEFORE_ASSISTANT, newer_than},
     error::{DesktopError, Result},
 };
 use beep_mesh::{
@@ -20,9 +20,9 @@ use beep_mesh::{
 };
 use beep_proto::SessionId;
 use beep_proto::{
-    AGENT_FILE_CHUNK, AgentFileChunk, AgentHarness, AgentHarnesses, AgentHost, AgentImageData,
-    AgentModels, AgentSessionModes, AgentSessionTasks, AgentSessionView, ApiError, CodexLogin,
-    CodexLoginState, CustomAgent, GetAgentFile, GetAgentImage, GetAgentSession,
+    AGENT_FILE_CHUNK, AccountName, AgentFileChunk, AgentHarness, AgentHarnesses, AgentHost,
+    AgentImageData, AgentModels, AgentSessionModes, AgentSessionTasks, AgentSessionView, ApiError,
+    CodexLogin, CodexLoginState, CustomAgent, GetAgentFile, GetAgentImage, GetAgentSession,
     GetAgentSessionModes, GetAgentSessionTasks, HarnessEnv, HarnessSettings, HarnessSignIn,
     ListAgentModels, MachineSession, ResumeAgentSession, StartAgentSession, StartedAgent,
     SteerAgentSession, Upload, agent_name, image_key, media_mime,
@@ -426,6 +426,8 @@ pub(crate) struct Planned {
     pub(crate) first: Request,
     /// Why Auto picked the machine; empty when the start named it.
     pub(crate) why: String,
+    /// The named account `first` runs as, sent as `Request::StartAs`.
+    pub(crate) account: Option<AccountName>,
 }
 
 /// Checks `start` and builds what its machine is sent. Only Auto, when no
@@ -463,6 +465,18 @@ pub(crate) async fn plan(
     let agent = machine::pick_agent(&host, start.agent.as_deref())?;
     let effort = machine::picked_effort(&agent, start.effort)?;
     let fast = start.fast;
+    let account = start.account;
+
+    if let Some(account) = &account
+        && machine != fleet.id()
+        && !newer_than(fleet.status().version(machine).as_deref(), &BEFORE_ACCOUNTS)
+    {
+        return Err(DesktopError::BadRequest(format!(
+            "Update Beep on {} to start on the account {account}.",
+            host.machine_name
+        )));
+    }
+
     let checkout = machine::checkout_for(
         Makes {
             checkouts: true,
@@ -490,6 +504,7 @@ pub(crate) async fn plan(
         agent,
         first,
         why,
+        account,
     })
 }
 
@@ -552,7 +567,15 @@ pub(crate) async fn open(
         agent,
         first,
         why,
+        account,
     } = planned;
+    let first = match account {
+        Some(account) => Request::StartAs {
+            account,
+            start: Box::new(first),
+        },
+        None => first,
+    };
     let client = fleet.client(machine).await.map_err(|e| {
         if e.is_transport() {
             StartFailed::Unreached(e)

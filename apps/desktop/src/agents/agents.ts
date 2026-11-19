@@ -43,6 +43,7 @@ import { cycleMode } from "./modepill.tsx";
 import { money } from "../ui/format.ts";
 import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
+import type { NamedAccount } from "../settings/agentaccounts.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { Changes } from "../ui/pagecache.ts";
 import { onPlaces, placeOf } from "./place.ts";
@@ -256,8 +257,8 @@ interface AgentForm {
   /// Whether the Base button is a field to type a ref in.
   baseTyping?: boolean;
   /// The open popover: the harness picker, or the Project, Machine,
-  /// Folder or Base menu.
-  open?: "pick" | "host" | "folder" | "base" | null;
+  /// Folder, Base or Account menu.
+  open?: "pick" | "host" | "folder" | "base" | "account" | null;
   /// What the picker's search holds.
   query?: string;
   /// Whether the Folder button is a field to type a folder in.
@@ -397,6 +398,23 @@ export const where = (o: OpenAgent) => ({ machineId: o.machine_id, agent: o.agen
 /// Machines and accounts decide which machines run agents.
 export const hostChanges = new Changes();
 subscribeEach([topic("machines"), topic("accounts")], () => hostChanges.changed());
+
+/// The coding agents' named accounts, as Settings last saved them.
+let namedAccounts: readonly NamedAccount[] = [];
+
+/// Reads the named accounts again, from this device alone. One that cannot
+/// be read keeps the last list.
+export async function loadAccountNames(): Promise<void> {
+  try {
+    const named = await invoke<NamedAccount[]>("agent_account_names");
+    namedAccounts = Array.isArray(named) ? named : [];
+  } catch (e) { console.warn("account names:", e); }
+}
+
+/// The names of `agent`'s named accounts.
+export function accountsOf(agent: string | null): string[] {
+  return namedAccounts.filter(account => account.agent === agent).map(account => account.name);
+}
 
 /// The machines that can run an agent; none for an account that may not use machines.
 export async function loadAgentHosts() {

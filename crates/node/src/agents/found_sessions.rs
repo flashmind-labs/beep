@@ -658,7 +658,12 @@ impl Agents {
         id: &SessionId,
         before: SavedSession,
     ) -> Begin {
-        let SavedSession { info, effort, fast } = before;
+        let SavedSession {
+            info,
+            effort,
+            fast,
+            account,
+        } = before;
         let follows = info
             .parent
             .as_ref()
@@ -675,6 +680,7 @@ impl Agents {
             follows,
             worktrees: info.worktrees,
             assistant: info.assistant && !info.reviewer,
+            account,
             ..Begin::default()
         }
     }

@@ -14,7 +14,7 @@ function Mark({ agent }: { agent: string }) {
 }
 function Limits({ plan, now }: { plan: PlanLimits; now: number }) {
   const credits = plan.credits ?? [], single = !plan.windows.length && credits.length === 1;
-  const name = [agentLabel(plan.agent), planName(plan.agent, plan.plan), single ? `${providerName(credits[0].provider)} credits` : ""].filter(Boolean).join(" · ");
+  const name = [agentLabel(plan.agent), plan.account, planName(plan.agent, plan.plan), single ? `${providerName(credits[0].provider)} credits` : ""].filter(Boolean).join(" · ");
   return <div><h5 title={`Read on ${plan.machine_name}`}><span>{harnessMark(plan.agent) && <Mark agent={plan.agent} />}{name}</span><span>{asOf(plan.as_of, now)}</span></h5>
     {plan.windows.map((window, index) => { const used = windowUsed(window), reset = window.resets_at != null ? ` · resets ${resetName(window.resets_at, now)}` : ""; return <div className="us-lim" key={index}><span>{windowName(window)}</span><Bar used={used} /><small>{used}% used{reset}</small></div>; })}
     {credits.map((credit, index) => <Fragment key={index}><div className="us-row"><span>{single ? creditScope(credit.scope) : `${providerName(credit.provider)} · ${creditScope(credit.scope)}`}</span><span>{credit.remaining_full ?? creditAmount(credit, credit.remaining)} remaining</span></div><div className="us-row"><small>{credit.resets ? `Resets ${credit.resets}` : ""}</small><small>{credit.used_full ?? creditAmount(credit, credit.used)} used · {credit.total_full ?? creditAmount(credit, credit.total)} total</small></div>{credit.provider === "openrouter" && credit.scope === "api_key" && credit.remaining == null && <div className="us-note">Account balance unavailable.</div>}</Fragment>)}
@@ -48,7 +48,7 @@ export function UsageWidget({ view, open, period, allProjects, toggle, pick, mor
     if (shift !== place.shift || maxHeight !== place.maxHeight) setPlace({ shift, maxHeight });
   }, [view, open, period, allProjects, place]);
   return <><button type="button" className={`us-pill${plans.length ? " plans" : ""}`} title="Plan usage and cost" aria-label={label} aria-expanded={open} onClick={toggle}>
-      {plans.map(plan => <span className="us-plan" key={`${plan.agent}:${plan.model ?? ""}`} title={`${agentLabel(plan.agent)}: ${plan.used}% of ${plan.window} used`}>{plan.model ?? <Mark agent={plan.agent} />}<b className={plan.used > WARN_USED ? "warn" : ""}>{plan.used}%</b></span>)}
+      {plans.map(plan => <span className="us-plan" key={`${plan.agent}:${plan.account ?? ""}:${plan.model ?? ""}`} title={`${[agentLabel(plan.agent), plan.account].filter(Boolean).join(" ")}: ${plan.used}% of ${plan.window} used`}>{plan.model ?? <Mark agent={plan.agent} />}{plan.account && !plan.model && <small>{plan.account}</small>}<b className={plan.used > WARN_USED ? "warn" : ""}>{plan.used}%</b></span>)}
       {view.limits.flatMap(plan => plan.credits ?? []).map((credit, n) => credit.remaining != null && <span className="us-x" key={n}>{providerName(credit.provider)} <b>{credit.remaining_short ?? creditAmount(credit, credit.remaining)}</b> left</span>)}
       {(!plans.length || view.today.total.cost_usd > 0) && <span className="us-x"><b>{todayLine(view.today)}</b> today</span>}
     </button>

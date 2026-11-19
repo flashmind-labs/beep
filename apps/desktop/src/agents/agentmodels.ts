@@ -110,3 +110,33 @@ export function keepProjectPick(project: string | null, pick: ProjectPick): void
     localStorage.setItem(PROJECT_PICKS, JSON.stringify([...picks]));
   } catch { /* The current form keeps its choice. */ }
 }
+
+const PROJECT_ACCOUNTS = "beep.projectAccounts.v1";
+
+/// The account picked for each project and agent, as `project/agent`.
+function projectAccounts(): Map<string, string> {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(PROJECT_ACCOUNTS) ?? "{}");
+    if (saved === null || typeof saved !== "object" || Array.isArray(saved)) return new Map();
+    return new Map(Object.entries(saved).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  } catch { return new Map(); }
+}
+
+/// The named account a start of `agent` in `project` runs as, of `names`,
+/// the agent's accounts: the one last picked there while the agent still has
+/// it; null for the default account.
+export function startAccount(names: readonly string[], project: string | null, agent: string | null): string | null {
+  if (!agent) return null;
+  const picked = projectAccounts().get(`${project ?? ""}/${agent}`);
+  return names.find(name => name === picked) ?? null;
+}
+
+/// Keeps `name` as the account `agent` starts as in `project`; null for the default one.
+export function keepProjectAccount(project: string | null, agent: string, name: string | null): void {
+  const picks = projectAccounts(), key = `${project ?? ""}/${agent}`;
+  if (name) picks.set(key, name); else picks.delete(key);
+
+  try {
+    localStorage.setItem(PROJECT_ACCOUNTS, JSON.stringify(Object.fromEntries(picks)));
+  } catch { /* The current form keeps its choice. */ }
+}

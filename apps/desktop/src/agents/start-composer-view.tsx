@@ -10,7 +10,7 @@ import type { ComposerWords } from "./assistant-state.ts";
 export interface StartComposerNodes { input: HTMLTextAreaElement | null; machine: HTMLButtonElement | null; folder: HTMLButtonElement | null; harness: HTMLButtonElement | null; pick: HTMLDivElement | null; att: HTMLDivElement | null; box: HTMLDivElement | null; grow: () => void }
 interface ChoiceContents { machine: ReactNode; folder: ReactNode }
 /// Which pill's menu or picker is open.
-type ComposerOpen = "pick" | "host" | "folder" | "base" | null;
+type ComposerOpen = "pick" | "host" | "folder" | "base" | "account" | null;
 
 export interface StartComposerState {
   centered: boolean; busy: boolean; welcome: string;

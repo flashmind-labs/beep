@@ -311,6 +311,7 @@ fn credentials(mesh: &Mesh) -> MachineCredentials {
         match credential {
             Credential::Env(secret) => out.env.push(secret),
             Credential::Forgejo(login) => out.forgejo.push(login),
+            Credential::Agent(login) => out.agents.push(login),
         }
     }
 

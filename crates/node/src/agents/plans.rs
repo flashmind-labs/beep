@@ -225,6 +225,7 @@ fn claude_plan(usage: &Value, at: u64) -> Option<PlanUsage> {
         plan: usage["subscription_type"].as_str().map(str::to_owned),
         windows,
         credits: Vec::new(),
+        account: None,
         at,
     })
 }
@@ -258,6 +259,7 @@ fn codex_plan(result: &Value, at: u64) -> Option<PlanUsage> {
         plan: limits["planType"].as_str().map(str::to_owned),
         windows,
         credits: Vec::new(),
+        account: None,
         at,
     })
 }

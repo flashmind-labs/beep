@@ -3,7 +3,10 @@
 //! points are `apply` and `vars`.
 
 use crate::{read_lock, write_lock};
-use beep_proto::{AgentAccount, GITHUB_ENV_VAR, SecretText, node::EnvSecret};
+use beep_proto::{
+    AccountName, AgentAccount, GITHUB_ENV_VAR, SecretText,
+    node::{AgentLogin, EnvSecret},
+};
 use std::{
     env,
     ffi::{OsStr, OsString},
@@ -14,7 +17,7 @@ use std::{
 use tokio::{process::Command, sync::watch};
 
 /// Which credentials a process gets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Scope {
     /// None: a version probe needs only the tools' folders.
     Probe,
@@ -23,25 +26,46 @@ pub(crate) enum Scope {
     /// when the process is that agent. teacli finds its logins through the
     /// shim on `PATH`.
     Agent(Option<AgentAccount>),
+    /// The GitHub token and the named account's token in place of the
+    /// default account's: an agent session started as that account.
+    Account(AgentAccount, AccountName),
     /// Every credential the user gave to their machines: exec, background
     /// tasks and terminals, where the user runs their own commands.
     Shell,
 }
 
 impl Scope {
-    /// What the agent called `name` gets.
-    pub(crate) fn for_agent(name: &str) -> Self {
-        Self::Agent(AgentAccount::from_str(name).ok())
+    /// What the agent called `name` gets, signed in as `account` when one
+    /// is named and the agent keeps accounts.
+    pub(crate) fn for_agent(name: &str, account: Option<&AccountName>) -> Self {
+        let agent = AgentAccount::from_str(name).ok();
+
+        match (agent, account) {
+            (Some(agent), Some(account)) => Self::Account(agent, account.clone()),
+            _ => Self::Agent(agent),
+        }
     }
 
-    fn admits(self, var: &EnvSecret) -> bool {
+    fn admits(&self, var: &EnvSecret) -> bool {
         match self {
             Self::Probe => false,
             Self::Agent(agent) => {
                 var.name == GITHUB_ENV_VAR || agent.is_some_and(|agent| var.name == agent.env_var())
             }
+            Self::Account(..) => var.name == GITHUB_ENV_VAR,
             Self::Shell => true,
         }
+    }
+
+    /// The named account's token, for `Account`.
+    fn account<'a>(&self, accounts: &'a [AgentLogin]) -> Option<&'a EnvSecret> {
+        let Self::Account(agent, name) = self else {
+            return None;
+        };
+        accounts
+            .iter()
+            .find(|login| login.agent == *agent && login.name == *name)
+            .map(|login| &login.env)
     }
 }
 
@@ -50,6 +74,8 @@ struct SpawnEnv {
     path: Vec<PathBuf>,
     /// Set on every process, over any inherited value of the same name.
     vars: Vec<EnvSecret>,
+    /// The coding agents' named accounts, for `Scope::Account`.
+    accounts: Vec<AgentLogin>,
 }
 
 /// Process-wide, like the environment it extends: agents, exec, background
@@ -57,6 +83,7 @@ struct SpawnEnv {
 static SPAWN_ENV: RwLock<SpawnEnv> = RwLock::new(SpawnEnv {
     path: Vec::new(),
     vars: Vec::new(),
+    accounts: Vec::new(),
 });
 
 /// Held by tests that set the process-wide env, so they do not see each
@@ -88,6 +115,28 @@ pub(crate) fn set_vars(vars: Vec<EnvSecret>) {
     }
 }
 
+/// Takes `accounts` as the named accounts sessions may start as.
+pub(crate) fn set_accounts(accounts: Vec<AgentLogin>) {
+    write_lock(&SPAWN_ENV).accounts = accounts;
+}
+
+/// Whether this node holds `agent`'s account `name`.
+pub(crate) fn has_account(agent: AgentAccount, name: &AccountName) -> bool {
+    Scope::Account(agent, name.clone())
+        .account(&read_lock(&SPAWN_ENV).accounts)
+        .is_some()
+}
+
+/// The names of `agent`'s accounts this node holds.
+pub(crate) fn accounts_of(agent: AgentAccount) -> Vec<AccountName> {
+    read_lock(&SPAWN_ENV)
+        .accounts
+        .iter()
+        .filter(|login| login.agent == agent)
+        .map(|login| login.name.clone())
+        .collect()
+}
+
 /// Ticks each time `set_vars` changes the credentials.
 pub(crate) fn changes() -> watch::Receiver<()> {
     CHANGED.subscribe()
@@ -95,14 +144,14 @@ pub(crate) fn changes() -> watch::Receiver<()> {
 
 /// Gives `command` the tools' folders and the credentials `scope` admits.
 pub(crate) fn apply(command: &mut Command, scope: Scope) {
-    for (name, value) in vars(scope) {
+    for (name, value) in vars(&scope) {
         command.env(name, value);
     }
 }
 
 /// What `apply` sets, as names and values, for a process started some
 /// other way, such as in a pseudo-terminal.
-pub(crate) fn vars(scope: Scope) -> Vec<(OsString, OsString)> {
+pub(crate) fn vars(scope: &Scope) -> Vec<(OsString, OsString)> {
     let spawn = read_lock(&SPAWN_ENV);
     let path = merged_path(&spawn.path, env::var_os("PATH").as_deref())
         .map(|path| (OsString::from("PATH"), path));
@@ -112,6 +161,7 @@ pub(crate) fn vars(scope: Scope) -> Vec<(OsString, OsString)> {
                 .vars
                 .iter()
                 .filter(|var| scope.admits(var))
+                .chain(scope.account(&spawn.accounts))
                 .map(|var| {
                     (
                         OsString::from(&var.name),

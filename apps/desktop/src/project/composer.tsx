@@ -1,5 +1,5 @@
 import { flushSync } from "react-dom";
-import { keepProjectPick, lastProjectPick, type ProjectPick } from "../agents/agentmodels.ts";
+import { keepProjectAccount, keepProjectPick, lastProjectPick, type ProjectPick, startAccount } from "../agents/agentmodels.ts";
 import { pickPopover } from "../agents/pick-popover.ts";
 import type { AgentButtonItem, AgentState, PickButton } from "../review/feedback-view.tsx";
 import { agentLabel, type SessionRow } from "./projects-state.ts";
@@ -29,7 +29,7 @@ import type { Machine } from "../machines/machines.tsx";
 import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, machineRows, type MachineRow, startPlace } from "../agents/agentpick.ts";
 import { BlockedHelp, NoAgentHelp } from "../agents/start-composer-view.tsx";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent, preloadModels } from "../agents/agentpicker.tsx";
-import { AG, type AgentHost, agentKind } from "../agents/agents.ts";
+import { AG, accountsOf, type AgentHost, agentKind, loadAccountNames } from "../agents/agents.ts";
 import { draftPlace } from "../agents/draft.tsx";
 import { S } from "../bar/core.ts";
 import { ensureSessions, sessions } from "../agents/sessions.ts";
@@ -63,6 +63,7 @@ export const projectComp = (() => {
   const actions = {
     machine: openMachineMenu,
     folder: openFolderMenu,
+    account: openAccountMenu,
     branch: (value: string) => { if (pc.target?.kind === "issue") pc.target.branch = value; },
     clear: () => { pc.target = null; composer.setText(""); redrawProjects(); },
   };
@@ -70,7 +71,7 @@ export const projectComp = (() => {
     composer.setMachine(<ComposerMachine value={value} open={actions.machine} />);
     composer.setChoices(<ComposerChoices value={value} actions={actions} />);
   };
-  renderChoices({ machine: "Machine", on: false, adding: false, machineDisabled: true, folder: "Current checkout", folderSub: "as it is", folderDisabled: true, branch: "", showBranch: false, showClear: false });
+  renderChoices({ machine: "Machine", on: false, adding: false, machineDisabled: true, folder: "Current checkout", folderSub: "as it is", folderDisabled: true, branch: "", showBranch: false, showClear: false, account: null });
   // Esc or a click outside closes the picker.
   form.addEventListener("keydown", e => {
     // ⇧⌘M opens the model picker, as on the agent start page. ⌘M minimizes on macOS.
@@ -146,6 +147,20 @@ function openFolderMenu(e: MouseEvent) {
     { label: "New branch in the checkout", on: pick("branch") },
     ...trees.map(t => ({ label: `Worktree ${t.split("/").pop()}`, on: pick({ worktree: t }) })),
   ]);
+}
+
+/// The bar's agent's accounts: the default one, then its named ones.
+function openAccountMenu(e: MouseEvent) {
+  const p = barProject(), agent = barAgent();
+  if (!p || !agent) return;
+  const pick = (name: string | null) => () => { keepProjectAccount(p.name, agent, name); redrawProjects(); };
+  openMenu(e, "Account", [{ label: "Default", on: pick(null) }, ...accountsOf(agent).map(name => ({ label: name, on: pick(name) }))]);
+}
+
+/// The harness the bar starts, when it has one.
+function barAgent() {
+  const p = barProject(), place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  return barHarness(pc.adding ?? place ?? addHosts(pc.hosts ?? [])[0] ?? null).agent;
 }
 
 const barAttachments = startAttachments(projectComp, error => projectComp.update({ error }), () => {
@@ -268,6 +283,7 @@ export function drawProjectComp(name: string) {
     // Each project keeps its own unsent task.
     c.update({ error: "", draft: `project:${name}` });
     loadProjectBar(name);
+    void loadAccountNames().then(() => { if (barOn(name)) redrawProjects(); });
   }
 
   const p = barProject();
@@ -279,14 +295,16 @@ export function drawProjectComp(name: string) {
   requestAnimationFrame(fitField);
   const t = pc.target;
   const co = t ? targetCheckout(t) : barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
+  const { host, offered, agent } = barHarness(pc.adding ?? place ?? addHosts(pc.hosts ?? [])[0] ?? null);
+  const names = accountsOf(agent);
   c.renderChoices({
     machine: pc.adding?.machine_name ?? (place ? place.machine_name : readiness.kind === "no agent" ? "Install a coding agent" : pc.hosts ? "Add to a machine" : "Machine"),
     on: !!place && !pc.adding, adding: !!pc.adding, machineDisabled: !!pc.adding || pc.starting,
     folder: co.label, folderSub: co.sub, folderDisabled: !place || pc.starting,
     branch: t?.kind === "issue" ? t.branch : "", showBranch: t?.kind === "issue",
     showClear: !!t,
+    account: names.length ? { name: startAccount(names, name, agent) } : null,
   });
-  const { host, offered, agent } = barHarness(pc.adding ?? place ?? addHosts(pc.hosts ?? [])[0] ?? null);
 
   if (agent && host) {
     modelsOn(host.machine_id, agent, () => { if (barOn(name)) redrawProjects(); });
@@ -412,7 +430,9 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
     try {
       const effort = same ? pc.picked.effort : null;
       const fast = same && agent === "codex" ? pc.picked.fast : null;
-      const session = await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), model, effort, fast, checkout });
+      await loadAccountNames();
+      const account = startAccount(accountsOf(agent), entry.project ?? null, agent);
+      const session = await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), model, effort, fast, checkout, account });
       if (model || effort || fast !== null) sessionPicks.set(session.session.id, { model: model ?? "", effort, fast });
       nameSession(session.session, task);
     } catch (e) {
@@ -600,7 +620,9 @@ async function startSession(name: string, place: BarPlace, pick: Omit<ProjectPic
   const at = was ? { cwd: was.cwd, checkout: null }
     : target ? { cwd: place.cwd, checkout: targetPlan(target) }
     : startPlace(checkout, place.cwd, baseFor(null, pc.branches.get(name)));
-  const started = await invoke<Started>("agent_begin", { machineId: place.machine_id, agent: pick.agent, cwd: at.cwd, prompt, model, effort, fast, checkout: at.checkout, images });
+  await loadAccountNames();
+  const account = startAccount(accountsOf(pick.agent), name, pick.agent);
+  const started = await invoke<Started>("agent_begin", { machineId: place.machine_id, agent: pick.agent, cwd: at.cwd, prompt, model, effort, fast, checkout: at.checkout, images, account });
   if (model || effort || fast !== null) sessionPicks.set(started.session.id, { model: model ?? "", effort, fast });
   startedWith(started.session, prompt, images);
   keepMachine(name, place.machine_id);

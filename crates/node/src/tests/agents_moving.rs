@@ -194,6 +194,7 @@ fn a_moved_session_begins_as_its_source_saved_it() {
         },
         effort: Some(Effort::High),
         fast: Some(true),
+        account: None,
     };
     let arrival = Arrival {
         id: &SessionId::from("held-1"),

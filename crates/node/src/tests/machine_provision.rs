@@ -43,6 +43,7 @@ async fn forgetting_removes_the_tokens_from_disk() {
                 url: "https://git.example.com".into(),
                 token: SecretText::new("token"),
             }],
+            agents: Vec::new(),
         })
         .await;
     let config = teacli::config_path(dir.path());

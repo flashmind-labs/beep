@@ -78,6 +78,7 @@ fn start(harness: &str, prompt: &str, dir: &Path) -> ChildStart {
         cwd: Some(dir.to_string_lossy().into_owned()),
         model: None,
         review: None,
+        account: None,
     }
 }
 
@@ -584,6 +585,7 @@ async fn a_resumed_session_goes_on_under_its_parent_in_its_mode() {
         info: before.clone(),
         effort: None,
         fast: None,
+        account: None,
     };
     let begin = rig.agents.resumed_begin(None, &SessionId::from("agent-id"), held);
     assert_eq!(begin.parent, before.parent);

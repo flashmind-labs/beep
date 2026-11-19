@@ -1,5 +1,5 @@
 import { withMentions } from "../agentpane/files-state.ts";
-import { keepProjectPick, lastProjectPick } from "./agentmodels.ts";
+import { keepProjectAccount, keepProjectPick, lastProjectPick, startAccount } from "./agentmodels.ts";
 import { Spinner } from "../ui/kit.tsx";
 import { createRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { flushSync } from "react-dom";
@@ -9,8 +9,8 @@ import { makeStartComposer, type StartComposer } from "./start-composer.tsx";
 import { menuPlaceFor } from "./mentionmenu.ts";
 import { FolderChoice, NewAgentNotes } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
-import { BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
-import { AG, agentKind, type AgentHost, hostChanges, loadAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
+import { AccountChoice, BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
+import { AG, accountsOf, agentKind, type AgentHost, hostChanges, loadAccountNames, loadAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
 import { ASSISTANT_WORDS, TASK_WORDS, assistantHost, resolveAssistant } from "./assistant-state.ts";
 import { loadAssistant, type AssistantPick } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
@@ -121,6 +121,7 @@ export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: Agen
   // What the form showed last stands until machines or accounts change.
   const changed = !AG.hosts || hostChanges.dirty("");
   if (changed) loadAgentHosts();
+  void loadAccountNames().then(() => { if (S.view === "agentnew") drawParts(); });
   ensureSessions().then(() => { if (S.view === "agentnew") drawParts(); }).catch(() => {});
   if (changed || !KNOWN) invoke<Machine[]>("list_machines").then(list => { KNOWN = list.filter(m => m.can_host !== false); if (S.view === "agentnew") drawParts(); }).catch(() => {});
   if (at?.project) loadBranches(at.project);
@@ -280,10 +281,17 @@ function drawUnder(c: StartComposer) {
   const co = barCheckout(f.checkout ?? DEFAULT_CHECKOUT, baseFor(f.base, formBranches()));
   drawExtras(c);
   c.update({ choiceContents: { machine: host ? <><span className="ddot on" />{host.machine_name}</> : "Pick a machine", folder: <FolderChoice checkout={checkout} label={checkout ? co.label : shown.label} detail={checkout ? co.sub : shown.path} /> } });
-  c.update({ under: <ChoiceMenuView menu={hostMenu() ?? folderMenu(checkout) ?? baseMenu()} anchor={menuAnchor} pick={pickChoice} /> });
+  c.update({ under: <ChoiceMenuView menu={hostMenu() ?? folderMenu(checkout) ?? baseMenu() ?? accountMenu()} anchor={menuAnchor} pick={pickChoice} /> });
 }
 
 const baseButton = createRef<HTMLButtonElement>();
+const accountButton = createRef<HTMLButtonElement>();
+
+/// The named account the form starts as; null for the agent's default one.
+function formAccount(): string | null {
+  const f = AG.form;
+  return f.assistant ? null : startAccount(accountsOf(f.agent), f.project ?? null, f.agent);
+}
 
 function drawExtras(c: StartComposer) {
   const f = AG.form, base = baseFor(f.base, formBranches()) || "HEAD";
@@ -293,13 +301,15 @@ function drawExtras(c: StartComposer) {
       ? <BaseInput value={f.base ?? ""} placeholder={base} change={value => { f.base = value.trim() || null; drawExtras(c); }} keyDown={baseKey} leave={() => { if (AG.form.baseTyping) { AG.form.baseTyping = false; drawParts(); } }} />
       : <BaseChoice base={base} open={f.open === "base"} button={baseButton} toggle={toggleBase} />
     : null;
-  c.update({ extras: <>{folder}{branch}</> });
+  const account = !f.assistant && accountsOf(f.agent).length ? <AccountChoice account={formAccount()} open={f.open === "account"} button={accountButton} toggle={toggleAccount} /> : null;
+  c.update({ extras: <>{folder}{branch}{account}</> });
 }
 
 /// The pill the open menu hangs from, and the area it stays in.
 function menuAnchor() {
   const open = AG.form.open, c = composer;
   if (open === "base") return baseButton.current;
+  if (open === "account") return accountButton.current;
   return c && (open === "host" || open === "folder") ? c.choice(open) : null;
 }
 
@@ -313,6 +323,22 @@ function baseMenu(): ChoiceMenu | null {
   const rows: ChoiceRow[] = baseRows(list).map(name => ({ kind: "button", action: "agb", value: name, selected: picked === name, label: <span className="mono">{name}</span>, detail: name === list?.default_branch ? "default" : "" }));
   const note: ChoiceRow[] = list === undefined ? [{ kind: "button", action: null, value: "loading", disabled: true, label: <span><Spinner /> Reading branches…</span>, detail: "" }] : [];
   return { style: "base", rows: [...note, ...rows, ...(rows.length || note.length ? [{ kind: "rule" } as const] : []), { kind: "button", action: "agbtype", value: "1", label: "Type a branch or commit…", detail: "" }] };
+}
+
+/// The Account menu: the agent's default account, then its named ones.
+function accountMenu(): ChoiceMenu | null {
+  const f = AG.form;
+  if (f.open !== "account") return null;
+  const picked = formAccount();
+  const rows: ChoiceRow[] = [null, ...accountsOf(f.agent)].map(name => ({ kind: "button", action: "aga", value: name ?? "", selected: picked === name, label: <span>{name ?? "Default"}</span>, detail: name ? "" : "as set up in Agent accounts" }));
+  return { style: "", rows };
+}
+
+function toggleAccount() {
+  const f = AG.form;
+  if (S.view !== "agentnew" || AG.busy) return;
+  f.open = f.open === "account" ? null : "account";
+  drawParts();
 }
 
 /// The base field: Enter keeps what is typed; empty goes back to the default.
@@ -397,6 +423,7 @@ function pickChoice(action: ChoiceAction, value: string) {
 
   switch (action) {
     case "agb": f.base = value; break;
+    case "aga": if (f.agent) keepProjectAccount(f.project ?? null, f.agent, value || null); break;
     case "agbtype": return typeBase();
     case "agm":
       f.machine = value;
@@ -602,11 +629,13 @@ export async function startAgent() {
       ? startPlace(f.checkout ?? DEFAULT_CHECKOUT, f.cwd.trim(), baseFor(f.base, formBranches()))
       : { cwd: f.cwd.trim(), checkout: null };
     const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, f.cwd.trim());
+    // The account the form shows, as saved now.
+    await loadAccountNames();
     if (attachments.files.pending.length) composer?.update({ progress: "Starting the agent…" });
     const images = attachments.images.map(sentImage);
     const started = f.assistant
       ? await startAssistant(prompt, { agent: f.agent, model, effort, fast: f.fast ?? null }, AG.hosts ?? [], f.machinePicked ? f.machine : null, images)
-      : await start({ machine: f.machine, agent: f.agent, cwd: cwd || null, prompt, images, model, effort, fast: f.agent === "codex" ? f.fast ?? null : null, checkout, assistant: false });
+      : await start({ machine: f.machine, agent: f.agent, cwd: cwd || null, prompt, images, model, effort, fast: f.agent === "codex" ? f.fast ?? null : null, checkout, assistant: false, account: formAccount() });
     attachments.clear();
     AG.busy = false;
     composer?.update({ progress: "" });
@@ -630,7 +659,7 @@ export async function startAssistant(prompt: string, pick: AssistantPick, hosts:
   const resolved = resolveAssistant(pick, hosts);
   const last = hosts.find(host => host.machine_id === lastAssistantMachine());
   const lastOffers = !!resolved.agent && !!last?.assistant && last.agents.includes(resolved.agent);
-  const started = await start({ machine: machine ?? (lastOffers ? last.machine_id : null), agent: resolved.agent, cwd: null, prompt, images, model: resolved.model, effort: resolved.effort, fast: resolved.fast ?? null, checkout: null, assistant: true });
+  const started = await start({ machine: machine ?? (lastOffers ? last.machine_id : null), agent: resolved.agent, cwd: null, prompt, images, model: resolved.model, effort: resolved.effort, fast: resolved.fast ?? null, checkout: null, assistant: true, account: null });
   keepAssistantMachine(started.session.machine_id);
 
   return started;
@@ -648,6 +677,8 @@ interface Start {
   fast: boolean | null;
   checkout: CheckoutPlan | null;
   assistant: boolean;
+  /// The agent's named account; null for its default one.
+  account: string | null;
 }
 
 /// Hands a start to this device, which answers at once with the session it shows as until its
@@ -655,7 +686,7 @@ interface Start {
 /// first message for its log.
 async function start(s: Start): Promise<Started> {
   const prompt = withMentions(s.prompt, [], s.images.length);
-  const started = await invoke<Started>("agent_begin", { machineId: s.machine, agent: s.agent, cwd: s.cwd, prompt, images: s.images, model: s.model, effort: s.effort, fast: s.fast ?? null, checkout: s.checkout, assistant: s.assistant });
+  const started = await invoke<Started>("agent_begin", { machineId: s.machine, agent: s.agent, cwd: s.cwd, prompt, images: s.images, model: s.model, effort: s.effort, fast: s.fast ?? null, checkout: s.checkout, assistant: s.assistant, account: s.account });
   const resolved = s.model ?? knownModels(s.machine, s.agent)?.current ?? "";
   sessionPicks.set(started.session.id, { model: resolved.toLowerCase() === "default" ? "" : resolved, effort: s.effort, fast: s.fast ?? null });
   startedWith(started.session, prompt, s.images);

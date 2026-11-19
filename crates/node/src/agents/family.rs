@@ -11,12 +11,13 @@
 use beep_proto::SessionId;
 use super::{Agents, Begin, Command, Session, known, live::Live, mcp::children};
 use crate::{AsyncMutex, link::Membership};
-use beep_proto::ModelId;
+use beep_proto::{AccountName, AgentAccount, ModelId};
 use beep_proto::node::agent::{Effort, ParentLink, SessionInfo, Status};
 use beep_proto::watched;
 use iroh::EndpointId;
 use std::{
     collections::HashMap,
+    str::FromStr,
     sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
@@ -79,6 +80,9 @@ pub(crate) struct ChildStart {
     pub(crate) model: Option<ModelId>,
     /// A temporary reviewer, started in its harness's read-only mode.
     pub(crate) review: Option<Review>,
+    /// The named account its parent runs as. A child of an agent that keeps
+    /// accounts runs as that agent's account of the same name, or not at all.
+    pub(crate) account: Option<AccountName>,
 }
 
 /// What a reviewer child starts with besides `ChildStart`'s.
@@ -290,6 +294,9 @@ impl Agents {
             parent: Some(link),
             follows,
             review: start.review.is_some(),
+            account: start
+                .account
+                .filter(|_| AgentAccount::from_str(&kind.name).is_ok()),
             ..Begin::default()
         };
         let session = {

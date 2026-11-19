@@ -1049,6 +1049,7 @@ mod usage {
             }],
             credits: Vec::new(),
             at: 1_789_990_000,
+            account: Some("Work".parse().unwrap()),
         };
         let body = rmp_serde::to_vec_named(&plan).unwrap();
         assert_eq!(rmp_serde::from_slice::<PlanUsage>(&body).unwrap(), plan);
@@ -1062,6 +1063,7 @@ mod usage {
         assert_eq!(read.agent, "codex");
         assert!(read.windows.is_empty());
         assert!(read.credits.is_empty());
+        assert_eq!(read.account, None);
 
         // Positional reports from released nodes end before the credit field.
         let old = rmp_serde::to_vec(&(

@@ -76,3 +76,31 @@ async fn an_agent_gets_only_its_own_token() {
     assert_eq!(other, ",");
     assert_eq!(shell, "claude-token,codex-key");
 }
+
+#[tokio::test]
+async fn a_named_account_replaces_the_default_token() {
+    let _env = TEST_LOCK.lock().await;
+    let work: AccountName = "Work".parse().unwrap();
+    set_vars(vec![EnvSecret {
+        name: AgentAccount::Claude.env_var().into(),
+        value: SecretText::new("personal-token"),
+    }]);
+    set_accounts(vec![AgentLogin {
+        agent: AgentAccount::Claude,
+        name: work.clone(),
+        env: EnvSecret {
+            name: AgentAccount::Claude.env_var().into(),
+            value: SecretText::new("work-token"),
+        },
+    }]);
+    let default = agent_token(Scope::for_agent("claude", None)).await;
+    let named = agent_token(Scope::for_agent("claude", Some(&work))).await;
+    let held = has_account(AgentAccount::Claude, &work);
+    let codex_held = has_account(AgentAccount::Codex, &work);
+    set_vars(Vec::new());
+    set_accounts(Vec::new());
+    assert_eq!(default, "personal-token,");
+    assert_eq!(named, "work-token,");
+    assert!(held);
+    assert!(!codex_held);
+}

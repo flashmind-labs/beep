@@ -1,7 +1,7 @@
 //! Keeping agent sessions across a node restart: the next start resumes each noted
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
-use beep_proto::SessionId;
+use beep_proto::{AccountName, SessionId};
 use super::{
     AgentKind, Agents, Begin, Command, Prompt, checkout,
     family::RemoteKid,
@@ -51,6 +51,9 @@ pub(crate) struct SavedSession {
     pub(crate) effort: Option<Effort>,
     #[serde(default)]
     pub(crate) fast: Option<bool>,
+    /// The named account it ran as; `None` for the default one.
+    #[serde(default)]
+    pub(crate) account: Option<AccountName>,
 }
 
 /// Why a session is read to start again.
@@ -109,6 +112,9 @@ pub(crate) struct OpenSession {
     effort: Option<Effort>,
     #[serde(default)]
     fast: Option<bool>,
+    /// The named account it ran as; `None` for the default one.
+    #[serde(default)]
+    account: Option<AccountName>,
 }
 
 impl From<&OpenSession> for SavedSession {
@@ -132,6 +138,7 @@ impl From<&OpenSession> for SavedSession {
             },
             effort: open.effort,
             fast: open.fast,
+            account: open.account.clone(),
         }
     }
 }
@@ -285,6 +292,7 @@ impl Agents {
                 },
                 effort: live.effort,
                 fast: live.fast,
+                account: session.account.clone(),
             })
         })
     }
@@ -334,6 +342,7 @@ impl Agents {
                 assistant: session.assistant,
                 effort: live.effort,
                 fast: live.fast,
+                account: session.account.clone(),
             })
         })
     }
@@ -429,6 +438,7 @@ impl Agents {
                 assistant: open.assistant,
                 effort: open.effort,
                 fast: open.fast,
+                account: open.account,
                 ..Begin::default()
             },
         )?;

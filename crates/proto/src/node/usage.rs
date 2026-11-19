@@ -5,7 +5,7 @@
 //! added only at the end with `#[serde(default)]`.
 
 use crate::SessionId;
-use crate::{AgentSlug, ModelId, ProviderCredits};
+use crate::{AccountName, AgentSlug, ModelId, ProviderCredits};
 use serde::{Deserialize, Serialize};
 
 /// The longest window a plan limit may name, in minutes: a month.
@@ -157,6 +157,10 @@ pub struct PlanUsage {
     /// Provider balances reported by the agent, separate from its session cost.
     #[serde(default)]
     pub credits: Vec<ProviderCredits>,
+    /// The agent's named account it is for; `None` for the default one. A
+    /// node from before named accounts reports only the default one.
+    #[serde(default)]
+    pub account: Option<AccountName>,
 }
 
 /// One rate limit window of a plan.

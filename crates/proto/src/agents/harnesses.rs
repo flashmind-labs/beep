@@ -4,7 +4,7 @@ use crate::{
     ApiError, SecretText,
     node::{EnvSecret, harness::harness},
 };
-use std::{collections::HashSet, time::SystemTime};
+use std::{collections::HashSet, str::FromStr, time::SystemTime};
 
 wire_structs! {
     /// One machine's settings for a harness.
@@ -163,6 +163,18 @@ wire_structs! {
         pub codex_key: Option<AgentToken>,
         /// The caller's machines with Claude Code or Codex, by name.
         pub machines: Vec<AgentMachine>,
+        /// The named accounts, by agent then name.
+        #[serde(default)]
+        pub named: Vec<NamedAgentToken>,
+    }
+
+    /// A named account's token.
+    pub struct NamedAgentToken {
+        pub agent: AgentAccount,
+        pub name: AccountName,
+        /// The env var it goes in, such as `CODEX_ACCESS_TOKEN`.
+        pub env_var: String,
+        pub token: AgentToken,
     }
 
     /// A token Beep keeps for a coding agent.
@@ -245,6 +257,76 @@ impl AgentAccount {
             Self::Claude => "CLAUDE_CODE_OAUTH_TOKEN",
             Self::Codex => "CODEX_API_KEY",
         }
+    }
+
+    /// The env var a token of this agent goes in: a Codex token that is no
+    /// API key is a ChatGPT personal access token.
+    pub fn env_var_for(self, token: &str) -> &'static str {
+        match self {
+            Self::Codex if !token.starts_with("sk-") => CODEX_ACCESS_TOKEN,
+            agent => agent.env_var(),
+        }
+    }
+}
+
+/// The env var Codex reads a ChatGPT personal access token from.
+pub const CODEX_ACCESS_TOKEN: &str = "CODEX_ACCESS_TOKEN";
+
+/// The name the user gave one of their accounts, such as `Work`. A start
+/// that names one runs signed in as that account of its agent; the same
+/// name across agents is one identity, so a Claude Code session on `Work`
+/// starts its Codex helpers on Codex's `Work`. The unnamed account is the
+/// default one Agent accounts kept before names.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(transparent)]
+pub struct AccountName(String);
+
+/// The longest account name taken, in characters.
+const MAX_ACCOUNT_NAME: usize = 32;
+
+impl FromStr for AccountName {
+    type Err = ApiError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let name = text.trim();
+
+        if name.is_empty() {
+            return Err(ApiError::bad_request("Name the account first."));
+        }
+
+        if name.chars().count() > MAX_ACCOUNT_NAME {
+            return Err(ApiError::bad_request(format!(
+                "An account name has at most {MAX_ACCOUNT_NAME} characters."
+            )));
+        }
+
+        if name.chars().any(|c| c.is_control() || c == '~' || c == '/') {
+            return Err(ApiError::bad_request(
+                "An account name cannot hold ~, / or control characters.",
+            ));
+        }
+
+        if name.eq_ignore_ascii_case("default") {
+            return Err(ApiError::bad_request(
+                "Default is the account without a name; pick another name.",
+            ));
+        }
+
+        Ok(Self(name.to_owned()))
+    }
+}
+
+impl AsRef<str> for AccountName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for AccountName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 

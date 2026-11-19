@@ -267,6 +267,21 @@ body.cbody.mb-home.mobile
                     button.dbtn [type="button"] "Use an API key"
                 div.dmt6
                   div.dfine.dpy "No machine has Codex yet."
+              div.dbox
+                div.dline
+                  span.dstack
+                    b.dtitle "Named accounts"
+                    span.dsub "Work, personal and other accounts to pick per project or session. Without one, a session uses the account above."
+                  span.dacts
+                    button.dbtn [type="button"] "Add account"
+                div.dmt6
+                  div.dline.dpy.dsm
+                    span.cc-ag.claude.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    span "Work"
+                    span.dacts.dmut "· added Jan 1"
+                      code "… 4a2f"
+                      button.dbtn.quiet.small.warn [type="button"] "Remove"
             div#set-agent-overview style(display)
               div.dset-h "Coding agents"
               div.dset-box

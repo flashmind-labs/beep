@@ -4,7 +4,7 @@
 
 use super::{acp::Prompt, images::Images, usage::UsageHub};
 use agent_client_protocol::v1::schema::{CompactionId, ToolCallId, ToolKind};
-use beep_proto::SessionId;
+use beep_proto::{AccountName, SessionId};
 use beep_proto::node::{
     agent::{AgentCommand, Effort, Entry, SessionInfo},
     usage::ModelTokens,
@@ -120,6 +120,9 @@ pub(crate) struct Live {
     /// Where finished turns' spending and plan limits go, shared by the
     /// node's sessions.
     usage: Arc<UsageHub>,
+    /// The named account the session runs as, whose plan its rate limits
+    /// are; `None` for the default one.
+    pub(crate) account: Option<AccountName>,
     /// The session's cost so far as the agent last said, in US dollars:
     /// the agent reports a running total.
     cost_seen: f64,

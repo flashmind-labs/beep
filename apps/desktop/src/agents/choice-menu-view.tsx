@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { placeMenuAt } from "./agentpick.ts";
 
-export type ChoiceAction = "agm" | "agf" | "agk" | "agw" | "agtype" | "agb" | "agbtype";
+export type ChoiceAction = "agm" | "agf" | "agk" | "agw" | "agtype" | "agb" | "agbtype" | "aga";
 export type ChoiceRow = { kind: "rule" } | { kind: "button"; action: ChoiceAction | null; value: string; label: ReactNode; detail: string; selected?: boolean; disabled?: boolean; dot?: "on" | "off"; mono?: boolean };
 export interface ChoiceMenu { style: "" | "cols" | "folder" | "base"; rows: ChoiceRow[] }
 interface Place { top: number; left: number; maxHeight: number; up: boolean }

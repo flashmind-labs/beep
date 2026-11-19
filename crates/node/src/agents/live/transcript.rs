@@ -137,15 +137,18 @@ impl Live {
             }
 
             self.usage.update_credits(
-                &AgentSlug::new(self.info.agent.as_str()),
+                &(AgentSlug::new(self.info.agent.as_str()), self.account.clone()),
                 credits,
                 unix_now(),
             );
         }
 
         if let Some(info) = meta.and_then(|meta| meta.get(CLAUDE_RATE_LIMIT)) {
-            self.usage
-                .update_windows(&AgentSlug::CLAUDE, claude_rate_limit(info), unix_now());
+            self.usage.update_windows(
+                &(AgentSlug::CLAUDE, self.account.clone()),
+                claude_rate_limit(info),
+                unix_now(),
+            );
         }
     }
 

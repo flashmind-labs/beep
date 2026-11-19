@@ -2,7 +2,7 @@
 
 use crate::SessionId;
 use crate::{
-    ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
+    AccountName, ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
     node::agent::{CheckoutPlan, Effort, LineChanges, SessionDevice, SessionInfo, StopReason},
 };
 use std::time::SystemTime;
@@ -453,6 +453,8 @@ pub struct StartAgentSession {
     pub effort: Option<Effort>,
     pub checkout: Option<CheckoutPlan>,
     pub assistant: bool,
+    /// The agent's named account to sign in as; `None` for its default one.
+    pub account: Option<AccountName>,
 }
 
 /// The machine `StartAgentSession` without a `machine_id` would start on

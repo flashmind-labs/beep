@@ -833,6 +833,7 @@ async fn usage_sums_every_machine() {
                 ..Default::default()
             }],
             credits: Vec::new(),
+            account: None,
             at,
         },
     };
@@ -869,6 +870,7 @@ fn plan_reply(agent: &str, used: f64, at: u64) -> SessionsReply {
                 ..Default::default()
             }],
             credits: Vec::new(),
+            account: None,
             at,
         },
     }
@@ -3802,5 +3804,97 @@ async fn project_sync_keeps_unset_projects_out_of_syncthing() {
             .await
             .unwrap(),
         None
+    );
+}
+
+#[tokio::test]
+async fn a_named_agent_account_sits_beside_the_default_one() {
+    let f = fleet().await;
+    let studio = desk(&f.studio, &[]).await;
+    studio
+        .save_agent_token("claude", None, &SecretText::new("sk-ant-oat-personal-1111"))
+        .await
+        .expect("the default token is saved");
+    studio
+        .save_agent_token(
+            "claude",
+            Some("Work"),
+            &SecretText::new("sk-ant-oat-work-2222"),
+        )
+        .await
+        .expect("the work token is saved");
+    studio
+        .save_agent_token(
+            "codex",
+            Some("Work"),
+            &SecretText::new("at-work-token-3333"),
+        )
+        .await
+        .expect("a ChatGPT access token is saved");
+
+    // A node reads the named ones as agent logins, apart from the env vars every process gets.
+    until(&f.build.mesh, |m| m.scan("credential/").len() == 3).await;
+    let mut logins: Vec<(String, String, String)> = f
+        .build
+        .mesh
+        .scan("credential/")
+        .iter()
+        .filter_map(
+            |(_, bytes)| match Credential::from_bytes(bytes).expect("a node reads it") {
+                Credential::Agent(login) => Some((
+                    login.agent.as_ref().to_owned(),
+                    login.name.to_string(),
+                    login.env.name,
+                )),
+                _ => None,
+            },
+        )
+        .collect();
+    logins.sort();
+    assert_eq!(
+        logins,
+        [
+            (
+                "claude".into(),
+                "Work".into(),
+                "CLAUDE_CODE_OAUTH_TOKEN".into()
+            ),
+            ("codex".into(), "Work".into(), "CODEX_ACCESS_TOKEN".into()),
+        ]
+    );
+
+    let accounts = studio.agent_accounts().await.expect("it lists");
+    assert_eq!(
+        accounts.claude.map(|token| token.last4).as_deref(),
+        Some("1111")
+    );
+    let named: Vec<_> = accounts
+        .named
+        .iter()
+        .map(|named| {
+            (
+                named.agent.as_ref(),
+                named.name.as_ref(),
+                named.token.last4.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        named,
+        [("claude", "Work", "2222"), ("codex", "Work", "3333")]
+    );
+
+    studio
+        .revoke_agent_token("claude", Some("work"))
+        .await
+        .expect("the work account goes, whatever its case");
+    let accounts = studio.agent_accounts().await.expect("it lists");
+    assert!(accounts.claude.is_some());
+    assert_eq!(accounts.named.len(), 1);
+    assert!(
+        studio
+            .save_agent_token("claude", Some("default"), &SecretText::new("sk-ant-oat-x"))
+            .await
+            .is_err()
     );
 }

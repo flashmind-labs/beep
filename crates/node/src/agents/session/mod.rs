@@ -20,7 +20,7 @@ use crate::{
 };
 use agent_client_protocol::v1::schema::McpServer;
 use anyhow::Result;
-use beep_proto::ModelId;
+use beep_proto::{AccountName, ModelId};
 use beep_proto::SessionId;
 use beep_proto::node::agent::{
     AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, SessionDevice, SessionInfo,
@@ -179,6 +179,8 @@ pub(super) struct Session {
     pub(super) reviewer: bool,
     /// The home assistant: offered the assistant's brief and tools.
     pub(super) assistant: bool,
+    /// The named account it runs signed in as; `None` for the default one.
+    pub(super) account: Option<AccountName>,
     pub(super) processes: Arc<Processes>,
     /// Dropping the session stops its task and with it the agent, at once.
     _task: AbortOnDropHandle<()>,
@@ -241,6 +243,8 @@ pub(super) struct Start<'a> {
     pub(super) mcp: Option<McpServer>,
     /// The home assistant, whose standing text adds the assistant's brief.
     pub(super) assistant: bool,
+    /// The named account it runs signed in as; `None` for the default one.
+    pub(super) account: Option<AccountName>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
     /// Where what its turns spend goes.
@@ -294,6 +298,7 @@ impl Session {
             rule,
             mcp,
             assistant,
+            account,
             images,
             usage,
             alerts,
@@ -335,7 +340,7 @@ impl Session {
         let cleared = native_policy.and_then(|policy| policy.cleared(route, &kind.env));
         let mut process = command(&kind.program);
         // The credentials this agent may have, such as Claude Code's token.
-        spawn_env::apply(&mut process, Scope::for_agent(&kind.name));
+        spawn_env::apply(&mut process, Scope::for_agent(&kind.name, account.as_ref()));
         process
             .args(&kind.args)
             .args(flag)
@@ -415,6 +420,7 @@ impl Session {
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);
+        first.account = account.clone();
         if let Some(note) = note {
             first.push(EntryKind::Other, &note);
         }
@@ -498,6 +504,7 @@ impl Session {
             moved_cwd: Mutex::new(None),
             reviewer: false,
             assistant,
+            account,
             processes,
             _task: AbortOnDropHandle::new(task),
             guards: Mutex::new(guard.into_iter().collect()),

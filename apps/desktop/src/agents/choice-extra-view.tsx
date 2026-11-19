@@ -35,3 +35,8 @@ export function BaseInput({ value, placeholder, change, keyDown, leave }: TypedF
 export function BaseChoice({ base, open, button, toggle }: { base: string; open: boolean; button: RefObject<HTMLButtonElement | null>; toggle(): void }) {
   return <button ref={button} type="button" className="pill" id="agbaseb" aria-expanded={open} title="The branch the new one starts from" onClick={toggle}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="7" r="2" /><path d="M6 7v10M18 9c0 5-6 4-11 8" /></svg><small>from</small> <span className="mono">{base}</span><Icon name="caretDown" size={12} /></button>;
 }
+
+/// The named account the agent signs in as, when it has any.
+export function AccountChoice({ account, open, button, toggle }: { account: string | null; open: boolean; button: RefObject<HTMLButtonElement | null>; toggle(): void }) {
+  return <button ref={button} type="button" className="pill" id="agacctb" aria-expanded={open} title="The account the agent signs in as" onClick={toggle}><small>as</small> <span>{account ?? "default"}</span><Icon name="caretDown" size={12} /></button>;
+}

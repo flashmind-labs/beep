@@ -23,6 +23,7 @@ fn start(stage: Stage) -> Start {
         checkout: None,
         images: Vec::new(),
         assistant: false,
+        account: None,
         why: String::new(),
         at: SystemTime::UNIX_EPOCH,
         stage,

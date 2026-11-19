@@ -1,6 +1,6 @@
 //! The credentials a node uses for the user, and how a session stream opens.
 
-use crate::SecretText;
+use crate::{AccountName, AgentAccount, SecretText};
 use serde::{Deserialize, Serialize};
 
 /// What a node uses on the user's behalf.
@@ -11,6 +11,18 @@ pub struct MachineCredentials {
     pub env: Vec<EnvSecret>,
     /// The Forgejo and Gitea servers teacli signs in to.
     pub forgejo: Vec<ForgejoLogin>,
+    /// The coding agents' named accounts, which only a session started as
+    /// one gets.
+    pub agents: Vec<AgentLogin>,
+}
+
+/// A coding agent's named account: the env var its sessions get in place
+/// of the default account's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentLogin {
+    pub agent: AgentAccount,
+    pub name: AccountName,
+    pub env: EnvSecret,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -969,26 +969,26 @@ fn flsh_credit_snapshots_preserve_context_and_do_not_count_as_session_cost() {
     assert_eq!(live.unbilled, None);
     let plans = usage.plans();
     assert_eq!(
-        watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()).as_deref(),
+        watched::read(&plans, |plans| plans[&(beep_proto::AgentSlug::new("flsh"), None)].credits[0].remaining.clone()).as_deref(),
         Some("7.25")
     );
     live.apply(&balance(Some("0")));
     assert_eq!(
-        watched::read(&plans, |plans| plans["flsh"].credits.len()),
+        watched::read(&plans, |plans| plans[&(beep_proto::AgentSlug::new("flsh"), None)].credits.len()),
         1
     );
     assert_eq!(
-        watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()).as_deref(),
+        watched::read(&plans, |plans| plans[&(beep_proto::AgentSlug::new("flsh"), None)].credits[0].remaining.clone()).as_deref(),
         Some("0")
     );
     live.apply(&balance(None));
     assert_eq!(
-        watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()),
+        watched::read(&plans, |plans| plans[&(beep_proto::AgentSlug::new("flsh"), None)].credits[0].remaining.clone()),
         None
     );
     live.apply(&balance(Some("NaN")));
     assert_eq!(
-        watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()),
+        watched::read(&plans, |plans| plans[&(beep_proto::AgentSlug::new("flsh"), None)].credits[0].remaining.clone()),
         None
     );
 }

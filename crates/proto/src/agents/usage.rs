@@ -1,6 +1,6 @@
 //! Usage and spend reports.
 
-use crate::{AgentSlug, ModelId};
+use crate::{AccountName, AgentSlug, ModelId};
 use std::time::SystemTime;
 
 wire_structs! {
@@ -20,6 +20,9 @@ wire_structs! {
         /// Provider balances, separate from subscription windows and session cost.
         #[serde(default)]
         pub credits: Vec<ProviderCredits>,
+        /// The agent's named account it is for; `None` for the default one.
+        #[serde(default)]
+        pub account: Option<AccountName>,
     }
 
     /// One rate limit window of a plan.

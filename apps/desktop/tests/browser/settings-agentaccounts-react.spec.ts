@@ -4,7 +4,7 @@ import { openDesktop } from "./harness.ts";
 test("settings redraw preserves the agent account input and closes its root", async ({ page }) => {
   await openDesktop(page, false, {
     settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
-    agent_accounts: { claude: null, codex_key: null, machines: [] },
+    agent_accounts: { claude: null, codex_key: null, machines: [], named: [] },
     list_machines: [], list_credentials: [], list_github_accounts: [],
   });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
@@ -45,7 +45,7 @@ test("settings redraw preserves the agent account input and closes its root", as
 test("a completed save does not discard a newer token draft", async ({ page }) => {
   await openDesktop(page, false, {
     settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
-    agent_accounts: { claude: null, codex_key: null, machines: [] },
+    agent_accounts: { claude: null, codex_key: null, machines: [], named: [] },
     list_machines: [], list_credentials: [], list_github_accounts: [],
   });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
@@ -75,7 +75,7 @@ test("Claude signs in on the selected machine and refreshes its account", async 
   const login = (id: string, signed_in: boolean, account: string | null) => ({ id, env: { logins: [{ tool: "claude", signed_in, account }] } });
   await openDesktop(page, false, {
     settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
-    agent_accounts: { claude: null, codex_key: null, machines },
+    agent_accounts: { claude: null, codex_key: null, machines, named: [] },
     list_machines: [login("build-box", true, "one@example.com"), login("test-box", false, null)],
     list_credentials: [], list_github_accounts: [],
     machine_sign_in: { state: "signed_in", url: null, code: null, asks_code: false, reason: null },
@@ -98,4 +98,24 @@ test("Claude signs in on the selected machine and refreshes its account", async 
   await expect(row("test-box").getByRole("button")).toHaveCount(0);
   await expect(row("build-box")).toContainText("signed in as one@example.com");
   expect(await page.evaluate(() => window.__navigation.calls().some(call => call.command === "claude_sign_in" || call.command === "save_agent_token"))).toBe(false);
+});
+
+test("a named account is added beside the default one", async ({ page }) => {
+  await openDesktop(page, false, {
+    settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
+    agent_accounts: { claude: null, codex_key: null, machines: [], named: [] },
+    list_machines: [], list_credentials: [], list_github_accounts: [],
+  });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await settings.getByRole("button", { name: "Add account" }).click();
+  await settings.locator(".dchip").filter({ hasText: "Codex" }).click();
+  await settings.getByRole("textbox", { name: "Account name" }).fill("default");
+  await settings.getByRole("textbox", { name: "Codex API key or access token" }).fill("example-token");
+  await settings.locator("#agNamedSave").click();
+  await expect(settings.locator("#agNamedErr")).toContainText("pick another name");
+  await settings.getByRole("textbox", { name: "Account name" }).fill(" Work ");
+  await settings.locator("#agNamedSave").click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "save_agent_token").map(call => call.args))).toEqual([{ agentSlug: "codex", name: "Work", secret: "example-token" }]);
 });

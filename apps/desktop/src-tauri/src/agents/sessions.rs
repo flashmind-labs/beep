@@ -24,10 +24,10 @@ use beep_node::agents::tags::own_words;
 use beep_proto::SessionId;
 use beep_proto::node::agent::LineChanges;
 use beep_proto::{
-    AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
-    AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask, AgentToolCall,
-    ApiError, GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, ListAgentModels,
-    MachineSession, ModelId, ResumeAgentSession, StartAgentSession,
+    AccountName, AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels,
+    AgentQuestion, AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask,
+    AgentToolCall, ApiError, GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks,
+    ListAgentModels, MachineSession, ModelId, ResumeAgentSession, StartAgentSession,
     node::{
         agent::{CheckoutPlan, Effort, StopReason},
         harness::HarnessConfig,
@@ -37,6 +37,7 @@ use beep_proto::{
 use iroh::EndpointId;
 use serde::Serialize;
 use std::{
+    str::FromStr,
     sync::{Arc, PoisonError},
     time::{Duration, Instant},
 };
@@ -548,8 +549,10 @@ pub async fn agent_start(
     checkout: Option<CheckoutPlan>,
     images: Option<Vec<PastedImage>>,
     assistant: Option<bool>,
+    account: Option<String>,
 ) -> Result<Started> {
     let images = uploads(images.unwrap_or_default())?;
+    let account = account.as_deref().map(AccountName::from_str).transpose()?;
 
     if let Some(machine) = &machine_id {
         fleet.machine(machine)?;
@@ -566,6 +569,7 @@ pub async fn agent_start(
         fast,
         checkout,
         assistant: assistant.unwrap_or(false),
+        account,
     };
     let started = direct::start(&fleet, request, images).await?;
     app.state::<crate::palette::PaletteCache>()

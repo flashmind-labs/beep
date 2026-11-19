@@ -1,7 +1,7 @@
 //! One agent session's stream: what the caller asks and what the node sends.
 
 use super::{CheckoutPlan, Effort};
-use crate::SessionId;
+use crate::{AccountName, SessionId};
 use crate::{
     AgentContext, AgentToolCall, ModelId, ProviderCredits, Upload, node::device::DeviceId,
 };
@@ -98,6 +98,13 @@ pub enum Request {
     /// Keeps `device` as the session's `SessionInfo::device`, or forgets it.
     /// A node older than this refuses it.
     SetDevice { device: Option<SessionDevice> },
+    /// The first message: `start`, a `Start`, signed in as the user's
+    /// account `account` of the agent. A node from before named accounts
+    /// refuses it, so the session never runs on another account.
+    StartAs {
+        account: AccountName,
+        start: Box<Request>,
+    },
 }
 
 /// What the node sends on an agent stream.

@@ -237,7 +237,7 @@ test("home first start", async ({ page }) => {
 
   await prompt.press("Enter");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").map(call => call.args))).toEqual([
-    { machineId: null, agent: "flsh", cwd: null, prompt: "Import my projects", images: [], model: null, effort: "high", fast: null, checkout: null, assistant: true },
+    { machineId: null, agent: "flsh", cwd: null, prompt: "Import my projects", images: [], model: null, effort: "high", fast: null, checkout: null, assistant: true, account: null },
   ]);
 });
 
@@ -561,6 +561,8 @@ const agentAccountResponses = {
     { id: "build-box", name: "build-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
     { id: "test-box", name: "test-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
     { id: "offline-box", name: "offline-box", online: false, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+  ], named: [
+    { agent: "claude", name: "Work", env_var: "CLAUDE_CODE_OAUTH_TOKEN", token: { last4: "4a2f", created_at: 0, unreadable: false } },
   ] },
   list_machines: [
     { ...machine("build-box", "build-box", true, 0), env: { logins: [{ tool: "claude", signed_in: true, account: "you@example.com" }] } },
@@ -983,7 +985,7 @@ test("add a folder", async ({ page }) => {
 test("agent sign-in", async ({ page }) => {
   await openDesktop(page, false, {
     ...settingsResponses,
-    agent_accounts: { claude: null, codex_key: null, machines: [{ id: "test-box", name: "test-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null }] },
+    agent_accounts: { claude: null, codex_key: null, machines: [{ id: "test-box", name: "test-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null }], named: [] },
     list_machines: [{ ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }] } }],
     machine_sign_in: { state: "waiting", url: "https://example.test/oauth/authorize?code=true&client_id=0000&response_type=code&scope=profile+inference&state=abcdef", code: null, asks_code: true, reason: null },
   });

@@ -16,7 +16,7 @@ use crate::agents::{
 };
 use crate::link::Offers;
 use beep_mesh::{Key, Mesh};
-use beep_proto::ModelId;
+use beep_proto::{AccountName, ModelId};
 use beep_proto::node::{
     agent::{Entry, EntryKind, ParentLink, SessionInfo, Status},
     mesh_state::{StateValue, SyncSpec},
@@ -181,6 +181,10 @@ pub(crate) struct PeerStart {
     pub(crate) cwd: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) parent: ParentLink,
+    /// The named account the parent runs as. A node from before accounts
+    /// ignores it.
+    #[serde(default)]
+    pub(crate) account: Option<AccountName>,
 }
 
 /// What a call to a child on another machine carries besides its id.
@@ -396,6 +400,7 @@ impl Reach<'_> {
                     cwd: Some(cwd),
                     model: start.model.map(ModelId::new),
                     review: None,
+                    account: parent.account.clone(),
                 },
             )
             .await?;
@@ -426,6 +431,7 @@ impl Reach<'_> {
             cwd: Some(cwd),
             model: start.model,
             parent: link,
+            account: parent.account.clone(),
         };
         let me = &self.who.session;
         self.agents
@@ -904,6 +910,7 @@ async fn serve_peer(
                 cwd: order.cwd,
                 model: order.model.map(ModelId::new),
                 review: None,
+                account: order.account,
             };
             let child = agents.start_child(order.parent, start).await?;
 

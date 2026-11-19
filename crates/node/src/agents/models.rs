@@ -155,7 +155,7 @@ fn listed(offered: Offered, flag: bool) -> ModelList {
 async fn probe(kind: &AgentKind, cwd: &Path) -> Result<Offered> {
     let protocol = acp::Protocol::from_env(&kind.env)?;
     let mut process = command(&kind.program);
-    spawn_env::apply(&mut process, Scope::for_agent(&kind.name));
+    spawn_env::apply(&mut process, Scope::for_agent(&kind.name, None));
     process.args(&kind.args).envs(&kind.env).current_dir(cwd);
     let Started {
         stdin,

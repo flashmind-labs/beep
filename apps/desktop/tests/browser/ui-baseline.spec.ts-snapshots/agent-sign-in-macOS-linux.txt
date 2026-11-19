@@ -237,6 +237,13 @@ body.cbody
                     button.dbtn [type="button"] "Use an API key"
                 div.dmt6
                   div.dfine.dpy "No machine has Codex yet."
+              div.dbox
+                div.dline
+                  span.dstack
+                    b.dtitle "Named accounts"
+                    span.dsub "Work, personal and other accounts to pick per project or session. Without one, a session uses the account above."
+                  span.dacts
+                    button.dbtn [type="button"] "Add account"
             div#set-agent-overview style(display)
               div.dset-h "Coding agents"
               div.dset-box

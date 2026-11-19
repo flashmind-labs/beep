@@ -720,7 +720,7 @@ async fn send_usage(
             Ok(()) = plans.changed() => {
                 let now = watched::read_and_update(&mut plans, Clone::clone);
 
-                for plan in now.values().filter(|plan| sent.get(&plan.agent) != Some(plan)) {
+                for (_, plan) in now.iter().filter(|(of, plan)| sent.get(*of) != Some(*plan)) {
                     tx.send(&SessionsReply::PlanUsage { usage: plan.clone() }).await?;
                 }
                 sent = now;

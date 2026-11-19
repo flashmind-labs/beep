@@ -123,6 +123,10 @@ pub async fn serve_session(
         .context("the stream closed before its first request")
         .inspect_err(|_| trace.finish(false))?;
     trace.phase("starting or attaching");
+    let (first, account) = match first {
+        Request::StartAs { account, start } => (*start, Some(account)),
+        first => (first, None),
+    };
     // A start waits on its agent; a resume or attach should answer at once.
     let slow = match &first {
         Request::Resume { session, .. } => {
@@ -135,6 +139,9 @@ pub async fn serve_session(
     }
     .map(super::requests::warn_if_slow);
     let session = match first {
+        first @ (Request::Attach { .. } | Request::Resume { .. }) if account.is_some() => {
+            Err(format!("StartAs holds a Start, not {first:?}"))
+        }
         Request::Start {
             model: Some(model), ..
         } if !agent::valid_model(&model) => Err(format!("{model:?} is not a model name")),
@@ -156,6 +163,7 @@ pub async fn serve_session(
                     effort,
                     fast,
                     assistant,
+                    account,
                     ..Begin::default()
                 };
                 agents

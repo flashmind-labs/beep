@@ -135,6 +135,7 @@ impl Agents {
                         effort: order.effort,
                         fast: order.fast,
                     }),
+                    account: parent.account.clone(),
                 };
                 let child = self.start_child(link, start).await?;
                 (child, Some(who), Some(parent.id.clone()))

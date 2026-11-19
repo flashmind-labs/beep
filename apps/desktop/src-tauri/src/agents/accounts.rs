@@ -17,7 +17,8 @@ use crate::{
 use anyhow::Context;
 use beep_fleet::Session;
 use beep_proto::{
-    AgentAccount, AgentAccounts, AgentMachine, AgentToken, CodexLogin, CodexLoginState, SecretText,
+    AccountName, AgentAccount, AgentAccounts, AgentMachine, AgentToken, CodexLogin,
+    CodexLoginState, NamedAgentToken, SecretText,
 };
 use serde::Serialize;
 use std::{
@@ -95,6 +96,27 @@ pub struct AccountsView {
     claude: Option<TokenView>,
     codex_key: Option<TokenView>,
     machines: Vec<MachineView>,
+    named: Vec<NamedView>,
+}
+
+/// A named account of a coding agent, such as Claude Code's `Work`.
+#[derive(Debug, Serialize)]
+pub struct NamedView {
+    agent: AgentAccount,
+    name: AccountName,
+    env_var: String,
+    token: TokenView,
+}
+
+impl From<NamedAgentToken> for NamedView {
+    fn from(named: NamedAgentToken) -> Self {
+        Self {
+            agent: named.agent,
+            name: named.name,
+            env_var: named.env_var,
+            token: named.token.into(),
+        }
+    }
 }
 
 /// A Codex sign-in under way on a machine.
@@ -138,39 +160,59 @@ pub async fn agent_accounts(fleet: FleetState<'_>) -> Result<Option<AccountsView
         claude,
         codex_key,
         machines,
+        named,
     } = desk(&fleet).await?.agent_accounts().await?;
     Ok(Some(AccountsView {
         claude: claude.map(Into::into),
         codex_key: codex_key.map(Into::into),
         machines: machines.into_iter().map(Into::into).collect(),
+        named: named.into_iter().map(Into::into).collect(),
     }))
 }
 
-/// Saves a pasted token for `agent` (`claude` or `codex`).
+/// The named accounts alone, for the start form: no machine is asked.
+#[tauri::command]
+pub async fn agent_account_names(fleet: FleetState<'_>) -> Result<Vec<NamedView>> {
+    let named = desk(&fleet).await?.named_agent_tokens();
+    Ok(named.into_iter().map(Into::into).collect())
+}
+
+/// Saves a pasted token for `agent` (`claude` or `codex`), as its account
+/// `name` or as its default account without one.
 #[tauri::command]
 pub async fn save_agent_token(
     fleet: FleetState<'_>,
     agent_slug: String,
+    name: Option<String>,
     secret: String,
 ) -> Result<TokenView> {
     let agent = agent(&agent_slug)?;
-    save(&fleet, agent, SecretText::new(secret)).await
+    save(&fleet, agent, name.as_deref(), SecretText::new(secret)).await
 }
 
-async fn save(fleet: &Arc<Session>, agent: AgentAccount, secret: SecretText) -> Result<TokenView> {
+async fn save(
+    fleet: &Arc<Session>,
+    agent: AgentAccount,
+    name: Option<&str>,
+    secret: SecretText,
+) -> Result<TokenView> {
     let saved = desk(fleet)
         .await?
-        .save_agent_token(agent.as_ref(), &secret)
+        .save_agent_token(agent.as_ref(), name, &secret)
         .await?;
     Ok(saved.into())
 }
 
 #[tauri::command]
-pub async fn revoke_agent_token(fleet: FleetState<'_>, agent_slug: String) -> Result<()> {
+pub async fn revoke_agent_token(
+    fleet: FleetState<'_>,
+    agent_slug: String,
+    name: Option<String>,
+) -> Result<()> {
     let agent = agent(&agent_slug)?;
     Ok(desk(&fleet)
         .await?
-        .revoke_agent_token(agent.as_ref())
+        .revoke_agent_token(agent.as_ref(), name.as_deref())
         .await?)
 }
 
@@ -241,14 +283,20 @@ impl ClaudeSignIn {
 pub async fn claude_sign_in(
     fleet: FleetState<'_>,
     sign_in: State<'_, ClaudeSignIn>,
+    name: Option<String>,
 ) -> Result<TokenView> {
+    // A bad name is refused before the browser opens.
+    if let Some(name) = &name {
+        AccountName::from_str(name)?;
+    }
+
     let claude = find_tool("claude").ok_or_else(|| {
         refused("Claude Code is not installed on this computer. Install it in Coding agents, or paste a token.")
     })?;
     let cancelled = sign_in.start()?;
     let token = setup_token(&claude, cancelled).await;
     sign_in.stop();
-    save(&fleet, AgentAccount::Claude, token?).await
+    save(&fleet, AgentAccount::Claude, name.as_deref(), token?).await
 }
 
 #[tauri::command]

@@ -5,7 +5,7 @@
 //! compact msgpack, read by position, like the node link: a field is added
 //! at the end with `#[serde(default)]`.
 
-use super::{EnvSecret, ForgejoLogin, agent::Effort, harness::HarnessConfig};
+use super::{AgentLogin, EnvSecret, ForgejoLogin, agent::Effort, harness::HarnessConfig};
 use crate::SessionId;
 use crate::{AgentSlug, ModelId};
 use iroh::EndpointId;
@@ -188,6 +188,8 @@ pub enum Credential {
     Env(EnvSecret),
     /// A Forgejo or Gitea server teacli signs in to.
     Forgejo(ForgejoLogin),
+    /// A coding agent's named account. A node from before names skips it.
+    Agent(AgentLogin),
 }
 
 /// `terminal/<id>`: a terminal a desktop keeps running on a machine. The

@@ -106,7 +106,7 @@ impl Terminals {
                 }
             }
             None => {
-                for (name, value) in spawn_env::vars(Scope::Shell) {
+                for (name, value) in spawn_env::vars(&Scope::Shell) {
                     builder.env(name, value);
                 }
             }

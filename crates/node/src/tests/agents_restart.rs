@@ -601,6 +601,7 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
         },
         effort: None,
         fast: None,
+        account: None,
     }]);
     agents.settings_arrived();
     let resumed = agents
@@ -624,6 +625,7 @@ fn an_ended_assistant_kept_from_before_is_still_the_assistant() {
         },
         effort: None,
         fast: None,
+        account: None,
     };
     agents.keep_saved(vec![
         kept("chat", true, false),
@@ -696,6 +698,7 @@ fn a_new_note_reads_as_an_old_node_keeps_it() {
         },
         effort: None,
         fast: None,
+        account: None,
     };
     Reopen::new(Vec::new(), Vec::new(), vec![saved])
         .save(dir.path())
@@ -756,6 +759,7 @@ fn a_reviewer_taken_over_is_never_the_assistant() {
         },
         effort: None,
         fast: None,
+        account: None,
     };
 
     assert!(!agents.resumed_begin(None, &SessionId::from("held-1"), saved).assistant);

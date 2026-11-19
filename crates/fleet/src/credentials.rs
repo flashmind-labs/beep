@@ -3,7 +3,8 @@
 //! from the key and the value. An id is `<kind>.<saved_ms>.<name>`: `gh.<ms>.<login>` for a
 //! GitHub account, whose `~<owner>` siblings carry the same token for each owner it serves,
 //! `forgejo.<ms>.<host>`, `agent.<ms>.<agent>` and `key.<ms>.<provider>` for an API key. Released
-//! desktops delete `api.*` keys, so API keys live under `key.*`.
+//! desktops delete `api.*` keys, so API keys live under `key.*`. A coding agent's named account is
+//! `agent.<ms>.<agent>.<name>`, a `Credential::Agent` that released nodes and desktops skip.
 //!
 //! A secret never reaches a log: [`SecretText`] and [`SecretString`] print nothing.
 
@@ -24,9 +25,10 @@ use beep_projects::{
     github_owner_var,
 };
 use beep_proto::{
-    AgentAccount, AgentAccounts, AgentMachine, AgentToken, ApiKey, Credential, CredentialCheck,
-    ForgejoUrl, GITHUB_ENV_VAR, GitHubAccount, SecretText, Service,
-    node::{EnvReport, EnvSecret, ForgejoLogin, mesh_state::Credential as Value},
+    AccountName, AgentAccount, AgentAccounts, AgentMachine, AgentToken, ApiKey, Credential,
+    CredentialCheck, ForgejoUrl, GITHUB_ENV_VAR, GitHubAccount, NamedAgentToken, SecretText,
+    Service,
+    node::{AgentLogin, EnvReport, EnvSecret, ForgejoLogin, mesh_state::Credential as Value},
 };
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
@@ -682,7 +684,57 @@ impl Desk {
             claude: token(AgentAccount::Claude),
             codex_key: token(AgentAccount::Codex),
             machines,
+            named: self.named_agent_tokens(),
         })
+    }
+
+    /// The coding agents' named accounts, by agent then name, without asking any machine.
+    pub fn named_agent_tokens(&self) -> Vec<NamedAgentToken> {
+        let mut named: Vec<NamedAgentToken> = self
+            .named_accounts()
+            .into_iter()
+            .map(|(_, saved_ms, login)| NamedAgentToken {
+                agent: login.agent,
+                name: login.name,
+                env_var: login.env.name,
+                token: AgentToken {
+                    last4: last4(login.env.value.expose()),
+                    created_at: time(saved_ms),
+                    unreadable: false,
+                },
+            })
+            .collect();
+        named.sort_by(|a, b| {
+            (a.agent.as_ref(), a.name.as_ref().to_lowercase())
+                .cmp(&(b.agent.as_ref(), b.name.as_ref().to_lowercase()))
+        });
+        named
+    }
+
+    /// The coding agents' named accounts, by id, with when each was saved.
+    fn named_accounts(&self) -> Vec<(String, u64, AgentLogin)> {
+        self.keys_of(AGENT)
+            .into_iter()
+            .filter_map(|(id, value)| {
+                let (_, saved_ms, _) = parse_id(&id)?;
+                match value {
+                    Value::Agent(login) => Some((id, saved_ms, login)),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    /// The ids of `agent`'s account `name`; more than one only after two
+    /// desktops saved it at once.
+    fn named_ids(&self, agent: AgentAccount, name: &AccountName) -> Vec<String> {
+        self.named_accounts()
+            .into_iter()
+            .filter(|(_, _, login)| {
+                login.agent == agent && login.name.as_ref().eq_ignore_ascii_case(name.as_ref())
+            })
+            .map(|(id, _, _)| id)
+            .collect()
     }
 
     /// What `status`'s machine has: what it says now, else what it last said, which a machine
@@ -702,13 +754,43 @@ impl Desk {
         live.or_else(|| self.peers.last_env(id))
     }
 
-    /// Saves the token `agent` signs in with, for every machine.
-    pub async fn save_agent_token(&self, agent: &str, secret: &SecretText) -> Result<AgentToken> {
+    /// Saves the token `agent` signs in with, for every machine: as its
+    /// account `name`, or as its default account without one.
+    pub async fn save_agent_token(
+        &self,
+        agent: &str,
+        name: Option<&str>,
+        secret: &SecretText,
+    ) -> Result<AgentToken> {
         let agent = AgentAccount::from_str(agent)
             .map_err(|_| FleetError::refused("Beep keeps a token for Claude Code and Codex."))?;
+        let name = name.map(AccountName::from_str).transpose()?;
         let secret = trimmed(secret)?;
         let _write = WRITES.lock().await;
         let saved_ms = now_ms();
+        let token = AgentToken {
+            last4: last4(secret.expose_secret()),
+            created_at: time(saved_ms),
+            unreadable: false,
+        };
+
+        if let Some(name) = name {
+            for old in self.named_ids(agent, &name) {
+                self.drop_keys(&old).await?;
+            }
+
+            let id = make_id(AGENT, saved_ms, &format!("{}.{name}", agent.as_ref()));
+            let login = AgentLogin {
+                agent,
+                env: EnvSecret {
+                    name: agent.env_var_for(secret.expose_secret()).to_owned(),
+                    value: SecretText::new(secret.expose_secret()),
+                },
+                name,
+            };
+            crate::records::write(&self.mesh, key(&id), Some(&Value::Agent(login))).await?;
+            return Ok(token);
+        }
 
         for old in self
             .saved()
@@ -720,16 +802,33 @@ impl Desk {
 
         let id = make_id(AGENT, saved_ms, agent.as_ref());
         crate::records::write(&self.mesh, key(&id), Some(&env(agent.env_var(), &secret))).await?;
-        Ok(AgentToken {
-            last4: last4(secret.expose_secret()),
-            created_at: time(saved_ms),
-            unreadable: false,
-        })
+        Ok(token)
     }
 
-    pub async fn revoke_agent_token(&self, agent: &str) -> Result<()> {
+    /// Removes `agent`'s account `name`, or its default account's token
+    /// without one.
+    pub async fn revoke_agent_token(&self, agent: &str, name: Option<&str>) -> Result<()> {
         let agent = AgentAccount::from_str(agent).map_err(|_| FleetError::NotFound)?;
+        let name = name
+            .map(AccountName::from_str)
+            .transpose()
+            .map_err(|_| FleetError::NotFound)?;
         let _write = WRITES.lock().await;
+
+        if let Some(name) = name {
+            let ids = self.named_ids(agent, &name);
+
+            if ids.is_empty() {
+                return Err(FleetError::NotFound);
+            }
+
+            for id in ids {
+                self.drop_keys(&id).await?;
+            }
+
+            return Ok(());
+        }
+
         let old = self
             .saved()
             .into_iter()

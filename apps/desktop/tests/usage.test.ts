@@ -50,23 +50,23 @@ test("credits preserve zero, precision and unknown balances without counting as 
   assert.equal(creditAmount(credit, credit.total), "unavailable");
   assert.equal(creditScope("api_key"), "API key limit");
   const empty = { total: { project: "", cost_usd: 0, unpriced: [] }, tokens: 0, projects: [], harnesses: [] };
-  assert.ok(hasUsage({ limits: [{ agent: "flsh", plan: null, machine_name: "build-box", as_of: 0, windows: [], credits: [credit] }], today: empty, week: empty, month: empty }));
+  assert.ok(hasUsage({ limits: [{ agent: "flsh", account: null, plan: null, machine_name: "build-box", as_of: 0, windows: [], credits: [credit] }], today: empty, week: empty, month: empty }));
 });
 
 test("the pill shows each plan's binding window, the one most used", () => {
-  const plan = (agent: string, windows: { minutes: number; used_percent: number }[]) => ({ agent, plan: null, machine_name: "build-box", as_of: 0, windows: windows.map(w => ({ ...w, resets_at: null, scope: null })) });
+  const plan = (agent: string, windows: { minutes: number; used_percent: number }[]) => ({ agent, account: null, plan: null, machine_name: "build-box", as_of: 0, windows: windows.map(w => ({ ...w, resets_at: null, scope: null })) });
   assert.deepEqual(pillPlans([
     plan("claude", [{ minutes: 300, used_percent: 38 }, { minutes: 10_080, used_percent: 76.4 }]),
     plan("codex", [{ minutes: 300, used_percent: 9 }]),
     plan("flsh", []),
-  ]), [{ agent: "claude", model: null, used: 76, window: "This week" }, { agent: "codex", model: null, used: 9, window: "5 hours" }]);
+  ]), [{ agent: "claude", account: null, model: null, used: 76, window: "This week" }, { agent: "codex", account: null, model: null, used: 9, window: "5 hours" }]);
 });
 
 test("the pill shows a model's weekly limit past 1% beside its plan", () => {
   const windows = [{ minutes: 300, used_percent: 38, scope: null }, { minutes: 10_080, used_percent: 20, scope: null }, { minutes: 10_080, used_percent: 91, scope: "Fable" }, { minutes: 10_080, used_percent: 1, scope: "Opus" }];
-  assert.deepEqual(pillPlans([{ agent: "claude", plan: "max", machine_name: "build-box", as_of: 0, windows: windows.map(w => ({ ...w, resets_at: null })) }]), [
-    { agent: "claude", model: null, used: 38, window: "5 hours" },
-    { agent: "claude", model: "Fable", used: 91, window: "This week, Fable" },
+  assert.deepEqual(pillPlans([{ agent: "claude", account: null, plan: "max", machine_name: "build-box", as_of: 0, windows: windows.map(w => ({ ...w, resets_at: null })) }]), [
+    { agent: "claude", account: null, model: null, used: 38, window: "5 hours" },
+    { agent: "claude", account: null, model: "Fable", used: 91, window: "This week, Fable" },
   ]);
 });
 

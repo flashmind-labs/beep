@@ -22,7 +22,7 @@ use beep_proto::node::{
     usage::PlanUsage,
 };
 use beep_proto::watched;
-use beep_proto::{AgentAccount, ModelId, Upload};
+use beep_proto::{AccountName, AgentAccount, ModelId, Upload};
 use std::time::Duration;
 use std::{
     borrow::Cow,
@@ -30,8 +30,10 @@ use std::{
     env,
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
+    str::FromStr,
     sync::{Arc, MutexGuard, atomic::Ordering},
 };
+use futures::{StreamExt, stream::FuturesUnordered};
 use tokio::{
     sync::{oneshot, watch},
     task::spawn_blocking,
@@ -310,15 +312,20 @@ impl Agents {
     }
 
     /// The CLI of `agent`, with `args`, as a plan read starts it: signed
-    /// in as the agent's sessions are, with the user's settings for it.
-    /// `None` when this node does not run it or the user turned it off.
-    fn cli(&self, agent: AgentAccount, args: &[&str]) -> Option<tokio::process::Command> {
+    /// in as the agent's sessions on `account` are, with the user's settings
+    /// for it. `None` when this node does not run it or the user turned it off.
+    fn cli(
+        &self,
+        agent: AgentAccount,
+        account: Option<&AccountName>,
+        args: &[&str],
+    ) -> Option<tokio::process::Command> {
         let name = agent.as_ref();
         let kind = self.named(name)?;
         let kind = self.settings.configured(&kind).ok()?;
         let program = harnesses::find(name)?;
         let mut command = process::command(program);
-        spawn_env::apply(&mut command, Scope::Agent(Some(agent)));
+        spawn_env::apply(&mut command, Scope::for_agent(name, account));
         command
             .args(args)
             .envs(&kind.env)
@@ -354,29 +361,42 @@ impl Agents {
         self.read_plans_soon();
     }
 
-    /// Reads how much of each agent's plan is left from the CLIs of the
-    /// agents this node runs, into `usage` as each answers: a slow CLI
-    /// does not hold back the other. One that cannot say is left out.
+    /// Reads how much of each plan is left from the CLIs of the agents this
+    /// node runs, once per account, into `usage` as each answers: a slow CLI
+    /// does not hold back the others. One that cannot say is left out.
     async fn read_plans(&self) {
-        let claude = self.cli(AgentAccount::Claude, plans::CLAUDE_ARGS);
-        let codex = self.cli(AgentAccount::Codex, plans::CODEX_ARGS);
-        let keep = |agent: AgentAccount, read: Result<Option<PlanUsage>>| match read {
-            Ok(Some(plan)) => self.usage.set_plan(plan),
+        let reads = [AgentAccount::Claude, AgentAccount::Codex]
+            .into_iter()
+            .flat_map(|agent| {
+                let named = spawn_env::accounts_of(agent).into_iter().map(Some);
+                std::iter::once(None)
+                    .chain(named)
+                    .map(move |account| (agent, account))
+            })
+            .map(|(agent, account)| self.read_plan(agent, account))
+            .collect::<FuturesUnordered<_>>();
+        reads.collect::<Vec<()>>().await;
+    }
+
+    /// Reads `agent`'s plan on `account` into `usage`.
+    async fn read_plan(&self, agent: AgentAccount, account: Option<AccountName>) {
+        let args = match agent {
+            AgentAccount::Claude => plans::CLAUDE_ARGS,
+            AgentAccount::Codex => plans::CODEX_ARGS,
+        };
+        let Some(command) = self.cli(agent, account.as_ref(), args) else {
+            return;
+        };
+        let read = match agent {
+            AgentAccount::Claude => plans::read_claude(command).await,
+            AgentAccount::Codex => plans::read_codex(command).await,
+        };
+
+        match read {
+            Ok(Some(plan)) => self.usage.set_plan(PlanUsage { account, ..plan }),
             Ok(None) => {}
             Err(e) => log::info!("{} plan usage not read: {e:#}", agent.as_ref()),
-        };
-        tokio::join!(
-            async {
-                if let Some(command) = claude {
-                    keep(AgentAccount::Claude, plans::read_claude(command).await);
-                }
-            },
-            async {
-                if let Some(command) = codex {
-                    keep(AgentAccount::Codex, plans::read_codex(command).await);
-                }
-            },
-        );
+        }
     }
 
     /// While the node runs: checks installed harness releases once an hour
@@ -629,6 +649,7 @@ impl Agents {
         begin: Begin,
     ) -> Result<Arc<Session>> {
         let kind = &self.settings.configured(kind)?;
+        signs_in(&kind.name, begin.account.as_ref())?;
         let (cwd, brief) = in_project(cwd, begin.resume.is_some(), begin.brief)?;
         let recovery_cwd = crate::files::paths::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone());
         let recovering = crate::lock(&self.recovering);
@@ -722,6 +743,7 @@ impl Agents {
             rule,
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
             assistant,
+            account: begin.account,
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts,
@@ -848,6 +870,24 @@ pub(super) struct Begin {
     pub(super) review: bool,
     /// The home assistant, as asked for (Cmd+N on Home) or as saved.
     pub(super) assistant: bool,
+    /// The named account to sign in as; `None` for the default one.
+    pub(super) account: Option<AccountName>,
+}
+
+/// Refuses a start as `account` that this node cannot sign `agent` in as,
+/// rather than run it on another account.
+fn signs_in(agent: &str, account: Option<&AccountName>) -> Result<()> {
+    let Some(account) = account else {
+        return Ok(());
+    };
+    let Ok(keeps) = AgentAccount::from_str(agent) else {
+        anyhow::bail!("{agent} has no named accounts; start it on its default account");
+    };
+    anyhow::ensure!(
+        spawn_env::has_account(keeps, account),
+        "this machine does not have {agent}'s account {account} yet; try again once it has synced, or add it in Agent accounts"
+    );
+    Ok(())
 }
 
 /// The folder a session asked to run in `cwd` runs in, with Beep's brief

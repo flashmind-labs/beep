@@ -14,8 +14,8 @@ test("the phone offers a pasted Claude Code token, not a local sign-in", async (
   }
   const { render, cleanup } = await import("@testing-library/react");
   const noop = () => {};
-  const actions: AgentAccountActions = { edit: noop, cancel: noop, save: noop, revoke: noop, claudeSign: noop, claudeCancel: noop, claudeMachineSign: noop, codexSign: noop, codexCancel: noop, open: noop };
-  const state: AgentAccountsState = { edit: null, data: { claude: null, codex_key: null, machines: [] } };
+  const actions: AgentAccountActions = { add: noop, addSave: noop, addSign: noop, removeNamed: noop, edit: noop, cancel: noop, save: noop, revoke: noop, claudeSign: noop, claudeCancel: noop, claudeMachineSign: noop, codexSign: noop, codexCancel: noop, open: noop };
+  const state: AgentAccountsState = { edit: null, data: { claude: null, codex_key: null, machines: [], named: [] } };
   try {
     const view = render(createElement(AgentAccountsView, { state, actions, ago: () => "today", now: 0 }));
     assert.equal(view.queryByText("Sign in"), null);

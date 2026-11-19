@@ -27,11 +27,23 @@ interface CliLogin {
   account?: string | null;
 }
 
+/// The coding agents that keep accounts.
+export type AccountAgent = "claude" | "codex";
+
+/// A named account of a coding agent, such as Claude Code's Work (NamedView).
+export interface NamedAccount {
+  agent: AccountAgent;
+  name: string;
+  env_var: string;
+  token: AgentToken;
+}
+
 /// What `agent_accounts` answers (AccountsView).
 export interface AgentAccounts {
   claude: AgentToken | null;
   codex_key: AgentToken | null;
   machines: AgentMachine[];
+  named: NamedAccount[];
   /// Each machine's own Claude Code sign-in by machine id, as it last
   /// reported it. Added here from `list_machines`.
   claude_logins?: Map<string, CliLogin>;
@@ -52,8 +64,17 @@ export type CodexFlow =
   | (CodexLogin & { copied?: boolean; starting?: undefined; error?: undefined })
   | { error: string; starting?: undefined; task?: undefined; code?: undefined };
 
+/// The named account being added.
+export interface AccountDraft {
+  agent: AccountAgent;
+  error: string;
+}
+
 export interface AgentAccountsState {
   data: AgentAccounts | null | undefined;
+  add?: AccountDraft | null;
+  /// Why removing a named account failed.
+  namedError?: string;
   edit?: string | null;
   busy?: string;
   error?: string;
@@ -72,4 +93,22 @@ export function tokenDraft(agent: string | null | undefined, secret: string | un
   if (/\s/.test(secret)) return { error: "That does not look like a token: it has spaces in it." };
   if (agent === "claude" && secret.startsWith("sk-ant-api")) return { error: "That is an Anthropic API key. Paste the token claude setup-token prints." };
   return { agent, secret };
+}
+
+/// The longest account name taken, as the desktop checks it.
+const MAX_ACCOUNT_NAME = 32;
+
+/// The name a new account is saved under, or an error to show.
+export function accountName(name: string): { name: string; error: null } | { name: null; error: string } {
+  const trimmed = name.trim();
+  if (!trimmed) return { name: null, error: "Name the account first, such as Work." };
+  if ([...trimmed].length > MAX_ACCOUNT_NAME) return { name: null, error: `An account name has at most ${MAX_ACCOUNT_NAME} characters.` };
+  if (/[~/\p{Cc}]/u.test(trimmed)) return { name: null, error: "An account name cannot hold ~, / or control characters." };
+  if (trimmed.toLowerCase() === "default") return { name: null, error: "Default is the account without a name; pick another name." };
+  return { name: trimmed, error: null };
+}
+
+/// The names of `agent`'s named accounts, in the order Settings lists them.
+export function accountNames(data: AgentAccounts | null | undefined, agent: string): string[] {
+  return (data?.named ?? []).filter(account => account.agent === agent).map(account => account.name);
 }

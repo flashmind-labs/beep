@@ -10,8 +10,8 @@ use beep_mesh::MeshError;
 use beep_projects::imports::records::{ImportRow, imported_project_of};
 use beep_proto::SessionId;
 use beep_proto::{
-    AgentSlug, AgentTokens, HarnessBill, ModelId, ModelSpend, PlanLimits, PlanWindow, ProjectBill,
-    SpendPeriod, SpendReport,
+    AccountName, AgentSlug, AgentTokens, HarnessBill, ModelId, ModelSpend, PlanLimits, PlanWindow,
+    ProjectBill, SpendPeriod, SpendReport,
     node::{
         agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
         usage::{HourSpend, PlanUsage, SessionSpend},
@@ -275,16 +275,19 @@ fn rows_since<'a>(said: &'a Said, imports: &[ImportRow], from: i64) -> Vec<Row<'
         .collect()
 }
 
-/// The freshest report of each agent: Claude Code, then Codex, then the others.
+/// The freshest report of each agent's account: Claude Code, then Codex, then the others, each
+/// default account before its named ones.
 pub(crate) fn freshest(plans: impl IntoIterator<Item = PlanLimits>) -> Vec<PlanLimits> {
-    let mut by_agent: BTreeMap<AgentSlug, PlanLimits> = BTreeMap::new();
+    let mut by_agent: BTreeMap<(AgentSlug, Option<AccountName>), PlanLimits> = BTreeMap::new();
 
     for plan in plans {
+        let key = (plan.agent.clone(), plan.account.clone());
+
         if by_agent
-            .get(&plan.agent)
+            .get(&key)
             .is_none_or(|held| plan.as_of >= held.as_of)
         {
-            by_agent.insert(plan.agent.clone(), plan);
+            by_agent.insert(key, plan);
         }
     }
 
@@ -298,6 +301,7 @@ pub(crate) fn freshest(plans: impl IntoIterator<Item = PlanLimits>) -> Vec<PlanL
         rank(&a.agent)
             .cmp(&rank(&b.agent))
             .then_with(|| a.agent.cmp(&b.agent))
+            .then_with(|| a.account.cmp(&b.account))
     });
     plans
 }
@@ -328,6 +332,7 @@ fn plan_limits(machine: &str, plan: &PlanUsage) -> Option<PlanLimits> {
         as_of: UNIX_EPOCH + Duration::from_secs(plan.at),
         windows,
         credits: plan.credits.clone(),
+        account: plan.account.clone(),
     })
 }
 

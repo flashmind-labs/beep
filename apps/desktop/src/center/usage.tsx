@@ -19,6 +19,8 @@ export interface UsageWindow {
 
 export interface PlanLimits {
   agent: string;
+  /// The agent's named account; null for its default one.
+  account: string | null;
   plan: string | null;
   machine_name: string;
   as_of: number;
@@ -90,6 +92,8 @@ export function windowUsed(w: Pick<UsageWindow, "used_percent">) {
 /// one of its model limits, such as Fable's weekly window.
 export interface PillPlan {
   agent: string;
+  /// The agent's named account; null for its default one.
+  account: string | null;
   /// The model a limit applies to; null for the plan as a whole.
   model: string | null;
   used: number;
@@ -103,8 +107,8 @@ export function pillPlans(limits: PlanLimits[]): PillPlan[] {
     const binding = plan.windows.filter(w => !w.scope)
       .reduce<UsageWindow | null>((most, w) => !most || windowUsed(w) > windowUsed(most) ? w : most, null);
     const models = plan.windows.filter(w => w.scope && windowUsed(w) > 1)
-      .map(w => ({ agent: plan.agent, model: w.scope, used: windowUsed(w), window: windowName(w) }));
-    return binding ? [{ agent: plan.agent, model: null, used: windowUsed(binding), window: windowName(binding) }, ...models] : models;
+      .map(w => ({ agent: plan.agent, account: plan.account, model: w.scope, used: windowUsed(w), window: windowName(w) }));
+    return binding ? [{ agent: plan.agent, account: plan.account, model: null, used: windowUsed(binding), window: windowName(binding) }, ...models] : models;
   });
 }
 

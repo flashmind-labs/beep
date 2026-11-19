@@ -371,7 +371,7 @@ async fn open(dir: &Path, start: bool) -> Result<Option<Conn>> {
         Err(_) => launch(dir).await?,
     };
     let mut conn = Conn::new(stream);
-    let env = spawn_env::vars(Scope::Shell)
+    let env = spawn_env::vars(&Scope::Shell)
         .into_iter()
         .filter_map(|(name, value)| {
             Some(EnvSecret {

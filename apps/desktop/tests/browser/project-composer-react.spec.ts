@@ -153,7 +153,7 @@ test("a draft's start opens as a session at once, and the session its machine na
   await expect(banner).toContainText("Waiting for build-box");
   await expect(banner.getByRole("button", { name: "Retry" })).toHaveCount(0);
   await expect(page.locator("#agdraft, #agmsg")).toHaveCount(0);
-  expect((await calls(page, "agent_begin")).at(-1)).toEqual({ machineId: "build-box", agent: "codex", cwd: "/srv/project", prompt: "Inspect the project", model: null, effort: null, fast: null, checkout: null, images: [] });
+  expect((await calls(page, "agent_begin")).at(-1)).toEqual({ machineId: "build-box", agent: "codex", cwd: "/srv/project", prompt: "Inspect the project", model: null, effort: null, fast: null, checkout: null, images: [], account: null });
   await expect.poll(async () => (await calls(page, "agent_view")).map(args => args.session)).toContain("start:one");
 
   for (const command of ["agent_start", "agent_follow", "agent_modes", "agent_tasks", "agent_processes", "transcript_kept", "outbox_list"]) {
@@ -318,4 +318,25 @@ test("⇧⌘M and the pill open the model picker in a project's new conversation
 
   await harness.click();
   await expect(page.locator("#agdraft .pick .agc-search")).toBeVisible();
+});
+
+test("the project bar starts as the account picked for the project", async ({ page }) => {
+  await openDesktop(page, false, {
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
+    agent_account_names: [{ agent: "codex", name: "Work", env_var: "CODEX_ACCESS_TOKEN", token: { last4: "4a2f", created_at: 0, unreadable: false } }],
+    agent_begin: { session: start, why: "" },
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  const form = page.locator(".cc-pjc:visible");
+  const account = form.locator('[data-composer="account"]');
+  await expect(account).toHaveText("as default");
+  await account.click();
+  await page.getByRole("menu", { name: "Account" }).getByRole("menuitem", { name: "Work" }).click();
+  await expect(account).toHaveText("as Work");
+  const input = form.getByRole("textbox", { name: "Task for a coding agent" });
+  await input.fill("Inspect the project");
+  await input.press("Enter");
+  await expect.poll(async () => (await calls(page, "agent_begin")).length).toBe(1);
+  const [args] = await calls(page, "agent_begin");
+  expect(args?.account).toBe("Work");
 });

@@ -25,7 +25,7 @@ use crate::{
 use beep_node::{agents::tags::title, link::reconnect::Backoff};
 use beep_proto::SessionId;
 use beep_proto::{
-    AgentEntry, AgentEntryKind, AgentSessionView, AgentStatus, AgentSteer, ApiError,
+    AccountName, AgentEntry, AgentEntryKind, AgentSessionView, AgentStatus, AgentSteer, ApiError,
     MachineSession, ModelId, StartAgentSession, StartedAgent, SteerAgentSession, agent_name,
     node::agent::{CheckoutPlan, Effort, Request},
 };
@@ -134,6 +134,9 @@ pub(crate) struct Start {
     pub(crate) checkout: Option<CheckoutPlan>,
     pub(crate) images: Vec<KeptImage>,
     pub(crate) assistant: bool,
+    /// The named account it runs as; `None` for the agent's default one.
+    #[serde(default)]
+    pub(crate) account: Option<AccountName>,
     /// Why Auto picked the machine; empty when the start named it.
     pub(crate) why: String,
     pub(crate) at: SystemTime,
@@ -233,6 +236,7 @@ impl Start {
             fast: self.fast,
             checkout: self.checkout.clone(),
             assistant: self.assistant,
+            account: self.account.clone(),
         }
     }
 }
@@ -742,7 +746,9 @@ pub async fn agent_begin(
     checkout: Option<CheckoutPlan>,
     images: Option<Vec<PastedImage>>,
     assistant: Option<bool>,
+    account: Option<String>,
 ) -> Result<Started> {
+    let account = account.as_deref().map(AccountName::from_str).transpose()?;
     let pasted = images.unwrap_or_default();
     let checked = uploads(pasted.clone())?;
 
@@ -761,6 +767,7 @@ pub async fn agent_begin(
         fast,
         checkout,
         assistant: assistant.unwrap_or(false),
+        account,
     };
     let planned = direct::plan(&fleet, request, checked).await?;
     let Request::Start {
@@ -789,6 +796,7 @@ pub async fn agent_begin(
         checkout,
         images: pasted.into_iter().map(KeptImage::from).collect(),
         assistant,
+        account: planned.account,
         why: planned.why,
         at: SystemTime::now(),
         // Its runner marks it starting, once that is on disk.

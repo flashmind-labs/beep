@@ -40,7 +40,7 @@ pub async fn open_agent(
     agent: &str,
     first: Request,
 ) -> Result<Opened, MeshError> {
-    let starting = matches!(first, Request::Start { .. });
+    let starting = matches!(first, Request::Start { .. } | Request::StartAs { .. });
     let (tx, rx) = client.open_sending(&agent::protocol(agent), &first).await?;
     attached(tx, rx, starting).await
 }
@@ -65,7 +65,7 @@ pub async fn open_agent_staged(
     agent: &str,
     first: Request,
 ) -> Result<Opened, OpenFailed> {
-    let starting = matches!(first, Request::Start { .. });
+    let starting = matches!(first, Request::Start { .. } | Request::StartAs { .. });
     let (mut tx, rx) = client
         .open(&agent::protocol(agent))
         .await

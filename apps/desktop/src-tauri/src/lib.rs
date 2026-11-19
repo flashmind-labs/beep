@@ -181,6 +181,7 @@ pub fn run() {
             agents::accounts::codex_login_start,
             agents::accounts::codex_login_state,
             agents::accounts::revoke_agent_token,
+            agents::accounts::agent_account_names,
             agents::stash::prompt_stash_list,
             agents::stash::prompt_stash_put,
             agents::stash::prompt_stash_read,

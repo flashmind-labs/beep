@@ -281,12 +281,18 @@ impl Provision {
 
     /// Takes the user's credentials in place of the ones before.
     pub async fn apply(&self, credentials: MachineCredentials) {
-        let MachineCredentials { env, forgejo } = credentials;
+        let MachineCredentials {
+            env,
+            forgejo,
+            agents,
+        } = credentials;
         log::info!(
-            "credentials: {} env vars, {} Forgejo servers",
+            "credentials: {} env vars, {} Forgejo servers, {} agent accounts",
             env.len(),
-            forgejo.len()
+            forgejo.len(),
+            agents.len()
         );
+        spawn_env::set_accounts(agents);
         spawn_env::set_vars(env);
         *lock(&self.forgejo) = forgejo;
         self.configure_teacli().await;
@@ -295,6 +301,7 @@ impl Provision {
     /// Drops the credentials, from memory and from teacli's config, when
     /// the node stops.
     pub async fn forget(&self) {
+        spawn_env::set_accounts(Vec::new());
         spawn_env::set_vars(Vec::new());
         lock(&self.forgejo).clear();
         self.configure_teacli().await;
