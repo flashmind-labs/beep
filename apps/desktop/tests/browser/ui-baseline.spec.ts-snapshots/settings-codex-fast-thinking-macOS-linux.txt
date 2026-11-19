@@ -201,9 +201,10 @@ body.cbody
                   b "Harness"
                   small "The coding agent, model and thinking level the Home assistant starts with"
                 div
-                  button.agc-pill.dbtn.quiet [aria-expanded="true" type="button"] "Ultra Example Model"
+                  button.agc-pill.dbtn.quiet [aria-expanded="true" type="button"]
                     span.cc-ag.codex.mark
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    span.txt "Ultra Example Model"
                     svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                   div.agc-pick [aria-label="Harness, model and thinking" role="dialog"] style(left,top,width)
                     div.agc-rail

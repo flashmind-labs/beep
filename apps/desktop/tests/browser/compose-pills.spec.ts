@@ -107,3 +107,41 @@ test("sending clears the draft", async ({ page }) => {
   await open("notice-one");
   await expect(field).toHaveValue("");
 });
+
+test("the message field's words, buttons and pills share one row", async ({ page }) => {
+  const pi = { ...session("pi-one"), agent: "pi" };
+  const model = "openrouter/anthropic/claude-sonnet-4.5";
+  await openDesktop(page, false, {
+    agent_view: { session: pi, model, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0, usage: null },
+    agent_modes: { current: "default", modes: [{ id: "default", name: "Thinking: high" }, { id: "plan", name: "Plan" }], plan: null },
+    agent_models: { pick: "listed", current: model, models: [{ id: model, name: "openrouter/Anthropic: Claude Sonnet 4.5", description: null, provider: null, efforts: ["low", "high"], fast: false }] },
+  });
+  await page.evaluate(row => window.__navigation.open({ agent: row }), pi);
+  await expect(page.locator("#agmodeb")).toBeVisible();
+  const centers = () => page.evaluate(() => {
+    const mid = (selector: string) => {
+      const r = document.querySelector(selector)?.getBoundingClientRect();
+      return r ? r.top + r.height / 2 : null;
+    };
+    const field = document.querySelector("textarea#agmsg");
+    if (!field) return null;
+    const r = field.getBoundingClientRect(), lineHeight = parseFloat(getComputedStyle(field).lineHeight);
+    return {
+      words: r.bottom - lineHeight / 2,
+      controls: ['#agfield button[aria-label="Attach files"]', "#agmodeb", "#agmodelb", "#agstop"].map(mid),
+    };
+  });
+  const sameRow = async () => {
+    const seen = await centers();
+    if (!seen) throw new Error("the message field is laid out");
+    for (const control of seen.controls) expect(Math.abs((control ?? 0) - seen.words)).toBeLessThan(1);
+  };
+
+  await sameRow();
+  const pill = await page.locator("#agmodelb").boundingBox(), caret = await page.locator("#agmodelb > svg").boundingBox();
+  expect(pill?.width).toBeLessThanOrEqual(180);
+  expect((caret?.x ?? 0) + (caret?.width ?? 0)).toBeLessThanOrEqual((pill?.x ?? 0) + (pill?.width ?? 0));
+
+  await page.locator("#agmsg").fill("one\ntwo\nthree");
+  await sameRow();
+});

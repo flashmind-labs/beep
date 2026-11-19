@@ -108,9 +108,10 @@ body.cbody
                     div.row
                       span.choices
                       span.sp
-                      button.pill [aria-expanded="false" title="Harness, model and thinking" type="button"] "High Default"
+                      button.pill [aria-expanded="false" title="Harness, model and thinking" type="button"]
                         span.cc-ag.flsh.mark
                           svg [aria-hidden="true" viewBox="0 0 28 28"]
+                        span.txt "High Default"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                       div.ag-att [hidden]
                       button.dbtn.pri [type="submit"] "Start"

@@ -35,10 +35,10 @@ body:not(.mobile) .dcoderen.agent:has(+ .dcoderturn) { color: var(--muted) }
    The doubled id outranks the pane's own field rule in center.css. */
 body:not(.mobile) #agfield#agfield.dinput.small { position: relative; isolation: isolate; align-items: flex-end; flex-wrap: wrap; width: calc(100% - 28px); max-width: 720px; margin: 0 auto 6px; padding: 5px 6px; gap: 4px; border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent); border-radius: var(--radius); background: var(--lit); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 1px 0 color-mix(in srgb, var(--fg) 6%, transparent) inset; font-size: 13.5px }
 /* No padding above or below the words: the field's height is measured from them, and engines disagree on whether that counts padding. */
-body:not(.mobile) #agfield.dinput.small > textarea { align-self: stretch; min-height: max(1.25em, var(--field-h, 0px)); margin-block: calc(13px - .625em); padding: 0 4px; line-height: 1.25 }
-body:not(.mobile) #agfield button[aria-label="Attach files"] { width: 26px; height: 26px; min-height: 0; margin: 0; color: var(--muted) }
-body:not(.mobile) #agfield :is(#agstop, #agnativeparent) { min-height: 26px; padding: 0 10px; font-size: 12px }
-body:not(.mobile) #agmodel .agc-pill { font-size: 12px; padding: 3px 6px; gap: 6px }
+body:not(.mobile) #agfield.dinput.small > textarea { min-height: max(1.25em, var(--field-h, 0px)); margin-block: calc(var(--ctl-h) / 2 - .625em); padding: 0 4px; line-height: 1.25 }
+body:not(.mobile) #agfield button[aria-label="Attach files"] { width: var(--ctl-h); height: var(--ctl-h); min-height: 0; margin: 0; color: var(--muted) }
+body:not(.mobile) #agfield :is(#agstop, #agnativeparent) { min-height: var(--ctl-h); padding: 0 10px; font-size: 12px }
+body:not(.mobile) :is(#agmodel, #agmode) .agc-pill { box-sizing: border-box; height: var(--ctl-h); padding: 0 6px; font-size: 12px; gap: 6px }
 body:not(.mobile) #agmodel .cc-ag { width: 16px; height: 16px; border: 0; background: none }
 .agfield-grip { display: none }
 body:not(.mobile) .agfield-grip { display: block; position: absolute; inset: -4px 0 auto; height: 8px; cursor: row-resize; z-index: 1 }

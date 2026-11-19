@@ -244,9 +244,10 @@ body.cbody
                 input.branch [aria-label="Branch name" autocomplete="off" hidden spellcheck="false" title="The new branch, in a new worktree" type="text" value] value=""
                 button.dbtn.quiet.small [hidden title="Back to a plain start" type="button"] "Clear"
               span.sp
-              button.pill [aria-expanded="false" title="Harness, model and thinking" type="button"] "Default"
+              button.pill [aria-expanded="false" title="Harness, model and thinking" type="button"]
                 span.cc-ag.codex.mark
                   svg [aria-hidden="true" viewBox="0 0 24 24"]
+                span.txt "Default"
                 svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
               button.dbtn.quiet [aria-label="Attach files" title="Attach files" type="button"]
                 svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]

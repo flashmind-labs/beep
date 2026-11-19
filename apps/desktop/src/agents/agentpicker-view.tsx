@@ -98,7 +98,7 @@ function Check() {
 }
 
 export function AgentPillContent({ agent, detail }: { agent: string; detail: string }) {
-  return <><HarnessIcon agent={agent}/>{detail}<Icon name="caretDown" size={12} /></>;
+  return <><HarnessIcon agent={agent}/><span className="txt">{detail}</span><Icon name="caretDown" size={12} /></>;
 }
 
 export function AgentPicker({ picked, model, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, onFast, anchor, search }: PickerProps) {

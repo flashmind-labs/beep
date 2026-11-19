@@ -98,7 +98,7 @@ body.cbody
                     strong "README"
                     code "--compact"
                   span "1 min ago"
-                button.dbtn.quiet [aria-label="Dismiss" title="Dismiss" type="button"]
+                button.dbtn.quiet [aria-label="Dismiss" title="Dismiss (X)" type="button"]
                   svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
               div.nt-row.unread [data-id="second" role="button" tabindex="0"]
                 span.nt-dot
@@ -111,7 +111,7 @@ body.cbody
                   span.nt-acts
                     button.dbtn.pri.small [type="button"] "Allow"
                     button.dbtn.small [type="button"] "Deny"
-                button.dbtn.quiet [aria-label="Dismiss" title="Dismiss" type="button"]
+                button.dbtn.quiet [aria-label="Dismiss" title="Dismiss (X)" type="button"]
                   svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
               div.nt-row.unread [data-id="third" role="button" tabindex="0"]
                 span.nt-dot
@@ -119,7 +119,7 @@ body.cbody
                 span.nt-t
                   b "build-box is offline"
                   span "build-box · 1 h ago"
-                button.dbtn.quiet [aria-label="Dismiss" title="Dismiss" type="button"]
+                button.dbtn.quiet [aria-label="Dismiss" title="Dismiss (X)" type="button"]
                   svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
         button.mb-set [aria-label="Settings" type="button"]
           svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]

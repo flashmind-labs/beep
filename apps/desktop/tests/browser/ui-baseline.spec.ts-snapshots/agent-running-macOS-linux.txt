@@ -276,9 +276,10 @@ body.cbody
                     textarea#agmsg.cx-field [aria-busy="false" autocomplete="off" data-prompt-stash placeholder="Message Codex" rows="1" spellcheck="false"] style(height) value=""
                     span#agmode
                     span#agmodel
-                      button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"] "Model unknown"
+                      button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"]
                         span.cc-ag.codex.mark
                           svg [aria-hidden="true" viewBox="0 0 24 24"]
+                        span.txt "Model unknown"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                     button#agstop.dbtn [aria-label="Stop the turn" title="Stop main turn (subagents keep running)" type="button"]
                       span.dstopico

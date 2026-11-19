@@ -169,9 +169,10 @@ body.cbody
             textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="Describe the task." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value="" (focused)
             div.row
               span.sp
-              button.pill [aria-expanded="false" title="Harness, model and thinking" type="button"] "Default"
+              button.pill [aria-expanded="false" title="Harness, model and thinking" type="button"]
                 span.cc-ag.codex.mark
                   svg [aria-hidden="true" viewBox="0 0 24 24"]
+                span.txt "Default"
                 svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
               button.dbtn.quiet [aria-label="Attach files" title="Attach files" type="button"]
                 svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
