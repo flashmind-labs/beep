@@ -2,6 +2,21 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.3] - 2026-11-19
+
+### Fixed
+
+- Node: resumed Codex sessions use the selected model from the start, avoiding a misleading model mismatch warning.
+- Node: skill libraries added from the desktop install on every machine,
+  even one that cannot reach the library's Git repo. Only the machine that
+  added the library clones it; the others copy the skills from a peer.
+- Node: a pi session no longer opens with the adapter's startup message
+  listing its version, context files and skills.
+- Node: the agents list shows when a newer pi version is out. It checks the
+  current pi package instead of the deprecated one.
+- Node: a pi session no longer shows a separate thinking mode pill beside
+  the model pill, which already shows the thinking level.
+
 ## [0.8.2] - 2026-11-19
 
 ### Added

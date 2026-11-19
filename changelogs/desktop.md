@@ -7,6 +7,27 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.5] - 2026-11-19
+
+### Added
+
+- Desktop: Discuss with agent prefills an editable prompt about an issue or pull request.
+- Desktop: Cmd+L (Ctrl+L on Windows) opens the Assistant page with the composer ready to type. The shortcut is listed in the Keyboard shortcuts sheet.
+
+### Changed
+
+- Desktop: Continue opens the session that created a pull request when Beep can find it. Otherwise, Work on PR starts a new session.
+
+### Fixed
+
+- Desktop: resumed Codex sessions use the selected model from the start, avoiding a misleading model mismatch warning.
+- Desktop: a file linked in an Assistant chat opens over the window, read from the assistant's machine. Pictures show, audio and video play, and text files show their text. An Open button opens any file in this computer's app, which is also how PDFs and 3D models open.
+- Desktop: in a session's message field, the placeholder and typed text,
+  the attach button, the mode pill, the model pill and the stop button
+  now sit on one centred line. The mode and model pills are smaller and
+  narrower, and a long model name ends in an ellipsis, leaving more room
+  to type.
+
 ## [0.10.4] - 2026-11-19
 
 ### Added
