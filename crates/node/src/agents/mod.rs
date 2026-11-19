@@ -34,7 +34,7 @@ host! {
     mod alerts;
     mod checkout;
     mod compaction;
-    mod custom_agents;
+    pub(crate) mod custom_agents;
     mod delete;
     mod family;
     mod flsh_config;

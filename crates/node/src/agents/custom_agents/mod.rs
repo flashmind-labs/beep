@@ -2,7 +2,7 @@
 //! list (`list`): Markdown with YAML frontmatter, Codex role files, and the
 //! agent tables of `opencode.json` and Codex's `config.toml`.
 
-pub(super) mod parse;
+pub(crate) mod parse;
 
 use crate::files::paths;
 use anyhow::{Context, Result, bail};

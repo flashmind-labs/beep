@@ -8,7 +8,7 @@ pub(crate) mod spawn_env;
 mod teacli;
 mod tools;
 
-pub(crate) use skills::installed_by_beep;
+pub(crate) use skills::{beep_dir as skills_dir, brief as skills_brief, installed_by_beep};
 pub(crate) use tools::{curl, listed_sha256, remove_dir, unpack, verify};
 
 use crate::{AsyncMutex, lock};
@@ -366,18 +366,18 @@ fn installed_ok(name: &str, result: Result<PathBuf>) -> bool {
     }
 }
 
+// TODO-UPDATE-COMMENT: skills go to Beep's own skills folder now, not the agents' folders
+// ---
 /// Installs every skill into every agent's skills folder found, keeping
 /// the record of what it wrote in the node's folder `node_dir`.
 fn install_skills(node_dir: &Path) -> Result<()> {
-    let home = dirs::home_dir().context("no home folder")?;
+    let beep = skills::beep_dir().context("no config folder")?;
     let mut installed = skills::Installed::load(&node_dir.join("installed-skills"))?;
 
-    for dir in skills::targets(&home) {
-        for skill in skills::SKILLS {
-            let outcome = skills::install(&dir, skill, &mut installed)
-                .with_context(|| format!("installing the {} skill", skill.name))?;
-            log::debug!("skill {} in {}: {outcome:?}", skill.name, dir.display());
-        }
+    for skill in skills::SKILLS {
+        let outcome = skills::install(&beep, skill, &mut installed)
+            .with_context(|| format!("installing the {} skill", skill.name))?;
+        log::debug!("skill {} in {}: {outcome:?}", skill.name, beep.display());
     }
 
     Ok(())
