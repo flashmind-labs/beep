@@ -23,7 +23,7 @@ const MAX_MODEL: usize = 200;
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 #[non_exhaustive]
-#[derive(strum::AsRefStr)]
+#[derive(strum::AsRefStr, strum::EnumString)]
 pub enum Effort {
     Off,
     Minimal,

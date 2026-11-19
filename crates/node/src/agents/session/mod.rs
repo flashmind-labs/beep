@@ -439,6 +439,7 @@ impl Session {
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
             acp_session: None,
+            banner: None,
             protocol,
             foreground: false,
             ready_for_prompts: false,

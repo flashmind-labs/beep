@@ -43,7 +43,7 @@ pub const HARNESSES: &[Harness] = &[
         agent: "pi",
         home_var: "PI_CODING_AGENT_DIR",
         home_default: "~/.pi/agent",
-        npm: Some("@mariozechner/pi-coding-agent"),
+        npm: Some("@earendil-works/pi-coding-agent"),
     },
     Harness {
         agent: "gemini",

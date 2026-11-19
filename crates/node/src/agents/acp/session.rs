@@ -219,6 +219,15 @@ pub(in crate::agents) fn session_created(
     Ok((serde_json::from_value(answer)?, offered))
 }
 
+/// The text pi's adapter sends as the session's first message (its
+/// version, context files and skills), which the session leaves out.
+pub(in crate::agents) fn startup_banner(answer: &Value) -> Option<String> {
+    answer
+        .pointer("/_meta/piAcp/startupInfo")?
+        .as_str()
+        .map(str::to_owned)
+}
+
 /// The models and thinking option an answer to `session/new`,
 /// `session/load` or `session/resume` offers.
 pub(in crate::agents) fn offers(answer: &Value) -> Offered {
@@ -229,9 +238,18 @@ pub(in crate::agents) fn offers(answer: &Value) -> Offered {
             .find(|o| o.id.to_string() == "fast-mode")
             .map(|o| o.id.clone()),
         thinking: thinking_option(&options),
-        modes: session_modes(answer),
+        modes: session_modes(answer).filter(|modes| !thinking_levels(modes)),
         ..models_from_options(answer, options)
     }
+}
+
+/// pi's adapter offers its thinking levels as modes too, which the
+/// thinking option already switches.
+fn thinking_levels(modes: &Modes) -> bool {
+    modes
+        .available
+        .iter()
+        .all(|mode| mode.id.parse::<Effort>().is_ok())
 }
 
 /// `modes` in an answer; one that does not read is skipped, as a broken

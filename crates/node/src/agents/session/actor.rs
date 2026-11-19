@@ -192,6 +192,9 @@ pub(super) struct Actor {
     pub(super) cwd: PathBuf,
     /// The agent's id for the session, once it made one.
     pub(super) acp_session: Option<SessionId>,
+    /// What the adapter said it sends as the session's first message, which
+    /// is left out.
+    pub(super) banner: Option<String>,
     pub(super) protocol: acp::Protocol,
     pub(super) foreground: bool,
     pub(super) ready_for_prompts: bool,
@@ -681,6 +684,13 @@ impl Actor {
                     return Ok(());
                 }
 
+                if let SessionUpdate::AgentMessageChunk(chunk) = &update
+                    && let ContentBlock::Text(text) = &chunk.content
+                    && self.is_banner(&text.text)
+                {
+                    return Ok(());
+                }
+
                 // The adapter echoes an injected message before continuing.
                 // Show it there so its answer follows it in the transcript.
                 if let SessionUpdate::UserMessageChunk(chunk) = &update
@@ -821,6 +831,7 @@ impl Actor {
             }
             Reply::NewSession(Ok(answer)) => match acp::session_created(answer.clone()) {
                 Ok((created, _)) => {
+                    self.banner = acp::startup_banner(&answer);
                     return Ok(self.ready(cx, created.session_id, self.protocol.offers(&answer)));
                 }
                 Err(e) => {
@@ -1058,6 +1069,17 @@ impl Actor {
             }
         }
         None
+    }
+
+    /// Whether `text` is what the adapter says before the session's first
+    /// prompt: an agent message before the session exists, which only a
+    /// loaded session's replay has, or the banner it named.
+    fn is_banner(&mut self, text: &str) -> bool {
+        if self.acp_session.is_none() {
+            return !watched::read_sent(&self.live, |live| live.replays);
+        }
+
+        self.banner.take_if(|banner| banner == text).is_some()
     }
 
     /// The agent made or resumed its session `session`, which offers the

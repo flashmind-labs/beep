@@ -13,6 +13,7 @@ fn actor() -> Actor {
         agent: "test-agent".into(),
         cwd: PathBuf::from("/srv/project"),
         acp_session: Some(SessionId::new("session-test")),
+        banner: None,
         protocol: acp::Protocol::V2,
         foreground: false,
         ready_for_prompts: true,
@@ -249,4 +250,20 @@ fn a_dropped_server_tool_call_does_not_fail_the_turn() {
         "Internal error: srvtoolu_01a",
         None
     )));
+}
+
+#[test]
+fn the_adapter_banner_is_left_out_once() {
+    let mut actor = actor();
+    actor.banner = Some("pi v1.0.0".into());
+
+    assert!(actor.is_banner("pi v1.0.0"));
+    assert!(!actor.is_banner("pi v1.0.0"));
+    assert!(!actor.is_banner("an answer"));
+
+    actor.acp_session = None;
+    assert!(actor.is_banner("pi v1.0.0"));
+
+    actor.live.send_modify(|live| live.replays = true);
+    assert!(!actor.is_banner("a replayed answer"));
 }
