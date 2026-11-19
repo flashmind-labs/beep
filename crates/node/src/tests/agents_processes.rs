@@ -135,7 +135,7 @@ fn following_processes_holds_demand_until_dropped() {
 #[tokio::test]
 async fn a_port_opened_or_closed_after_the_last_list_is_a_change() {
     // The session's root is the agent, left out of the list: this test is its child.
-    let processes = Processes::new(std::os::unix::process::parent_id());
+    let processes = Processes::new(Some(std::os::unix::process::parent_id()));
     let listed = |port| {
         crate::lock(&processes.known)
             .ports

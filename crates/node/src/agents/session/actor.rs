@@ -1,20 +1,21 @@
 //! The session's task: the ACP connection, its replies and the agent's events.
 
 use super::{
-    Answered, Command, EVENTS, MAX_STDERR_LINE, NODE_STOPPED, Order, STDERR_LINES,
+    Answered, Command, EVENTS, NODE_STOPPED, Order, STDERR_LINES,
     turns::{HeldEnd, turn_tokens},
 };
 use crate::agents::{
-    acp::{self, AsyncTask, Line, LineReader, ModelSwitch, Offered, Prompt},
+    acp::{self, AsyncTask, ModelSwitch, Offered, Prompt},
     alerts::AlertHub,
     compaction::{Compactor, TurnEnd},
     images::Picture,
     known,
+    launch::{AgentIn, AgentOut, Running, Started},
     live::{Live, TurnTokens, cut},
     made_files,
     place::of_folder,
 };
-use crate::run::process::{GroupLeader, STOP_GRACE};
+use crate::run::process::STOP_GRACE;
 use agent_client_protocol::{
     Agent, Builder, Client, ConnectionTo, Dispatch, Handled, JsonRpcMessage, JsonRpcRequest,
     JsonRpcResponse, Responder, UntypedMessage, on_receive_dispatch,
@@ -41,8 +42,6 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::BufReader,
-    process::{Child, ChildStderr},
     sync::{mpsc, oneshot, watch},
     task::spawn_blocking,
 };
@@ -307,18 +306,22 @@ pub(super) enum Stopping {
     Steer,
 }
 
-/// The pipes the session reads besides ACP.
-pub(super) struct Inputs {
+/// What the session reads besides ACP.
+pub(super) struct Inputs<'a> {
     pub(super) events: mpsc::Receiver<Event>,
     /// The length of each message dropped for being too long.
     pub(super) oversized: mpsc::Receiver<usize>,
-    pub(super) stderr: LineReader<BufReader<ChildStderr>>,
+    /// The agent's stderr, a line each.
+    pub(super) stderr: &'a mut mpsc::Receiver<String>,
+    /// The agent, whose bridge says when its CLI started.
+    pub(super) running: &'a mut Running,
+    pub(super) processes: &'a super::Processes,
 }
 
 impl Actor {
     pub(super) async fn run(
         mut self,
-        child: Child,
+        agent: Started,
         mut orders: mpsc::Receiver<Order>,
         processes: Arc<super::Processes>,
     ) {
@@ -326,11 +329,27 @@ impl Actor {
         let _watch = processes.watch(self.live.subscribe());
         // Kills the agent's whole process group however the task ends,
         // aborted with its session included; `stop` below is the gentle way.
-        let mut child = GroupLeader::new(child);
-        let held = child.hold_output();
+        let Started {
+            stdin,
+            stdout,
+            mut stderr,
+            mut running,
+        } = agent;
         // A session the node resumed shows its lines before its next turn.
         self.count_changes();
-        let end = self.serve(child.child_mut(), &mut orders).await;
+        let end = self
+            .serve(stdin, stdout, &mut stderr, &mut running, &processes, &mut orders)
+            .await;
+
+        // A bridge that failed says why as it ends.
+        if matches!(end, Ok(End::Exited)) {
+            running.settle(STOP_GRACE).await;
+
+            while let Ok(line) = stderr.try_recv() {
+                self.heard(&line);
+            }
+        }
+
         // The node stopping ends its sessions, whether it closed them or the
         // service manager stopped the agents first.
         let end = match end {
@@ -391,8 +410,7 @@ impl Actor {
         // Questions still open are dropped with the connection.
         self.asked.clear();
         processes.close().await;
-        child.stop(STOP_GRACE).await;
-        drop(held);
+        running.stop(STOP_GRACE).await;
 
         if closed && by_user {
             let info = watched::read_sent(&self.live, |live| live.info.clone());
@@ -436,20 +454,40 @@ impl Actor {
         crate::link::restart::changed();
     }
 
+    /// Keeps `line` of the agent's stderr, to say why it stopped.
+    fn heard(&mut self, line: &str) {
+        let line = line.trim();
+
+        if line.is_empty() {
+            return;
+        }
+
+        log::debug!("agent stderr: {line}");
+
+        if self.stderr.len() >= STDERR_LINES {
+            self.stderr.pop_front();
+        }
+
+        self.stderr.push_back(cut(line, 300));
+    }
+
     async fn serve(
         &mut self,
-        child: &mut Child,
+        stdin: AgentIn,
+        stdout: AgentOut,
+        stderr: &mut mpsc::Receiver<String>,
+        running: &mut Running,
+        processes: &super::Processes,
         orders: &mut mpsc::Receiver<Order>,
     ) -> Result<End> {
-        let stdin = child.stdin.take().context("the agent has no stdin")?;
-        let stdout = child.stdout.take().context("the agent has no stdout")?;
-        let stderr = child.stderr.take().context("the agent has no stderr")?;
         let (events_tx, events) = mpsc::channel(EVENTS);
         let (oversized_tx, oversized) = mpsc::channel(1);
         let mut inputs = Inputs {
             events,
             oversized,
-            stderr: LineReader::new(BufReader::new(stderr), MAX_STDERR_LINE),
+            stderr,
+            running,
+            processes,
         };
         // Keep dispatch version-neutral: a draft v2 opt-in can negotiate
         // down to v1 before any session traffic. Each payload is validated
@@ -495,7 +533,7 @@ impl Actor {
     async fn drive(
         &mut self,
         cx: &ConnectionTo<Agent>,
-        inputs: &mut Inputs,
+        inputs: &mut Inputs<'_>,
         orders: &mut mpsc::Receiver<Order>,
     ) -> Result<End> {
         let async_tasks = known(&self.agent).is_some_and(|known| known.async_tasks);
@@ -523,19 +561,11 @@ impl Actor {
                         return Ok(end);
                     }
                 }
-                line = inputs.stderr.next(), if stderr_open => match line {
-                    Ok(Some(Line::Text(line))) if !line.trim().is_empty() => {
-                        log::debug!("agent stderr: {line}");
-
-                        if self.stderr.len() >= STDERR_LINES {
-                            self.stderr.pop_front();
-                        }
-
-                        self.stderr.push_back(cut(line.trim(), 300));
-                    }
-                    Ok(Some(_)) => {}
-                    Ok(None) | Err(_) => stderr_open = false,
+                line = inputs.stderr.recv(), if stderr_open => match line {
+                    Some(line) => self.heard(&line),
+                    None => stderr_open = false,
                 },
+                pid = inputs.running.started() => inputs.processes.set_root(pid),
                 () = tokio::time::sleep_until(
                     self.held_end.as_ref().map_or_else(tokio::time::Instant::now, |held| held.due)
                 ), if self.held_end.is_some() => self.subagents_quiet(),

@@ -57,24 +57,26 @@ function Toolbar({ p }: { p: ProviderProps }) {
 }
 
 function SharedSettings({ value, p }: { value: SharedProviderSettings; p: ProviderProps }) {
-  const compact = value.compact;
+  const compact = value.compact, directCli = DIRECT_CLIS[value.agent] ?? null;
   useEffect(() => { if (compact && !compact.loaded) p.loadCompact(value.agent); }, [value.agent, compact?.loaded, p.loadCompact]);
   return <section className="hv-scope hv-d"><h3>All machines</h3><div className="hv-note">These settings apply on every machine.</div>
     {compact && <><div className="hv-f"><span><b>Auto-compact</b><small>Applies to sessions on every machine.</small></span><span className="fl-row">
       <Switch label={`Auto-compact for ${harnessName(value.agent)}`} on={compact.draft.compactOn} disabled={!compact.loaded || compact.busy} flip={() => p.changeCompact(value.agent, { compactOn: !compact.draft.compactOn })} />
       {compactKind(value.agent) === "percent" && <input className="hv-in" value={compact.draft.compactPercent} placeholder="80% or 350000" aria-label="Auto-compact threshold" autoComplete="off" spellCheck={false} disabled={!compact.loaded || compact.busy} onChange={event => p.changeCompact(value.agent, { compactPercent: event.currentTarget.value })} />}
     </span></div><div className="hv-acts"><Button look="primary" disabled={!compact.canSave} onClick={() => p.saveCompact(value.agent)}>{compact.busy ? "Saving…" : "Save auto-compact"}</Button><Button look="quiet" hidden={!compact.edited} disabled={compact.busy} onClick={() => p.discardCompact(value.agent)}>Discard</Button><span className="derr">{compact.error}</span></div></>}
-    {value.agent === "claude" && <DriverField agent={value.agent} invoke={p.invoke} />}
+    {directCli && <DriverField agent={value.agent} cli={directCli} invoke={p.invoke} />}
     {value.agent === "flsh" && <FlshView panel={p.flsh} />}
     {value.machineName && <div className="hv-note">Model choices and reported limits come from {value.machineName}.</div>}
     {p.machine && <ModelContextView panel={p.contexts} machine={p.machine} agent={value.agent} />}
   </section>;
 }
-/// How the nodes drive a harness; only Claude Code offers Direct.
+/// How the nodes drive a harness; only Claude Code and Codex offer Direct,
+/// which runs this CLI without the npm adapter.
 type Driver = "acp" | "direct";
+const DIRECT_CLIS: Partial<Record<string, string>> = { claude: "claude", codex: "codex" };
 const DRIVERS: readonly { id: Driver; label: string }[] = [{ id: "acp", label: "ACP adapter" }, { id: "direct", label: "Direct" }];
 
-function DriverField({ agent, invoke }: { agent: string; invoke: typeof Invoke }) {
+function DriverField({ agent, cli, invoke }: { agent: string; cli: string; invoke: typeof Invoke }) {
   const [driver, setDriver] = useState<Driver | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -89,7 +91,7 @@ function DriverField({ agent, invoke }: { agent: string; invoke: typeof Invoke }
     setError("");
     invoke("harness_driver_save", { agent, driver: next }).catch(e => { setDriver(was); setError(String(e)); });
   };
-  return <div className="hv-f"><span><b>Harness</b><small>Direct runs the claude CLI without the npm adapter. New sessions use it.</small></span><span className="fl-row">
+  return <div className="hv-f"><span><b>Harness</b><small>Direct runs the {cli} CLI without the npm adapter. New sessions use it.</small></span><span className="fl-row">
     <span className="dchips" role="group" aria-label="Harness">{DRIVERS.map(option => <ChipToggle key={option.id} label={option.label} selected={driver === option.id} onToggle={() => pick(option.id)} />)}</span>
     <span className="derr">{error}</span>
   </span></div>;
@@ -116,7 +118,8 @@ function Runtime({ hv, p }: { hv: HarnessView; p: ProviderProps }) {
   const draft = p.draft, name = harnessName(hv.agent), pending = p.adapter, busy = p.updating;
   const field = (label: SharedField) => p.others && p.machine ? differsOn(p.others, p.machine, label) : [];
   const status = hv.sign_in;
-  const adapterOnly = hv.agent === "claude" ? " ACP adapter only: Direct runs the claude CLI found here." : "";
+  const direct = DIRECT_CLIS[hv.agent];
+  const adapterOnly = direct ? ` ACP adapter only: Direct runs the ${direct} CLI found here.` : "";
   return <div className="hv-d">
     {!p.inSettings && <><h3><HarnessIcon agent={hv.agent} />{name}<span className="ver">{versionLine(hv)}</span></h3><h4>Status</h4></>}
     {!hv.installed ? <>{!p.inSettings && <div className="hv-stat">Not installed on {p.machineName}.</div>}{hv.install ? <div className="hv-acts"><Button look="primary" disabled={busy} onClick={() => p.update(hv)}>{busy ? "Installing…" : `Install on ${p.machineName}`}</Button><CopyButton look="quiet" text={hv.install} label="Copy install command" /></div> : <div className="hv-note">Install it on the machine, then check again.</div>}</> : <>

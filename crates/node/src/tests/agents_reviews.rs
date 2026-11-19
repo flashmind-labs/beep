@@ -45,6 +45,7 @@ fn named_kind(name: &str, log: &Path, session: &str) -> AgentKind {
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     }
 }
 

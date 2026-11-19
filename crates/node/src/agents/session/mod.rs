@@ -16,10 +16,10 @@ use super::{
 };
 use crate::{
     machine::provision::spawn_env::{self, Scope},
-    run::process::{command, own_group},
+    run::process::command,
 };
 use agent_client_protocol::v1::schema::McpServer;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use beep_proto::ModelId;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{
@@ -32,7 +32,6 @@ use std::{
     borrow::Cow,
     collections::{HashSet, VecDeque},
     path::Path,
-    process::Stdio,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -58,8 +57,6 @@ const MAX_QUEUED: usize = 8;
 const MAX_QUEUED_BYTES: usize = 16 * 1024 * 1024;
 /// The stderr lines kept to say why an agent stopped.
 const STDERR_LINES: usize = 5;
-/// The longest stderr line read whole; a longer one is skipped.
-const MAX_STDERR_LINE: usize = 64 * 1024;
 const ORDERS: usize = 16;
 /// How long an order may wait for the session's actor to take it.
 const ORDER_WAIT: Duration = Duration::from_secs(20);
@@ -344,11 +341,7 @@ impl Session {
             .args(flag)
             .envs(&kind.env)
             .envs(agent_env)
-            .current_dir(cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+            .current_dir(cwd);
         if let Some(name) = cleared {
             process.env_remove(name);
         }
@@ -401,11 +394,10 @@ impl Session {
             process.env("WSLENV", names.join(":"));
         }
 
-        // Its own process group, so closing it stops what it started.
-        let child = own_group(&mut process)
-            .spawn()
-            .with_context(|| format!("starting {}", kind.program))?;
-        let processes = Processes::new(child.id().context("the agent has no pid")?);
+        // Its own process group, so closing it stops what it started; a
+        // bridge starts its CLI the same way, once the session starts.
+        let agent = super::start(process, kind.bridge.as_ref())?;
+        let processes = Processes::new(agent.running.pid());
         let info = SessionInfo {
             title,
             id: resume.clone().unwrap_or_default(),
@@ -496,7 +488,7 @@ impl Session {
         let guard = follows.map(|parent| {
             AbortOnDropHandle::new(tokio::spawn(follow_parent(parent, orders.clone())))
         });
-        let task = tokio::spawn(actor.run(child, orders_rx, processes.clone()));
+        let task = tokio::spawn(actor.run(agent, orders_rx, processes.clone()));
         Ok(Self {
             id,
             agent: kind.name.clone(),

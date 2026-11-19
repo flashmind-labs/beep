@@ -92,6 +92,7 @@ async fn flsh_reads_the_config_in_the_home_it_is_set_to() {
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     };
     assert_eq!(flsh(&kind).await.current.as_deref(), Some("set:home"));
 }
@@ -118,6 +119,7 @@ fn adapter(name: &str, script: &str) -> AgentKind {
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     }
 }
 
@@ -146,6 +148,7 @@ async fn v2_only_agents_offer_models_before_starting_a_session() {
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     };
     let offered = probe(&kind, temp.path()).await.unwrap();
     assert_eq!(offered.current.as_deref(), Some("test"));

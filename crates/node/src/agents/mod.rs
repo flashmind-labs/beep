@@ -22,7 +22,8 @@ host! {
     use tokio::{sync::watch, time::Instant};
 
     pub mod claude;
-    pub mod claude_direct;
+    mod claude_direct;
+    mod codex_direct;
     pub(crate) mod found;
     pub mod mcp;
     pub(crate) mod skill_library;
@@ -45,12 +46,14 @@ host! {
     mod image_index;
     mod images;
     mod kinds;
+    mod launch;
     mod live;
     pub(crate) mod locate;
     mod made_files;
     mod media_file;
     mod models;
     mod moving;
+    mod pipe;
     mod place;
     mod plans;
     pub mod presence;
@@ -80,7 +83,8 @@ host! {
 
     pub(crate) use acp::{Line, LineReader, MAX_MESSAGE};
     pub(crate) use images::{Picture, block_picture};
-    pub use kinds::{AgentKind, Bridge, DIRECT_COMMAND, RELAY_COMMAND, detect};
+    pub use kinds::{AgentKind, Bridge, detect};
+    pub use launch::{AgentIn, AgentOut, Running, Started, start};
     pub(crate) use kinds::adapter_bins;
     pub use moving::SESSIONS_ALPN;
     pub use moving::SessionsAlpn;

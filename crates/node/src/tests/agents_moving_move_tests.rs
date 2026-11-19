@@ -62,6 +62,7 @@ fn kind() -> AgentKind {
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     }
 }
 

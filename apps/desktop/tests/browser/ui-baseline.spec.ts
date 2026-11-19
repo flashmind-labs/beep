@@ -533,6 +533,28 @@ test("settings claude code", async ({ page }) => {
   await baseline(page, "settings-claude-code");
 });
 
+test("settings codex", async ({ page }) => {
+  const codex = {
+    agent: "codex", installed: true, runnable: true, version: "0.169.0", latest: null, program: "codex-acp", home_var: "CODEX_HOME", home_default: "~/.codex",
+    sign_in: { state: "signed_in", account: null, plan: null, last4: null }, install: null,
+    settings: { enabled: true, program: "", home: "", args: [], env: [] },
+  };
+  await openDesktop(page, false, {
+    ...settingsResponses,
+    list_machines: [machine("build-box", "build-box", true, 0)],
+    agent_harnesses: { machine_id: "build-box", machine_name: "build-box", checked_at: null, harnesses: [codex] },
+    harness_settings_all: [], harness_compact: null, harness_model_compacts: [], harness_default_model: null, harness_driver: "direct", agent_models: null,
+  });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  const nav = settings.getByRole("navigation", { name: "Settings pages" });
+  await nav.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await nav.getByRole("button", { name: /^Codex/ }).click();
+  await expect(settings.getByRole("button", { name: "Direct", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(settings.getByText("Direct runs the codex CLI without the npm adapter. New sessions use it.")).toBeVisible();
+  await baseline(page, "settings-codex");
+});
+
 const agentAccountResponses = {
   ...settingsResponses,
   agent_accounts: { claude: null, codex_key: null, machines: [

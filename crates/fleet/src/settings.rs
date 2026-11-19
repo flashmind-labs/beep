@@ -188,15 +188,18 @@ impl Desk {
             .unwrap_or_default())
     }
 
-    /// Saves how the nodes drive `agent`, for every machine. Only Claude Code runs directly.
+    /// Saves how the nodes drive `agent`, for every machine. Only Claude Code and Codex run
+    /// directly.
     pub async fn save_harness_driver(&self, agent: &str, driver: HarnessDriver) -> Result<()> {
         check_agent(agent)?;
 
         match driver {
             HarnessDriver::Acp => {}
-            HarnessDriver::Direct if agent == "claude" => {}
+            HarnessDriver::Direct if matches!(agent, "claude" | "codex") => {}
             HarnessDriver::Direct | HarnessDriver::Other => {
-                return Err(FleetError::refused("Only Claude Code runs directly."));
+                return Err(FleetError::refused(
+                    "Only Claude Code and Codex run directly.",
+                ));
             }
         }
 

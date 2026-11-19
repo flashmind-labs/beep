@@ -456,6 +456,7 @@ async fn info(found: &Found, config: Option<HarnessConfig>, npm: &install::Npm) 
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     });
     let kind = match &config {
         Some(config) => configure(&base, config),

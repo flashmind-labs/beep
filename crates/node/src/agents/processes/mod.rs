@@ -7,7 +7,7 @@ use std::{
     collections::{BTreeSet, HashMap},
     sync::{
         Arc, LazyLock, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
     time::Duration,
 };
@@ -203,7 +203,8 @@ impl Process {
 }
 
 pub(super) struct Processes {
-    root: u32,
+    /// The agent's pid, leading its group; 0 until a bridge starts its CLI.
+    root: AtomicU32,
     known: Mutex<Observed>,
     reading: AsyncMutex<()>,
 }
@@ -219,12 +220,14 @@ struct Observed {
 impl Processes {
     #[cfg(all(test, target_os = "linux"))]
     pub(super) fn root(&self) -> u32 {
-        self.root
+        self.root.load(Ordering::Relaxed)
     }
 
-    pub(super) fn new(root: u32) -> Arc<Self> {
+    /// The processes under `root`, the agent's pid; with none, under the
+    /// CLI its bridge starts, once `set_root` names it.
+    pub(super) fn new(root: Option<u32>) -> Arc<Self> {
         Arc::new(Self {
-            root,
+            root: AtomicU32::new(root.unwrap_or_default()),
             known: Default::default(),
             reading: AsyncMutex::default(),
         })
@@ -269,7 +272,17 @@ impl Processes {
     }
 
     /// Observes the session's processes in a table at most `max_age` old.
+    /// Names the CLI a bridge started as the root.
+    pub(super) fn set_root(&self, root: u32) {
+        self.root.store(root, Ordering::Relaxed);
+    }
+
     async fn refresh(self: &Arc<Self>, max_age: Duration) -> anyhow::Result<Vec<Process>> {
+        let root_pid = self.root.load(Ordering::Relaxed);
+        if root_pid == 0 {
+            return Ok(Vec::new());
+        }
+
         let _reading = self.reading.lock().await;
         // A new root must not take a cached entry left by a reused pid.
         let first = crate::lock(&self.known).root_birth.is_none();
@@ -277,13 +290,13 @@ impl Processes {
         let mut observed = crate::lock(&self.known);
         let before = observed.processes.clone();
         if observed.root_birth.is_none() {
-            observed.root_birth = all.get(&self.root).map(|p| p.birth);
+            observed.root_birth = all.get(&root_pid).map(|p| p.birth);
         }
 
         let root = all
-            .get(&self.root)
+            .get(&root_pid)
             .filter(|p| Some(p.birth) == observed.root_birth);
-        let group_valid = !all.contains_key(&self.root) || root.is_some();
+        let group_valid = !all.contains_key(&root_pid) || root.is_some();
         let known = &mut observed.processes;
         known.retain(|pid, old| {
             let Some(now) = all.get(pid).filter(|p| p.birth == old.birth) else {
@@ -299,7 +312,7 @@ impl Processes {
             let before = known.len();
 
             for p in all.values() {
-                if (p.group == self.root && group_valid) || known.contains_key(&p.parent) {
+                if (p.group == root_pid && group_valid) || known.contains_key(&p.parent) {
                     known.insert(p.pid, p.clone());
                 }
             }
@@ -315,7 +328,7 @@ impl Processes {
 
         Ok(known
             .values()
-            .filter(|p| p.pid != self.root)
+            .filter(|p| p.pid != root_pid)
             .cloned()
             .collect())
     }
@@ -327,6 +340,7 @@ impl Processes {
             .into_iter()
             .filter(|p| !p.helper())
             .collect();
+        let root = self.root.load(Ordering::Relaxed);
         let mut ports = os::ports(&processes).await;
         let mut rows: Vec<_> = processes
             .into_iter()
@@ -336,7 +350,7 @@ impl Processes {
                 command: p.command.chars().take(2000).collect(),
                 started_at: p.started_at,
                 ports: ports.remove(&p.pid).unwrap_or_default(),
-                left_group: cfg!(unix) && p.group != self.root,
+                left_group: cfg!(unix) && p.group != root,
                 parent: p.parent,
             })
             .collect();
@@ -456,8 +470,10 @@ pub(super) struct Cleanup(pub(super) Arc<Processes>);
 
 impl Drop for Cleanup {
     fn drop(&mut self) {
+        let root = self.0.root.load(Ordering::Relaxed);
+
         for p in crate::lock(&self.0.known).processes.values() {
-            if p.pid != self.0.root && p.group != self.0.root {
+            if p.pid != root && p.group != root {
                 let _ = signal(p, true);
             }
         }

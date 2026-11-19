@@ -87,7 +87,7 @@ fn wslenv() -> String {
 }
 
 /// `existing` with `names` added once each, `:` between them.
-fn joined_wslenv<'a>(existing: Option<&'a str>, names: impl Iterator<Item = &'a str>) -> String {
+pub(crate) fn joined_wslenv<'a>(existing: Option<&'a str>, names: impl Iterator<Item = &'a str>) -> String {
     let mut all: Vec<&str> = existing
         .into_iter()
         .flat_map(|existing| existing.split(':'))

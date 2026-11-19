@@ -15,10 +15,10 @@ use std::{
 /// `_` and `-`, the names `wsl.exe` registers.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct DistroName(String);
+pub struct DistroName(String);
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum NameError {
+pub enum NameError {
     #[error("a WSL distribution needs a name")]
     Empty,
     #[error("{0:?} is not the name of a WSL distribution")]
@@ -142,11 +142,11 @@ fn for_an_app(name: &DistroName) -> bool {
 
 /// An absolute path inside a WSL distribution, such as `/home/sam`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LinuxPath(String);
+pub struct LinuxPath(String);
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{0:?} is not an absolute path in WSL")]
-pub(crate) struct NotLinuxPath(String);
+pub struct NotLinuxPath(String);
 
 impl FromStr for LinuxPath {
     type Err = NotLinuxPath;

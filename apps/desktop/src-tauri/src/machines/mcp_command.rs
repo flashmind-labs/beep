@@ -1,12 +1,11 @@
-//! The app's own executable as a command the embedded node runs: the
-//! agents' Beep MCP server, named in each session's `session/new` with
-//! `--dir <node folder> mcp --session <id>`, and the bridges that run a
-//! coding agent, such as `claude-acp`. Run that way, the executable serves
-//! that command and never starts the app; otherwise each agent would start
-//! another app, whose node would start another. Being the app itself, it is
-//! signed and notarized with it.
+//! The app's own executable as a command an agent runs: the agents' Beep
+//! MCP server, named in each session's `session/new` with
+//! `--dir <node folder> mcp --session <id>`. Run that way, the executable
+//! serves that command and never starts the app; otherwise each agent would
+//! start another app, whose node would start another. Being the app itself,
+//! it is signed and notarized with it.
 
-use beep_node::agents::{Bridge, mcp::Invocation};
+use beep_node::agents::mcp::Invocation;
 use std::ffi::OsString;
 use std::future::Future;
 use tokio::runtime::Builder;
@@ -17,15 +16,9 @@ pub fn run<I>(args: I) -> Option<i32>
 where
     I: IntoIterator<Item = OsString>,
 {
-    let args: Vec<OsString> = args.into_iter().collect();
-
-    if let Some(invocation) = Invocation::parse(args.clone()) {
-        // Stdout is the MCP stream; the agent logs stderr.
-        return Some(serve("beep mcp", invocation.run()));
-    }
-
-    let bridge = Bridge::parse(args)?;
-    Some(serve("beep agent bridge", bridge.run()))
+    let invocation = Invocation::parse(args)?;
+    // Stdout is the MCP stream; the agent logs stderr.
+    Some(serve("beep mcp", invocation.run()))
 }
 
 /// Runs `work` to its end on a runtime of its own, with its error on stderr:

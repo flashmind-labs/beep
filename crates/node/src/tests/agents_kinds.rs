@@ -32,7 +32,7 @@ fn a_native_cli_with_no_adapter_and_no_npx_lacks_its_adapter_or_runs_direct() {
     let Some(Launch::Direct(claude)) = launch(known("claude"), &natives, None) else {
         panic!("Claude Code runs without its adapter");
     };
-    assert_eq!(claude.args[0], "claude-acp");
+    assert_eq!(claude.bridge, Some(Bridge::Claude { wsl: None, home: None }));
     // Gemini CLI speaks ACP itself.
     assert!(matches!(
         launch(known("gemini"), &natives, None),
@@ -83,46 +83,4 @@ fn npx_fallback_is_offered_while_the_direct_adapter_is_installed() {
     assert_eq!(detection.kinds[0].program, "npx");
     assert_eq!(detection.lacking.len(), 1);
     assert_eq!(detection.lacking[0].name, "codex");
-}
-
-#[test]
-fn a_bridge_reads_back_the_line_it_makes() {
-    let bridges = [
-        Bridge::Direct {
-            cli: "/usr/local/bin/claude".to_owned(),
-            wsl: None,
-            home: None,
-            args: vec!["--model".to_owned(), "opus".to_owned()],
-        },
-        Bridge::Direct {
-            cli: "/usr/bin/claude".to_owned(),
-            wsl: Some("Ubuntu".to_owned()),
-            home: Some("/home/user".to_owned()),
-            args: Vec::new(),
-        },
-        Bridge::Relay {
-            wsl: "Ubuntu".to_owned(),
-            program: "/usr/bin/codex-acp".to_owned(),
-            args: vec!["--flag".to_owned()],
-        },
-    ];
-
-    for bridge in bridges {
-        assert_eq!(Bridge::parse(bridge.args()), Some(bridge));
-    }
-}
-
-#[test]
-fn a_bridge_is_not_read_from_other_lines() {
-    for line in [
-        &[][..],
-        &["--login"],
-        &["claude-acp", "--cli", "claude"],
-        &["claude-acp", "--cli", "claude", "--cli", "other", "--"],
-        &["claude-acp", "--unknown", "x", "--"],
-        &["wsl-acp", "--wsl", "Ubuntu", "--"],
-        &["wsl-acp", "--", "/usr/bin/codex-acp"],
-    ] {
-        assert_eq!(Bridge::parse(line.iter().copied()), None, "{line:?}");
-    }
 }

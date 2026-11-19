@@ -23,6 +23,7 @@ host = [
     "dep:beep-report",
     "dep:blake3",
     "dep:chrono",
+    "dep:diffy",
     "dep:dirs",
     "dep:dunce",
     "dep:flashmind-tools",
@@ -111,6 +112,7 @@ beep-report = { workspace = true, optional = true }
 blake3 = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 clap = { workspace = true, features = ["derive", "env"], optional = true }
+diffy = { workspace = true, optional = true }
 dirs = { workspace = true, optional = true }
 # `fs::canonicalize` without the verbatim prefix Windows programs refuse.
 dunce = { workspace = true, optional = true }

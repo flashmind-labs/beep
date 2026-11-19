@@ -1,5 +1,5 @@
 use super::*;
-use crate::agents::compaction::Policy;
+use crate::agents::{Bridge, compaction::Policy};
 use beep_proto::{
     SecretText,
     node::{EnvSecret, harness::AutoCompact},
@@ -15,6 +15,7 @@ fn kind(name: &str) -> AgentKind {
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     }
 }
 
@@ -95,7 +96,7 @@ fn settings_change_the_launch_command() {
 }
 
 #[test]
-fn the_direct_driver_runs_claude_code_on_the_nodes_own_bridge() {
+fn the_direct_driver_runs_claude_code_and_codex_on_the_nodes_own_bridges() {
     let config = HarnessConfig {
         program: Some("/opt/claude/bin/claude".into()),
         home: Some("/srv/claude-home".into()),
@@ -105,20 +106,29 @@ fn the_direct_driver_runs_claude_code_on_the_nodes_own_bridge() {
     };
     let settings = Settings::default();
     settings.set(AgentSettings {
-        harnesses: vec![config.clone(), HarnessConfig { agent: "codex".into(), ..config }],
+        harnesses: vec![
+            config.clone(),
+            HarnessConfig { agent: "codex".into(), ..config.clone() },
+            HarnessConfig { agent: "gemini".into(), ..config },
+        ],
         ..AgentSettings::default()
     });
 
     let started = settings.configured(&kind("claude")).unwrap();
-    let exe = std::env::current_exe().unwrap();
-    assert_eq!(started.program, exe.display().to_string());
-    // The program and arguments set for the adapter do not apply.
-    assert_eq!(started.args[..2], ["claude-acp", "--cli"]);
-    assert_ne!(started.args[2], "/opt/claude/bin/claude");
-    assert_eq!(started.args[3..], ["--"]);
+    assert_eq!(started.bridge, Some(Bridge::Claude { wsl: None, home: None }));
+    // The program and arguments set for the adapter do not apply: the
+    // bridge starts the CLI found here.
+    assert_ne!(started.program, "/opt/claude/bin/claude");
+    assert!(started.args.is_empty());
     assert_eq!(started.env["CLAUDE_CONFIG_DIR"], "/srv/claude-home");
-    // Only Claude Code has a direct driver.
-    assert_eq!(settings.configured(&kind("codex")).unwrap().program, "/opt/claude/bin/claude");
+    // Codex keeps the variables the node gives it, such as its mode.
+    let codex = settings.configured(&kind("codex")).unwrap();
+    assert_eq!(codex.bridge, Some(Bridge::Codex { wsl: None }));
+    assert!(codex.args.is_empty());
+    assert_eq!(codex.env["INITIAL_AGENT_MODE"], "agent-full-access");
+    // Only Claude Code and Codex have a direct driver.
+    let gemini = settings.configured(&kind("gemini")).unwrap();
+    assert_eq!((gemini.program.as_str(), gemini.bridge), ("/opt/claude/bin/claude", None));
 }
 
 #[test]

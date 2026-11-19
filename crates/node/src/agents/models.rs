@@ -5,6 +5,7 @@
 use super::{
     AgentKind,
     acp::{self, MAX_MODELS, Offered},
+    launch::{AgentIn, AgentOut, Started},
     known,
 };
 use crate::{
@@ -12,7 +13,7 @@ use crate::{
     agents::found::Agent,
     lock,
     machine::provision::spawn_env::{self, Scope},
-    run::process::{GroupLeader, STOP_GRACE, command, own_group},
+    run::process::{STOP_GRACE, command},
 };
 use agent_client_protocol::{Builder, Client, ConnectionTo, JsonRpcMessage};
 use anyhow::{Context, Result};
@@ -155,34 +156,21 @@ async fn probe(kind: &AgentKind, cwd: &Path) -> Result<Offered> {
     let protocol = acp::Protocol::from_env(&kind.env)?;
     let mut process = command(&kind.program);
     spawn_env::apply(&mut process, Scope::for_agent(&kind.name));
-    process
-        .args(&kind.args)
-        .envs(&kind.env)
-        .current_dir(cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let child = own_group(&mut process)
-        .spawn()
-        .with_context(|| format!("starting {}", kind.program))?;
-    let mut child = GroupLeader::new(child);
-    let held = child.hold_output();
-    let asked = ask(child.child_mut(), cwd, protocol).await;
-    child.stop(STOP_GRACE).await;
-    drop(held);
+    process.args(&kind.args).envs(&kind.env).current_dir(cwd);
+    let Started {
+        stdin,
+        stdout,
+        mut running,
+        ..
+    } = super::start(process, kind.bridge.as_ref())?;
+    let asked = ask(stdin, stdout, cwd, protocol).await;
+    running.stop(STOP_GRACE).await;
     asked
 }
 
-/// Asks the agent on `child`'s stdio for a session in `cwd` and reads the
-/// models its answer offers.
-async fn ask(
-    child: &mut tokio::process::Child,
-    cwd: &Path,
-    protocol: acp::Protocol,
-) -> Result<Offered> {
-    let stdin = child.stdin.take().context("the agent has no stdin")?;
-    let stdout = child.stdout.take().context("the agent has no stdout")?;
+/// Asks the agent on `stdin` and `stdout` for a session in `cwd` and reads
+/// the models its answer offers.
+async fn ask(stdin: AgentIn, stdout: AgentOut, cwd: &Path, protocol: acp::Protocol) -> Result<Offered> {
     // An oversized answer is dropped, and the request then fails.
     let (oversized, _reports) = mpsc::channel(1);
     let (protocol, answer) = Builder::new(Client)

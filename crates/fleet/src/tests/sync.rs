@@ -167,19 +167,17 @@ async fn two_harness_saves_at_once_keep_both_fields() {
     assert_eq!(desk.harness_default_model("codex").unwrap(), Some(model));
     assert_eq!(desk.harness_compact("codex").unwrap(), Some(compact));
 
-    // Only Claude Code runs directly; the choice keeps the other settings.
+    // Only Claude Code and Codex run directly; the choice keeps the other
+    // settings.
     assert!(
-        desk.save_harness_driver("codex", HarnessDriver::Direct)
+        desk.save_harness_driver("gemini", HarnessDriver::Direct)
             .await
             .is_err()
     );
-    desk.save_harness_driver("claude", HarnessDriver::Direct)
+    desk.save_harness_driver("codex", HarnessDriver::Direct)
         .await
         .unwrap();
-    assert_eq!(
-        desk.harness_driver("claude").unwrap(),
-        HarnessDriver::Direct
-    );
-    assert_eq!(desk.harness_driver("codex").unwrap(), HarnessDriver::Acp);
+    assert_eq!(desk.harness_driver("codex").unwrap(), HarnessDriver::Direct);
+    assert_eq!(desk.harness_driver("claude").unwrap(), HarnessDriver::Acp);
     assert_eq!(desk.harness_compact("codex").unwrap(), Some(compact));
 }

@@ -44,6 +44,7 @@ fn adapter(log: &Path) -> AgentKind {
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     }
 }
 

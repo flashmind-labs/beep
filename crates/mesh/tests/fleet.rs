@@ -80,6 +80,7 @@ async fn machine(network: bool) -> Machine {
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     };
     let offers = Offers::local(&[agent], Provision::new(dir.path()));
     let peers = Peers::new(endpoint, dir.path().to_owned(), "build-box".into(), offers);

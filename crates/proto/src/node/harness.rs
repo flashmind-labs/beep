@@ -159,7 +159,8 @@ pub struct HarnessConfig {
     /// Model for new sessions when none is explicitly requested.
     #[serde(default)]
     pub default_model: Option<ModelId>,
-    /// How the node drives it. Only Claude Code offers `Direct`.
+    /// How the node drives it. Only Claude Code and Codex offer `Direct`;
+    /// a node that runs neither directly uses ACP.
     #[serde(default)]
     pub driver: HarnessDriver,
 }
@@ -171,7 +172,8 @@ pub enum HarnessDriver {
     /// Through its ACP adapter, or the ACP the CLI speaks itself.
     #[default]
     Acp,
-    /// The node speaks to Claude Code's CLI itself (`beep-node claude-acp`).
+    /// The node speaks to the CLI itself: Claude Code's stream-json, or
+    /// Codex's `app-server`.
     Direct,
     /// A way a newer desktop names; the node uses ACP.
     #[serde(other)]

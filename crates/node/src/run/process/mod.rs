@@ -146,6 +146,10 @@ impl GroupLeader {
         self.group.clone()
     }
 
+    pub(crate) fn id(&self) -> Option<u32> {
+        self.child.id()
+    }
+
     pub(crate) fn child_mut(&mut self) -> &mut Child {
         &mut self.child
     }

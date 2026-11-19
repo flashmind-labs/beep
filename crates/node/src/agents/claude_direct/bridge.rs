@@ -6,7 +6,7 @@ use super::{
     cli::{Cli, Launch},
     updates,
 };
-use crate::agents::acp;
+use crate::agents::{acp, launch};
 use agent_client_protocol::{
     Agent, Builder, Client, ConnectionTo, Dispatch, Handled, JsonRpcMessage,
     Responder, UntypedMessage, on_receive_dispatch,
@@ -32,7 +32,11 @@ use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
-use tokio::{sync::mpsc, task::spawn_blocking};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    sync::mpsc,
+    task::spawn_blocking,
+};
 
 /// How many messages from the client wait to be handled.
 const EVENTS: usize = 64;
@@ -48,13 +52,17 @@ const MODES: &[(&str, &str)] = &[
 /// The config option that picks the model.
 const MODEL: &str = "model";
 
-/// Serves ACP on this process's stdio, driving Claude Code's CLI `program`
-/// with the user's `args`, in the WSL distribution `wsl` whose user's home
-/// is `home` when given, until the client closes it or the CLI exits.
-/// Logs go to stderr: stdout carries ACP.
-pub async fn serve(program: String, args: Vec<String>, wsl: Option<&str>, home: Option<&str>) -> Result<()> {
-    let wsl = wsl.map(str::parse::<DistroName>).transpose()?;
-    let home = home.map(str::parse::<LinuxPath>).transpose()?;
+/// Serves ACP read from `input` and written to `output`, driving Claude
+/// Code's CLI `cli`, in the WSL distribution `wsl` whose user's home is
+/// `home` when given, until the client closes it or the CLI exits; then
+/// ends the CLI.
+pub(in crate::agents) async fn serve(
+    input: impl AsyncRead + Unpin + Send + 'static,
+    output: impl AsyncWrite + Unpin + Send + 'static,
+    cli: launch::Cli,
+    wsl: Option<DistroName>,
+    home: Option<LinuxPath>,
+) -> Result<()> {
     let (events_tx, mut events) = mpsc::channel(EVENTS);
     // Its reports go unread: a dropped message is logged where it is read.
     let (oversized, _) = mpsc::channel(1);
@@ -81,19 +89,24 @@ pub async fn serve(program: String, args: Vec<String>, wsl: Option<&str>, home: 
             on_receive_dispatch!(),
         )
         .connect_with(
-            acp::transport(tokio::io::stdout(), tokio::io::stdin(), oversized),
+            acp::transport(output, input, oversized),
             async |cx: ConnectionTo<Client>| {
                 let mut bridge = Bridge {
                     cx,
-                    program,
-                    args,
+                    cli,
                     wsl,
                     home,
                     asks: false,
                     session: None,
                     answers: FuturesUnordered::new(),
                 };
-                bridge.run(&mut events).await.map_err(|e| {
+                let ran = bridge.run(&mut events).await;
+
+                if let Some(session) = bridge.session.take() {
+                    session.cli.pipe.stop().await;
+                }
+
+                ran.map_err(|e| {
                     log::error!("{e:#}");
                     agent_client_protocol::Error::internal_error().data(format!("{e:#}"))
                 })
@@ -196,8 +209,7 @@ impl Session {
 
 struct Bridge {
     cx: ConnectionTo<Client>,
-    program: String,
-    args: Vec<String>,
+    cli: launch::Cli,
     /// The WSL distribution the CLI runs in, on a Windows machine.
     wsl: Option<DistroName>,
     /// Its default user's home.
@@ -384,8 +396,6 @@ impl Bridge {
         }
 
         let launch = Launch {
-            program: &self.program,
-            extra: &self.args,
             cwd,
             session: id,
             resume,
@@ -394,7 +404,7 @@ impl Bridge {
             system: system.map(system_text).filter(|text| !text.is_empty()),
             asks: self.asks,
         };
-        let mut cli = Cli::start(&launch)?;
+        let mut cli = Cli::start(&mut self.cli, &launch)?;
         let request = cli.control(json!({"subtype": "initialize"}));
         let session = self.session.insert(Session {
             id: SessionId::new(id.to_owned()),
@@ -734,7 +744,7 @@ fn replayed(path: Option<PathBuf>, id: &str, in_wsl: bool) -> Vec<SessionUpdate>
 /// The CLI's next frame, once it runs; `None` when it exited.
 async fn next_frame(session: &mut Option<Session>) -> Option<Value> {
     match session {
-        Some(session) => session.cli.frames.recv().await,
+        Some(session) => session.cli.pipe.frames.recv().await,
         None => std::future::pending().await,
     }
 }

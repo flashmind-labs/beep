@@ -1,15 +1,15 @@
-//! A coding agent inside WSL, spoken to from Windows: `beep-node wsl-acp`
-//! starts its ACP program in the distribution and relays its stdio, turning
+//! A coding agent inside WSL, spoken to from Windows: the node starts its ACP
+//! program in the distribution and relays its stdio, turning
 //! Windows paths into the distribution's (`C:\code` as `/mnt/c/code`) on the
 //! way in and back on the way out. Only the values of the keys that hold
 //! paths change, never text.
 
-use super::distro::{DistroName, LinuxPath, linux_path, windows_drive_path};
+use super::distro::{linux_path, windows_drive_path};
 use crate::agents::{Line, LineReader, MAX_MESSAGE};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::Value;
-use std::{path::Path, process::Stdio};
-use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt, BufReader};
+use std::path::Path;
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio_util::task::AbortOnDropHandle;
 
 /// Which way a message crosses.
@@ -26,30 +26,22 @@ const PATH_KEYS: &[&str] = &["cwd", "path", "file_path", "notebook_path", "abs_p
 /// Keys whose value is a list of paths.
 const PATH_LISTS: &[&str] = &["additionalDirectories", "additional_directories"];
 
-/// Runs the ACP `program` with `args` in `distro`, relaying this process's
-/// stdio to it until either side closes.
-pub async fn relay(distro: &str, program: &str, args: &[String]) -> Result<()> {
-    let distro: DistroName = distro.parse()?;
-    let program: LinuxPath = program.parse()?;
-    let cwd = std::env::current_dir().ok().and_then(|cwd| linux_path(&cwd));
-    let mut child = super::steps::agent_command(&distro, cwd.as_ref(), &program, args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .kill_on_drop(true)
-        .spawn()
-        .with_context(|| format!("starting {program} in WSL {distro}"))?;
-    let agent_in = child.stdin.take().context("the agent has no stdin")?;
-    let agent_out = child.stdout.take().context("the agent has no stdout")?;
-
+/// Relays ACP between the session (`client_in`, `client_out`) and the agent
+/// in WSL (`agent_in`, `agent_out`) until the agent stops writing.
+pub(crate) async fn relay(
+    client_in: impl AsyncRead + Unpin + Send + 'static,
+    client_out: impl AsyncWrite + Unpin + Send,
+    agent_in: impl AsyncWrite + Unpin + Send + 'static,
+    agent_out: impl AsyncRead + Unpin + Send,
+) -> Result<()> {
     // The client closing its side closes the agent's stdin; the relay ends
     // once the agent stops writing, so its last answers still arrive.
     let inbound = AbortOnDropHandle::new(tokio::spawn(pump(
-        BufReader::new(tokio::io::stdin()),
+        BufReader::new(client_in),
         agent_in,
         Toward::Linux,
     )));
-    let outbound = pump(BufReader::new(agent_out), tokio::io::stdout(), Toward::Windows).await;
+    let outbound = pump(BufReader::new(agent_out), client_out, Toward::Windows).await;
     drop(inbound);
 
     outbound

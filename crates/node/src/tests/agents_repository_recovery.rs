@@ -13,6 +13,7 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     };
     let agents = Arc::new(Agents::new(vec![kind.clone()]));
     let hold = agents.reserve_repository(root).await.unwrap();

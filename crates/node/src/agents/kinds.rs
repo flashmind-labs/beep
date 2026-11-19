@@ -4,11 +4,10 @@ use super::{Route, adapters, locate};
 use beep_proto::ModelId;
 use beep_proto::node::harness::{AutoCompact, ModelCompact};
 use serde::{Deserialize, Serialize};
+use crate::machine::wsl::{DistroName, LinuxPath};
 use std::{
     collections::BTreeMap,
-    ffi::OsString,
     path::{Path, PathBuf},
-    sync::LazyLock,
 };
 
 pub(super) const CODEX_CONFIG: &str = "CODEX_CONFIG";
@@ -31,6 +30,9 @@ pub struct AgentKind {
     pub compact_models: Vec<ModelCompact>,
     #[serde(default)]
     pub default_model: Option<ModelId>,
+    /// The node's bridge it runs on, when it does not speak ACP itself.
+    #[serde(skip)]
+    pub bridge: Option<Bridge>,
 }
 
 /// Shows the names of its variables, never their values, which may be the
@@ -42,6 +44,7 @@ impl std::fmt::Debug for AgentKind {
             .field("program", &self.program)
             .field("args", &self.args)
             .field("env", &self.env.keys().collect::<Vec<_>>())
+            .field("bridge", &self.bridge)
             .finish()
     }
 }
@@ -82,121 +85,37 @@ pub(super) struct Known {
     pub(super) async_tasks: bool,
 }
 
-/// The subcommand of `beep-node` that speaks ACP and drives Claude Code's
-/// CLI itself, in place of its npm adapter.
-pub const DIRECT_COMMAND: &str = "claude-acp";
-/// The subcommand of `beep-node` that relays a coding agent's ACP to it
-/// inside WSL, turning paths across.
-pub const RELAY_COMMAND: &str = "wsl-acp";
-/// The argument of `DIRECT_COMMAND` and `RELAY_COMMAND` naming the WSL
-/// distribution the agent runs in.
-const WSL_FLAG: &str = "--wsl";
-
-/// A command line, after the binary, that the node starts this executable
-/// with to run a coding agent. `beep-node` reads it with its own parser;
-/// the desktop app, whose own executable it is, reads it with `parse`
-/// before it starts, or every agent would start another app.
+/// How the node runs an agent it does not start as is: on one of its own
+/// bridges, a task inside the node that speaks ACP to the session and
+/// drives the agent's CLI, `program` with `args` after the bridge's own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Bridge {
-    /// `DIRECT_COMMAND`: Claude Code's CLI `cli` driven over ACP, inside
-    /// WSL when `wsl` is given; `args` go to the CLI.
-    Direct {
-        cli: String,
-        wsl: Option<String>,
-        home: Option<String>,
-        args: Vec<String>,
+    /// Claude Code's CLI in stream-json mode, inside the WSL distribution
+    /// `wsl` when given, whose user's home is `home`.
+    Claude {
+        wsl: Option<DistroName>,
+        home: Option<LinuxPath>,
     },
-    /// `RELAY_COMMAND`: the ACP `program` run in the distribution `wsl`.
-    Relay {
-        wsl: String,
-        program: String,
-        args: Vec<String>,
-    },
+    /// Codex's `app-server`, inside the WSL distribution `wsl` when given.
+    Codex { wsl: Option<DistroName> },
+    /// An ACP agent in the WSL distribution `wsl`, its paths turned across.
+    Relay { wsl: DistroName },
 }
 
 impl Bridge {
-    fn args(&self) -> Vec<String> {
-        let mut line = Vec::new();
-
+    /// The WSL distribution the agent runs in.
+    pub fn wsl(&self) -> Option<&DistroName> {
         match self {
-            Self::Direct { cli, wsl, home, args } => {
-                line.extend([DIRECT_COMMAND.to_owned(), "--cli".to_owned(), cli.clone()]);
-                line.extend(wsl.iter().flat_map(|wsl| [WSL_FLAG.to_owned(), wsl.clone()]));
-                line.extend(home.iter().flat_map(|home| ["--home".to_owned(), home.clone()]));
-                line.push("--".to_owned());
-                line.extend(args.iter().cloned());
-            }
-            Self::Relay { wsl, program, args } => {
-                line.extend([RELAY_COMMAND.to_owned(), WSL_FLAG.to_owned(), wsl.clone()]);
-                line.extend(["--".to_owned(), program.clone()]);
-                line.extend(args.iter().cloned());
-            }
-        }
-
-        line
-    }
-
-    /// The bridge `args` (after the binary) make, when they are a line
-    /// `args` builds; `None` for anything else.
-    pub fn parse<I>(args: I) -> Option<Self>
-    where
-        I: IntoIterator,
-        I::Item: Into<OsString>,
-    {
-        let args: Vec<String> = args
-            .into_iter()
-            .map(|arg| Into::<OsString>::into(arg).into_string().ok())
-            .collect::<Option<_>>()?;
-        let (command, rest) = args.split_first()?;
-        let split = rest.iter().position(|arg| arg == "--")?;
-        let (flags, tail) = (&rest[..split], &rest[split + 1..]);
-
-        let mut values = BTreeMap::new();
-        for pair in flags.chunks(2) {
-            let [flag, value] = pair else { return None };
-            values.insert(flag.as_str(), value.clone()).is_none().then_some(())?;
-        }
-        let mut take = |flag: &str| values.remove(flag);
-
-        let bridge = match command.as_str() {
-            DIRECT_COMMAND => Self::Direct {
-                cli: take("--cli").unwrap_or_else(|| "claude".to_owned()),
-                wsl: take(WSL_FLAG),
-                home: take("--home"),
-                args: tail.to_vec(),
-            },
-            RELAY_COMMAND => {
-                let (program, args) = tail.split_first()?;
-                Self::Relay {
-                    wsl: take(WSL_FLAG)?,
-                    program: program.clone(),
-                    args: args.to_vec(),
-                }
-            }
-            _ => return None,
-        };
-
-        values.is_empty().then_some(bridge)
-    }
-
-    /// Serves the agent's ACP on this process's stdio until either side ends.
-    pub async fn run(self) -> anyhow::Result<()> {
-        match self {
-            Self::Direct { cli, wsl, home, args } => {
-                super::claude_direct::serve(cli, args, wsl.as_deref(), home.as_deref()).await
-            }
-            Self::Relay { wsl, program, args } => crate::machine::wsl::relay(&wsl, &program, &args).await,
+            Self::Claude { wsl, .. } | Self::Codex { wsl } => wsl.as_ref(),
+            Self::Relay { wsl } => Some(wsl),
         }
     }
 }
 
-/// `kind` runs inside WSL, on the bridge or the relay, which only this node
-/// can start: its program and arguments stay as detection made them.
+/// `kind` runs inside WSL, which only this node can start: its program and
+/// arguments stay as detection made them.
 pub(super) fn in_wsl(kind: &AgentKind) -> bool {
-    kind.args
-        .first()
-        .is_some_and(|arg| arg == DIRECT_COMMAND || arg == RELAY_COMMAND)
-        && kind.args.iter().any(|arg| arg == WSL_FLAG)
+    kind.bridge.as_ref().is_some_and(|bridge| bridge.wsl().is_some())
 }
 
 /// The ACP adapters of the known agents, which the WSL probe looks for.
@@ -204,40 +123,23 @@ pub(crate) fn adapter_bins() -> impl Iterator<Item = &'static str> {
     KNOWN.iter().filter_map(Known::adapter_bin)
 }
 
-/// This executable, as it was when the node started: an update renames a
-/// new binary over it, after which the running one's path reads as deleted.
-static EXE: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
-    std::env::current_exe()
-        .and_then(std::path::absolute)
-        .inspect_err(|e| log::warn!("Claude Code runs on its ACP adapter: this binary is not found: {e}"))
-        .ok()
-});
-
-/// `kind`, Claude Code, run by this executable's `DIRECT_COMMAND` on the
-/// `claude` CLI found here; arguments added after it go to the CLI. `None`
-/// for another agent, or when this executable is not found.
+/// `kind`, Claude Code or Codex, run by the node's own bridge on the CLI
+/// found here. `None` for another agent. An agent in WSL stays as it was
+/// found: Claude Code on the bridge, Codex on its relay.
 pub(super) fn direct(kind: &AgentKind) -> Option<AgentKind> {
-    if kind.name != "claude" {
-        return None;
-    }
+    let bridge = match kind.name.as_str() {
+        _ if kind.bridge.is_some() => return Some(kind.clone()),
+        "claude" => Bridge::Claude { wsl: None, home: None },
+        "codex" => Bridge::Codex { wsl: None },
+        _ => return None,
+    };
+    let program = locate::find(&kind.name, dirs::home_dir().as_deref())
+        .map_or_else(|| kind.name.clone(), |path| path.display().to_string());
 
-    // Already on the bridge, such as Claude Code in WSL.
-    if kind.args.first().is_some_and(|arg| arg == DIRECT_COMMAND) {
-        return Some(kind.clone());
-    }
-
-    let exe = EXE.as_ref()?;
-    let cli = locate::find("claude", dirs::home_dir().as_deref())
-        .map_or_else(|| "claude".to_owned(), |path| path.display().to_string());
     Some(AgentKind {
-        program: exe.display().to_string(),
-        args: Bridge::Direct {
-            cli,
-            wsl: None,
-            home: None,
-            args: Vec::new(),
-        }
-        .args(),
+        program,
+        args: Vec::new(),
+        bridge: Some(bridge),
         ..kind.clone()
     })
 }
@@ -419,7 +321,6 @@ pub(super) const KNOWN: &[Known] = &[
 /// where it was found. An ACP adapter the node installed in its folder
 /// `node_dir` is used when the machine has none of its own.
 pub fn detect(extra: &[AgentKind], node_dir: Option<&Path>) -> Vec<AgentKind> {
-    LazyLock::force(&EXE);
     let detection = detection(extra, node_dir);
     detection.log();
     detection.kinds
@@ -520,11 +421,10 @@ pub(super) fn detection(extra: &[AgentKind], node_dir: Option<&Path>) -> Detecti
 
 /// `known`, installed in a WSL distribution of this Windows machine, which
 /// runs it when Windows has none of its own, on the Windows checkout:
-/// Claude Code on this executable's bridge, any other agent through its
-/// relay, with the adapter or `npx` the distribution has.
+/// Claude Code on the node's bridge, any other agent through its relay,
+/// with the adapter or `npx` the distribution has.
 fn in_wsl_kind(known: &'static Known) -> Option<AgentKind> {
     let (distro, found) = crate::machine::wsl::with_agent(known.name)?;
-    let exe = EXE.as_ref()?;
     let path = |name: &str| {
         found
             .agents
@@ -534,36 +434,31 @@ fn in_wsl_kind(known: &'static Known) -> Option<AgentKind> {
             .map(|program| program.path.to_string())
     };
 
-    let (args, env) = if known.name == "claude" {
-        let bridge = Bridge::Direct {
-            cli: path(known.cli)?,
-            wsl: Some(distro.to_string()),
-            home: found.home.as_ref().map(ToString::to_string),
-            args: Vec::new(),
+    let (program, args, env, bridge) = if known.name == "claude" {
+        let bridge = Bridge::Claude {
+            wsl: Some(distro.clone()),
+            home: found.home.clone(),
         };
-        (bridge.args(), env(known))
+        (path(known.cli)?, Vec::new(), env(known), bridge)
     } else {
         let kind = match launch(known, &|name| path(name).is_some(), None)? {
             Launch::Ready(kind) | Launch::ViaNpx(kind) => kind,
             _ => return None,
         };
-        let bridge = Bridge::Relay {
-            wsl: distro.to_string(),
-            program: path(&kind.program)?,
-            args: kind.args,
-        };
-        (bridge.args(), kind.env)
+        let bridge = Bridge::Relay { wsl: distro.clone() };
+        (path(&kind.program)?, kind.args, kind.env, bridge)
     };
     log::info!("{} found in WSL {distro}", known.title);
 
     Some(AgentKind {
         name: known.name.to_owned(),
-        program: exe.display().to_string(),
+        program,
         args,
         env,
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: Some(bridge),
     })
 }
 
@@ -680,6 +575,7 @@ pub(super) fn launch(
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     };
     Some(if bridged {
         direct(&kind).map_or(Launch::LacksAdapter, Launch::Direct)

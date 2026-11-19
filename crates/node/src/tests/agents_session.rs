@@ -93,6 +93,7 @@ fn script(name: &str, script: &str, log: &Path) -> AgentKind {
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     }
 }
 
@@ -753,6 +754,63 @@ while :; do sleep 1; done
     assert_eq!(session.info().state.status, Status::Ended);
     assert_eq!(session.info().state.error, None, "closed, not failed");
     assert_eq!(std::fs::read_to_string(&marker).unwrap(), "bye\n");
+}
+
+/// A `codex app-server` that answers each call and plays one turn of a
+/// message on `turn/start`; once its stdin closes or it is asked to end, it
+/// writes `$1/ended`.
+const FAKE_APP_SERVER: &str = r#"#!/bin/sh
+trap 'echo bye > "$1/ended"; exit 0' TERM
+say() { printf '{"method":"%s","params":%s}\n' "$1" "$2"; }
+t='"threadId":"thread-1","turnId":"turn-1"'
+while read -r line; do
+    id=$(printf '%s\n' "$line" | sed -nE 's/^\{"id":([0-9]+).*/\1/p')
+    [ -z "$id" ] && continue
+    case "$line" in
+    *'"method":"thread/start"'*)
+        printf '{"id":%s,"result":{"thread":{"id":"thread-1"},"model":"model-a"}}\n' "$id" ;;
+    *'"method":"model/list"'*)
+        printf '{"id":%s,"result":{"data":[],"nextCursor":null}}\n' "$id" ;;
+    *'"method":"turn/start"'*)
+        printf '{"id":%s,"result":{"turn":{"id":"turn-1","items":[],"status":"inProgress"}}}\n' "$id"
+        say item/agentMessage/delta '{'"$t"',"itemId":"m1","delta":"Done."}'
+        say item/completed '{'"$t"',"item":{"type":"agentMessage","id":"m1","text":"Done."}}'
+        say turn/completed '{"threadId":"thread-1","turn":{"id":"turn-1","items":[],"status":"completed"}}' ;;
+    *) printf '{"id":%s,"result":{}}\n' "$id" ;;
+    esac
+done
+echo bye > "$1/ended"
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn codex_on_its_direct_bridge_runs_a_turn_and_stops_with_the_session() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let codex = dir.join("codex");
+    std::fs::write(&codex, FAKE_APP_SERVER).unwrap();
+    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let kind = AgentKind {
+        program: codex.display().to_string(),
+        args: vec![dir.display().to_string()],
+        bridge: Some(crate::agents::Bridge::Codex { wsl: None }),
+        ..script("codex", "", &dir.join("log"))
+    };
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
+
+    until(&session, |live| live.info.turns >= 1 || live.status() == Status::Ended).await;
+    let info = session.info();
+    assert_eq!(info.turns, 1, "{:?}", info.state.error);
+    assert_eq!(info.last_message, "Done.");
+    // The session's processes are the CLI the bridge started, and its own.
+    let root = session.processes.root();
+    assert!(root != 0 && root != std::process::id(), "{root}");
+
+    session.close().await;
+    assert_eq!(session.info().state.error, None, "closed, not failed");
+    assert_eq!(std::fs::read_to_string(dir.join("ended")).unwrap(), "bye\n");
 }
 
 /// An adapter that says whether it takes images (`$2`), then ends each

@@ -13,8 +13,8 @@ mod relay;
 mod report;
 mod steps;
 
-pub(crate) use distro::{DistroName, LinuxPath, linux_path, windows_drive_path, windows_folder, windows_path};
-pub use relay::relay;
-pub(crate) use relay::{Toward, translate};
+pub use distro::{DistroName, LinuxPath, NameError, NotLinuxPath};
+pub(crate) use distro::{linux_path, windows_drive_path, windows_folder, windows_path};
+pub(crate) use relay::{Toward, relay, translate};
 pub(crate) use report::{agents_changed, found, report, with_agent};
-pub(crate) use steps::agent_command;
+pub(crate) use steps::{agent_command, joined_wslenv};

@@ -1,15 +1,16 @@
-//! `beep-node claude-acp`, Claude Code's Direct driver, against a fake
+//! Claude Code's Direct driver, run as the node runs it, against a fake
 //! `claude` that speaks stream-json: a client drives it as the node's
 //! session does (initialize, `session/new`, the switch to bypassing
 //! permissions, a model switch, a prompt) and answers a tool permission and
 //! an `AskUserQuestion` form, which reach the CLI as its control responses.
 #![cfg(unix)]
 
+use beep_node::agents::{AgentIn, AgentOut, Bridge, start};
 use serde_json::{Value, json};
-use std::{os::unix::fs::PermissionsExt, path::Path, process::Stdio, time::Duration};
+use std::{os::unix::fs::PermissionsExt, path::Path, time::Duration};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines},
-    process::{ChildStdin, ChildStdout, Command},
+    process::Command,
     time::timeout,
 };
 
@@ -58,10 +59,10 @@ echo '{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_t
 cat > /dev/null
 "#;
 
-/// The bridge's stdio, as a client sees it.
+/// The bridge's ACP, as the session sees it.
 struct Client {
-    stdin: ChildStdin,
-    stdout: Lines<BufReader<ChildStdout>>,
+    stdin: AgentIn,
+    stdout: Lines<BufReader<AgentOut>>,
     next_id: u64,
 }
 
@@ -125,20 +126,22 @@ async fn a_turn_with_a_permission_and_a_question_reaches_claude_code() {
     let claude = dir.path().join("claude");
     std::fs::write(&claude, FAKE_CLAUDE).unwrap();
     std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_beep-node"))
-        .args(["claude-acp", "--cli"])
-        .arg(&claude)
-        .args(["--", "--effort", "high"])
+    let mut cli = Command::new(&claude);
+    cli.args(["--effort", "high"])
         .env("FAKE_DIR", dir.path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("the bridge starts");
+        .current_dir(dir.path());
+    let agent = start(
+        cli,
+        Some(&Bridge::Claude {
+            wsl: None,
+            home: None,
+        }),
+    )
+    .expect("the bridge starts");
+    let mut running = agent.running;
     let mut client = Client {
-        stdin: child.stdin.take().unwrap(),
-        stdout: BufReader::new(child.stdout.take().unwrap()).lines(),
+        stdin: agent.stdin,
+        stdout: BufReader::new(agent.stdout).lines(),
         next_id: 0,
     };
 
@@ -246,11 +249,16 @@ async fn a_turn_with_a_permission_and_a_question_reaches_claude_code() {
         (Some(105), Some(200_000))
     );
 
-    drop(client);
-    timeout(Duration::from_secs(10), child.wait())
+    // The bridge ends with the session's side, and stops the CLI.
+    let Client {
+        stdin, mut stdout, ..
+    } = client;
+    drop(stdin);
+    let ended = timeout(Duration::from_secs(10), stdout.next_line())
         .await
-        .expect("the bridge ends with its stdin")
-        .unwrap();
+        .expect("the bridge ends with its stdin");
+    assert!(matches!(ended, Ok(None)), "{ended:?}");
+    running.stop(Duration::from_secs(5)).await;
 
     let args = std::fs::read_to_string(dir.path().join("args")).unwrap();
     let args: Vec<&str> = args.lines().collect();

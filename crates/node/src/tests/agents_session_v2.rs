@@ -16,6 +16,7 @@ fn kind(log: &Path) -> AgentKind {
         }),
         compact_models: Vec::new(),
         default_model: None,
+        bridge: None,
     }
 }
 
