@@ -68,6 +68,16 @@ test("Cmd+N on Home opens the Assistant page and starts the assistant with its h
   await expect(page.locator("#agshell")).toBeVisible();
 });
 
+test("Cmd+L opens the Assistant page from anywhere in the window", { tag: "@windows" }, async ({ page }, info) => {
+  await openDesktop(page, false, { agent_hosts: [host], agent_sessions: [session], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null } });
+  await page.locator("#side").getByRole("button", { name: "Terminals", exact: true }).click();
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+l" : "Meta+l");
+
+  await expect(page.locator(".asst-list")).toBeVisible();
+  await expect(page.locator("#agprompt")).toBeFocused();
+  await expect(page.locator("#side").getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-current", "true");
+});
+
 test.describe("on a phone", () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
 
