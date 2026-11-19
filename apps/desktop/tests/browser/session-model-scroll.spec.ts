@@ -60,7 +60,7 @@ test("an imported session with an unknown model can choose before continuing", a
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer").length)).toBe(2);
   const calls = await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_resume" || c.command === "agent_steer"));
   expect(calls.map(c => c.command)).toEqual(["agent_resume", "agent_steer", "agent_steer"]);
-  expect(calls[0].args.prompt).toBeNull();
+  expect(calls[0].args).toMatchObject({ prompt: null, model: "test-model" });
   expect(calls[1].args).toMatchObject({ session: "resumed-session", steer: { configure: { model: "test-model", effort: null, fast: null } } });
   expect(calls[2].args).toMatchObject({ session: "resumed-session", steer: { prompt: { text: "Continue with this model" } } });
 });

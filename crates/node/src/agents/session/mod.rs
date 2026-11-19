@@ -8,7 +8,7 @@ use super::{
     alerts::AlertHub,
     compaction::{Compactor, Policy, Route},
     images::Images,
-    known,
+    kinds::{CODEX_CONFIG, known},
     live::{Live, Sent},
     processes::Processes,
     route, unix_now,
@@ -351,6 +351,32 @@ impl Session {
             .kill_on_drop(true);
         if let Some(name) = cleared {
             process.env_remove(name);
+        }
+
+        if kind.name == "codex"
+            && resume.is_some()
+            && let Some(model) = &model
+        {
+            let current = process
+                .as_std()
+                .get_envs()
+                .find(|(name, _)| *name == CODEX_CONFIG)
+                .and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
+                .or_else(|| std::env::var_os(CODEX_CONFIG));
+            let mut config = match current.filter(|value| !value.is_empty()) {
+                Some(value) => serde_json::from_str::<
+                    Option<serde_json::Map<String, serde_json::Value>>,
+                >(&value.to_string_lossy())
+                .map_err(|_| anyhow::anyhow!("CODEX_CONFIG must be a JSON object"))?
+                .unwrap_or_default(),
+                None => serde_json::Map::new(),
+            };
+            // Codex checks the model during resume, before ACP can switch it.
+            config.insert(
+                "model".to_owned(),
+                serde_json::Value::String(model.to_string()),
+            );
+            process.env(CODEX_CONFIG, serde_json::Value::Object(config).to_string());
         }
 
         if let Some(wrapper) = cargo::wrapper(cwd, &kind.env) {

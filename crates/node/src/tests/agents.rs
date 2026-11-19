@@ -405,7 +405,11 @@ async fn an_ended_node_session_resumes_from_the_agents_session() {
     first.close().await;
     // Nothing on this machine has the agent's session, so it is the
     // agent's id that the node looks for, not its own.
-    let err = agents.resume(&kind, &first.id, None).await.err().unwrap();
+    let err = agents
+        .resume(&kind, &first.id, None, None)
+        .await
+        .err()
+        .unwrap();
     assert!(err.to_string().contains(id), "{err}");
 }
 
@@ -460,6 +464,7 @@ done
             &kind,
             &SessionId::from("hermes-session"),
             Some("continue".into()),
+            None,
         )
         .await
         .unwrap();
@@ -485,7 +490,7 @@ done
     resumed.close().await;
     assert!(
         agents
-            .resume(&kind, &SessionId::from("outside-session"), None)
+            .resume(&kind, &SessionId::from("outside-session"), None, None)
             .await
             .is_err()
     );
@@ -655,7 +660,7 @@ async fn a_session_resumes_only_on_its_own_agent() {
         ..Begin::default()
     };
     let running = agents.start(&codex, Some("/"), begin).unwrap();
-    let err = agents.resume(&claude, &running.id, None).await.err();
+    let err = agents.resume(&claude, &running.id, None, None).await.err();
     assert!(
         err.is_some_and(|e| e.to_string().contains("runs codex")),
         "a claude stream took over a codex session"

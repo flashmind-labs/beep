@@ -1105,6 +1105,49 @@ mod usage {
 }
 
 mod agent {
+    #[test]
+    fn resume_models_are_compatible_with_older_nodes() {
+        use beep_proto::node::agent::Request;
+        use serde::{Deserialize, Serialize};
+
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        enum Before {
+            Resume {
+                session: beep_proto::SessionId,
+                prompt: Option<String>,
+            },
+        }
+
+        let before = Before::Resume {
+            session: "saved-session".into(),
+            prompt: None,
+        };
+        let bytes = rmp_serde::to_vec(&before).unwrap();
+        assert_eq!(
+            beep_proto::lenient::from_slice::<Request>(&bytes).unwrap(),
+            Request::Resume {
+                session: "saved-session".into(),
+                prompt: None,
+                model: None,
+            }
+        );
+
+        let resume = Request::Resume {
+            session: "saved-session".into(),
+            prompt: None,
+            model: Some("selected-model".into()),
+        };
+        let bytes = rmp_serde::to_vec(&resume).unwrap();
+        assert_eq!(
+            beep_proto::lenient::from_slice::<Before>(&bytes).unwrap(),
+            before
+        );
+        assert_eq!(
+            beep_proto::lenient::from_slice::<Request>(&bytes).unwrap(),
+            resume
+        );
+    }
+
     mod checkout {
         use beep_proto::node::agent::*;
 

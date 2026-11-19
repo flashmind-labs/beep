@@ -2073,6 +2073,49 @@ async fn compaction_env(name: &str, compact: Option<AutoCompact>) -> String {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn codex_resumes_with_the_session_model_in_its_startup_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let seen = dir.join("env");
+    let mut kind = script(
+        "codex",
+        r#"printf '%s' "$CODEX_CONFIG" > "$2""#,
+        &dir.join("sent.jsonl"),
+    );
+    kind.args.push(seen.display().to_string());
+    kind.compact = Some(AutoCompact {
+        enabled: true,
+        percent: None,
+        tokens: Some(350_000),
+    });
+
+    for (env, expected) in [
+        (
+            None,
+            serde_json::json!({"model": "saved-model", "model_auto_compact_token_limit": 350_000}),
+        ),
+        (
+            Some(r#"{"model":"default-model","model_auto_compact_token_limit":200000}"#),
+            serde_json::json!({"model": "saved-model", "model_auto_compact_token_limit": 200_000}),
+        ),
+    ] {
+        if let Some(env) = env {
+            kind.env.insert("CODEX_CONFIG".to_owned(), env.to_owned());
+        }
+        let start = Start {
+            resume: Some("held-1".into()),
+            ..start_on(&kind, dir, Some("saved-model"))
+        };
+        let session = Session::start(start).unwrap();
+        settle(&session).await;
+
+        let config: Value = serde_json::from_slice(&std::fs::read(&seen).unwrap()).unwrap();
+        assert_eq!(config, expected);
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn agent_processes_inherit_the_main_checkouts_cargo_target() {
     use crate::agents::checkout::tests::{repo, run};
 

@@ -6,14 +6,14 @@ import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { openInEditor } from "../project/editors.ts";
-import type { AgentRow, Started } from "./agents.ts";
+import type { AgentRow } from "./agents.ts";
 import { parentSession, loadSessions, sessions } from "./sessions.ts";
 import { type SideWork, sessionOffers, stopAllAsks } from "./sessionmenu-state.ts";
 import { AG, AGENT_ACTIVE, openOf, where } from "./agents.ts";
 import { sameSession } from "./running-state.ts";
 import { workingSubagents } from "./logview.tsx";
 import { runs } from "./tasks.tsx";
-import { drainOutbox, stopAllWork } from "./messages.ts";
+import { drainOutbox, resumeEndedSession, stopAllWork } from "./messages.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { transcriptKey } from "./transcript-cache-state.ts";
 import { closeSession } from "./closing.ts";
@@ -68,7 +68,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
     }
 
     if (offers.resume) {
-      items.push({ label: "Resume", on: () => void invoke<Started>("agent_resume", at).then(started => open(started.session), err => console.warn("resume:", err)) });
+      items.push({ label: "Resume", on: () => void resumeEndedSession(openOf(s), null).then(started => open(started.session), err => console.warn("resume:", err)) });
     }
 
     if (folder && !onPhone()) {

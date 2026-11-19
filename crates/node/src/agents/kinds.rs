@@ -11,6 +11,8 @@ use std::{
     sync::LazyLock,
 };
 
+pub(super) const CODEX_CONFIG: &str = "CODEX_CONFIG";
+
 /// An agent this node can start: a program that speaks ACP on its stdio.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentKind {
@@ -321,7 +323,7 @@ pub(super) const KNOWN: &[Known] = &[
         read_only_mode: Some("read-only"),
         model_flag: false,
         compact: Route::TokenLimit {
-            config_var: "CODEX_CONFIG",
+            config_var: CODEX_CONFIG,
             key: "model_auto_compact_token_limit",
         },
         async_tasks: false,

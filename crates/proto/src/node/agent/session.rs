@@ -50,6 +50,9 @@ pub enum Request {
         session: SessionId,
         #[serde(default)]
         prompt: Option<String>,
+        /// The model to load the session with, when chosen in the app.
+        #[serde(default)]
+        model: Option<ModelId>,
     },
     /// Sends the agent a message. While a turn runs it waits for the turn
     /// to end.

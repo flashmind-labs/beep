@@ -629,12 +629,14 @@ pub async fn agent_resume(
     agent: String,
     session: SessionId,
     prompt: Option<String>,
+    model: Option<ModelId>,
 ) -> Result<Started> {
     let request = ResumeAgentSession {
         machine_id,
         agent,
         session,
         prompt,
+        model,
     };
     let machine = fleet.machine(&request.machine_id)?;
     let session = request.session.clone();

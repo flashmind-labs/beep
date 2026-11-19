@@ -576,7 +576,7 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
     after.keep_saved(Reopen::read(dir.path()).saved);
     after.settings_arrived();
     let resumed = after
-        .resume(&kind, &SessionId::from("held-1"), None)
+        .resume(&kind, &SessionId::from("held-1"), None, None)
         .await
         .expect("taken over");
     assert!(after.is_assistant(&resumed.id));
@@ -603,7 +603,7 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
     }]);
     agents.settings_arrived();
     let resumed = agents
-        .resume(&kind, &SessionId::from("held-1"), None)
+        .resume(&kind, &SessionId::from("held-1"), None, None)
         .await
         .expect("taken over");
     assert!(!agents.is_assistant(&resumed.id));

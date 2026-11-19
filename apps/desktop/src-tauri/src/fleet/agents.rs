@@ -669,6 +669,7 @@ pub(crate) async fn resume(
     let first = Request::Resume {
         session: resume.session,
         prompt,
+        model: resume.model,
     };
     let opened = open_agent(&client, &resume.agent, first)
         .await

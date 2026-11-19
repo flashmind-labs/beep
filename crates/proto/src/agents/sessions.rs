@@ -473,6 +473,7 @@ pub struct ResumeAgentSession {
     pub agent: String,
     pub session: SessionId,
     pub prompt: Option<String>,
+    pub model: Option<ModelId>,
 }
 
 /// One session with its plan, the files it changed and the last `last`

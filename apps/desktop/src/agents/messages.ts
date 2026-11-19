@@ -146,14 +146,8 @@ async function sendBackground(session: OpenAgent, draft: Waiting, state: Mention
   let target = session;
   try {
     if (ended) {
-      const started = await invoke<Started>("agent_resume", { ...where(session), prompt: null }, AGENT_SEND_WAIT_MS);
+      const started = await resumeEndedSession(session, null);
       target = openOf(started.session);
-      const pick = resumePicks.get(session.session);
-      if (pick && (pick.model || pick.effort || pick.fast !== null)) {
-        await invoke("agent_steer", { ...where(target), steer: { configure: { model: pick.model || null, effort: pick.effort, fast: pick.fast } } }, AGENT_SEND_WAIT_MS);
-        sessionPicks.set(target.session, pick);
-      }
-      resumePicks.delete(session.session);
     }
 
     keepAgentPics(target, draft.images);
@@ -435,6 +429,22 @@ export async function sendReview(text: string) {
   return ok ? "" : AG.note || "Could not send the review.";
 }
 
+/// Resumes with the composer's selection. Older nodes still need the configure order.
+export async function resumeEndedSession(session: OpenAgent, prompt: string | null): Promise<Started> {
+  const pick = resumePicks.get(session.session);
+  const configure = pick && (pick.model || pick.effort || pick.fast !== null) ? { model: pick.model || null, effort: pick.effort, fast: pick.fast } : null;
+  const model = session.agent === "codex" ? configure?.model ?? null : null;
+  const started = await invoke<Started>("agent_resume", { ...where(session), prompt: configure ? null : prompt, model }, AGENT_SEND_WAIT_MS);
+  if (configure && pick) {
+    const target = where(openOf(started.session));
+    await invoke("agent_steer", { ...target, steer: { configure } }, AGENT_SEND_WAIT_MS);
+    if (prompt !== null) await invoke("agent_steer", { ...target, steer: { prompt: { text: prompt } } }, AGENT_SEND_WAIT_MS);
+    sessionPicks.set(started.session.id, pick);
+  }
+  resumePicks.delete(session.session);
+  return started;
+}
+
 /// Resumes the ended session with `text`, then follows the session that
 /// goes on from it. Messages with images go together after resuming.
 async function continueAgent(input: HTMLTextAreaElement, text: string, images: Attached[], draft?: Draft) {
@@ -446,18 +456,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
   drawAgentBody();
 
   try {
-    const pick = resumePicks.get(o.session);
-    const configure = pick && (pick.model || pick.effort || pick.fast !== null) ? { model: pick.model || null, effort: pick.effort, fast: pick.fast } : null;
-    const started = await invoke<Started>("agent_resume", { ...where(o), prompt: images.length || configure ? null : text }, AGENT_SEND_WAIT_MS);
-
-    if (configure && pick) {
-      const target = where(openOf(started.session));
-      await invoke("agent_steer", { ...target, steer: { configure } }, AGENT_SEND_WAIT_MS);
-      if (!images.length) await invoke("agent_steer", { ...target, steer: { prompt: { text } } }, AGENT_SEND_WAIT_MS);
-      sessionPicks.set(started.session.id, pick);
-    }
-
-    resumePicks.delete(o.session);
+    const started = await resumeEndedSession(o, images.length ? null : text);
     if (!isOpen(o)) return true;
     // The same session goes on in the same field.
     input.disabled = false;

@@ -1,6 +1,5 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
-use beep_proto::SessionId;
 use super::{
     AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
     MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, SavedSession, Session, Sighted,
@@ -19,6 +18,7 @@ use beep_proto::node::{
     events::Topic,
 };
 use beep_proto::watched;
+use beep_proto::{ModelId, SessionId};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
@@ -565,6 +565,7 @@ impl Agents {
         kind: &AgentKind,
         id: &SessionId,
         prompt: Option<String>,
+        model: Option<ModelId>,
     ) -> Result<Arc<Session>> {
         let _store = self.session_store.lock().await;
         anyhow::ensure!(
@@ -641,7 +642,8 @@ impl Agents {
         self.prepare(kind).await?;
         super::restart::to_project(kind, id, Path::new(&cwd)).await;
         // Never seen here, as one found outside Beep: never the assistant.
-        let begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
+        let mut begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
+        begin.model = model.or(begin.model);
         let session = self.start(kind, Some(&cwd), begin)?;
         self.watch_parent(&session);
         Ok(session)

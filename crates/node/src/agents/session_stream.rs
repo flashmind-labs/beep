@@ -1,9 +1,9 @@
 //! The stream the caller follows one session on.
 
-use beep_proto::SessionId;
 use super::{AgentKind, Agents, Begin, Command, Prompt, live};
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
+use beep_proto::SessionId;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{self, Event, Request, SessionInfo, State, Status},
@@ -73,7 +73,7 @@ impl Agents {
         let session = match found {
             _ if message && ended => {
                 let kind = self.kind_or_refusal(agent)?;
-                self.resume(&kind, id, None)
+                self.resume(&kind, id, None, None)
                     .await
                     .map_err(|e| format!("{e:#}"))?
             }
@@ -165,8 +165,15 @@ pub async fn serve_session(
             }
             Err(e) => Err(e),
         },
-        Request::Resume { session, prompt } => agents
-            .resume(&kind, &session, prompt)
+        Request::Resume {
+            model: Some(model), ..
+        } if !agent::valid_model(model.as_ref()) => Err(format!("{model:?} is not a model name")),
+        Request::Resume {
+            session,
+            prompt,
+            model,
+        } => agents
+            .resume(&kind, &session, prompt, model)
             .await
             .map_err(|e| format!("{e:#}")),
         Request::Attach { session } => match agents.get(&session) {
