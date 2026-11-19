@@ -366,10 +366,8 @@ fn installed_ok(name: &str, result: Result<PathBuf>) -> bool {
     }
 }
 
-// TODO-UPDATE-COMMENT: skills go to Beep's own skills folder now, not the agents' folders
-// ---
-/// Installs every skill into every agent's skills folder found, keeping
-/// the record of what it wrote in the node's folder `node_dir`.
+/// Installs every skill into Beep's own skills folder, keeping the record
+/// of what it wrote in the node's folder `node_dir`.
 fn install_skills(node_dir: &Path) -> Result<()> {
     let beep = skills::beep_dir().context("no config folder")?;
     let mut installed = skills::Installed::load(&node_dir.join("installed-skills"))?;

@@ -1,7 +1,6 @@
-// TODO-UPDATE-COMMENT: skills now go to Beep's own folder, `beep_dir`, not the agents' folders
-// ---
-//! Beep's GitHub and Forgejo agent skills, written by `install` into each of
-//! `targets` (Claude Code's `~/.claude/skills`, Codex's `~/.agents/skills`).
+//! Beep's GitHub and Forgejo agent skills, written by `install` into Beep's
+//! own skills folder, `beep_dir` (`~/.config/beep/skills`), never into an
+//! agent's. `brief` lists that folder's skills for the sessions Beep starts.
 
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
