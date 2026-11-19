@@ -65,6 +65,7 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     publishTurn(o.machine_id, page);
     offScreen.set(key, { modes: update.modes, tasks: update.tasks });
     const fresh = update.kind === "delta" ? update.page : page;
+    const replace = update.kind === "snapshot" && !update.resumed;
     if (!open) return;
 
     AG.modes = update.modes;
@@ -74,12 +75,12 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     // update, with no draw, so updates join in the order they came.
     if (!isOpen(open)) {
       flushDraw(true);
-      if (AG.page) AG.page = heldPage(AG.page, fresh, update.kind === "snapshot");
+      if (AG.page) AG.page = heldPage(AG.page, fresh, replace);
       return;
     }
 
     // Normal updates only redraw their changed suffix.
-    queueDraw(open, fresh, update.kind === "snapshot");
+    queueDraw(open, fresh, replace);
   },
   disconnected: (o, error) => {
     if (!isOpen(o) || !paneShown()) return;

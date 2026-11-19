@@ -12,6 +12,36 @@ const view = (row = session) => ({
   earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 20,
 });
 
+test("opening a short transcript page reads all earlier messages without scrolling", async ({ page }) => {
+  const active = { ...session, status: "idle", external: false };
+  const entries = [{ kind: "user", text: "Latest prompt" }, { kind: "agent", text: "Latest reply" }];
+  await openDesktop(page, false, { agent_view: { ...view(active), entries, earlier: 202 } });
+  await page.evaluate(() => {
+    window.__navigation.holdNext("agent_older");
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = <T>(command: string, args?: Record<string, unknown>) => {
+      if (command === "agent_older") {
+        const batch = args?.before === 202
+          ? { earlier: 2, entries: Array.from({ length: 200 }, () => ({ kind: "thought", text: "Thinking" })) }
+          : { earlier: 0, entries: [{ kind: "user", text: "First prompt" }, { kind: "agent", text: "First reply" }] };
+        window.__navigation.respond(command, batch);
+      }
+      return invoke<T>(command, args);
+    };
+  });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+  const body = page.locator("#agbody");
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_older").map(c => c.args.before));
+  await expect(body).toContainText("Latest reply");
+  expect(await body.evaluate(b => b.scrollHeight === b.clientHeight)).toBe(true);
+  await expect.poll(reads).toEqual([202]);
+
+  await page.evaluate(() => window.__navigation.release("agent_older"));
+  await expect.poll(reads).toEqual([202, 2]);
+  await expect(body).toContainText("First prompt");
+  await expect(body).toContainText("Latest reply");
+});
+
 test("an imported session with an unknown model can choose before continuing", async ({ page }) => {
   const resumed = { ...session, id: "resumed-session", external: false, status: "idle" };
   await openDesktop(page, false, {

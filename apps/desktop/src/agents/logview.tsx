@@ -74,7 +74,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   // A plan waiting for approval shows above the field instead.
   const question = q && AG.modes?.plan == null ? q : null;
   const why = AG.why ? `Auto picked ${s.machine_name}. ${AG.why}` : null;
-  const olderText = olderNote(p, AG.older.stop, AG.older.loading);
+  const olderText = olderNote(p, AG.older.stop, AG.older.reading !== null);
   const parent = parentSession(p.session);
   const crumb: ActivityRow | null = parent ? { kind: "crumb", id: "up", parent: parent.title || "Session", title: s.title || "Session" } : null;
   const olderRow: ActivityRow | null = olderText ? { kind: "older", id: "older", text: olderText } : null;

@@ -32,7 +32,7 @@ import { sessionMenu } from "./sessionmenu.ts";
 import type { AgentQuestion } from "./running-state.ts";
 import { AGENT_ACTIVE, TAKEOVER } from "./sessionmenu-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
-import { jumpToStart, loadOlder, logJumpKey, nearTop } from "./older.ts";
+import { jumpToStart, logJumpKey } from "./older.ts";
 import { jumpToLatest } from "./logview.tsx";
 import type { PlanStep } from "./plan-state.ts";
 import { pageDirection } from "./logkeys-state.ts";
@@ -326,9 +326,8 @@ interface AgentState {
   modes: AgentModes | null;
   /// The open session's background commands, when the server says.
   tasks: AgentTask[];
-  /// Reading older entries: why no more come, whether a read is out, and
-  /// whether the search for the oldest turn's prompt gave up.
-  older: { stop: OlderStop; loading: boolean; gaveUp: boolean };
+  /// The open conversation's history read and why it stopped early.
+  older: { stop: OlderStop; reading: Promise<void> | null };
 }
 
 export const AG: AgentState = {
@@ -339,7 +338,7 @@ export const AG: AgentState = {
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined,
   opened: new Set(), steps: new Map(), all: new Set(), queue: [], outbox: [], polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
-  older: { stop: "", loading: false, gaveUp: false },
+  older: { stop: "", reading: null },
 };
 /// What a coding agent takes with a message, as the server checks it.
 export const AGENT_MAX_IMAGES = 5;
@@ -581,7 +580,6 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       e.preventDefault();
       body.stuck = false;
       body.scrollTop += page * body.clientHeight * 0.9;
-      if (nearTop(body)) void loadOlder("near");
       return true;
     }
 

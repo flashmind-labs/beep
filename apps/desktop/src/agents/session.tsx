@@ -36,8 +36,8 @@ import { perfFresh } from "../ui/perf.ts";
 import { AMBIENT_MS, ambient, onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
 import { onPhone } from "../ui/platform.ts";
 import { readError } from "../agentpane/read.ts";
-import { loadOlder, nearTop } from "./older.ts";
-import { joinRuns, lacksPrompt, newestRead } from "./older-state.ts";
+import { loadOlder } from "./older.ts";
+import { joinRuns, newestRead } from "./older-state.ts";
 import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, retryDelay, viewError } from "./reconnect-state.ts";
 import { drawMove } from "./move.ts";
 import { moveStore, refreshMoves } from "./move-store.ts";
@@ -145,7 +145,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     attError: "", opened: new Set(), steps: new Map(), all: new Set(),
     queue: steerQueues.get(transcriptKey(open)) ?? [],
     outbox: [], stopping: null, modelOpen: false, modes: null,
-    older: { stop: "", loading: false, gaveUp: false },
+    older: { stop: "", reading: null },
   });
   const kept = offScreen.get(transcriptKey(AG.open!));
 
@@ -250,7 +250,6 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
         height = b.clientHeight;
         total = b.scrollHeight;
         syncJump(b);
-        if (nearTop(b)) void loadOlder("near");
       });
     };
     b.addEventListener("touchstart", () => { b.touching = true; b.wheel = performance.now(); }, { passive: true });
@@ -298,6 +297,7 @@ export async function pollAgent(readNow = false) {
     if (!AG.sig) shownFromModel(o);
     // Shown again with its log already drawn: it is ready now, not at the next change.
     else finishFirstRead(o, "ok");
+    void loadOlder();
     return;
   }
 
@@ -466,7 +466,9 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
     || (isStarting(page.session.id) && (AG.page.session.doing !== page.session.doing || AG.page.session.status !== page.session.status)));
   const news = hasNews(AG.page, page);
   // The older entries held stay while the newest are read again.
+  const earlier = AG.page?.earlier;
   AG.page = heldPage(AG.page, page, replace);
+  if (AG.page.earlier !== earlier) AG.older.stop = "";
   drawModelPill();
   drawAgentHeading();
   // The frame around the log is drawn again; the log itself stays.
@@ -482,8 +484,7 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
   syncSteers(AG.queue, page, read);
   drawRest(moved, placed);
   finishFirstRead(o, "ok");
-  // The oldest turn shown has its prompt: read back until it does.
-  if (lacksPrompt(AG.page) && !AG.older.gaveUp) void loadOlder("prompt");
+  void loadOlder();
 }
 
 /// Draws the log again when the page `moved` or what shows with it changed; nothing the log

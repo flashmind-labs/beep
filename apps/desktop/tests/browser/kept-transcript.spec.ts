@@ -93,10 +93,10 @@ test("a kept log scrolled up into older entries comes back where the reader left
 
   await open("notice-one");
   await expect(body).toContainText("Answer 399");
-  await body.evaluate(b => { b.scrollTop = 0; b.dispatchEvent(new Event("scroll")); });
   await expect.poll(() => calls(page, "agent_older")).toHaveLength(1);
-  await expect(body).toContainText("Answer 199");
-  await page.waitForTimeout(200);
+  await page.keyboard.press("Home");
+  await expect(body).toContainText("Question 0");
+  await body.evaluate(b => { b.scrollTop = 160; });
   const place = () => body.evaluate(b => {
     const top = b.getBoundingClientRect().top;
     const row = [...b.querySelectorAll<HTMLElement>("[data-row]")].find(el => el.getBoundingClientRect().bottom > top);
@@ -104,6 +104,7 @@ test("a kept log scrolled up into older entries comes back where the reader left
   });
   const before = await place();
   expect(before.text).not.toBe("");
+  expect(before.top).toBe(160);
 
   await open("notice-two");
   await expect(body).toContainText("Answer 1");
