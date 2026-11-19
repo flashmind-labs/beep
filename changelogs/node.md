@@ -2,6 +2,30 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.2] - 2026-11-19
+
+### Added
+
+- Node: Manage user MCP servers in Codex and Claude Code’s native configuration through Beep settings.
+
+### Changed
+
+- Node: Beep's bundled GitHub and Forgejo agent skills now live in Beep's
+  own skills folder, `~/.config/beep/skills` (or
+  `$XDG_CONFIG_HOME/beep/skills`; the config folder on Windows), instead of
+  the folders Claude Code, Codex and Hermes use. Agents Beep starts learn
+  about every skill in that folder, so skills you add there reach only
+  Beep's agents.
+
+### Fixed
+
+- Node: Flashmind session usage continues reporting known costs when some calls have no price.
+- Node: sends the actual question with Codex answer choices.
+- beep-node: on networks that block DNS over TLS, lookups now use encrypted
+  DNS over HTTPS instead of the network's own DNS. A name that public DNS
+  says does not exist is no longer answered by the network's DNS, which some
+  hotel and filtering networks rewrite.
+
 ## [0.8.1] - 2026-11-18
 
 ### Added

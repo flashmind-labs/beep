@@ -7,6 +7,30 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.4] - 2026-11-19
+
+### Added
+
+- Desktop: View and edit user MCP entries in Codex and Claude Code settings, and copy them to the same harness on other machines.
+
+### Changed
+
+- Desktop: Beep's bundled GitHub and Forgejo agent skills now live in Beep's
+  own skills folder, `~/.config/beep/skills` (or
+  `$XDG_CONFIG_HOME/beep/skills`; the config folder on Windows), instead of
+  the folders Claude Code, Codex and Hermes use. Agents Beep starts learn
+  about every skill in that folder, so skills you add there reach only
+  Beep's agents.
+
+### Fixed
+
+- Desktop: shows the Codex question above its answer choices.
+- Desktop: on networks that block DNS over TLS, lookups now use encrypted
+  DNS over HTTPS instead of the network's own DNS. A name that public DNS
+  says does not exist is no longer answered by the network's DNS, which some
+  hotel and filtering networks rewrite.
+- Desktop: conversations load earlier messages automatically, including when recent messages fit on screen.
+
 ## [0.10.3] - 2026-11-19
 
 ### Fixed
