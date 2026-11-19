@@ -10,10 +10,10 @@ use toml::{Table, Value as Toml};
 /// What one definition says. `error` says what was wrong with it while the
 /// rest still shows what could be read.
 #[derive(Debug, Default, PartialEq)]
-pub(super) struct Found {
+pub(crate) struct Found {
     /// `None` when the file names none, so its stem does.
-    pub(super) name: Option<String>,
-    pub(super) description: String,
+    pub(crate) name: Option<String>,
+    pub(crate) description: String,
     pub(super) model: Option<String>,
     pub(super) tools: Vec<String>,
     pub(super) color: Option<String>,
@@ -38,7 +38,7 @@ pub(super) fn has_frontmatter(text: &str) -> bool {
 /// A Markdown definition: YAML frontmatter between `---` lines, then the
 /// prompt. Frontmatter that is not valid YAML is read a line at a time for
 /// what it can give, and the row says it is broken.
-pub(super) fn markdown(text: &str) -> Found {
+pub(crate) fn markdown(text: &str) -> Found {
     let Some(parts) = split_frontmatter(text) else {
         return Found {
             prompt: text.trim().to_owned(),

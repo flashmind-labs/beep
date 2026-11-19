@@ -80,3 +80,25 @@ fn the_shipped_skills_have_front_matter() {
         assert!(front_matter_end(skill.text) > 0, "{}", skill.name);
     }
 }
+
+#[test]
+fn the_brief_lists_each_skill_with_its_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    assert_eq!(brief(dir), None);
+
+    install(dir, &SKILL, &mut record(dir)).unwrap();
+    fs::create_dir_all(dir.join("notes")).unwrap();
+    fs::write(
+        dir.join("notes/SKILL.md"),
+        "---\ndescription: Write notes.\n---\nBody\n",
+    )
+    .unwrap();
+    fs::create_dir_all(dir.join("empty")).unwrap();
+
+    let brief = brief(dir).unwrap();
+    let github = format!("- github: Use for GitHub. (`{}`)", dir.join("github/SKILL.md").display());
+    let notes = format!("- notes: Write notes. (`{}`)", dir.join("notes/SKILL.md").display());
+    assert!(brief.ends_with(&format!("\n{github}\n{notes}")), "{brief}");
+    assert!(!brief.contains("empty"));
+}

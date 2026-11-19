@@ -1,11 +1,14 @@
+// TODO-UPDATE-COMMENT: skills now go to Beep's own folder, `beep_dir`, not the agents' folders
+// ---
 //! Beep's GitHub and Forgejo agent skills, written by `install` into each of
 //! `targets` (Claude Code's `~/.claude/skills`, Codex's `~/.agents/skills`).
 
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
+use crate::agents::custom_agents::parse;
 use std::{
     collections::BTreeSet,
-    fs, io,
+    env, fs, io,
     path::{Path, PathBuf},
 };
 
@@ -38,20 +41,42 @@ pub(super) const SKILLS: &[Skill] = &[
     },
 ];
 
-/// The skills folders of the agents found under `home`: Claude Code's when
-/// `~/.claude` exists, Codex's when `~/.codex` does.
-pub(super) fn targets(home: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if home.join(".claude").is_dir() {
-        out.push(home.join(".claude/skills"));
+pub(crate) fn beep_dir() -> Option<PathBuf> {
+    let home = dirs::home_dir();
+    crate::config_home(&|name| env::var_os(name), home.as_deref())
+        .map(|dir| dir.join("beep").join("skills"))
+}
+
+pub(crate) fn brief(dir: &Path) -> Option<String> {
+    let mut lines: Vec<String> = fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path().join("SKILL.md");
+            let text = fs::read_to_string(&path).ok()?;
+            let found = parse::markdown(&text);
+            let name = found
+                .name
+                .unwrap_or_else(|| entry.file_name().to_string_lossy().into_owned());
+            Some(format!(
+                "- {name}: {} (`{}`)",
+                found.description,
+                path.display()
+            ))
+        })
+        .collect();
+
+    if lines.is_empty() {
+        return None;
     }
-    if home.join(".hermes").is_dir() {
-        out.push(home.join(".hermes/skills"));
-    }
-    if home.join(".codex").is_dir() {
-        out.push(home.join(".agents/skills"));
-    }
-    out
+
+    lines.sort();
+    Some(format!(
+        "Beep keeps skills of its own in `{}`, outside your own skills list. \
+         When a task fits one, read its SKILL.md and follow it:\n{}",
+        dir.display(),
+        lines.join("\n")
+    ))
 }
 
 /// The skill files the node has written, one path per line in a file of

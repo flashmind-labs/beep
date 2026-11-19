@@ -4,6 +4,11 @@
 use std::sync::{Mutex, MutexGuard, PoisonError};
 #[cfg(feature = "host")]
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+#[cfg(feature = "host")]
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 /// Marks the items inside as the node's host half: they need the `host`
 /// feature, which the phone app leaves out.
@@ -55,4 +60,19 @@ pub(crate) fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
 #[cfg(feature = "host")]
 pub(crate) fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
     lock.write().unwrap_or_else(PoisonError::into_inner)
+}
+
+#[cfg(feature = "host")]
+pub(crate) fn config_home(
+    env: &dyn Fn(&str) -> Option<OsString>,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    if cfg!(windows) {
+        return dirs::config_dir();
+    }
+
+    env("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| home.map(|home| home.join(".config")))
 }

@@ -303,6 +303,8 @@ impl Session {
             stopping,
         } = start;
         let protocol = super::acp::Protocol::from_env(&kind.env)?;
+        let skills = crate::machine::provision::skills_dir()
+            .and_then(|dir| crate::machine::provision::skills_brief(&dir));
 
         // Only a new session takes the default model. A resumed one takes the
         // model and thinking level it ran on, when the caller kept them.
@@ -435,10 +437,13 @@ impl Session {
             brief: brief.map(Cow::into_owned),
             standing: actor::joined(
                 actor::joined(
-                    actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
-                    (assistant && mcp.is_some()).then_some(super::mcp::ASSISTANT),
+                    actor::joined(
+                        actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
+                        (assistant && mcp.is_some()).then_some(super::mcp::ASSISTANT),
+                    ),
+                    mcp.is_some().then_some(super::mcp::CHAT),
                 ),
-                mcp.is_some().then_some(super::mcp::CHAT),
+                skills.as_deref(),
             ),
             mcp_servers: mcp.into_iter().collect(),
             resume,

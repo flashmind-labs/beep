@@ -308,15 +308,7 @@ fn flsh_config_dir(env: &dyn Fn(&str) -> Option<OsString>, home: Option<&Path>) 
         return Some(legacy);
     }
 
-    if cfg!(windows) {
-        return dirs::config_dir().map(|dir| dir.join("flashmind"));
-    }
-
-    env("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|dir| dir.is_absolute())
-        .or_else(|| home.map(|home| home.join(".config")))
-        .map(|dir| dir.join("flashmind"))
+    crate::config_home(env, home).map(|dir| dir.join("flashmind"))
 }
 
 /// The `model` flsh's `config.toml` at `path` names, when it does.
