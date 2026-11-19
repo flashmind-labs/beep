@@ -35,7 +35,7 @@ permissions:
 
 jobs:
   apk:
-    runs-on: ubuntu-24.04
+    runs-on: boat-large
     env:
       BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
     steps:

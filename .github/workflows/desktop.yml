@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   dmg:
-    runs-on: macos-26
+    runs-on: warp-macos-26-arm64-12x
     permissions:
       contents: write
     env:
@@ -236,7 +236,7 @@ jobs:
         run: python3 scripts/r2-prune.py beep/macos "${VERSION%.*}.0"
 
   linux:
-    runs-on: ubuntu-24.04
+    runs-on: boat-large
     env:
       BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
     steps:

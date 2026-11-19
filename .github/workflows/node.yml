@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-24.04
+    runs-on: boat-large
     permissions:
       contents: read
       packages: write
@@ -80,7 +80,7 @@ jobs:
           path: dist/*.tar.gz
 
   windows:
-    runs-on: ubuntu-24.04
+    runs-on: boat-large
     steps:
       - uses: actions/checkout@v7
 
@@ -108,7 +108,7 @@ jobs:
           path: dist/*.zip
 
   macos:
-    runs-on: macos-26
+    runs-on: warp-macos-26-arm64-6x
     steps:
       - uses: actions/checkout@v7
 
