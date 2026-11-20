@@ -27,8 +27,9 @@ use tokio::time::timeout;
 
 /// How long a whole join may take, as the joiner waits.
 const JOIN_LIMIT: Duration = Duration::from_secs(60);
-/// How long the inviter takes for a whole join, shorter than the joiner
-/// waits, so it never admits one who gave up. Short in tests.
+/// How long the inviter takes for a whole join. It starts after the joiner
+/// dialed and sent `Join`, and is shorter than `JOIN_LIMIT`, which starts
+/// at the dial: the inviter never admits a joiner who gave up. Short in tests.
 const ADMIT_LIMIT: Duration = Duration::from_secs(if cfg!(test) { 5 } else { 50 });
 /// How long the inviter waits for `Proved`.
 const PROVE_LIMIT: Duration = Duration::from_secs(45);
@@ -73,14 +74,30 @@ pub(crate) async fn answer(link: Option<&TeamLink>, request: &Request) -> Reply 
 
 impl TeamLink {
     /// Joins the team `ticket` invites to, proving push access from
-    /// `checkout` to `remote`.
+    /// `checkout` to `remote`. `JOIN_LIMIT` runs from the dial, so the
+    /// inviter's shorter limit always ends first.
     pub(crate) async fn join(
         &self,
         ticket: TeamTicket,
         checkout: &Path,
         remote: &str,
     ) -> Result<TeamRecord, TeamError> {
-        timeout(JOIN_LIMIT, self.joining(ticket, checkout, remote))
+        let login = self
+            .forge()
+            .login(&ticket.repo)
+            .await
+            .map_err(TeamError::Forge)?;
+        let (mesh, devices) =
+            self.with(|teams| (teams.home.mesh, teams.home.devices(&ticket.repo)));
+        let join = TeamMsg::Join {
+            secret: *ticket.secret.as_bytes(),
+            repo: ticket.repo.clone(),
+            login,
+            mesh: mesh.ok_or(TeamError::NoMesh)?,
+            devices,
+        };
+
+        timeout(JOIN_LIMIT, self.joining(ticket, join, checkout, remote))
             .await
             .map_err(|_| TeamError::TimedOut)?
     }
@@ -88,27 +105,13 @@ impl TeamLink {
     async fn joining(
         &self,
         ticket: TeamTicket,
+        join: TeamMsg,
         checkout: &Path,
         remote: &str,
     ) -> Result<TeamRecord, TeamError> {
         let repo = ticket.repo;
-        let login = self
-            .forge()
-            .login(&repo)
-            .await
-            .map_err(TeamError::Forge)?;
-        let (mesh, devices) = self.with(|teams| (teams.home.mesh, teams.home.devices(&repo)));
-        let mesh = mesh.ok_or(TeamError::NoMesh)?;
-
         let (mut tx, mut rx) = self.dial(&[EndpointAddr::new(ticket.inviter)]).await?;
-        tx.send(&TeamMsg::Join {
-            secret: *ticket.secret.as_bytes(),
-            repo: repo.clone(),
-            login,
-            mesh,
-            devices,
-        })
-        .await?;
+        tx.send(&join).await?;
 
         let nonce = match rx.recv().await? {
             Some(TeamMsg::Challenge { nonce }) => nonce

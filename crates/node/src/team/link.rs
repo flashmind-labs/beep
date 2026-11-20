@@ -191,7 +191,12 @@ impl TeamLink {
             .map_err(|_| TeamError::Refused("no stream".to_owned()))?
             .map_err(anyhow::Error::from)?;
         let (mut tx, mut rx) = link(send, recv);
-        rx.set_max_frame(FIRST_FRAME);
+
+        // A stranger's first message is small; a member's may be a whole roster.
+        if !self.with(|teams| teams.rosters.knows(peer)) {
+            rx.set_max_frame(FIRST_FRAME);
+        }
+
         let first = timeout(READ, rx.recv::<TeamMsg>())
             .await
             .map_err(|_| TeamError::Refused("no message".to_owned()))??;
@@ -222,8 +227,6 @@ impl TeamLink {
                 Ok(())
             }
             Some(first) if self.with(|teams| teams.rosters.knows(peer)) => {
-                // A member's boards are larger: back to the link's own limit.
-                rx.set_max_frame(usize::MAX);
                 self.serve_member(peer, first, tx, rx).await
             }
             Some(_) => {

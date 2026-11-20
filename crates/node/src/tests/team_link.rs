@@ -840,3 +840,39 @@ fn roster_args_round_trip_as_json() {
 
     assert_eq!(serde_json::from_str::<TeamRosterArgs>(&text).unwrap(), args);
 }
+
+#[tokio::test]
+async fn member_roster_past_the_first_frame_limit_is_taken() {
+    let pair = Pair::new(SystemTime::now() + DAY).await;
+    let (carol, device) = (mesh_id(), pair.joiner.endpoint().id());
+    let others: Vec<Member> = (0..300)
+        .map(|n| member(&format!("member{n}"), mesh_id(), mesh_id()))
+        .collect();
+    with_carol(&pair, carol, device);
+    pair.inviter.with(|teams| {
+        let mut team = teams.rosters.get(&repo()).unwrap().clone();
+        team.members.extend(others.iter().cloned());
+        teams.rosters.refresh([(repo(), team)].into());
+    });
+    let laptop = mesh_id();
+    let mut moved = member("carol", carol, device);
+    moved.devices.push(EndpointAddr::new(laptop));
+    let mut members = others;
+    members.push(moved);
+    let roster = TeamMsg::Roster {
+        repo: repo(),
+        members,
+    };
+    assert!(rmp_serde::to_vec(&roster).unwrap().len() > 16 * 1024);
+
+    let (mut tx, mut rx) = pair
+        .joiner
+        .dial(&[EndpointAddr::new(pair.inviter_id)])
+        .await
+        .unwrap();
+    tx.send(&roster).await.unwrap();
+    tx.finish().await.unwrap();
+
+    assert_eq!(rx.recv::<TeamMsg>().await.unwrap(), None);
+    assert!(pair.inviter.with(|teams| teams.rosters.allows(laptop, &repo())));
+}
