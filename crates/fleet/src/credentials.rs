@@ -693,20 +693,23 @@ impl Desk {
                 _ => None,
             })
             .unwrap_or_default();
-        let machine_name = self
-            .mesh
-            .devices()
-            .into_iter()
-            .find(|status| status.device.id == connection.machine)
-            .map(|status| status.device.name)
-            .unwrap_or_default();
         Some(HermesStatus {
             machine: connection.machine.to_string(),
-            machine_name,
+            machine_name: self.machine_name(connection.machine),
             host: connection.host,
             port: connection.port,
             last4,
         })
+    }
+
+    /// The name `machine` goes by in the mesh; empty for one it does not list.
+    fn machine_name(&self, machine: EndpointId) -> String {
+        self.mesh
+            .devices()
+            .into_iter()
+            .find(|status| status.device.id == machine)
+            .map(|status| status.device.name)
+            .unwrap_or_default()
     }
 
     /// Asks `machine` whether the Hermes dashboard at `host:port` takes `token`. When it does,
@@ -725,21 +728,31 @@ impl Desk {
             port,
             token: SecretText::new(token.expose_secret()),
         };
-        let asked = async {
-            let client = self.peers.client(machine).await.ok()?;
-            client
-                .call::<_, SessionsReply>(SESSIONS_PROTOCOL, &request)
-                .await
-                .ok()
+        let asked = match self.peers.client(machine).await {
+            Ok(client) => {
+                client
+                    .call::<_, SessionsReply>(SESSIONS_PROTOCOL, &request)
+                    .await
+            }
+            Err(_) => {
+                return Ok(CredentialCheck::Unreachable {
+                    message: "Could not reach the machine. Try again.".into(),
+                });
+            }
         };
-        let check = match asked.await {
-            Some(SessionsReply::Checked(check)) => check,
-            Some(SessionsReply::Error { message }) => CredentialCheck::Unreachable { message },
-            Some(_) => CredentialCheck::Unreachable {
+        let check = match asked {
+            Ok(SessionsReply::Checked(check)) => check,
+            Ok(SessionsReply::Error { message }) => CredentialCheck::Unreachable { message },
+            Ok(_) => CredentialCheck::Unreachable {
                 message: "The machine cannot check Hermes yet.".into(),
             },
-            None => CredentialCheck::Unreachable {
-                message: "Could not reach the machine. Try again.".into(),
+            // A node from before Hermes closes the stream on a request it
+            // does not know.
+            Err(_) => CredentialCheck::Unreachable {
+                message: format!(
+                    "Update Beep on {} to connect Hermes.",
+                    self.machine_name(machine)
+                ),
             },
         };
 

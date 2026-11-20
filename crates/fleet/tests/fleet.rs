@@ -3965,7 +3965,7 @@ async fn a_refused_hermes_check_saves_nothing() {
 }
 
 #[tokio::test]
-async fn an_unreachable_machine_saves_no_hermes_token() {
+async fn a_node_from_before_hermes_asks_for_an_update_and_saves_no_token() {
     let f = fleet().await;
     // This node knows no `CheckHermes` and closes the stream.
     let node = Arc::new(FakeNode::default());
@@ -3974,7 +3974,12 @@ async fn an_unreachable_machine_saves_no_hermes_token() {
         .connect_hermes(f.build.id, "127.0.0.1", 9119, SecretText::new(HERMES_TOKEN))
         .await
         .expect("the check is returned");
-    assert!(matches!(said, CredentialCheck::Unreachable { .. }));
+    assert_eq!(
+        said,
+        CredentialCheck::Unreachable {
+            message: "Update Beep on build-box to connect Hermes.".into()
+        }
+    );
     assert!(hermes_keys(&f.studio.mesh).is_empty());
     assert!(studio.assistant().hermes.is_none());
 }
