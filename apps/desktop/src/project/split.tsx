@@ -35,6 +35,7 @@ import { runningLineAt } from "../agents/place.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { Button, Chip, EmptyPanel } from "../ui/kit.tsx";
 import { WandererArt } from "../ui/painted-art.tsx";
+import { IssueOwners, IssueOwnersCell, myIssues, TeamFilter, TeamFollow, TeamPage, teamIssues, teamNote, teamOf } from "./team-view.tsx";
 
 /// The project's navigation and Overview stay mounted in their own elements while
 /// other tiles show, so their rows, focus and scroll survive a visit to Git or Running.
@@ -177,6 +178,9 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     menu: e => void sessionMenu(e, r, s => go("pane", { agent: s })),
   }));
   if (runItems.length) top.push({ key: "running", title: "Running", sub: String(runItems.length), detail: () => [viewPart("running", agentsSection(running))] });
+  // A phone neither invites nor joins: its board shows the team's cards alone.
+  const team = isMobile() ? null : teamNote(p.name);
+  if (team !== null) project.unshift({ key: "team", title: "Team", sub: team, detail: () => [viewPart("team", <TeamPage project={p.name} machines={p.machines.map(m => m.name)} running={running.length}/>)] });
   groups.push({ title: "", items: project });
   const past = sessions ? projectPastSessions(sessions, running, [...moveStore.getState().records.values()]).filter(sessionVisible) : [];
   groups.push({ title: "", items: [
@@ -200,11 +204,11 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const prKey = `${p.name}:prs`;
   const prFilter = labelFilter(prKey, prItems, i => i.tags, redrawProjects);
   groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), controls: <OpenListControls list={prKey} redraw={redrawProjects} issues={false} />, labels: prFilter.labels, items: arranged(prKey, prFilter.items, i => i.opened) });
-  const issueItems: SplitItem[] = (issues || []).map(issue => ({
+  const issueItems: SplitItem[] = teamIssues(p.name, issues || []).map(issue => ({
     key: `issue:${issue.number}`, opened: issue.opened_at, start: { key: `issue:${issue.number}`, project: p.name, number: issue.number, title: issue.title, url: issue.url },
     title: issue.title, sub: <>{num(issue.number)} · {issueMeta(issue, ms => formatAgo(ms, "short"))}</>, tags: issue.labels,
-    right: issue.linked_pr ? <Chip kind="wait" text="PR" title="A pull request is linked to it" /> : undefined,
-    menu: e => thr.issueMenu(e, acts, issue),
+    right: <><IssueOwnersCell project={p.name} issue={issue}/>{issue.linked_pr && <Chip kind="wait" text="PR" title="A pull request is linked to it" />}</>,
+    menu: e => thr.issueMenu(e, agent, acts, issue),
     detail: () => [viewPart("thread", details.pane(pid, { number: issue.number, title: issue.title, url: issue.url, author: issue.author, opened_at: issue.opened_at }, thr.issueButtons(agent, acts, issue), openLink))],
   }));
   const issueKey = `${p.name}:issues`;
@@ -212,7 +216,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const issueShown = arranged(issueKey, issueFilter.items, i => i.opened);
   const issueNote = hostNote(issues, thr.issuesError(pid), "No open issues.");
   // Too many to list at the left: the row opens them at the right.
-  project.push({ key: "issues", title: "Issues", sub: issueNote || `${issueItems.length} open`, detail: () => [] });
+  project.push({ key: "issues", title: "Issues", sub: issueNote || `${issues?.length ?? 0} open`, detail: () => [] });
   // The front page: the board alone, or the Overview beside the list.
   const board = frontLayout("project") === "board";
   const overview = board ? null : projectOverview(p, running, { run: runItems, prs: prItems, issues: issueItems, prNote: hostNote(prs, thr.prsError(pid), "No open pull requests."), issueNote }, machineTile(rows, sync));
@@ -233,7 +237,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const history = pa.tile === "branches" ? gitHistory.panels(p.name) : null;
   const showIssues = pa.tile === "issues";
   const issuesView = showIssues ? <div className="pj-det"><ProjectIssues
-    items={issueShown} filter={issueFilter.labels}
+    items={issueShown} filter={issueFilter.labels} owners={<IssueOwners project={p.name} issues={issues || []}/>}
     controls={<OpenListControls list={issueKey} redraw={redrawProjects} issues flexItem />}
     start={<OpenListStart list={issueKey} shown={issueShown.flatMap(item => item.start ?? [])} redraw={redrawProjects} flexItem />}
     selection={(id: string) => issueSelection(issueKey, id)}
@@ -241,24 +245,28 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     openTile={openTile}
   /></div> : null;
   const det = history ? hostPart(history.detail) : issuesView ? viewPart("issues", issuesView) : viewPart("detail", <Parts className="pj-det" parts={picked.detail?.() ?? []} />);
+  const mine = myIssues(p.name, issues || []);
   const cells = [
     { label: projectBranch(state.gitsync.get(p.name) ?? pages.get<GitRow[]>("gitsync", p.name), state.mac?.id || null) || "", text: "branch", key: "branches" },
     { label: "Actions", text: runs.tile(pid).count || "", key: "actions", bad: runs.tile(pid).rows[0]?.chip?.text === "failed" },
     { label: plural(running.length, "agent", "agents"), text: "running", key: "running" },
+    { label: "Team", text: team ?? "", key: "team" },
     { label: "Machines", text: machineTile(rows, sync).count || "", key: "machines" },
     { label: plural(prItems.length, "PR", "PRs"), text: "open", key: "prs" },
-    { label: plural(issueItems.length, "issue", "issues"), text: "open", key: "issues" },
+    { label: plural(issues?.length ?? 0, "issue", "issues"), text: mine ? `open, ${mine} yours` : "open", key: "issues" },
     { label: "Sessions", text: past.length ? `${past.length} past` : "", key: "agents" },
   ];
   renderProjectShell(currentShell);
-  const strip = <div className="cc-mstrip pj-strip"><ProjectStatus cells={cells} openTile={openTile} /></div>;
+  const strip = <div className="cc-mstrip pj-strip"><ProjectStatus cells={cells} openTile={openTile} /><TeamFollow project={p.name}/></div>;
   // A picked row a filter hides keeps the list on screen, so the filter can be cleared.
   if (board && (!pa.tile || pa.tile === "overview")) {
-    const cards = projectCards({ project: p.name, running, past, openTile });
+    const cards = projectCards({ project: p.name, url: p.url, running, past, openTile });
+    const view = teamOf(p.name);
     // A phone has no bar to give the page to.
     pa.blank = !cards.length && !isMobile();
     if (pa.blank) return [viewPart("strip", strip)];
     return [viewPart("strip", strip), viewPart("board", <Parts className="pj-board" parts={[
+      ...view?.kind === "team" ? [viewPart("team-filter", <TeamFilter project={p.name} view={view}/>)] : [],
       viewPart("lanes", <Board cards={cards} more={{ working: () => openTile("running"), done: () => openTile("agents") }} beside={<WandererArt/>}/>),
     ]} />)];
   }

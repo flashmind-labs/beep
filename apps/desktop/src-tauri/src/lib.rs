@@ -461,6 +461,7 @@ pub fn run() {
             projects::team::team_record,
             projects::team::team_remove,
             projects::team::team_settings,
+            projects::team::team_ticket,
             projects::threads::center_pull_request_head,
             projects::threads::center_thread_detail,
             projects::threads::center_comment_thread,

@@ -376,6 +376,34 @@ test("project page", async ({ page }) => {
   await baseline(page, "project-page");
 });
 
+/// A team of three on the project: one teammate's agent works on an issue, another's waits in review, and one asks the user.
+const team = {
+  team_record: { repo: "example.test/example/widget", me: "dana", pickup: true, pickup_limit: 2, asks: true, removed: [], members: [
+    { login: "dana", mesh: "mesh-a", joined_at: NOW - 86_400_000 }, { login: "kim", mesh: "mesh-b", joined_at: NOW - 3_600_000 }, { login: "lee", mesh: "mesh-c", joined_at: NOW - 1_800_000 }] },
+  team_cards: {
+    needs_you: [{ id: "ask:a1", title: "Can someone take #52, the fee model? I'm blocked on it for #48.", lane: "needs_you", login: "kim", machine: "kim-laptop", issue: 52, pr: null, updated_at: NOW - 600_000 }],
+    teammates: [
+      { id: "k1", title: "Backtest the crossover", lane: "working", login: "kim", machine: "kim-laptop", issue: 47, pr: null, updated_at: NOW - 300_000 },
+      { id: "l1", title: "Signal schema v2", lane: "ready_to_review", login: "lee", machine: "gpu-box", issue: null, pr: 60, updated_at: NOW - 10_800_000 },
+      { id: "queued:51", title: "Funding rate cache", lane: "queued", login: "lee", machine: "gpu-box", issue: 51, pr: null, updated_at: NOW - 900_000 },
+    ],
+  },
+  contacts: [{ mesh: "mesh-d", logins: [{ repo: "example.test/example/gadget", login: "ana" }] }],
+};
+
+test("project board with a team", async ({ page }) => {
+  await openProject(page, team);
+  await expect(page.locator(".bd-card.theirs").first()).toBeVisible();
+  await baseline(page, "project-board-team");
+});
+
+test("project team", async ({ page }) => {
+  await openProject(page, team);
+  await page.locator(".pj-strip button").filter({ hasText: "Team" }).click();
+  await expect(page.locator(".tm-members .cc-line")).toHaveCount(3);
+  await baseline(page, "project-team");
+});
+
 test("project with nothing on its board", async ({ page }) => {
   const hosts = [{ machine_id: machineId, machine_name: machineId, agents: ["codex"], workspace: null, home: null, capabilities: [] }];
   await openDesktop(page, false, { center_home: { ...home, running: [] }, ...projectPage, project_sessions: [], agent_hosts: hosts });

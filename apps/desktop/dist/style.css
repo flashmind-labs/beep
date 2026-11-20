@@ -1363,3 +1363,28 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 .dcoderen.tool.beep > .entry-time { grid-column: 4; grid-row: 1; }
 
 .dcoderen.agent > .reply-body { display: contents; }
+
+/* A project's team: teammates' cards and logins, the filters, the Team page and the join sheet. */
+.bd-acts { display: flex; flex-wrap: wrap; justify-content: end; gap: 6px }
+.bd-card .ft:has(> .bd-acts) { flex-wrap: wrap }
+.bd-card .ft > .bd-acts { flex: 1 1 100%; justify-content: start }
+.bd-card.theirs > b { color: color-mix(in srgb, var(--fg) 86%, var(--ink)) }
+.bd-who { flex: none; padding: 0 4px; border-radius: var(--radius-sm); background: color-mix(in srgb, currentColor 14%, transparent); white-space: nowrap }
+.tm-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px }
+.tm-page { display: flex; flex-direction: column; gap: 8px; min-width: 0 }
+.tm-face { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: var(--radius-sm); color: var(--ink); font-weight: 600 }
+.tm-members .r { display: flex; align-items: center; gap: 6px; color: var(--muted) }
+.tm-invite { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--radius-sm) }
+.tm-invite .am-line { flex-wrap: wrap; margin: 0 }
+.tm-code { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 9px; border-radius: var(--radius-sm); overflow-wrap: anywhere }
+.tm-note { font-size: 12px; color: var(--muted) }
+.tm-limit { width: 6em; height: var(--ctl-h); padding: 0 8px; box-sizing: border-box }
+.tm-owners { display: inline-flex; align-items: center; gap: 6px; color: var(--muted) }
+.tm-steps { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px }
+.tm-step { display: flex; align-items: center; gap: 10px; min-height: 28px }
+.tm-step.waiting { color: var(--muted) }
+.tm-mark { flex: none; width: 14px; display: inline-grid; place-items: center }
+.tm-mark.done { color: var(--ok) }
+.tm-mark.failed { color: var(--err) }
+.tm-join .tm-note { margin-bottom: 14px }
+.tm-end { justify-content: flex-end; margin-bottom: 0 }

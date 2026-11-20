@@ -50,6 +50,7 @@ import { projectsIn } from "../addproject/importproject.tsx";
 import { refresh } from "../center/refresh.ts";
 import { redrawSync } from "./syncpage.ts";
 import { startAttachments } from "../agents/start-attachments.tsx";
+import { heldBy, takeFree, takeIssue } from "./team-view.tsx";
 
 let finishCopy: (() => void) | undefined;
 
@@ -372,7 +373,7 @@ type IssueStart = Pick<IssueRow, "number" | "title" | "url">;
 /// branch, with the issue's prompt.
 export function workOnIssue(name: string, issue: IssueStart) {
   const task = issueTask(name, issue);
-  fillBar(name, task.prompt, task.target);
+  takeIssue(name, issue, () => fillBar(name, task.prompt, task.target)).catch(error => projectComp.update({ error: reason(error) }));
 }
 
 /// Work on it's task: a new worktree for the issue, from the default branch.
@@ -388,7 +389,7 @@ export const issueSession = (name: string, issue: IssueRow) => sessionFor(name, 
 export const fixSession = (name: string, detail: RunDetail) => sessionFor(name, { kind: "run", workflow: detail.run.workflow, number: detail.run.number }, runTarget(detail.run, pc.branches.get(name)));
 
 /// Work on it on the issue's page: starts the agent at once.
-export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick, machine: string | null) => startTask(name, issueTask(name, issue), pick, machine);
+export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick, machine: string | null) => takeIssue(name, issue, () => startTask(name, issueTask(name, issue), pick, machine));
 
 /// Prefills the project composer with a discussion prompt.
 export function discussThread(name: string, topic: DiscussionTopic) {
@@ -405,7 +406,12 @@ export function issueStartPlan(entries: readonly StartEntry[]) {
   if (!pc.hosts) return null;
   const projects = projectRows() || [];
   const places = (name: string) => { const p = projects.find(x => x.name === name); return p ? projectPlaces(p) : []; };
-  return planStarts(entries, places, pc.hosts, name => (pc.project === name ? pc.machine : lastMachine(name)), pc.picked.agent || null, AGENT_ORDER);
+  const rows = planStarts(entries, places, pc.hosts, name => (pc.project === name ? pc.machine : lastMachine(name)), pc.picked.agent || null, AGENT_ORDER);
+  // An issue a teammate has is left out: its own page asks them first.
+  return rows.map((row): StartRow => {
+    const held = row.skip === null && row.entry.project ? heldBy(row.entry.project, row.entry.number) : null;
+    return held ? { entry: row.entry, skip: held } : row;
+  });
 }
 
 /// Reads the machines when no project's bar has.
@@ -431,6 +437,7 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
     try {
       const effort = same ? pc.picked.effort : null;
       const fast = same && agent === "codex" ? pc.picked.fast : null;
+      if (entry.project) await takeFree(entry.project, entry.number);
       await loadAccountNames();
       const account = startAccount(accountsOf(agent), entry.project ?? null, agent);
       const session = await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), model, effort, fast, checkout, account });

@@ -143,6 +143,27 @@ async fn join_without_import_says_import_first() {
 }
 
 #[tokio::test]
+async fn ticket_names_its_repo_and_the_project_here() {
+    let dir = TempDir::new().expect("a temp dir");
+    let (desk, _mesh) = desk(&dir).await;
+    let code = |name: &str| {
+        TeamTicket {
+            inviter: SecretKey::generate().public(),
+            repo: repo(name),
+            secret: JoinSecret::generate(),
+        }
+        .encode_string()
+    };
+
+    let here = desk.team_ticket(&code("org/web")).expect("read");
+    let elsewhere = desk.team_ticket(&code("org/api")).expect("read");
+
+    assert_eq!(here, (repo("org/web"), Some("org/web".to_owned())));
+    assert_eq!(elsewhere, (repo("org/api"), None));
+    assert!(desk.team_ticket("beepteam1nonsense").is_err());
+}
+
+#[tokio::test]
 async fn roster_keeps_removals_and_never_starts_a_team() {
     let dir = TempDir::new().expect("a temp dir");
     let (desk, mesh) = desk(&dir).await;

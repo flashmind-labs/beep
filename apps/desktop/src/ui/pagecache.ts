@@ -3,10 +3,10 @@
 
 /// A project page section the cache keeps: where the project lives, its agent
 /// sessions, its pull requests and issues, its workflow runs, its terminals,
-/// its file sync and its checkouts' git branches.
-export type PageSection = "where" | "sessions" | "threads" | "runs" | "terminals" | "filesync" | "gitsync";
+/// its file sync, its checkouts' git branches and its team.
+export type PageSection = "where" | "sessions" | "threads" | "runs" | "terminals" | "filesync" | "gitsync" | "team";
 
-const SECTIONS: readonly PageSection[] = ["where", "sessions", "threads", "runs", "terminals", "filesync", "gitsync"];
+const SECTIONS: readonly PageSection[] = ["where", "sessions", "threads", "runs", "terminals", "filesync", "gitsync", "team"];
 
 /// One kept answer: the data, when it was read, and when it was last read
 /// or used, which decides what goes first once the cache is too big.
@@ -62,6 +62,7 @@ const REFRESH: Record<PageSection, number> = {
   terminals: MACHINE_REFRESH_MS,
   filesync: MACHINE_REFRESH_MS,
   gitsync: MACHINE_REFRESH_MS,
+  team: MACHINE_REFRESH_MS,
 };
 /// Answers kept at most, across every project and section.
 const MAX_SLOTS = 150;

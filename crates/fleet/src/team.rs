@@ -76,17 +76,25 @@ impl Desk {
         Ok(ticket.encode_string())
     }
 
-    /// Joins the team `ticket` invites to, proving push access from the
-    /// nearest machine with the project, and records it and its contacts.
-    pub async fn team_join(&self, ticket: &str) -> Result<TeamRecord> {
+    /// The repository `ticket` invites to, and the project that has it here.
+    pub fn team_ticket(&self, ticket: &str) -> Result<(TeamRepo, Option<String>)> {
         let read_ticket =
             TeamTicket::parse(ticket).map_err(|e| FleetError::refused(e.to_string()))?;
         let repo = read_ticket.repo;
         let project = projects(&self.mesh)
             .into_iter()
             .find(|stored| stored.record.url.parse::<TeamRepo>().as_ref() == Ok(&repo))
-            .ok_or_else(|| FleetError::NotImported(repo.clone()))?;
-        let machine = self.checkout_machine(&project.name)?;
+            .map(|stored| stored.name);
+
+        Ok((repo, project))
+    }
+
+    /// Joins the team `ticket` invites to, proving push access from the
+    /// nearest machine with the project, and records it and its contacts.
+    pub async fn team_join(&self, ticket: &str) -> Result<TeamRecord> {
+        let (repo, project) = self.team_ticket(ticket)?;
+        let project = project.ok_or_else(|| FleetError::NotImported(repo.clone()))?;
+        let machine = self.checkout_machine(&project)?;
         let args = TeamJoinArgs {
             ticket: ticket.trim().to_owned(),
         };

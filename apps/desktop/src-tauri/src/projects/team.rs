@@ -163,6 +163,29 @@ pub async fn team_invite(fleet: FleetState<'_>, project_id: Uuid) -> Result<Stri
     Ok(desk.team_invite(&name).await?)
 }
 
+/// What a `beepteam1` code invites to, before joining.
+#[derive(Debug, Serialize)]
+pub struct TicketView {
+    /// Lower case, with its port when it has one.
+    host: String,
+    /// `org/name`.
+    repo: String,
+    /// The project that has the repository here; `None` until it is imported.
+    project: Option<String>,
+}
+
+#[tauri::command]
+pub async fn team_ticket(fleet: FleetState<'_>, ticket: String) -> Result<TicketView> {
+    let desk = desk(&fleet).await?;
+    let (repo, project) = desk.team_ticket(&ticket)?;
+
+    Ok(TicketView {
+        host: repo.host,
+        repo: repo.repo,
+        project,
+    })
+}
+
 #[tauri::command]
 pub async fn team_join(fleet: FleetState<'_>, ticket: String) -> Result<TeamView> {
     let desk = desk(&fleet).await?;
