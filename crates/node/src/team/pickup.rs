@@ -5,7 +5,11 @@
 //! without a pull request becomes a Needs you card for this mesh's apps.
 
 use super::{
-    asks::MAX_CARDS, gateway::FORGE_LIMIT, home::Project, link::TeamLink, membership::Team,
+    asks::{MAX_CARDS, TITLE},
+    gateway::FORGE_LIMIT,
+    home::Project,
+    link::TeamLink,
+    membership::Team,
 };
 use crate::{
     agents::{
@@ -37,6 +41,8 @@ const PICKUP_CARD: &str = "pickup:";
 const QUEUED_CARD: &str = "queued:";
 /// The longest slug of a title an issue's branch takes, as Work on it cuts it.
 const BRANCH_SLUG: usize = 30;
+/// How many refused starts pickup gives an issue before it gives it up.
+const ATTEMPTS: u32 = 3;
 /// How long a session gets to start and be named by its agent.
 const START_LIMIT: Duration = Duration::from_secs(120);
 
@@ -52,6 +58,9 @@ pub(crate) struct Pickup {
     pub(crate) on: bool,
     /// The automatic sessions followed until they end, by issue.
     pub(crate) running: BTreeMap<u64, Auto>,
+    /// The refused starts of each issue not started yet: none after
+    /// `ATTEMPTS`.
+    pub(crate) failed: BTreeMap<u64, u32>,
 }
 
 /// An automatic session: its card and the branch it works on.
@@ -69,7 +78,8 @@ pub(crate) struct Plan {
 }
 
 /// What to do with the `assigned` issues: each not started before, not
-/// assigned when pickup was turned on and with no `live` session starts,
+/// given up, not assigned when pickup was turned on and with no `live`
+/// session starts,
 /// lowest number first, while fewer than `limit` automatic sessions are
 /// live; the rest wait.
 pub(crate) fn due(p: &Pickup, assigned: &[u64], live: &BTreeSet<u64>, limit: Option<u32>) -> Plan {
@@ -77,6 +87,7 @@ pub(crate) fn due(p: &Pickup, assigned: &[u64], live: &BTreeSet<u64>, limit: Opt
         .iter()
         .copied()
         .filter(|n| !p.started.contains(n) && !p.seen_at_enable.contains(n) && !live.contains(n))
+        .filter(|n| p.failed.get(n).is_none_or(|failed| *failed < ATTEMPTS))
         .collect();
     let mut new: Vec<u64> = new.into_iter().collect();
     let running = p.started.intersection(live).count();
@@ -265,18 +276,19 @@ impl Pickups {
             .map(|issue| start(&round, issue));
 
         for (issue, started) in plan.start.iter().zip(join_all(starts).await) {
-            match started {
-                Ok(auto) => {
-                    state.started.insert(*issue);
-                    state.running.insert(*issue, auto);
-                }
+            match &started {
+                Ok(_) => {}
                 Err(Unstarted::Unknown(e)) => {
                     log::warn!("a session on {repo}#{issue} may have started: {e}");
-                    state.started.insert(*issue);
                 }
                 Err(Unstarted::Refused(e)) => {
                     log::info!("no session started on {repo}#{issue}: {e}");
                 }
+            }
+
+            if let Some(reason) = record(&mut state, *issue, started) {
+                let title = format!("#{issue} could not start: {reason}");
+                needs_you(&round, *issue, title);
             }
         }
 
@@ -358,24 +370,69 @@ async fn ended(round: &Round<'_>, state: &mut Pickup) {
             continue;
         }
 
-        let id = format!("{PICKUP_CARD}{n}");
-        round.link.with(|teams| {
-            let cards = teams.asks.cards.entry(repo.clone()).or_default();
-
-            if cards.len() < MAX_CARDS && !cards.iter().any(|card| card.id == id) {
-                cards.push(Card {
-                    id,
-                    title: format!("#{n} ended without a pull request"),
-                    lane: Lane::NeedsYou {},
-                    login: round.team.mine.login.clone(),
-                    machine: String::new(),
-                    issue: Some(n),
-                    pr: None,
-                    updated_at: SystemTime::now(),
-                });
-            }
-        });
+        needs_you(round, n, format!("#{n} ended without a pull request"));
     }
+}
+
+/// Notes how the start of a session on issue `n` went. The reason, when
+/// its start was refused for the `ATTEMPTS`th time and pickup gives it up.
+fn record(state: &mut Pickup, n: u64, started: Result<Auto, Unstarted>) -> Option<String> {
+    match started {
+        Ok(auto) => {
+            state.running.insert(n, auto);
+        }
+        Err(Unstarted::Unknown(_)) => {}
+        Err(Unstarted::Refused(reason)) => {
+            let failed = state.failed.entry(n).or_default();
+            *failed += 1;
+            return (*failed >= ATTEMPTS).then_some(reason);
+        }
+    }
+
+    state.failed.remove(&n);
+    state.started.insert(n);
+    None
+}
+
+/// Puts the Needs you card `title` of issue `n` on this mesh's apps.
+fn needs_you(round: &Round<'_>, n: u64, title: String) {
+    let card = Card {
+        id: format!("{PICKUP_CARD}{n}"),
+        title: title.chars().take(TITLE).collect(),
+        lane: Lane::NeedsYou {},
+        login: round.team.mine.login.clone(),
+        machine: String::new(),
+        issue: Some(n),
+        pr: None,
+        updated_at: SystemTime::now(),
+    };
+
+    round.link.with(|teams| {
+        let cards = teams.asks.cards.entry(round.team.repo.clone()).or_default();
+        add_card(cards, card);
+    });
+}
+
+/// Adds `card` to `cards` in place of the one with its id. A full list
+/// drops its oldest pickup card for it, or else its oldest card.
+fn add_card(cards: &mut Vec<Card>, card: Card) {
+    cards.retain(|old| old.id != card.id);
+
+    if cards.len() >= MAX_CARDS {
+        let oldest = |pickups: bool| {
+            let cards = cards.iter().enumerate();
+            cards
+                .filter(|(_, old)| !pickups || old.id.starts_with(PICKUP_CARD))
+                .min_by_key(|(_, old)| old.updated_at)
+                .map(|(at, _)| at)
+        };
+
+        if let Some(at) = oldest(true).or_else(|| oldest(false)) {
+            cards.remove(at);
+        }
+    }
+
+    cards.push(card);
 }
 
 /// The followed automatic sessions, by issue, whose card is not among
@@ -427,7 +484,7 @@ async fn start(round: &Round<'_>, issue: &OpenIssue) -> Result<Auto, Unstarted> 
         })) => serde_json::from_str(&text).map_err(|e| Unstarted::Unknown(e.to_string())),
         Ok(Ok(Reply::Done { text, .. })) => Err(Unstarted::Refused(text)),
         Ok(Ok(other)) => Err(Unstarted::Unknown(format!("it answered {other:?}"))),
-        Ok(Err(e)) => Err(Unstarted::Refused(format!("{e:#}"))),
+        Ok(Err(e)) => Err(Unstarted::Unknown(format!("{e:#}"))),
         Err(_) => Err(Unstarted::Unknown("it did not answer in time".to_owned())),
     }
 }

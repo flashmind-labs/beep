@@ -119,6 +119,7 @@ fn state_survives_a_restart() {
             branch: "issue-4-fix".to_owned(),
         },
     );
+    state.failed.insert(5, 2);
 
     let pickups = Pickups::new(dir.path().to_owned());
     pickups.save(&repo, &state);
@@ -256,4 +257,77 @@ fn a_team_acted_for_again_leaves_its_assigned_issues_alone() {
     assert_eq!(plan(&mut state, &[1, 42], &[], None), Plan::default());
     assert_eq!(state.seen_at_enable, set(&[1, 42]));
     assert_eq!(plan(&mut state, &[1, 42, 43], &[], None).start, [43]);
+}
+
+#[test]
+fn an_issue_that_cannot_start_is_given_up_after_three_tries() {
+    let mut state = pickup(&[], &[]);
+    state.on = true;
+    let mut tries = 0;
+    let mut given_up = Vec::new();
+
+    for _ in 0..5 {
+        for n in due(&state, &[7], &set(&[]), None).start {
+            tries += 1;
+            let refused = Err(Unstarted::Refused("no coding agent".to_owned()));
+            given_up.extend(record(&mut state, n, refused));
+        }
+    }
+
+    assert_eq!(tries, 3);
+    assert_eq!(given_up, ["no coding agent"]);
+    assert!(!state.started.contains(&7));
+}
+
+#[test]
+fn a_start_after_a_refused_one_is_followed() {
+    let mut state = pickup(&[], &[]);
+    let auto = Auto {
+        card: "acp-1@laptop".to_owned(),
+        branch: "issue-7".to_owned(),
+    };
+
+    assert_eq!(
+        record(&mut state, 7, Err(Unstarted::Refused("busy".to_owned()))),
+        None
+    );
+    assert_eq!(record(&mut state, 7, Ok(auto.clone())), None);
+    assert_eq!(state.started, set(&[7]));
+    assert_eq!(state.running.get(&7), Some(&auto));
+    assert!(state.failed.is_empty());
+}
+
+#[test]
+fn a_full_list_makes_room_for_a_pickup_card() {
+    let at = |secs| SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+    let card = |id: String, secs| Card {
+        id,
+        title: String::new(),
+        lane: Lane::NeedsYou {},
+        login: "alice".parse().unwrap(),
+        machine: String::new(),
+        issue: None,
+        pr: None,
+        updated_at: at(secs),
+    };
+    let mut cards: Vec<Card> = (0..MAX_CARDS - 1)
+        .map(|i| card(format!("ask:{i}"), i as u64))
+        .collect();
+    cards.push(card(format!("{PICKUP_CARD}3"), 100));
+
+    add_card(&mut cards, card(format!("{PICKUP_CARD}9"), 200));
+    assert_eq!(cards.len(), MAX_CARDS);
+    assert!(cards.iter().any(|card| card.id == "ask:0"));
+    assert!(!cards.iter().any(|card| card.id == "pickup:3"));
+
+    add_card(&mut cards, card(format!("{PICKUP_CARD}9"), 300));
+    assert_eq!(cards.len(), MAX_CARDS);
+    assert_eq!(cards.iter().filter(|card| card.id == "pickup:9").count(), 1);
+
+    let mut asks: Vec<Card> = (0..MAX_CARDS)
+        .map(|i| card(format!("ask:{i}"), i as u64))
+        .collect();
+    add_card(&mut asks, card(format!("{PICKUP_CARD}9"), 200));
+    assert_eq!(asks.len(), MAX_CARDS);
+    assert!(!asks.iter().any(|card| card.id == "ask:0"));
 }
