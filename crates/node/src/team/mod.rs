@@ -6,5 +6,6 @@ pub(crate) mod gateway;
 pub(crate) mod home;
 pub(crate) mod join;
 pub(crate) mod link;
+pub(crate) mod membership;
 pub(crate) mod proof;
 pub(crate) mod roster;

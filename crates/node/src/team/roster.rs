@@ -4,8 +4,8 @@
 //! the mesh moves on.
 
 use beep_proto::team::{ForgeLogin, Member, Removed, TeamMsg, TeamRecord, TeamRepo};
-use iroh::{EndpointAddr, EndpointId};
-use std::collections::{BTreeMap, BTreeSet};
+use iroh::EndpointId;
+use std::collections::BTreeMap;
 
 /// The most devices a member names, and addresses a device carries.
 pub(crate) const MAX_DEVICES: usize = 32;
@@ -271,38 +271,6 @@ pub(crate) fn record(repo: TeamRepo, members: Vec<Member>) -> TeamRecord {
         asks: true,
         removed: Vec::new(),
     }
-}
-
-/// `mine`, this mesh's entry, naming the devices it should: its own still in
-/// the mesh (`member`), then the project's machines not on it yet, online
-/// ones first, at most `MAX_DEVICES`. `None` when it names those already.
-pub(crate) fn with_devices(
-    mine: &Member,
-    project: &[EndpointAddr],
-    online: &BTreeSet<EndpointId>,
-    member: impl Fn(EndpointId) -> bool,
-) -> Option<Member> {
-    let mut devices: Vec<EndpointAddr> = mine
-        .devices
-        .iter()
-        .filter(|device| member(device.id))
-        .cloned()
-        .collect();
-    let mut new: Vec<&EndpointAddr> = project
-        .iter()
-        .filter(|device| !devices.iter().any(|have| have.id == device.id))
-        .collect();
-    new.sort_by_key(|device| !online.contains(&device.id));
-    devices.extend(new.into_iter().cloned());
-    devices.truncate(MAX_DEVICES);
-
-    let ids = |devices: &[EndpointAddr]| devices.iter().map(|device| device.id).collect::<BTreeSet<_>>();
-    let changed = ids(&devices) != ids(&mine.devices);
-
-    changed.then(|| Member {
-        devices,
-        ..mine.clone()
-    })
 }
 
 /// Whether `login` in `mesh` was removed from `record`'s team.
