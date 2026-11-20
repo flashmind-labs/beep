@@ -1,5 +1,5 @@
 // How the open session's view rides out a dropped link to its machine: a
-// muted line while it reads again with backoff, gone once the session reads
+// muted line while it reads again every few seconds, gone once the session reads
 // again or anything new arrives, and a plain ending when the machine came
 // back without it.
 import type { AgentPage } from "./agents.ts";
@@ -11,8 +11,9 @@ type ViewError = { kind: "lost" } | { kind: "gone" } | { kind: "failed"; message
 export interface Link { lost: number; ended: boolean }
 export const LINKED: Link = { lost: 0, ended: false };
 
-const RETRY_FIRST_MS = 1000;
-const RETRY_MAX_MS = 15000;
+/// The pause before reaching a machine again after a link to it dropped,
+/// as the app's own links wait (`beep_mesh::RETRY`).
+export const RETRY_MS = 5000;
 
 /// What a rejected `agent_view` said; anything else is a failure to show.
 export function viewError(e: unknown): ViewError {
@@ -21,9 +22,6 @@ export function viewError(e: unknown): ViewError {
   if (kind === "failed") return { kind, message: String((e as { message?: unknown }).message ?? "") };
   return { kind: "failed", message: String(e) };
 }
-
-/// The wait before reading again after `lost` failed reads: 1 s, doubling to 15 s.
-export const retryDelay = (lost: number) => Math.min(RETRY_FIRST_MS * 2 ** Math.max(0, lost - 1), RETRY_MAX_MS);
 
 export const lostNote = (machine: string) => `Lost the connection to ${machine}. Reconnecting...`;
 /// Under a log drawn from what this device kept, until the first live read or event.

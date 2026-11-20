@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { endedPage, hasNews, LINKED, lostNote, noteAfterRead, readFailed, retryDelay, sendError, viewError } from "../src/agents/reconnect-state.ts";
+import { endedPage, hasNews, LINKED, lostNote, noteAfterRead, readFailed, sendError, viewError } from "../src/agents/reconnect-state.ts";
 import { joinRuns } from "../src/agents/older-state.ts";
 import type { AgentPage } from "../src/agents/agents.ts";
 
@@ -17,18 +17,15 @@ test("a rejected read is told apart by its kind; a plain string is a failure", (
   assert.deepEqual(viewError("sending stopped by peer: error 0"), { kind: "failed", message: "sending stopped by peer: error 0" });
 });
 
-test("a lost link says so and reads again from 1 s, doubling to 15 s", () => {
+test("a lost link says so and counts the reads lost in a row", () => {
   let link = LINKED;
-  const waits: number[] = [];
 
-  for (let i = 0; i < 6; i++) {
+  for (let i = 1; i <= 3; i++) {
     const failed = readFailed(link, { kind: "lost" }, "build-box");
     assert.equal(failed.note, "Lost the connection to build-box. Reconnecting...");
     link = failed.link;
-    waits.push(retryDelay(link.lost));
+    assert.equal(link.lost, i);
   }
-
-  assert.deepEqual(waits, [1000, 2000, 4000, 8000, 15000, 15000]);
 });
 
 test("reattached: the reconnect line goes and the session's real state replaces the running turn", () => {

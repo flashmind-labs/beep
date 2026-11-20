@@ -3,8 +3,9 @@
 //! serves them to each project's peers only.
 
 use tracing::Instrument;
+use beep_mesh::{OPEN_TIMEOUT, RETRY};
 use super::{
-    CONNECT_TIMEOUT, STALL, Syncs,
+    STALL, Syncs,
     gitdir::{BranchTip, Checkout, Oid, Repo},
     map::{Entry, Replica},
     project::{Cursor, Shared},
@@ -32,8 +33,6 @@ pub(crate) const ALPN: &[u8] = b"beep-sync/7";
 
 /// The most entries one batch carries.
 const BATCH: usize = 1000;
-const FIRST_RETRY: Duration = Duration::from_secs(1);
-const LAST_RETRY: Duration = Duration::from_secs(60);
 /// The most projects one peer pulls at once over a connection.
 const MAX_STREAMS: usize = 64;
 /// How long a Git object transfer waits for its first chunk, then for each
@@ -417,17 +416,14 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
 }
 
 /// Pulls `shared`'s list from `peer` until the project stops, reconnecting
-/// with growing waits. Only a pull that brought all the peer had starts
-/// the waits over; one that fails later, as on a Git wait, keeps growing
-/// them. Asked to pull again, a waiting pull dials at once.
+/// every `RETRY`. Asked to pull again, a waiting pull dials at once.
 pub(super) async fn pull(shared: Arc<Shared>, endpoint: Endpoint, peer: EndpointAddr) {
-    let mut wait = FIRST_RETRY;
     let mut again = shared.watch_pull_again();
 
     loop {
         again.mark_unchanged();
         let pulled = tokio::select! {
-            pulled = pull_once(&shared, &endpoint, &peer, &mut wait) => pulled,
+            pulled = pull_once(&shared, &endpoint, &peer) => pulled,
             () = shared.stopped() => return,
         };
 
@@ -437,11 +433,10 @@ pub(super) async fn pull(shared: Arc<Shared>, endpoint: Endpoint, peer: Endpoint
 
         shared.heard(&peer.id);
         tokio::select! {
-            () = sleep(wait) => {}
+            () = sleep(RETRY) => {}
             _ = again.changed() => {}
             () = shared.stopped() => return,
         }
-        wait = (wait * 2).min(LAST_RETRY);
     }
 }
 
@@ -449,10 +444,9 @@ async fn pull_once(
     shared: &Shared,
     endpoint: &Endpoint,
     peer: &EndpointAddr,
-    wait: &mut Duration,
 ) -> Result<()> {
     let started = Instant::now();
-    let connection = timeout(CONNECT_TIMEOUT, endpoint.connect(peer.clone(), ALPN))
+    let connection = timeout(OPEN_TIMEOUT, endpoint.connect(peer.clone(), ALPN))
         .await
         .context("could not reach the peer in time")??;
     let (_tx, mut rx, mut first) = branches::open_pull(&connection, shared, &peer.id).await?;
@@ -537,7 +531,7 @@ async fn pull_once(
                 last = behind;
 
                 if last.is_none() {
-                    caught_up(shared, &peer.id, wait);
+                    caught_up(shared, &peer.id);
                 }
             }
             Reply::Changes {
@@ -561,7 +555,7 @@ async fn pull_once(
 
                 if last.is_some_and(|last| upto >= last) {
                     last = None;
-                    caught_up(shared, &peer.id, wait);
+                    caught_up(shared, &peer.id);
                 }
             }
             Reply::Refused { message } => bail!("the peer refused: {message}"),
@@ -574,12 +568,10 @@ async fn pull_once(
     Ok(())
 }
 
-/// The pull brought all `peer` had: it went through, so losing the
-/// connection now is no reason to wait long.
-fn caught_up(shared: &Shared, peer: &EndpointId, wait: &mut Duration) {
+/// The pull brought all `peer` had.
+fn caught_up(shared: &Shared, peer: &EndpointId) {
     shared.heard(peer);
     shared.caught_up(peer);
-    *wait = FIRST_RETRY;
 }
 
 /// The branch is checked separately from the object ID before moving a checkout.
@@ -685,7 +677,7 @@ async fn serve_objects(
 }
 
 async fn receive_objects(connection: &Connection, shared: &Shared, want: ObjectWant) -> Result<()> {
-    let (send, recv) = timeout(CONNECT_TIMEOUT, connection.open_bi())
+    let (send, recv) = timeout(OPEN_TIMEOUT, connection.open_bi())
         .await
         .context("The Git object transfer did not start")??;
     let (mut tx, mut rx) = link(send, recv);

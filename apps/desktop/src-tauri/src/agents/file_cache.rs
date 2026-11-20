@@ -33,8 +33,6 @@ use tokio::{
     time::timeout,
 };
 
-/// How long reaching the machine's blob store may take.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// How often the store drops the blobs no tag holds.
 const GC_EVERY: Duration = Duration::from_secs(60);
 
@@ -318,7 +316,7 @@ async fn download(
     progress: &mut impl FnMut(u64, u64),
 ) -> Result<()> {
     let connection = timeout(
-        CONNECT_TIMEOUT,
+        beep_mesh::OPEN_TIMEOUT,
         fleet.endpoint().connect(machine, iroh_blobs::ALPN),
     )
     .await

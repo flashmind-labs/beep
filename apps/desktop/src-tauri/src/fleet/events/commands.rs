@@ -2,6 +2,7 @@
 
 use super::{Call, Commands, Fleet};
 use crate::error::{DesktopError, Result};
+use beep_mesh::RETRY;
 use beep_proto::node::commands::{Reply, Request};
 use iroh::EndpointId;
 use std::{
@@ -22,28 +23,20 @@ pub(super) struct CommandWorker {
     pub(super) commands: Commands,
 }
 
-/// Runs `connect` again after every end, pausing 1 s doubling to 30 s, and
-/// from 1 s again after a connection that lasted 10 s.
-/// `ended` logs an end with the error and the connection's milliseconds.
+/// Runs `connect` again `RETRY` after every end. `ended` logs an end with
+/// the error and the connection's milliseconds.
 pub(super) async fn retrying<F, Fut>(connect: F, ended: impl Fn(&DesktopError, u128))
 where
     F: Fn() -> Fut,
     Fut: Future<Output = Result<()>>,
 {
-    let mut pause = Duration::from_secs(1);
-
     loop {
         let started = Instant::now();
         if let Err(error) = connect().await {
             ended(&error, started.elapsed().as_millis());
         }
 
-        if started.elapsed() >= Duration::from_secs(10) {
-            pause = Duration::from_secs(1);
-        }
-
-        sleep(pause).await;
-        pause = (pause * 2).min(Duration::from_secs(30));
+        sleep(RETRY).await;
     }
 }
 

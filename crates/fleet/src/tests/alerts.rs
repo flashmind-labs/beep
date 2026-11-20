@@ -431,7 +431,8 @@ async fn a_machine_that_links_again_ends_the_wait_at_once() {
     let (key, dir) = stop(node).await;
     until_online(&desktop.mesh, node_id, false).await;
     let mesh = desktop.mesh.clone();
-    let waiting = tokio::spawn(async move { relinked(&mesh, node_id, link, LAST_RETRY).await });
+    let waiting =
+        tokio::spawn(async move { relinked(&mesh, node_id, link, Duration::from_secs(60)).await });
     let _node = reopen(key, dir).await;
 
     let relinked = timeout(Duration::from_secs(20), waiting)

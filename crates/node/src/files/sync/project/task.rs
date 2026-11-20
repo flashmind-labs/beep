@@ -315,7 +315,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 retry = RETRY;
             }
             // Pulls that failed on the Git wait dial again now, not after
-            // their backoff.
+            // their pause.
             if waited && !task.waits_for_git() {
                 shared.pull_again();
             }

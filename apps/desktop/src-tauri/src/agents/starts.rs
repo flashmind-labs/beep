@@ -22,7 +22,8 @@ use crate::{
         agents::{self as direct, StartFailed},
     },
 };
-use beep_node::{agents::tags::title, link::reconnect::Backoff};
+use beep_mesh::RETRY;
+use beep_node::agents::tags::title;
 use beep_proto::SessionId;
 use beep_proto::{
     AccountName, AgentEntry, AgentEntryKind, AgentSessionView, AgentStatus, AgentSteer, ApiError,
@@ -561,7 +562,6 @@ struct AgentStarted {
 /// A start's machine, as its runner reaches it.
 struct MeshLink {
     app: AppHandle,
-    backoff: Backoff,
 }
 
 impl Link for MeshLink {
@@ -605,7 +605,7 @@ impl Link for MeshLink {
     }
 
     async fn pause(&mut self) {
-        sleep(self.backoff.pause()).await;
+        sleep(RETRY).await;
     }
 
     fn changed(&mut self, id: StartId) {
@@ -665,10 +665,7 @@ fn spawn(app: &AppHandle, id: StartId) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let starts = app.state::<Arc<Starts>>().inner().clone();
-        let mut link = MeshLink {
-            app: app.clone(),
-            backoff: Backoff::patient(),
-        };
+        let mut link = MeshLink { app: app.clone() };
         run(&starts, id, &mut link).await;
     });
 }

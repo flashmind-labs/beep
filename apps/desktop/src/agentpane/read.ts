@@ -7,6 +7,8 @@ import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, re
 import { draw, touchTab } from "./media-draw.ts";
 import { bytesOf, resolvePath } from "./media-state.ts";
 import { invoke, listen } from "../ui/tauri.ts";
+import { paneShown } from "../ui/active.ts";
+import { RETRY_MS } from "../agents/reconnect-state.ts";
 
 // Keep the original File on the device that uploaded it. A browser File can
 // read its local bytes without downloading the attachment from the node.
@@ -82,7 +84,7 @@ function joined(parts: readonly Uint8Array[], done: number, mime: string) {
 export function readError(e: unknown) {
   const text = errorText(e);
   if (isMissing(text)) return `Not found on ${machineName()}.`;
-  if (/unknown op|unknown request|not serve|too old|closes the stream/i.test(text)) return "beep-node there is too old. Update it.";
+  if (tooOld(text)) return "beep-node there is too old. Update it.";
   return text;
 }
 
@@ -96,7 +98,8 @@ function errorText(e: unknown) {
   return String(said).replace(/^bad request: /, "");
 }
 
-const isMissing = (text: string) => /no longer|not found|gone/i.test(text);
+const isMissing = (text: string) => /no longer|not found|gone|is not there/i.test(text);
+const tooOld = (text: string) => /unknown op|unknown request|not serve|too old|closes the stream/i.test(text);
 const machineName = () => P.session?.machine_name ?? "the machine";
 
 /// Reads the start of a text tab's file.
@@ -107,9 +110,11 @@ export async function loadText(t: MediaTab) {
   try {
     t.text = await invoke<TreeText>("agent_tree_text", { machineId: s.machine_id, root: t.root ?? s.cwd, path: t.rel });
     t.size = t.text.size;
+    t.tries = 0;
   } catch (e) {
-    if (lookElsewhere(t)) return loadText(t);
+    if (isMissing(errorText(e)) && lookElsewhere(t)) return loadText(t);
     t.error = fileError(e, t.rel);
+    readLater(t, e);
   }
 
   if (P.tabs.includes(t)) {
@@ -119,6 +124,34 @@ export async function loadText(t: MediaTab) {
     if (queued && t.text && !t.text.binary) void togglePreview(t);
   }
 }
+
+/// Reads `t` again every `RETRY_MS` while its read fails with an error that
+/// may pass, as over a link that dropped, and the pane shows. A reconnect
+/// reads it at once.
+function readLater(t: MediaTab, e: unknown) {
+  const text = errorText(e);
+  if (isMissing(text) || tooOld(text)) return;
+  t.tries = (t.tries ?? 0) + 1;
+  readSoon(t);
+}
+
+function readSoon(t: MediaTab) {
+  clearTimeout(t.retry);
+  t.retry = setTimeout(() => { if (paneShown()) readAgain(t); else readSoon(t); }, RETRY_MS);
+}
+
+function readAgain(t: MediaTab) {
+  clearTimeout(t.retry);
+  if (!P.tabs.includes(t) || !t.error || !t.tries) return;
+  Object.assign(t, { error: "", started: Date.now(), done: 0 });
+  touchTab(t);
+  if (t.kind === "text") void loadText(t);
+  else void load(t);
+}
+
+listen("reconnected", () => {
+  for (const t of P.tabs) if (t.error && t.tries) readAgain(t);
+});
 
 /// Points `t` at the next place the file may be; false when there is
 /// nowhere else to look.
@@ -205,10 +238,12 @@ export async function load(t: MediaTab, again = false) {
     t.bytes = bytes.buffer as ArrayBuffer;
     t.url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime || "application/octet-stream" }));
     if (was?.startsWith("blob:")) URL.revokeObjectURL(was);
+    t.tries = 0;
   } catch (e) {
     if (!P.tabs.includes(t) || again) return;
-    if (lookElsewhere(t)) return load(t);
+    if (isMissing(errorText(e)) && lookElsewhere(t)) return load(t);
     t.error = fileError(e, t.path);
+    readLater(t, e);
   }
 
   // Drawn again now its bytes are here.

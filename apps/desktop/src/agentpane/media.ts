@@ -117,6 +117,10 @@ export interface MediaTab {
   previewQueued?: boolean;
   preview?: { active: boolean; loading: boolean; src: string; html: string; error: string };
   edit?: FileEdit | null;
+  /// Reads that failed in a row, and the timer of the next, while its file
+  /// may still come.
+  tries?: number;
+  retry?: ReturnType<typeof setTimeout>;
   /// A terminal tab's terminal, once it started.
   term?: PaneTerm;
   /// Where a new terminal tab starts its shell (its machine and folder stay

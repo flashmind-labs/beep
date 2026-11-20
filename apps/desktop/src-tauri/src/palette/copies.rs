@@ -6,6 +6,7 @@ use super::search::Found;
 use crate::fleet::Fleet;
 use anyhow::{Context, bail};
 use beep_fleet::alerts::each_machine;
+use beep_mesh::RETRY;
 use beep_node::agents::search::IndexCopy;
 use beep_proto::node::agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest};
 use futures::StreamExt;
@@ -15,15 +16,9 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::{task::spawn_blocking, time::sleep};
-
-/// How long a machine that could not be followed is left before the next
-/// try, doubling up to `RETRY_MOST`.
-const RETRY_FIRST: Duration = Duration::from_secs(5);
-const RETRY_MOST: Duration = Duration::from_secs(600);
 
 pub(crate) struct Copies {
     dir: PathBuf,
@@ -131,7 +126,7 @@ pub(crate) async fn follow(app: AppHandle) {
             Ok(mesh) => mesh,
             Err(e) => {
                 log::info!("no mesh to follow search indexes in: {e}");
-                sleep(RETRY_MOST).await;
+                sleep(RETRY).await;
                 continue;
             }
         };
@@ -151,27 +146,21 @@ pub(crate) async fn follow(app: AppHandle) {
 
 /// Keeps `machine`'s copy current while the machine is online.
 async fn follow_machine(app: AppHandle, copies: Arc<Copies>, machine: EndpointId) {
-    let mut wait = RETRY_FIRST;
-
     loop {
-        match copy_from(&app, &copies, machine).await {
-            Ok(true) => wait = RETRY_FIRST,
-            Ok(false) => {}
-            Err(e) => log::debug!("following the search index of {machine}: {e:#}"),
+        if let Err(e) = copy_from(&app, &copies, machine).await {
+            log::debug!("following the search index of {machine}: {e:#}");
         }
 
-        sleep(wait).await;
-        wait = (wait * 2).min(RETRY_MOST);
+        sleep(RETRY).await;
     }
 }
 
-/// Applies the rows `machine` sends until its stream ends. True when some
-/// came, so the next try need not wait long.
+/// Applies the rows `machine` sends until its stream ends.
 async fn copy_from(
     app: &AppHandle,
     copies: &Arc<Copies>,
     machine: EndpointId,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<()> {
     let opening = copies.clone();
     // Opening a new copy writes its schema: off the async workers.
     let copy = spawn_blocking(move || opening.copy(machine)).await??;
@@ -190,12 +179,9 @@ async fn copy_from(
             )
             .await?,
     );
-    let mut heard = false;
-
     while let Some(reply) = replies.next().await {
         match reply? {
             SessionsReply::IndexRows { epoch, rows, .. } => {
-                heard = true;
                 // A new index replaces the copy even with no rows yet.
                 let changed = !rows.is_empty() || epoch != copied;
                 let held = copy.clone();
@@ -214,7 +200,7 @@ async fn copy_from(
         }
     }
 
-    Ok(heard)
+    Ok(())
 }
 
 /// The hits of every copy, for the window.

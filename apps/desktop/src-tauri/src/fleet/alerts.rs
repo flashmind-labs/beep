@@ -7,8 +7,7 @@
 use super::{Fleet, Opened};
 use crate::error::Result;
 use beep_fleet::alerts::{self as shared, Heard as Told};
-use beep_mesh::MeshError;
-use beep_node::link::reconnect::Backoff;
+use beep_mesh::{MeshError, RETRY};
 use beep_proto::watched;
 use beep_proto::{
     AgentNoticeKey, Notice,
@@ -154,11 +153,10 @@ async fn phones(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
     }
 }
 
-/// When a machine's stream is opened again after it broke: at once after
-/// one that worked, else after a pause that grows while it fails.
+/// When a machine's stream is opened again after it broke: `RETRY` after
+/// the machine is online.
 struct Retry {
     what: &'static str,
-    backoff: Backoff,
     /// An offline machine fails the same way on every try: logged once,
     /// and again when the error changes or after a stream that worked.
     logged: Option<String>,
@@ -169,7 +167,6 @@ impl Retry {
     fn new(what: &'static str) -> Self {
         Self {
             what,
-            backoff: Backoff::eager(),
             logged: None,
             started: Instant::now(),
         }
@@ -200,12 +197,11 @@ impl Retry {
         }
 
         if held(replied, self.started.elapsed()) {
-            self.backoff.reset();
             self.logged = None;
         }
 
         until_online(fleet, id).await;
-        sleep(self.backoff.pause()).await;
+        sleep(RETRY).await;
         self.started = Instant::now();
 
         true
@@ -226,9 +222,8 @@ pub(crate) async fn until_online(fleet: &Fleet, id: EndpointId) {
     }
 }
 
-/// Whether a stream that broke was a working one, so the next try comes at
-/// once: the machine sent something, or kept it open for `HELD`. One that
-/// is accepted and closed again keeps backing off.
+/// Whether a stream that broke was a working one, so its next error is
+/// logged again: the machine sent something, or kept it open for `HELD`.
 fn held(replied: bool, lived: Duration) -> bool {
     replied || lived >= HELD
 }

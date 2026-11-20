@@ -1,6 +1,7 @@
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
-import { CLOCK_MAX_AGE_MS, CLOCK_RETRY_MS, clockWarning, loadClocks } from "../src/machines/clock.ts";
+import { CLOCK_MAX_AGE_MS, clockWarning, loadClocks } from "../src/machines/clock.ts";
+import { RETRY_MS } from "../src/agents/reconnect-state.ts";
 
 type Invoke = Parameters<typeof loadClocks>[0];
 
@@ -44,29 +45,26 @@ test("a read stays good for 30 seconds", async () => {
   assert.equal(calls, 2);
 });
 
-test("a failure keeps the known warnings and backs off, longer each time", async () => {
+test("a failure keeps the known warnings and reads again every RETRY_MS", async () => {
   mock.timers.tick(CLOCK_MAX_AGE_MS + 1);
   fail = true;
   await read();
   assert.equal(calls, 3);
   assert.equal(clockWarning("m1", null)?.text, "Clock is 2 min ahead");
 
-  mock.timers.tick(CLOCK_RETRY_MS - 1);
+  mock.timers.tick(RETRY_MS - 1);
   await read();
   assert.equal(calls, 3);
   mock.timers.tick(2);
   await read();
   assert.equal(calls, 4);
 
-  mock.timers.tick(CLOCK_RETRY_MS + 1);
-  await read();
-  assert.equal(calls, 4);
-  mock.timers.tick(CLOCK_RETRY_MS);
+  mock.timers.tick(RETRY_MS + 1);
   fail = false;
   await read();
   assert.equal(calls, 5);
 
-  mock.timers.tick(CLOCK_RETRY_MS);
+  mock.timers.tick(RETRY_MS);
   await read();
   assert.equal(calls, 5);
 });

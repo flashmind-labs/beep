@@ -48,7 +48,7 @@ pub(super) async fn open_pull(
             return Ok((tx, rx, None));
         }
 
-        match timeout(super::CONNECT_TIMEOUT, rx.recv::<Reply>()).await {
+        match timeout(beep_mesh::OPEN_TIMEOUT, rx.recv::<Reply>()).await {
             Ok(Ok(Some(reply))) => {
                 if !matches!(reply, Reply::Branches { .. }) {
                     shared.forget_branches(peer);

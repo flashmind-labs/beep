@@ -18,7 +18,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{Fleet, agents as direct, asked::READ_LIMIT},
 };
-use beep_node::link::reconnect::Backoff;
+use beep_mesh::RETRY;
 use beep_proto::SessionId;
 use beep_proto::{AgentEntry, AgentEntryKind, ApiError, GetAgentSession};
 use iroh::EndpointId;
@@ -577,7 +577,6 @@ struct MeshLink {
     /// The window that started the flusher, whose event stream may carry the call.
     window: String,
     machine: EndpointId,
-    backoff: Backoff,
 }
 
 impl Link for MeshLink {
@@ -593,7 +592,6 @@ impl Link for MeshLink {
             message.steer(),
         )
         .await?;
-        self.backoff.reset();
         Ok(keys)
     }
 
@@ -627,7 +625,7 @@ impl Link for MeshLink {
     async fn reachable(&mut self) {
         let fleet = self.app.state::<Arc<Fleet>>().inner().clone();
         crate::fleet::alerts::until_online(&fleet, self.machine).await;
-        sleep(self.backoff.pause()).await;
+        sleep(RETRY).await;
     }
 
     fn changed(&mut self, changed: Changed) {
@@ -721,7 +719,6 @@ fn start(app: &AppHandle, key: SessionKey, window: String) {
             app: app.clone(),
             window,
             machine,
-            backoff: Backoff::eager(),
         };
         flush(&outbox, &key, &mut link).await;
     });

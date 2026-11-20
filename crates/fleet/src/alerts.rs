@@ -9,7 +9,7 @@ use crate::{
     peer::Peers,
     records::projects,
 };
-use beep_mesh::{Mesh, MeshError, PeerClient};
+use beep_mesh::{Mesh, MeshError, PeerClient, RETRY};
 use beep_proto::watched;
 use beep_proto::{
     AgentNoticeKey, ApiError, Notice,
@@ -40,11 +40,6 @@ const TWICE: Duration = Duration::from_secs(60);
 const HELD: Duration = Duration::from_secs(30);
 /// How long a machine gets to answer an answer.
 const ANSWERING: Duration = Duration::from_secs(10);
-const FIRST_RETRY: Duration = Duration::from_secs(1);
-/// The longest wait between tries to a machine that is online but does not
-/// keep a stream open. One that goes offline and comes back, or links again
-/// on a new connection after a restart, starts again at once.
-const LAST_RETRY: Duration = Duration::from_secs(60);
 
 /// What the streams tell the app.
 pub enum Heard {
@@ -217,7 +212,6 @@ async fn follow_one(
     out: &mpsc::Sender<Heard>,
     what: Follows,
 ) {
-    let mut backoff = Backoff::new();
     // An offline machine fails the same way on every try: logged once, and again when the error
     // changes or after a stream that worked.
     let mut logged = None;
@@ -244,13 +238,12 @@ async fn follow_one(
         }
 
         if held(replied, started.elapsed()) {
-            backoff.reset();
             logged = None;
         }
 
-        if relinked(mesh, id, link, backoff.pause()).await {
-            backoff.reset();
-        }
+        // A machine that links again on a new connection, as after a
+        // restart, is followed at once.
+        relinked(mesh, id, link, RETRY).await;
     }
 }
 
@@ -284,29 +277,8 @@ async fn relinked(mesh: &Mesh, id: EndpointId, link: Option<usize>, pause: Durat
     }
 }
 
-/// The pause between tries: from `FIRST_RETRY`, doubling up to `LAST_RETRY`, each shifted by up to
-/// a quarter so machines cut off together do not all come back at once.
-struct Backoff(Duration);
-
-impl Backoff {
-    fn new() -> Self {
-        Self(FIRST_RETRY)
-    }
-
-    fn reset(&mut self) {
-        self.0 = FIRST_RETRY;
-    }
-
-    fn pause(&mut self) -> Duration {
-        let wait = self.0.mul_f64(0.75 + fastrand::f64() / 2.0);
-        self.0 = (self.0 * 2).min(LAST_RETRY);
-        wait
-    }
-}
-
-/// Whether a stream that broke was a working one, so the next try comes at once: the machine sent
-/// something, or kept it open for `HELD`. One that is accepted and closed again keeps backing
-/// off.
+/// Whether a stream that broke was a working one, so its next error is logged again: the machine
+/// sent something, or kept it open for `HELD`.
 fn held(replied: bool, lived: Duration) -> bool {
     replied || lived >= HELD
 }

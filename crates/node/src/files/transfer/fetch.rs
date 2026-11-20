@@ -24,7 +24,6 @@ use std::{
     path::{Path, PathBuf},
     pin::pin,
     sync::Arc,
-    time::Duration,
 };
 use tokio::{
     fs::File,
@@ -34,8 +33,6 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-/// How long reaching the source may take.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// How much is read from the store and written at a time.
 const CHUNK: usize = 1 << 20;
 /// The largest list of names a folder may have.
@@ -168,7 +165,7 @@ async fn connect(cx: &Fetcher<'_>, from: &EndpointAddr) -> Result<Connection> {
     let source = from.id;
     tokio::select! {
         () = cx.cancel.cancelled() => bail!(CANCELLED),
-        connected = timeout(CONNECT_TIMEOUT, cx.endpoint.connect(from.clone(), iroh_blobs::ALPN)) => {
+        connected = timeout(beep_mesh::OPEN_TIMEOUT, cx.endpoint.connect(from.clone(), iroh_blobs::ALPN)) => {
             connected
                 .map_err(|_| anyhow!("could not reach the source machine ({source}) in time"))?
                 .with_context(|| format!("could not reach the source machine ({source})"))

@@ -8,6 +8,7 @@ import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { onShownChange } from "../ui/active.ts";
+import { RETRY_MS } from "../agents/reconnect-state.ts";
 import type { invoke as Invoke, indexedChannel } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import type { Ago } from "../ui/format.ts";
@@ -250,16 +251,8 @@ export function makeTerminals(deps: TerminalDeps) {
     log(`terminal ${live.id}: stream dropped, try ${live.tries + 1}${why ? `: ${why}` : ""}`, true);
     live.tries += 1;
     live.screen.setInput(false);
-
-    if (live.tries > MAX_TRIES) {
-      live.link = "detached";
-      of(name).error = why || "The terminal's stream keeps dropping.";
-      redraw();
-      return;
-    }
-
     live.link = "attaching";
-    live.timer = setTimeout(() => attach(name, live), retryDelay(live.tries));
+    live.timer = setTimeout(() => attach(name, live), RETRY_MS);
     redraw();
   }
 
@@ -757,8 +750,6 @@ interface ProjectTerminals {
 
 /// The size a terminal starts at, before its screen is fitted.
 const START_SIZE = { cols: 100, rows: 30 };
-/// Attaches tried in a row before giving up until asked again.
-const MAX_TRIES = 6;
 /// How long a stream message may stay missing while later ones came: then
 /// it was lost, and the screen attaches again from what it showed.
 export const LOST_MS = 2000;
@@ -944,11 +935,6 @@ export function inOrderChannel(
     }
     watchGap();
   });
-}
-
-/// How long to wait before attach number `tries` (1 for the first retry).
-export function retryDelay(tries: number) {
-  return Math.min(1000 * 2 ** Math.max(0, tries - 1), 15000);
 }
 
 /// Whether a terminal that ended in `state` is done for good: it exited or was

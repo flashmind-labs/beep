@@ -5,6 +5,7 @@ import { attach, dropTerm, paneTerm, termStatus } from "../src/agentpane/termina
 import { P, closeTab, closePaneTabs, type MediaTab } from "../src/agentpane/media.ts";
 import { makeTerminals, ALL, LOST_MS, type Screen, type TermMessage, type TerminalRow } from "../src/terminals/terminals.tsx";
 import { indexedChannel } from "../src/ui/tauri.ts";
+import { RETRY_MS } from "../src/agents/reconnect-state.ts";
 
 const ROW: TerminalRow = {
   id: "t1", project: "", machine_id: "m1", machine_name: "build-box", name: "shell",
@@ -85,7 +86,7 @@ test("a dropped stream reconnects in the footer, not on the screen", async t => 
   await settle();
   assert.equal(termStatus(term, "build-box"), "Reconnecting to build-box…");
   assert.deepEqual(screen.shown, ["% "], "nothing of ours was written to the screen");
-  t.mock.timers.tick(1000);
+  t.mock.timers.tick(RETRY_MS);
   assert.equal(count("terminal_attach"), 2);
   assert.equal((calls.at(-1)!.args as { from: number }).from, 2, "it picks up after what the screen shows");
   // The node resends from where the screen got to; nothing shows twice.
@@ -184,7 +185,7 @@ test("the Terminals page reconnects without writing to the screen", async t => {
   nextAttach();
   first.end();
   await settle();
-  t.mock.timers.tick(1000);
+  t.mock.timers.tick(RETRY_MS);
   assert.equal(count("terminal_attach"), 2);
   assert.deepEqual(screen.shown, []);
   terms.stop();

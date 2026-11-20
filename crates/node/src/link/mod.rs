@@ -3,7 +3,6 @@
 //! and what carries over a restart (`restart`).
 
 mod protocol;
-pub mod reconnect;
 
 pub use protocol::{Protocol, Session};
 

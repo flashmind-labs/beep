@@ -1,7 +1,7 @@
 //! Owns peer dialers and retires connections after membership changes.
 
 use super::{Inner, Mesh, PEER_ALPN, ways};
-use crate::link;
+use crate::{OPEN_TIMEOUT, RETRY, link};
 use beep_proto::watched;
 use iroh::endpoint::Connection;
 use iroh::{EndpointAddr, EndpointId, Watcher};
@@ -12,12 +12,6 @@ use tokio::task::{AbortHandle, JoinSet};
 use tokio::time::{Instant, sleep, timeout};
 use tracing::{info, warn};
 
-const FIRST_RETRY: Duration = Duration::from_secs(1);
-/// A member that stays away is tried about twice a minute. One that comes
-/// back dials us itself, its new address ends our wait early, and so does a
-/// change of our own addresses, as after a sleep or a Wi-Fi drop.
-const LAST_RETRY: Duration = Duration::from_secs(30);
-const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 /// A connection that lasted this long counts as having worked.
 const STABLE: Duration = Duration::from_secs(5);
 /// A removed peer's link may take this long to deliver the news before it is cut.
@@ -28,21 +22,6 @@ const HEAD_START: Duration = Duration::from_millis(300);
 const TICK: Duration = Duration::from_secs(5);
 /// A tick this much later than due means the machine slept.
 const SLEPT: Duration = Duration::from_secs(20);
-
-/// 1 s doubling to `LAST_RETRY`, each shifted by up to a quarter.
-struct Backoff(Duration);
-
-impl Backoff {
-    fn pause(&mut self) -> Duration {
-        let wait = self.0.mul_f64(0.75 + fastrand::f64() / 2.0);
-        self.0 = (self.0 * 2).min(LAST_RETRY);
-        wait
-    }
-
-    fn reset(&mut self) {
-        self.0 = FIRST_RETRY;
-    }
-}
 
 /// A connection `own` cuts, and whether its mesh link tells the peer first.
 struct Doomed {
@@ -152,7 +131,6 @@ pub(super) async fn own(inner: Arc<Inner>) {
 /// Keeps a connection to `peer` up while it is a member and so are we.
 #[tracing::instrument(skip_all, fields(peer = %peer.fmt_short()))]
 async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
-    let mut backoff = Backoff(FIRST_RETRY);
     let mut waited = false;
     // Our own addresses: a change means the network came back or moved.
     let mut ours = inner.endpoint.watch_addr();
@@ -190,7 +168,7 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             .map_or_else(|| EndpointAddr::new(peer), |n| n.addr.clone());
         let to = ways(&addr);
         let started = Instant::now();
-        let connect = timeout(DIAL_TIMEOUT, inner.endpoint.connect(addr, PEER_ALPN));
+        let connect = timeout(OPEN_TIMEOUT, inner.endpoint.connect(addr, PEER_ALPN));
         tokio::pin!(connect);
         // Unrelated changes wake us; only a link that appeared cancels the dial.
         let dialed = loop {
@@ -214,7 +192,6 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
                 waited = false;
 
                 if started.elapsed() >= STABLE {
-                    backoff.reset();
                     continue;
                 }
             }
@@ -226,8 +203,10 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             }
             Err(_) => info!("dial to {to} timed out"),
         }
-        // A new address for this peer or for us ends the wait early.
-        let pause = sleep(backoff.pause());
+        // A member that stays away is tried every `RETRY`. One that comes
+        // back dials us itself, and a new address for it or for us, as after
+        // a sleep or a Wi-Fi drop, ends the wait early.
+        let pause = sleep(RETRY);
         tokio::pin!(pause);
 
         loop {
@@ -245,7 +224,6 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
                 () = &mut moved => {}
                 changed = ours.updated(), if network => {
                     if changed.is_ok() {
-                        backoff.reset();
                         break;
                     }
 
@@ -316,7 +294,3 @@ impl Mesh {
         self.inner.woke().await;
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/mesh_owner.rs"]
-mod tests;

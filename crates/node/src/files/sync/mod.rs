@@ -71,8 +71,6 @@ use watch::{Key, Watcher};
 
 /// How long a scan `Request::Rescan` asks for may take.
 const RESCAN_LIMIT: Duration = Duration::from_secs(120);
-/// How long a peer connection or stream may take to open.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a transfer may wait for its next data before it gives up. A
 /// connection can stay open on a path that no longer carries data (a NAT
 /// mapping gone, with the relay keeping the connection alive); without a

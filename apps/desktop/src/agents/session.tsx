@@ -38,7 +38,7 @@ import { onPhone } from "../ui/platform.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder } from "./older.ts";
 import { joinRuns, newestRead } from "./older-state.ts";
-import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, retryDelay, viewError } from "./reconnect-state.ts";
+import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, RETRY_MS, viewError } from "./reconnect-state.ts";
 import { drawMove } from "./move.ts";
 import { moveStore, refreshMoves } from "./move-store.ts";
 import { movedTo } from "./move-state.ts";
@@ -357,7 +357,7 @@ export async function pollAgent(readNow = false) {
     return;
   }
 
-  const delay = AG.link.lost ? retryDelay(AG.link.lost) : agentDelay();
+  const delay = AG.link.lost ? RETRY_MS : agentDelay();
   if (!feed.live(o)) AG.timer = setTimeout(pollAgent, delay);
 }
 

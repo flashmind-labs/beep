@@ -1,7 +1,8 @@
 //! Fetching blobs from peers, and copying them out of the store.
 
 use super::{shared::Shared, task::RETRY};
-use crate::files::sync::{CONNECT_TIMEOUT, Parts, STALL, map::FileMeta, scan::MAX_BYTES};
+use beep_mesh::OPEN_TIMEOUT;
+use crate::files::sync::{Parts, STALL, map::FileMeta, scan::MAX_BYTES};
 use crate::files::transfer::place::{Reserved, space_at};
 use crate::{AsyncMutex, lock};
 use anyhow::{Context, Result, anyhow, bail};
@@ -40,7 +41,7 @@ const MAX_FETCHES: usize = 16;
 
 /// The peers to ask for a file, in order. A peer that could not be dialled
 /// comes last, and not at all within `RETRY` of that: each dial of a machine
-/// that is off takes `CONNECT_TIMEOUT`, which every file would otherwise wait.
+/// that is off takes `OPEN_TIMEOUT`, which every file would otherwise wait.
 pub(super) fn peers_to_ask(
     peers: &[EndpointAddr],
     down: &HashMap<EndpointId, Instant>,
@@ -261,7 +262,7 @@ impl Fetcher {
         }
 
         let dialled = timeout(
-            CONNECT_TIMEOUT,
+            OPEN_TIMEOUT,
             self.parts.endpoint.connect(peer.clone(), iroh_blobs::ALPN),
         )
         .await
