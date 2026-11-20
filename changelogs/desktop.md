@@ -7,6 +7,31 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.6] - 2026-11-20
+
+### Added
+
+- Desktop: Settings, then the Codex harness page, has an "ACP adapter" or
+  "Direct" choice, the same as Claude Code. New Codex sessions use the
+  chosen driver.
+- Desktop: the macOS app runs on Intel Macs as well as Apple silicon
+  Macs. The download is one universal app, and installed apps keep
+  updating as before.
+
+### Changed
+
+- Desktop: Claude Code and Codex on the Direct driver, and coding
+  agents inside WSL, now run inside the app's node. The app no longer
+  starts another copy of its own executable for each session.
+
+### Fixed
+
+- Desktop: the model and thinking of a running pi session can be switched
+  from the pill by the message field.
+- Desktop: after beep-node restarted and resumed an agent session, a new
+  prompt's "Working" timer counted from an old turn and could show
+  "Working 12h". It now counts from the new prompt.
+
 ## [0.10.5] - 2026-11-19
 
 ### Added

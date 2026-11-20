@@ -2,6 +2,37 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.4] - 2026-11-20
+
+### Added
+
+- Node: Codex can run on a Direct driver. beep-node now drives
+  `codex app-server` itself instead of the npm ACP adapter, so Codex
+  sessions no longer need the adapter or Node.js. Modes, model, reasoning
+  effort, fast mode, approvals, questions, steering, compaction,
+  proposed plans and history, images included, work as before. Codex
+  inside WSL keeps using its adapter.
+- Node: on the Direct driver, a Codex command's output shows in its tool
+  entry.
+- Node: a machine with the Codex CLI but no Codex ACP adapter or npx
+  runs Codex on the Direct driver instead of leaving it out, as Claude
+  Code already does.
+- beep-node: release archives include an Intel Mac build
+  (x86_64-apple-darwin). The install script and the node's self-update
+  pick it on Intel Macs instead of refusing.
+
+### Changed
+
+- Node: Claude Code and Codex on the Direct driver, and coding agents
+  inside WSL, now run inside the node itself. beep-node no longer starts
+  a second copy of itself for each session.
+
+### Fixed
+
+- Node: a pi session's header shows what it has cost so far, updated as
+  it works.
+- Node: a finished agent review no longer sends a notification that opens a session that is already gone.
+
 ## [0.8.3] - 2026-11-19
 
 ### Fixed
