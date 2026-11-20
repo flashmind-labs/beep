@@ -7,6 +7,8 @@
 mod ask;
 #[allow(dead_code)]
 mod events;
+#[allow(dead_code)]
+mod link;
 
 #[cfg(test)]
 #[path = "../../tests/agents_hermes_direct.rs"]

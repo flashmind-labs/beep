@@ -1,8 +1,16 @@
 use super::ask::{Asked, answer, to_client};
 use super::events::{finished, update};
+use super::link::{Gateway, Incoming, LinkError, socket_url};
 use crate::agents::acp::allow_option;
 use beep_proto::node::agent::{AnswerOption, OptionKind};
+use beep_proto::SecretText;
+use futures::{SinkExt, StreamExt};
 use serde_json::{Value, json};
+use tokio::{io::AsyncWriteExt, net::TcpListener};
+use tokio_tungstenite::{
+    accept_hdr_async,
+    tungstenite::{Message, handshake::server::{Request, Response}},
+};
 
 fn approval(allow_session: bool, allow_permanent: bool) -> Value {
     json!({"session_id": "12b450c6", "request_id": "ap1", "command": "rm -rf build", "description": "Delete the build",
@@ -118,4 +126,141 @@ fn a_title_and_the_end_of_a_turn() {
 
     assert!(finished(&json!({"type": "message.complete", "payload": {"text": "done"}})));
     assert!(!finished(&json!({"type": "message.delta", "payload": {"text": "x"}})));
+}
+
+type Server = tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>;
+
+fn event(kind: &str) -> Message {
+    Message::text(json!({"jsonrpc": "2.0", "method": "event", "params": {"type": kind, "payload": {}}}).to_string())
+}
+
+async fn read(server: &mut Server) -> Value {
+    loop {
+        if let Message::Text(text) = server.next().await.unwrap().unwrap() {
+            return serde_json::from_str(&text).unwrap();
+        }
+    }
+}
+
+/// A gateway that sends ready, expects the capabilities call and answers it,
+/// then hands the socket to `then`. Yields the port and the query it saw.
+#[allow(clippy::result_large_err)] // the handshake callback's error type is tungstenite's
+async fn fake_gateway<F, Fut>(then: F) -> (u16, tokio::task::JoinHandle<String>)
+where
+    F: FnOnce(Server) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send,
+{
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let task = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut seen = String::new();
+        let mut server = accept_hdr_async(stream, |request: &Request, response: Response| {
+            seen = format!("{} {}", request.uri().path(), request.uri().query().unwrap_or_default());
+            Ok(response)
+        })
+        .await
+        .unwrap();
+        server.send(event("gateway.ready")).await.unwrap();
+        let capabilities = read(&mut server).await;
+        assert_eq!(capabilities["method"], "client.capabilities");
+        assert_eq!(capabilities["params"], json!({"server_requests": true}));
+        server.send(Message::text(json!({"jsonrpc": "2.0", "id": capabilities["id"], "result": {}}).to_string())).await.unwrap();
+        then(server).await;
+
+        seen
+    });
+
+    (port, task)
+}
+
+#[tokio::test]
+async fn connecting_waits_for_ready_and_sends_the_capabilities() {
+    let (port, task) = fake_gateway(|_server| async {}).await;
+    let token = SecretText::new("a b&c=d");
+
+    Gateway::connect("127.0.0.1", port, &token).await.unwrap();
+
+    assert_eq!(task.await.unwrap(), "/api/ws token=a+b%26c%3Dd");
+}
+
+#[tokio::test]
+async fn a_call_gets_its_own_reply_while_events_and_asks_arrive() {
+    let (port, _task) = fake_gateway(|mut server| async move {
+        let call = read(&mut server).await;
+        assert_eq!(call["method"], "prompt.submit");
+        server.send(event("message.delta")).await.unwrap();
+        let ask = json!({"jsonrpc": "2.0", "id": "srq-1", "method": "approval", "params": {"command": "ls"}});
+        server.send(Message::text(ask.to_string())).await.unwrap();
+        server.send(Message::text(json!({"jsonrpc": "2.0", "id": 999, "result": "stray"}).to_string())).await.unwrap();
+        server.send(Message::text(json!({"jsonrpc": "2.0", "id": call["id"], "result": {"ok": true}}).to_string())).await.unwrap();
+        let answered = read(&mut server).await;
+        assert_eq!(answered, json!({"jsonrpc": "2.0", "id": "srq-1", "result": {"choice": "once"}}));
+        let failing = read(&mut server).await;
+        let error = json!({"jsonrpc": "2.0", "id": failing["id"], "error": {"code": -32602, "message": "bad"}});
+        server.send(Message::text(error.to_string())).await.unwrap();
+    })
+    .await;
+    let mut gateway = Gateway::connect("127.0.0.1", port, &SecretText::new("t")).await.unwrap();
+
+    let result = gateway.call("prompt.submit", json!({"text": "hi"})).await.unwrap();
+    assert_eq!(result, json!({"ok": true}));
+
+    let Some(Incoming::Event(params)) = gateway.next().await else { panic!("event first") };
+    assert_eq!(params["type"], "message.delta");
+    let Some(Incoming::Ask { id, method, params }) = gateway.next().await else { panic!("ask second") };
+    assert_eq!((id.as_str(), method.as_str(), params["command"].as_str()), ("srq-1", "approval", Some("ls")));
+
+    gateway.answer(&id, json!({"choice": "once"})).await.unwrap();
+    let err = gateway.call("session.nope", json!({})).await.unwrap_err();
+    assert!(matches!(err, LinkError::Rpc { code: -32602, ref message } if message == "bad"));
+}
+
+#[tokio::test]
+async fn a_closed_socket_ends_next_and_fails_calls() {
+    let (port, _task) = fake_gateway(|mut server| async move {
+        let _ = read(&mut server).await;
+        server.close(None).await.unwrap();
+    })
+    .await;
+    let mut gateway = Gateway::connect("127.0.0.1", port, &SecretText::new("t")).await.unwrap();
+
+    let pending = gateway.call("anything", json!({})).await;
+    assert!(matches!(pending, Err(LinkError::Closed)));
+    assert!(gateway.next().await.is_none());
+    assert!(matches!(gateway.call("later", json!({})).await, Err(LinkError::Closed)));
+}
+
+#[tokio::test]
+async fn a_refused_upgrade_is_a_refused_token_without_the_url() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        stream.write_all(b"HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await.unwrap();
+    });
+
+    let err = Gateway::connect("127.0.0.1", port, &SecretText::new("hunter2")).await.err().unwrap();
+
+    assert!(matches!(err, LinkError::Refused));
+    assert_eq!(err.to_string(), "Hermes refused the token");
+}
+
+#[tokio::test]
+async fn a_closed_port_is_unreachable_without_the_url_or_token() {
+    let port = TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap().port();
+
+    let err = Gateway::connect("127.0.0.1", port, &SecretText::new("hunter2")).await.err().unwrap();
+
+    assert!(matches!(err, LinkError::Unreachable(_)));
+    assert_eq!(err.to_string(), format!("nothing answers on 127.0.0.1:{port}"));
+}
+
+#[test]
+fn an_ipv6_host_goes_in_brackets_with_or_without_them() {
+    let token = SecretText::new("t");
+
+    for host in ["fd00::1", "[fd00::1]"] {
+        assert_eq!(socket_url(host, 9119, &token).unwrap().as_str(), "ws://[fd00::1]:9119/api/ws?token=t");
+    }
 }
