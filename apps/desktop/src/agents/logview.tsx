@@ -501,7 +501,8 @@ function messageSource(id: string, name: string): { name: string; project: strin
 /// saw a turn start or end (entries carry no times), the turn running at the
 /// last draw, and the tool sections opened to their steps.
 interface TurnMemory {
-  known: Set<number>;
+  /// The turns seen, by their place, with the message each starts with.
+  known: Map<number, string | null>;
   starts: Map<number, number>;
   ends: Map<number, number>;
   running: number | null;
@@ -519,24 +520,31 @@ const turnMemory = new Map<string, TurnMemory>();
 
 export function turnsOf(session: string) {
   let m = turnMemory.get(session);
-  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), runs: new Set(), made: new Set() });
+  if (!m) turnMemory.set(session, m = { known: new Map(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), runs: new Set(), made: new Set() });
   return m;
 }
 
 /// Notes the turns that started or ended since the last draw. The turns
-/// there at the first draw started before this window looked.
-function noteTurns(m: TurnMemory, turns: Turn[], running: number | null) {
-  const now = Date.now(), first = !m.known.size;
+/// there at the first draw started before this window looked. A log the node
+/// wrote again from the start, as when it resumes a session after a restart,
+/// holds other turns at the same places: what was noted of the old one goes.
+function noteTurns(session: string, turns: Turn[], prompt: (t: Turn) => string | null, running: number | null): TurnMemory {
+  const held = turnsOf(session);
+  if (turns.some(t => held.known.has(t.key) && held.known.get(t.key) !== prompt(t))) turnMemory.delete(session);
+
+  const m = turnsOf(session), now = Date.now(), first = !m.known.size;
   // A turn older than the ones known was read from further back, not seen starting.
-  const newest = Math.max(-1, ...m.known);
+  const newest = Math.max(-1, ...m.known.keys());
 
   for (const t of turns) {
     if (!m.known.has(t.key) && !first && t.key > newest) m.starts.set(t.key, now);
-    m.known.add(t.key);
+    m.known.set(t.key, prompt(t));
   }
 
   if (m.running != null && m.running !== running && !m.ends.has(m.running)) m.ends.set(m.running, now);
   m.running = running;
+
+  return m;
 }
 
 /// The places of the tool rows the reader opened.
@@ -642,12 +650,11 @@ function turnUnits(p: AgentPage, news: boolean): Unit[] {
   thinking = false;
   turnStarts.clear();
   const turns = splitTurns(p.entries, p.earlier), lastTurn = turns.at(-1);
-  const m = turnsOf(AG.open?.session ?? s.id);
-  noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
   const rows = (at: number) => entryRows(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
-  liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
   const prompt = (t: Turn) => { const said = t.user == null ? null : entry(t.user); return said?.kind === "user" && said.text.trim() ? said.text.trim() : null; };
+  const m = noteTurns(AG.open?.session ?? s.id, turns, prompt, active && lastTurn ? lastTurn.key : null);
+  liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
   return turns.map(t => ({ key: `t${t.key}`, rows: t === lastTurn ? turnRows(t) : keptTurn(t, turnRows(t)), prompt: prompt(t) }));
 
   /// The rows of a turn before the last: those it had while its entries stay, once none runs.

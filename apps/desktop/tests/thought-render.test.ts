@@ -198,3 +198,29 @@ test("streaming waits while a reply control is focused, then updates the same re
   assert.equal(bar.querySelector('.dcoderen.agent[data-row="1"]'), reply);
   assert.ok(reply.textContent?.includes("Updated"));
 });
+
+test("a log the node writes again from the start does not take the old log's turn times", () => {
+  globalThis.getSelection = () => null;
+  globalThis.getComputedStyle = () => ({ rowGap: "0" }) as CSSStyleDeclaration;
+  const id = "rewritten-log";
+  const session = { machine_id: "m1", machine_name: "build-box", id, agent: "claude", cwd: "/srv/project", status: "idle", external: false, question: null };
+  const page = (entries: AgentPage["entries"], status: string): AgentPage =>
+    ({ session: { ...session, status }, entries, earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0, usage: null });
+  showSessionBody();
+  const since = () => Number(bar.querySelector(".dlive [data-since]")?.getAttribute("data-since"));
+
+  Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: id }, page: page([{ kind: "user", text: "Add accounts" }, { kind: "agent", text: "Done" }], "idle"), child: null });
+  drawAgentBody();
+  AG.page = page([{ kind: "user", text: "Add accounts" }, { kind: "agent", text: "Done" }, { kind: "user", text: "Show the UI" }], "working");
+  drawAgentBody();
+  turnsOf(id).starts.set(2, Date.now() - 12 * 3600_000);
+
+  // The node restarted and resumed the session in a new log.
+  AG.page = page([{ kind: "other", text: "Resumed after beep-node restarted" }, { kind: "agent", text: "Here it is" }, { kind: "user", text: "Improve the UI" }], "working");
+  drawAgentBody();
+  assert.ok(!(Date.now() - since() > 3600_000), "the new turn shows no start from the old log");
+
+  AG.page = page([...AG.page.entries, { kind: "agent", text: "Done" }, { kind: "user", text: "And the tests" }], "working");
+  drawAgentBody();
+  assert.ok(Date.now() - since() < 60_000, "a turn after it is timed from when it came");
+});
