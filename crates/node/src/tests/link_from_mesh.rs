@@ -112,7 +112,7 @@ async fn an_api_key_in_the_mesh_reaches_the_processes() {
             .await
             .expect("the credential is set");
     }
-    let names: Vec<String> = credentials(&mesh)
+    let names: Vec<String> = credentials(&stored(&mesh))
         .env
         .into_iter()
         .map(|secret| secret.name)
@@ -226,7 +226,7 @@ async fn the_hermes_link_reaches_only_the_machine_the_assistant_names() {
     };
 
     set_assistant(me).await;
-    assert_eq!(hermes(&mesh, me), None, "no token, no link");
+    assert_eq!(hermes(&mesh, me, &stored(&mesh)), None, "no token, no link");
 
     let token = Credential::Hermes(HermesLogin {
         token: beep_proto::SecretText::new("placeholder"),
@@ -235,15 +235,15 @@ async fn the_hermes_link_reaches_only_the_machine_the_assistant_names() {
         .await
         .unwrap();
     assert_eq!(
-        hermes(&mesh, me),
+        hermes(&mesh, me, &stored(&mesh)),
         Some(HermesLink {
             host: "hermes.local".into(),
             port: 9119,
             token: beep_proto::SecretText::new("placeholder"),
         })
     );
-    assert!(credentials(&mesh).env.is_empty(), "the token is no process's");
+    assert!(credentials(&stored(&mesh)).env.is_empty(), "the token is no process's");
 
     set_assistant(SecretKey::generate().public()).await;
-    assert_eq!(hermes(&mesh, me), None, "another machine runs it");
+    assert_eq!(hermes(&mesh, me, &stored(&mesh)), None, "another machine runs it");
 }

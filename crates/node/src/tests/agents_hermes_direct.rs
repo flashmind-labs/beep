@@ -762,3 +762,28 @@ async fn loading_a_stored_session_resumes_it_and_asks_what_is_open() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn the_node_starts_the_hermes_assistant_without_beeps_brief_or_rules() {
+    use crate::agents::{Agents, Begin, HermesLink};
+    let (listener, port) = listen().await;
+    let fake = tokio::spawn(async move {
+        let (mut server, _) = accept(&listener).await;
+        created(&mut server).await;
+        replied(&mut server, "prompt.submit", json!({})).await
+    });
+    let agents = Agents::new(Vec::new());
+    agents.set_instructions(Some("Saved rules for coding agents".into()));
+    agents.set_hermes(Some(HermesLink { host: "127.0.0.1".into(), port, token: SecretText::new("t") }));
+    let kind = agents.named(super::NAME).expect("the hidden kind");
+    let begin = Begin {
+        prompt: Some("Say hi".into()),
+        brief: Some("Beep's brief".into()),
+        ..Begin::default()
+    };
+
+    let _session = agents.start(&kind, Some("/"), begin).unwrap();
+
+    let submitted = tokio::time::timeout(Duration::from_secs(10), fake).await.expect("Hermes is prompted").unwrap();
+    assert_eq!(submitted, json!({"session_id": "live1", "text": "Say hi"}));
+}
