@@ -6,9 +6,10 @@
 //! may still push.
 
 use super::{
-    cards::{Facts, IssueTitles, Teammates, card_of, changes, settle},
+    board::{CHANGES, Followed, Heard, follow},
+    cards::{Facts, IssueTitles, Teammates, card_of, settle},
     home::Project,
-    link::{TeamError, TeamLink, finish},
+    link::TeamLink,
 };
 use crate::{
     agents::mcp::children::{Listed, in_the_mesh},
@@ -21,19 +22,19 @@ use crate::{
 use beep_mesh::Mesh;
 use beep_proto::{
     SessionId,
-    node::{LinkRx, LinkTx, events::Topic, tools::ForgeReach},
+    node::{events::Topic, tools::ForgeReach},
     team::{Card, ForgeLogin, Lane, Member, TeamMsg, TeamRepo},
 };
 use futures::future::join_all;
-use iroh::{EndpointAddr, EndpointId};
+use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     time::{Duration, SystemTime},
 };
 use tokio::{
     select,
-    sync::{broadcast, broadcast::error::RecvError, mpsc},
-    time::{Instant, MissedTickBehavior, interval, sleep, timeout},
+    sync::mpsc,
+    time::{Instant, MissedTickBehavior, interval, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -48,12 +49,6 @@ const UPKEEP: Duration = Duration::from_secs(24 * 60 * 60);
 /// How long a forge call or a branch read may take.
 const FORGE_LIMIT: Duration = Duration::from_secs(30);
 const GIT_LIMIT: Duration = Duration::from_secs(5);
-/// How long after a teammate's board drops it is dialed again.
-const REDIAL: Duration = Duration::from_secs(60);
-/// The largest message a teammate's gateway may send.
-const MAX_FRAME: usize = 1024 * 1024;
-/// Changes kept for a slow subscriber before it gets the whole board again.
-const CHANGES: usize = 64;
 
 /// The topic this mesh's apps read `repo`'s teammates' cards on.
 pub(crate) fn topic(repo: &TeamRepo) -> Topic {
@@ -106,103 +101,6 @@ pub(crate) async fn run(mesh: Mesh, me: EndpointId, link: TeamLink, offers: Offe
     }
 }
 
-/// The boards this device serves, for the teammates subscribed to them.
-#[derive(Debug, Default)]
-pub(crate) struct Boards(BTreeMap<TeamRepo, Board>);
-
-#[derive(Debug)]
-struct Board {
-    cards: Vec<Card>,
-    changes: broadcast::Sender<(Card, bool)>,
-}
-
-impl Boards {
-    /// Serves `repo`'s board with `cards`, telling its subscribers what changed.
-    pub(crate) fn set(&mut self, repo: &TeamRepo, cards: Vec<Card>) {
-        let board = self.0.entry(repo.clone()).or_insert_with(|| Board {
-            cards: Vec::new(),
-            changes: broadcast::channel(CHANGES).0,
-        });
-
-        for change in changes(&board.cards, &cards) {
-            let _ = board.changes.send(change);
-        }
-
-        board.cards = cards;
-    }
-
-    /// Serves only `held`'s boards: the others' subscribers are let go.
-    fn keep(&mut self, held: &BTreeSet<TeamRepo>) {
-        self.0.retain(|repo, _| held.contains(repo));
-    }
-
-    pub(crate) fn serves(&self, repo: &TeamRepo) -> bool {
-        self.0.contains_key(repo)
-    }
-
-    fn cards(&self, repo: &TeamRepo) -> Option<Vec<Card>> {
-        Some(self.0.get(repo)?.cards.clone())
-    }
-
-    fn watched(&self, repo: &TeamRepo) -> bool {
-        self.0
-            .get(repo)
-            .is_some_and(|board| board.changes.receiver_count() > 0)
-    }
-}
-
-/// Serves `repo`'s board to `peer`, a member's device: the whole board, then
-/// each change, until the peer finishes the stream or is no longer on the
-/// team, or the board moves to another machine. What else the peer sends
-/// is answered as the link answers it.
-pub(super) async fn serve(
-    link: &TeamLink,
-    peer: EndpointId,
-    repo: TeamRepo,
-    mut tx: LinkTx,
-    mut rx: LinkRx,
-) -> Result<(), TeamError> {
-    let watched = link.with(|teams| {
-        let board = teams.boards.0.get(&repo)?;
-        Some((board.cards.clone(), board.changes.subscribe()))
-    });
-    let Some((cards, mut changes)) = watched else {
-        return finish(tx).await;
-    };
-    tx.send(&TeamMsg::Board {
-        repo: repo.clone(),
-        cards,
-    })
-    .await?;
-
-    loop {
-        select! {
-            change = changes.recv() => {
-                let msg = match change {
-                    _ if !link.with(|teams| teams.rosters.allows(peer, &repo)) => break,
-                    Ok((card, gone)) => TeamMsg::BoardChange { repo: repo.clone(), card, gone },
-                    Err(RecvError::Lagged(_)) => match link.with(|teams| teams.boards.cards(&repo)) {
-                        Some(cards) => TeamMsg::Board { repo: repo.clone(), cards },
-                        None => break,
-                    },
-                    Err(RecvError::Closed) => break,
-                };
-                tx.send(&msg).await?;
-            }
-            msg = rx.recv::<TeamMsg>() => match msg? {
-                None => break,
-                Some(msg) => {
-                    if let Some(answer) = link.answer(peer, &msg).await {
-                        tx.send(&answer).await?;
-                    }
-                }
-            },
-        }
-    }
-
-    finish(tx).await
-}
-
 /// A team this machine acts for.
 struct Team {
     repo: TeamRepo,
@@ -214,18 +112,6 @@ struct Team {
     others: Vec<Member>,
 }
 
-/// What a teammate's gateway said of their board.
-enum Heard {
-    Board(Vec<Card>),
-    Change(Card, bool),
-    Gone,
-}
-
-struct Followed {
-    repo: TeamRepo,
-    mesh: EndpointId,
-    heard: Heard,
-}
 
 struct Gateway {
     mesh: Mesh,
@@ -536,92 +422,6 @@ fn remove(link: &TeamLink, team: &Team, login: &ForgeLogin) {
 
     if link.with(|link| link.rosters.remove_member(&team.repo, login)).is_some() {
         link.wake();
-    }
-}
-
-/// Follows `member`'s board of `repo` until stopped: subscribes through
-/// the first of their devices that answers, passes on what it hears, and
-/// dials again a while after the link drops.
-async fn follow(link: TeamLink, repo: TeamRepo, member: Member, heard: mpsc::Sender<Followed>) {
-    loop {
-        if let Err(e) = subscribe(&link, &repo, &member, &heard).await {
-            log::debug!("the board of {} on {repo} dropped: {e}", member.login);
-        }
-
-        let gone = Followed {
-            repo: repo.clone(),
-            mesh: member.mesh,
-            heard: Heard::Gone,
-        };
-        if heard.send(gone).await.is_err() {
-            return;
-        }
-
-        sleep(REDIAL).await;
-    }
-}
-
-/// Subscribes to `member`'s board through each of their devices in turn
-/// until one serves it, and passes on what it says until that link drops.
-async fn subscribe(
-    link: &TeamLink,
-    repo: &TeamRepo,
-    member: &Member,
-    heard: &mpsc::Sender<Followed>,
-) -> Result<(), TeamError> {
-    let mut failed = TeamError::Unreachable;
-
-    for device in &member.devices {
-        match listen(link, repo, member, device, heard).await {
-            Ok(()) => return Ok(()),
-            Err(e) => failed = e,
-        }
-    }
-
-    Err(failed)
-}
-
-/// Follows `repo`'s board on one of `member`'s devices; an error when the
-/// device does not serve it.
-async fn listen(
-    link: &TeamLink,
-    repo: &TeamRepo,
-    member: &Member,
-    device: &EndpointAddr,
-    heard: &mpsc::Sender<Followed>,
-) -> Result<(), TeamError> {
-    let (mut tx, mut rx) = link.dial(std::slice::from_ref(device)).await?;
-    rx.set_max_frame(MAX_FRAME);
-    tx.send(&TeamMsg::Subscribe { repo: repo.clone() }).await?;
-    let mut served = false;
-
-    loop {
-        let msg = match rx.recv::<TeamMsg>().await {
-            Ok(Some(msg)) => msg,
-            _ if served => return Ok(()),
-            Ok(None) => return Err(TeamError::Refused("the board was not served".to_owned())),
-            Err(e) => return Err(e.into()),
-        };
-        let said = match msg {
-            TeamMsg::Board { repo: of, cards } if of == *repo => Heard::Board(cards),
-            TeamMsg::BoardChange {
-                repo: of,
-                card,
-                gone,
-            } if of == *repo => Heard::Change(card, gone),
-            TeamMsg::Refused { reason } => return Err(TeamError::Refused(reason)),
-            _ => continue,
-        };
-        served = true;
-        let followed = Followed {
-            repo: repo.clone(),
-            mesh: member.mesh,
-            heard: said,
-        };
-
-        if heard.send(followed).await.is_err() {
-            return Ok(());
-        }
     }
 }
 

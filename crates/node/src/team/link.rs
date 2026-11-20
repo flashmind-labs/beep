@@ -5,8 +5,8 @@
 //! refused.
 
 use super::{
+    board::{self, Boards},
     cards::IssueTitles,
-    gateway::{self, Boards},
     home::{Home, Invites},
     proof::ProofError,
     roster::{Refusal, Rosters},
@@ -263,7 +263,7 @@ impl TeamLink {
             if let TeamMsg::Subscribe { repo } = &msg
                 && self.with(|teams| teams.rosters.allows(peer, repo) && teams.boards.serves(repo))
             {
-                return gateway::serve(self, peer, repo.clone(), tx, rx).await;
+                return board::serve(self, peer, repo.clone(), tx, rx).await;
             }
 
             if let Some(answer) = self.answer(peer, &msg).await {
