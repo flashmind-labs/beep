@@ -76,6 +76,8 @@ body
                         button.dbtn.pri [data-agallow="true" data-agopt="0" data-agquestion="[\"build-box\",\"claude\",\"asks\",1,\"Run cargo test?\",\"cargo test\",[[\"allow\",\"Allow\",true]]]" type="button"] "Allow"
                           kbd "⌘"
                             svg [fill="none" height="11" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="11"]
+                        button.dbtn [data-agcancel="true" type="button"] "Cancel"
+                          kbd "⌘."
                 button#agjump.dagjump [hidden] "Jump to latest"
                   svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
               div.agrail.off

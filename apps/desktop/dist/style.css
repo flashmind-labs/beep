@@ -1039,6 +1039,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoder .row.note { padding: 8px 12px 0; color: var(--muted) }
 .dcoder > .dups { padding: 10px 12px 0 }
 .dcoder .q b { font-weight: 600 }
+.dcoder .q .dups .dbtn { text-align: start }
 .dcoder .q code { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere }
 /* Settings: sign-ins and keys. */
 .dcreds { display: grid }

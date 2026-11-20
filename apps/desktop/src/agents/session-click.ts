@@ -13,7 +13,7 @@ import { parentSession, keepNativeSession, loadSessions, sessions } from "./sess
 import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub } from "./logview.tsx";
 import { toggleModelPicker, closeModelPicker } from "./modelpill.tsx";
 import { cycleMode } from "./modepill.tsx";
-import { answerAgentQuestion } from "./messages.ts";
+import { answerAgentQuestion, interruptAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
 import { readError } from "../agentpane/read.ts";
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
@@ -53,6 +53,7 @@ export function agentClick(e: MouseEvent) {
   const inLogOrPane = <T extends HTMLElement = HTMLElement>(selector: string) => { const el = target.closest<T>(selector); return el && (body?.contains(el) || el.closest(".agpane, .ag-steps")) ? el : null; };
   const opt = target.closest<HTMLElement>("[data-agopt]");
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt), opt.dataset.agquestion ?? "");
+  if (target.closest("[data-agcancel]")) return void interruptAgent();
   if (target.closest("#agmodelb")) return toggleModelPicker();
   if (target.closest("#agmodeb")) { cycleMode(); agentMessage.current?.focus(); return; }
   if (AG.modelOpen && !target.closest(".agc-pick, [data-agtask]")) closeModelPicker();

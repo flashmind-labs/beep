@@ -101,7 +101,7 @@ body:not(.mobile) .dcard.dcoder { background: color-mix(in srgb, var(--fg) 4%, v
 body:not(.mobile) .dcoder .q { margin: 0; padding: 12px; gap: 8px; border: 0; border-radius: 0; background: none }
 body:not(.mobile) .dcoder .q code { padding: 6px 8px; border-radius: var(--radius-sm); background: var(--ink); color: var(--muted) }
 body:not(.mobile) .dcoder .q .dups { display: grid; gap: 1px; margin: 4px -12px -12px; border-top: 1px solid var(--border); background: var(--border) }
-body:not(.mobile) .dcoder .q .dups .dbtn { justify-content: space-between; min-height: 32px; padding: 0 12px; border: 0; border-radius: 0; background: var(--ink); color: var(--fg); font-size: 12px; font-weight: 400 }
+body:not(.mobile) .dcoder .q .dups .dbtn { justify-content: space-between; gap: 12px; min-height: 32px; padding: 6px 12px; border: 0; border-radius: 0; background: var(--ink); color: var(--fg); font-size: 12px; font-weight: 400 }
 body:not(.mobile) .dcoder .q .dups .dbtn:hover:not(:disabled) { background: var(--elev) }
 body:not(.mobile) .dcoder .q .dups .dbtn.pri { box-shadow: none }
 body:not(.mobile) .dcoder .q .dups .dbtn.warn { color: var(--err) }

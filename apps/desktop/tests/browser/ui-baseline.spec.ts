@@ -686,6 +686,24 @@ test("agent question", async ({ page }) => {
   await baseline(page, "agent-question");
 });
 
+test("a choice question reads left to right, cancels, and holds its call as waiting", async ({ page }) => {
+  const long = "Move every inline test module to its own tests file next to its module, with no tests directory at all";
+  const question = { id: 2, text: "Where should the tests go?", detail: null, options: [{ id: "a", name: long, allow: false }, { id: "b", name: "Leave them", allow: false }] };
+  const entries = [...transcript, { kind: "tool", text: "AskUserQuestion: Where should the tests go? [in_progress]" }];
+  await openAgent(page, { agent_view: { ...agentView, entries, session: { ...session, status: "asking", question } }, agent_steer: [] });
+
+  const answers = page.locator(".dcoder .q .dups .dbtn");
+  await expect(answers).toHaveCount(3);
+  await expect(page.locator(".dcoder .q .dbtn.warn")).toHaveCount(0);
+  await expect(answers.first()).toHaveCSS("text-align", "start");
+  const held = page.locator(".dcoderen.tool").filter({ hasText: "AskUserQuestion" });
+  await expect(held.locator(".mk [title='Waiting for you']")).toBeVisible();
+  await expect(held.locator(".rm")).toBeEmpty();
+
+  await page.getByRole("button", { name: "Cancel ⌘." }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer").map(c => c.args))).toContainEqual(expect.objectContaining({ session: "notice-one", steer: "cancel" }));
+});
+
 test("agent plan with the subagents of a step", async ({ page }) => {
   const sub = (title: string, status: string, sent_at: number) => ({ kind: "tool", sent_at, text: `${title} [${status}]\n[steps] 4\n[agent] general-purpose\n[session] subagent:codex:${sent_at}\n[model] claude-sonnet-5-5\nDone` });
   const plan = [

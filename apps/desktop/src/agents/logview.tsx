@@ -219,7 +219,10 @@ function toolData(en: AgentEntry, at: number, pictures: string): ToolActivity | 
   const { sent, output } = sentFiles(parsed.output);
   const failed = status === "failed", open = stepOpen(failed, at === newestStep, AG.steps.get(at));
   // A command in the background runs on after its turn ended.
-  const live = status === "in_progress" && (AGENT_ACTIVE.has(AG.page?.session.status) || backgroundedEntry(at));
+  const backgrounded = status === "in_progress" && backgroundedEntry(at);
+  const live = status === "in_progress" && (AGENT_ACTIVE.has(AG.page?.session.status) || backgrounded);
+  // While the agent asks, the call it holds waits on the answer, not running.
+  const waiting = live && !backgrounded && AG.page?.session.status === "asking";
   const label = stepLabel(en.text, live, open);
   const exit = failed ? exitCode(output) : null;
   const beep = beepCall(title);
@@ -228,16 +231,16 @@ function toolData(en: AgentEntry, at: number, pictures: string): ToolActivity | 
   const inspected = !beep && isCommandCall(en.tool) && (!!en.tool?.name || parts.kind === "command");
   const key = `${AG.open?.machine_id ?? ""}\n${AG.open?.session ?? ""}\n${at}`;
   if (live && !toolStarts.has(key)) toolStarts.set(key, Date.now());
-  const since = live ? toolStarts.get(key) ?? null : null;
+  const since = live && !waiting ? toolStarts.get(key) ?? null : null;
   if (!live) toolStarts.delete(key);
   // A command may be cut at any width, so it always opens.
   const opens = inspected || !!output || long || (beep ? !!beep.detail : parts.kind === "command");
   const published = AG.page ? toolArtifacts(en.text, AG.page.session.cwd).files.find(f => f.published) : undefined;
-  const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : live ? "Running" : "";
+  const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : waiting ? "Waiting for you" : live ? "Running" : "";
   const keyboard = opens && (inspected || parts.kind === "command");
   // A file the call names opens in the media pane, at most three of them.
   const media = mediaPaths(title).slice(0, 3);
-  const common = { sentAt: en.sent_at ?? null, kind: "tool" as const, id: String(at), at, failed, open, artifact: published?.path ?? null, toggle: opens, keyboard, mark: stepMark(status, live), media, pictures };
+  const common = { sentAt: en.sent_at ?? null, kind: "tool" as const, id: String(at), at, failed, open, artifact: published?.path ?? null, toggle: opens, keyboard, mark: waiting ? "waiting" : stepMark(status, live), media, pictures };
 
   if (beep) {
     // A Beep call's row shows the first line of its command or prompt; opened, all of it.

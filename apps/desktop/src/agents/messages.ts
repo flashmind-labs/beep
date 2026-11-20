@@ -224,12 +224,14 @@ async function sendSteer(q: Waiting, back = true) {
   return sent !== "failed";
 }
 
-/// ⌘. while the turn runs: stop it and keep the field, so a correction can be
-/// typed and sent. The node keeps the steers it holds or still gets and sends
-/// them once the turn stops, so they stay steers here: sent again from here,
-/// one the node had just delivered would reach the agent twice (#378).
+/// ⌘. while the turn runs or asks: stop it and keep the field, so a correction can be
+/// typed and sent. The node answers an open question as cancelled. It keeps the
+/// steers it holds or still gets and sends them once the turn stops, so they
+/// stay steers here: sent again from here, one the node had just delivered
+/// would reach the agent twice (#378).
 export function interruptAgent() {
-  if (!turnRuns()) return false;
+  const s = AG.page?.session;
+  if (!turnRuns() && !(s?.question && !s.external)) return false;
   AG.stopping = { id: AG.page!.session.id, turns: AG.page!.turns };
   drawQueue();
   redrawAgentHints();
@@ -290,10 +292,11 @@ export async function answerAgentQuestion(i: number, shown: string) {
 
   if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
 }
-/// The first option of the open question that allows, or that does not.
+/// The first option of the open permission question that allows, or that does not.
 export function answerFirst(allow: boolean) {
   for (const shown of shownQuestionsIn(sessionBody())) {
-    const index = shown.allows.indexOf(allow);
+    // A choice has nothing that allows, so neither key picks from it.
+    const index = shown.allows.includes(true) ? shown.allows.indexOf(allow) : -1;
     if (index < 0) continue;
     if (!shown.disabled) void answerAgentQuestion(index, shown.key);
     return true;

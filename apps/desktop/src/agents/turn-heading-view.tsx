@@ -32,8 +32,8 @@ export const AgentTurnHeading = memo(function AgentTurnHeading({ value }: { valu
   return <div className="dcoderturn">{value.turn === null ? <span className="hd">{label}</span> : <button className={`hd${value.opened ? " open" : ""}`} data-turn={value.turn} aria-expanded={value.opened} title={value.opened ? "Fold the steps" : "Show the steps"}>{label}<Icon name="chev" /></button>}{value.start !== null && <span className="when">{clock(value.start)}</span>}</div>;
 });
 
-/// How a step stands: done, failed, running or did not finish.
-export type StepMark = "done" | "failed" | "running" | "stopped" | "none";
+/// How a step stands: done, failed, running, waiting on the user or did not finish.
+export type StepMark = "done" | "failed" | "running" | "waiting" | "stopped" | "none";
 
 export function stepMark(status: string, running: boolean): StepMark {
   return status === "completed" ? "done" : status === "failed" ? "failed" : status && running ? "running" : status ? "stopped" : "none";
@@ -43,6 +43,7 @@ export function StepMarkView({ mark }: { mark: StepMark }) {
   if (mark === "done") return <span className="dok" title="Done"><Icon name="check" /></span>;
   if (mark === "failed") return <span className="dbad" title="Failed"><Icon name="x" /></span>;
   if (mark === "running") return <Spinner dot title="Running" />;
+  if (mark === "waiting") return <span className="ddot dial" title="Waiting for you" />;
   if (mark === "stopped") return <span className="ddot off" title="Did not finish" />;
   return null;
 }
