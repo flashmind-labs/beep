@@ -16,14 +16,17 @@ use super::{
     forge::{Cli, Forge, Host, Target},
     projects::{self, Project},
 };
-use crate::agents::{mcp::over_the_mesh, project_folder};
+use crate::{
+    agents::{mcp::over_the_mesh, project_folder},
+    machine::elect::elect,
+};
 use anyhow::{Result, anyhow, bail};
 use beep_mesh::Mesh;
 use beep_proto::{
     RunState, WorkflowRun,
     node::{
         agent::RunNews,
-        tools::{ForgeReach, HostReach, Reply, Request, Tool},
+        tools::{ForgeReach, Reply, Request, Tool},
     },
 };
 use futures::future::join_all;
@@ -89,34 +92,6 @@ pub(crate) async fn watch(mesh: Mesh, me: EndpointId, dir: PathBuf, ci: Arc<Ci>)
         .await
         .run()
         .await;
-}
-
-/// The machine that watches `project`, as this node sees it: `reach` is how
-/// this machine reaches the host, `peers` what the online machines that
-/// answered said. Every node works it out from the same facts, so all pick
-/// the same one: the candidate (an online machine of the project, with its
-/// checkout, that answered how it reaches the host) with the best
-/// `HostReach::rank`, then the smallest id. Machines that keep failing
-/// still watch when no other is left, so a host that is down for everyone
-/// is tried again.
-pub(super) fn watcher_of(
-    project: &Project,
-    me: EndpointId,
-    reach: HostReach,
-    peers: &BTreeMap<EndpointId, ForgeReach>,
-) -> Option<EndpointId> {
-    let host = project.target.host_name();
-    let candidates = project.machines.iter().filter_map(|machine| {
-        if *machine == me {
-            return Some((me, reach));
-        }
-
-        let said = peers.get(machine)?;
-        Some((*machine, said.hosts.get(host).copied().unwrap_or_default()))
-    });
-    candidates
-        .min_by_key(|(id, reach)| (reach.rank(), *id))
-        .map(|(id, _)| id)
 }
 
 /// A run of a project, as waits are kept.
@@ -297,7 +272,8 @@ impl<F: Forge, W: World> Watcher<F, W> {
             .iter()
             .filter(|project| {
                 let reach = self.ci.reach_of(project.target.host_name());
-                watcher_of(project, me, reach, &peers) == Some(me)
+                elect(&project.machines, me, reach, &peers, project.target.host_name())
+                    == Some(me)
             })
             .map(|project| project.name.clone())
             .collect();

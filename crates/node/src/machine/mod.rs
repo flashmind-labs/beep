@@ -4,6 +4,7 @@
 //! the CI runs of pinned projects (`ci`).
 
 pub(crate) mod ci;
+pub(crate) mod elect;
 pub mod env;
 pub mod host;
 pub mod provision;

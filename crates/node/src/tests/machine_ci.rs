@@ -4,8 +4,9 @@ use super::{
     check::{Answer, CHECK},
     forge::{Forge, Host, Target},
     projects::Project,
-    watcher::{POLL, QUIET, Watcher, World, watcher_of},
+    watcher::{POLL, QUIET, Watcher, World},
 };
+use crate::machine::elect::elect;
 use anyhow::{Result, bail};
 use beep_proto::{
     RunState, WorkflowRun,
@@ -77,76 +78,38 @@ fn project_on(machines: &[EndpointId], host: Host) -> Project {
     }
 }
 
-fn reach(reached: bool, failures: u32) -> HostReach {
-    HostReach { reached, failures }
-}
-
-/// The watcher each of `reaches`' machines elects, seeing the `online` others.
-fn elected(
-    project: &Project,
-    reaches: &BTreeMap<EndpointId, HostReach>,
-    online: &BTreeSet<EndpointId>,
-) -> BTreeSet<Option<EndpointId>> {
-    let host = project.target.host_name();
-    online
-        .iter()
-        .map(|me| {
-            let peers = online
-                .iter()
-                .filter(|peer| *peer != me)
-                .map(|peer| {
-                    let mut said = ForgeReach::default();
-                    said.hosts.insert(host.to_owned(), reaches[peer]);
-                    (*peer, said)
-                })
-                .collect();
-            watcher_of(project, *me, reaches[me], &peers)
-        })
-        .collect()
-}
-
 #[test]
-fn every_machine_elects_the_same_one_and_it_moves_when_that_one_goes() {
+fn the_watcher_elects_over_the_projects_machines_by_its_hosts_reach() {
     let machines = ids(3);
     let widget = project(&machines);
-    let mut reaches: BTreeMap<EndpointId, HostReach> =
-        machines.iter().map(|id| (*id, reach(false, 0))).collect();
-    let mut online: BTreeSet<EndpointId> = machines.iter().copied().collect();
-    // Nobody tried the host yet: the smallest id, on every machine.
+    let host = widget.target.host_name();
+    let reaches = |reached: bool| {
+        let mut said = ForgeReach::default();
+        said.hosts.insert(
+            host.to_owned(),
+            HostReach {
+                reached,
+                failures: 0,
+            },
+        );
+        said
+    };
+    // Only the last machine reaches the forge host, so it is elected from
+    // the first machine's view; a reach recorded under another host name
+    // counts for nothing.
+    let peers: BTreeMap<EndpointId, ForgeReach> = [
+        (machines[1], reaches(false)),
+        (machines[2], reaches(true)),
+    ]
+    .into();
+    let none = HostReach::default();
     assert_eq!(
-        elected(&widget, &reaches, &online),
-        [Some(machines[0])].into()
+        elect(&widget.machines, machines[0], none, &peers, host),
+        Some(machines[2])
     );
-    // The first goes offline: the others both move to the next.
-    online.remove(&machines[0]);
     assert_eq!(
-        elected(&widget, &reaches, &online),
-        [Some(machines[1])].into()
-    );
-    // A machine that reaches the host comes before one never tried.
-    online.insert(machines[0]);
-    reaches.insert(machines[2], reach(true, 0));
-    assert_eq!(
-        elected(&widget, &reaches, &online),
-        [Some(machines[2])].into()
-    );
-    // It fails once and keeps the role; three in a row and it gives it up.
-    reaches.insert(machines[2], reach(true, 1));
-    assert_eq!(
-        elected(&widget, &reaches, &online),
-        [Some(machines[2])].into()
-    );
-    reaches.insert(machines[2], reach(true, HostReach::GIVE_UP));
-    assert_eq!(
-        elected(&widget, &reaches, &online),
-        [Some(machines[0])].into()
-    );
-    // A machine without the checkout never watches.
-    let elsewhere = project(&machines[1..]);
-    reaches.insert(machines[0], reach(true, 0));
-    assert_eq!(
-        elected(&elsewhere, &reaches, &online),
-        [Some(machines[1])].into()
+        elect(&widget.machines, machines[0], none, &peers, "other.example.com"),
+        Some(machines[0])
     );
 }
 
