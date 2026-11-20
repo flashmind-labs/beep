@@ -34,8 +34,7 @@ const KEPT_FOR: Duration = Duration::from_secs(24 * 60 * 60);
 /// The most asks waiting each way, and Needs you cards of one team.
 pub(super) const MAX_WAITING: usize = 256;
 pub(super) const MAX_CARDS: usize = 32;
-/// The longest Needs you card title, in characters, and ask and card id.
-pub(super) const TITLE: usize = 140;
+/// The longest ask id and card id.
 pub(super) const MAX_ID: usize = 64;
 pub(super) const MAX_CARD: usize = 256;
 /// How long reaching a teammate may take over all their devices, and one
@@ -186,6 +185,16 @@ impl TeamLink {
             return Err(e);
         }
 
+        // An ask for the person is answered: its Needs you card goes.
+        if let Some(taken) = answering {
+            let card = format!("{ASK_CARD}{id}");
+            self.with(|teams| {
+                if let Some(cards) = teams.asks.cards.get_mut(&taken.repo) {
+                    cards.retain(|kept| kept.id != card);
+                }
+            });
+        }
+
         Ok(id)
     }
 
@@ -277,7 +286,10 @@ fn outgoing(
         .filter(|member| Some(member.mesh) != own);
 
     if let Some(id) = reply_to {
-        let waits = |taken: &Taken| taken.repo == repo && taken.card == from.card;
+        // An ask for the person waits for whichever session they answer from.
+        let waits = |taken: &Taken| {
+            taken.repo == repo && (taken.card == from.card || taken.card.starts_with(ASK_CARD))
+        };
         let no_ask = || format!("No ask {id} waits for an answer from this session");
         let taken = teams
             .asks

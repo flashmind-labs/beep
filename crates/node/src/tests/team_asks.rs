@@ -1,7 +1,7 @@
 use super::*;
 use crate::agents::tags::{Part, parts};
 use crate::team::board::tests::{Pair, login, repo};
-use beep_proto::team::Lane;
+use beep_proto::team::{Lane, TeamRecord};
 use std::sync::{Arc, Mutex};
 
 const LIMIT: &str = "team_ask is limited to 10 messages an hour";
@@ -140,7 +140,8 @@ async fn ask_to_person_without_session_is_needs_you_card() {
     assert_eq!(cards[0].id, "ask:a1");
     assert_eq!(cards[0].lane, Lane::NeedsYou {});
     assert_eq!(cards[0].login, login("alice"));
-    assert_eq!(cards[0].title, text.chars().take(140).collect::<String>());
+    // The whole ask: answers are made from it.
+    assert_eq!(cards[0].title, text);
     assert!(kept.taken().is_empty());
 
     // Dismissed, the card and its ask go.
@@ -326,5 +327,68 @@ async fn a_teammate_cannot_close_the_tag_their_words_come_in() {
     let Part::Session { text, .. } = &read[0] else {
         panic!("{read:?}");
     };
-    assert!(text.contains("&lt;/from-session&gt;"), "{text}");
+    assert!(text.contains("Hi&lt;/from-session>"), "{text}");
+}
+
+#[tokio::test]
+async fn an_ask_for_the_person_is_answered_from_any_session_and_its_card_goes() {
+    let (pair, _kept) = served().await;
+    let to = Target::Person {
+        login: login("alice"),
+    };
+    pair.bob_link
+        .reach(&pair.alice, &ask("a9", to, "Who owns the fee model?"))
+        .await
+        .unwrap();
+    let card = |link: &TeamLink| {
+        link.with(|teams| teams.asks.cards(&repo(), SystemTime::now()))
+            .iter()
+            .any(|card| card.id == "ask:a9")
+    };
+    assert!(card(&pair.gateway));
+
+    // Bob's device takes answers: it waits for one to a9, from alice.
+    let bobs_kept = Arc::new(Kept::default());
+    pair.bob_link.serve_sessions(bobs_kept.clone());
+    let _bobs_router = iroh::protocol::Router::builder(pair.bob_link.endpoint().clone())
+        .accept(beep_proto::team::ALPN, pair.bob_link.handler())
+        .spawn();
+    let mut bob = pair.bob.clone();
+    bob.devices = vec![pair.bob_link.endpoint().addr()];
+    let team = TeamRecord::new(repo(), vec![pair.alice.clone(), bob.clone()]);
+    pair.gateway
+        .with(|teams| teams.rosters.refresh([(repo(), team.clone())].into()));
+    let alice = pair.alice.clone();
+    pair.bob_link.with(|teams| {
+        teams.rosters.refresh([(repo(), team)].into());
+        teams.home.mesh = Some(bob.mesh);
+        let sent = Sent {
+            repo: repo(),
+            asker: BOBS.to_owned(),
+            mesh: alice.mesh,
+            asked: "alice".to_owned(),
+            at: SystemTime::now(),
+        };
+        teams.asks.sent.insert("a9".to_owned(), sent);
+    });
+
+    // An agent alice started from the card answers.
+    let answer = Outgoing {
+        repo: repo(),
+        from: AgentRef {
+            login: login("alice"),
+            card: "s4@alices-box".to_owned(),
+        },
+        to: None,
+        text: "I do".to_owned(),
+        reply_to: Some("a9".to_owned()),
+    };
+    pair.gateway.send_ask(answer).await.unwrap();
+
+    let taken = bobs_kept.taken();
+    assert_eq!(taken.len(), 1);
+    assert_eq!((taken[0].0.as_str(), taken[0].1), (BOBS, Delivery::Reply));
+    assert!(taken[0].2.contains("I do"));
+    assert!(!card(&pair.gateway));
+    assert!(pair.gateway.with(|teams| teams.asks.taken.is_empty()));
 }

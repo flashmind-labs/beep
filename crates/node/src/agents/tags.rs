@@ -94,11 +94,25 @@ pub(crate) fn from_session(id: &str, name: &str, text: &str) -> String {
 }
 
 /// `text` from a teammate's agent `id`, called `name`, as `from_session`
-/// gives it, with the text escaped: it is not this user's, and must not
-/// close the tag and go on as if it were.
+/// gives it, with any closing tag in the text neutralised: it is not this
+/// user's, and must not close the tag and go on as if it were. The rest
+/// arrives as written.
 #[cfg(feature = "host")]
 pub(crate) fn from_teammate(id: &str, name: &str, text: &str) -> String {
-    from_session(id, name, &escape(text))
+    let close = format!("</{FROM_SESSION}");
+    // ASCII lower case keeps every byte where it is.
+    let lower = text.to_ascii_lowercase();
+    let mut kept = String::with_capacity(text.len());
+    let mut from = 0;
+
+    for (at, _) in lower.match_indices(&close) {
+        kept.push_str(&text[from..at]);
+        kept.push_str("&lt;");
+        from = at + 1;
+    }
+
+    kept.push_str(&text[from..]);
+    from_session(id, name, &kept)
 }
 
 /// `text` about the child `id`, called `name`, which is in `state`.

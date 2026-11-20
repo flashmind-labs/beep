@@ -6,8 +6,8 @@
 
 use super::{
     asks::{
-        ASK_CARD, Delivery, MAX_CARD, MAX_CARDS, MAX_ID, MAX_TEXT, MAX_WAITING, NOT_WAITING, TITLE,
-        Taken, not_served, too_long,
+        ASK_CARD, Delivery, MAX_CARD, MAX_CARDS, MAX_ID, MAX_TEXT, MAX_WAITING, NOT_WAITING, Taken,
+        not_served, too_long,
     },
     link::{TeamLink, Teams},
 };
@@ -180,9 +180,10 @@ fn take(
         return Err(format!("Too many asks wait for {login}"));
     }
 
+    // The whole ask: the card is this mesh's own, and answers are made from it.
     cards.push(Card {
         id: card,
-        title: text.chars().take(TITLE).collect(),
+        title: text.clone(),
         lane: Lane::NeedsYou {},
         login,
         machine: String::new(),

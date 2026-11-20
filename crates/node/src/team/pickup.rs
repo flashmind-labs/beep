@@ -5,10 +5,7 @@
 //! without a pull request becomes a Needs you card for this mesh's apps.
 
 use super::{
-    asks::{MAX_CARDS, TITLE},
-    gateway::FORGE_LIMIT,
-    home::Project,
-    link::TeamLink,
+    asks::MAX_CARDS, cards::TITLE, gateway::FORGE_LIMIT, home::Project, link::TeamLink,
     membership::Team,
 };
 use crate::{

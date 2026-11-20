@@ -1092,7 +1092,7 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .bd-lane > h4 button:hover, .bd-lane > h4 button:focus-visible { color: var(--fg) }
 .bd-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); cursor: default; min-width: 0 }
 .bd-card:hover, .bd-card:focus-visible { border-color: var(--muted); outline: 0 }
-.bd-card > b { font-weight: 500; font-size: 13px; line-height: 18px; overflow-wrap: anywhere }
+.bd-card > b { font-weight: 500; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden }
 .bd-card .sub { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); min-width: 0 }
 .bd-card .sub > span:last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-line .t > span > .cc-pdot { display: inline-block; margin-right: 6px }

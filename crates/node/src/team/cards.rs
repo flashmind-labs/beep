@@ -10,6 +10,8 @@ use std::{collections::BTreeMap, time::SystemTime};
 
 /// The most cards kept of one teammate.
 pub(crate) const MAX_CARDS: usize = 200;
+/// The longest card title a teammate's board shows, in characters.
+pub(crate) const TITLE: usize = 140;
 
 /// The titles of a repository's open issues, by number.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -136,7 +138,7 @@ impl Teammates {
             .into_iter()
             .filter(|card| card.login == *login)
             .take(MAX_CARDS)
-            .map(|card| (card.id.clone(), card))
+            .map(|card| (card.id.clone(), capped(card)))
             .collect();
 
         self.0.insert(mesh, theirs);
@@ -153,7 +155,7 @@ impl Teammates {
         if gone {
             theirs.remove(&card.id);
         } else if theirs.len() < MAX_CARDS || theirs.contains_key(&card.id) {
-            theirs.insert(card.id.clone(), card);
+            theirs.insert(card.id.clone(), capped(card));
         }
     }
 
@@ -175,6 +177,15 @@ impl Teammates {
             .flat_map(|cards| cards.values().cloned())
             .collect()
     }
+}
+
+/// `card` with its title cut to `TITLE`.
+fn capped(mut card: Card) -> Card {
+    if let Some((at, _)) = card.title.char_indices().nth(TITLE) {
+        card.title.truncate(at);
+    }
+
+    card
 }
 
 #[cfg(test)]

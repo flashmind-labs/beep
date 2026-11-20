@@ -186,3 +186,25 @@ fn teammates_keep_only_their_own_cards() {
     teammates.gone(mesh);
     assert!(teammates.cards().is_empty());
 }
+
+#[test]
+fn teammates_titles_are_capped() {
+    let bob: ForgeLogin = "bob".parse().unwrap();
+    let mesh = SecretKey::generate().public();
+    let mut long = card(&view("working", PROJECT), None, &IssueTitles::default()).unwrap();
+    long.login = bob.clone();
+    long.title = "é".repeat(TITLE * 10);
+    let mut teammates = Teammates::default();
+
+    teammates.board(mesh, &bob, vec![long.clone()]);
+    assert_eq!(teammates.cards()[0].title, "é".repeat(TITLE));
+
+    long.id = "s2@build-box".to_owned();
+    teammates.change(mesh, &bob, long, false);
+    assert!(
+        teammates
+            .cards()
+            .iter()
+            .all(|card| card.title.chars().count() == TITLE)
+    );
+}
