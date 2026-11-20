@@ -137,7 +137,7 @@ test("a contact is invited or removed from the team page", async ({ page }) => {
   expect(await called(page, "contact_remove")).toEqual([{ contact: "mesh-c" }]);
 });
 
-test("an ask's agents get the whole ask", async ({ page }) => {
+test("an ask card carries the whole ask", async ({ page }) => {
   const text = "Who owns the fee model? ".repeat(12).trim();
   const ask = { id: "ask:a1", title: text, lane: "needs_you", login: "kim", machine: "", issue: null, pr: null, updated_at: now };
   await openProject(page, null, { team_cards: { needs_you: [ask], teammates: [], own_queued: [] } });
