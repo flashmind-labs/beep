@@ -277,7 +277,7 @@ impl Agents {
             return Err(too_deep());
         }
 
-        let kind = self.kind_or_refusal(&start.harness)?;
+        let kind = self.harness_or_refusal(&start.harness)?;
         self.settings.may_start(&link.agent, &kind.name)?;
         let mode = match &start.review {
             Some(_) => review_mode(&link, &kind.name)?,

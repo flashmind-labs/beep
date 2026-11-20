@@ -38,8 +38,17 @@ async fn invalid_requests_fail_before_querying_a_harness() {
         offers: Offers::local(&[], Provision::new(dir.path())),
         screens: Default::default(),
     };
+    node.offers.agents.set_hermes(Some(crate::agents::HermesLink {
+        host: "127.0.0.1".into(),
+        port: 9,
+        token: beep_proto::SecretText::new("placeholder"),
+    }));
     for (args, message) in [
         (json!({}), "arguments do not fit"),
+        (
+            json!({"harness": "hermes-gateway"}),
+            "has no hermes-gateway agent",
+        ),
         (json!({"harness": "  "}), "Give a `harness`"),
         (json!({"harness": "missing"}), "has no missing agent"),
         (
@@ -56,6 +65,10 @@ async fn invalid_requests_fail_before_querying_a_harness() {
             matches!(reply, Reply::Done { failed: true, ref text } if text.contains(message)),
             "{reply:?}"
         );
+        // The Home assistant on Hermes is never among the agents listed.
+        let Reply::Done { text, .. } = reply else { unreachable!() };
+        let listed = text.split_once("It has:").map_or("", |(_, listed)| listed);
+        assert!(!listed.contains("hermes"), "{text}");
     }
 }
 

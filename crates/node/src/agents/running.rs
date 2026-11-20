@@ -494,19 +494,32 @@ impl Agents {
 
     /// The agent called `name`, or why this node cannot start it.
     pub(super) fn kind_or_refusal(&self, name: &str) -> Result<AgentKind, String> {
-        let kinds = self.kinds();
+        self.named(name).ok_or_else(|| self.no_agent(name))
+    }
 
-        kinds
+    /// The coding agent called `name` that another agent may start, or why
+    /// it may not. The Home assistant on Hermes is the user's alone: to
+    /// agents this node has no such agent.
+    pub(super) fn harness_or_refusal(&self, name: &str) -> Result<AgentKind, String> {
+        self.named(name)
+            .filter(|kind| !is_hermes(kind))
+            .ok_or_else(|| self.no_agent(name))
+    }
+
+    /// This node has no agent `name`: what it has instead, the Home
+    /// assistant on Hermes left out.
+    pub(super) fn no_agent(&self, name: &str) -> String {
+        let kinds = self.kinds();
+        let have: Vec<&str> = kinds
             .iter()
-            .find(|kind| kind.name == name)
-            .cloned()
-            .ok_or_else(|| {
-                let have: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
-                format!(
-                    "This machine has no {name} agent. It has: {}.",
-                    have.join(", ")
-                )
-            })
+            .filter(|kind| !is_hermes(kind))
+            .map(|kind| kind.name.as_str())
+            .collect();
+
+        format!(
+            "This machine has no {name} agent. It has: {}.",
+            have.join(", ")
+        )
     }
 
     /// The agents this node can start now.

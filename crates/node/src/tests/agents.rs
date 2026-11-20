@@ -1195,6 +1195,8 @@ async fn the_hermes_assistant_is_offered_and_outlives_detection() {
     let kind = agents.named(hermes_direct::NAME).expect("the hidden kind");
     assert!(!format!("{kind:?}").contains("placeholder"));
     assert_eq!(models::find(kind).await, Default::default());
+    let status: Vec<String> = agents.agent_report().into_iter().map(|agent| agent.name).collect();
+    assert_eq!(status, ["claude"]);
 
     agents.set_hermes(None);
     assert!(!agents.offers().contains(&agent::protocol(hermes_direct::NAME)));
