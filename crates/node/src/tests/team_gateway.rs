@@ -28,16 +28,16 @@ fn login(name: &str) -> ForgeLogin {
     name.parse().unwrap()
 }
 
-/// A forge that says yes to everyone and lists no issues.
+/// A forge that says carol may not push, anyone else may, and lists no issues.
 struct Forge;
 
 impl TeamForge for Forge {
     fn collaborator<'a>(
         &'a self,
         _repo: &'a TeamRepo,
-        _login: &'a ForgeLogin,
+        login: &'a ForgeLogin,
     ) -> BoxFuture<'a, Result<bool, String>> {
-        Box::pin(async { Ok(true) })
+        Box::pin(async move { Ok(login.to_string() != "carol") })
     }
 
     fn login<'a>(&'a self, _repo: &'a TeamRepo) -> BoxFuture<'a, Result<ForgeLogin, String>> {
@@ -252,4 +252,31 @@ async fn a_device_that_does_not_serve_the_board_refuses() {
 
     let answer = rx.recv::<TeamMsg>().await.unwrap();
     assert!(matches!(answer, Some(TeamMsg::Refused { .. })), "{answer:?}");
+}
+
+#[tokio::test]
+async fn a_member_who_lost_access_is_removed() {
+    let pair = Pair::new().await;
+    let carol = member("carol", SecretKey::generate().public());
+    pair.gateway.with(|teams| {
+        let mut team = teams.rosters.get(&repo()).unwrap().clone();
+        team.members.push(carol.clone());
+        teams.rosters.refresh([(repo(), team)].into());
+    });
+    let team = Team {
+        repo: repo(),
+        project: "org/repo".to_owned(),
+        login: pair.alice.login.clone(),
+        others: vec![pair.bob.clone(), carol.clone()],
+    };
+
+    check_members(&pair.gateway, &team).await;
+
+    timeout(Duration::from_secs(5), pair.gateway.waiting())
+        .await
+        .expect("the change waits for a desktop");
+    let pending = pair.gateway.with(|teams| teams.rosters.pending());
+    let logins: Vec<&ForgeLogin> = pending[0].members.iter().map(|member| &member.login).collect();
+    assert_eq!(logins, [&pair.alice.login, &pair.bob.login]);
+    assert_eq!(pending[0].removed[0].login, carol.login);
 }

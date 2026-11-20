@@ -503,33 +503,39 @@ impl Gateway {
             }
 
             self.checked.insert(team.repo.clone(), Instant::now());
-
-            for member in &team.others {
-                let asked = self.link.forge().collaborator(&team.repo, &member.login);
-
-                match timeout(FORGE_LIMIT, asked).await {
-                    Ok(Ok(true)) => {}
-                    Ok(Ok(false)) => self.remove(team, &member.login),
-                    Ok(Err(e)) => log::info!("could not check {} on {}: {e}", member.login, team.repo),
-                    Err(_) => log::info!("the forge took too long to check {} on {}", member.login, team.repo),
-                }
-            }
+            check_members(&self.link, team).await;
         }
     }
+}
 
-    /// Removes `login` from `team`, as a member's `Remove` does, and tells
-    /// every other member.
-    fn remove(&self, team: &Team, login: &ForgeLogin) {
-        log::info!("{login} may no longer push to {}: removing them from the team", team.repo);
-        let remove = TeamMsg::Remove {
-            repo: team.repo.clone(),
-            login: login.clone(),
-        };
-        self.link.tell(team.others.clone(), remove);
+/// Asks the forge whether each member of `team` from another mesh may still
+/// push, and removes those who may not.
+async fn check_members(link: &TeamLink, team: &Team) {
+    for member in &team.others {
+        let login = &member.login;
+        let asked = link.forge().collaborator(&team.repo, login);
 
-        if self.link.with(|link| link.rosters.remove_member(&team.repo, login)).is_some() {
-            self.link.wake();
+        match timeout(FORGE_LIMIT, asked).await {
+            Ok(Ok(true)) => {}
+            Ok(Ok(false)) => remove(link, team, login),
+            Ok(Err(e)) => log::info!("could not check {login} on {}: {e}", team.repo),
+            Err(_) => log::info!("the forge took too long to check {login} on {}", team.repo),
         }
+    }
+}
+
+/// Removes `login` from `team`, as a member's `Remove` does, and tells every
+/// other member.
+fn remove(link: &TeamLink, team: &Team, login: &ForgeLogin) {
+    log::info!("{login} may no longer push to {}: removing them from the team", team.repo);
+    let remove = TeamMsg::Remove {
+        repo: team.repo.clone(),
+        login: login.clone(),
+    };
+    link.tell(team.others.clone(), remove);
+
+    if link.with(|link| link.rosters.remove_member(&team.repo, login)).is_some() {
+        link.wake();
     }
 }
 
