@@ -115,6 +115,48 @@ fn assigned_issues_ask_each_host_its_own_filter() {
     assert!(
         words(&assigned_issues_call(&forgejo(), &repo(), &who))[1].ends_with("&assigned_by=alice")
     );
+    assert_eq!(
+        words(&assigned_issues_call(&github(), &repo(), &who))[2],
+        "--paginate"
+    );
+    assert_eq!(
+        words(&assigned_issues_call(&forgejo(), &repo(), &who))[4],
+        "--paginate"
+    );
+}
+
+#[test]
+fn assigned_issues_read_every_page() {
+    let page = |number: u64| {
+        format!(
+            r#"[{{"number":{number},"title":"t","created_at":"2026-10-30T08:00:00Z","assignees":[{{"login":"alice"}}]}}]"#
+        )
+    };
+    let two = format!("{}\n{}", page(1), page(2));
+    let issues = crate::commands::parse_open_issues(&two).expect("two pages");
+
+    assert_eq!(
+        issues.iter().map(|issue| issue.number).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert!(
+        crate::commands::parse_open_issues("[]null")
+            .expect("empty")
+            .is_empty()
+    );
+    assert!(crate::commands::parse_open_issues("").is_err());
+}
+
+#[test]
+fn recent_pulls_list_open_and_closed() {
+    assert_eq!(
+        words(&recent_pulls_call(&github(), &repo()))[1],
+        "repos/acme/widget/pulls?state=all&sort=updated&direction=desc&per_page=100"
+    );
+    assert_eq!(
+        words(&recent_pulls_call(&forgejo(), &repo()))[1],
+        "repos/acme/widget/pulls?state=all&sort=recentupdate&limit=50"
+    );
 }
 
 #[test]

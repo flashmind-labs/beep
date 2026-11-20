@@ -8,6 +8,24 @@ pub fn json(out: &str) -> Result<Value> {
     serde_json::from_str(out.trim()).context("the host did not print JSON")
 }
 
+/// The items of every page of a list, as `gh api --paginate` prints them:
+/// one JSON array after another. teacli prints `null` for an empty one.
+fn pages(out: &str, what: &str) -> Result<Vec<Value>> {
+    let mut items = Vec::new();
+    let mut read = false;
+
+    for page in serde_json::Deserializer::from_str(out).into_iter::<Value>() {
+        let page = page.context("the host did not print JSON")?;
+        items.extend_from_slice(list_of(&page, what)?);
+        read = true;
+    }
+
+    match read {
+        true => Ok(items),
+        false => bail!("the host did not print JSON"),
+    }
+}
+
 /// The items of a list. teacli prints `null` for an empty one.
 fn list_of<'a>(value: &'a Value, what: &str) -> Result<&'a [Value]> {
     if value.is_null() {
@@ -107,10 +125,10 @@ pub(super) fn assignee_logins(item: &Value) -> Vec<String> {
     }
 }
 
-/// Parses [`HostCommand::ListOpenIssues`], skipping the pull requests Forgejo lists with issues.
+/// Parses [`HostCommand::ListOpenIssues`], one page or several, skipping the pull requests
+/// Forgejo lists with issues.
 pub fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
-    let value = json(out)?;
-    let items = list_of(&value, "issues")?;
+    let items = pages(out, "issues")?;
     items
         .iter()
         .filter(|item| item.get("pull_request").is_none_or(Value::is_null))

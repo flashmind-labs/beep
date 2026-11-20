@@ -171,13 +171,27 @@ pub fn open_issues_call(host: &IssueHost, repo: &RepoName) -> ForgeCall {
     ForgeCall::api(host, open_issues(host, repo), &[])
 }
 
-/// The open issues assigned to `login`, as [`open_issues_call`] lists them.
+/// The open issues assigned to `login`, as [`open_issues_call`] lists them, every page:
+/// `parse_open_issues` reads the pages `gh` prints one after another.
 pub fn assigned_issues_call(host: &IssueHost, repo: &RepoName, login: &ForgeLogin) -> ForgeCall {
     let by = match host {
         IssueHost::Github => "assignee",
         IssueHost::Forgejo(_) => "assigned_by",
     };
     let path = format!("{}&{by}={}", open_issues(host, repo), escaped(login));
+
+    ForgeCall::api(host, path, &["--paginate"])
+}
+
+/// The pull requests open or closed lately, the last updated first, in the shape
+/// `parse_open_prs` reads: their head branches say which branch has one.
+pub fn recent_pulls_call(host: &IssueHost, repo: &RepoName) -> ForgeCall {
+    let path = match host {
+        IssueHost::Github => {
+            format!("repos/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=100")
+        }
+        IssueHost::Forgejo(_) => format!("repos/{repo}/pulls?state=all&sort=recentupdate&limit=50"),
+    };
 
     ForgeCall::api(host, path, &[])
 }
