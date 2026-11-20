@@ -499,7 +499,8 @@ pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
             | agent::SESSION_FOLLOW_PROTOCOL
             | beep_proto::node::events::PROTOCOL
             | TRANSCRIPT_PROTOCOL
-    ) || agent::agent_of(protocol).is_some();
+    ) || agent::agent_of(protocol).is_some()
+        || protocol == agent::protocol(agent::HERMES_GATEWAY);
     (!lent && (shared.contains(&protocol) || agent))
         .then(|| format!("this machine is not shared with other devices: {protocol} is off"))
 }

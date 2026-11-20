@@ -481,10 +481,13 @@ impl Agents {
         offers
     }
 
-    /// The agent `protocol` names, when this node has it.
+    /// The agent `protocol` names, when this node has it: one of the
+    /// protocols `offers` lists, the Home assistant on Hermes among them.
     pub fn kind(&self, protocol: &str) -> Option<AgentKind> {
-        let name = agent::agent_of(protocol)?;
-        self.named(name)
+        self.kinds()
+            .iter()
+            .find(|kind| agent::protocol(&kind.name) == protocol)
+            .cloned()
     }
 
     /// The agent called `name`, when this node has it.
