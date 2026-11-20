@@ -24,6 +24,7 @@ host! {
     pub mod claude;
     mod claude_direct;
     mod codex_direct;
+    mod hermes_direct;
     pub(crate) mod found;
     pub mod mcp;
     pub(crate) mod skill_library;
