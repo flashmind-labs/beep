@@ -2,6 +2,27 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.5] - 2026-11-20
+
+### Added
+
+- Node: beep-node runs a session signed in as the named account it was
+  started with, and keeps that account when the session resumes or the
+  node restarts. Agents and reviewers that a session starts use the
+  account of the same name.
+- Node: beep-node refuses a start on an account it does not have yet.
+- Node: beep-node reads the plan limits of each named account it holds,
+  apart from the default account's.
+- beep-node: refuses a start_agent or review child agent whose harness the
+  parent's harness may not start. The error names the harnesses the parent
+  may start.
+
+### Changed
+
+- beep-node: a node tries to reach another machine, and syncs files with
+  it, again every 5 seconds instead of waiting up to a minute. Each try
+  gives up after 10 seconds.
+
 ## [0.8.4] - 2026-11-20
 
 ### Added

@@ -7,6 +7,62 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.7] - 2026-11-20
+
+### Added
+
+- Desktop: Settings, then Agent accounts, lets Claude Code and Codex
+  each keep more than one account, such as Work and Personal, under
+  Other accounts in the agent's card. Add one by signing in or pasting
+  a Claude Code token or a ChatGPT personal access token.
+- Desktop: the new agent form and the project bar both show an "as
+  <account>" choice when the agent has named accounts. The pick is
+  kept per project.
+- Desktop: a start on a named account is refused on a machine whose
+  beep-node is too old, instead of running on another account.
+- Desktop: plan usage shows each named account's limits apart, under
+  its name.
+- Desktop: session cards on Home and in projects name the account a
+  session runs as.
+- Desktop: each coding agent harness in Settings has a "Can start" row of
+  chips for the harnesses its sessions may start as other agents. For
+  example, flsh may start only flsh and pi. With all chips on, a session
+  may start any harness, which is the default. The setting applies on
+  every machine.
+- Desktop: a project's card on the Projects page lists its running
+  sessions, up to three. Each shows its title, its state and what it
+  does now: the current step while it works, or the first line of its
+  last reply once it stops. Open a row to open its session.
+- Desktop: Home's Board tab has a Lanes / Projects switch. Projects
+  lists each project that has open sessions, with a row per session
+  saying where it runs and what it does. The choice is remembered.
+
+### Changed
+
+- Desktop: after a machine's connection drops, the app tries to reach it
+  again every 5 seconds instead of waiting longer and longer between
+  tries. Each try gives up after 10 seconds. Terminals, file tabs and
+  session views keep trying while they are on screen instead of giving
+  up after a few tries.
+- Desktop: project cards on the Projects page are a little wider, so
+  session titles fit.
+
+### Fixed
+
+- Desktop: a file tab in a coding agent session's side pane that was
+  open when the machine's link dropped now loads again once the machine
+  is reachable, instead of staying on "connection lost". A text tab also
+  no longer jumps to another copy of the file after a dropped link.
+- Desktop: a question's answers are left aligned when they wrap,
+  instead of centered.
+- Desktop: a question that offers choices, not allow or deny, has a
+  Cancel row (Cmd+.) that stops the turn. Before, nothing could cancel
+  it.
+- Desktop: the first choice of such a question is no longer shown red
+  as a deny, and Cmd+D no longer picks it.
+- Desktop: the tool call a question holds shows as waiting for you,
+  not as running with a ticking clock.
+
 ## [0.10.6] - 2026-11-20
 
 ### Added
