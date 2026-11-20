@@ -99,7 +99,7 @@ export function ProjectRail({ project, label, running, past, current, card, back
     <input className="ip-field rail-filter" type="search" placeholder="Filter sessions" aria-label="Filter sessions" spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
     <div className="rail-scroll" ref={list} data-clear={clear || undefined}>
     {!!live.length && <h4>Running<span className="n">{live.length}</span></h4>}
-    {!!live.length && <div className="rail-live">{live.map(session => row(session, <><RunningStatus row={session} /><LineCounts changes={session.changes} /></>, runningLine(session)))}</div>}
+    {!!live.length && <div className="rail-live">{live.map(session => row(session, <><RunningStatus row={session} /><LineCounts changes={session.changes} /></>, workLine(session)))}</div>}
     {!!ended.length && <h4>Past<span className="n">{ended.length}</span></h4>}
     {ended.slice(0, RAIL_PAST).map(session => row(session, formatAgo(session.last_activity, "short")))}
     {ended.length > RAIL_PAST && <Button look="quiet" className="rail-all" onClick={() => go("projects", { project, tile: "agents" })}>All {ended.length} sessions</Button>}
@@ -126,7 +126,7 @@ function ProjectCard({ project, card }: { project: string; card: RailCard }) {
 
 /// A running row's second line: what it does, else the first line of its last reply, with
 /// its emphasis and code as notifications show them.
-function runningLine(session: RunningAgent) {
+export function workLine(session: RunningAgent) {
   if (session.doing) return session.doing;
   return session.reply_html ? <i className="rail-reply nt-md" dangerouslySetInnerHTML={{ __html: session.reply_html }} /> : "";
 }

@@ -129,6 +129,10 @@ body.cbody.mobile
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.home-sort
+            div.hv-seg [aria-label="Group sessions" aria-orientation="horizontal" data-orientation="horizontal" data-rac role="radiogroup"]
+              button.react-aria-ToggleButton [aria-checked="true" data-rac data-react-aria-pressable="true" data-selected="true" role="radio" tabindex="0" type="button"] "Lanes"
+              button.react-aria-ToggleButton [aria-checked="false" data-rac data-react-aria-pressable="true" role="radio" tabindex="0" type="button"] "Projects"
           div#sec-running
             div.bd-lanes.spread
               div.bd-lane style(flex-grow)
@@ -197,6 +201,16 @@ body.cbody.mobile
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
                     small.run "1 agent"
                       i
+                  div.pj-work
+                    div.cc-line.cc-row [data-key="agent:build-box:notice-one"]
+                      span.cc-ag.codex.mark
+                        svg [aria-hidden="true" viewBox="0 0 24 24"]
+                      button.t [title="Fix the login redirect" type="button"]
+                        b "Fix the login redirect"
+                        span "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
+                      span.r
+                        span.cc-running "now"
+                          span.drun [aria-label="Working" role="img"]
                   div.f
                     span.ago "just now"
                     span.at [title="build-box"] "build-box"
@@ -208,6 +222,14 @@ body.cbody.mobile
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
                     small.run "1 agent"
                       i
+                  div.pj-work
+                    div.cc-line.cc-row [data-key="agent:build-box:notice-two"]
+                      span.cc-ag.codex.mark
+                        svg [aria-hidden="true" viewBox="0 0 24 24"]
+                      button.t [title="Update the changelog" type="button"]
+                        b "Update the changelog"
+                        span
+                      span.r "10m ago"
                   div.f
                     span.ago "10 min ago"
                     span.at [title="build-box"] "build-box"

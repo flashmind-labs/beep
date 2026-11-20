@@ -7,8 +7,10 @@ import { Dropdown } from "../ui/dropdown.tsx";
 import { Icon } from "../ui/icons.tsx";
 import { projectWindowProps, openProjects, setProjectOnTop } from "../center/sidebar.tsx";
 import { parseFolded, type Project } from "./projects-state.ts";
+import type { RunningAgent } from "../agents/running-state.ts";
 import { PROJECT_SORTS, searchOverview, type ProjectSort, type OverviewGroup } from "./overview-state.ts";
 import { OverviewCardView, overviewCardModel } from "./overview-card.tsx";
+import { RunningRows } from "./running-view.tsx";
 import { editGroup, groupMenu, removeGroup, renameGroup, startRename } from "./groups.tsx";
 import { state } from "../center/state.ts";
 import { redrawProjects } from "./sections.ts";
@@ -25,7 +27,7 @@ let folded = new Set<string>();
 try { folded = parseFolded(localStorage.getItem(FOLDED_KEY)); } catch { /* none kept */ }
 const groupKey = (group: Group) => group.group ? `group:${group.group.id}` : `org:${group.org ?? ""}`;
 
-export function ProjectsOverview({ groups: all, sync, editing, add, sort, changeSort }: { sort: ProjectSort; changeSort(sort: ProjectSort): void; groups: Group[]; sync(name: string): string | null; editing: { id: string; draft: string } | null; add(): void }) {
+export function ProjectsOverview({ groups: all, sync, work, editing, add, sort, changeSort }: { sort: ProjectSort; changeSort(sort: ProjectSort): void; groups: Group[]; sync(name: string): string | null; work(name: string): readonly RunningAgent[]; editing: { id: string; draft: string } | null; add(): void }) {
   const [query, setQuery] = useState(kept);
   const groups = useMemo(() => searchOverview(all, query), [all, query]);
   const field = useRef<HTMLInputElement>(null);
@@ -43,7 +45,7 @@ export function ProjectsOverview({ groups: all, sync, editing, add, sort, change
   // A search shows every match, folded or not.
   const searching = !!query.trim();
 
-  return <><HazeArt /><div className="pj-toolbar"><SearchField className="pj-find" aria-label="Search projects" value={query} onChange={search}><Input ref={field} placeholder="Search projects" spellCheck={false} autoComplete="off"/></SearchField><Dropdown label="Sort projects" options={PROJECT_SORTS} value={sort} onChange={changeSort} icon={<Icon name="sort"/>}/></div>{!groups.length && query.trim() && <div className="cc-panel cc-empty pj-none"><span>No projects match.</span></div>}{groups.slice(0, count).map((group, index) => <section className="pj-org" style={{ flex: "none" }} ref={index === 0 ? first : null} key={groupKey(group)}><OverviewGroupView group={group} editing={group.group && editing?.id === group.group.id ? editing : null} sync={sync} folded={!searching && shut.has(groupKey(group))} fold={() => fold(groupKey(group))}/></section>)}{count < groups.length && <div ref={end} style={{ flex: "none", gridColumn: "1 / -1", height: height ? `${(groups.length - count) * height}px` : undefined }}/>}<div className="cc-panel cc-row pj-add" style={{ flex: "none" }}><span className="t"><b>Add a project</b><span>A folder or a repository to clone.</span></span><Button onClick={add}>Add</Button></div></>;
+  return <><HazeArt /><div className="pj-toolbar"><SearchField className="pj-find" aria-label="Search projects" value={query} onChange={search}><Input ref={field} placeholder="Search projects" spellCheck={false} autoComplete="off"/></SearchField><Dropdown label="Sort projects" options={PROJECT_SORTS} value={sort} onChange={changeSort} icon={<Icon name="sort"/>}/></div>{!groups.length && query.trim() && <div className="cc-panel cc-empty pj-none"><span>No projects match.</span></div>}{groups.slice(0, count).map((group, index) => <section className="pj-org" style={{ flex: "none" }} ref={index === 0 ? first : null} key={groupKey(group)}><OverviewGroupView group={group} editing={group.group && editing?.id === group.group.id ? editing : null} sync={sync} work={work} folded={!searching && shut.has(groupKey(group))} fold={() => fold(groupKey(group))}/></section>)}{count < groups.length && <div ref={end} style={{ flex: "none", gridColumn: "1 / -1", height: height ? `${(groups.length - count) * height}px` : undefined }}/>}<div className="cc-panel cc-row pj-add" style={{ flex: "none" }}><span className="t"><b>Add a project</b><span>A folder or a repository to clone.</span></span><Button onClick={add}>Add</Button></div></>;
 }
 /// `/` or Cmd/Ctrl+F focuses the search while the overview shows and no
 /// field, dialog or other handler has the key.
@@ -68,7 +70,7 @@ function useSearchKeys(field: React.RefObject<HTMLInputElement | null>) {
   }, [field]);
 }
 
-function OverviewGroupView({ group, sync, editing, folded, fold }: { group: Group; sync: (name: string) => string | null; editing: { id: string; draft: string } | null; folded: boolean; fold(): void }) {
+function OverviewGroupView({ group, sync, work, editing, folded, fold }: { group: Group; sync: (name: string) => string | null; work(name: string): readonly RunningAgent[]; editing: { id: string; draft: string } | null; folded: boolean; fold(): void }) {
   const g = group.group;
   const input = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
@@ -89,5 +91,8 @@ function OverviewGroupView({ group, sync, editing, folded, fold }: { group: Grou
     {g && editing ? <>{icon}<input ref={input} defaultValue={editing.draft} aria-label="Group name" onChange={e => { editing.draft = e.currentTarget.value; }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); finish(true); } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); } }} /><span className="gp-acts"><Button look="primary" onClick={() => finish(true)}>Save</Button><Button look="quiet" onClick={() => finish(false)}>Cancel</Button></span></>
       : g ? <>{name}<span className="gp-paths" title="Matched on every machine">{g.paths.map(p => p.startsWith("/") ? p : `~/${p}`).join(", ")}</span><span className="gp-acts"><Button look="quiet" onClick={() => startRename(g)}>Rename</Button><Button look="quiet" onClick={() => editGroup(g)}>Folders…</Button><Button look="quiet" danger onClick={() => removeGroup(g)}>Remove</Button></span></>
       : name}
-  </h3>{folded ? null : group.cards.length || !g ? <div className="pj-grid">{group.cards.map(c => <OverviewCardView key={c.name} model={overviewCardModel(c, sync(c.name))} open={openProjects} pin={setProjectOnTop} windowProps={projectWindowProps(c.name)} />)}</div> : <span className="gp-none">No projects in these folders yet.</span>}</>;
+  </h3>{folded ? null : group.cards.length || !g ? <div className="pj-grid">{group.cards.map(c => <OverviewCardView key={c.name} model={overviewCardModel(c, sync(c.name))} work={work(c.name).length ? <RunningRows running={work(c.name).slice(0, WORK_SHOWN)} work /> : null} open={openProjects} pin={setProjectOnTop} windowProps={projectWindowProps(c.name)} />)}</div> : <span className="gp-none">No projects in these folders yet.</span>}</>;
 }
+
+/// The sessions a card lists; its count says how many run.
+const WORK_SHOWN = 3;

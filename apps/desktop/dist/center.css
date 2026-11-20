@@ -547,7 +547,7 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 /* A right-click menu, and the group sheet's folders. */
 .gp-path { display: flex; gap: 8px; align-items: center; padding: 6px 0; font-size: 12.5px; font-family: var(--mono); border-top: 1px solid var(--border) }
 .gp-path span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: 8px }
+.pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 8px; align-items: start }
 .pj-grid > * { min-width: 0 }
 .pj-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; padding: 9px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 3%, transparent); text-align: left; font-size: 12.5px; color: var(--fg); cursor: default }
 .pj-card:hover { border-color: color-mix(in srgb, var(--fg) 18%, transparent) }
@@ -568,6 +568,10 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .pj-card .pa { display: grid; padding: 2px; border: 0; background: transparent; color: var(--dim) }
 .pj-card .pa:hover, .pj-card .pa.on { color: var(--hot) }
 .pj-card .pa svg { width: 13px; height: 13px }
+/* The card's running sessions: what each does, and a row opens its session. */
+.pj-work { display: grid; margin: 0 -6px }
+.pj-work .cc-row { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; padding: 4px 6px; border-top: 0; border-radius: var(--radius-sm) }
+.pj-work .cc-ag { width: 18px; height: 18px; font-size: 8px }
 .pj-add { grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 14px }
 
 /* Instructions: an editor over saved versions, the agent files on each
@@ -1062,7 +1066,7 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .cc-rail .rail-live > .pj-li .t > span { display: block; min-height: 18px; font-family: var(--mono); font-size: 11px; color: var(--dim) }
 .cc-rail .rail-live > .pj-li > .r { display: flex; flex-direction: column; align-items: flex-end; gap: 2px }
 .cc-rail .rail-diff { display: flex; gap: 6px; font: 11px var(--mono) }
-.cc-rail .rail-reply { font: 11.5px var(--body); color: color-mix(in srgb, var(--muted) 85%, var(--ink)) }
+.rail-reply { font: 11.5px var(--body); color: color-mix(in srgb, var(--muted) 85%, var(--ink)) }
 .rail-scroll > .rail-all { margin-top: 6px; justify-content: flex-start }
 /* A phone has no window buttons to clear: the rail is as narrow as its icons. */
 html[data-phone] .cwin.side-collapsed { grid-template-columns: 32px minmax(0, 1fr) }
@@ -1135,3 +1139,6 @@ html[data-move=next]::view-transition-new(page) { animation: .2s cubic-bezier(.2
 @keyframes move-out-up { to { transform: translateY(-40px); opacity: 0 } }
 
 .home-sort { display: flex; justify-content: flex-end; flex: none }
+/* Home's sessions as rows under their projects, packed into two columns where they fit. */
+.bd-projects { columns: 2 420px; column-gap: 12px }
+.bd-projects > div { break-inside: avoid; margin-bottom: 18px }

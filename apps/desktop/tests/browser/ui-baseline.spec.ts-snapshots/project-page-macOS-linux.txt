@@ -125,6 +125,10 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.home-sort
+            div.hv-seg [aria-label="Group sessions" aria-orientation="horizontal" data-orientation="horizontal" data-rac role="radiogroup"]
+              button.react-aria-ToggleButton [aria-checked="true" data-rac data-react-aria-pressable="true" data-selected="true" role="radio" tabindex="0" type="button"] "Lanes"
+              button.react-aria-ToggleButton [aria-checked="false" data-rac data-react-aria-pressable="true" role="radio" tabindex="0" type="button"] "Projects"
           div#sec-running
             div.bd-lanes.spread
               div.bd-lane style(flex-grow)

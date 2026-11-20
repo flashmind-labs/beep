@@ -276,8 +276,8 @@ body.mobile .agrail { display: none }
    the lit top edge, small mono section labels, and the dawn band over Home and Projects ----- */
 body.mobile { --radius: 6px; --radius-sm: 4px;
   --lit: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 16%, transparent) 30%, color-mix(in srgb, var(--accent) 60%, var(--fg)) 50%, color-mix(in srgb, var(--fg) 16%, transparent) 70%, transparent) top / 100% 1px no-repeat }
-body.mobile :is(.cc-tabs button, .mb-tabs button, #agmnav button, .cc-set .dset-pages .cc-si, .dbtn, .dchip, .agc-pill, .bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3, .cc-mstrip > .m > span, .home-sort, .ag-head .tt small) { font-family: var(--mono); letter-spacing: 0 }
-body.mobile :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .cc-mstrip > .m > span) { font-size: 12px }
+body.mobile :is(.cc-tabs button, .mb-tabs button, #agmnav button, .cc-set .dset-pages .cc-si, .dbtn, .dchip, .agc-pill, .bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3, .cc-mstrip > .m > span, .home-sort, .ag-head .tt small, .pj-work .t > span, .bd-projects .t > span) { font-family: var(--mono); letter-spacing: 0 }
+body.mobile :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .cc-mstrip > .m > span, .pj-work .t > span, .bd-projects .t > span) { font-size: 12px }
 body.mobile .mb-tabs button { font-size: 10.5px }
 body.mobile :is(.bd-lane > h4, .cc-set .dset-h, .cc-set .dsec) { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
 body.mobile .pj-org h3 { font-size: 12.5px; font-weight: 500; color: var(--muted) }

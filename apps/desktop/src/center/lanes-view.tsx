@@ -80,12 +80,13 @@ function dot(card: BoardCard) {
   return card.color === null ? null : <span className="cc-pdot" style={{ background: card.color }}/>;
 }
 
-/// A card as a row of a list section. A session's row opens with the page move.
+/// A card as a row of a list section. A session's row opens with the page move, and one that
+/// can be closed keeps its foot beside the button.
 export function CardRow({ card }: { card: BoardCard }) {
   const action = card.action;
   const open = card.session ? () => { setHeroCard(null); withMove("open", card.open); } : card.open;
   return <LineRow events={{ ...card.windowProps?.clicks, ...card.windowProps?.menu }} lead={card.lead} title={card.title} sub={<>{dot(card)}{card.sub}</>} dim={card.dim} rowTitle={card.hint ?? undefined} onOpen={open} onContext={card.menu ?? undefined}
-    right={action ? <ActionButton action={action} title={card.title}/> : card.foot}/>;
+    right={action ? <>{action.kind === "close" && card.foot}<ActionButton action={action} title={card.title}/></> : card.foot}/>;
 }
 
 /// `more` makes a lane's title open the full list behind it, and `lanes`
