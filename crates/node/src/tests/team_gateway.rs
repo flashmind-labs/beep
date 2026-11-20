@@ -4,9 +4,12 @@ use crate::{
     team::{
         board::tests::{URL, member, repo},
         home::{Project, read},
+        link::Teams,
+        roster::record,
     },
 };
 use beep_mesh::Key;
+use beep_proto::team::TeamMsg;
 use beep_proto::node::{
     mesh_state::{Place, ProjectRecord, StateValue},
     tools::HostReach,
@@ -102,3 +105,50 @@ fn a_machine_not_on_the_entry_is_never_elected() {
     );
 }
 
+
+#[test]
+fn a_pending_announcement_moves_no_election() {
+    let mut ids = [SecretKey::generate().public(), SecretKey::generate().public()];
+    ids.sort();
+    // The added machine would win by id once the written entry names it.
+    let [added, old] = ids;
+    let alice = member("alice", old);
+    let bob = member("bob", SecretKey::generate().public());
+    let written = record(repo(), vec![alice.clone(), bob]);
+    let machine = |me: EndpointId| {
+        let mut teams = Teams::default();
+        teams.rosters.refresh([(repo(), written.clone())].into());
+        teams.home.mesh = Some(alice.mesh);
+        let project = Project {
+            name: "org/repo".to_owned(),
+            checkout: None,
+            devices: vec![EndpointAddr::new(added), EndpointAddr::new(old)],
+        };
+        teams.home.projects.insert(repo(), project);
+        (me, teams)
+    };
+    let (mut on_old, on_added) = (machine(old), machine(added));
+    // The old gateway announced the added machine; no desktop wrote it yet.
+    let mut entry = alice.clone();
+    entry.devices.push(EndpointAddr::new(added));
+    let roster = TeamMsg::Roster {
+        repo: repo(),
+        members: vec![entry],
+    };
+    let applied = on_old.1.rosters.apply(old, Some(alice.mesh), &roster).unwrap();
+    assert!(applied.changed.is_some());
+
+    let ci = Ci::default();
+    let chosen: Vec<Option<EndpointId>> = [&on_old, &on_added]
+        .into_iter()
+        .map(|(me, teams)| {
+            let other = if *me == old { added } else { old };
+            let peers = [(other, ForgeReach::default())].into();
+            let team = &membership::teams(teams)[0];
+            elected(&teams.home.projects[&repo()], &team.mine, &repo(), *me, &ci, &peers)
+        })
+        .collect();
+
+    // Both pick the old gateway: exactly one machine acts.
+    assert_eq!(chosen, [Some(old), Some(old)]);
+}

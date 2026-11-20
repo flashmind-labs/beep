@@ -10,7 +10,7 @@ use super::{
     cards::{Facts, IssueTitles, Teammates, card_of, settle},
     home::Project,
     link::TeamLink,
-    membership::Membership,
+    membership::{self, Membership, Team},
 };
 use crate::{
     agents::mcp::children::{Listed, in_the_mesh},
@@ -92,7 +92,7 @@ pub(crate) async fn run(mesh: Mesh, me: EndpointId, link: TeamLink, offers: Offe
         held: BTreeSet::new(),
         titles: BTreeMap::new(),
         branches: HashMap::new(),
-        membership: Membership::default(),
+        membership: Membership::new(me),
         follows: BTreeMap::new(),
         teammates: BTreeMap::new(),
     };
@@ -106,17 +106,6 @@ pub(crate) async fn run(mesh: Mesh, me: EndpointId, link: TeamLink, offers: Offe
             },
         }
     }
-}
-
-/// A team this machine acts for.
-pub(super) struct Team {
-    pub(super) repo: TeamRepo,
-    /// The mesh's name for the project.
-    pub(super) project: String,
-    /// This mesh's entry on it.
-    pub(super) mine: Member,
-    /// The members of other meshes.
-    pub(super) others: Vec<Member>,
 }
 
 struct Gateway {
@@ -143,29 +132,9 @@ struct Gateway {
 
 impl Gateway {
     async fn step(&mut self) {
-        let (teams, home) = self.link.with(|link| {
-            let own = link.home.mesh;
-            let teams: Vec<Team> = link
-                .home
-                .projects
-                .iter()
-                .filter_map(|(repo, project)| {
-                    let record = link.rosters.get(repo)?;
-                    let (mine, others) = record
-                        .members
-                        .iter()
-                        .cloned()
-                        .partition::<Vec<_>, _>(|member| Some(member.mesh) == own);
-                    Some(Team {
-                        repo: repo.clone(),
-                        project: project.name.clone(),
-                        mine: mine.into_iter().next()?,
-                        others,
-                    })
-                })
-                .collect();
-            (teams, link.home.clone())
-        });
+        let (teams, home) = self
+            .link
+            .with(|link| (membership::teams(link), link.home.clone()));
 
         self.ask_peers(&teams, &home.projects).await;
 
@@ -199,9 +168,12 @@ impl Gateway {
             }
         });
 
-        let (link, mesh) = (&self.link, &self.mesh);
+        let mesh = &self.mesh;
+        let mut machines = online;
+        machines.insert(me);
+        let member = |id| mesh.is_member(id);
         self.membership
-            .announce(link, mesh, me, &teams, &home.projects);
+            .announce(&self.link, &machines, member, &teams, &home.projects);
         self.follow_teammates(&teams);
         self.serve_cards(&teams, &home.projects).await;
         self.membership.upkeep(&self.link, &teams).await;

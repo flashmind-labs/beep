@@ -75,6 +75,12 @@ impl Rosters {
         });
     }
 
+    /// `repo`'s record as the mesh holds it, without a change pending here:
+    /// what every machine of the mesh reads alike.
+    pub(crate) fn written(&self, repo: &TeamRepo) -> Option<&TeamRecord> {
+        self.records.get(repo)
+    }
+
     pub(crate) fn get(&self, repo: &TeamRepo) -> Option<&TeamRecord> {
         self.pending.get(repo).or_else(|| self.records.get(repo))
     }

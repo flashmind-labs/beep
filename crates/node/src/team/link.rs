@@ -183,18 +183,19 @@ impl TeamLink {
 
         tokio::spawn(async move {
             for member in members {
-                let sent = async {
-                    let (mut tx, _rx) = link.dial(&member.devices).await?;
-                    tx.send(&msg).await?;
-                    finish(tx).await?;
-                    Ok::<_, TeamError>(())
-                };
-
-                if let Err(e) = sent.await {
+                if let Err(e) = link.send(&member, &msg).await {
                     log::info!("a team message did not reach {}: {e}", member.login);
                 }
             }
         });
+    }
+
+    /// Sends `msg` to the first of `member`'s devices that answers.
+    pub(super) async fn send(&self, member: &Member, msg: &TeamMsg) -> Result<(), TeamError> {
+        let (mut tx, _rx) = self.dial(&member.devices).await?;
+        tx.send(msg).await?;
+
+        finish(tx).await
     }
 
     async fn serve(&self, connection: &Connection) -> Result<(), TeamError> {
