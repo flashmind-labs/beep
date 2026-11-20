@@ -764,3 +764,34 @@ fn a_reviewer_taken_over_is_never_the_assistant() {
 
     assert!(!agents.resumed_begin(None, &SessionId::from("held-1"), saved).assistant);
 }
+
+/// flsh sends a session's title again right after `session/load`. A session
+/// saved before its title arrived keeps the first prompt until then.
+#[tokio::test]
+async fn a_reopened_session_takes_the_title_the_agent_sends_after_loading() {
+    let dir = tempfile::tempdir().expect("temporary folder");
+    let mut kind = adapter(&dir.path().join("log"));
+    kind.args[1] = ADAPTER.replace(
+        r#"*'"session/load"'*) reply '{}' ;;"#,
+        r#"*'"session/load"'*) reply '{}'
+          echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"held-1","update":{"sessionUpdate":"session_info_update","title":"Explain Rust lifetimes"}}}' ;;"#,
+    );
+    let before = Agents::new(vec![kind.clone()]);
+    let session = before
+        .start(&kind, Some(&dir.path().to_string_lossy()), begin("explain lifetimes"))
+        .expect("starts");
+    until(&mut session.live.clone(), |live| live.info.turns == 1).await;
+    before.shutdown().await;
+    let stopped = before.open_sessions();
+    assert_eq!(stopped[0].title.as_deref(), Some("explain lifetimes"));
+
+    let after = Agents::new(vec![kind]);
+    after.settings_arrived();
+    after.reopen(stopped).await;
+    let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
+    until(&mut resumed.live.clone(), |live| {
+        live.info.title.as_deref() == Some("Explain Rust lifetimes")
+    })
+    .await;
+    after.shutdown().await;
+}

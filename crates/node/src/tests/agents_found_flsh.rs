@@ -102,3 +102,21 @@ fn a_database_without_the_folder_column_is_skipped() {
     drop(conn);
     assert!(sessions(root.path(), &Memos::default()).is_empty());
 }
+
+/// flsh saves the title it generates in the header, replacing the first
+/// prompt as the session's name.
+#[test]
+fn a_generated_title_in_the_header_names_the_session() {
+    let root = tempfile::tempdir().expect("a temp folder");
+    let dir = root.path().join("0123456789abcdef");
+    fs::create_dir_all(&dir).expect("folders");
+    let titled = FIXTURE.replacen(
+        r#""title":null"#,
+        r#""title":"Run the app's tests""#,
+        1,
+    );
+    fs::write(dir.join("a.jsonl"), titled).expect("a session file");
+
+    let found = sessions(root.path(), &Memos::default());
+    assert_eq!(found[0].title.as_deref(), Some("Run the app's tests"));
+}
