@@ -61,7 +61,7 @@ impl Boards {
         self.0.contains_key(repo)
     }
 
-    pub(super) fn cards(&self, repo: &TeamRepo) -> Option<Vec<Card>> {
+    pub(crate) fn cards(&self, repo: &TeamRepo) -> Option<Vec<Card>> {
         Some(self.0.get(repo)?.cards.clone())
     }
 

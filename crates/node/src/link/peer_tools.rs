@@ -6,7 +6,7 @@
 use crate::{
     agents::{
         Agents,
-        mcp::{ProjectTools, answer_projects, children, harness},
+        mcp::{ProjectTools, answer_projects, answer_team, children, harness},
     },
     files::transfer::{Incoming, Transfers},
     link::Offers,
@@ -52,7 +52,8 @@ pub(crate) struct Caller {
     /// This machine's answer to the assistant's project tools, when it is a
     /// desktop.
     pub project_tools: Option<Arc<dyn ProjectTools>>,
-    /// This device's team link, for its own desktops' calls.
+    /// This device's team link: for its own desktops' joins, and the team
+    /// tools of the mesh's sessions.
     pub team: Option<TeamLink>,
 }
 
@@ -99,8 +100,20 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
         return answer_projects(caller.project_tools.as_ref(), &request).await;
     }
 
+    // Only the user's desktops join teams; nodes ask and deliver.
     if request.tool == Tool::TeamJoin {
-        return crate::team::join::answer(caller.team.as_ref(), &request).await;
+        let team = caller.team.as_ref().filter(|_| !matches!(caller.table, Table::Peer(_)));
+        return crate::team::join::answer(team, &request).await;
+    }
+
+    if matches!(request.tool, Tool::Team | Tool::TeamAsk | Tool::TeamDeliver) {
+        return match (&caller.team, &caller.agents) {
+            (Some(team), Some(agents)) => answer_team(team, agents, &request).await,
+            _ => Reply::Done {
+                text: "This machine does not act for a team.".to_owned(),
+                failed: true,
+            },
+        };
     }
 
     if matches!(

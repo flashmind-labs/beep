@@ -2,18 +2,15 @@
 //! they are about, kept current from the mesh's state. Rosters and invites
 //! the link takes go to a desktop, since only desktops write the state.
 
-use super::{
-    cards::IssueTitles,
-    link::{TeamForge, TeamLink},
-};
+use super::link::{TeamForge, TeamLink};
 use crate::{
     agents::mcp::to_desktop,
     machine::ci::forge::{command, tail},
 };
 use beep_mesh::{DeviceKind, Key, Mesh};
 use beep_projects::{
+    commands::{OpenIssue, parse_open_issues},
     model::{IssueHost, RepoName},
-    commands::parse_open_issues,
     team_forge::{
         ForgeCall, collaborator_answer, collaborator_call, open_issues_call, parse_user_login,
         user_call,
@@ -32,7 +29,7 @@ use iroh::{EndpointAddr, EndpointId};
 use serde::Serialize;
 use std::{
     collections::BTreeMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Output, Stdio},
     time::{Duration, SystemTime},
 };
@@ -110,16 +107,26 @@ impl Invites {
     }
 
     fn expire(&mut self, now: SystemTime) {
-        self.0.retain(|(_, at)| {
-            now.duration_since(*at)
-                .map_or(true, |age| age < INVITE_AGE)
-        });
+        self.0
+            .retain(|(_, at)| now.duration_since(*at).map_or(true, |age| age < INVITE_AGE));
     }
 }
 
 impl Home {
     pub(crate) fn checkout(&self, repo: &TeamRepo) -> Option<Checkout> {
         self.projects.get(repo)?.checkout.clone()
+    }
+
+    /// The repository of the project whose checkout here holds `folder`.
+    pub(crate) fn team_of(&self, folder: &Path) -> Option<TeamRepo> {
+        let held = self.projects.iter().filter_map(|(repo, project)| {
+            let checkout = &project.checkout.as_ref()?.folder;
+            folder
+                .starts_with(checkout)
+                .then(|| (checkout.as_os_str().len(), repo))
+        });
+
+        held.max().map(|(_, repo)| repo.clone())
     }
 
     pub(crate) fn devices(&self, repo: &TeamRepo) -> Vec<EndpointAddr> {
@@ -173,6 +180,13 @@ fn refresh(mesh: &Mesh, link: &TeamLink) {
     });
 }
 
+/// Whether `folder` is in a checkout here of a project with a team.
+pub(crate) fn in_team(mesh: &Mesh, folder: &Path) -> bool {
+    read(mesh)
+        .team_of(folder)
+        .is_some_and(|repo| mesh.get(&Key::Team(repo)).is_some())
+}
+
 pub(super) fn read(mesh: &Mesh) -> Home {
     let me = mesh.me();
     let mut records = BTreeMap::new();
@@ -197,17 +211,20 @@ pub(super) fn read(mesh: &Mesh) -> Home {
         .filter_map(|(name, record)| {
             let repo = record.url.parse::<TeamRepo>().ok()?;
             let places = places.remove(&name).unwrap_or_default();
-            let checkout = places.iter().find(|(machine, _)| *machine == me).map(|(_, place)| {
-                // A fork is `origin`; the team's repository is the project's own.
-                let remote = match place.fork {
-                    Some(_) => record.url.clone(),
-                    None => "origin".to_owned(),
-                };
-                Checkout {
-                    folder: PathBuf::from(&place.folder),
-                    remote,
-                }
-            });
+            let checkout = places
+                .iter()
+                .find(|(machine, _)| *machine == me)
+                .map(|(_, place)| {
+                    // A fork is `origin`; the team's repository is the project's own.
+                    let remote = match place.fork {
+                        Some(_) => record.url.clone(),
+                        None => "origin".to_owned(),
+                    };
+                    Checkout {
+                        folder: PathBuf::from(&place.folder),
+                        remote,
+                    }
+                });
             let devices = places
                 .iter()
                 .filter(|(machine, _)| mesh.is_member(*machine))
@@ -227,7 +244,10 @@ pub(super) fn read(mesh: &Mesh) -> Home {
         .filter_map(|(_, bytes)| lenient::from_slice::<ContactRecord>(&bytes).ok())
         .flat_map(|contact| {
             let mesh = contact.mesh;
-            contact.devices.into_iter().map(move |device| (device.id, mesh))
+            contact
+                .devices
+                .into_iter()
+                .map(move |device| (device.id, mesh))
         })
         .collect();
 
@@ -258,7 +278,16 @@ async fn hand(mesh: &Mesh, link: &TeamLink, handed: &mut Vec<TeamRecord>) {
     for record in unhanded {
         let written = match desktop_here {
             true => write(mesh, &record).await,
-            false => call(mesh, Tool::TeamRoster, &TeamRosterArgs { record: record.clone() }).await,
+            false => {
+                call(
+                    mesh,
+                    Tool::TeamRoster,
+                    &TeamRosterArgs {
+                        record: record.clone(),
+                    },
+                )
+                .await
+            }
         };
 
         match written {
@@ -298,9 +327,7 @@ async fn call(mesh: &Mesh, tool: Tool, args: &impl Serialize) -> Result<(), Stri
     };
 
     match to_desktop(mesh, &request).await {
-        Reply::Done {
-            failed: false, ..
-        } => Ok(()),
+        Reply::Done { failed: false, .. } => Ok(()),
         Reply::Done { text, .. } => Err(text),
         _ => Err("the desktop answered something else".to_owned()),
     }
@@ -318,7 +345,10 @@ impl TeamForge for ForgeCli {
         Box::pin(async move {
             let (host, name) = forge_of(repo)?;
             let out = run(&collaborator_call(&host, &name, login)).await?;
-            let (stdout, stderr) = (String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+            let (stdout, stderr) = (
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr),
+            );
 
             collaborator_answer(out.status.success(), &stdout, &stderr).map_err(|e| e.to_string())
         })
@@ -331,26 +361,34 @@ impl TeamForge for ForgeCli {
 
             if !out.status.success() {
                 let said = String::from_utf8_lossy(&out.stderr);
-                return Err(format!("Could not read your account on {}: {}", repo.host, tail(&said)));
+                return Err(format!(
+                    "Could not read your account on {}: {}",
+                    repo.host,
+                    tail(&said)
+                ));
             }
 
             parse_user_login(&String::from_utf8_lossy(&out.stdout)).map_err(|e| e.to_string())
         })
     }
 
-    fn issue_titles<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<IssueTitles, String>> {
+    fn open_issues<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+    ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>> {
         Box::pin(async move {
             let (host, name) = forge_of(repo)?;
             let out = run(&open_issues_call(&host, &name)).await?;
 
             if !out.status.success() {
                 let said = String::from_utf8_lossy(&out.stderr);
-                return Err(format!("Could not list the issues of {repo}: {}", tail(&said)));
+                return Err(format!(
+                    "Could not list the issues of {repo}: {}",
+                    tail(&said)
+                ));
             }
 
-            let issues = parse_open_issues(&String::from_utf8_lossy(&out.stdout))
-                .map_err(|e| format!("{e:#}"))?;
-            Ok(issues.into_iter().map(|issue| (issue.number, issue.title)).collect())
+            parse_open_issues(&String::from_utf8_lossy(&out.stdout)).map_err(|e| format!("{e:#}"))
         })
     }
 }

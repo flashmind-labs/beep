@@ -15,6 +15,8 @@ pub(super) const DEVICE: &str = "device_";
 /// action. A desktop answers them, as `Tool::Projects` with the action in
 /// the arguments.
 pub(super) const PROJECTS: &str = "projects_";
+/// The tools of sessions in a team project.
+pub(super) const TEAM: [&str; 2] = ["team", "team_ask"];
 /// The tool that has an agent's changes reviewed.
 const REVIEW: &str = "review";
 
@@ -297,6 +299,34 @@ fn devices() -> Vec<Value> {
     ]
 }
 
+/// The team tools, which only sessions in a team project get.
+pub(super) fn team() -> Vec<Value> {
+    let text = |what: &str| json!({ "type": "string", "description": what });
+    vec![
+        tool(
+            TEAM[0],
+            "Your project's team: its members, the cards of their agents' sessions and yours (id, \
+             title, lane, login, issue), and the open issues with their assignees.",
+            json!({}),
+            &[],
+            json!({ "title": "See the team", "readOnlyHint": true }),
+        ),
+        tool(
+            TEAM[1],
+            "Ask a teammate's agent (to: a card id from team) or a teammate (to: their login), \
+             at most 10 an hour. Returns once sent; the answer arrives in this session. To \
+             answer an ask, send to its sender with reply_to set to its id, once.",
+            json!({
+                "to": text("A card id or a teammate's login, as team lists them"),
+                "text": text("At most 4000 characters"),
+                "reply_to": text("The id of the ask this answers")
+            }),
+            &["to", "text"],
+            json!({ "title": "Ask a teammate", "destructiveHint": false, "openWorldHint": true }),
+        ),
+    ]
+}
+
 /// The home assistant's project tools, which the Beep desktop answers.
 fn projects() -> Vec<Value> {
     let text = json!({ "type": "string" });
@@ -477,7 +507,7 @@ pub(super) fn validate(name: &str, args: &Value) -> Result<(), String> {
                     return Err("Invalid tool catalog".to_owned());
                 };
 
-                for tool in listed {
+                for tool in listed.iter().chain(&team()) {
                     let name = tool["name"].as_str().ok_or("Tool has no name")?;
                     let validator = jsonschema::validator_for(&tool["inputSchema"])
                         .map_err(|e| e.to_string())?;

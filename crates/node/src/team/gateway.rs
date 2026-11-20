@@ -94,7 +94,6 @@ pub(crate) async fn run(mesh: Mesh, me: EndpointId, link: TeamLink, offers: Offe
         branches: HashMap::new(),
         membership: Membership::new(me),
         follows: BTreeMap::new(),
-        teammates: BTreeMap::new(),
     };
 
     loop {
@@ -127,7 +126,6 @@ struct Gateway {
     membership: Membership,
     /// The follow of each teammate's board, by repository and their mesh.
     follows: BTreeMap<(TeamRepo, EndpointId), (Member, AbortOnDropHandle<()>)>,
-    teammates: BTreeMap<TeamRepo, Teammates>,
 }
 
 impl Gateway {
@@ -147,19 +145,26 @@ impl Gateway {
             .collect();
         let ci = &self.offers.agents.ci;
         let me = self.me;
+        let gateways: BTreeMap<TeamRepo, EndpointId> = teams
+            .iter()
+            .filter_map(|team| {
+                let project = &home.projects[&team.repo];
+                let gateway = elected(project, &team.mine, &team.repo, me, ci, &peers)?;
+                Some((team.repo.clone(), gateway))
+            })
+            .collect();
         let teams: Vec<Team> = teams
             .into_iter()
-            .filter(|team| {
-                let project = &home.projects[&team.repo];
-                elected(project, &team.mine, &team.repo, me, ci, &peers) == Some(me)
-            })
+            .filter(|team| gateways.get(&team.repo) == Some(&me))
             .collect();
         self.held = teams.iter().map(|team| team.repo.clone()).collect();
         let held = &self.held;
         self.titles.retain(|repo, _| held.contains(repo));
         self.membership.keep(held);
         self.link.with(|link| {
+            link.gateways = gateways;
             link.boards.keep(held);
+            link.teammates.retain(|repo, _| held.contains(repo));
 
             for repo in held {
                 if !link.boards.serves(repo) {
@@ -240,7 +245,7 @@ impl Gateway {
                 linked: &titles,
                 now,
             };
-            let fresh: Vec<Card> = listed
+            let mut fresh: Vec<Card> = listed
                 .iter()
                 .filter_map(|listed| {
                     let mut view = listed.view.clone();
@@ -251,6 +256,7 @@ impl Gateway {
                 .collect();
 
             self.link.with(|link| {
+                fresh.extend(link.asks.cards(&team.repo, now));
                 let old = link.boards.cards(&team.repo).unwrap_or_default();
                 link.boards.set(&team.repo, settle(&old, fresh, now));
             });
@@ -287,9 +293,13 @@ impl Gateway {
             return (titles.clone(), false);
         }
 
-        let read = timeout(FORGE_LIMIT, self.link.forge().issue_titles(repo))
+        let read = timeout(FORGE_LIMIT, self.link.forge().open_issues(repo))
             .await
-            .unwrap_or_else(|_| Err("it took too long".to_owned()));
+            .unwrap_or_else(|_| Err("it took too long".to_owned()))
+            .map(|issues| {
+                let titles = issues.into_iter().map(|issue| (issue.number, issue.title));
+                titles.collect::<IssueTitles>()
+            });
         let titles = read.unwrap_or_else(|e| {
             log::info!("the issues of {repo} did not read: {e}");
             self.titles
@@ -322,11 +332,10 @@ impl Gateway {
 
         for (repo, mesh) in stopped {
             self.follows.remove(&(repo.clone(), mesh));
-            self.teammates.entry(repo.clone()).or_default().gone(mesh);
+            self.link
+                .with(|link| link.teammates.entry(repo.clone()).or_default().gone(mesh));
             self.publish(&repo);
         }
-
-        self.teammates.retain(|repo, _| self.held.contains(repo));
 
         for (key, member) in wanted {
             if self.follows.contains_key(&key) {
@@ -351,23 +360,24 @@ impl Gateway {
         let Some((member, _)) = self.follows.get(&(repo.clone(), mesh)) else {
             return;
         };
-        let teammates = self.teammates.entry(repo.clone()).or_default();
+        self.link.with(|link| {
+            let teammates = link.teammates.entry(repo.clone()).or_default();
 
-        match heard {
-            Heard::Board(cards) => teammates.board(mesh, &member.login, cards),
-            Heard::Change(card, gone) => teammates.change(mesh, &member.login, card, gone),
-            Heard::Gone => teammates.gone(mesh),
-        }
+            match heard {
+                Heard::Board(cards) => teammates.board(mesh, &member.login, cards),
+                Heard::Change(card, gone) => teammates.change(mesh, &member.login, card, gone),
+                Heard::Gone => teammates.gone(mesh),
+            }
+        });
 
         self.publish(&repo);
     }
 
     fn publish(&self, repo: &TeamRepo) {
-        let cards = self
-            .teammates
-            .get(repo)
-            .map(Teammates::cards)
-            .unwrap_or_default();
+        let cards = self.link.with(|link| {
+            let teammates = link.teammates.get(repo);
+            teammates.map(Teammates::cards).unwrap_or_default()
+        });
         let published = rmp_serde::to_vec(&cards)
             .map_err(anyhow::Error::from)
             .and_then(|bytes| self.offers.agents.events.publish(topic(repo), bytes));

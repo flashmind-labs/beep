@@ -15,6 +15,8 @@ struct Fake {
     alone: bool,
     /// The session is the home assistant.
     assistant: bool,
+    /// The session works in a team project.
+    team: bool,
 }
 
 impl Fake {
@@ -27,6 +29,7 @@ impl Fake {
             media: None,
             alone: false,
             assistant: false,
+            team: false,
         }
     }
 }
@@ -86,6 +89,11 @@ impl Backend for Fake {
 
     fn alone(&self) -> bool {
         self.alone
+    }
+
+    fn team(&self, session: &SessionId) -> bool {
+        assert_eq!(*session, "a3f9c1");
+        self.team
     }
 
     fn media(&self, _session: &SessionId) -> Option<Media> {
@@ -730,4 +738,33 @@ async fn a_saved_key_tells_the_agent_its_tools_changed() {
     };
     tokio::join!(served, client);
     spawn_env::set_vars(Vec::new());
+}
+
+#[tokio::test]
+async fn only_sessions_in_a_team_project_get_the_team_tools() {
+    let ask = || {
+        let args = json!({ "name": "team_ask", "arguments": { "to": "bob", "text": "Can I take #52?" } });
+        [request(1, "tools/list", json!({})), request(2, "tools/call", args)]
+    };
+    let listed = |out: &[Value]| -> Vec<String> {
+        let tools = out[0]["result"]["tools"].as_array().unwrap();
+        tools.iter().map(|tool| tool["name"].as_str().unwrap().to_owned()).collect()
+    };
+
+    let alone = Fake::new("allow");
+    let out = exchange(&alone, &ask()).await;
+    assert!(!listed(&out).iter().any(|name| name.starts_with("team")));
+    assert_eq!(out[1]["result"]["isError"], true);
+    assert!(alone.calls.lock().unwrap().is_empty());
+
+    let teamed = Fake {
+        team: true,
+        ..Fake::new("allow")
+    };
+    let out = exchange(&teamed, &ask()).await;
+    let names = listed(&out);
+    assert!(names.ends_with(&["team".to_owned(), "team_ask".to_owned()]));
+    let calls = teamed.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].tool, Tool::TeamAsk);
 }

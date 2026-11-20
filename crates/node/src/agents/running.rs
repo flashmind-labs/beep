@@ -651,6 +651,13 @@ impl Agents {
         let kind = &self.settings.configured(kind)?;
         signs_in(&kind.name, begin.account.as_ref())?;
         let (cwd, brief) = in_project(cwd, begin.resume.is_some(), begin.brief)?;
+        let brief = match self.mesh().is_some_and(|mesh| crate::team::home::in_team(&mesh, &cwd)) {
+            true => Some(Cow::Owned(match brief {
+                Some(brief) => format!("{brief}\n\n{}", super::brief::TEAM),
+                None => super::brief::TEAM.to_owned(),
+            })),
+            false => brief,
+        };
         let recovery_cwd = crate::files::paths::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone());
         let recovering = crate::lock(&self.recovering);
         anyhow::ensure!(

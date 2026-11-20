@@ -7,7 +7,7 @@
 //! mesh, so `join` takes effect without a restart.
 
 use crate::{
-    agents::SessionsAlpn,
+    agents::{SessionsAlpn, mcp::TeamSessions},
     files::transfer::Transfers,
     link::Protocol,
     link::from_mesh,
@@ -274,6 +274,7 @@ impl Peers {
     pub fn new(endpoint: Endpoint, dir: PathBuf, name: String, offers: Offers) -> Self {
         let reach = offers.reach.clone();
         let team = TeamLink::new(endpoint.clone(), Arc::new(ForgeCli));
+        team.serve_sessions(Arc::new(TeamSessions(offers.clone())));
         let inner = Arc::new(Inner {
             endpoint,
             dir,

@@ -160,6 +160,12 @@ impl Teammates {
         self.0.remove(&mesh);
     }
 
+    /// The mesh of the teammate whose card `id` is.
+    pub(crate) fn mesh_of(&self, id: &str) -> Option<EndpointId> {
+        let mut theirs = self.0.iter();
+        theirs.find_map(|(mesh, cards)| cards.contains_key(id).then_some(*mesh))
+    }
+
     /// Every teammate's cards.
     pub(crate) fn cards(&self) -> Vec<Card> {
         self.0

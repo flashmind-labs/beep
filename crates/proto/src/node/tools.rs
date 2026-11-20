@@ -101,6 +101,16 @@ pub enum Tool {
     /// A node hands a contact's invite to a team to a desktop, to show with
     /// Accept: `TeamInviteArgs`.
     TeamInvite,
+    /// The team of the calling session's project: its members, their
+    /// cards and the open issues with their assignees. A node forwards it to
+    /// its mesh's gateway for the team: `TeamArgs`.
+    Team,
+    /// Sends a teammate's agent or a teammate an ask, or answers one. A
+    /// node forwards it to its mesh's gateway for the team: `TeamAskArgs`.
+    TeamAsk,
+    /// A gateway hands an ask or its answer to the session it is for, on
+    /// the machine that runs it: `TeamDeliverArgs`. Between nodes only.
+    TeamDeliver,
     /// A tool a newer node calls that this one does not know.
     #[serde(other)]
     Unknown,

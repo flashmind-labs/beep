@@ -43,6 +43,7 @@ mod reply;
 mod review;
 mod server;
 mod socket;
+mod team;
 mod transcripts;
 
 pub(crate) use desktop::forward as to_desktop;
@@ -50,6 +51,7 @@ pub(crate) use machines::over_the_mesh;
 pub use machines::command_name;
 pub(crate) use desktop::answer as answer_projects;
 pub use desktop::ProjectTools;
+pub(crate) use team::{TeamSessions, answer as answer_team};
 pub(crate) use server::Backend;
 use server::Called;
 
@@ -222,6 +224,7 @@ impl Backend for Node {
             | Tool::SendToAgent
             | Tool::StopAgent
             | Tool::ListAgents => return Ok(children::call(&self.offers, request).await),
+            Tool::Team | Tool::TeamAsk => return Ok(team::call(&self.offers, request).await),
             Tool::BeepStatus | Tool::BeepLogs | Tool::BeepMetrics | Tool::FileReport => {
                 return Ok(debug::call(&self.offers, request).await);
             }
@@ -264,6 +267,10 @@ impl Backend for Node {
 
     fn assistant(&self, session: &SessionId) -> bool {
         self.offers.agents.is_assistant(session)
+    }
+
+    fn team(&self, session: &SessionId) -> bool {
+        team::team_of(&self.offers, session).is_some()
     }
 
     fn alone(&self) -> bool {

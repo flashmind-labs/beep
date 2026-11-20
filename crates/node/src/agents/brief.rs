@@ -13,6 +13,9 @@ pub(crate) const BRIEF: &str = "The `beep` MCP server's tools reach the user's o
 
 For Rust, C or C++ builds, use sccache when it is installed: for Rust set RUSTC_WRAPPER=sccache if no wrapper is set; for C or C++ keep the project's compiler launcher. Do not install it or change global configuration unless asked.";
 
+/// What an agent in a team project hears ahead of its first prompt.
+pub(crate) const TEAM: &str = "This project has a team. Use the team tool to see who works on what. Before working an issue, assign it to your user; if someone else holds it, use team_ask instead of starting.";
+
 /// What the home assistant hears after the brief.
 pub(crate) const ASSISTANT: &str = "You are the Beep assistant, working in the user's home folder. \
     Use list_machines, list_projects, start_agent, list_agents and the projects_ tools to look after the user's machines, projects and sessions. \

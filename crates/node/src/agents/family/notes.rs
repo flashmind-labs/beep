@@ -174,6 +174,21 @@ impl Agents {
     }
 }
 
+impl Agents {
+    /// Puts `text`, a note such as a teammate's answer, into the live session
+    /// `id` here, the way a child's notes go in.
+    pub(crate) async fn tell(&self, id: &SessionId, text: String) -> Result<(), String> {
+        let session = self
+            .peers()
+            .into_iter()
+            .find(|session| session.id == *id || Self::name_of(session) == *id)
+            .ok_or_else(|| format!("No session {id} runs here any more."))?;
+        let idle = watched::read(&session.live, |live| live.status() == Status::Idle);
+
+        put(&session, idle, text).await
+    }
+}
+
 /// Follows a child's state and sends a note for each turn it finishes, each
 /// time it starts to ask and each stop by the user, until it ends.
 async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLock<Membership>>) {
@@ -290,11 +305,16 @@ async fn deliver(
         return Ok(());
     }
 
-    let text = note.text_for(id).into();
+    put(parent, idle, note.text_for(id)).await
+}
+
+/// Puts `text` into `session`: a prompt when it is `idle`, else a steer.
+async fn put(session: &Session, idle: bool, text: String) -> Result<(), String> {
+    let text = text.into();
     let command = if idle {
         Command::Prompt(text)
     } else {
         Command::Steer(text)
     };
-    parent.order(command).await
+    session.order(command).await
 }

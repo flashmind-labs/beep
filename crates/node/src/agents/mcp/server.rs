@@ -4,7 +4,7 @@
 
 use beep_proto::SessionId;
 use super::{
-    catalog::{self, ASK_USER, DEVICE, PROJECTS, READ_TRANSCRIPT, REMOTE_RUN},
+    catalog::{self, ASK_USER, DEVICE, PROJECTS, READ_TRANSCRIPT, REMOTE_RUN, TEAM},
     media::Media,
 };
 use crate::{
@@ -65,6 +65,10 @@ pub(crate) trait Backend: Sync {
     /// Whether the mesh has no other machine to run on, so the tools that
     /// reach one are left out.
     fn alone(&self) -> bool {
+        false
+    }
+    /// Whether `session` works in a team project, which gets the team tools.
+    fn team(&self, _session: &SessionId) -> bool {
         false
     }
     /// The media tools `session` gets from the saved API keys.
@@ -184,8 +188,13 @@ async fn answer<B: Backend>(
                 backend.assistant(session),
             );
 
-            if let (Some(listed), Some(media)) = (tools.as_array_mut(), media.as_deref()) {
-                listed.extend(media.listed());
+            if let Some(listed) = tools.as_array_mut() {
+                if backend.team(session) {
+                    listed.extend(catalog::team());
+                }
+                if let Some(media) = media.as_deref() {
+                    listed.extend(media.listed());
+                }
             }
 
             success(id, json!({ "tools": tools }))
@@ -273,6 +282,10 @@ impl From<Reply> for Called {
 async fn call<B: Backend>(backend: &B, session: &SessionId, name: &str, args: Value) -> Called {
     // Only the home assistant creates and imports projects.
     if name.starts_with(PROJECTS) && !backend.assistant(session) {
+        return Called::failed(format!("There is no tool {name}."));
+    }
+    // Only sessions in a team project reach the team.
+    if TEAM.contains(&name) && !backend.team(session) {
         return Called::failed(format!("There is no tool {name}."));
     }
 

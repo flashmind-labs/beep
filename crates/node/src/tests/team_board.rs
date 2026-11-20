@@ -1,5 +1,5 @@
 use super::*;
-use crate::team::{cards::IssueTitles, link::TeamForge, roster::record};
+use crate::team::{link::TeamForge, roster::record};
 use beep_proto::team::{Card, ForgeLogin, Lane};
 use futures::future::BoxFuture;
 use iroh::{
@@ -36,11 +36,11 @@ impl TeamForge for Forge {
         Box::pin(async { Ok(login("alice")) })
     }
 
-    fn issue_titles<'a>(
+    fn open_issues<'a>(
         &'a self,
         _repo: &'a TeamRepo,
-    ) -> BoxFuture<'a, Result<IssueTitles, String>> {
-        Box::pin(async { Ok(IssueTitles::default()) })
+    ) -> BoxFuture<'a, Result<Vec<beep_projects::commands::OpenIssue>, String>> {
+        Box::pin(async { Ok(Vec::new()) })
     }
 }
 

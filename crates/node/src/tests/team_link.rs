@@ -62,11 +62,11 @@ impl TeamForge for Forge {
         Box::pin(async move { Ok(self.login.parse().unwrap()) })
     }
 
-    fn issue_titles<'a>(
+    fn open_issues<'a>(
         &'a self,
         _repo: &'a TeamRepo,
-    ) -> BoxFuture<'a, Result<crate::team::cards::IssueTitles, String>> {
-        Box::pin(async move { Ok(Default::default()) })
+    ) -> BoxFuture<'a, Result<Vec<beep_projects::commands::OpenIssue>, String>> {
+        Box::pin(async { Ok(Vec::new()) })
     }
 }
 
@@ -97,7 +97,11 @@ fn git(dir: &Path, args: &[&str]) {
         .current_dir(dir)
         .output()
         .unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// An inviter and a joiner on two endpoints, each with a checkout of one bare remote.
@@ -519,7 +523,9 @@ fn contact_invites_expire_after_a_day() {
     };
     let now = SystemTime::now();
 
-    invites.keep(args, now - DAY - Duration::from_secs(1)).unwrap();
+    invites
+        .keep(args, now - DAY - Duration::from_secs(1))
+        .unwrap();
 
     assert!(invites.current(now).is_empty());
 }
@@ -624,12 +630,20 @@ async fn roster_newcomer_needs_the_forge() {
     with_carol(&refusing, carol, device);
     let answer = refusing.tell(device, add_dave()).await;
     assert!(reason(answer).contains("not a collaborator"));
-    assert!(!refusing.inviter.with(|teams| teams.rosters.allows(dave, &repo())));
+    assert!(
+        !refusing
+            .inviter
+            .with(|teams| teams.rosters.allows(dave, &repo()))
+    );
 
     let vouching = Pair::new(SystemTime::now() + DAY).await;
     with_carol(&vouching, carol, device);
     assert_eq!(vouching.tell(device, add_dave()).await, None);
-    assert!(vouching.inviter.with(|teams| teams.rosters.allows(dave, &repo())));
+    assert!(
+        vouching
+            .inviter
+            .with(|teams| teams.rosters.allows(dave, &repo()))
+    );
 }
 
 #[test]
@@ -770,7 +784,9 @@ fn roster_rules() {
     // Alice cannot change Bob's devices; Bob can.
     let by_alice = rosters.apply(alice_device, None, &roster(vec![moved.clone()]));
     assert_eq!(by_alice, Ok(Applied::default()));
-    rosters.apply(bob_device, None, &roster(vec![moved])).unwrap();
+    rosters
+        .apply(bob_device, None, &roster(vec![moved]))
+        .unwrap();
     assert!(rosters.allows(laptop, &repo()));
 
     // A newcomer waits for the forge, then any member adds them.
@@ -883,5 +899,8 @@ async fn member_roster_past_the_first_frame_limit_is_taken() {
     tx.finish().await.unwrap();
 
     assert_eq!(rx.recv::<TeamMsg>().await.unwrap(), None);
-    assert!(pair.inviter.with(|teams| teams.rosters.allows(laptop, &repo())));
+    assert!(
+        pair.inviter
+            .with(|teams| teams.rosters.allows(laptop, &repo()))
+    );
 }

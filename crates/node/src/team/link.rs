@@ -5,17 +5,19 @@
 //! refused.
 
 use super::{
+    asks::{Asks, Sessions, not_served},
     board::{self, Boards},
-    cards::IssueTitles,
+    cards::Teammates,
     home::{Home, Invites},
     proof::ProofError,
     roster::{Refusal, Rosters},
 };
+use beep_mesh::TeamTicket;
+use beep_projects::commands::OpenIssue;
 use beep_proto::{
     node::{LinkRx, LinkTx, link, tools::TeamInviteArgs},
     team::{ALPN, ForgeLogin, Member, TeamMsg, TeamRecord, TeamRepo},
 };
-use beep_mesh::TeamTicket;
 use futures::future::BoxFuture;
 use iroh::{
     Endpoint, EndpointAddr, EndpointId,
@@ -23,8 +25,9 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 use std::{
+    collections::BTreeMap,
     fmt,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, SystemTime},
 };
 use tokio::{sync::Notify, time::timeout};
@@ -50,8 +53,11 @@ pub(crate) trait TeamForge: Send + Sync + 'static {
     /// The account this machine is signed in with on `repo`'s host.
     fn login<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<ForgeLogin, String>>;
 
-    /// The titles of `repo`'s open issues.
-    fn issue_titles<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<IssueTitles, String>>;
+    /// `repo`'s open issues.
+    fn open_issues<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+    ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -83,6 +89,13 @@ pub(crate) struct Teams {
     pub(crate) invites: Invites,
     /// The boards this device serves as its mesh's gateway.
     pub(crate) boards: Boards,
+    /// The machine of this mesh that acts for each team, as this device
+    /// elected it.
+    pub(crate) gateways: BTreeMap<TeamRepo, EndpointId>,
+    /// The teammates' cards this device follows as its mesh's gateway.
+    pub(crate) teammates: BTreeMap<TeamRepo, Teammates>,
+    /// The asks this device's sessions sent, and those it keeps as gateway.
+    pub(crate) asks: Asks,
 }
 
 /// The team link of this device, shared by its handler, its dialing and the
@@ -96,6 +109,8 @@ struct Inner {
     endpoint: Endpoint,
     forge: Arc<dyn TeamForge>,
     teams: Mutex<Teams>,
+    /// Where asks and their answers are handed, once the node runs sessions.
+    sessions: OnceLock<Arc<dyn Sessions>>,
     /// Rings when a roster or an invite waits for a desktop.
     waiting: Notify,
 }
@@ -106,6 +121,7 @@ impl TeamLink {
             endpoint,
             forge,
             teams: Mutex::new(Teams::default()),
+            sessions: OnceLock::new(),
             waiting: Notify::new(),
         };
 
@@ -123,8 +139,19 @@ impl TeamLink {
         &self.inner.endpoint
     }
 
-    pub(super) fn forge(&self) -> &dyn TeamForge {
+    pub(crate) fn forge(&self) -> &dyn TeamForge {
         self.inner.forge.as_ref()
+    }
+
+    /// Hands asks and their answers to `sessions` from now on.
+    pub(crate) fn serve_sessions(&self, sessions: Arc<dyn Sessions>) {
+        if self.inner.sessions.set(sessions).is_err() {
+            log::warn!("the team link already serves sessions");
+        }
+    }
+
+    pub(super) fn sessions(&self) -> Option<&dyn Sessions> {
+        self.inner.sessions.get().map(Arc::as_ref)
     }
 
     /// Reads or changes what the link knows. Keep `f` short: it holds the lock.
@@ -313,9 +340,9 @@ impl TeamLink {
 
         match msg {
             TeamMsg::Join { .. } => refused("A join opens its own link".to_owned()),
-            TeamMsg::Subscribe { repo } | TeamMsg::Ask { repo, .. } => {
-                refused(format!("This device does not serve {repo}'s board"))
-            }
+            TeamMsg::Subscribe { repo } => refused(not_served(repo)),
+            TeamMsg::Ask { .. } => self.asked(peer, msg).await,
+            TeamMsg::Reply { id, text } => self.answered(peer, id, text).await,
             _ => None,
         }
     }
