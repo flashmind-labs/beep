@@ -214,3 +214,46 @@ fn a_followed_session_is_found_by_the_id_its_card_has() {
     assert!(off_the_board(&state, &cards).is_empty());
     assert_eq!(off_the_board(&state, &[]), [(8, full_id(acp, "laptop"))]);
 }
+
+#[test]
+fn an_issue_assigned_twice_starts_once() {
+    let plan = due(&pickup(&[], &[]), &[6, 5, 6], &set(&[]), None);
+
+    assert_eq!(plan.start, [5, 6]);
+}
+
+#[test]
+fn a_session_titled_for_an_issue_is_live() {
+    let cards = [
+        listed_card("acp-1", "laptop", "#42 Fix the crash"),
+        listed_card("acp-2", "laptop", "#7"),
+        listed_card("acp-3", "laptop", "#x9 not an issue"),
+    ];
+
+    assert_eq!(live(&pickup(&[], &[]), &cards), set(&[42]));
+    assert_eq!(
+        plan(&mut pickup(&[], &[]), &[42], &cards, None),
+        Plan::default()
+    );
+}
+
+#[test]
+fn a_team_acted_for_again_leaves_its_assigned_issues_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo: TeamRepo = "github.com/org/repo".parse().unwrap();
+    let mut pickups = Pickups::new(dir.path().to_owned());
+    let mut state = pickup(&[], &[1]);
+    state.on = true;
+    pickups.save(&repo, &state);
+    pickups.states.insert(repo.clone(), state);
+
+    // Another machine acts for the team and starts #42.
+    pickups.keep(&BTreeSet::new());
+    assert!(pickups.states.is_empty());
+
+    let mut state = pickups.take(&repo);
+    assert!(!state.on);
+    assert_eq!(plan(&mut state, &[1, 42], &[], None), Plan::default());
+    assert_eq!(state.seen_at_enable, set(&[1, 42]));
+    assert_eq!(plan(&mut state, &[1, 42, 43], &[], None).start, [43]);
+}

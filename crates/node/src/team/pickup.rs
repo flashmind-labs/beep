@@ -70,14 +70,15 @@ pub(crate) struct Plan {
 
 /// What to do with the `assigned` issues: each not started before, not
 /// assigned when pickup was turned on and with no `live` session starts,
-/// while fewer than `limit` automatic sessions are live; the rest wait.
+/// lowest number first, while fewer than `limit` automatic sessions are
+/// live; the rest wait.
 pub(crate) fn due(p: &Pickup, assigned: &[u64], live: &BTreeSet<u64>, limit: Option<u32>) -> Plan {
-    let mut new: Vec<u64> = assigned
+    let new: BTreeSet<u64> = assigned
         .iter()
         .copied()
         .filter(|n| !p.started.contains(n) && !p.seen_at_enable.contains(n) && !live.contains(n))
         .collect();
-    new.dedup();
+    let mut new: Vec<u64> = new.into_iter().collect();
     let running = p.started.intersection(live).count();
     let room = limit.map_or(usize::MAX, |limit| {
         usize::try_from(limit)
@@ -120,8 +121,21 @@ pub(crate) fn issue_prompt(number: u64, title: &str, url: &str) -> String {
     )
 }
 
+/// Snapshots the issues `assigned` now as the backlog the first round
+/// pickup is on, then plans the round as `due` does with the live sessions
+/// of `cards`.
+fn plan(state: &mut Pickup, assigned: &[u64], cards: &[Card], limit: Option<u32>) -> Plan {
+    if !state.on {
+        state.on = true;
+        state.seen_at_enable = assigned.iter().copied().collect();
+    }
+
+    due(state, assigned, &live(state, cards), limit)
+}
+
 /// The issues of `cards` with a session that has not ended: those its
-/// branch names, and those of the automatic sessions in `p`.
+/// branch or its title (`#<n> `, as automatic sessions are titled) names,
+/// and those of the automatic sessions in `p`.
 fn live(p: &Pickup, cards: &[Card]) -> BTreeSet<u64> {
     let autos = |card: &Card| {
         let running = p.running.iter();
@@ -134,8 +148,21 @@ fn live(p: &Pickup, cards: &[Card]) -> BTreeSet<u64> {
     cards
         .iter()
         .filter(|card| card.lane != Lane::DoneToday {})
-        .flat_map(|card| card.issue.into_iter().chain(autos(card)))
+        .flat_map(|card| {
+            let titled = issue_of_title(&card.title);
+            card.issue.into_iter().chain(titled).chain(autos(card))
+        })
         .collect()
+}
+
+/// The issue a title that starts `#<n> ` names.
+fn issue_of_title(title: &str) -> Option<u64> {
+    let (number, _) = title.strip_prefix('#')?.split_once(' ')?;
+
+    match number.bytes().all(|b| b.is_ascii_digit()) {
+        true => number.parse().ok(),
+        false => None,
+    }
 }
 
 /// The pickup of every team the gateway holds.
@@ -195,6 +222,23 @@ impl Pickups {
         self.states.insert(repo.clone(), state);
     }
 
+    /// Notes pickup off for each team this machine no longer acts for and
+    /// forgets it, so that acting for it again leaves the issues assigned
+    /// by then alone: another machine may have started them meanwhile.
+    pub(super) fn keep(&mut self, held: &BTreeSet<TeamRepo>) {
+        let gone: Vec<TeamRepo> = self
+            .states
+            .keys()
+            .filter(|repo| !held.contains(*repo))
+            .cloned()
+            .collect();
+
+        for repo in gone {
+            self.off(&repo);
+            self.states.remove(&repo);
+        }
+    }
+
     /// Starts sessions on the issues newly assigned to this mesh's person,
     /// and turns the automatic sessions that ended without a pull request
     /// into Needs you cards.
@@ -210,14 +254,9 @@ impl Pickups {
         let mut state = self.take(repo);
         let before = state.clone();
 
-        if !state.on {
-            state.on = true;
-            state.seen_at_enable = assigned.iter().map(|issue| issue.number).collect();
-        }
-
         ended(&round, &mut state).await;
         let numbers: Vec<u64> = assigned.iter().map(|issue| issue.number).collect();
-        let plan = due(&state, &numbers, &live(&state, round.cards), limit);
+        let plan = plan(&mut state, &numbers, round.cards, limit);
         let issue = |n: &u64| assigned.iter().find(|issue| issue.number == *n);
         let starts = plan
             .start

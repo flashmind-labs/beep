@@ -168,6 +168,7 @@ impl Gateway {
         let held = &self.held;
         self.titles.retain(|repo, _| held.contains(repo));
         self.membership.keep(held);
+        self.pickups.keep(held);
         self.link.with(|link| {
             link.gateways = gateways;
             link.boards.keep(held);
