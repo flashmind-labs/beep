@@ -140,3 +140,27 @@ fn quick_requests_that_end_well_write_nothing_at_info() {
     assert!(text.contains("outcome=\"error\""), "{text}");
     assert!(text.contains("outcome=\"cancelled\""), "{text}");
 }
+
+#[test]
+fn a_websocket_handshake_is_never_traced_whatever_rust_log_says() {
+    use tracing::Level;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    for asked in ["trace", "tungstenite=trace,tokio_tungstenite=trace"] {
+        let subscriber = tracing_subscriber::registry().with(capped(EnvFilter::new(asked)));
+        tracing::subscriber::with_default(subscriber, || {
+            assert!(
+                !tracing::enabled!(target: "tungstenite::handshake::client", Level::TRACE),
+                "{asked}"
+            );
+            assert!(
+                !tracing::enabled!(target: "tokio_tungstenite", Level::DEBUG),
+                "{asked}"
+            );
+            assert!(
+                tracing::enabled!(target: "tungstenite::protocol", Level::INFO),
+                "{asked}"
+            );
+        });
+    }
+}
