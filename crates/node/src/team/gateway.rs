@@ -1,13 +1,13 @@
 //! The gateway: the one machine of this mesh that acts for a team project,
 //! elected among the mesh's machines with its checkout as the CI watcher is
 //! (`machine::elect`). It serves this mesh's cards to the teammates who
-//! subscribe, follows each teammate's board for this mesh's apps on the
-//! topic `team.<repo>` (`topic`), and keeps this mesh's place on the team
+//! subscribe, follows each teammate's board for this mesh's apps, which read
+//! it with `TeamAppArgs::Cards`, and keeps this mesh's place on the team
 //! (`membership`).
 
 use super::{
     board::{CHANGES, Followed, Heard, follow},
-    cards::{Facts, IssueTitles, Teammates, card_of, settle},
+    cards::{Facts, IssueTitles, card_of, settle},
     home::Project,
     link::TeamLink,
     membership::{self, Membership, Team},
@@ -21,10 +21,10 @@ use crate::{
         elect::{ask_reach, elect, gather, online},
     },
 };
-use beep_mesh::{DeviceKind, Mesh};
+use beep_mesh::Mesh;
 use beep_proto::{
     SessionId,
-    node::{events::Topic, tools::ForgeReach},
+    node::tools::ForgeReach,
     team::{Card, Lane, Member, TeamRepo},
 };
 use futures::future::join_all;
@@ -51,11 +51,6 @@ const QUIET: Duration = Duration::from_secs(10 * 60);
 /// How long a forge call or a branch read may take.
 pub(super) const FORGE_LIMIT: Duration = Duration::from_secs(30);
 const GIT_LIMIT: Duration = Duration::from_secs(5);
-
-/// The topic this mesh's apps read `repo`'s teammates' cards on.
-pub(crate) fn topic(repo: &TeamRepo) -> Topic {
-    Topic::keyed("team", repo.to_string())
-}
 
 /// The machine that acts for `repo`, as `me` sees it with the online
 /// `peers`: one of the project's machines on `mine`, this mesh's entry on the
@@ -310,24 +305,11 @@ impl Gateway {
     }
 
     /// The machine of `project` that starts its issues' sessions when this
-    /// one runs no agent: another online one, not a desktop, elected as the
-    /// gateway is.
+    /// one runs no agent: another online one with its checkout, a desktop
+    /// or a node, elected as the gateway is.
     fn elsewhere(&self, project: &Project, repo: &TeamRepo) -> Option<EndpointId> {
-        let online = online(&self.mesh);
-        let desktops: BTreeSet<EndpointId> = self
-            .mesh
-            .devices()
-            .into_iter()
-            .filter(|status| status.device.kind == DeviceKind::Desktop)
-            .map(|status| status.device.id)
-            .collect();
-        let machines = project
-            .devices
-            .iter()
-            .map(|device| device.id)
-            .filter(|machine| online.contains(machine) && !desktops.contains(machine))
-            .collect();
         let reach = self.offers.agents.ci.reach_of(&repo.host);
+        let machines = starters(project, &online(&self.mesh));
 
         elect(&machines, self.me, reach, &self.peers, &repo.host)
     }
@@ -411,7 +393,6 @@ impl Gateway {
             self.follows.remove(&(repo.clone(), mesh));
             self.link
                 .with(|link| link.teammates.entry(repo.clone()).or_default().gone(mesh));
-            self.publish(&repo);
         }
 
         for (key, member) in wanted {
@@ -430,8 +411,7 @@ impl Gateway {
         }
     }
 
-    /// Takes what a follow heard, and hands the teammates' cards to this
-    /// mesh's apps.
+    /// Takes what a follow heard, for this mesh's apps.
     fn heard(&mut self, followed: Followed) {
         let Followed { repo, mesh, heard } = followed;
         let Some((member, _)) = self.follows.get(&(repo.clone(), mesh)) else {
@@ -446,23 +426,18 @@ impl Gateway {
                 Heard::Gone => teammates.gone(mesh),
             }
         });
-
-        self.publish(&repo);
     }
+}
 
-    fn publish(&self, repo: &TeamRepo) {
-        let cards = self.link.with(|link| {
-            let teammates = link.teammates.get(repo);
-            teammates.map(Teammates::cards).unwrap_or_default()
-        });
-        let published = rmp_serde::to_vec(&cards)
-            .map_err(anyhow::Error::from)
-            .and_then(|bytes| self.offers.agents.events.publish(topic(repo), bytes));
-
-        if let Err(e) = published {
-            log::warn!("the teammates' cards of {repo} were not published: {e:#}");
-        }
-    }
+/// The machines of `project` that may start its issues' sessions for the
+/// gateway: those with its checkout among the `online` ones, desktops too.
+pub(super) fn starters(project: &Project, online: &BTreeSet<EndpointId>) -> BTreeSet<EndpointId> {
+    project
+        .devices
+        .iter()
+        .map(|device| device.id)
+        .filter(|machine| online.contains(machine))
+        .collect()
 }
 
 /// The branch checked out in `folder`; `None` when detached or unknown.

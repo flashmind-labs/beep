@@ -1,12 +1,14 @@
 //! Joining a team, both sides. The joiner sends `Join` with an invite's
 //! secret; the inviter answers `Challenge`, the joiner pushes the proof ref
 //! and sends `Proved`, and the inviter checks the ref and that the login is
-//! a collaborator, deletes the ref and answers `Roster` or `Refused`.
+//! a collaborator, deletes the ref and answers `Roster` or `Refused`. The
+//! joiner checks every member of that roster on the forge in turn.
 
 use super::{
     home::Checkout,
     link::{TeamError, TeamLink, finish},
     proof::{Nonce, ProofError, drop_proof, proof_seen, push_proof},
+    roster::vet_roster,
 };
 use beep_mesh::{JoinSecret, TeamTicket, secret_hash};
 use beep_proto::{
@@ -16,6 +18,7 @@ use beep_proto::{
     },
     team::{ForgeLogin, Member, TeamMsg, TeamRecord, TeamRepo},
 };
+use futures::future::try_join_all;
 use iroh::{EndpointAddr, EndpointId};
 use std::{
     future::Future,
@@ -126,10 +129,41 @@ impl TeamLink {
 
         match rx.recv().await? {
             Some(TeamMsg::Roster { repo: of, members }) if of == repo => {
+                self.check_roster(&repo, &members, ticket.inviter).await?;
                 Ok(TeamRecord::new(repo, members))
             }
             other => Err(unexpected(other)),
         }
+    }
+
+    /// Checks the roster the inviter answered with before taking it, as a
+    /// member checks a newcomer: the inviter and this mesh are on it, every
+    /// entry keeps the rules, and the forge says every member of another
+    /// mesh may push.
+    async fn check_roster(
+        &self,
+        repo: &TeamRepo,
+        members: &[Member],
+        inviter: EndpointId,
+    ) -> Result<(), TeamError> {
+        let own = self.with(|teams| teams.home.mesh);
+        let names_inviter = members
+            .iter()
+            .any(|member| member.devices.iter().any(|device| device.id == inviter));
+
+        if !names_inviter || !members.iter().any(|member| Some(member.mesh) == own) {
+            return Err(TeamError::Refused(
+                "The inviter's roster does not name the inviter and this mesh".to_owned(),
+            ));
+        }
+
+        vet_roster(repo, members).map_err(|refusal| TeamError::Refused(refusal.to_string()))?;
+        let others = members.iter().filter(|member| Some(member.mesh) != own);
+        try_join_all(others.map(|member| self.vouch(repo, &member.login)))
+            .await
+            .map_err(TeamError::Refused)?;
+
+        Ok(())
     }
 
     /// The inviter's side of a join from `peer`: the team's roster or why

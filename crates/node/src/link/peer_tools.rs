@@ -120,16 +120,6 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
         return crate::team::apps::answer(&caller, &request).await;
     }
 
-    // A gateway may not start sessions on a desktop, nor a session call it.
-    if request.tool == Tool::TeamPickup
-        && (caller.desktop_here || matches!(caller.table, Table::Shared))
-    {
-        return Reply::Done {
-            text: "This machine does not start sessions for a team.".to_owned(),
-            failed: true,
-        };
-    }
-
     if matches!(
         request.tool,
         Tool::Team | Tool::TeamAsk | Tool::TeamDeliver | Tool::TeamPickup

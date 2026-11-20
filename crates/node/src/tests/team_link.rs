@@ -1,7 +1,7 @@
 use super::*;
 use crate::team::{
     home::{Checkout, Invites, Project},
-    roster::{Applied, Refusal, Rosters},
+    roster::{Applied, Refusal, Rosters, vet_roster},
 };
 use beep_mesh::{JoinSecret, TeamTicket, secret_hash};
 use beep_proto::{
@@ -122,6 +122,7 @@ struct Pair {
     remote: String,
     inviter: TeamLink,
     inviter_id: EndpointId,
+    inviter_addr: EndpointAddr,
     alice_mesh: EndpointId,
     joiner: TeamLink,
     joiner_checkout: PathBuf,
@@ -187,13 +188,14 @@ impl Pair {
             );
         });
 
-        let joiner = joiner_link(&inviter_addr, joiner).await;
+        let joiner = joiner_link(&inviter_addr, joiner, Answer::Yes).await;
 
         Self {
             _root: root,
             remote,
             inviter,
             inviter_id,
+            inviter_addr,
             alice_mesh,
             joiner,
             joiner_checkout,
@@ -247,8 +249,8 @@ impl Pair {
 }
 
 /// A joiner signed in as `name` in a mesh of its own, which finds the inviter by
-/// `inviter`'s address.
-async fn joiner_link(inviter: &EndpointAddr, name: &'static str) -> TeamLink {
+/// `inviter`'s address, and whose forge gives `collaborator`.
+async fn joiner_link(inviter: &EndpointAddr, name: &'static str, collaborator: Answer) -> TeamLink {
     let lookup = MemoryLookup::new();
     lookup.add_endpoint_info(inviter.clone());
     let endpoint = Endpoint::builder(presets::Minimal)
@@ -261,7 +263,7 @@ async fn joiner_link(inviter: &EndpointAddr, name: &'static str) -> TeamLink {
         endpoint,
         Arc::new(Forge {
             login: name,
-            collaborator: Answer::Yes,
+            collaborator,
         }),
     );
     link.with(|teams| {
@@ -384,6 +386,35 @@ async fn non_collaborator_is_refused() {
     assert!(reason.contains("not a collaborator"), "{reason}");
     assert!(pair.inviter_pending().is_empty());
     no_proof_refs(&pair.remote).await;
+}
+
+#[tokio::test]
+async fn a_joiner_refuses_an_inviter_the_forge_does_not_vouch_for() {
+    let mut pair = Pair::new(SystemTime::now() + DAY).await;
+    pair.joiner = joiner_link(&pair.inviter_addr, "bob", Answer::No).await;
+
+    let reason = refused(pair.join(pair.secret.clone()).await);
+
+    assert!(reason.contains("alice is not a collaborator"), "{reason}");
+    no_proof_refs(&pair.remote).await;
+}
+
+#[test]
+fn a_joiner_refuses_a_roster_that_breaks_the_rules() {
+    let repo = repo();
+    let alice = member("alice", mesh_id(), mesh_id());
+    let mut twin = member("bob", mesh_id(), mesh_id());
+    assert!(vet_roster(&repo, &[alice.clone(), twin.clone()]).is_ok());
+
+    twin.login = alice.login.clone();
+    assert_eq!(
+        vet_roster(&repo, &[alice.clone(), twin.clone()]),
+        Err(Refusal::Taken)
+    );
+
+    twin.login = login("bob");
+    twin.devices = (0..33).map(|_| EndpointAddr::new(mesh_id())).collect();
+    assert_eq!(vet_roster(&repo, &[alice, twin]), Err(Refusal::Devices));
 }
 
 #[tokio::test]

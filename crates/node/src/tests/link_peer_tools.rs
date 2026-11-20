@@ -242,3 +242,25 @@ async fn a_node_gets_a_projects_answer_from_a_desktop_and_a_refusal_otherwise() 
     };
     assert!(failed && text.contains("only the Beep desktop"), "{text}");
 }
+
+/// A team's gateway starts issue sessions on any machine of the mesh with
+/// the project: from a desktop's own node, and on a desktop.
+#[tokio::test]
+async fn team_pickup_is_taken_from_a_desktop_and_on_one() {
+    let pickup = Request {
+        session: SessionId::default(),
+        tool: Tool::TeamPickup,
+        args: "{}".to_owned(),
+        approved: Default::default(),
+    };
+    let node = Table::Peer(iroh::SecretKey::generate().public());
+
+    for caller in [caller(Table::Shared, true), caller(node, false)] {
+        let Reply::Done { text, failed } = answer(pickup.clone(), caller).await else {
+            panic!("not done");
+        };
+        // Past the gate: this test machine acts for no team.
+        assert!(failed);
+        assert_eq!(text, "This machine does not act for a team.");
+    }
+}

@@ -266,6 +266,22 @@ impl Rosters {
     }
 }
 
+/// Checks `members`, the roster an inviter answers a join with, by the rules
+/// every member applies: each names 1 to 32 devices, and no two share a
+/// login, a mesh or a device.
+pub(crate) fn vet_roster(repo: &TeamRepo, members: &[Member]) -> Result<(), Refusal> {
+    let mut record = TeamRecord::new(repo.clone(), Vec::new());
+
+    for entry in members {
+        match vet(&record, entry, None)? {
+            Vetted::New => record.members.push(entry.clone()),
+            _ => return Err(Refusal::Taken),
+        }
+    }
+
+    Ok(())
+}
+
 /// Whether `login` in `mesh` was removed from `record`'s team.
 pub(crate) fn was_removed(record: &TeamRecord, login: &ForgeLogin, mesh: EndpointId) -> bool {
     record

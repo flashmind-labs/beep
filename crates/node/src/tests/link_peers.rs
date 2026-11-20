@@ -663,3 +663,44 @@ async fn peers_without_the_new_protocols_are_rejected_without_fallback() {
             .is_err()
     );
 }
+
+/// A node that left its mesh serves none of its teams any more.
+#[tokio::test]
+async fn leaving_the_mesh_forgets_the_teams() {
+    use beep_proto::team::{Member, TeamRecord, TeamRepo};
+    use iroh::{EndpointAddr, SecretKey, endpoint::presets};
+    let dir = tempfile::tempdir().expect("temp dir");
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .bind()
+        .await
+        .expect("the endpoint binds");
+    let peers = Peers::new(
+        endpoint.clone(),
+        dir.path().to_owned(),
+        "box".to_owned(),
+        Offers::default(),
+    );
+    let repo: TeamRepo = "github.com/org/repo".parse().expect("a repo");
+    let alice = Member {
+        login: "alice".parse().expect("a login"),
+        mesh: SecretKey::generate().public(),
+        devices: vec![EndpointAddr::new(endpoint.id())],
+        joined_at: std::time::SystemTime::now(),
+    };
+    peers.team().with(|teams| {
+        teams
+            .rosters
+            .refresh([(repo.clone(), TeamRecord::new(repo.clone(), vec![alice]))].into());
+        teams.boards.set(&repo, Vec::new());
+        teams.gateways.insert(repo.clone(), endpoint.id());
+    });
+
+    peers.leave().await;
+
+    peers.team().with(|teams| {
+        assert!(teams.rosters.get(&repo).is_none());
+        assert!(!teams.boards.serves(&repo));
+        assert!(teams.gateways.is_empty());
+    });
+}
