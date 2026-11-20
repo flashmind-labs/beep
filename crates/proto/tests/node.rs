@@ -855,6 +855,40 @@ mod tools {
     }
 
     #[test]
+    fn team_cards_go_as_json_in_every_lane() {
+        use beep_proto::team::{Card, Lane};
+
+        let card = |lane| Card {
+            id: "s1@build-box".into(),
+            title: "Fix the login".into(),
+            lane,
+            login: "dana".parse().expect("a login"),
+            machine: "build-box".into(),
+            issue: Some(52),
+            pr: None,
+            updated_at: std::time::SystemTime::UNIX_EPOCH,
+        };
+        let cards = TeamCards {
+            needs_you: vec![card(Lane::NeedsYou {})],
+            teammates: [
+                Lane::Working {},
+                Lane::ReadyToReview {},
+                Lane::DoneToday {},
+                Lane::Queued {},
+            ]
+            .into_iter()
+            .map(card)
+            .collect(),
+        };
+        let text = serde_json::to_string(&cards).expect("encodes");
+
+        assert_eq!(
+            serde_json::from_str::<TeamCards>(&text).expect("decodes"),
+            cards
+        );
+    }
+
+    #[test]
     fn an_unknown_tool_and_a_missing_approval_still_read() {
         #[derive(Serialize)]
         struct Newer {
