@@ -140,6 +140,8 @@ struct Session {
     link: Link,
     /// The sequence of the last event seen.
     seq: u64,
+    /// Hermes's replay epoch, which changes when Hermes restarts.
+    epoch: Value,
     prompt: Option<Responder<PromptResponse>>,
     cancelled: bool,
     /// Hermes's requests the client is answering.
@@ -161,13 +163,12 @@ impl Bridge {
             tokio::select! {
                 event = events.recv() => match event {
                     Some(Event::Request(message, responder)) => self.request(message, *responder).await?,
-                    Some(Event::Notification(message)) => self.notification(&message).await,
+                    Some(Event::Notification(message)) => self.notification(&message).await?,
                     None => return Ok(()),
                 },
                 () = self.cx.incoming_closed() => return Ok(()),
                 happened = next(&mut self.session) => match happened {
-                    Happened::Incoming(Incoming::Event(params)) => self.event(&params, true)?,
-                    Happened::Incoming(Incoming::Ask { id, method, params }) => self.ask(id, &method, &params)?,
+                    Happened::Incoming(incoming) => self.incoming(incoming)?,
                     Happened::Dropped => self.dropped(),
                     Happened::Resumed(resumed) => self.resumed(resumed).await?,
                 },
@@ -224,26 +225,31 @@ impl Bridge {
         Ok(())
     }
 
-    async fn notification(&mut self, message: &UntypedMessage) {
+    async fn notification(&mut self, message: &UntypedMessage) -> Result<()> {
         if message.method() != "session/cancel" {
-            return;
+            return Ok(());
         }
 
         let Ok(cancel) = CancelNotification::parse_message(message.method(), message.params()) else {
-            return;
+            return Ok(());
         };
         let Some(session) = self.session.as_mut().filter(|session| session.id == cancel.session_id) else {
-            return;
+            return Ok(());
         };
         if session.prompt.is_none() || session.cancelled {
-            return;
+            return Ok(());
         }
 
-        // While the socket is down, the turn is stopped once it is back.
+        // While the socket is down, the turn is stopped once it is back. A
+        // turn Hermes cannot stop is not waited on.
         session.cancelled = true;
-        if let Link::Up(gateway) = &session.link {
-            interrupt(gateway, &session.live).await;
+        if let Link::Up(gateway) = &session.link
+            && interrupt(gateway, &session.live).await.is_err()
+        {
+            ended(session, &Value::Null)?;
         }
+
+        Ok(())
     }
 
     /// Opens the session: a new one, or the stored one `resume` names,
@@ -258,25 +264,28 @@ impl Bridge {
                 let created = gateway.call("session.create", json!({})).await?;
                 let id = created["stored_session_id"].as_str().context("Hermes made no stored session")?;
                 let live = created["session_id"].as_str().context("Hermes made no session")?;
-                (SessionId::new(id), live.to_owned(), (Value::Null, false))
+                // Read for its epoch, to tell a restart of Hermes later.
+                let since = gateway.call("session.events.since", json!({"session_id": live, "last_seen": 0})).await?;
+                (SessionId::new(id), live.to_owned(), (since, false))
             }
             Some((id, replay)) => {
                 let (live, since) = resume_on(&gateway, &id.0, 0).await?;
                 (id, live, (since, replay))
             }
         };
+        let (since, replay) = since;
 
         self.session = Some(Session {
             id: id.clone(),
             live,
             link: Link::Up(gateway),
             seq: 0,
+            epoch: since["epoch"].clone(),
             prompt: None,
             cancelled: false,
             asking: HashSet::new(),
             held: Vec::new(),
         });
-        let (since, replay) = since;
         self.caught_up(&since, replay)?;
 
         log::info!("Hermes runs session {}", id.0);
@@ -308,17 +317,28 @@ impl Bridge {
         Ok(())
     }
 
-    /// An event of Hermes's: what it shows, and the end of the turn. Live
-    /// events of another session are left out.
-    fn event(&mut self, params: &Value, live: bool) -> Result<()> {
+    /// What Hermes sent on the socket. Events and requests of another
+    /// session on it are left out.
+    fn incoming(&mut self, incoming: Incoming) -> Result<()> {
+        let params = match &incoming {
+            Incoming::Event(params) | Incoming::Ask { params, .. } => params,
+        };
+        let live = self.session.as_ref().map(|session| session.live.as_str());
+        if params["session_id"].as_str().is_some_and(|id| !id.is_empty() && Some(id) != live) {
+            return Ok(());
+        }
+
+        match incoming {
+            Incoming::Event(params) => self.event(&params),
+            Incoming::Ask { id, method, params } => self.ask(id, &method, &params),
+        }
+    }
+
+    /// An event of Hermes's: what it shows, and the end of the turn.
+    fn event(&mut self, params: &Value) -> Result<()> {
         let Some(session) = self.session.as_mut() else {
             return Ok(());
         };
-
-        let other = params["session_id"].as_str().is_some_and(|id| !id.is_empty() && id != session.live);
-        if live && other {
-            return Ok(());
-        }
 
         if let Some(seq) = params["seq"].as_u64() {
             session.seq = session.seq.max(seq);
@@ -407,12 +427,16 @@ impl Bridge {
 
     /// Back on a new socket: what was missed is shown, held answers go,
     /// open requests are asked, and a turn cancelled meanwhile is stopped.
+    /// A turn is not waited on when Hermes restarted, which ended it.
     async fn resumed(&mut self, resumed: Resumed) -> Result<()> {
         let Some(session) = self.session.as_mut() else {
             return Ok(());
         };
 
         log::info!("reconnected to Hermes session {}", session.id.0);
+        let epoch = &resumed.since["epoch"];
+        let restarted = !session.epoch.is_null() && *epoch != session.epoch;
+        session.epoch = epoch.clone();
         session.live = resumed.live;
         let mut sent = HashSet::new();
         for held in std::mem::take(&mut session.held) {
@@ -421,8 +445,15 @@ impl Bridge {
             }
             sent.insert(held.id);
         }
-        if session.cancelled && session.prompt.is_some() {
-            interrupt(&resumed.gateway, &session.live).await;
+        if restarted {
+            log::warn!("Hermes restarted; its turn ended");
+            session.cancelled = true;
+            ended(session, &Value::Null)?;
+        } else if session.cancelled
+            && session.prompt.is_some()
+            && interrupt(&resumed.gateway, &session.live).await.is_err()
+        {
+            ended(session, &Value::Null)?;
         }
         session.link = Link::Up(resumed.gateway);
 
@@ -436,7 +467,7 @@ impl Bridge {
     fn caught_up(&mut self, since: &Value, replay: bool) -> Result<()> {
         if replay {
             for event in since["events"].as_array().into_iter().flatten() {
-                self.event(event, false)?;
+                self.event(event)?;
             }
         }
 
@@ -506,10 +537,13 @@ async fn resume_on(gateway: &Gateway, id: &str, seq: u64) -> Result<(String, Val
     Ok((live, since))
 }
 
-async fn interrupt(gateway: &Gateway, live: &str) {
-    if let Err(e) = gateway.call("session.interrupt", json!({"session_id": live})).await {
+async fn interrupt(gateway: &Gateway, live: &str) -> Result<(), LinkError> {
+    let interrupted = gateway.call("session.interrupt", json!({"session_id": live})).await.map(drop);
+    if let Err(e) = &interrupted {
         log::warn!("Hermes did not stop: {e}");
     }
+
+    interrupted
 }
 
 /// The turn ended with `payload`: the prompt it ran is answered.

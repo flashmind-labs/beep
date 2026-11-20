@@ -8,6 +8,7 @@ use beep_proto::node::agent::{AnswerOption, OptionKind};
 use beep_proto::SecretText;
 use futures::{SinkExt, StreamExt};
 use serde_json::{Value, json};
+use std::time::Duration;
 use tokio::{io::AsyncWriteExt, net::TcpListener, sync::mpsc};
 use tokio_tungstenite::{
     accept_hdr_async,
@@ -318,10 +319,30 @@ async fn replied(server: &mut Server, method: &str, result: Value) -> Value {
     call["params"].clone()
 }
 
-/// Answers `session.create` with the live id `live1`; Hermes picks the folder.
+/// Answers `session.create` with the live id `live1`, Hermes picking the
+/// folder, and the read of its epoch.
 async fn created(server: &mut Server) {
     let params = replied(server, "session.create", json!({"session_id": "live1", "stored_session_id": STORED, "info": {}})).await;
     assert!(params.get("cwd").is_none());
+    let read = replied(server, "session.events.since", since(1, json!([]))).await;
+    assert_eq!(read, json!({"session_id": "live1", "last_seen": 0}));
+}
+
+/// What `session.events.since` gives in `epoch`, with nothing missed.
+fn since(epoch: u64, open_requests: Value) -> Value {
+    json!({"count": 0, "epoch": epoch, "events": [], "latest_seq": 0, "open_requests": open_requests, "truncated": false})
+}
+
+/// Drops the socket mid-turn and resumes on the next one as `live2`, with
+/// Hermes's `epoch` then.
+async fn dropped_and_resumed(listener: &TcpListener, server: Server, epoch: u64) -> Server {
+    drop(server);
+    let (mut server, _) = accept(listener).await;
+    let resumed = replied(&mut server, "session.resume", json!({"session_id": "live2"})).await;
+    assert_eq!(resumed, json!({"session_id": STORED}));
+    replied(&mut server, "session.events.since", since(epoch, json!([]))).await;
+
+    server
 }
 
 /// Serves the bridge on pipes to Hermes on `port` and runs `test` as its
@@ -349,7 +370,8 @@ async fn with_bridge(port: u16, test: impl AsyncFnOnce(ConnectionTo<Agent>, mpsc
             on_receive_dispatch!(),
         )
         .connect_with(acp::transport(client_out, client_in, oversized), async |cx: ConnectionTo<Agent>| {
-            test(cx, seen).await;
+            // A regression fails rather than hangs.
+            tokio::time::timeout(Duration::from_secs(10), test(cx, seen)).await.expect("the bridge test timed out");
             Ok(())
         })
         .await
@@ -589,8 +611,8 @@ async fn hermes_down_after_a_drop_is_tried_again_until_it_is_back() {
         let (mut server, _) = accept(&listener).await;
         let resumed = replied(&mut server, "session.resume", json!({"session_id": "live2"})).await;
         assert_eq!(resumed, json!({"session_id": STORED}));
-        let since = json!({"count": 0, "epoch": 2, "events": [], "latest_seq": 0, "open_requests": [], "truncated": false});
-        replied(&mut server, "session.events.since", since).await;
+        // The same epoch: Hermes kept the turn running.
+        replied(&mut server, "session.events.since", since(1, json!([]))).await;
         server.send(hermes_event("live2", "message.complete", json!({"status": "complete"}), 1)).await.unwrap();
         server
     });
@@ -599,6 +621,85 @@ async fn hermes_down_after_a_drop_is_tried_again_until_it_is_back() {
         let session = new_session(&cx).await;
 
         assert_eq!(prompt(&cx, &session, "Keep going").await["stopReason"], "end_turn");
+    })
+    .await;
+    fake.await.unwrap();
+}
+
+#[tokio::test]
+async fn another_sessions_requests_are_neither_asked_nor_answered() {
+    let (listener, port) = listen().await;
+    let fake = tokio::spawn(async move {
+        let (mut server, _) = accept(&listener).await;
+        created(&mut server).await;
+        replied(&mut server, "prompt.submit", json!({})).await;
+        let approval = json!({"id": "srq-7", "method": "approval", "params": {"session_id": "other", "request_id": "ap7", "command": "rm -rf /"}});
+        let unknown = json!({"id": "srq-8", "method": "sudo.password", "params": {"session_id": "other"}});
+        server.send(server_request(&approval)).await.unwrap();
+        server.send(server_request(&unknown)).await.unwrap();
+        server.send(hermes_event("live1", "message.complete", json!({"status": "complete"}), 3)).await.unwrap();
+
+        // The next thing the bridge sends is the next prompt, not an answer.
+        let next = replied(&mut server, "prompt.submit", json!({})).await;
+        assert_eq!(next["text"], "Again");
+        server.send(hermes_event("live1", "message.complete", json!({"status": "complete"}), 4)).await.unwrap();
+        server
+    });
+
+    with_bridge(port, async |cx, mut seen| {
+        let session = new_session(&cx).await;
+
+        assert_eq!(prompt(&cx, &session, "Go").await["stopReason"], "end_turn");
+        assert_eq!(prompt(&cx, &session, "Again").await["stopReason"], "end_turn");
+
+        assert!(seen.try_recv().is_err());
+    })
+    .await;
+    fake.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_restarted_hermes_ends_the_pending_prompt_cancelled() {
+    let (listener, port) = listen().await;
+    let fake = tokio::spawn(async move {
+        let (mut server, _) = accept(&listener).await;
+        created(&mut server).await;
+        replied(&mut server, "prompt.submit", json!({})).await;
+        dropped_and_resumed(&listener, server, 2).await
+    });
+
+    with_bridge(port, async |cx, _seen| {
+        let session = new_session(&cx).await;
+
+        assert_eq!(prompt(&cx, &session, "Keep going").await["stopReason"], "cancelled");
+    })
+    .await;
+    fake.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_cancel_hermes_cannot_carry_out_ends_the_prompt_cancelled() {
+    let (listener, port) = listen().await;
+    let fake = tokio::spawn(async move {
+        let (mut server, _) = accept(&listener).await;
+        created(&mut server).await;
+        replied(&mut server, "prompt.submit", json!({})).await;
+        server.send(hermes_event("live1", "message.delta", json!({"text": "Working"}), 3)).await.unwrap();
+        let interrupt = read(&mut server).await;
+        assert_eq!(interrupt["method"], "session.interrupt");
+        let error = json!({"jsonrpc": "2.0", "id": interrupt["id"], "error": {"code": 4009, "message": "no turn running"}});
+        server.send(frame(error)).await.unwrap();
+        server
+    });
+
+    with_bridge(port, async |cx, mut seen| {
+        let session = new_session(&cx).await;
+        let running = prompt(&cx, &session, "Count to a million");
+
+        next_update(&mut seen).await;
+        cx.send_notification(UntypedMessage::new("session/cancel", json!({"sessionId": session})).unwrap()).unwrap();
+
+        assert_eq!(running.await["stopReason"], "cancelled");
     })
     .await;
     fake.await.unwrap();
