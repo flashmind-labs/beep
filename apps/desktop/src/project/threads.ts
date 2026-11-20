@@ -277,7 +277,7 @@ export function makeThreads(deps: ThreadDeps) {
     const key = `w${i.number}`;
     const button = buttonOf(s, key, () => ctx.button((pick, machine) => void act(project.project_id, key, () => ctx.startIssue(s.issues?.find(x => x.number === i.number) ?? i, pick, machine))));
     const state: AgentState = ctx.issueSession(i) ?? (s.busy.has(key) ? { kind: "starting" } : { kind: "ready", label: "Work on it", hint: "Pick a model: an agent starts on a new branch for this issue" });
-    return actsEl(s, [key], [{ kind: "agent", key: "work", button, state }, discussionButton(ctx, { ...i, kind: "issue" })]);
+    return actsEl(s, [key, `g${i.number}`], [{ kind: "agent", key: "work", button, state }, discussionButton(ctx, { ...i, kind: "issue" })]);
   }
 
   /// Fills the agent composer with a prompt about the thread.
@@ -313,7 +313,7 @@ export function makeThreads(deps: ThreadDeps) {
   /// An issue row's right-click menu: what its buttons do.
   function issueMenu(e: MouseEvent, project: ProjectRef, ctx: RepoActs, i: IssueRow) {
     const logins = ctx.assignees().filter(login => !i.assignees.includes(login));
-    const assign: MenuItem[] = logins.length ? [{ kind: "section", label: "Assign to", items: logins.map(login => ({ label: login, on: () => void act(project.project_id, `w${i.number}`, () => ctx.assign(i, login)) })) }] : [];
+    const assign: MenuItem[] = logins.length ? [{ kind: "section", label: "Assign to", items: logins.map(login => ({ label: login, on: () => void act(project.project_id, `g${i.number}`, () => ctx.assign(i, login)) })) }] : [];
     openMenu(e, `#${i.number} ${i.title}`, [
       { label: "Open on forge", on: () => openUrl(i.url) },
       { label: "Work on it", on: () => ctx.workOn(i) },

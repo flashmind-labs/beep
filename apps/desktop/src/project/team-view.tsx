@@ -17,6 +17,7 @@ import { invoke } from "../ui/tauri.ts";
 import { fillBar, projectButtons, startTask } from "./composer.tsx";
 import { localProjectId } from "./localid.ts";
 import { redrawProjects, thr } from "./sections.ts";
+import { openTile } from "./split.tsx";
 import { askPrompt, askWorkPrompt, cardLane, claim, filterCards, heldText, needKind, onlineCount, ownedIssues, repoPath, replyPrompt, sameLogin, teammates, teamView,
   type BoardFilter, type Claim, type IssueOwner, type TeamCard, type TeamCards, type TeamRecord, type TeamView } from "./team-state.ts";
 import type { IssueRow } from "./threads.ts";
@@ -383,7 +384,8 @@ export function TeamPage({ project, machines, running }: { project: string; mach
 
 function Members({ project, view, machines, running, remove }: { project: string; view: Team; machines: readonly string[]; running: number; remove(login: string): void }) {
   const theirs = teamCardsOf(project).teammates;
-  const show = (filter: BoardFilter) => { filters.set(project, filter); redrawProjects(); };
+  // A member's row shows the board with their cards alone.
+  const show = (filter: BoardFilter) => { filters.set(project, filter); openTile("overview"); };
 
   return <div className="cc-panel tm-members">{view.record.members.map(member => {
     const me = sameLogin(member.login, view.me), mine = theirs.filter(card => sameLogin(card.login, member.login));
