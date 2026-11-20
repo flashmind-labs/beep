@@ -14,7 +14,7 @@ use super::{
 use crate::{
     agents::{
         Agents,
-        mcp::{PickupStart, over_the_mesh, start_issue, still_runs},
+        mcp::{CallFailed, PickupStart, over_the_mesh, start_issue, still_runs},
     },
     link::note,
 };
@@ -477,15 +477,26 @@ async fn start(round: &Round<'_>, issue: &OpenIssue) -> Result<Auto, Unstarted> 
         approved: Approved::No,
     };
 
-    match timeout(START_LIMIT, over_the_mesh(round.mesh, machine, &request)).await {
-        Ok(Ok(Reply::Done {
+    let answer = timeout(START_LIMIT, over_the_mesh(round.mesh, machine, &request)).await;
+
+    started_there(answer.ok())
+}
+
+/// How a start another machine was asked for went, by its `answer`; `None`
+/// when it did not answer in time. A call that never reached the machine
+/// is refused, to be tried again; one that broke after it went out may
+/// have started the session.
+fn started_there(answer: Option<Result<Reply, CallFailed>>) -> Result<Auto, Unstarted> {
+    match answer {
+        Some(Ok(Reply::Done {
             text,
             failed: false,
         })) => serde_json::from_str(&text).map_err(|e| Unstarted::Unknown(e.to_string())),
-        Ok(Ok(Reply::Done { text, .. })) => Err(Unstarted::Refused(text)),
-        Ok(Ok(other)) => Err(Unstarted::Unknown(format!("it answered {other:?}"))),
-        Ok(Err(e)) => Err(Unstarted::Unknown(format!("{e:#}"))),
-        Err(_) => Err(Unstarted::Unknown("it did not answer in time".to_owned())),
+        Some(Ok(Reply::Done { text, .. })) => Err(Unstarted::Refused(text)),
+        Some(Ok(other)) => Err(Unstarted::Unknown(format!("it answered {other:?}"))),
+        Some(Err(CallFailed::Unsent(e))) => Err(Unstarted::Refused(format!("{e:#}"))),
+        Some(Err(CallFailed::Sent(e))) => Err(Unstarted::Unknown(format!("{e:#}"))),
+        None => Err(Unstarted::Unknown("it did not answer in time".to_owned())),
     }
 }
 

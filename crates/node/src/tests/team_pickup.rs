@@ -331,3 +331,27 @@ fn a_full_list_makes_room_for_a_pickup_card() {
     assert_eq!(asks.len(), MAX_CARDS);
     assert!(!asks.iter().any(|card| card.id == "ask:0"));
 }
+
+#[test]
+fn a_start_that_never_reached_its_machine_is_tried_again() {
+    let unsent = Some(Err(CallFailed::Unsent(anyhow::anyhow!("not connected"))));
+    let sent = Some(Err(CallFailed::Sent(anyhow::anyhow!("closed"))));
+    let auto = Auto {
+        card: "acp-1@laptop".to_owned(),
+        branch: "issue-7".to_owned(),
+    };
+    let done = Some(Ok(Reply::Done {
+        text: serde_json::to_string(&auto).unwrap(),
+        failed: false,
+    }));
+    let refused = Some(Ok(Reply::Done {
+        text: "no checkout".to_owned(),
+        failed: true,
+    }));
+
+    assert!(matches!(started_there(unsent), Err(Unstarted::Refused(_))));
+    assert!(matches!(started_there(sent), Err(Unstarted::Unknown(_))));
+    assert!(matches!(started_there(None), Err(Unstarted::Unknown(_))));
+    assert!(matches!(started_there(refused), Err(Unstarted::Refused(e)) if e == "no checkout"));
+    assert!(matches!(started_there(done), Ok(started) if started == auto));
+}

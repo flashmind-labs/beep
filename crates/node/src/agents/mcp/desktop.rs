@@ -3,7 +3,7 @@
 //! any other node sends the call to a desktop of its mesh over `tools/1` as
 //! `Tool::Projects`, with the tool's action in its arguments.
 
-use super::reply::fail;
+use super::{CallFailed, reply::fail};
 use crate::link::Offers;
 use anyhow::Result;
 use beep_mesh::{DeviceKind, Mesh};
@@ -75,7 +75,7 @@ pub(crate) async fn forward(mesh: &Mesh, request: &Request) -> Reply {
 }
 
 /// The reply of the desktop `name`.
-fn from_desktop(name: &str, replied: Result<Reply>) -> Reply {
+fn from_desktop(name: &str, replied: Result<Reply, CallFailed>) -> Reply {
     match replied {
         // A desktop from before the tool answers that it serves no such tool.
         Ok(Reply::Done { text, failed: true }) if text.contains("does not serve Unknown") => {

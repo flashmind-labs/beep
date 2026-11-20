@@ -596,13 +596,30 @@ pub(crate) async fn over_the_mesh(
     mesh: &Mesh,
     peer: EndpointId,
     request: &Request,
-) -> Result<Reply> {
-    let (mut tx, mut rx) = handshake(mesh, peer, PROTOCOL).await?;
-    tx.send(request).await?;
-    timeout(CALL_LIMIT, rx.recv())
+) -> Result<Reply, CallFailed> {
+    let (mut tx, mut rx) = handshake(mesh, peer, PROTOCOL)
         .await
-        .context("the call ran too long")??
-        .context("the machine closed the call before answering")
+        .map_err(CallFailed::Unsent)?;
+    let answer = async {
+        tx.send(request).await?;
+        timeout(CALL_LIMIT, rx.recv())
+            .await
+            .context("the call ran too long")??
+            .context("the machine closed the call before answering")
+    };
+
+    answer.await.map_err(CallFailed::Sent)
+}
+
+/// Why a call `over_the_mesh` failed.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum CallFailed {
+    /// The machine was not reached, or turned the call away: nothing ran.
+    #[error("{0:#}")]
+    Unsent(anyhow::Error),
+    /// The call broke once the request was on its way: it may have run.
+    #[error("{0:#}")]
+    Sent(anyhow::Error),
 }
 
 /// Opens `protocol` on `peer`. A link replaced while it opens (two machines
