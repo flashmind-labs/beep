@@ -217,12 +217,15 @@ function toggleRow(opened: Set<number>, at: number) {
   drawAgentBody(`[data-row="${at}"]`);
 }
 
-/// Opens the agent a card names. A child started after the list was read is not in it yet, so a miss reads it again.
+/// Opens the agent a card names. A child started after the list was read is not in it yet, so a miss reads it again;
+/// one still missing is gone, which the log says.
 async function kidSession(id: string, key?: string) {
   const row = childRow(sessions, id, key);
   if (row) return row;
-  try { await loadSessions(); } catch { return null; }
-  return childRow(sessions, id, key);
+  try { await loadSessions(); } catch { /* the note says it */ }
+  const found = childRow(sessions, id, key);
+  if (!found) { AG.note = "That agent's session is no longer on its machine."; drawAgentBody(); }
+  return found;
 }
 
 async function openKid(id: string, key?: string) {

@@ -496,6 +496,24 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     assert_eq!(view(&text).state, "ended");
     let (_, text) = tool(&offers, &mine, Tool::AgentStatus, json!({ "id": done.id })).await;
     assert_ne!(view(&text).state, "ended");
+
+    // A child its parent no longer has shows as ended, not as it started.
+    let machine = busy.id.split_once('@').map_or("", |(_, machine)| machine);
+    let gone = ChildView {
+        id: format!("gone@{machine}"),
+        ..busy
+    };
+    let call = format!(
+        "Beep: Start kid agent: hang about [completed]\n{}",
+        serde_json::to_string(&gone).unwrap()
+    );
+    let mut entries = [Entry::new(EntryKind::Tool, call)];
+    show_children(&offers.agents, &parent, &mut entries);
+    assert!(
+        entries[0].text.contains(&format!("[child] {} ended", gone.id)),
+        "{}",
+        entries[0].text
+    );
     offers.agents.shutdown().await;
 }
 

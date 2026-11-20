@@ -501,14 +501,24 @@ impl Reach<'_> {
 
     /// A child as it stands, without waiting on any machine: what its own
     /// node says when it runs here, else what was last read of it.
-    fn known_view(&self, id: &str) -> Option<ChildView> {
-        match self.find(id).ok()? {
-            Found::Here(child) => Some(self.view_here(&child)),
-            Found::There(kid) => {
-                let mesh = self.mesh.as_ref()?;
-                let view = self.agents.family.views.of(mesh, &self.who.session, &kid)?;
-                Some(view.named(&kid.name))
-            }
+    /// How the child `started` names stands, without waiting on its machine.
+    /// One elsewhere that was never read shows as it started; one this parent
+    /// no longer has has ended.
+    fn known_view(&self, started: &ChildView) -> ChildView {
+        let Ok(found) = self.find(&started.id) else {
+            return ChildView {
+                state: "ended".to_owned(),
+                ..started.clone()
+            };
+        };
+
+        match found {
+            Found::Here(child) => self.view_here(&child),
+            Found::There(kid) => self
+                .mesh
+                .as_ref()
+                .and_then(|mesh| self.agents.family.views.of(mesh, &self.who.session, &kid))
+                .map_or_else(|| started.clone(), |view| view.named(&kid.name)),
         }
     }
 
@@ -785,7 +795,7 @@ const STARTED: &str = "Beep: Start ";
 /// last said. The child's own log is its own session, which the card links
 /// to with a `[child]` line. A call whose result cannot be read stays a
 /// plain call. A child on another machine shows as last read: the read
-/// never waits for the machine.
+/// never waits for the machine. A child that is gone shows as ended.
 pub(in crate::agents) fn show_children(agents: &Agents, session: &Session, entries: &mut [Entry]) {
     let calls: Vec<usize> = entries
         .iter()
@@ -811,8 +821,7 @@ pub(in crate::agents) fn show_children(agents: &Agents, session: &Session, entri
         let Some(first) = started_view(&text) else {
             continue;
         };
-        let now = reach.known_view(&first.id).unwrap_or_else(|| first.clone());
-        entries[at].text = child_entry(&text, &now);
+        entries[at].text = child_entry(&text, &reach.known_view(&first));
     }
 }
 
