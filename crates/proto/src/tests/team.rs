@@ -182,3 +182,22 @@ fn old_project_issue_reads_with_no_assignees() {
     assert!(issue.linked_pr);
     assert!(issue.assignees.is_empty());
 }
+
+#[test]
+fn an_empty_login_does_not_decode() {
+    let bytes = rmp_serde::to_vec("").unwrap();
+    assert!(lenient::from_slice::<ForgeLogin>(&bytes).is_err());
+
+    let msg = rmp_serde::to_vec(&(10u8, ("github.com", "org/repo"), "")).unwrap();
+    assert!(lenient::from_slice::<TeamMsg>(&msg).is_err());
+}
+
+#[test]
+fn a_repo_decodes_normalized() {
+    let bytes = rmp_serde::to_vec(&("GitHub.com", "Org/Repo.git")).unwrap();
+    let decoded: TeamRepo = lenient::from_slice(&bytes).unwrap();
+    assert_eq!(decoded, repo());
+
+    let bad = rmp_serde::to_vec(&("github.com", "repo")).unwrap();
+    assert!(lenient::from_slice::<TeamRepo>(&bad).is_err());
+}

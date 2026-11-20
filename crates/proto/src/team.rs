@@ -18,11 +18,42 @@ pub enum TeamError {
 wire_structs! {
     /// A forge repository, normalized so that every remote form of it is equal.
     #[derive(Eq, Hash, PartialOrd, Ord)]
+    #[serde(try_from = "RawRepo")]
     pub struct TeamRepo {
         /// Lower case, with its port when it has one.
         pub host: String,
         /// `org/name`, lower case, without `.git`.
         pub repo: String,
+    }
+}
+
+/// A repository as it arrives on the wire, before it is normalized.
+#[derive(serde::Deserialize)]
+struct RawRepo {
+    host: String,
+    repo: String,
+}
+
+impl TryFrom<RawRepo> for TeamRepo {
+    type Error = TeamError;
+
+    fn try_from(raw: RawRepo) -> Result<Self, TeamError> {
+        Self::normalize(&raw.host, &raw.repo)
+    }
+}
+
+impl TeamRepo {
+    fn normalize(host: &str, path: &str) -> Result<Self, TeamError> {
+        let path = path.trim_matches('/');
+        let path = path.strip_suffix(".git").unwrap_or(path);
+        let host = host.trim().to_lowercase();
+        let repo = path.to_lowercase();
+
+        if host.is_empty() || !repo.contains('/') || repo.split('/').any(str::is_empty) {
+            return Err(TeamError::Repo(format!("{host}/{path}")));
+        }
+
+        Ok(Self { host, repo })
     }
 }
 
@@ -44,16 +75,8 @@ impl FromStr for TeamRepo {
             Some((host, path)) if !host.contains(':') || s.contains("://") => (host, path),
             _ => rest.split_once(':').ok_or_else(bad)?,
         };
-        let path = path.trim_matches('/');
-        let path = path.strip_suffix(".git").unwrap_or(path);
-        let host = host.to_lowercase();
-        let repo = path.to_lowercase();
 
-        if host.is_empty() || !repo.contains('/') || repo.split('/').any(str::is_empty) {
-            return Err(bad());
-        }
-
-        Ok(Self { host, repo })
+        Self::normalize(host, path).map_err(|_| bad())
     }
 }
 
@@ -67,8 +90,22 @@ impl fmt::Display for TeamRepo {
 #[derive(
     Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
-#[serde(transparent)]
+#[serde(try_from = "String", into = "String")]
 pub struct ForgeLogin(String);
+
+impl TryFrom<String> for ForgeLogin {
+    type Error = TeamError;
+
+    fn try_from(s: String) -> Result<Self, TeamError> {
+        s.parse()
+    }
+}
+
+impl From<ForgeLogin> for String {
+    fn from(login: ForgeLogin) -> String {
+        login.0
+    }
+}
 
 impl FromStr for ForgeLogin {
     type Err = TeamError;
