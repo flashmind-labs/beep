@@ -25,6 +25,7 @@ pub mod temporary;
 mod usage;
 
 pub use beep_mesh::machine::sessions::MoveState;
+pub use credentials::HermesStatus;
 pub use desk::Desk;
 pub use error::{FleetError, Result};
 pub use git_board::{GitKept, GitUpdate};

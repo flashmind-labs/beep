@@ -13,12 +13,12 @@ use beep_mesh::{
 use beep_proto::SessionId;
 use beep_proto::watched;
 use beep_proto::{
-    ApiKey, SecretText, Service, SyncStatus, WorkDiff,
+    ApiKey, CredentialCheck, SecretText, Service, SyncStatus, WorkDiff,
     node::{
         EnvReport, LinkRx, LinkTx, Open, Opened, SyncthingFolder, ToolInfo,
         agent::{DiffAsk, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
         harness::{AutoCompact, HarnessConfig, ModelCompact},
-        mesh_state::{Credential, SkillSync, StateValue, SyncSpec},
+        mesh_state::{AssistantSettings, Credential, SkillSync, StateValue, SyncSpec},
         shell::{self, Event, Request},
         status::Report,
         sync::{self, FOLDER_MISSING, ProjectStatus, State as SyncState, SyncthingFiles},
@@ -146,6 +146,8 @@ struct FakeNode {
     syncthing: Vec<SyncthingFolder>,
     /// What its `sync/1` says of the projects it syncs.
     synced: Vec<ProjectStatus>,
+    /// What it answers `CheckHermes`.
+    hermes: Option<CredentialCheck>,
 }
 
 impl FakeNode {
@@ -254,6 +256,13 @@ impl FakeNode {
             },
             "agents/1" => {
                 let first = rx.recv::<SessionsRequest>().await;
+
+                if let (Ok(Some(SessionsRequest::CheckHermes { .. })), Some(check)) =
+                    (&first, &self.hermes)
+                {
+                    tx.send(&SessionsReply::Checked(check.clone())).await.ok();
+                    return;
+                }
 
                 if let Ok(Some(SessionsRequest::Diff { ask })) = first {
                     let diff = WorkDiff {
@@ -3909,4 +3918,114 @@ async fn a_named_agent_account_sits_beside_the_default_one() {
             .await
             .is_err()
     );
+}
+
+const HERMES_TOKEN: &str = "hermes_exampleDashboardToken7c2d";
+
+fn hermes_keys(mesh: &Mesh) -> Vec<(Key, Credential)> {
+    mesh.scan("credential/")
+        .into_iter()
+        .map(|(key, bytes)| {
+            (
+                key,
+                Credential::from_bytes(&bytes).expect("a node reads it"),
+            )
+        })
+        .collect()
+}
+
+async fn connect(
+    f: &Fleet,
+    check: CredentialCheck,
+    token: &str,
+) -> (Desk, Result<CredentialCheck, FleetError>) {
+    let node = Arc::new(FakeNode {
+        hermes: Some(check),
+        ..FakeNode::default()
+    });
+    let studio = desk(&f.studio, &[(&f.build, &node)]).await;
+    let said = studio
+        .connect_hermes(f.build.id, "127.0.0.1", 9119, SecretText::new(token))
+        .await;
+    (studio, said)
+}
+
+#[tokio::test]
+async fn a_refused_hermes_check_saves_nothing() {
+    let f = fleet().await;
+    let refused = CredentialCheck::Refused {
+        machine: None,
+        message: "Hermes did not accept the token.".into(),
+    };
+    let (studio, said) = connect(&f, refused.clone(), HERMES_TOKEN).await;
+    assert_eq!(said.expect("the check is returned"), refused);
+    assert!(hermes_keys(&f.studio.mesh).is_empty());
+    assert!(studio.assistant().hermes.is_none());
+    assert!(studio.hermes_status().is_none());
+}
+
+#[tokio::test]
+async fn an_unreachable_machine_saves_no_hermes_token() {
+    let f = fleet().await;
+    // This node knows no `CheckHermes` and closes the stream.
+    let node = Arc::new(FakeNode::default());
+    let studio = desk(&f.studio, &[(&f.build, &node)]).await;
+    let said = studio
+        .connect_hermes(f.build.id, "127.0.0.1", 9119, SecretText::new(HERMES_TOKEN))
+        .await
+        .expect("the check is returned");
+    assert!(matches!(said, CredentialCheck::Unreachable { .. }));
+    assert!(hermes_keys(&f.studio.mesh).is_empty());
+    assert!(studio.assistant().hermes.is_none());
+}
+
+#[tokio::test]
+async fn a_valid_hermes_check_saves_the_token_and_the_connection_and_replaces_the_old() {
+    let f = fleet().await;
+    let valid = CredentialCheck::Valid {
+        account: "Hermes".into(),
+        machine: None,
+    };
+    let (studio, said) = connect(&f, valid.clone(), "hermes_olderDashboardToken1111").await;
+    assert_eq!(said.expect("checked"), valid);
+    let (second, said) = connect(&f, valid.clone(), HERMES_TOKEN).await;
+    assert_eq!(said.expect("checked"), valid);
+    drop(studio);
+
+    let keys = hermes_keys(&f.studio.mesh);
+    assert_eq!(keys.len(), 1, "{keys:?}");
+    assert!(
+        matches!(&keys[0].1, Credential::Hermes(login) if login.token.expose() == HERMES_TOKEN)
+    );
+    assert!(!format!("{keys:?}").contains(HERMES_TOKEN));
+    let hermes = second.assistant().hermes.expect("the connection is saved");
+    assert_eq!(hermes.machine, f.build.id);
+    assert_eq!((hermes.host.as_str(), hermes.port), ("127.0.0.1", 9119));
+    let shown = second.hermes_status().expect("it shows");
+    assert_eq!(shown.last4, "7c2d");
+    assert_eq!(shown.machine_name, "build-box");
+    assert_eq!(shown.machine, f.build.id.to_string());
+    // The other desktop and the node read both.
+    until(&f.build.mesh, |m| m.scan("credential/").len() == 1).await;
+    assert!(second.credentials().is_empty());
+}
+
+#[tokio::test]
+async fn disconnecting_hermes_removes_the_token_and_the_connection_and_keeps_the_rest() {
+    let f = fleet().await;
+    let valid = CredentialCheck::Valid {
+        account: "Hermes".into(),
+        machine: None,
+    };
+    let (studio, said) = connect(&f, valid, HERMES_TOKEN).await;
+    said.expect("checked");
+    let mut settings = studio.assistant();
+    settings.agent = Some("claude".into());
+    studio.save_assistant(&settings).await.expect("saved");
+
+    studio.disconnect_hermes().await.expect("disconnected");
+    assert!(hermes_keys(&f.studio.mesh).is_empty());
+    let left: AssistantSettings = studio.assistant();
+    assert!(left.hermes.is_none());
+    assert_eq!(left.agent.as_deref(), Some("claude"));
 }

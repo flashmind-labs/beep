@@ -29,7 +29,11 @@ use beep_proto::{
     AccountName, AgentAccount, AgentAccounts, AgentMachine, AgentToken, ApiKey, Credential,
     CredentialCheck, ForgejoUrl, GITHUB_ENV_VAR, GitHubAccount, NamedAgentToken, SecretText,
     Service,
-    node::{AgentLogin, EnvReport, EnvSecret, ForgejoLogin, mesh_state::Credential as Value},
+    node::{
+        AgentLogin, EnvReport, EnvSecret, ForgejoLogin, HermesLogin,
+        agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
+        mesh_state::{AssistantSettings, Credential as Value, HermesConnection},
+    },
 };
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
@@ -50,6 +54,18 @@ const FORGEJO: &str = "forgejo";
 /// API keys the machines get as env vars, for flsh's tools.
 const API_KEY: &str = "key";
 const AGENT: &str = "agent";
+/// The Hermes Agent dashboard token, `hermes.<saved_ms>`.
+const HERMES: &str = "hermes";
+
+/// Where the assistant reaches Hermes, as Settings shows it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct HermesStatus {
+    pub machine: String,
+    pub machine_name: String,
+    pub host: String,
+    pub port: u16,
+    pub last4: String,
+}
 
 /// A saved credential, read back from its keys.
 struct Saved {
@@ -658,6 +674,115 @@ impl Desk {
         }
 
         out
+    }
+
+    /// The saved Hermes tokens, by id.
+    fn hermes_tokens(&self) -> Vec<(String, Value)> {
+        self.keys_of(HERMES)
+    }
+
+    /// The Hermes connection the assistant uses, with the machine's name and the end of the
+    /// saved token, for Settings.
+    pub fn hermes_status(&self) -> Option<HermesStatus> {
+        let connection = self.assistant().hermes?;
+        let last4 = self
+            .hermes_tokens()
+            .into_iter()
+            .find_map(|(_, value)| match value {
+                Value::Hermes(login) => Some(last4(login.token.expose())),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let machine_name = self
+            .mesh
+            .devices()
+            .into_iter()
+            .find(|status| status.device.id == connection.machine)
+            .map(|status| status.device.name)
+            .unwrap_or_default();
+        Some(HermesStatus {
+            machine: connection.machine.to_string(),
+            machine_name,
+            host: connection.host,
+            port: connection.port,
+            last4,
+        })
+    }
+
+    /// Asks `machine` whether the Hermes dashboard at `host:port` takes `token`. When it does,
+    /// saves the token (replacing an earlier one) and points the assistant at it; any other
+    /// answer saves nothing. A machine that cannot be asked counts as unreachable.
+    pub async fn connect_hermes(
+        &self,
+        machine: EndpointId,
+        host: &str,
+        port: u16,
+        token: SecretText,
+    ) -> Result<CredentialCheck> {
+        let token = trimmed(&token)?;
+        let request = SessionsRequest::CheckHermes {
+            host: host.to_owned(),
+            port,
+            token: SecretText::new(token.expose_secret()),
+        };
+        let asked = async {
+            let client = self.peers.client(machine).await.ok()?;
+            client
+                .call::<_, SessionsReply>(SESSIONS_PROTOCOL, &request)
+                .await
+                .ok()
+        };
+        let check = match asked.await {
+            Some(SessionsReply::Checked(check)) => check,
+            Some(SessionsReply::Error { message }) => CredentialCheck::Unreachable { message },
+            Some(_) => CredentialCheck::Unreachable {
+                message: "The machine cannot check Hermes yet.".into(),
+            },
+            None => CredentialCheck::Unreachable {
+                message: "Could not reach the machine. Try again.".into(),
+            },
+        };
+
+        if !matches!(check, CredentialCheck::Valid { .. }) {
+            return Ok(check);
+        }
+
+        let _write = WRITES.lock().await;
+        self.drop_hermes_tokens().await?;
+        let login = HermesLogin {
+            token: SecretText::new(token.expose_secret()),
+        };
+        let id = format!("{HERMES}.{}", now_ms());
+        crate::records::write(&self.mesh, key(&id), Some(&Value::Hermes(login))).await?;
+        let settings = AssistantSettings {
+            hermes: Some(HermesConnection {
+                machine,
+                host: host.to_owned(),
+                port,
+            }),
+            ..self.assistant()
+        };
+        self.save_assistant(&settings).await?;
+        Ok(check)
+    }
+
+    /// Stops the assistant using Hermes and forgets its token.
+    pub async fn disconnect_hermes(&self) -> Result<()> {
+        let _write = WRITES.lock().await;
+        let settings = AssistantSettings {
+            hermes: None,
+            ..self.assistant()
+        };
+        self.save_assistant(&settings).await?;
+        self.drop_hermes_tokens().await
+    }
+
+    async fn drop_hermes_tokens(&self) -> Result<()> {
+        for (id, _) in self.hermes_tokens() {
+            crate::records::write::<Value>(&self.mesh, key(&id), None).await?;
+        }
+
+        Ok(())
     }
 
     /// The tokens Beep keeps for the coding agents, and the machines that have them.
