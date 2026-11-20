@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sign a notarized macOS disk image and write its Sparkle feed."""
+"""Sign the notarized macOS disk images and write their Sparkle feed."""
 
 import argparse
 import base64
@@ -50,37 +50,50 @@ def public_key(seed: str) -> str:
     return base64.b64encode(result[len(prefix):]).decode()
 
 
-def appcast(info: dict, version: str, dmg: Path, signature: str, body: str) -> bytes:
-    arch = dmg.name.removeprefix(f"Beep-{version}-").removesuffix(".dmg")
+def appcast(info: dict, version: str, dmgs: list[tuple[Path, str]], body: str) -> bytes:
+    """One item per (disk image, signature), Apple silicon first.
 
-    if arch not in {"arm64", "x86_64", "universal"} or info.get("CFBundleShortVersionString") != version:
-        raise ValueError("Disk image or app version does not match the release")
+    Sparkle takes the first of equal versions and skips the arm64 item on
+    Intel Macs, so each Mac gets its own build from the one feed.
+    """
+    arches = [dmg.name.removeprefix(f"Beep-{version}-").removesuffix(".dmg") for dmg, _ in dmgs]
+
+    if arches != ["arm64", "x86_64"] or info.get("CFBundleShortVersionString") != version:
+        raise ValueError("Disk images or app version do not match the release")
     if info.get("SUFeedURL") != f"{BASE_URL}/appcast-minor.xml":
         raise ValueError("App update feed does not match the release")
 
     root = ET.Element("rss", {"version": "2.0"})
     channel = ET.SubElement(root, "channel")
     ET.SubElement(channel, "title").text = "Beep updates"
-    item = ET.SubElement(channel, "item")
-    ET.SubElement(item, "title").text = f"Beep {version}"
-    ET.SubElement(item, "pubDate").text = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
-    ET.SubElement(item, "description", {f"{{{SPARKLE}}}format": "markdown"}).text = body
-    ET.SubElement(item, f"{{{SPARKLE}}}version").text = info["CFBundleVersion"]
-    ET.SubElement(item, f"{{{SPARKLE}}}shortVersionString").text = version
-    ET.SubElement(item, f"{{{SPARKLE}}}minimumSystemVersion").text = "13.0"
-    ET.SubElement(item, "enclosure", {
-        "url": f"{BASE_URL}/{dmg.name}",
-        f"{{{SPARKLE}}}edSignature": signature,
-        "length": str(dmg.stat().st_size),
-        "type": "application/octet-stream",
-    })
+    date = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
+
+    for (dmg, signature), arch in zip(dmgs, arches):
+        item = ET.SubElement(channel, "item")
+        ET.SubElement(item, "title").text = f"Beep {version}"
+        ET.SubElement(item, "pubDate").text = date
+        ET.SubElement(item, "description", {f"{{{SPARKLE}}}format": "markdown"}).text = body
+        ET.SubElement(item, f"{{{SPARKLE}}}version").text = info["CFBundleVersion"]
+        ET.SubElement(item, f"{{{SPARKLE}}}shortVersionString").text = version
+        ET.SubElement(item, f"{{{SPARKLE}}}minimumSystemVersion").text = "13.0"
+
+        if arch == "arm64":
+            ET.SubElement(item, f"{{{SPARKLE}}}hardwareRequirements").text = "arm64"
+
+        ET.SubElement(item, "enclosure", {
+            "url": f"{BASE_URL}/{dmg.name}",
+            f"{{{SPARKLE}}}edSignature": signature,
+            "length": str(dmg.stat().st_size),
+            "type": "application/octet-stream",
+        })
+
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", type=Path, required=True)
-    parser.add_argument("--dmg", type=Path, required=True)
+    parser.add_argument("--dmg", type=Path, action="append", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -98,21 +111,26 @@ def main() -> None:
     try:
         with os.fdopen(descriptor, "w") as key:
             key.write(seed)
-        result = subprocess.run(
-            [str(root / "apps/desktop/src-tauri/sparkle/sparkle-bin/sign_update"),
-             "-f", str(key_path), str(args.dmg)],
-            capture_output=True, text=True, check=True,
-        ).stdout
+        dmgs = [(dmg, sign(root, key_path, dmg)) for dmg in args.dmg]
     finally:
         key_path.unlink()
 
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_bytes(appcast(info, args.version, dmgs, body))
+
+
+def sign(root: Path, key_path: Path, dmg: Path) -> str:
+    result = subprocess.run(
+        [str(root / "apps/desktop/src-tauri/sparkle/sparkle-bin/sign_update"),
+         "-f", str(key_path), str(dmg)],
+        capture_output=True, text=True, check=True,
+    ).stdout
     match = re.search(r'sparkle:edSignature="([A-Za-z0-9+/=]+)" length="([0-9]+)"', result)
 
-    if match is None or int(match[2]) != args.dmg.stat().st_size:
+    if match is None or int(match[2]) != dmg.stat().st_size:
         raise ValueError("Sparkle signature or archive length is invalid")
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_bytes(appcast(info, args.version, args.dmg, match[1], body))
+    return match[1]
 
 
 if __name__ == "__main__":
