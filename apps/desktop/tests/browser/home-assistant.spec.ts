@@ -247,6 +247,12 @@ test("with Hermes connected the assistant starts on Hermes's machine, whatever t
   await expect.poll(() => begun(page)).toEqual([
     { machineId: "build-box", agent: "hermes-gateway", cwd: null, prompt: "hello", images: [], model: null, effort: null, fast: null, checkout: null, assistant: true, account: null },
   ]);
+
+  // The running chat names Hermes, which picks its own model.
+  await named(page, { ...session, agent: "hermes-gateway" });
+  await expect(page.getByText("Hello.", { exact: true })).toBeVisible();
+  await expect(page.locator("#agmodelb")).toContainText("Hermes");
+  await expect(page.locator("#agmodelb")).not.toContainText("Model unknown");
 });
 
 test("Hermes on a machine that does not offer it fails with the way to its settings", async ({ page }) => {
