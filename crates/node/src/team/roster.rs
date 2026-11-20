@@ -7,6 +7,10 @@ use beep_proto::team::{ForgeLogin, Member, Removed, TeamMsg, TeamRecord, TeamRep
 use iroh::EndpointId;
 use std::collections::BTreeMap;
 
+/// The most devices a member names, and addresses a device carries.
+pub(crate) const MAX_DEVICES: usize = 32;
+pub(crate) const MAX_ADDRS: usize = 8;
+
 /// Why a message about a team was turned away.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum Refusal {
@@ -16,6 +20,38 @@ pub(crate) enum Refusal {
     NotLeaver(ForgeLogin),
     #[error("Not on a team with this device")]
     Stranger,
+    #[error("{0} was removed from this team")]
+    Removed(ForgeLogin),
+    #[error("Another member already has that login, mesh or device")]
+    Taken,
+    #[error("This mesh is on the team already")]
+    OwnMesh,
+    #[error("A member names 1 to 32 devices, each with at most 8 addresses")]
+    Devices,
+    #[error("The joining device is not among the devices it named")]
+    NotThePeer,
+}
+
+/// What a message changed at once, and the members it adds once the forge
+/// says they may push.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct Applied {
+    pub(crate) changed: Option<TeamRecord>,
+    pub(crate) newcomers: Vec<Member>,
+}
+
+/// What an entry is to a record, by the rules every member applies: a mesh,
+/// a login and a device each belong to one member, and only a member's own
+/// devices change their entry.
+enum Vetted {
+    /// Not on the team yet.
+    New,
+    /// The sender's own entry, changed.
+    Own(usize),
+    /// Another member's entry, as the sender has it: theirs to change.
+    Other,
+    /// Already just so.
+    Same,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -51,7 +87,7 @@ impl Rosters {
     /// Whether `peer` is a device of a member of `repo`'s team.
     pub(crate) fn allows(&self, peer: EndpointId, repo: &TeamRepo) -> bool {
         self.get(repo)
-            .is_some_and(|record| member_of(record, peer).is_some())
+            .is_some_and(|record| sender_of(record, peer).is_some())
     }
 
     /// Whether `peer` is a device of a member of any team.
@@ -62,52 +98,142 @@ impl Rosters {
             .any(|repo| self.allows(peer, repo))
     }
 
-    /// Takes `msg` from the device `from`: the record it changed, `None`
-    /// when it changed nothing, or why it was refused.
+    /// Takes `msg` from the device `from`, in a mesh other than `own`: what
+    /// it changed and whom it adds, or why it was refused.
     pub(crate) fn apply(
         &mut self,
         from: EndpointId,
+        own: Option<EndpointId>,
         msg: &TeamMsg,
-    ) -> Result<Option<TeamRecord>, Refusal> {
+    ) -> Result<Applied, Refusal> {
         let Some(repo) = repo_of(msg) else {
             return match self.knows(from) {
-                true => Ok(None),
+                true => Ok(Applied::default()),
                 false => Err(Refusal::Stranger),
             };
         };
         let record = self
             .get(repo)
             .ok_or_else(|| Refusal::NotMember(repo.clone()))?;
-        let sender = member_of(record, from).ok_or_else(|| Refusal::NotMember(repo.clone()))?;
+        let sender = sender_of(record, from).ok_or_else(|| Refusal::NotMember(repo.clone()))?;
         let mut next = record.clone();
+        let mut newcomers = Vec::new();
 
         match msg {
             TeamMsg::Roster { members, .. } => {
-                for member in members {
-                    take(&mut next, member, sender.mesh);
+                for entry in members {
+                    if was_removed(&next, &entry.login, entry.mesh) {
+                        continue;
+                    }
+
+                    match vet(&next, entry, Some(sender))? {
+                        Vetted::New if Some(entry.mesh) == own => return Err(Refusal::OwnMesh),
+                        Vetted::New => newcomers.push(entry.clone()),
+                        Vetted::Own(at) => next.members[at] = entry.clone(),
+                        Vetted::Other | Vetted::Same => {}
+                    }
                 }
             }
-            TeamMsg::Leave { login, .. } if *login != sender.login => {
+            TeamMsg::Leave { login, .. } if *login != next.members[sender].login => {
                 return Err(Refusal::NotLeaver(login.clone()));
             }
             TeamMsg::Leave { login, .. } | TeamMsg::Remove { login, .. } => {
                 remove(&mut next, login);
             }
-            _ => return Ok(None),
+            _ => return Ok(Applied::default()),
         }
 
+        let changed = self.change(next);
+        Ok(Applied { changed, newcomers })
+    }
+
+    /// Adds `entry`, a newcomer in a roster from `from` that the forge
+    /// vouched for, if the rules still let it in.
+    pub(crate) fn add(
+        &mut self,
+        repo: &TeamRepo,
+        from: EndpointId,
+        own: Option<EndpointId>,
+        entry: Member,
+    ) -> Result<Option<TeamRecord>, Refusal> {
+        let record = self
+            .get(repo)
+            .ok_or_else(|| Refusal::NotMember(repo.clone()))?;
+        let sender = sender_of(record, from).ok_or_else(|| Refusal::NotMember(repo.clone()))?;
+
+        if was_removed(record, &entry.login, entry.mesh) {
+            return Err(Refusal::Removed(entry.login));
+        }
+        if Some(entry.mesh) == own {
+            return Err(Refusal::OwnMesh);
+        }
+        if !matches!(vet(record, &entry, Some(sender))?, Vetted::New) {
+            return Ok(None);
+        }
+
+        let mut next = record.clone();
+        next.members.push(entry);
         Ok(self.change(next))
     }
 
-    /// Adds `member`, admitted by this device through a join: their entry
-    /// as they gave it now.
-    pub(crate) fn admit(&mut self, repo: &TeamRepo, member: Member) -> Option<TeamRecord> {
-        let mut next = self.get(repo)?.clone();
-        next.members
-            .retain(|have| (&have.login, have.mesh) != (&member.login, member.mesh));
-        next.members.push(member);
+    /// Whether a join by `entry` from the device `peer` may go ahead: the
+    /// device is one it names, and it is new or the member it says it is.
+    pub(crate) fn may_join(
+        &self,
+        repo: &TeamRepo,
+        peer: EndpointId,
+        own: Option<EndpointId>,
+        entry: &Member,
+    ) -> Result<(), Refusal> {
+        self.vet_join(repo, peer, own, entry).map(drop)
+    }
 
-        self.change(next)
+    /// Adds or updates `entry`, admitted by this device through a join from
+    /// `peer`: the team's record after it.
+    pub(crate) fn admit(
+        &mut self,
+        repo: &TeamRepo,
+        peer: EndpointId,
+        own: Option<EndpointId>,
+        entry: Member,
+    ) -> Result<TeamRecord, Refusal> {
+        let (record, vetted) = self.vet_join(repo, peer, own, &entry)?;
+        let mut next = record.clone();
+
+        match vetted {
+            Vetted::New => next.members.push(entry),
+            Vetted::Own(at) => next.members[at] = entry,
+            Vetted::Other | Vetted::Same => {}
+        }
+
+        Ok(self.change(next.clone()).unwrap_or(next))
+    }
+
+    fn vet_join(
+        &self,
+        repo: &TeamRepo,
+        peer: EndpointId,
+        own: Option<EndpointId>,
+        entry: &Member,
+    ) -> Result<(&TeamRecord, Vetted), Refusal> {
+        let record = self
+            .get(repo)
+            .ok_or_else(|| Refusal::NotMember(repo.clone()))?;
+
+        if !entry.devices.iter().any(|device| device.id == peer) {
+            return Err(Refusal::NotThePeer);
+        }
+        if Some(entry.mesh) == own {
+            return Err(Refusal::OwnMesh);
+        }
+        if was_removed(record, &entry.login, entry.mesh) {
+            return Err(Refusal::Removed(entry.login.clone()));
+        }
+
+        match vet(record, entry, sender_of(record, peer))? {
+            Vetted::Other => Err(Refusal::Taken),
+            vetted => Ok((record, vetted)),
+        }
     }
 
     /// Keeps `next` pending when it differs from what counts now.
@@ -142,32 +268,59 @@ pub(crate) fn was_removed(record: &TeamRecord, login: &ForgeLogin, mesh: Endpoin
         .any(|gone| gone.login == *login && gone.mesh == mesh)
 }
 
-/// The member whose devices `peer` is one of.
-fn member_of(record: &TeamRecord, peer: EndpointId) -> Option<&Member> {
+/// The member whose devices `peer` is one of: one at most, since no two
+/// members share a device.
+fn sender_of(record: &TeamRecord, peer: EndpointId) -> Option<usize> {
     record
         .members
         .iter()
-        .find(|member| member.devices.iter().any(|device| device.id == peer))
+        .position(|member| member.devices.iter().any(|device| device.id == peer))
 }
 
-/// Takes one entry of a roster sent by a device of the member in `sender`:
-/// any member adds a new one, only the member's own devices change theirs,
-/// and nobody brings back one who was removed.
-fn take(record: &mut TeamRecord, member: &Member, sender: EndpointId) {
-    if was_removed(record, &member.login, member.mesh) {
-        return;
-    }
+/// What `entry`, sent by a device of the member at `sender`, is to `record`.
+fn vet(record: &TeamRecord, entry: &Member, sender: Option<usize>) -> Result<Vetted, Refusal> {
+    let devices = &entry.devices;
 
-    let have = record
+    if devices.is_empty()
+        || devices.len() > MAX_DEVICES
+        || devices.iter().any(|device| device.addrs.len() > MAX_ADDRS)
+    {
+        return Err(Refusal::Devices);
+    }
+    let claimed: Vec<usize> = record
         .members
-        .iter_mut()
-        .find(|have| have.login == member.login && have.mesh == member.mesh);
+        .iter()
+        .enumerate()
+        .filter(|(_, member)| member.mesh == entry.mesh || member.login == entry.login)
+        .map(|(at, _)| at)
+        .collect();
+    let at = match claimed[..] {
+        [] => None,
+        [at] if record.members[at].login == entry.login
+            && record.members[at].mesh == entry.mesh =>
+        {
+            Some(at)
+        }
+        _ => return Err(Refusal::Taken),
+    };
+    let shares_a_device = record.members.iter().enumerate().any(|(other, member)| {
+        Some(other) != at
+            && member
+                .devices
+                .iter()
+                .any(|have| devices.iter().any(|device| device.id == have.id))
+    });
 
-    match have {
-        Some(have) if member.mesh == sender => *have = member.clone(),
-        Some(_) => {}
-        None => record.members.push(member.clone()),
+    if shares_a_device {
+        return Err(Refusal::Taken);
     }
+
+    Ok(match at {
+        None => Vetted::New,
+        Some(at) if record.members[at] == *entry => Vetted::Same,
+        Some(at) if Some(at) == sender => Vetted::Own(at),
+        Some(_) => Vetted::Other,
+    })
 }
 
 fn remove(record: &mut TeamRecord, login: &ForgeLogin) {

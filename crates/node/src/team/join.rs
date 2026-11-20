@@ -5,8 +5,9 @@
 
 use super::{
     link::{TeamError, TeamLink, finish},
+    home::Checkout,
     proof::{Nonce, ProofError, drop_proof, proof_seen, push_proof},
-    roster::{record, was_removed},
+    roster::record,
 };
 use beep_mesh::{JoinSecret, TeamTicket, secret_hash};
 use beep_proto::{
@@ -26,6 +27,9 @@ use tokio::time::timeout;
 
 /// How long a whole join may take, as the joiner waits.
 const JOIN_LIMIT: Duration = Duration::from_secs(60);
+/// How long the inviter takes for a whole join, shorter than the joiner
+/// waits, so it never admits one who gave up. Short in tests.
+const ADMIT_LIMIT: Duration = Duration::from_secs(if cfg!(test) { 5 } else { 50 });
 /// How long the inviter waits for `Proved`.
 const PROVE_LIMIT: Duration = Duration::from_secs(45);
 /// How long one git command of the proof may take.
@@ -124,7 +128,9 @@ impl TeamLink {
         }
     }
 
-    /// The inviter's side of a join from `peer`: the team's roster or why not.
+    /// The inviter's side of a join from `peer`: the team's roster or why
+    /// not, within `ADMIT_LIMIT`. A proof ref the joiner may have pushed is
+    /// deleted after the answer, however the check ended.
     pub(super) async fn admit(
         &self,
         peer: EndpointId,
@@ -132,7 +138,14 @@ impl TeamLink {
         mut tx: LinkTx,
         mut rx: LinkRx,
     ) -> Result<(), TeamError> {
-        let answer = match self.check(peer, &join, &mut tx, &mut rx).await {
+        let mut proof = None;
+        let checked = timeout(
+            ADMIT_LIMIT,
+            self.check(peer, &join, &mut tx, &mut rx, &mut proof),
+        )
+        .await
+        .unwrap_or_else(|_| Err("The join took too long".to_owned()));
+        let answer = match checked {
             Ok(record) => {
                 self.wake();
                 self.spread(record.clone(), join.mesh);
@@ -144,23 +157,42 @@ impl TeamLink {
             Err(reason) => TeamMsg::Refused { reason },
         };
 
-        tx.send(&answer).await?;
-        finish(tx).await?;
-        Ok(())
+        let answered = async {
+            tx.send(&answer).await?;
+            finish(tx).await
+        };
+        let answered = answered.await;
+
+        if let Some((checkout, nonce)) = proof
+            && let Err(e) = git_step(drop_proof(&checkout.folder, &checkout.remote, &nonce)).await
+        {
+            log::debug!("no proof ref of a join to {} to delete: {e}", join.repo);
+        }
+
+        answered
     }
 
-    /// Checks the invite, then the proof and the login, and adds the member.
+    /// Checks the invite and the joiner's entry, then the proof and the
+    /// login, and adds the member. `proof` holds the challenge once sent. A
+    /// refusal says nothing of this machine: details go to the log.
     async fn check(
         &self,
         peer: EndpointId,
         join: &Join,
         tx: &mut LinkTx,
         rx: &mut LinkRx,
+        proof: &mut Option<(Checkout, Nonce)>,
     ) -> Result<TeamRecord, String> {
         let repo = &join.repo;
-        let (team, checkout) = self.with(|teams| {
+        let entry = Member {
+            login: join.login.clone(),
+            mesh: join.mesh,
+            devices: join.devices.clone(),
+            joined_at: SystemTime::now(),
+        };
+        let (team, checkout, own) = self.with(|teams| {
             let team = teams.rosters.get(repo).cloned();
-            (team, teams.home.checkout(repo))
+            (team, teams.home.checkout(repo), teams.home.mesh)
         });
         let team = team.ok_or_else(|| format!("This device has no team for {repo}"))?;
         let hash = secret_hash(&JoinSecret::from(join.secret));
@@ -173,60 +205,47 @@ impl TeamLink {
         if invite.expires_at <= SystemTime::now() {
             return Err("This invite expired: ask for a new one".to_owned());
         }
-        if was_removed(&team, &join.login, join.mesh) {
-            return Err(format!("{} was removed from {repo}", join.login));
-        }
-        if !join.devices.iter().any(|device| device.id == peer) {
-            return Err("The joining device is not among the devices it named".to_owned());
-        }
 
+        self.with(|teams| teams.rosters.may_join(repo, peer, own, &entry))
+            .map_err(|refusal| refusal.to_string())?;
         let checkout =
             checkout.ok_or_else(|| format!("This device has no checkout of {repo} to check with"))?;
         let nonce = Nonce::generate();
         let challenge = TeamMsg::Challenge {
             nonce: nonce.to_string(),
         };
-        tx.send(&challenge).await.map_err(|e| e.to_string())?;
-        let proved = timeout(PROVE_LIMIT, rx.recv::<TeamMsg>())
+        let proved = TeamMsg::Proved {
+            nonce: nonce.to_string(),
+        };
+        let link_failed = |e: anyhow::Error| {
+            log::debug!("a join to {repo} lost its link: {e:#}");
+            "The link failed".to_owned()
+        };
+        tx.send(&challenge).await.map_err(link_failed)?;
+        *proof = Some((checkout.clone(), nonce.clone()));
+        let answer = timeout(PROVE_LIMIT, rx.recv::<TeamMsg>())
             .await
             .map_err(|_| "The proof took too long".to_owned())?
-            .map_err(|e| e.to_string())?;
+            .map_err(link_failed)?;
 
-        if proved != Some(TeamMsg::Proved {
-            nonce: nonce.to_string(),
-        }) {
+        if answer != Some(proved) {
             return Err("The joiner did not prove push access".to_owned());
         }
 
-        let (folder, remote) = (&checkout.folder, &checkout.remote);
-        let seen = git_step(proof_seen(folder, remote, &nonce))
+        let seen = git_step(proof_seen(&checkout.folder, &checkout.remote, &nonce))
             .await
-            .map_err(|e| format!("Could not check the proof: {e}"))?;
+            .map_err(|e| {
+                log::warn!("could not check the proof of a join to {repo}: {e}");
+                "Could not check the proof".to_owned()
+            })?;
 
         if !seen {
             return Err(ProofError::Denied(repo.to_string()).to_string());
         }
 
-        let collaborator = self.forge().collaborator(repo, &join.login).await;
-
-        if let Err(e) = git_step(drop_proof(folder, remote, &nonce)).await {
-            log::warn!("the proof ref of a join to {repo} stays: {e}");
-        }
-
-        match collaborator {
-            Ok(true) => {}
-            Ok(false) => return Err(format!("{} is not a collaborator on {repo}", join.login)),
-            Err(e) => return Err(e),
-        }
-
-        let member = Member {
-            login: join.login.clone(),
-            mesh: join.mesh,
-            devices: join.devices.clone(),
-            joined_at: SystemTime::now(),
-        };
-        self.with(|teams| teams.rosters.admit(repo, member))
-            .ok_or_else(|| format!("The team for {repo} is gone from this device"))
+        self.vouch(repo, &join.login).await?;
+        self.with(|teams| teams.rosters.admit(repo, peer, own, entry))
+            .map_err(|refusal| refusal.to_string())
     }
 }
 

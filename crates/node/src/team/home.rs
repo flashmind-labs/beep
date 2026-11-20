@@ -16,7 +16,7 @@ use beep_proto::{
     SessionId, lenient,
     node::{
         mesh_state::{Place, ProjectRecord, StateValue},
-        tools::{Reply, Request, TeamRosterArgs, Tool},
+        tools::{Reply, Request, TeamInviteArgs, TeamRosterArgs, Tool},
     },
     team::{ContactRecord, ForgeLogin, TeamRecord, TeamRepo},
 };
@@ -27,7 +27,7 @@ use std::{
     collections::BTreeMap,
     path::PathBuf,
     process::{Output, Stdio},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tokio::{
     select,
@@ -39,6 +39,10 @@ use tokio::{
 const RETRY: Duration = Duration::from_secs(60);
 /// How long a forge call may take.
 const FORGE_LIMIT: Duration = Duration::from_secs(30);
+/// How long a contact's invite waits for an answer, and how many from one
+/// contact wait at once.
+const INVITE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+const INVITES_PER_CONTACT: usize = 8;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Home {
@@ -63,6 +67,45 @@ pub(crate) struct Checkout {
     pub(crate) folder: PathBuf,
     /// The remote proofs are pushed to and read from.
     pub(crate) remote: String,
+}
+
+/// Contacts' invites waiting for a desktop: one per contact and repository,
+/// a few per contact, each for a day.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Invites(Vec<(TeamInviteArgs, SystemTime)>);
+
+impl Invites {
+    /// Keeps `invite`, taken `now`, over an older one to the same team.
+    pub(crate) fn keep(&mut self, invite: TeamInviteArgs, now: SystemTime) -> Result<(), String> {
+        self.expire(now);
+        self.0
+            .retain(|(kept, _)| (kept.from, &kept.repo) != (invite.from, &invite.repo));
+        let waiting = self.0.iter().filter(|(kept, _)| kept.from == invite.from);
+
+        if waiting.count() >= INVITES_PER_CONTACT {
+            return Err("Too many invites from you wait for an answer".to_owned());
+        }
+
+        self.0.push((invite, now));
+        Ok(())
+    }
+
+    /// The invites still waiting `now`.
+    pub(crate) fn current(&mut self, now: SystemTime) -> Vec<TeamInviteArgs> {
+        self.expire(now);
+        self.0.iter().map(|(invite, _)| invite.clone()).collect()
+    }
+
+    pub(crate) fn remove(&mut self, invite: &TeamInviteArgs) {
+        self.0.retain(|(kept, _)| kept != invite);
+    }
+
+    fn expire(&mut self, now: SystemTime) {
+        self.0.retain(|(_, at)| {
+            now.duration_since(*at)
+                .map_or(true, |age| age < INVITE_AGE)
+        });
+    }
 }
 
 impl Home {
@@ -184,7 +227,10 @@ fn read(mesh: &Mesh) -> Home {
 /// Hands the rosters and invites that wait to a desktop. A desktop writes
 /// its own rosters; a roster already handed is not sent again.
 async fn hand(mesh: &Mesh, link: &TeamLink, handed: &mut Vec<TeamRecord>) {
-    let (records, invites) = link.with(|teams| (teams.rosters.pending(), teams.invites.clone()));
+    let (records, invites) = link.with(|teams| {
+        let invites = teams.invites.current(SystemTime::now());
+        (teams.rosters.pending(), invites)
+    });
     let desktop_here = mesh
         .devices()
         .iter()
@@ -214,7 +260,7 @@ async fn hand(mesh: &Mesh, link: &TeamLink, handed: &mut Vec<TeamRecord>) {
 
     for invite in invites {
         match call(mesh, Tool::TeamInvite, &invite).await {
-            Ok(()) => link.with(|teams| teams.invites.retain(|kept| *kept != invite)),
+            Ok(()) => link.with(|teams| teams.invites.remove(&invite)),
             Err(e) => log::info!("an invite to {} waits for a desktop: {e}", invite.repo),
         }
     }

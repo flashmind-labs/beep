@@ -5,7 +5,7 @@
 //! refused.
 
 use super::{
-    home::Home,
+    home::{Home, Invites},
     proof::ProofError,
     roster::{Refusal, Rosters},
 };
@@ -13,6 +13,7 @@ use beep_proto::{
     node::{LinkRx, LinkTx, link, tools::TeamInviteArgs},
     team::{ALPN, ForgeLogin, TeamMsg, TeamRecord, TeamRepo},
 };
+use beep_mesh::TeamTicket;
 use futures::future::BoxFuture;
 use iroh::{
     Endpoint, EndpointAddr, EndpointId,
@@ -22,7 +23,7 @@ use iroh::{
 use std::{
     fmt,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tokio::{sync::Notify, time::timeout};
 
@@ -30,6 +31,10 @@ use tokio::{sync::Notify, time::timeout};
 const DIAL: Duration = Duration::from_secs(5);
 /// How long a peer gets to open its stream and send its first message.
 const READ: Duration = Duration::from_secs(10);
+/// The largest first message: a stranger's `Join` or `Invite` is small.
+const FIRST_FRAME: usize = 16 * 1024;
+/// How long the forge gets to say whether a login may push.
+const VOUCH_LIMIT: Duration = Duration::from_secs(20);
 
 /// What the forge says about a team's people. In tests it answers without one.
 pub(crate) trait TeamForge: Send + Sync + 'static {
@@ -70,7 +75,7 @@ pub(crate) struct Teams {
     pub(crate) rosters: Rosters,
     pub(crate) home: Home,
     /// Contacts' invites to other teams, for a desktop to show.
-    pub(crate) invites: Vec<TeamInviteArgs>,
+    pub(crate) invites: Invites,
 }
 
 /// The team link of this device, shared by its handler, its dialing and the
@@ -186,6 +191,7 @@ impl TeamLink {
             .map_err(|_| TeamError::Refused("no stream".to_owned()))?
             .map_err(anyhow::Error::from)?;
         let (mut tx, mut rx) = link(send, recv);
+        rx.set_max_frame(FIRST_FRAME);
         let first = timeout(READ, rx.recv::<TeamMsg>())
             .await
             .map_err(|_| TeamError::Refused("no message".to_owned()))??;
@@ -216,6 +222,8 @@ impl TeamLink {
                 Ok(())
             }
             Some(first) if self.with(|teams| teams.rosters.knows(peer)) => {
+                // A member's boards are larger: back to the link's own limit.
+                rx.set_max_frame(usize::MAX);
                 self.serve_member(peer, first, tx, rx).await
             }
             Some(_) => {
@@ -236,7 +244,7 @@ impl TeamLink {
         let mut next = Some(first);
 
         while let Some(msg) = next {
-            if let Some(answer) = self.answer(peer, &msg) {
+            if let Some(answer) = self.answer(peer, &msg).await {
                 tx.send(&answer).await?;
             }
             next = rx.recv().await?;
@@ -246,8 +254,9 @@ impl TeamLink {
         Ok(())
     }
 
-    /// The answer to one message from a member's device, if any.
-    fn answer(&self, peer: EndpointId, msg: &TeamMsg) -> Option<TeamMsg> {
+    /// The answer to one message from a member's device, if any. A roster's
+    /// newcomers are added once the forge says they may push.
+    async fn answer(&self, peer: EndpointId, msg: &TeamMsg) -> Option<TeamMsg> {
         let refused = |reason: String| Some(TeamMsg::Refused { reason });
 
         // An invite is to a team the contact is not on yet.
@@ -255,42 +264,83 @@ impl TeamLink {
             return self.invited(peer, repo.clone(), ticket.clone());
         }
 
-        let applied = self.with(|teams| teams.rosters.apply(peer, msg));
+        let own = self.with(|teams| teams.home.mesh);
+        let applied = match self.with(|teams| teams.rosters.apply(peer, own, msg)) {
+            Ok(applied) => applied,
+            Err(refusal) => return refused(refusal.to_string()),
+        };
 
-        match (applied, msg) {
-            (Err(refusal), _) => refused(refusal.to_string()),
-            (Ok(Some(_)), _) => {
-                self.wake();
-                None
+        if applied.changed.is_some() {
+            self.wake();
+        }
+
+        if let TeamMsg::Roster { repo, .. } = msg {
+            for newcomer in applied.newcomers {
+                if let Err(reason) = self.vouch(repo, &newcomer.login).await {
+                    return refused(reason);
+                }
+
+                match self.with(|teams| teams.rosters.add(repo, peer, own, newcomer)) {
+                    Ok(Some(_)) => self.wake(),
+                    Ok(None) => {}
+                    Err(refusal) => return refused(refusal.to_string()),
+                }
             }
-            (Ok(None), TeamMsg::Join { .. }) => refused("A join opens its own link".to_owned()),
-            (Ok(None), TeamMsg::Subscribe { repo } | TeamMsg::Ask { repo, .. }) => {
+        }
+
+        match msg {
+            TeamMsg::Join { .. } => refused("A join opens its own link".to_owned()),
+            TeamMsg::Subscribe { repo } | TeamMsg::Ask { repo, .. } => {
                 refused(format!("This device does not serve {repo}'s board"))
             }
-            (Ok(None), _) => None,
+            _ => None,
         }
     }
 
-    /// Keeps a contact's invite for a desktop to show; refuses anyone else's.
+    /// Whether the forge says `login` may push to `repo`; the reason to give
+    /// when not, which says nothing of this machine.
+    pub(super) async fn vouch(&self, repo: &TeamRepo, login: &ForgeLogin) -> Result<(), String> {
+        let answer = timeout(VOUCH_LIMIT, self.forge().collaborator(repo, login)).await;
+
+        match answer {
+            Ok(Ok(true)) => Ok(()),
+            Ok(Ok(false)) => Err(format!("{login} is not a collaborator on {repo}")),
+            Ok(Err(e)) => {
+                log::warn!("could not check {login} on {repo}: {e}");
+                Err("Could not check access on the forge".to_owned())
+            }
+            Err(_) => {
+                log::warn!("the forge took too long to check {login} on {repo}");
+                Err("Could not check access on the forge".to_owned())
+            }
+        }
+    }
+
+    /// Keeps a contact's invite for a desktop to show; refuses anyone else's,
+    /// and invites that do not read or are for another repository.
     fn invited(&self, peer: EndpointId, repo: TeamRepo, ticket: String) -> Option<TeamMsg> {
         let kept = self.with(|teams| {
-            let from = *teams.home.contacts.get(&peer)?;
-            let invite = TeamInviteArgs { from, repo, ticket };
+            let from = *teams
+                .home
+                .contacts
+                .get(&peer)
+                .ok_or_else(|| Refusal::Stranger.to_string())?;
+            let read = TeamTicket::parse(&ticket).map_err(|_| "The invite does not read")?;
 
-            if !teams.invites.contains(&invite) {
-                teams.invites.push(invite);
+            if read.repo != repo {
+                return Err("The invite is for another repository".to_owned());
             }
-            Some(())
+
+            let invite = TeamInviteArgs { from, repo, ticket };
+            teams.invites.keep(invite, SystemTime::now())
         });
 
         match kept {
-            Some(()) => {
+            Ok(()) => {
                 self.wake();
                 None
             }
-            None => Some(TeamMsg::Refused {
-                reason: Refusal::Stranger.to_string(),
-            }),
+            Err(reason) => Some(TeamMsg::Refused { reason }),
         }
     }
 }

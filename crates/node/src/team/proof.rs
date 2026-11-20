@@ -6,6 +6,7 @@ use std::{fmt, path::Path, process::Stdio, str::FromStr};
 use tokio::io::AsyncWriteExt;
 
 /// A random value that names one proof ref.
+#[derive(Clone)]
 pub(crate) struct Nonce([u8; 16]);
 
 impl Nonce {
