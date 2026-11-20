@@ -109,6 +109,13 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
         return crate::team::join::answer(team, &request).await;
     }
 
+    if matches!(
+        request.tool,
+        Tool::TeamRoster | Tool::TeamInvite | Tool::TeamApp
+    ) {
+        return crate::team::apps::answer(&caller, &request).await;
+    }
+
     // A gateway may not start sessions on a desktop, nor a session call it.
     if request.tool == Tool::TeamPickup
         && (caller.desktop_here || matches!(caller.table, Table::Shared))

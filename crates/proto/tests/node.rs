@@ -836,6 +836,7 @@ mod tools {
             (Tool::ListProjects, "list_projects"),
             (Tool::Plugins, "plugins"),
             (Tool::Projects, "projects"),
+            (Tool::TeamApp, "team_app"),
         ] {
             assert_eq!(tool.to_string(), name);
             assert_eq!(name.parse::<Tool>(), Ok(tool));

@@ -27,7 +27,7 @@ pub use mesh::{
 };
 pub use state::Key;
 pub(crate) use state::{Applied, Entry, Heads, State};
-pub use team::{TeamTicket, secret_hash};
+pub use team::{TeamTicket, keep_contacts, secret_hash, take_roster};
 
 #[cfg(test)]
 mod tests;

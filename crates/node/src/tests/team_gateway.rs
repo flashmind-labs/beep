@@ -5,7 +5,6 @@ use crate::{
         board::tests::{URL, member, repo},
         home::{Project, in_team, read},
         link::Teams,
-        roster::record,
     },
 };
 use beep_mesh::Key;
@@ -13,7 +12,7 @@ use beep_proto::node::{
     mesh_state::{Place, ProjectRecord, StateValue},
     tools::HostReach,
 };
-use beep_proto::team::TeamMsg;
+use beep_proto::team::{TeamMsg, TeamRecord};
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 
 #[tokio::test]
@@ -136,7 +135,7 @@ fn a_pending_announcement_moves_no_election() {
     let [added, old] = ids;
     let alice = member("alice", old);
     let bob = member("bob", SecretKey::generate().public());
-    let written = record(repo(), vec![alice.clone(), bob]);
+    let written = TeamRecord::new(repo(), vec![alice.clone(), bob]);
     let machine = |me: EndpointId| {
         let mut teams = Teams::default();
         teams.rosters.refresh([(repo(), written.clone())].into());
@@ -223,7 +222,7 @@ async fn a_folder_is_in_a_team_once_its_project_has_one() {
     assert_eq!(read(&mesh).team_of(worktree), Some(repo()));
     assert!(!in_team(&mesh, worktree));
 
-    let team = rmp_serde::to_vec(&record(repo(), Vec::new())).unwrap();
+    let team = rmp_serde::to_vec(&TeamRecord::new(repo(), Vec::new())).unwrap();
     mesh.set(Key::Team(repo()), Some(team)).await.unwrap();
 
     assert!(in_team(&mesh, worktree));

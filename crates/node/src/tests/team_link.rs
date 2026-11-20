@@ -1,7 +1,7 @@
 use super::*;
 use crate::team::{
     home::{Checkout, Invites, Project},
-    roster::{Applied, Refusal, Rosters, record},
+    roster::{Applied, Refusal, Rosters},
 };
 use beep_mesh::{JoinSecret, TeamTicket, secret_hash};
 use beep_proto::{
@@ -164,7 +164,7 @@ impl Pair {
             .spawn();
         let secret = JoinSecret::generate();
         let alice_mesh = mesh_id();
-        let mut team = record(repo(), vec![member("alice", alice_mesh, inviter_id)]);
+        let mut team = TeamRecord::new(repo(), vec![member("alice", alice_mesh, inviter_id)]);
         team.invites.push(OpenInvite {
             secret_hash: secret_hash(&secret),
             expires_at,
@@ -666,7 +666,7 @@ fn member_cannot_take_another_entry() {
     rosters.refresh(
         [(
             repo(),
-            record(
+            TeamRecord::new(
                 repo(),
                 vec![
                     member("alice", alice, alice_device),
@@ -715,7 +715,7 @@ fn member_cannot_take_another_entry() {
 fn removed_member_stays_out() {
     let (alice, carol) = (mesh_id(), mesh_id());
     let (alice_device, carol_device) = (mesh_id(), mesh_id());
-    let team = record(
+    let team = TeamRecord::new(
         repo(),
         vec![
             member("alice", alice, alice_device),
@@ -775,7 +775,7 @@ fn roster_rules() {
     rosters.refresh(
         [(
             repo(),
-            record(
+            TeamRecord::new(
                 repo(),
                 vec![
                     member("alice", alice, alice_device),
@@ -842,7 +842,7 @@ fn roster_rules() {
 #[test]
 fn pending_gives_way_to_the_mesh() {
     let alice_device = mesh_id();
-    let team = record(repo(), vec![member("alice", mesh_id(), alice_device)]);
+    let team = TeamRecord::new(repo(), vec![member("alice", mesh_id(), alice_device)]);
     let mut rosters = Rosters::default();
     rosters.refresh([(repo(), team.clone())].into());
     rosters
@@ -866,7 +866,7 @@ fn pending_gives_way_to_the_mesh() {
 
 #[test]
 fn roster_args_round_trip_as_json() {
-    let mut team = record(repo(), vec![member("alice", mesh_id(), mesh_id())]);
+    let mut team = TeamRecord::new(repo(), vec![member("alice", mesh_id(), mesh_id())]);
     team.invites.push(OpenInvite {
         secret_hash: [7; 32],
         expires_at: SystemTime::now(),

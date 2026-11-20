@@ -204,6 +204,38 @@ fn yes() -> bool {
     true
 }
 
+impl TeamRecord {
+    /// A team as it starts: these members, no invites, the defaults.
+    pub fn new(repo: TeamRepo, members: Vec<Member>) -> Self {
+        Self {
+            repo,
+            members,
+            invites: Vec::new(),
+            pickup: true,
+            pickup_limit: None,
+            asks: true,
+            removed: Vec::new(),
+        }
+    }
+
+    /// Takes `login` off the team, keeping the login and mesh they had in
+    /// `removed` so that a roster still listing them does not bring them back.
+    pub fn remove(&mut self, login: &ForgeLogin) {
+        let (gone, kept) = std::mem::take(&mut self.members)
+            .into_iter()
+            .partition(|member| member.login == *login);
+        self.members = kept;
+
+        for member in gone {
+            let removed = Removed {
+                login: member.login,
+                mesh: member.mesh,
+            };
+            self.removed.push(removed);
+        }
+    }
+}
+
 wire_enum! {
     /// A column of the team board.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::Display, strum::EnumString, strum::IntoStaticStr)]

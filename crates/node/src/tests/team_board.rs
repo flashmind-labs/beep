@@ -1,6 +1,6 @@
 use super::*;
-use crate::team::{link::TeamForge, roster::record};
-use beep_proto::team::{Card, ForgeLogin, Lane};
+use crate::team::link::TeamForge;
+use beep_proto::team::{Card, ForgeLogin, Lane, TeamRecord};
 use futures::future::BoxFuture;
 use iroh::{
     Endpoint, EndpointAddr, SecretKey, address_lookup::memory::MemoryLookup, endpoint::presets,
@@ -117,7 +117,7 @@ impl Pair {
             .devices
             .push(EndpointAddr::new(gateway.endpoint().id()));
         let bob = member("bob", bob_endpoint.id());
-        let team = record(repo(), vec![alice.clone(), bob.clone()]);
+        let team = TeamRecord::new(repo(), vec![alice.clone(), bob.clone()]);
 
         for link in [&gateway, &laptop] {
             link.with(|teams| {

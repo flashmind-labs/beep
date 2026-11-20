@@ -66,6 +66,7 @@ impl From<beep_fleet::FleetError> for DesktopError {
             FleetError::Conflict(message) => Self::Api(ApiError::Conflict { message }),
             FleetError::Refused(text) => Self::BadRequest(text),
             FleetError::Import(e) => Self::BadRequest(e.to_string()),
+            e @ FleetError::NotImported(_) => Self::BadRequest(e.to_string()),
             FleetError::Other(e) => Self::Other(e),
         }
     }

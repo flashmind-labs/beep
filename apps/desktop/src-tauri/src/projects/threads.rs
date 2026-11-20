@@ -4,22 +4,12 @@
 use crate::{
     beep::epoch_ms,
     chat::markdown::untrusted_html,
-    error::{DesktopError, Result},
-    fleet::projects::{FleetState, mesh_project},
+    error::Result,
+    fleet::projects::{FleetState, named},
 };
-use beep_fleet::Desk;
-use beep_proto::{
-    ApiError, GitItemKind, ProjectIssue, ProjectPullRequest, PullRequestHead, ThreadDetail,
-};
+use beep_proto::{GitItemKind, ProjectIssue, ProjectPullRequest, PullRequestHead, ThreadDetail};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-
-/// The desk and the name of the mesh project `project_id` is the id of.
-async fn named(fleet: &FleetState<'_>, project_id: Uuid) -> Result<(Desk, String)> {
-    mesh_project(fleet, project_id)
-        .await?
-        .ok_or(DesktopError::Api(ApiError::NotFound {}))
-}
 
 /// An open issue no task tracks yet.
 #[derive(Debug, Serialize)]

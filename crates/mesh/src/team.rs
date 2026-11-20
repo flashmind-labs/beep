@@ -1,12 +1,17 @@
-//! Team tickets: an invite to a forge repository's team, carried to a person in
-//! another mesh. The inviter's desktop keeps the invite's expiry and enforces it
-//! when the secret is spent.
+//! Teams in the mesh's state: the `beepteam1` ticket that invites a person in
+//! another mesh, and the writes every desktop makes alike. The inviter's
+//! desktop keeps the invite's expiry and enforces it when the secret is spent.
 
-use crate::{JoinSecret, TicketError};
-use beep_proto::{lenient, team::TeamRepo};
+use crate::{JoinSecret, Key, Mesh, MeshError, TicketError};
+use beep_proto::{
+    lenient,
+    node::mesh_state::StateValue,
+    team::{ContactRecord, TeamRecord, TeamRepo},
+};
 use iroh::EndpointId;
 use iroh_tickets::{ParseError, Ticket};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TeamTicket {
@@ -39,6 +44,102 @@ impl Ticket for TeamTicket {
 /// What the inviter stores in place of a spent invite's secret.
 pub fn secret_hash(secret: &JoinSecret) -> [u8; 32] {
     *blake3::hash(secret.as_bytes()).as_bytes()
+}
+
+/// Writes `pending`, a team record a node changed, over the mesh's own: its
+/// members and removals count, the invites and settings stay. A removal on
+/// either side wins, so a stale change never brings anyone back. A team the
+/// mesh holds no record of is not written: it was left. Whether it wrote.
+pub async fn take_roster(mesh: &Mesh, pending: TeamRecord) -> Result<bool, MeshError> {
+    let key = Key::Team(pending.repo.clone());
+    let Some(current) = read::<TeamRecord>(mesh, &key) else {
+        return Ok(false);
+    };
+    let mut next = current.clone();
+
+    for gone in pending.removed {
+        if !next.removed.contains(&gone) {
+            next.removed.push(gone);
+        }
+    }
+
+    next.members = pending
+        .members
+        .into_iter()
+        .filter(|member| {
+            let mut removed = next.removed.iter();
+            !removed.any(|gone| gone.login == member.login && gone.mesh == member.mesh)
+        })
+        .collect();
+
+    if next == current {
+        return Ok(false);
+    }
+
+    mesh.set(key, Some(next.to_bytes()?)).await?;
+    Ok(true)
+}
+
+/// Keeps a `contact/<mesh>` record for each member of another mesh on this
+/// mesh's teams: the login they hold on each team and all their devices. A
+/// contact who shares no team any more is deleted.
+pub async fn keep_contacts(mesh: &Mesh) -> Result<(), MeshError> {
+    let own = mesh.id();
+    let mut contacts: BTreeMap<EndpointId, ContactRecord> = BTreeMap::new();
+
+    for (key, bytes) in mesh.scan("team/") {
+        let (Key::Team(_), Ok(record)) = (key, TeamRecord::from_bytes(&bytes)) else {
+            continue;
+        };
+
+        for member in record
+            .members
+            .into_iter()
+            .filter(|member| member.mesh != own)
+        {
+            let contact = contacts
+                .entry(member.mesh)
+                .or_insert_with(|| ContactRecord {
+                    mesh: member.mesh,
+                    logins: Vec::new(),
+                    devices: Vec::new(),
+                });
+            contact.logins.push((record.repo.clone(), member.login));
+
+            for device in member.devices {
+                if !contact.devices.iter().any(|have| have.id == device.id) {
+                    contact.devices.push(device);
+                }
+            }
+        }
+    }
+
+    let held: Vec<EndpointId> = mesh
+        .scan("contact/")
+        .into_iter()
+        .filter_map(|(key, _)| match key {
+            Key::Contact(id) => Some(id),
+            _ => None,
+        })
+        .collect();
+
+    for id in held.into_iter().filter(|id| !contacts.contains_key(id)) {
+        mesh.set(Key::Contact(id), None).await?;
+    }
+
+    for (id, contact) in contacts {
+        let key = Key::Contact(id);
+
+        if read::<ContactRecord>(mesh, &key).as_ref() != Some(&contact) {
+            mesh.set(key, Some(contact.to_bytes()?)).await?;
+        }
+    }
+
+    Ok(())
+}
+
+fn read<T: StateValue>(mesh: &Mesh, key: &Key) -> Option<T> {
+    T::from_bytes(&mesh.get(key)?).ok()
 }
 
 #[cfg(test)]

@@ -284,6 +284,8 @@ impl StateValue for TerminalRecord {}
 impl StateValue for SessionMove {}
 impl StateValue for HarnessConfig {}
 impl StateValue for crate::FlshSettings {}
+impl StateValue for crate::team::TeamRecord {}
+impl StateValue for crate::team::ContactRecord {}
 
 /// One saved version of the user's instructions. Each is its own key, `instructions/<ms>.<id>`, so
 /// two desktops saving at once keep both.

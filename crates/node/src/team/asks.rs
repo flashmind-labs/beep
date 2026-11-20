@@ -150,10 +150,6 @@ pub(super) struct Taken {
 
 impl Asks {
     /// The Needs you cards of `repo`'s asks.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "this mesh's apps show the ask cards")
-    )]
     pub(crate) fn cards(&mut self, repo: &TeamRepo, now: SystemTime) -> Vec<Card> {
         self.expire(now);
         self.cards.get(repo).cloned().unwrap_or_default()
@@ -196,7 +192,6 @@ impl TeamLink {
     /// Drops the dismissed Needs you card `id` of `repo`: an ask's, and the
     /// ask with it, or that of an automatic session that ended without a
     /// pull request (`pickup`).
-    #[cfg_attr(not(test), expect(dead_code, reason = "the Team page dismisses cards"))]
     pub(crate) fn dismiss_card(&self, repo: &TeamRepo, id: &str) {
         self.with(|teams| {
             if let Some(cards) = teams.asks.cards.get_mut(repo) {
@@ -236,7 +231,7 @@ impl TeamLink {
     }
 
     /// Sends `msg` to `device`: `None` when it took it, else its refusal.
-    async fn offer(
+    pub(super) async fn offer(
         &self,
         device: &EndpointAddr,
         msg: &TeamMsg,

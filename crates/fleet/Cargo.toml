@@ -17,6 +17,7 @@ chrono.workspace = true
 fastrand.workspace = true
 futures.workspace = true
 iroh.workspace = true
+iroh-tickets.workspace = true
 log.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 rmp-serde.workspace = true
@@ -29,7 +30,6 @@ tracing.workspace = true
 uuid = { workspace = true, features = ["v4", "v5"] }
 
 [dev-dependencies]
-iroh-tickets.workspace = true
 serde_bytes.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util", "io-std", "net", "rt-multi-thread"] }

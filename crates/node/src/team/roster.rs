@@ -3,7 +3,7 @@
 //! change this device takes while it cannot write them stays pending until
 //! the mesh moves on.
 
-use beep_proto::team::{ForgeLogin, Member, Removed, TeamMsg, TeamRecord, TeamRepo};
+use beep_proto::team::{ForgeLogin, Member, TeamMsg, TeamRecord, TeamRepo};
 use iroh::EndpointId;
 use std::collections::BTreeMap;
 
@@ -144,7 +144,7 @@ impl Rosters {
                 return Err(Refusal::NotLeaver(login.clone()));
             }
             TeamMsg::Leave { login, .. } | TeamMsg::Remove { login, .. } => {
-                remove(&mut next, login);
+                next.remove(login);
             }
             _ => return Ok(Applied::default()),
         }
@@ -190,7 +190,7 @@ impl Rosters {
         login: &ForgeLogin,
     ) -> Option<TeamRecord> {
         let mut next = self.get(repo)?.clone();
-        remove(&mut next, login);
+        next.remove(login);
 
         self.change(next)
     }
@@ -266,19 +266,6 @@ impl Rosters {
     }
 }
 
-/// A team record as it starts: these members, no invites, the defaults.
-pub(crate) fn record(repo: TeamRepo, members: Vec<Member>) -> TeamRecord {
-    TeamRecord {
-        repo,
-        members,
-        invites: Vec::new(),
-        pickup: true,
-        pickup_limit: None,
-        asks: true,
-        removed: Vec::new(),
-    }
-}
-
 /// Whether `login` in `mesh` was removed from `record`'s team.
 pub(crate) fn was_removed(record: &TeamRecord, login: &ForgeLogin, mesh: EndpointId) -> bool {
     record
@@ -340,21 +327,6 @@ fn vet(record: &TeamRecord, entry: &Member, sender: Option<usize>) -> Result<Vet
         Some(at) if Some(at) == sender => Vetted::Own(at),
         Some(_) => Vetted::Other,
     })
-}
-
-fn remove(record: &mut TeamRecord, login: &ForgeLogin) {
-    let (gone, kept) = std::mem::take(&mut record.members)
-        .into_iter()
-        .partition(|member| member.login == *login);
-    record.members = kept;
-
-    for member in gone {
-        let removed = Removed {
-            login: member.login,
-            mesh: member.mesh,
-        };
-        record.removed.push(removed);
-    }
 }
 
 fn repo_of(msg: &TeamMsg) -> Option<&TeamRepo> {

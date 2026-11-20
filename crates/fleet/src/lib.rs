@@ -21,6 +21,7 @@ pub mod session_titles;
 mod settings;
 mod skill_libraries;
 mod sync;
+mod team;
 pub mod temporary;
 mod usage;
 

@@ -4,9 +4,9 @@
 
 use crate::{
     SessionId,
-    team::{TeamRecord, TeamRepo},
+    team::{Card, ForgeLogin, TeamRecord, TeamRepo},
 };
-use iroh::EndpointId;
+use iroh::{EndpointAddr, EndpointId};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
@@ -115,6 +115,9 @@ pub enum Tool {
     /// machine of the mesh with the project: `PickupStart`, then `Done`
     /// with the session's card id. Between nodes only.
     TeamPickup,
+    /// What this mesh's apps ask of its teams: `TeamAppArgs`. A node sends
+    /// what only a team's gateway knows or may send on to that gateway.
+    TeamApp,
     /// A tool a newer node calls that this one does not know.
     #[serde(other)]
     Unknown,
@@ -238,4 +241,41 @@ pub struct TeamInviteArgs {
     pub repo: TeamRepo,
     /// The `beepteam1` ticket accepting runs.
     pub ticket: String,
+}
+
+/// `Tool::TeamApp`'s arguments, by `action`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum TeamAppArgs {
+    /// `repo`'s Needs you cards and teammates' cards: `Done` with
+    /// `TeamCards` as JSON.
+    Cards { repo: TeamRepo },
+    /// Drops the Needs you card `card` of `repo`.
+    Dismiss { repo: TeamRepo, card: String },
+    /// Tells every member of another mesh that `login` is off `repo`'s team.
+    Remove { repo: TeamRepo, login: ForgeLogin },
+    /// Tells every member of another mesh that this mesh leaves `repo`'s team.
+    Leave { repo: TeamRepo },
+    /// Sends a contact, at `devices`, an invite to `repo`. It goes from the
+    /// gateway of `via`, a team shared with them, whose devices they know.
+    Invite {
+        via: TeamRepo,
+        repo: TeamRepo,
+        ticket: String,
+        devices: Vec<EndpointAddr>,
+    },
+    /// The contacts' invites this device keeps: `Done` with the
+    /// `TeamInviteArgs` as JSON.
+    Invites,
+    /// Drops a contact's invite this device keeps.
+    DropInvite { invite: TeamInviteArgs },
+}
+
+/// What `TeamAppArgs::Cards` answers.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TeamCards {
+    /// Asks for the user, and automatic sessions that ended without a pull
+    /// request: this mesh's own, never shown to teammates.
+    pub needs_you: Vec<Card>,
+    pub teammates: Vec<Card>,
 }

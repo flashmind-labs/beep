@@ -7,7 +7,6 @@ use super::{
     home::Checkout,
     link::{TeamError, TeamLink, finish},
     proof::{Nonce, ProofError, drop_proof, proof_seen, push_proof},
-    roster::record,
 };
 use beep_mesh::{JoinSecret, TeamTicket, secret_hash};
 use beep_proto::{
@@ -126,7 +125,9 @@ impl TeamLink {
         .await?;
 
         match rx.recv().await? {
-            Some(TeamMsg::Roster { repo: of, members }) if of == repo => Ok(record(repo, members)),
+            Some(TeamMsg::Roster { repo: of, members }) if of == repo => {
+                Ok(TeamRecord::new(repo, members))
+            }
             other => Err(unexpected(other)),
         }
     }
