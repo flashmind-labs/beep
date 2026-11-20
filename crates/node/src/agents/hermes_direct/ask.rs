@@ -21,8 +21,19 @@ pub(super) enum Asked {
 /// asks. `None` for a request the client is not asked.
 pub(super) fn to_client(method: &str, params: &Value) -> Option<(Asked, Value)> {
     match method {
-        "approval.request" | "approval" => approval(params),
+        "approval" => approval(params),
         "clarify" => clarify(params),
+        _ => None,
+    }
+}
+
+/// What Hermes is told at once of a `method` request the client is not
+/// asked, so its agent never waits on it: a denial, a cancelled clarify, or
+/// `None` for a method Hermes is refused with an error.
+pub(super) fn refused(method: &str) -> Option<Value> {
+    match method {
+        "approval" => Some(json!({"choice": "deny"})),
+        "clarify" => Some(json!({"answers": null, "outcome": "cancelled"})),
         _ => None,
     }
 }

@@ -13,7 +13,8 @@ use tokio_tungstenite::{
 };
 use url::Url;
 
-const READY_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long connecting, and each call, may take.
+const TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum LinkError {
@@ -25,6 +26,8 @@ pub(super) enum LinkError {
     Closed,
     #[error("Hermes answered with an error ({code}): {message}")]
     Rpc { code: i64, message: String },
+    #[error("Hermes did not answer {0} in time")]
+    TimedOut(String),
 }
 
 /// What Hermes sends that is not the reply to a call.
@@ -39,6 +42,7 @@ pub(super) enum Incoming {
 enum Command {
     Call { method: String, params: Value, reply: oneshot::Sender<Result<Value, LinkError>> },
     Answer { id: String, result: Value },
+    Refuse { id: String, message: String },
 }
 
 pub(super) struct Gateway {
@@ -53,7 +57,8 @@ impl Gateway {
         let unreachable = || LinkError::Unreachable(format!("nothing answers on {host}:{port}"));
         let url = socket_url(host, port, token).ok_or_else(unreachable)?;
 
-        let (mut socket, _) = connect_async(url.as_str()).await.map_err(|err| match err {
+        let connected = tokio::time::timeout(TIMEOUT, connect_async(url.as_str())).await.map_err(|_| unreachable())?;
+        let (mut socket, _) = connected.map_err(|err| match err {
             WsError::Http(response) if matches!(response.status().as_u16(), 401 | 403) => LinkError::Refused,
             _ => unreachable(),
         })?;
@@ -68,7 +73,7 @@ impl Gateway {
             }
             false
         };
-        match tokio::time::timeout(READY_TIMEOUT, ready).await {
+        match tokio::time::timeout(TIMEOUT, ready).await {
             Ok(true) => {}
             Ok(false) => return Err(LinkError::Refused),
             Err(_) => return Err(unreachable()),
@@ -78,19 +83,23 @@ impl Gateway {
         let (incoming_tx, incoming) = mpsc::unbounded_channel();
         tokio::spawn(run(socket, command_rx, incoming_tx));
 
-        let mut gateway = Gateway { commands, incoming };
+        let gateway = Gateway { commands, incoming };
         gateway.call("client.capabilities", json!({"server_requests": true})).await?;
 
         Ok(gateway)
     }
 
-    /// Calls `method` and returns its `result`, whatever else arrives meanwhile.
-    pub(super) async fn call(&mut self, method: &str, params: Value) -> Result<Value, LinkError> {
+    /// Calls `method` and returns its `result`, whatever else arrives
+    /// meanwhile; fails when Hermes does not answer in time.
+    pub(super) async fn call(&self, method: &str, params: Value) -> Result<Value, LinkError> {
         let (reply, answered) = oneshot::channel();
         let command = Command::Call { method: method.to_owned(), params, reply };
         self.commands.send(command).map_err(|_| LinkError::Closed)?;
 
-        answered.await.map_err(|_| LinkError::Closed)?
+        match tokio::time::timeout(TIMEOUT, answered).await {
+            Ok(answered) => answered.map_err(|_| LinkError::Closed)?,
+            Err(_) => Err(LinkError::TimedOut(method.to_owned())),
+        }
     }
 
     /// The next event or request from Hermes; `None` once the link closed.
@@ -99,8 +108,13 @@ impl Gateway {
     }
 
     /// Answers the request `id` with `result`.
-    pub(super) async fn answer(&mut self, id: &str, result: Value) -> Result<(), LinkError> {
+    pub(super) fn answer(&self, id: &str, result: Value) -> Result<(), LinkError> {
         self.commands.send(Command::Answer { id: id.to_owned(), result }).map_err(|_| LinkError::Closed)
+    }
+
+    /// Answers the request `id` with an error: the method is not served.
+    pub(super) fn refuse(&self, id: &str, message: String) -> Result<(), LinkError> {
+        self.commands.send(Command::Refuse { id: id.to_owned(), message }).map_err(|_| LinkError::Closed)
     }
 }
 
@@ -135,6 +149,9 @@ async fn run(
                         json!({"jsonrpc": "2.0", "id": next_id, "method": method, "params": params})
                     }
                     Command::Answer { id, result } => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                    Command::Refuse { id, message } => {
+                        json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": message}})
+                    }
                 };
                 if socket.send(Message::text(frame.to_string())).await.is_err() {
                     break;

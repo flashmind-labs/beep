@@ -1,14 +1,14 @@
 //! Hermes Agent as a session: a task in the node speaks ACP to the session
-//! and Hermes's JSON-RPC to Hermes. This holds the pure translation of
-//! Hermes's events and requests, and of the answers that go back.
+//! and JSON-RPC to Hermes's dashboard socket, as `codex_direct` does for
+//! Codex's app-server.
 
-// The bridge that drives these arrives with the rest of the driver.
-#[allow(dead_code)]
 mod ask;
-#[allow(dead_code)]
+mod bridge;
 mod events;
-#[allow(dead_code)]
 mod link;
+
+#[allow(unused_imports)] // the launch path uses them in the next change
+pub(in crate::agents) use bridge::{NAME, serve};
 
 #[cfg(test)]
 #[path = "../../tests/agents_hermes_direct.rs"]
