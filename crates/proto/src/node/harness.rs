@@ -9,7 +9,7 @@
 pub use output::{clean_output, failure_line};
 
 use super::EnvSecret;
-use crate::ModelId;
+use crate::{AgentSlug, ModelId};
 use serde::{Deserialize, Serialize};
 
 /// A harness Beep knows: where it keeps its home and how it installs.
@@ -163,6 +163,10 @@ pub struct HarnessConfig {
     /// a node that runs neither directly uses ACP.
     #[serde(default)]
     pub driver: HarnessDriver,
+    /// The harnesses its sessions may start as children through
+    /// `start_agent` and `review`. `None` allows every harness.
+    #[serde(default)]
+    pub spawns: Option<Vec<AgentSlug>>,
 }
 
 /// How the node drives a harness.
@@ -231,6 +235,7 @@ impl HarnessConfig {
             compact_models: Vec::new(),
             default_model: None,
             driver: HarnessDriver::Acp,
+            spawns: None,
         }
     }
 }

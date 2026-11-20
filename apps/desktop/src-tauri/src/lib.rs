@@ -227,6 +227,8 @@ pub fn run() {
             agents::harnesses::harness_default_model,
             agents::harnesses::harness_driver,
             agents::harnesses::harness_driver_save,
+            agents::harnesses::harness_spawns,
+            agents::harnesses::harness_spawns_save,
             agents::harnesses::harness_default_model_save,
             agents::harnesses::harness_model_compacts,
             agents::harnesses::harness_model_compacts_save,

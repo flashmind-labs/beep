@@ -65,6 +65,7 @@ function SharedSettings({ value, p }: { value: SharedProviderSettings; p: Provid
       {compactKind(value.agent) === "percent" && <input className="hv-in" value={compact.draft.compactPercent} placeholder="80% or 350000" aria-label="Auto-compact threshold" autoComplete="off" spellCheck={false} disabled={!compact.loaded || compact.busy} onChange={event => p.changeCompact(value.agent, { compactPercent: event.currentTarget.value })} />}
     </span></div><div className="hv-acts"><Button look="primary" disabled={!compact.canSave} onClick={() => p.saveCompact(value.agent)}>{compact.busy ? "Saving…" : "Save auto-compact"}</Button><Button look="quiet" hidden={!compact.edited} disabled={compact.busy} onClick={() => p.discardCompact(value.agent)}>Discard</Button><span className="derr">{compact.error}</span></div></>}
     {directCli && <DriverField key={value.agent} agent={value.agent} cli={directCli} invoke={p.invoke} />}
+    <SpawnsField key={`spawns-${value.agent}`} agent={value.agent} agents={p.view?.harnesses.map(h => h.agent) ?? []} invoke={p.invoke} />
     {value.agent === "flsh" && <FlshView panel={p.flsh} />}
     {value.machineName && <div className="hv-note">Model choices and reported limits come from {value.machineName}.</div>}
     {p.machine && <ModelContextView panel={p.contexts} machine={p.machine} agent={value.agent} />}
@@ -93,6 +94,35 @@ function DriverField({ agent, cli, invoke }: { agent: string; cli: string; invok
   };
   return <div className="hv-f"><span><b>Harness</b><small>Direct runs the {cli} CLI without the npm adapter. New sessions use it.</small></span><span className="fl-row">
     <span className="dchips" role="group" aria-label="Harness">{DRIVERS.map(option => <ChipToggle key={option.id} label={option.label} selected={driver === option.id} onToggle={() => pick(option.id)} />)}</span>
+    <span className="derr">{error}</span>
+  </span></div>;
+}
+
+/// Which harnesses a harness's sessions may start: any, or the ones picked.
+type Spawns = { kind: "any" } | { kind: "only"; agents: readonly string[] };
+
+function SpawnsField({ agent, agents, invoke }: { agent: string; agents: readonly string[]; invoke: typeof Invoke }) {
+  const [spawns, setSpawns] = useState<Spawns | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let live = true;
+    invoke<string[] | null>("harness_spawns", { agent }).then(saved => { if (live) setSpawns(saved ? { kind: "only", agents: saved } : { kind: "any" }); }, e => { if (live) setError(String(e)); });
+    return () => { live = false; };
+  }, [agent, invoke]);
+  const allowed = (other: string) => spawns?.kind === "any" || (spawns?.kind === "only" && spawns.agents.includes(other));
+  const toggle = (other: string) => {
+    if (!spawns) return;
+    // Picks this machine does not list stay picked.
+    const unseen = spawns.kind === "only" ? spawns.agents.filter(name => !agents.includes(name)) : [];
+    const shown = agents.filter(name => allowed(name) !== (name === other));
+    const next: Spawns = !unseen.length && shown.length === agents.length ? { kind: "any" } : { kind: "only", agents: [...unseen, ...shown] };
+    const was = spawns;
+    setSpawns(next);
+    setError("");
+    invoke("harness_spawns_save", { agent, spawns: next.kind === "any" ? null : next.agents }).catch(e => { setSpawns(was); setError(String(e)); });
+  };
+  return <div className="hv-f"><span><b>Can start</b><small>Harnesses its sessions may start as other agents.</small></span><span className="fl-row">
+    <span className="dchips" role="group" aria-label="Can start">{agents.map(other => <ChipToggle key={other} label={harnessName(other)} selected={allowed(other)} onToggle={() => toggle(other)} />)}</span>
     <span className="derr">{error}</span>
   </span></div>;
 }

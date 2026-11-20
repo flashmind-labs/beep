@@ -3,7 +3,9 @@ use crate::{
     agents::{AgentKind, Begin},
     machine::provision::Provision,
 };
+use beep_proto::AgentSlug;
 use beep_proto::node::agent::{Question, State};
+use beep_proto::node::harness::{AgentSettings, HarnessConfig};
 use serde_json::Value;
 use beep_proto::watched;
 use std::{collections::BTreeMap, time::Duration};
@@ -296,6 +298,29 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
         let (failed, text) = tool(&offers, &parent_id, Tool::StartAgent, args).await;
         assert!(failed, "{text}");
     }
+
+    // A harness limited to starting its own kind cannot start another.
+    let limited = |spawns: Option<Vec<AgentSlug>>| AgentSettings {
+        harnesses: vec![HarnessConfig {
+            spawns,
+            ..HarnessConfig::new("top")
+        }],
+        flsh: None,
+    };
+    offers
+        .agents
+        .set_settings(limited(Some(vec![AgentSlug::new("top")])));
+    let (failed, text) = tool(
+        &offers,
+        &parent_id,
+        Tool::StartAgent,
+        json!({"harness":"kid", "prompt":"work", "project":"example/app"}),
+    )
+    .await;
+    assert!(failed && text.contains("only top"), "{text}");
+    offers
+        .agents
+        .set_settings(limited(Some(vec![AgentSlug::new("top"), AgentSlug::new("kid")])));
 
     let (failed, text) = tool(
         &offers,

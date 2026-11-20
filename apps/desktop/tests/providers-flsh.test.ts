@@ -22,7 +22,7 @@ test("flsh input survives provider machine updates without remounting", async ()
     if (cmd === "harness_settings_all" || cmd === "harness_model_compacts") return [];
     return null;
   }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
-  const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
+  const { act, fireEvent, screen, waitFor, within, cleanup } = await import("@testing-library/react");
   const { invoke } = await import("../src/ui/tauri.ts");
   const { providersPage } = await import("../src/settings/providers.tsx");
   const view = providersPage({ invoke, openSettings() {}, redrawTop() {}, follow() {} });
@@ -31,6 +31,8 @@ test("flsh input survives provider machine updates without remounting", async ()
   try {
     await act(async () => { await view.mount(host, { agent: "flsh", settings: true }); });
     await waitFor(() => assert.ok(screen.getByLabelText("Auto-compact threshold")));
+    // No limit saved: the harness may start any harness.
+    await waitFor(() => assert.equal(within(screen.getByRole("group", { name: "Can start" })).getByRole("button").getAttribute("aria-pressed"), "true"));
     const input = screen.getByLabelText("Auto-compact threshold") as HTMLInputElement;
     input.focus();
     fireEvent.change(input, { target: { value: "400k" } });

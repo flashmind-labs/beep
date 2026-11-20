@@ -10,12 +10,12 @@ use crate::{
     },
     settings::credentials::plain,
 };
-use beep_proto::ModelId;
 use beep_proto::{
     AgentHarness, AgentHarnesses, HarnessEnv, HarnessSettings, HarnessSignIn,
     MachineHarnessSettings, SecretText,
     node::harness::{AutoCompact, HarnessDriver, ModelCompact},
 };
+use beep_proto::{AgentSlug, ModelId};
 use serde::{Deserialize, Serialize};
 
 /// One machine's harnesses as the page shows them.
@@ -317,6 +317,27 @@ pub async fn harness_driver_save(
     Ok(desk(&fleet)
         .await?
         .save_harness_driver(&agent, driver)
+        .await?)
+}
+
+/// The harnesses `agent`'s sessions may start, on every machine; `None` is any.
+#[tauri::command]
+pub async fn harness_spawns(
+    fleet: FleetState<'_>,
+    agent: String,
+) -> Result<Option<Vec<AgentSlug>>> {
+    Ok(desk(&fleet).await?.harness_spawns(&agent)?)
+}
+
+#[tauri::command]
+pub async fn harness_spawns_save(
+    fleet: FleetState<'_>,
+    agent: String,
+    spawns: Option<Vec<AgentSlug>>,
+) -> Result<()> {
+    Ok(desk(&fleet)
+        .await?
+        .save_harness_spawns(&agent, spawns)
         .await?)
 }
 
