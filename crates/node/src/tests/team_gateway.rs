@@ -3,7 +3,7 @@ use crate::{
     machine::ci::projects::pinned,
     team::{
         board::tests::{URL, member, repo},
-        home::{Project, read},
+        home::{Project, in_team, read},
         link::Teams,
         roster::record,
     },
@@ -184,4 +184,48 @@ fn a_pending_announcement_moves_no_election() {
 
     // Both pick the old gateway: exactly one machine acts.
     assert_eq!(chosen, [Some(old), Some(old)]);
+}
+
+#[tokio::test]
+async fn a_folder_is_in_a_team_once_its_project_has_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .bind()
+        .await
+        .unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let project = ProjectRecord {
+        url: URL.to_owned(),
+        ..ProjectRecord::default()
+    };
+    mesh.set(
+        Key::Project("org/repo".into()),
+        Some(project.to_bytes().unwrap()),
+    )
+    .await
+    .unwrap();
+    let place = Place {
+        folder: "/srv/repo".into(),
+        imported_ms: 0,
+        fork: None,
+    };
+    mesh.set(
+        Key::Project(format!("org/repo/{}", mesh.me())),
+        Some(place.to_bytes().unwrap()),
+    )
+    .await
+    .unwrap();
+    let worktree = std::path::Path::new("/srv/repo/.worktrees/52-fees");
+
+    assert_eq!(read(&mesh).team_of(worktree), Some(repo()));
+    assert!(!in_team(&mesh, worktree));
+
+    let team = rmp_serde::to_vec(&record(repo(), Vec::new())).unwrap();
+    mesh.set(Key::Team(repo()), Some(team)).await.unwrap();
+
+    assert!(in_team(&mesh, worktree));
+    assert!(!in_team(&mesh, std::path::Path::new("/srv/other")));
 }

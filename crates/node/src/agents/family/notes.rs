@@ -176,14 +176,19 @@ impl Agents {
 
 impl Agents {
     /// Puts `text`, a note such as a teammate's answer, into the live session
-    /// `id` here, the way a child's notes go in.
+    /// `id` here, the way a child's notes go in: none into a session the
+    /// user stopped.
     pub(crate) async fn tell(&self, id: &SessionId, text: String) -> Result<(), String> {
         let session = self
             .peers()
             .into_iter()
             .find(|session| session.id == *id || Self::name_of(session) == *id)
             .ok_or_else(|| format!("No session {id} runs here any more."))?;
-        let idle = watched::read(&session.live, |live| live.status() == Status::Idle);
+        let (idle, stopped) = idle_or_stopped(&session);
+
+        if stopped {
+            return Err(format!("The user stopped session {id}."));
+        }
 
         put(&session, idle, text).await
     }
@@ -292,20 +297,23 @@ async fn deliver(
     id: &str,
     note: &ChildNote,
 ) -> Result<(), String> {
-    let (idle, stopped) = {
-        watched::read(&parent.live, |live| {
-            let status = live.status();
-            let stopped = status == Status::Ended
-                || (status == Status::Idle && live.info.state.last_stop == Some(StopReason::Cancelled));
-            (status == Status::Idle, stopped)
-        })
-    };
+    let (idle, stopped) = idle_or_stopped(parent);
 
     if stopped || waits.holds(&Agents::name_of(parent), id) {
         return Ok(());
     }
 
     put(parent, idle, note.text_for(id)).await
+}
+
+/// Whether `session` is idle, and whether it ended or the user stopped it.
+fn idle_or_stopped(session: &Session) -> (bool, bool) {
+    watched::read(&session.live, |live| {
+        let status = live.status();
+        let stopped = status == Status::Ended
+            || (status == Status::Idle && live.info.state.last_stop == Some(StopReason::Cancelled));
+        (status == Status::Idle, stopped)
+    })
 }
 
 /// Puts `text` into `session`: a prompt when it is `idle`, else a steer.
