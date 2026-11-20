@@ -26,7 +26,7 @@ use beep_proto::watched;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration};
 use tokio::time::{Instant, sleep};
 
 mod peer;
@@ -608,7 +608,7 @@ impl Reach<'_> {
             }
         };
         let mut views: Vec<ChildView> =
-            in_the_mesh(self.agents, self.mesh.as_ref(), &self.who.session)
+            in_the_mesh(self.agents, self.mesh.as_ref(), &self.who.session, None)
                 .await
                 .into_iter()
                 .map(|listed| listed.view)
@@ -757,12 +757,13 @@ fn listed_here(agents: &Agents) -> Vec<Listed> {
 }
 
 /// Every live agent but `caller`, the session asking: this machine's, then
-/// those of every other machine of `mesh` that answers in time, each named
-/// by its machine.
+/// those of every other online machine of `mesh`, or of `only` those, that
+/// answers in time, each named by its machine.
 pub(crate) async fn in_the_mesh(
     agents: &Agents,
     mesh: Option<&Mesh>,
     caller: &SessionId,
+    only: Option<&BTreeSet<EndpointId>>,
 ) -> Vec<Listed> {
     let here = machine_name(mesh);
     let display = mesh
@@ -786,6 +787,7 @@ pub(crate) async fn in_the_mesh(
         .code_hosts()
         .into_iter()
         .filter(|status| status.online && status.device.id != mesh.me())
+        .filter(|status| only.is_none_or(|only| only.contains(&status.device.id)))
         .map(|status| {
             let display = status.device.name.clone();
             (Machine::from(status), display)

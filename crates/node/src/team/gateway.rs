@@ -10,6 +10,7 @@ use super::{
     cards::{Facts, IssueTitles, Teammates, card_of, settle},
     home::Project,
     link::TeamLink,
+    roster::with_devices,
 };
 use crate::{
     agents::mcp::children::{Listed, in_the_mesh},
@@ -46,6 +47,8 @@ const BUSY: Duration = Duration::from_secs(60);
 const QUIET: Duration = Duration::from_secs(10 * 60);
 /// How often every member is checked on the forge.
 const UPKEEP: Duration = Duration::from_secs(24 * 60 * 60);
+/// The least time between two announcements of this mesh's devices on a team.
+const ANNOUNCE: Duration = Duration::from_secs(60);
 /// How long a forge call or a branch read may take.
 const FORGE_LIMIT: Duration = Duration::from_secs(30);
 const GIT_LIMIT: Duration = Duration::from_secs(5);
@@ -55,15 +58,23 @@ pub(crate) fn topic(repo: &TeamRepo) -> Topic {
     Topic::keyed("team", repo.to_string())
 }
 
-/// The machine that acts for `repo`, as `me` sees it with the online `peers`.
+/// The machine that acts for `repo`, as `me` sees it with the online
+/// `peers`: one of the project's machines on `mine`, this mesh's entry on the
+/// team, since teammates turn away any other.
 pub(crate) fn elected(
     project: &Project,
+    mine: &Member,
     repo: &TeamRepo,
     me: EndpointId,
     ci: &Ci,
     peers: &BTreeMap<EndpointId, ForgeReach>,
 ) -> Option<EndpointId> {
-    let machines = project.devices.iter().map(|device| device.id).collect();
+    let machines = project
+        .devices
+        .iter()
+        .map(|device| device.id)
+        .filter(|machine| mine.devices.iter().any(|device| device.id == *machine))
+        .collect();
 
     elect(&machines, me, ci.reach_of(&repo.host), peers, &repo.host)
 }
@@ -85,6 +96,7 @@ pub(crate) async fn run(mesh: Mesh, me: EndpointId, link: TeamLink, offers: Offe
         held: BTreeSet::new(),
         titles: BTreeMap::new(),
         branches: HashMap::new(),
+        announced: BTreeMap::new(),
         checked: BTreeMap::new(),
         follows: BTreeMap::new(),
         teammates: BTreeMap::new(),
@@ -106,12 +118,11 @@ struct Team {
     repo: TeamRepo,
     /// The mesh's name for the project.
     project: String,
-    /// This mesh's login on it.
-    login: ForgeLogin,
+    /// This mesh's entry on it.
+    mine: Member,
     /// The members of other meshes.
     others: Vec<Member>,
 }
-
 
 struct Gateway {
     mesh: Mesh,
@@ -126,8 +137,10 @@ struct Gateway {
     held: BTreeSet<TeamRepo>,
     /// Each held repository's open issue titles, and when they were read.
     titles: BTreeMap<TeamRepo, (IssueTitles, Instant)>,
-    /// The branch of each session here, read once.
+    /// The branch of each session here in a held team's project.
     branches: HashMap<String, Option<String>>,
+    /// The devices last announced on each held team, and when.
+    announced: BTreeMap<TeamRepo, (BTreeSet<EndpointId>, Instant)>,
     /// When each held team's members were last checked.
     checked: BTreeMap<TeamRepo, Instant>,
     /// The follow of each teammate's board, by repository and their mesh.
@@ -153,7 +166,7 @@ impl Gateway {
                     Some(Team {
                         repo: repo.clone(),
                         project: project.name.clone(),
-                        login: mine.into_iter().next()?.login,
+                        mine: mine.into_iter().next()?,
                         others,
                     })
                 })
@@ -176,13 +189,14 @@ impl Gateway {
             .into_iter()
             .filter(|team| {
                 let project = &home.projects[&team.repo];
-                elected(project, &team.repo, me, ci, &peers) == Some(me)
+                elected(project, &team.mine, &team.repo, me, ci, &peers) == Some(me)
             })
             .collect();
         self.held = teams.iter().map(|team| team.repo.clone()).collect();
         let held = &self.held;
         self.titles.retain(|repo, _| held.contains(repo));
         self.checked.retain(|repo, _| held.contains(repo));
+        self.announced.retain(|repo, _| held.contains(repo));
         self.link.with(|link| {
             link.boards.keep(held);
 
@@ -193,8 +207,9 @@ impl Gateway {
             }
         });
 
+        self.announce(&teams, &home.projects);
         self.follow_teammates(&teams);
-        self.serve_cards(&teams).await;
+        self.serve_cards(&teams, &home.projects).await;
         self.upkeep(&teams).await;
     }
 
@@ -222,8 +237,35 @@ impl Gateway {
         self.peers = gather("team gateway", asked, |peer| ask_reach(mesh, peer)).await;
     }
 
+    /// Names this mesh's machines with each held project on its entry, when
+    /// they changed: once per change, at most every `ANNOUNCE`.
+    fn announce(&mut self, teams: &[Team], projects: &BTreeMap<TeamRepo, Project>) {
+        let mut online = online(&self.mesh);
+        online.insert(self.me);
+
+        for team in teams {
+            let devices = &projects[&team.repo].devices;
+            let mesh = &self.mesh;
+            let Some(entry) = with_devices(&team.mine, devices, &online, |id| mesh.is_member(id))
+            else {
+                continue;
+            };
+            let named: BTreeSet<EndpointId> = entry.devices.iter().map(|device| device.id).collect();
+            let recent = self
+                .announced
+                .get(&team.repo)
+                .is_some_and(|(sent, at)| *sent == named || at.elapsed() < ANNOUNCE);
+
+            if !recent {
+                self.announced
+                    .insert(team.repo.clone(), (named, Instant::now()));
+                announce(&self.link, self.me, team, entry);
+            }
+        }
+    }
+
     /// Makes the cards of every held team with a subscriber.
-    async fn serve_cards(&mut self, teams: &[Team]) {
+    async fn serve_cards(&mut self, teams: &[Team], projects: &BTreeMap<TeamRepo, Project>) {
         let watched: Vec<&Team> = teams
             .iter()
             .filter(|team| self.link.with(|link| link.boards.watched(&team.repo)))
@@ -233,15 +275,23 @@ impl Gateway {
             return;
         }
 
-        let listed = in_the_mesh(&self.offers.agents, Some(&self.mesh), &SessionId::default()).await;
-        self.read_branches(&listed).await;
+        let machines: BTreeSet<EndpointId> = watched
+            .iter()
+            .flat_map(|team| &projects[&team.repo].devices)
+            .map(|device| device.id)
+            .collect();
+        let agents = &self.offers.agents;
+        let listed = in_the_mesh(agents, Some(&self.mesh), &SessionId::default(), Some(&machines)).await;
+        self.branches
+            .retain(|id, _| listed.iter().any(|listed| listed.view.id == *id));
 
         for team in watched {
-            let titles = self.read_titles(&team.repo).await;
+            let (titles, read) = self.read_titles(&team.repo).await;
+            self.read_branches(&listed, &team.project, read).await;
             let now = SystemTime::now();
             let facts = Facts {
                 project: &team.project,
-                login: &team.login,
+                login: &team.mine.login,
                 linked: &titles,
                 now,
             };
@@ -262,13 +312,13 @@ impl Gateway {
         }
     }
 
-    /// Reads the branch of each session here not read yet.
-    async fn read_branches(&mut self, listed: &[Listed]) {
-        self.branches
-            .retain(|id, _| listed.iter().any(|listed| listed.view.id == *id));
+    /// Reads the branch of each session here in `project` not read yet, or
+    /// of all of them `again`.
+    async fn read_branches(&mut self, listed: &[Listed], project: &str, again: bool) {
         let unread: Vec<(String, String)> = listed
             .iter()
-            .filter(|listed| !self.branches.contains_key(&listed.view.id))
+            .filter(|listed| listed.view.project.as_deref() == Some(project))
+            .filter(|listed| again || !self.branches.contains_key(&listed.view.id))
             .filter_map(|listed| Some((listed.view.id.clone(), listed.folder.clone()?)))
             .collect();
         let read = join_all(unread.iter().map(|(_, folder)| branch_of(folder))).await;
@@ -277,9 +327,9 @@ impl Gateway {
             .extend(unread.into_iter().map(|(id, _)| id).zip(read));
     }
 
-    /// `repo`'s open issue titles: read again every `BUSY` while a session
-    /// on its board works, every `QUIET` otherwise.
-    async fn read_titles(&mut self, repo: &TeamRepo) -> IssueTitles {
+    /// `repo`'s open issue titles, and whether they were read now: again
+    /// every `BUSY` while a session on its board works, every `QUIET` otherwise.
+    async fn read_titles(&mut self, repo: &TeamRepo) -> (IssueTitles, bool) {
         let working = self.link.with(|link| {
             let cards = link.boards.cards(repo).unwrap_or_default();
             cards.iter().any(|card| card.lane == Lane::Working {})
@@ -289,7 +339,7 @@ impl Gateway {
         if let Some((titles, at)) = self.titles.get(repo)
             && at.elapsed() < wait
         {
-            return titles.clone();
+            return (titles.clone(), false);
         }
 
         let read = timeout(FORGE_LIMIT, self.link.forge().issue_titles(repo)).await;
@@ -307,7 +357,7 @@ impl Gateway {
         self.titles
             .insert(repo.clone(), (titles.clone(), Instant::now()));
 
-        titles
+        (titles, true)
     }
 
     /// Follows the board of every teammate of the held teams, and stops
@@ -391,6 +441,27 @@ impl Gateway {
             self.checked.insert(team.repo.clone(), Instant::now());
             check_members(&self.link, team).await;
         }
+    }
+}
+
+/// Takes `entry`, this mesh's entry on `team` with its devices now, as a
+/// teammate's roster is taken (for a desktop to write), then sends it to every
+/// teammate.
+fn announce(link: &TeamLink, me: EndpointId, team: &Team, entry: Member) {
+    let roster = TeamMsg::Roster {
+        repo: team.repo.clone(),
+        members: vec![entry],
+    };
+    let own = Some(team.mine.mesh);
+
+    match link.with(|link| link.rosters.apply(me, own, &roster)) {
+        Ok(applied) => {
+            if applied.changed.is_some() {
+                link.wake();
+            }
+            link.tell(team.others.clone(), roster);
+        }
+        Err(refusal) => log::info!("this mesh's devices on {} did not change: {refusal}", team.repo),
     }
 }
 
