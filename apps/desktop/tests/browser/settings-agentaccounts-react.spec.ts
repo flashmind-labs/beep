@@ -109,6 +109,12 @@ test("a named account is added beside the default one", async ({ page }) => {
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
   await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  const claude = settings.locator(".dbox").filter({ has: page.locator("b.dtitle", { hasText: /^Claude Code$/ }) });
+  await claude.getByRole("button", { name: "Add account" }).click();
+  await expect(claude.locator("#agNamedSign")).toBeVisible();
+  await expect(claude.getByRole("textbox", { name: "Claude Code token" })).toHaveCount(0);
+  await claude.locator("#agNamedPaste").click();
+  await expect(claude.getByRole("textbox", { name: "Claude Code token" })).toBeVisible();
   const codex = settings.locator(".dbox").filter({ has: page.locator("b.dtitle", { hasText: /^Codex$/ }) });
   await codex.getByRole("button", { name: "Add account" }).click();
   await settings.getByRole("textbox", { name: "Account name" }).fill("default");

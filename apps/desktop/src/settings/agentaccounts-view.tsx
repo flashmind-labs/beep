@@ -1,5 +1,5 @@
 import { Button, CopyButton, SkeletonRows, Spinner } from "../ui/kit.tsx";
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { onPhone } from "../ui/platform.ts";
@@ -11,7 +11,7 @@ function Row({ name, offline, children }: { name: string; offline: boolean; chil
 function Form({ state, agent, actions }: { state: AgentAccountsState; agent: "claude" | "codex"; actions: Actions }) {
   const input = useRef<HTMLInputElement>(null), clear = () => { if (input.current) input.current.value = ""; };
   useLayoutEffect(() => { input.current?.focus(); }, []);
-  return <div className="dgrid8 dmt6"><div className="dline"><input ref={input} id="agSecret" type="password" autoComplete="off" spellCheck={false} placeholder={agent === "claude" ? "sk-ant-oat01-…" : "sk-…"} aria-label={agent === "claude" ? "Claude Code token" : "Codex API key"} className="dsecret" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); actions.save(e.currentTarget.value, clear); } }} /><Button look="primary" id="agSave" disabled={!!state.busy} onClick={() => actions.save(input.current?.value ?? "", clear)}>{state.busy === agent ? "Saving…" : "Save"}</Button><Button look="quiet" id="agCancel" onClick={actions.cancel}>Cancel</Button></div><span className="dsub">{agent === "claude" ? <>Run <code>claude setup-token</code> in Terminal and paste the token it prints.</> : "An OpenAI API key. Codex uses it on every machine instead of signing in."}</span><span className="derr" id="agErr">{state.error || ""}</span></div>;
+  return <div className="dgrid8 dmt6"><div className="dline"><input ref={input} id="agSecret" type="password" autoComplete="off" spellCheck={false} placeholder={agent === "claude" ? "Token from claude setup-token" : "OpenAI API key"} aria-label={agent === "claude" ? "Claude Code token" : "Codex API key"} className="dsecret" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); actions.save(e.currentTarget.value, clear); } }} /><Button look="primary" id="agSave" disabled={!!state.busy} onClick={() => actions.save(input.current?.value ?? "", clear)}>{state.busy === agent ? "Saving…" : "Save"}</Button><Button look="quiet" id="agCancel" onClick={actions.cancel}>Cancel</Button></div><span className="dsub">{agent === "claude" ? <>Run <code>claude setup-token</code> in Terminal and paste the token it prints.</> : "An OpenAI API key. Codex uses it on every machine instead of signing in."}</span><span className="derr" id="agErr">{state.error || ""}</span></div>;
 }
 /// The agent's named accounts, inside its card: one row each and the add form.
 function NamedAccounts({ agent, state, data, ago, actions }: { agent: AccountAgent; state: AgentAccountsState; data: AgentAccounts; ago: (ms: number) => string; actions: Actions }) {
@@ -24,18 +24,24 @@ function NamedAccounts({ agent, state, data, ago, actions }: { agent: AccountAge
     {add && <AddAccount state={state} agent={agent} error={add.error} actions={actions} />}
   </div>;
 }
+/// Adds a named account: Claude Code signs in through the browser, with a
+/// pasted token as the fallback; Codex takes a ChatGPT personal access token.
 function AddAccount({ state, agent, error, actions }: { state: AgentAccountsState; agent: AccountAgent; error: string; actions: Actions }) {
-  const name = useRef<HTMLInputElement>(null), secret = useRef<HTMLInputElement>(null), phone = onPhone();
+  const name = useRef<HTMLInputElement>(null), secret = useRef<HTMLInputElement>(null), signs = agent === "claude" && !onPhone();
+  const [paste, setPaste] = useState(!signs);
   const save = () => actions.addSave(name.current?.value ?? "", secret.current?.value ?? "");
   const cancel = () => { if (state.claudeFlow) actions.claudeCancel(); actions.add(null); };
+  const busy = !!state.busy || !!state.claudeFlow;
   useLayoutEffect(() => { name.current?.focus(); }, []);
   return <div className="dgrid8 dmt6">
-    <div className="dline"><input ref={name} id="agName" type="text" autoComplete="off" spellCheck={false} placeholder="Name" aria-label="Account name" className="dname" disabled={state.claudeFlow} />
-      <input ref={secret} id="agNamedSecret" type="password" autoComplete="off" spellCheck={false} placeholder={agent === "claude" ? "sk-ant-oat01-…" : "Personal access token"} aria-label={agent === "claude" ? "Claude Code token" : "Codex access token"} className="dsecret" disabled={state.claudeFlow} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }} />
-      <Button look="primary" id="agNamedSave" disabled={!!state.busy || state.claudeFlow} onClick={save}>{state.busy === "add" ? "Saving…" : "Save"}</Button>
-      {agent === "claude" && !phone && <Button disabled={!!state.busy || state.claudeFlow} onClick={() => actions.addSign(name.current?.value ?? "")}>Sign in</Button>}
+    <div className="dline"><input ref={name} id="agName" type="text" autoComplete="off" spellCheck={false} placeholder="Name, such as Work" aria-label="Account name" className="dname" disabled={state.claudeFlow} onKeyDown={e => { if (e.key === "Enter" && !paste) { e.preventDefault(); actions.addSign(e.currentTarget.value); } }} />
+      {paste && <input ref={secret} id="agNamedSecret" type="password" autoComplete="off" spellCheck={false} placeholder={agent === "claude" ? "Token from claude setup-token" : "ChatGPT personal access token"} aria-label={agent === "claude" ? "Claude Code token" : "Codex access token"} className="dsecret" disabled={state.claudeFlow} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }} />}
+      {paste ? <Button look="primary" id="agNamedSave" disabled={busy} onClick={save}>{state.busy === "add" ? "Saving…" : "Save"}</Button>
+        : <Button look="primary" id="agNamedSign" disabled={busy} onClick={() => actions.addSign(name.current?.value ?? "")}>Sign in</Button>}
+      {signs && !paste && <Button look="quiet" id="agNamedPaste" disabled={busy} onClick={() => setPaste(true)}>Paste a token instead</Button>}
       <Button look="quiet" onClick={cancel}>Cancel</Button></div>
-    {state.claudeFlow ? <div className="dfine dline"><Spinner />Approve in your browser, signed in to the account this name is for.</div> : <span className="dsub">{agent === "claude" ? <>Paste what <code>claude setup-token</code> prints while signed in to that account, or sign in here.</> : "A ChatGPT personal access token for that subscription."}</span>}
+    {state.claudeFlow ? <div className="dfine dline"><Spinner />Approve in your browser, signed in to the account this name is for.</div>
+      : <span className="dsub">{!paste ? "Signs in through your browser. Use the account this name is for." : agent === "claude" ? <>Run <code>claude setup-token</code> while signed in to that account and paste what it prints.</> : "A ChatGPT personal access token for that subscription."}</span>}
     <span className="derr" id="agNamedErr">{error}</span></div>;
 }
 function ownLogin(data: AgentAccounts, m: Machine) { const login = data.claude_logins?.get(m.id); return !login ? "not checked" : !login.signed_in ? "not signed in" : login.account ? `signed in as ${login.account}` : "signed in"; }
