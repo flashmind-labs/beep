@@ -14,6 +14,7 @@ pub mod model;
 mod owner_var;
 pub mod repo_watch;
 mod shell;
+pub mod team_forge;
 pub mod thread_detail;
 
 pub use owner_var::github_owner_var;

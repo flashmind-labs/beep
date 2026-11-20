@@ -112,7 +112,8 @@ impl HostCommand<'_> {
                 // Only what the list shows, so a long list stays small.
                 let jq = "[.[] | {number, title, labels: [.labels[].name], \
                           author: .author.login, createdAt, \
-                          comments: (.comments | length), url}]";
+                          comments: (.comments | length), url, \
+                          assignees: [.assignees[].login]}]";
                 let limit = GH_OPEN_LIMIT.to_string();
                 gh(
                     &["issue", "list"],
@@ -122,7 +123,7 @@ impl HostCommand<'_> {
                         "--limit",
                         &limit,
                         "--json",
-                        "number,title,labels,author,createdAt,comments,url",
+                        "number,title,labels,author,createdAt,comments,url,assignees",
                         "--jq",
                         jq,
                     ],

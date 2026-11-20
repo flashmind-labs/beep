@@ -41,6 +41,8 @@ pub struct OpenIssue {
     pub url: String,
     /// A pull request is linked to it, to close it.
     pub linked_pr: bool,
+    /// The logins it is assigned to.
+    pub assignees: Vec<String>,
 }
 
 /// The issue's web page: Forgejo's `url` is its API address.
@@ -90,6 +92,21 @@ pub(super) fn label_names(item: &Value) -> Vec<String> {
     }
 }
 
+/// The assignee logins of an issue: gh's jq gives logins, Forgejo and the GitHub API user objects.
+pub(super) fn assignee_logins(item: &Value) -> Vec<String> {
+    match item.get("assignees") {
+        Some(Value::Array(assignees)) => assignees
+            .iter()
+            .map(|assignee| match assignee {
+                Value::String(login) => login.clone(),
+                other => text(other, "login"),
+            })
+            .filter(|login| !login.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// Parses [`HostCommand::ListOpenIssues`], skipping the pull requests Forgejo lists with issues.
 pub fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
     let value = json(out)?;
@@ -119,6 +136,7 @@ pub fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
                 comments: comment_count(item),
                 url: web_url(item),
                 linked_pr: false,
+                assignees: assignee_logins(item),
             })
         })
         .collect()
