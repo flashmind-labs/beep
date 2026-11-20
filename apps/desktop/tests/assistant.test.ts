@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentSession } from "../src/agents/agents.ts";
-import { HERMES_AGENT, HIDDEN_AGENTS, HermesUnreachable, assistantHost, assistantRows, hermesMachine, isAssistant, resolveAssistant, resolveHarness, visibleAgents } from "../src/agents/assistant-state.ts";
+import { HermesUnreachable, assistantHost, assistantRows, hermesMachine, isAssistant, resolveAssistant, resolveHarness } from "../src/agents/assistant-state.ts";
 
 const HOME = "/home/user";
 
@@ -56,11 +56,6 @@ test("the assistant setting resolves to a harness a machine offers, keeping a mo
 
 const hermes = { machine: "gpu-box", machine_name: "gpu-box", host: "127.0.0.1", port: 9119, last4: "a1b2" };
 
-test("no harness list shows the Hermes assistant's agent", () => {
-  assert.deepEqual(visibleAgents({ agents: ["claude", HERMES_AGENT, "codex"] }), ["claude", "codex"]);
-  assert.deepEqual(HIDDEN_AGENTS, [HERMES_AGENT]);
-});
-
 test("a Hermes connection stands in for the harness pick", () => {
   const hosts = [{ agents: ["codex"], assistant: true }];
   assert.deepEqual(resolveAssistant({ agent: "codex", model: "gpt-x", effort: "low", fast: null, hermes }, hosts), { kind: "hermes", hermes });
@@ -70,6 +65,7 @@ test("a Hermes connection stands in for the harness pick", () => {
 test("Hermes starts only on its machine while that machine is online and offers it", () => {
   const offering = { machine_id: "gpu-box", hermes: true };
   assert.equal(hermesMachine(hermes, [{ machine_id: "build-box", hermes: true }, offering]), "gpu-box");
-  assert.throws(() => hermesMachine(hermes, [{ machine_id: "build-box", hermes: true }]), { message: "Hermes is not reachable on gpu-box." });
-  assert.throws(() => hermesMachine(hermes, [{ machine_id: "gpu-box", hermes: false }]), (e: unknown) => e instanceof HermesUnreachable && e.message === "Hermes is not reachable on gpu-box.");
+  assert.equal(hermesMachine(hermes, [{ machine_id: "build-box", hermes: true }]), null);
+  assert.equal(hermesMachine(hermes, [{ machine_id: "gpu-box", hermes: false }]), null);
+  assert.equal(new HermesUnreachable(hermes).message, "Hermes is not reachable on gpu-box.");
 });

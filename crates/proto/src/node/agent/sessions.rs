@@ -930,6 +930,10 @@ pub fn protocol(name: &str) -> String {
     format!("{name}/{VERSION}")
 }
 
+/// The agent a node offers for the Home assistant on Hermes. It is no coding
+/// agent: `agent_of` leaves it out.
+pub const HERMES_GATEWAY: &str = "hermes-gateway";
+
 /// The agent a protocol name serves, such as `claude` for `claude/1`.
 pub fn agent_of(protocol: &str) -> Option<&str> {
     let (name, version) = protocol.split_once('/')?;

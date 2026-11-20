@@ -21,7 +21,7 @@ use agent_client_protocol::{
     },
 };
 use anyhow::{Context, Result};
-use beep_proto::SecretText;
+use beep_proto::{SecretText, node::agent::HERMES_GATEWAY};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use serde_json::{Value, json};
 use std::{collections::HashSet, time::Duration};
@@ -30,8 +30,6 @@ use tokio::{
     sync::mpsc,
 };
 
-/// The name the node knows this agent by.
-pub(in crate::agents) const NAME: &str = "hermes-gateway";
 /// How many messages from the client wait to be handled.
 const EVENTS: usize = 64;
 /// How long a try at reconnecting may take, and the wait before the next.
@@ -55,7 +53,7 @@ pub(in crate::agents) async fn serve(
     let (oversized, _) = mpsc::channel(1);
 
     Builder::new(Agent)
-        .name(NAME)
+        .name(HERMES_GATEWAY)
         .on_receive_dispatch(
             async move |dispatch: Dispatch, _cx| {
                 let event = match dispatch {

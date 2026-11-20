@@ -65,6 +65,9 @@ wire_structs! {
         /// Its home folder, as it last reported it.
         pub home: Option<String>,
         pub capabilities: Vec<MachineCapability>,
+        /// It offers the Home assistant on Hermes, which `agents` leaves out.
+        #[serde(default)]
+        pub hermes: bool,
     }
 
     /// The session `StartAgentSession` started.

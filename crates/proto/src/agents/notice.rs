@@ -3,7 +3,7 @@
 //! answers its question.
 
 use crate::SessionId;
-use crate::node::agent::{Alert, AlertKind, StopReason};
+use crate::node::agent::{Alert, AlertKind, HERMES_GATEWAY, StopReason};
 use std::{fmt, path::Path, str::FromStr};
 
 /// A notification about a coding-agent session.
@@ -174,7 +174,7 @@ pub fn agent_name(agent: &str) -> &str {
         "pi" => "pi",
         "flsh" => "flsh",
         "opencode" => "OpenCode",
-        "hermes" => "Hermes",
+        "hermes" | HERMES_GATEWAY => "Hermes",
         other => other,
     }
 }

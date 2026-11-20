@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-const host = { machine_id: "build-box", machine_name: "build-box", agents: ["codex", "flsh"], workspace: null, home: "/srv", capabilities: [], assistant: true };
+const host = { machine_id: "build-box", machine_name: "build-box", agents: ["codex", "flsh"], workspace: null, home: "/srv", capabilities: [], assistant: true, hermes: false };
 const session = { machine_id: "build-box", machine_name: "build-box", id: "assistant-one", agent: "flsh", title: null as string | null, cwd: "/srv", status: "working", doing: null as string | null, started_at: 1, last_activity: 1, external: false, question: null, assistant: true };
 
 const view = (row: typeof session, text: string) => ({ session: row, plan: [], files: [], entries: [{ kind: "agent", text }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1 });
@@ -237,7 +237,8 @@ const settings = { settings: { name: "build-box", version: "0.9.0", autostart: f
 const begun = (page: Page) => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").map(call => call.args));
 
 test("with Hermes connected the assistant starts on Hermes's machine, whatever the harness pick", async ({ page }) => {
-  await openDesktop(page, false, { ...firstStart, ...kept, agent_hosts: [{ ...host, agents: ["codex", "hermes-gateway"] }], assistant_settings_get: { agent: "codex", model: "model-a", effort: "high", fast: null, hermes } });
+  // A node beside Hermes in Docker offers it and no coding agent.
+  await openDesktop(page, false, { ...firstStart, ...kept, agent_hosts: [{ ...host, agents: [], hermes: true }], assistant_settings_get: { agent: "codex", model: "model-a", effort: "high", fast: null, hermes } });
   const prompt = page.getByRole("textbox", { name: "Message for the assistant" });
   await expect(page.locator(".painted-empty .pill .hermes-gateway")).toBeVisible();
 

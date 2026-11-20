@@ -7,7 +7,7 @@ mod bridge;
 mod events;
 mod link;
 
-pub(in crate::agents) use bridge::{NAME, serve};
+pub(in crate::agents) use bridge::serve;
 pub(in crate::agents) use link::check;
 
 #[cfg(test)]

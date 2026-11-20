@@ -250,7 +250,8 @@ export function machineRows(
   order: readonly string[],
 ): MachineRow[] {
   const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
-  const able = hosts.map(m => ({
+  // A machine that offers only the assistant on Hermes runs no coding agent.
+  const able = hosts.filter(m => m.agents.length).map(m => ({
     id: m.machine_id,
     name: m.machine_name,
     online: true,

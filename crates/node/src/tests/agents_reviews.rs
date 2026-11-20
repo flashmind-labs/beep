@@ -308,7 +308,7 @@ async fn no_review_runs_on_the_hermes_assistant() {
         token: beep_proto::SecretText::new("placeholder"),
     }));
     let order = ReviewOrder {
-        agent: crate::agents::hermes_direct::NAME.into(),
+        agent: beep_proto::node::agent::HERMES_GATEWAY.into(),
         ..rig.order("", None)
     };
 

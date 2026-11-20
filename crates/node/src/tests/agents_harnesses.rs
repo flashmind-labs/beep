@@ -231,5 +231,5 @@ fn the_hermes_assistant_is_no_harness() {
     let found = found(&[kind("custom"), hermes]);
 
     assert!(found.iter().any(|found| found.agent == "custom"));
-    assert!(found.iter().all(|found| found.agent != crate::agents::hermes_direct::NAME));
+    assert!(found.iter().all(|found| found.agent != beep_proto::node::agent::HERMES_GATEWAY));
 }

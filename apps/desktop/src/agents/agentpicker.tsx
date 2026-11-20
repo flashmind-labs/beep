@@ -7,7 +7,7 @@ import { AgentPicker, AgentPillContent, StepPicker } from "./agentpicker-view.ts
 import { type AgentModels, MODELS_KEPT_MS } from "./agentmodels.ts";
 import { keepEffort, modelLabel, modelSearch, pillDetail, searchedHarnesses, searchRows, type MachineRow, type PickRow } from "./agentpick.ts";
 import { invoke, logError } from "../ui/tauri.ts";
-import { HERMES_AGENT } from "./assistant-state.ts";
+import { HERMES_AGENT } from "./running-state.ts";
 
 // ----- Models -----
 

@@ -10,7 +10,7 @@ use beep_proto::{
     MachineLogin, MachineStats, MachineTool, MachineTraffic, TrafficCounter, UpdatableMachine,
     node::{
         AppInfo, AppName, DiskUsage, EnvReport, GpuInfo, StatsReport,
-        agent::agent_of,
+        agent::{self, HERMES_GATEWAY, agent_of},
         status::{PROTOCOL, Report},
         traffic::TrafficReport,
         update,
@@ -543,7 +543,7 @@ impl Status {
 }
 
 /// `peer` as a place to run the agents it offers that `is_off` does not
-/// switch off; `None` when it offers none.
+/// switch off, and the assistant on Hermes; `None` when it offers neither.
 fn agent_host(peer: &Peer, is_off: impl Fn(&str) -> bool) -> Option<AgentHost> {
     let agents: Vec<String> = peer
         .offers
@@ -552,8 +552,9 @@ fn agent_host(peer: &Peer, is_off: impl Fn(&str) -> bool) -> Option<AgentHost> {
         .filter(|agent| !is_off(agent))
         .map(str::to_owned)
         .collect();
+    let hermes = peer.offers(&agent::protocol(HERMES_GATEWAY));
 
-    if agents.is_empty() {
+    if agents.is_empty() && !hermes {
         return None;
     }
 
@@ -571,6 +572,7 @@ fn agent_host(peer: &Peer, is_off: impl Fn(&str) -> bool) -> Option<AgentHost> {
             .flat_map(|env| env.capabilities())
             .map(machine_capability)
             .collect(),
+        hermes,
     })
 }
 

@@ -27,7 +27,7 @@ use beep_proto::{
     ListAgentModels, MachineSession, ResumeAgentSession, StartAgentSession, StartedAgent,
     SteerAgentSession, Upload, agent_name, image_key, media_mime,
     node::{
-        agent::{self, AgentCommand, Request, WorkPlace, Worktree},
+        agent::{self, AgentCommand, HERMES_GATEWAY, Request, WorkPlace, Worktree},
         harness::{HarnessConfig, HarnessInfo, harness},
         mesh_state::StateValue,
     },
@@ -462,7 +462,7 @@ pub(crate) async fn plan(
         None => pick(fleet, &start, &prompt).await?,
     };
     let machine = fleet.member(&host.machine_id).ok_or_else(not_found)?;
-    let agent = machine::pick_agent(&host, start.agent.as_deref())?;
+    let agent = start_agent(&host, start.agent.as_deref(), start.assistant)?;
     let effort = machine::picked_effort(&agent, start.effort)?;
     let fast = start.fast;
     let account = start.account;
@@ -521,16 +521,33 @@ fn named_host(fleet: &Fleet, machine: EndpointId, agent: Option<&str>) -> Result
         (None, Some(agent)) if !fleet.harness_off(agent) => Ok(AgentHost {
             machine_id: machine.to_string(),
             machine_name: fleet.name_of(machine),
-            agents: vec![agent.to_owned()],
+            agents: if agent == HERMES_GATEWAY {
+                Vec::new()
+            } else {
+                vec![agent.to_owned()]
+            },
             workspace: None,
             home: None,
             capabilities: Vec::new(),
+            hermes: agent == HERMES_GATEWAY,
         }),
         (None, _) => Err(ApiError::bad_request(format!(
             "{} offers no coding agent.",
             fleet.name_of(machine)
         ))
         .into()),
+    }
+}
+
+/// The agent a start runs on `host`: Hermes only as the Home assistant and
+/// where offered, else the coding agent `named` or the one `host` prefers.
+fn start_agent(host: &AgentHost, named: Option<&str>, assistant: bool) -> Result<String> {
+    match named {
+        Some(HERMES_GATEWAY) if !assistant => Err(DesktopError::BadRequest(
+            "Hermes runs only as the Home assistant.".to_owned(),
+        )),
+        Some(HERMES_GATEWAY) if host.hermes => Ok(HERMES_GATEWAY.to_owned()),
+        named => Ok(machine::pick_agent(host, named)?),
     }
 }
 
@@ -604,10 +621,15 @@ async fn pick(
     prompt: &str,
 ) -> Result<(AgentHost, String)> {
     let mut asking = Vec::new();
+    // A machine that offers only the assistant on Hermes runs no coding agent.
+    let coding: Vec<AgentHost> = hosts(fleet)
+        .into_iter()
+        .filter(|host| !host.agents.is_empty())
+        .collect();
     let candidates = if start.assistant {
-        for_assistant(hosts(fleet), |host| runs_assistant(fleet, host))?
+        for_assistant(coding, |host| runs_assistant(fleet, host))?
     } else {
-        hosts(fleet)
+        coding
     };
 
     if start.assistant

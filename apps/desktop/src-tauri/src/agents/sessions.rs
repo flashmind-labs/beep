@@ -67,6 +67,8 @@ pub struct HostRow {
     capabilities: Vec<&'static str>,
     /// Its node runs the home assistant.
     assistant: bool,
+    /// It offers the Home assistant on Hermes, which `agents` leaves out.
+    hermes: bool,
 }
 
 impl From<AgentHost> for HostRow {
@@ -83,6 +85,7 @@ impl From<AgentHost> for HostRow {
                 .map(<&'static str>::from)
                 .collect(),
             assistant: false,
+            hermes: host.hermes,
         }
     }
 }

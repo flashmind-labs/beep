@@ -3,16 +3,6 @@ import type { AgentHost, AgentSession } from "./agents.ts";
 import { AGENT_ORDER, harnessFor, keepEffort } from "./agentpick.ts";
 import type { AssistantPick, AssistantSetting, HermesConnection } from "../settings/assistant.ts";
 
-/// The agent a node offers for the Home assistant on Hermes. It is no coding agent.
-export const HERMES_AGENT = "hermes-gateway";
-/// The agents nodes offer that no harness list shows.
-export const HIDDEN_AGENTS: readonly string[] = [HERMES_AGENT];
-
-/// The agents `host` offers that harness lists show.
-export function visibleAgents(host: Pick<AgentHost, "agents">): string[] {
-  return host.agents.filter(agent => !HIDDEN_AGENTS.includes(agent));
-}
-
 /// What a start composer says: its field to a screen reader, its heading (a new one drawn by
 /// lot each time when null), the line under it and the field's placeholder.
 export interface ComposerWords { label: string; title: string | null; line: string; placeholder: string }
@@ -58,12 +48,10 @@ export class HermesUnreachable extends Error {
   }
 }
 
-/// The machine Hermes starts on: its own, while online and offering it. Hosts are the online
-/// machines, so a missing one is offline.
-export function hermesMachine(hermes: HermesConnection, hosts: readonly Pick<AgentHost, "machine_id" | "hermes">[]): string {
-  if (!hosts.some(host => host.machine_id === hermes.machine && host.hermes)) throw new HermesUnreachable(hermes);
-
-  return hermes.machine;
+/// The machine Hermes starts on: its own, while online and offering it, else null. Hosts are
+/// the online machines, so a missing one is offline.
+export function hermesMachine(hermes: HermesConnection, hosts: readonly Pick<AgentHost, "machine_id" | "hermes">[]): string | null {
+  return hosts.some(host => host.machine_id === hermes.machine && host.hermes) ? hermes.machine : null;
 }
 
 /// The harness pick as a start uses it: its harness resolved to one a machine that runs

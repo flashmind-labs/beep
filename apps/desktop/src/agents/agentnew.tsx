@@ -10,8 +10,9 @@ import { menuPlaceFor } from "./mentionmenu.ts";
 import { FolderChoice, HermesHelp, NewAgentNotes } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { AccountChoice, BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
-import { AG, accountsOf, agentKind, type AgentHost, hostChanges, loadAccountNames, loadAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
-import { ASSISTANT_WORDS, HERMES_AGENT, HermesUnreachable, TASK_WORDS, assistantHost, hermesMachine, resolveAssistant, resolveHarness } from "./assistant-state.ts";
+import { AG, accountsOf, agentKind, type AgentHost, hostChanges, loadAccountNames, loadAgentHosts, readAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
+import { HERMES_AGENT } from "./running-state.ts";
+import { ASSISTANT_WORDS, HermesUnreachable, TASK_WORDS, assistantHost, hermesMachine, resolveAssistant, resolveHarness } from "./assistant-state.ts";
 import { loadAssistant, type AssistantSetting } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks, startedWith } from "./session.tsx";
@@ -674,7 +675,11 @@ export async function startAgent() {
 export async function startAssistant(prompt: string, setting: AssistantSetting, hosts: readonly AgentHost[], machine: string | null, images: readonly SentImage[] = []): Promise<Started> {
   const target = resolveAssistant(setting, hosts);
   if (target.kind === "hermes") {
-    return start({ machine: hermesMachine(target.hermes, hosts), agent: HERMES_AGENT, cwd: null, prompt, images, model: null, effort: null, fast: null, checkout: null, assistant: true, account: null });
+    // Hosts read before Hermes was connected do not list it yet: they are read again once.
+    const on = hermesMachine(target.hermes, hosts) ?? hermesMachine(target.hermes, await readAgentHosts());
+    if (!on) throw new HermesUnreachable(target.hermes);
+
+    return start({ machine: on, agent: HERMES_AGENT, cwd: null, prompt, images, model: null, effort: null, fast: null, checkout: null, assistant: true, account: null });
   }
 
   const resolved = target.pick;

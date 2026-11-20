@@ -33,7 +33,8 @@ export function HomeAssistant({ found }: { found: FoundRow[] | null }) {
   // Read again when Settings saves the setting.
   useEffect(() => {
     void showHarness();
-    return onAssistantSaved(() => void showHarness());
+    // A Hermes just connected shows in the hosts read after it.
+    return onAssistantSaved(() => void loadAgentHosts().then(showHarness));
   }, []);
 
   const suggest = () => {

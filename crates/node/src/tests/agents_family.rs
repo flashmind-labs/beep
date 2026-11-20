@@ -965,7 +965,7 @@ async fn an_agent_cannot_start_the_hermes_assistant_nor_see_it_listed() {
 
     let refused = rig
         .agents
-        .start_child(link, start(crate::agents::hermes_direct::NAME, "go", rig.dir.path()))
+        .start_child(link, start(beep_proto::node::agent::HERMES_GATEWAY, "go", rig.dir.path()))
         .await
         .unwrap_err();
 

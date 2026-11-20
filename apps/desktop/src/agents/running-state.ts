@@ -37,7 +37,10 @@ export interface AgentQuestion {
   options: { id: string; name: string; allow: boolean }[];
 }
 
-const AGENTS: Record<string, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", pi: "pi", flsh: "flsh", opencode: "OpenCode", hermes: "Hermes", "hermes-gateway": "Hermes" };
+/// The agent a node offers for the Home assistant on Hermes. It is no coding agent.
+export const HERMES_AGENT = "hermes-gateway";
+
+const AGENTS: Record<string, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", pi: "pi", flsh: "flsh", opencode: "OpenCode", hermes: "Hermes", [HERMES_AGENT]: "Hermes" };
 
 export function agentName(name: string | null | undefined) {
   return AGENTS[name ?? ""] || name || "Agent";

@@ -1190,15 +1190,15 @@ async fn the_hermes_assistant_is_offered_and_outlives_detection() {
     agents.set_hermes(Some(link.clone()));
     agents.set_kinds(vec![sh_agent("claude", "cat > /dev/null")]);
 
-    assert!(agents.offers().contains(&agent::protocol(hermes_direct::NAME)));
+    assert!(agents.offers().contains(&agent::protocol(agent::HERMES_GATEWAY)));
     assert!(agents.offers().contains(&agent::protocol("claude")));
-    let kind = agents.named(hermes_direct::NAME).expect("the hidden kind");
+    let kind = agents.named(agent::HERMES_GATEWAY).expect("the hidden kind");
     assert!(!format!("{kind:?}").contains("placeholder"));
     assert_eq!(models::find(kind).await, Default::default());
     let status: Vec<String> = agents.agent_report().into_iter().map(|agent| agent.name).collect();
     assert_eq!(status, ["claude"]);
 
     agents.set_hermes(None);
-    assert!(!agents.offers().contains(&agent::protocol(hermes_direct::NAME)));
+    assert!(!agents.offers().contains(&agent::protocol(agent::HERMES_GATEWAY)));
     assert!(agents.offers().contains(&agent::protocol("claude")));
 }

@@ -29,9 +29,8 @@ import { renderWaiting } from "../bar/waiting.ts";
 import { openAgent, closeOpenSession, submitAgentMessage } from "./session.tsx";
 import { openEditorKey } from "./session-head.tsx";
 import { sessionMenu } from "./sessionmenu.ts";
-import type { AgentQuestion } from "./running-state.ts";
+import { HERMES_AGENT, type AgentQuestion } from "./running-state.ts";
 import { AGENT_ACTIVE, TAKEOVER } from "./sessionmenu-state.ts";
-import { HERMES_AGENT, visibleAgents } from "./assistant-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { jumpToStart, logJumpKey } from "./older.ts";
 import { jumpToLatest } from "./logview.tsx";
@@ -111,11 +110,9 @@ export interface AgentHost {
   hermes: boolean;
 }
 
-/// The machines that run agents, online now, each without the agents no harness list shows.
+/// The machines that run agents or the assistant on Hermes, online now.
 export async function readAgentHosts(): Promise<AgentHost[]> {
-  const hosts = await invoke<Omit<AgentHost, "hermes">[]>("agent_hosts");
-
-  return hosts.map(host => ({ ...host, agents: visibleAgents(host), hermes: host.agents.includes(HERMES_AGENT) }));
+  return invoke<AgentHost[]>("agent_hosts");
 }
 
 /// One line of a session's log. Only the agent's own and its thoughts
@@ -393,7 +390,7 @@ const AGENT_KINDS: Record<string, AgentKind> = {
   flsh: { ini: "FL", name: "flsh", cls: "flsh" },
   opencode: { ini: "OC", name: "OpenCode", cls: "opencode" },
   hermes: { ini: "HE", name: "Hermes", cls: "hermes" },
-  "hermes-gateway": { ini: "HE", name: "Hermes", cls: "hermes" },
+  [HERMES_AGENT]: { ini: "HE", name: "Hermes", cls: "hermes" },
 };
 /// Agents whose outside sessions a node can take over (the ones it reads sessions of).
 export const canTakeOver = (a: string) => TAKEOVER.has(a);

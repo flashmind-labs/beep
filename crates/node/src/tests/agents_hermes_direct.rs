@@ -775,7 +775,7 @@ async fn the_node_starts_the_hermes_assistant_without_beeps_brief_or_rules() {
     let agents = Agents::new(Vec::new());
     agents.set_instructions(Some("Saved rules for coding agents".into()));
     agents.set_hermes(Some(HermesLink { host: "127.0.0.1".into(), port, token: SecretText::new("t") }));
-    let kind = agents.named(super::NAME).expect("the hidden kind");
+    let kind = agents.named(beep_proto::node::agent::HERMES_GATEWAY).expect("the hidden kind");
     let begin = Begin {
         prompt: Some("Say hi".into()),
         brief: Some("Beep's brief".into()),
