@@ -130,7 +130,23 @@ fn state_survives_a_restart() {
     );
 
     let mut again = Pickups::new(dir.path().to_owned());
+    state.on = false;
     assert_eq!(again.take(&repo), state);
+}
+
+#[test]
+fn a_restarted_node_takes_the_assigned_issues_as_backlog() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo: TeamRepo = "github.com/org/repo".parse().unwrap();
+    let mut state = pickup(&[], &[1]);
+    state.on = true;
+    Pickups::new(dir.path().to_owned()).save(&repo, &state);
+
+    // While the node was down another machine started #42.
+    let mut state = Pickups::new(dir.path().to_owned()).take(&repo);
+
+    assert_eq!(plan(&mut state, &[1, 42], &[], None), Plan::default());
+    assert_eq!(plan(&mut state, &[1, 42, 43], &[], None).start, [43]);
 }
 
 #[test]
@@ -141,11 +157,13 @@ fn turning_pickup_off_is_remembered() {
     let mut state = pickup(&[], &[1]);
     state.on = true;
     pickups.save(&repo, &state);
+    pickups.states.insert(repo.clone(), state);
 
     pickups.off(&repo);
 
-    let mut again = Pickups::new(dir.path().to_owned());
-    assert!(!again.take(&repo).on);
+    let mut state = pickups.take(&repo);
+    assert!(!state.on);
+    assert_eq!(plan(&mut state, &[1, 2], &[], None), Plan::default());
 }
 
 #[test]
@@ -270,13 +288,60 @@ fn an_issue_that_cannot_start_is_given_up_after_three_tries() {
         for n in due(&state, &[7], &set(&[]), None).start {
             tries += 1;
             let refused = Err(Unstarted::Refused("no coding agent".to_owned()));
-            given_up.extend(record(&mut state, n, refused));
+            record(&mut state, n, refused, |title| {
+                given_up.push(title);
+                true
+            });
         }
     }
 
     assert_eq!(tries, 3);
-    assert_eq!(given_up, ["no coding agent"]);
+    assert_eq!(given_up, ["#7 could not start: no coding agent"]);
     assert!(!state.started.contains(&7));
+}
+
+#[test]
+fn an_issue_whose_card_finds_no_room_is_tried_again() {
+    let mut state = pickup(&[], &[]);
+    state.on = true;
+    let mut cards = 0;
+
+    for room in [false, false, false, true] {
+        for n in due(&state, &[7], &set(&[]), None).start {
+            let refused = Err(Unstarted::Refused("no coding agent".to_owned()));
+            record(&mut state, n, refused, |_| {
+                cards += 1;
+                room
+            });
+        }
+    }
+
+    assert_eq!(cards, 2);
+    assert!(due(&state, &[7], &set(&[]), None).start.is_empty());
+}
+
+#[test]
+fn an_ended_session_is_followed_until_its_card_finds_room() {
+    let auto = |branch: &str| Auto {
+        card: format!("{branch}@laptop"),
+        branch: branch.to_owned(),
+    };
+    let mut state = pickup(&[7, 8, 9], &[]);
+    state.running.insert(7, auto("issue-7"));
+    state.running.insert(8, auto("issue-8"));
+    state.running.insert(9, auto("issue-9"));
+    let heads = ["issue-8".to_owned()];
+    let mut titles = Vec::new();
+
+    report_ended(&mut state, &[7, 8], &heads, |_, title| {
+        titles.push(title);
+        false
+    });
+    assert_eq!(titles, ["#7 ended without a pull request"]);
+    assert_eq!(state.running.keys().copied().collect::<Vec<_>>(), [7, 9]);
+
+    report_ended(&mut state, &[7], &heads, |_, _| true);
+    assert_eq!(state.running.keys().copied().collect::<Vec<_>>(), [9]);
 }
 
 #[test]
@@ -287,18 +352,20 @@ fn a_start_after_a_refused_one_is_followed() {
         branch: "issue-7".to_owned(),
     };
 
-    assert_eq!(
-        record(&mut state, 7, Err(Unstarted::Refused("busy".to_owned()))),
-        None
-    );
-    assert_eq!(record(&mut state, 7, Ok(auto.clone())), None);
+    let busy = Err(Unstarted::Refused("busy".to_owned()));
+    record(&mut state, 7, busy, |_| {
+        unreachable!("one refusal gives nothing up")
+    });
+    record(&mut state, 7, Ok(auto.clone()), |_| {
+        unreachable!("it started")
+    });
     assert_eq!(state.started, set(&[7]));
     assert_eq!(state.running.get(&7), Some(&auto));
     assert!(state.failed.is_empty());
 }
 
 #[test]
-fn a_full_list_makes_room_for_a_pickup_card() {
+fn a_full_list_makes_room_only_in_place_of_a_pickup_card() {
     let at = |secs| SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
     let card = |id: String, secs| Card {
         id,
@@ -315,21 +382,21 @@ fn a_full_list_makes_room_for_a_pickup_card() {
         .collect();
     cards.push(card(format!("{PICKUP_CARD}3"), 100));
 
-    add_card(&mut cards, card(format!("{PICKUP_CARD}9"), 200));
+    assert!(add_card(&mut cards, card(format!("{PICKUP_CARD}9"), 200)));
     assert_eq!(cards.len(), MAX_CARDS);
     assert!(cards.iter().any(|card| card.id == "ask:0"));
     assert!(!cards.iter().any(|card| card.id == "pickup:3"));
 
-    add_card(&mut cards, card(format!("{PICKUP_CARD}9"), 300));
+    assert!(add_card(&mut cards, card(format!("{PICKUP_CARD}9"), 300)));
     assert_eq!(cards.len(), MAX_CARDS);
     assert_eq!(cards.iter().filter(|card| card.id == "pickup:9").count(), 1);
 
-    let mut asks: Vec<Card> = (0..MAX_CARDS)
+    let asks: Vec<Card> = (0..MAX_CARDS)
         .map(|i| card(format!("ask:{i}"), i as u64))
         .collect();
-    add_card(&mut asks, card(format!("{PICKUP_CARD}9"), 200));
-    assert_eq!(asks.len(), MAX_CARDS);
-    assert!(!asks.iter().any(|card| card.id == "ask:0"));
+    let mut full = asks.clone();
+    assert!(!add_card(&mut full, card(format!("{PICKUP_CARD}9"), 200)));
+    assert_eq!(full, asks);
 }
 
 #[test]

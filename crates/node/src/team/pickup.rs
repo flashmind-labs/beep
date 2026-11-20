@@ -54,7 +54,12 @@ pub(crate) struct Pickup {
     pub(crate) started: BTreeSet<u64>,
     /// The issues assigned when pickup was turned on: never started.
     pub(crate) seen_at_enable: BTreeSet<u64>,
-    /// Whether pickup was on when last seen, to tell when it is turned on.
+    /// Whether pickup was on in this process's last round of the team. A
+    /// team read from disk starts off, so the first round after the node
+    /// starts, as after pickup is turned on or the team comes back to this
+    /// machine, takes the issues assigned by then as the backlog: another
+    /// machine may have started them meanwhile.
+    #[serde(skip)]
     pub(crate) on: bool,
     /// The automatic sessions followed until they end, by issue.
     pub(crate) running: BTreeMap<u64, Auto>,
@@ -219,23 +224,14 @@ impl Pickups {
         self.queued.get(repo).cloned().unwrap_or_default()
     }
 
-    /// Notes that pickup is off for `repo`, so turning it on again leaves
-    /// the issues assigned by then alone.
+    /// Notes that pickup is off for `repo`: its state goes from memory, so
+    /// turning it on again leaves the issues assigned by then alone.
     pub(super) fn off(&mut self, repo: &TeamRepo) {
         self.queued.remove(repo);
-        let mut state = self.take(repo);
-
-        if state.on {
-            state.on = false;
-            self.save(repo, &state);
-        }
-
-        self.states.insert(repo.clone(), state);
+        self.states.remove(repo);
     }
 
-    /// Notes pickup off for each team this machine no longer acts for and
-    /// forgets it, so that acting for it again leaves the issues assigned
-    /// by then alone: another machine may have started them meanwhile.
+    /// Notes pickup off for each team this machine no longer acts for.
     pub(super) fn keep(&mut self, held: &BTreeSet<TeamRepo>) {
         let gone: Vec<TeamRepo> = self
             .states
@@ -246,7 +242,6 @@ impl Pickups {
 
         for repo in gone {
             self.off(&repo);
-            self.states.remove(&repo);
         }
     }
 
@@ -286,10 +281,9 @@ impl Pickups {
                 }
             }
 
-            if let Some(reason) = record(&mut state, *issue, started) {
-                let title = format!("#{issue} could not start: {reason}");
-                needs_you(&round, *issue, title);
-            }
+            record(&mut state, *issue, started, |title| {
+                needs_you(&round, *issue, title)
+            });
         }
 
         let now = SystemTime::now();
@@ -361,22 +355,40 @@ async fn ended(round: &Round<'_>, state: &mut Pickup) {
         Err(_) => return log::info!("the pull requests of {repo} took too long to read"),
     };
 
+    report_ended(state, &ended, &heads, |n, title| needs_you(round, n, title));
+}
+
+/// Stops following the `ended` automatic sessions, each with a Needs you
+/// card, put by `needs_you`, unless a pull request has its branch among
+/// `heads`. One whose card finds no room is followed until the next round.
+fn report_ended(
+    state: &mut Pickup,
+    ended: &[u64],
+    heads: &[String],
+    mut needs_you: impl FnMut(u64, String) -> bool,
+) {
     for n in ended {
-        let Some(auto) = state.running.remove(&n) else {
+        let Some(auto) = state.running.get(n) else {
             continue;
         };
+        let settled = heads.contains(&auto.branch)
+            || needs_you(*n, format!("#{n} ended without a pull request"));
 
-        if heads.contains(&auto.branch) {
-            continue;
+        if settled {
+            state.running.remove(n);
         }
-
-        needs_you(round, n, format!("#{n} ended without a pull request"));
     }
 }
 
-/// Notes how the start of a session on issue `n` went. The reason, when
-/// its start was refused for the `ATTEMPTS`th time and pickup gives it up.
-fn record(state: &mut Pickup, n: u64, started: Result<Auto, Unstarted>) -> Option<String> {
+/// Notes how the start of a session on issue `n` went. Its start refused
+/// for the `ATTEMPTS`th time, pickup gives it up with a Needs you card,
+/// put by `needs_you`; with no room for the card, it gets one more try.
+fn record(
+    state: &mut Pickup,
+    n: u64,
+    started: Result<Auto, Unstarted>,
+    needs_you: impl FnOnce(String) -> bool,
+) {
     match started {
         Ok(auto) => {
             state.running.insert(n, auto);
@@ -385,17 +397,22 @@ fn record(state: &mut Pickup, n: u64, started: Result<Auto, Unstarted>) -> Optio
         Err(Unstarted::Refused(reason)) => {
             let failed = state.failed.entry(n).or_default();
             *failed += 1;
-            return (*failed >= ATTEMPTS).then_some(reason);
+
+            if *failed >= ATTEMPTS && !needs_you(format!("#{n} could not start: {reason}")) {
+                *failed = ATTEMPTS - 1;
+            }
+
+            return;
         }
     }
 
     state.failed.remove(&n);
     state.started.insert(n);
-    None
 }
 
-/// Puts the Needs you card `title` of issue `n` on this mesh's apps.
-fn needs_you(round: &Round<'_>, n: u64, title: String) {
+/// Puts the Needs you card `title` of issue `n` on this mesh's apps;
+/// whether there was room for it.
+fn needs_you(round: &Round<'_>, n: u64, title: String) -> bool {
     let card = Card {
         id: format!("{PICKUP_CARD}{n}"),
         title: title.chars().take(TITLE).collect(),
@@ -409,30 +426,30 @@ fn needs_you(round: &Round<'_>, n: u64, title: String) {
 
     round.link.with(|teams| {
         let cards = teams.asks.cards.entry(round.team.repo.clone()).or_default();
-        add_card(cards, card);
-    });
+        add_card(cards, card)
+    })
 }
 
-/// Adds `card` to `cards` in place of the one with its id. A full list
-/// drops its oldest pickup card for it, or else its oldest card.
-fn add_card(cards: &mut Vec<Card>, card: Card) {
+/// Adds `card` to `cards` in place of the one with its id; whether there
+/// was room. A full list drops its oldest pickup card for it, never a
+/// teammate's ask.
+fn add_card(cards: &mut Vec<Card>, card: Card) -> bool {
     cards.retain(|old| old.id != card.id);
 
     if cards.len() >= MAX_CARDS {
-        let oldest = |pickups: bool| {
-            let cards = cards.iter().enumerate();
-            cards
-                .filter(|(_, old)| !pickups || old.id.starts_with(PICKUP_CARD))
-                .min_by_key(|(_, old)| old.updated_at)
-                .map(|(at, _)| at)
+        let pickups = cards.iter().enumerate();
+        let oldest = pickups
+            .filter(|(_, old)| old.id.starts_with(PICKUP_CARD))
+            .min_by_key(|(_, old)| old.updated_at)
+            .map(|(at, _)| at);
+        let Some(at) = oldest else {
+            return false;
         };
-
-        if let Some(at) = oldest(true).or_else(|| oldest(false)) {
-            cards.remove(at);
-        }
+        cards.remove(at);
     }
 
     cards.push(card);
+    true
 }
 
 /// The followed automatic sessions, by issue, whose card is not among
