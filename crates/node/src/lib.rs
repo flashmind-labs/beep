@@ -26,6 +26,7 @@ pub mod link;
 host! {
     pub mod machine;
     mod run;
+    mod team;
 }
 
 /// Kills every background task and terminal still running, at once. For
