@@ -219,3 +219,17 @@ async fn claude_sign_in_respects_signed_out_status() {
     assert_eq!(read.account, None);
     assert_eq!(read.plan, None);
 }
+
+#[test]
+fn the_hermes_assistant_is_no_harness() {
+    let hermes = AgentKind::from(crate::agents::HermesLink {
+        host: "hermes.local".into(),
+        port: 9119,
+        token: SecretText::new("placeholder"),
+    });
+
+    let found = found(&[kind("custom"), hermes]);
+
+    assert!(found.iter().any(|found| found.agent == "custom"));
+    assert!(found.iter().all(|found| found.agent != "hermes-gateway"));
+}

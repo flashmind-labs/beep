@@ -203,3 +203,47 @@ async fn instructions_use_the_latest_saved_version_including_an_empty_one() {
         assert_eq!(instructions(&mesh).as_deref(), Some(text));
     }
 }
+
+#[tokio::test]
+async fn the_hermes_link_reaches_only_the_machine_the_assistant_names() {
+    use beep_proto::node::{
+        HermesLogin,
+        mesh_state::{AssistantSettings, HermesConnection},
+    };
+    let (mesh, _dir) = lone_mesh().await;
+    let me = mesh.me();
+    let assistant = |machine| AssistantSettings {
+        hermes: Some(HermesConnection {
+            machine,
+            host: "hermes.local".into(),
+            port: 9119,
+        }),
+        ..AssistantSettings::default()
+    };
+    let set_assistant = async |machine| {
+        let bytes = assistant(machine).to_bytes().unwrap();
+        mesh.set(Key::Assistant, Some(bytes)).await.unwrap();
+    };
+
+    set_assistant(me).await;
+    assert_eq!(hermes(&mesh, me), None, "no token, no link");
+
+    let token = Credential::Hermes(HermesLogin {
+        token: beep_proto::SecretText::new("placeholder"),
+    });
+    mesh.set(Key::Credential("hermes".into()), Some(token.to_bytes().unwrap()))
+        .await
+        .unwrap();
+    assert_eq!(
+        hermes(&mesh, me),
+        Some(HermesLink {
+            host: "hermes.local".into(),
+            port: 9119,
+            token: beep_proto::SecretText::new("placeholder"),
+        })
+    );
+    assert!(credentials(&mesh).env.is_empty(), "the token is no process's");
+
+    set_assistant(SecretKey::generate().public()).await;
+    assert_eq!(hermes(&mesh, me), None, "another machine runs it");
+}

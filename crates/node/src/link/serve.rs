@@ -563,7 +563,7 @@ pub(super) async fn serve_open(
     tx.send(&Opened::Ready {}).await?;
 
     match route {
-        Route::Agent(kind) => crate::agents::serve_session(tx, rx, offers.agents, kind).await,
+        Route::Agent(kind) => crate::agents::serve_session(tx, rx, offers.agents, *kind).await,
         Route::Extra(extra) => extra.serve(tx, rx).await,
         Route::Provision(provision) => match protocol {
             SessionProtocol::ToolCheck => provision.serve_tool_checks(tx, rx).await,
@@ -639,7 +639,7 @@ pub(super) async fn serve_open(
 enum Route {
     BuiltIn,
     Provision(Arc<Provision>),
-    Agent(AgentKind),
+    Agent(Box<AgentKind>),
     Extra(Arc<dyn Protocol>),
 }
 
@@ -677,7 +677,7 @@ fn route(protocol: &SessionProtocol, offers: &Offers) -> Option<Route> {
     }
 
     if let Some(kind) = offers.agents.kind(protocol.as_ref()) {
-        return Some(Route::Agent(kind));
+        return Some(Route::Agent(Box::new(kind)));
     }
 
     offers

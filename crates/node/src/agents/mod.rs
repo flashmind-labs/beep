@@ -86,7 +86,7 @@ host! {
     pub(crate) use images::{Picture, block_picture};
     pub use kinds::{AgentKind, Bridge, detect};
     pub use launch::{AgentIn, AgentOut, Running, Started, start};
-    pub(crate) use kinds::adapter_bins;
+    pub(crate) use kinds::{HermesLink, adapter_bins};
     pub use moving::SESSIONS_ALPN;
     pub use moving::SessionsAlpn;
     pub(crate) use moving::follow as follow_moves;

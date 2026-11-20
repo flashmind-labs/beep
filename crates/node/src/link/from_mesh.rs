@@ -8,6 +8,7 @@
 //! the device list applies what differs from what was applied before.
 
 use crate::{
+    agents::HermesLink,
     link::Offers,
     link::watchdog::{self, Step},
 };
@@ -19,8 +20,8 @@ use beep_proto::{
         MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
         mesh_state::{
-            Credential, Place, ProjectRecord, ProjectSyncSettings, SavedVersion, StateValue,
-            SyncSpec,
+            AssistantSettings, Credential, Place, ProjectRecord, ProjectSyncSettings,
+            SavedVersion, StateValue, SyncSpec,
         },
         sync::{Project, ignored_project},
     },
@@ -204,6 +205,9 @@ impl Applied {
         }
 
         offers.agents.set_instructions(instructions(mesh));
+        // Before the settings arrive, so a Hermes session held over a restart
+        // finds its agent.
+        offers.agents.set_hermes(hermes(mesh, me));
 
         let settings = settings(mesh);
 
@@ -312,12 +316,32 @@ fn credentials(mesh: &Mesh) -> MachineCredentials {
             Credential::Env(secret) => out.env.push(secret),
             Credential::Forgejo(login) => out.forgejo.push(login),
             Credential::Agent(login) => out.agents.push(login),
-            // The Hermes token is for the assistant's bridge, not for processes.
+            // The Hermes token is for the assistant's bridge (`hermes`), not
+            // for processes.
             Credential::Hermes(_) => {}
         }
     }
 
     out
+}
+
+/// Where this machine reaches Hermes, when the assistant's settings name it
+/// and the mesh holds Hermes's token.
+fn hermes(mesh: &Mesh, me: EndpointId) -> Option<HermesLink> {
+    let assistant = AssistantSettings::from_bytes(&mesh.get(&Key::Assistant)?).ok()?;
+    let connection = assistant.hermes.filter(|connection| connection.machine == me)?;
+    let token = read::<Credential>(mesh, "credential/")
+        .into_iter()
+        .find_map(|(_, credential)| match credential {
+            Credential::Hermes(login) => Some(login.token),
+            _ => None,
+        })?;
+
+    Some(HermesLink {
+        host: connection.host,
+        port: connection.port,
+        token,
+    })
 }
 
 fn settings(mesh: &Mesh) -> AgentSettings {

@@ -3,7 +3,7 @@
 use beep_proto::SessionId;
 use super::{
     Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, SPEND_EVERY,
-    custom_agents, harnesses, media_file, reach, unix_now, work_diff, work_folder, worktrees,
+    custom_agents, harnesses, hermes_direct, media_file, reach, unix_now, work_diff, work_folder, worktrees,
 };
 use crate::files::transfer::Transfers;
 use anyhow::{Context, Result};
@@ -525,6 +525,9 @@ pub async fn serve_sessions(
         SessionsRequest::Reviews { session } => SessionsReply::Reviews {
             runs: agents.reviews_of(&session),
         },
+        SessionsRequest::CheckHermes { host, port, token } => {
+            SessionsReply::Checked(hermes_direct::check(&host, port, &token).await)
+        }
         SessionsRequest::InstallAdapters {} => {
             agents.install_adapters_now();
             SessionsReply::AdaptersInstalling {}

@@ -7,6 +7,7 @@ use super::{
     acp::{self, MAX_MODELS, Offered},
     launch::{AgentIn, AgentOut, Started},
     known,
+    kinds::is_hermes,
 };
 use crate::{
     AsyncMutex,
@@ -104,6 +105,11 @@ impl ModelCache {
 /// The models `kind` can run on here. Never fails: an agent that cannot
 /// say gives a list without models.
 pub(super) async fn find(kind: AgentKind) -> ModelList {
+    // Hermes picks its own model.
+    if is_hermes(&kind) {
+        return ModelList::default();
+    }
+
     let flag = known(&kind.name).is_some_and(|known| known.model_flag);
 
     if kind.name.parse::<Agent>().ok() == Some(Agent::Flsh) {

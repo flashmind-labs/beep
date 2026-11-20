@@ -2,7 +2,7 @@
 //! `Gateway` talks to it over channels, so a call can wait for its reply
 //! while events and requests from Hermes keep arriving for `next`.
 
-use beep_proto::SecretText;
+use beep_proto::{CredentialCheck, SecretText};
 use futures::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::{collections::HashMap, time::Duration};
@@ -115,6 +115,16 @@ impl Gateway {
     /// Answers the request `id` with an error: the method is not served.
     pub(super) fn refuse(&self, id: &str, message: String) -> Result<(), LinkError> {
         self.commands.send(Command::Refuse { id: id.to_owned(), message }).map_err(|_| LinkError::Closed)
+    }
+}
+
+/// Whether Hermes on `host` and `port` takes `token`. Hermes says no
+/// version, so a valid token names only Hermes.
+pub(in crate::agents) async fn check(host: &str, port: u16, token: &SecretText) -> CredentialCheck {
+    match Gateway::connect(host, port, token).await {
+        Ok(_) => CredentialCheck::Valid { account: "Hermes".into(), machine: None },
+        Err(e @ LinkError::Refused) => CredentialCheck::Refused { machine: None, message: e.to_string() },
+        Err(e) => CredentialCheck::Unreachable { message: e.to_string() },
     }
 }
 

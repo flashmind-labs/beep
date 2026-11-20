@@ -7,8 +7,8 @@ mod bridge;
 mod events;
 mod link;
 
-#[allow(unused_imports)] // the launch path uses them in the next change
 pub(in crate::agents) use bridge::{NAME, serve};
+pub(in crate::agents) use link::check;
 
 #[cfg(test)]
 #[path = "../../tests/agents_hermes_direct.rs"]

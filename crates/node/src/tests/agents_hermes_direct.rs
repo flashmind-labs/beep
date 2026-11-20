@@ -1,6 +1,6 @@
 use super::ask::{Asked, answer, to_client};
 use super::events::{finished, update};
-use super::link::{Gateway, Incoming, LinkError, socket_url};
+use super::link::{Gateway, Incoming, LinkError, check, socket_url};
 use super::serve;
 use crate::agents::acp::{self, allow_option};
 use agent_client_protocol::{Agent, Builder, Client, ConnectionTo, Dispatch, Handled, Responder, UntypedMessage, on_receive_dispatch};
@@ -270,6 +270,32 @@ async fn a_closed_port_is_unreachable_without_the_url_or_token() {
 
     assert!(matches!(err, LinkError::Unreachable(_)));
     assert_eq!(err.to_string(), format!("nothing answers on 127.0.0.1:{port}"));
+}
+
+#[tokio::test]
+async fn a_check_answers_valid_refused_or_unreachable_without_the_token() {
+    use beep_proto::CredentialCheck;
+    let token = SecretText::new("hunter2");
+    let (port, _task) = fake_gateway(|_server| async {}).await;
+    assert_eq!(
+        check("127.0.0.1", port, &token).await,
+        CredentialCheck::Valid { account: "Hermes".into(), machine: None }
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        stream.write_all(b"HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await.unwrap();
+    });
+    let refused = check("127.0.0.1", port, &token).await;
+    assert_eq!(refused, CredentialCheck::Refused { machine: None, message: "Hermes refused the token".into() });
+
+    let port = TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap().port();
+    let CredentialCheck::Unreachable { message } = check("127.0.0.1", port, &token).await else {
+        panic!("a closed port is unreachable");
+    };
+    assert!(!message.contains("hunter2") && !message.contains("ws://"), "{message}");
 }
 
 #[test]

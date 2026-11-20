@@ -43,7 +43,6 @@ const RETRY: Duration = Duration::from_millis(10);
 
 /// Serves ACP read from `input` and written to `output`, driving Hermes's
 /// dashboard on `host` and `port` with `token`, until the client closes it.
-#[allow(dead_code)] // the launch path starts it in the next change
 pub(in crate::agents) async fn serve(
     input: impl AsyncRead + Unpin + Send + 'static,
     output: impl AsyncWrite + Unpin + Send + 'static,
