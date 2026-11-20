@@ -238,6 +238,8 @@ pub(super) struct Start<'a> {
     pub(super) brief: Option<Cow<'static, str>>,
     /// Saved user instructions and Beep's checkout rule for the whole session.
     pub(super) rule: Option<String>,
+    /// The skills Beep keeps in its own folder, listed for the agent.
+    pub(super) skills: Option<String>,
     /// The Beep MCP server for the agent, passed in `session/new` and
     /// `session/load`. With it the brief also says what its tools are.
     pub(super) mcp: Option<McpServer>,
@@ -296,6 +298,7 @@ impl Session {
             worktrees,
             brief,
             rule,
+            skills,
             mcp,
             assistant,
             account,
@@ -305,8 +308,6 @@ impl Session {
             stopping,
         } = start;
         let protocol = super::acp::Protocol::from_env(&kind.env)?;
-        let skills = crate::machine::provision::skills_dir()
-            .and_then(|dir| crate::machine::provision::skills_brief(&dir));
 
         // Only a new session takes the default model. A resumed one takes the
         // model and thinking level it ran on, when the caller kept them.

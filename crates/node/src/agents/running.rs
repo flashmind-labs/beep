@@ -47,6 +47,15 @@ impl Agents {
         let _ = self.mcp.set(launch);
     }
 
+    /// Lists the skills in Beep's own skills folder for the sessions
+    /// started from now on, as a node that serves does. Only the first call
+    /// counts.
+    pub fn list_beep_skills(&self) {
+        if let Some(dir) = crate::machine::provision::skills_dir() {
+            let _ = self.skills_dir.set(dir);
+        }
+    }
+
     /// Whether `session` is one of this node's and still runs.
     pub(crate) fn runs(&self, session: &SessionId) -> bool {
         self.get(session).is_some_and(|session| {
@@ -741,6 +750,10 @@ impl Agents {
             worktrees: begin.worktrees,
             brief,
             rule,
+            skills: self
+                .skills_dir
+                .get()
+                .and_then(|dir| crate::machine::provision::skills_brief(dir)),
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
             assistant,
             account: begin.account,

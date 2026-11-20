@@ -206,6 +206,9 @@ host! {
         reviews: reviews::Reviews,
         /// How sessions start the Beep MCP server, once the node serves it.
         mcp: OnceLock<Arc<Launch>>,
+        /// Beep's own skills folder, listed for sessions once the node
+        /// serves: one made without it, as in tests, lists none.
+        skills_dir: OnceLock<PathBuf>,
         /// The search index, once the mesh opened it.
         search: OnceLock<Arc<search::SearchIndex>>,
         /// Set once the node is stopping.
