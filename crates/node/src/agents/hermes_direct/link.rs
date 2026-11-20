@@ -14,7 +14,10 @@ use tokio_tungstenite::{
 use url::Url;
 
 /// How long connecting, and each call, may take.
+#[cfg(not(test))]
 const TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum LinkError {

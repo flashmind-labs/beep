@@ -251,7 +251,9 @@ impl Bridge {
         let lost = match &session.link {
             Link::Up(gateway) => match interrupt(gateway, &session.live).await {
                 Ok(()) => return Ok(()),
-                Err(e) => matches!(e, LinkError::Closed | LinkError::TimedOut(_)),
+                // Only a stop lost with the socket is sent again: one that timed
+                // out on a socket still up could reach a later turn.
+                Err(e) => matches!(e, LinkError::Closed),
             },
             Link::Down(_) => true,
         };

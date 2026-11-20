@@ -923,3 +923,37 @@ async fn a_stop_lost_with_the_socket_is_sent_again_once_hermes_is_back() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn a_stop_hermes_never_answered_is_not_sent_into_a_later_turn() {
+    let (listener, port) = listen().await;
+    let fake = tokio::spawn(async move {
+        let (mut server, _) = accept(&listener).await;
+        created(&mut server).await;
+        replied(&mut server, "prompt.submit", json!({})).await;
+        server.send(hermes_event("live1", "message.delta", json!({"text": "Working"}), 3)).await.unwrap();
+        // The stop goes unanswered, on a socket that stays up.
+        assert_eq!(read(&mut server).await["method"], "session.interrupt");
+        let again = replied(&mut server, "prompt.submit", json!({})).await;
+        assert_eq!(again["text"], "Again");
+
+        let mut server = dropped_and_resumed(&listener, server, 1).await;
+        let sent = tokio::time::timeout(Duration::from_millis(500), read(&mut server)).await;
+        assert!(sent.is_err(), "the bridge sent {sent:?}");
+        server.send(hermes_event("live2", "message.complete", json!({"status": "complete"}), 4)).await.unwrap();
+        server
+    });
+
+    with_bridge(port, async |cx, mut seen| {
+        let session = new_session(&cx).await;
+        let running = prompt(&cx, &session, "Count to a million");
+
+        next_update(&mut seen).await;
+        cx.send_notification(UntypedMessage::new("session/cancel", json!({"sessionId": session})).unwrap()).unwrap();
+        assert_eq!(running.await["stopReason"], "cancelled");
+
+        assert_eq!(prompt(&cx, &session, "Again").await["stopReason"], "end_turn");
+        fake.await.unwrap();
+    })
+    .await;
+}
