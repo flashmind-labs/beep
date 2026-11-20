@@ -221,3 +221,24 @@ async fn the_hermes_assistant_opens_through_the_node_and_prompts_hermes() -> Res
 }
 
 const LIMIT: std::time::Duration = std::time::Duration::from_secs(20);
+
+#[test]
+fn an_agent_node_toml_names_outside_the_harnesses_is_offered_but_not_routed() {
+    use crate::agents::AgentKind;
+    let kind = |name: &str| AgentKind {
+        name: name.into(),
+        program: "sh".into(),
+        args: Vec::new(),
+        env: Default::default(),
+        compact: None,
+        compact_models: Vec::new(),
+        default_model: None,
+        bridge: None,
+    };
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let offers = Offers::local(&[kind("claude"), kind("foo")], Provision::new(dir.path()));
+
+    assert!(offers.agents.offers().contains(&"foo/1".to_owned()));
+    assert!(route(&SessionProtocol::from("foo/1"), &offers).is_none());
+    assert!(matches!(route(&SessionProtocol::from("claude/1"), &offers), Some(Route::Agent(_))));
+}

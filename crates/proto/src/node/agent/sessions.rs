@@ -940,6 +940,13 @@ pub fn agent_of(protocol: &str) -> Option<&str> {
     (version == VERSION && crate::node::harness::harness(name).is_some()).then_some(name)
 }
 
+/// The agent a node serves on `protocol`: a harness, as `agent_of` says, or
+/// the Home assistant on Hermes. Routing and withholding go by it.
+pub fn served_agent(protocol: &str) -> Option<&str> {
+    agent_of(protocol)
+        .or_else(|| (protocol == self::protocol(HERMES_GATEWAY)).then_some(HERMES_GATEWAY))
+}
+
 /// A step of a move, in order.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MovePhase {
