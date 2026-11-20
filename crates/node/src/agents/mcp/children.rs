@@ -104,7 +104,7 @@ impl ChildView {
         }
     }
 
-    fn named(mut self, machine: &str) -> Self {
+    pub(crate) fn named(mut self, machine: &str) -> Self {
         self.machine = machine.to_owned();
         self.id = full_id(&self.id, machine);
         self

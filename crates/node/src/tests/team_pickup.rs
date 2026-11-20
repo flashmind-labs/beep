@@ -1,4 +1,9 @@
 use super::*;
+use crate::{
+    agents::mcp::children::{ChildView, full_id},
+    team::cards::{Facts, IssueTitles, card_of},
+};
+use beep_proto::node::agent::SessionInfo;
 
 fn pickup(started: &[u64], seen: &[u64]) -> Pickup {
     Pickup {
@@ -169,4 +174,43 @@ fn live_issues_come_from_branches_and_automatic_sessions() {
     ];
 
     assert_eq!(live(&state, &cards), set(&[1, 8]));
+}
+
+/// The card this mesh's listing makes of the session its agent named `acp`
+/// on `machine`, titled `title`, in the team's project.
+fn listed_card(acp: &str, machine: &str, title: &str) -> Card {
+    let id = SessionId::from(acp);
+    let info = SessionInfo {
+        id: id.clone(),
+        title: Some(title.to_owned()),
+        ..SessionInfo::default()
+    };
+    let mut view = ChildView::of(&info, &id).named(machine);
+    view.project = Some("org/repo".to_owned());
+    let facts = Facts {
+        project: "org/repo",
+        login: &"alice".parse().unwrap(),
+        linked: &IssueTitles::default(),
+        now: SystemTime::now(),
+    };
+
+    card_of(&view, &facts, None).unwrap()
+}
+
+#[test]
+fn a_followed_session_is_found_by_the_id_its_card_has() {
+    let acp = "019a7c2e-acp";
+    let mut state = pickup(&[8], &[]);
+    state.running.insert(
+        8,
+        Auto {
+            card: full_id(acp, "laptop"),
+            branch: "issue-8-fix".to_owned(),
+        },
+    );
+    let cards = [listed_card(acp, "laptop", "Fix it")];
+
+    assert_eq!(live(&state, &cards), set(&[8]));
+    assert!(off_the_board(&state, &cards).is_empty());
+    assert_eq!(off_the_board(&state, &[]), [(8, full_id(acp, "laptop"))]);
 }

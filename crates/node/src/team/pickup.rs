@@ -37,7 +37,7 @@ const PICKUP_CARD: &str = "pickup:";
 const QUEUED_CARD: &str = "queued:";
 /// The longest slug of a title an issue's branch takes, as Work on it cuts it.
 const BRANCH_SLUG: usize = 30;
-/// How long another machine gets to start a session.
+/// How long a session gets to start and be named by its agent.
 const START_LIMIT: Duration = Duration::from_secs(120);
 
 /// What pickup remembers of a team, kept on disk.
@@ -290,12 +290,7 @@ impl Pickups {
 /// it: a machine that does not answer, or pull requests that do not read,
 /// leave it for the next round.
 async fn ended(round: &Round<'_>, state: &mut Pickup) {
-    let absent: Vec<(u64, String)> = state
-        .running
-        .iter()
-        .filter(|(_, auto)| !round.cards.iter().any(|card| card.id == auto.card))
-        .map(|(n, auto)| (*n, auto.card.clone()))
-        .collect();
+    let absent = off_the_board(state, round.cards);
     let runs = absent.iter().map(|(_, card)| still_runs(round.mesh, card));
     let ended: Vec<u64> = absent
         .iter()
@@ -344,6 +339,17 @@ async fn ended(round: &Round<'_>, state: &mut Pickup) {
     }
 }
 
+/// The followed automatic sessions, by issue, whose card is not among
+/// `cards`, with that card's id.
+fn off_the_board(state: &Pickup, cards: &[Card]) -> Vec<(u64, String)> {
+    state
+        .running
+        .iter()
+        .filter(|(_, auto)| !cards.iter().any(|card| card.id == auto.card))
+        .map(|(n, auto)| (*n, auto.card.clone()))
+        .collect()
+}
+
 /// Starts a session on `issue` here, when this machine runs an agent, or
 /// on the machine the round names.
 async fn start(round: &Round<'_>, issue: &OpenIssue) -> Result<Auto, Unstarted> {
@@ -355,9 +361,12 @@ async fn start(round: &Round<'_>, issue: &OpenIssue) -> Result<Auto, Unstarted> 
     };
 
     if round.project.checkout.is_some() && round.agents.auto_harness().is_some() {
-        return start_issue(round.agents, round.mesh, &order)
-            .await
-            .map_err(Unstarted::Refused);
+        return match timeout(START_LIMIT, start_issue(round.agents, round.mesh, &order)).await {
+            Ok(started) => started.map_err(Unstarted::Refused),
+            Err(_) => Err(Unstarted::Unknown(
+                "the agent did not start in time".to_owned(),
+            )),
+        };
     }
 
     let Some(machine) = round.elsewhere else {
