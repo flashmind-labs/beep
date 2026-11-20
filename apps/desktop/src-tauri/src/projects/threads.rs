@@ -24,6 +24,8 @@ pub struct IssueRow {
     url: String,
     /// A pull request is linked to it, to close it.
     linked_pr: bool,
+    /// The forge logins it is assigned to.
+    assignees: Vec<String>,
 }
 
 impl From<ProjectIssue> for IssueRow {
@@ -37,6 +39,7 @@ impl From<ProjectIssue> for IssueRow {
             comments: i.comments,
             url: i.url,
             linked_pr: i.linked_pr,
+            assignees: i.assignees,
         }
     }
 }
@@ -214,3 +217,7 @@ pub async fn center_comment_thread(
     };
     Ok(desk.comment_thread(&name, kind, number, &body).await?)
 }
+
+#[cfg(test)]
+#[path = "../tests/projects_threads.rs"]
+mod tests;
