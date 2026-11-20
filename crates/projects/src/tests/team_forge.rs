@@ -114,7 +114,8 @@ fn assigned_issues_ask_each_host_its_own_filter() {
 fn a_404_says_no_and_other_failures_are_errors() {
     assert!(collaborator_answer(true, "", "").expect("204"));
     assert!(!collaborator_answer(false, "", "gh: Not Found (HTTP 404)").expect("404"));
-    assert!(!collaborator_answer(false, "", "request failed: not found").expect("not found"));
+    assert!(collaborator_answer(false, "", "sh: 1: gh: not found").is_err());
+    assert!(collaborator_answer(false, "", "teacli: not found").is_err());
     assert!(collaborator_answer(false, "", "gh: Bad credentials (HTTP 401)").is_err());
 }
 

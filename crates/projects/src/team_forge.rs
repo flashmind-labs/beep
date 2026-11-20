@@ -63,7 +63,8 @@ pub fn collaborator_call(host: &IssueHost, repo: &RepoName, login: &ForgeLogin) 
 }
 
 /// Reads [`collaborator_call`]'s outcome. `gh api` and `teacli api` both exit non-zero on a 404
-/// and print its status ("HTTP 404", "Not Found") on stderr, so that text is what says no.
+/// and print its status ("HTTP 404") on stderr, so a 404 token says no. A bare "not found" is
+/// also what a missing CLI prints, so it is an error.
 pub fn collaborator_answer(
     exit_ok: bool,
     _stdout: &str,
@@ -72,9 +73,10 @@ pub fn collaborator_answer(
     if exit_ok {
         return Ok(true);
     }
-    let said = stderr.to_ascii_lowercase();
-
-    if said.contains("404") || said.contains("not found") {
+    if stderr
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|token| token == "404")
+    {
         return Ok(false);
     }
 
