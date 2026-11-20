@@ -73,6 +73,20 @@ fn a_ported_host_round_trips_through_text() {
 }
 
 #[test]
+fn an_scp_remote_with_a_numeric_owner_is_not_a_port() {
+    let a: TeamRepo = "git@github.com:1234/repo".parse().unwrap();
+    let b: TeamRepo = "git@github.com:1234/sub/repo".parse().unwrap();
+    assert_eq!(a.host, "github.com");
+    assert_eq!(a.repo, "1234/repo");
+    assert_eq!(b.host, "github.com");
+    assert_eq!(b.repo, "1234/sub/repo");
+    assert_eq!(
+        "git@host/org/repo".parse::<TeamRepo>().unwrap().host,
+        "host"
+    );
+}
+
+#[test]
 fn a_remote_without_an_org_is_refused() {
     for s in [
         "",

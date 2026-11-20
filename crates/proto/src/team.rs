@@ -71,10 +71,11 @@ impl FromStr for TeamRepo {
         };
         let rest = rest.split_once('@').map_or(rest, |(_, rest)| rest);
         // Without a scheme, `host:org/repo` is the scp form and `host:2222/org/repo` has a
-        // port: the text between the first ':' and the first '/' is all digits.
+        // port: the text between the first ':' and the first '/' is all digits, and there
+        // is no user, which every scp remote has (`git@github.com:1234/repo`).
         let ported = |host: &str| {
             host.split_once(':').is_none_or(|(_, port)| {
-                !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())
+                !s.contains('@') && !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())
             })
         };
         let (host, path) = match rest.split_once('/') {
