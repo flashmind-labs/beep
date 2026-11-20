@@ -70,9 +70,15 @@ impl FromStr for TeamRepo {
             None => s,
         };
         let rest = rest.split_once('@').map_or(rest, |(_, rest)| rest);
-        // `host:org/repo` is the scp form; `host:port/org/repo` has digits.
+        // Without a scheme, `host:org/repo` is the scp form and `host:2222/org/repo` has a
+        // port: the text between the first ':' and the first '/' is all digits.
+        let ported = |host: &str| {
+            host.split_once(':').is_none_or(|(_, port)| {
+                !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())
+            })
+        };
         let (host, path) = match rest.split_once('/') {
-            Some((host, path)) if !host.contains(':') || s.contains("://") => (host, path),
+            Some((host, path)) if ported(host) || s.contains("://") => (host, path),
             _ => rest.split_once(':').ok_or_else(bad)?,
         };
 

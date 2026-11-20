@@ -115,6 +115,10 @@ fn keys_keep_their_released_wire_names() {
             Key::Team("github.com/org/repo".parse().expect("repo")),
         ),
         (
+            "team/git.example.com:2222/org/repo",
+            Key::Team("git.example.com:2222/org/repo".parse().expect("repo")),
+        ),
+        (
             "contact/ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
             Key::Contact(fixed_id()),
         ),

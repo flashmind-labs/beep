@@ -61,6 +61,18 @@ fn a_port_stays_with_the_host() {
 }
 
 #[test]
+fn a_ported_host_round_trips_through_text() {
+    let a: TeamRepo = "git.example.com:2222/org/repo".parse().unwrap();
+    let b: TeamRepo = "https://git.example.com:2222/org/repo".parse().unwrap();
+    let c: TeamRepo = "git@git.example.com:org/repo".parse().unwrap();
+    assert_eq!(a, b);
+    assert_eq!(a.host, "git.example.com:2222");
+    assert_eq!(a.to_string().parse::<TeamRepo>().unwrap(), a);
+    assert_eq!(c.host, "git.example.com");
+    assert_eq!(c.repo, "org/repo");
+}
+
+#[test]
 fn a_remote_without_an_org_is_refused() {
     for s in [
         "",
