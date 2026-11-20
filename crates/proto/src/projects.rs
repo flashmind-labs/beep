@@ -226,6 +226,9 @@ wire_structs! {
         /// A pull request is linked to it, to close it. GitHub only.
         #[serde(default)]
         pub linked_pr: bool,
+        /// The logins it is assigned to.
+        #[serde(default)]
+        pub assignees: Vec<String>,
     }
 
     /// An open pull request on a project's host, anyone's.

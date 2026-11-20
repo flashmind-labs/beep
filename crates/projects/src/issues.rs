@@ -354,6 +354,7 @@ pub fn issue_view(issue: OpenIssue) -> ProjectIssue {
         comments: issue.comments,
         url: issue.url,
         linked_pr: issue.linked_pr,
+        assignees: Vec::new(),
     }
 }
 
