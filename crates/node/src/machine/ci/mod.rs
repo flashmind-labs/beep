@@ -13,7 +13,7 @@ mod book;
 mod check;
 pub(crate) mod forge;
 mod github;
-mod projects;
+pub(crate) mod projects;
 mod watcher;
 
 #[cfg(test)]
@@ -53,7 +53,7 @@ impl Ci {
         watched::read_sent(&self.reach, Clone::clone)
     }
 
-    fn reach_of(&self, host: &str) -> HostReach {
+    pub(crate) fn reach_of(&self, host: &str) -> HostReach {
         watched::read_sent(&self.reach, |reach| {
             reach.hosts.get(host).copied().unwrap_or_default()
         })

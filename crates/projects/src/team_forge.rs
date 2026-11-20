@@ -165,20 +165,28 @@ pub fn assign_call(host: &IssueHost, repo: &RepoName, number: u64, logins: &[Str
     }
 }
 
-/// The open issues assigned to `login`, in the shape `parse_open_issues` reads. GitHub's list
-/// also holds pull requests, which that parser drops.
+/// The open issues, in the shape `parse_open_issues` reads. GitHub's list also holds pull
+/// requests, which that parser drops.
+pub fn open_issues_call(host: &IssueHost, repo: &RepoName) -> ForgeCall {
+    ForgeCall::api(host, open_issues(host, repo), &[])
+}
+
+/// The open issues assigned to `login`, as [`open_issues_call`] lists them.
 pub fn assigned_issues_call(host: &IssueHost, repo: &RepoName, login: &ForgeLogin) -> ForgeCall {
-    let login = escaped(login);
-    let path = match host {
-        IssueHost::Github => {
-            format!("repos/{repo}/issues?state=open&per_page=100&assignee={login}")
-        }
-        IssueHost::Forgejo(_) => {
-            format!("repos/{repo}/issues?state=open&type=issues&limit=50&assigned_by={login}")
-        }
+    let by = match host {
+        IssueHost::Github => "assignee",
+        IssueHost::Forgejo(_) => "assigned_by",
     };
+    let path = format!("{}&{by}={}", open_issues(host, repo), escaped(login));
 
     ForgeCall::api(host, path, &[])
+}
+
+fn open_issues(host: &IssueHost, repo: &RepoName) -> String {
+    match host {
+        IssueHost::Github => format!("repos/{repo}/issues?state=open&per_page=100"),
+        IssueHost::Forgejo(_) => format!("repos/{repo}/issues?state=open&type=issues&limit=50"),
+    }
 }
 
 fn escaped(login: &ForgeLogin) -> String {

@@ -104,7 +104,14 @@ fn assign_posts_on_github_and_patches_on_forgejo() {
 fn assigned_issues_ask_each_host_its_own_filter() {
     let who = login("alice");
 
-    assert!(words(&assigned_issues_call(&github(), &repo(), &who))[1].ends_with("&assignee=alice"));
+    assert_eq!(
+        words(&open_issues_call(&github(), &repo()))[1],
+        "repos/acme/widget/issues?state=open&per_page=100"
+    );
+    assert_eq!(
+        words(&assigned_issues_call(&github(), &repo(), &who))[1],
+        "repos/acme/widget/issues?state=open&per_page=100&assignee=alice"
+    );
     assert!(
         words(&assigned_issues_call(&forgejo(), &repo(), &who))[1].ends_with("&assigned_by=alice")
     );

@@ -5,13 +5,15 @@
 //! refused.
 
 use super::{
+    cards::IssueTitles,
+    gateway::{self, Boards},
     home::{Home, Invites},
     proof::ProofError,
     roster::{Refusal, Rosters},
 };
 use beep_proto::{
     node::{LinkRx, LinkTx, link, tools::TeamInviteArgs},
-    team::{ALPN, ForgeLogin, TeamMsg, TeamRecord, TeamRepo},
+    team::{ALPN, ForgeLogin, Member, TeamMsg, TeamRecord, TeamRepo},
 };
 use beep_mesh::TeamTicket;
 use futures::future::BoxFuture;
@@ -47,6 +49,9 @@ pub(crate) trait TeamForge: Send + Sync + 'static {
 
     /// The account this machine is signed in with on `repo`'s host.
     fn login<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<ForgeLogin, String>>;
+
+    /// The titles of `repo`'s open issues.
+    fn issue_titles<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<IssueTitles, String>>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -76,6 +81,8 @@ pub(crate) struct Teams {
     pub(crate) home: Home,
     /// Contacts' invites to other teams, for a desktop to show.
     pub(crate) invites: Invites,
+    /// The boards this device serves as its mesh's gateway.
+    pub(crate) boards: Boards,
 }
 
 /// The team link of this device, shared by its handler, its dialing and the
@@ -156,29 +163,35 @@ impl TeamLink {
     /// Sends `record`'s roster to the members of other meshes, but not to
     /// `except`'s, in the background.
     pub(super) fn spread(&self, record: TeamRecord, except: EndpointId) {
-        let link = self.clone();
         let mesh = self.with(|teams| teams.home.mesh);
+        let roster = TeamMsg::Roster {
+            repo: record.repo.clone(),
+            members: record.members.clone(),
+        };
+        let others = record
+            .members
+            .into_iter()
+            .filter(|member| Some(member.mesh) != mesh && member.mesh != except)
+            .collect();
+
+        self.tell(others, roster);
+    }
+
+    /// Sends `msg` to each of `members`, in the background.
+    pub(super) fn tell(&self, members: Vec<Member>, msg: TeamMsg) {
+        let link = self.clone();
 
         tokio::spawn(async move {
-            let roster = TeamMsg::Roster {
-                repo: record.repo.clone(),
-                members: record.members.clone(),
-            };
-            let others = record
-                .members
-                .iter()
-                .filter(|member| Some(member.mesh) != mesh && member.mesh != except);
-
-            for member in others {
+            for member in members {
                 let sent = async {
                     let (mut tx, _rx) = link.dial(&member.devices).await?;
-                    tx.send(&roster).await?;
+                    tx.send(&msg).await?;
                     finish(tx).await?;
                     Ok::<_, TeamError>(())
                 };
 
                 if let Err(e) = sent.await {
-                    log::info!("the roster of {} did not reach {}: {e}", record.repo, member.login);
+                    log::info!("a team message did not reach {}: {e}", member.login);
                 }
             }
         });
@@ -247,6 +260,12 @@ impl TeamLink {
         let mut next = Some(first);
 
         while let Some(msg) = next {
+            if let TeamMsg::Subscribe { repo } = &msg
+                && self.with(|teams| teams.rosters.allows(peer, repo) && teams.boards.serves(repo))
+            {
+                return gateway::serve(self, peer, repo.clone(), tx, rx).await;
+            }
+
             if let Some(answer) = self.answer(peer, &msg).await {
                 tx.send(&answer).await?;
             }
@@ -259,7 +278,7 @@ impl TeamLink {
 
     /// The answer to one message from a member's device, if any. A roster's
     /// newcomers are added once the forge says they may push.
-    async fn answer(&self, peer: EndpointId, msg: &TeamMsg) -> Option<TeamMsg> {
+    pub(super) async fn answer(&self, peer: EndpointId, msg: &TeamMsg) -> Option<TeamMsg> {
         let refused = |reason: String| Some(TeamMsg::Refused { reason });
 
         // An invite is to a team the contact is not on yet.

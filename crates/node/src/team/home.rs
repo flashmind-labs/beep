@@ -2,7 +2,10 @@
 //! they are about, kept current from the mesh's state. Rosters and invites
 //! the link takes go to a desktop, since only desktops write the state.
 
-use super::link::{TeamForge, TeamLink};
+use super::{
+    cards::IssueTitles,
+    link::{TeamForge, TeamLink},
+};
 use crate::{
     agents::mcp::to_desktop,
     machine::ci::forge::{command, tail},
@@ -10,7 +13,11 @@ use crate::{
 use beep_mesh::{DeviceKind, Key, Mesh};
 use beep_projects::{
     model::{IssueHost, RepoName},
-    team_forge::{ForgeCall, collaborator_answer, collaborator_call, parse_user_login, user_call},
+    commands::parse_open_issues,
+    team_forge::{
+        ForgeCall, collaborator_answer, collaborator_call, open_issues_call, parse_user_login,
+        user_call,
+    },
 };
 use beep_proto::{
     SessionId, lenient,
@@ -56,6 +63,8 @@ pub(crate) struct Home {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Project {
+    /// The mesh's name for it, as its agents' sessions are listed under.
+    pub(crate) name: String,
     /// This machine's checkout, when it has one.
     pub(crate) checkout: Option<Checkout>,
     /// The mesh's machines with a checkout: the devices teammates dial.
@@ -164,7 +173,7 @@ fn refresh(mesh: &Mesh, link: &TeamLink) {
     });
 }
 
-fn read(mesh: &Mesh) -> Home {
+pub(super) fn read(mesh: &Mesh) -> Home {
     let me = mesh.me();
     let mut records = BTreeMap::new();
     let mut places: BTreeMap<String, Vec<(EndpointId, Place)>> = BTreeMap::new();
@@ -204,7 +213,12 @@ fn read(mesh: &Mesh) -> Home {
                 .filter(|(machine, _)| mesh.is_member(*machine))
                 .map(|(machine, _)| EndpointAddr::new(*machine))
                 .collect();
-            Some((repo, Project { checkout, devices }))
+            let project = Project {
+                name,
+                checkout,
+                devices,
+            };
+            Some((repo, project))
         })
         .collect();
     let contacts = mesh
@@ -321,6 +335,22 @@ impl TeamForge for ForgeCli {
             }
 
             parse_user_login(&String::from_utf8_lossy(&out.stdout)).map_err(|e| e.to_string())
+        })
+    }
+
+    fn issue_titles<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<IssueTitles, String>> {
+        Box::pin(async move {
+            let (host, name) = forge_of(repo)?;
+            let out = run(&open_issues_call(&host, &name)).await?;
+
+            if !out.status.success() {
+                let said = String::from_utf8_lossy(&out.stderr);
+                return Err(format!("Could not list the issues of {repo}: {}", tail(&said)));
+            }
+
+            let issues = parse_open_issues(&String::from_utf8_lossy(&out.stdout))
+                .map_err(|e| format!("{e:#}"))?;
+            Ok(issues.into_iter().map(|issue| (issue.number, issue.title)).collect())
         })
     }
 }

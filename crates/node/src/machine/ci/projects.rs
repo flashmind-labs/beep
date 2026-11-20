@@ -1,8 +1,11 @@
 //! The pinned projects as the mesh's replicated state holds them: each
 //! one's host and repository, and the machines with its checkout.
 
-use super::forge::{Host, Target};
-use crate::link::from_mesh;
+use super::{
+    Ci,
+    forge::{Host, Target},
+};
+use crate::{link::from_mesh, machine::elect::elect};
 use beep_mesh::{Key, Mesh};
 use beep_projects::{
     imports::{
@@ -12,17 +15,32 @@ use beep_projects::{
     model::ForgejoUrl,
 };
 use beep_proto::node::mesh_state::{ProjectRecord, StateValue};
+use beep_proto::node::tools::ForgeReach;
 use iroh::EndpointId;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A pinned project the watch may take.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Project {
+pub(crate) struct Project {
     /// `org/repo`, as the mesh names it.
-    pub(super) name: String,
-    pub(super) target: Target,
+    pub(crate) name: String,
+    pub(crate) target: Target,
     /// The members of the mesh with a checkout of it.
-    pub(super) machines: BTreeSet<EndpointId>,
+    pub(crate) machines: BTreeSet<EndpointId>,
+}
+
+impl Project {
+    /// The machine that watches it, as `me` sees it with the online `peers`.
+    pub(crate) fn elected(
+        &self,
+        me: EndpointId,
+        ci: &Ci,
+        peers: &BTreeMap<EndpointId, ForgeReach>,
+    ) -> Option<EndpointId> {
+        let host = self.target.host_name();
+
+        elect(&self.machines, me, ci.reach_of(host), peers, host)
+    }
 }
 
 /// The web address of `host`, the server of the repository at `url`: its
@@ -40,7 +58,7 @@ fn server_of(url: &str, host: &str) -> Option<ForgejoUrl> {
 
 /// Every pinned project with its repository on GitHub, or on any other
 /// host, taken as a Forgejo or Gitea server.
-pub(super) fn pinned(mesh: &Mesh) -> Vec<Project> {
+pub(crate) fn pinned(mesh: &Mesh) -> Vec<Project> {
     let servers: Vec<ForgejoUrl> = from_mesh::forgejo_servers(mesh)
         .iter()
         .filter_map(|url| url.parse().ok())

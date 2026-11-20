@@ -607,38 +607,12 @@ impl Reach<'_> {
                 return fail("This machine is in no mesh, so it has no registered projects.");
             }
         };
-        let here = self.my_name();
-        let mut views: Vec<ChildView> = agents_here(self.agents)
-            .into_iter()
-            .filter(|view| view.id != self.who.session)
-            .map(|view| view.named(&here))
-            .collect();
-
-        if let Some(mesh) = &self.mesh {
-            let others: Vec<Machine> = mesh
-                .code_hosts()
+        let mut views: Vec<ChildView> =
+            in_the_mesh(self.agents, self.mesh.as_ref(), &self.who.session)
+                .await
                 .into_iter()
-                .filter(|status| status.online && status.device.id != mesh.me())
-                .map(Machine::from)
+                .map(|listed| listed.view)
                 .collect();
-            let none = json!({});
-            let lists = futures::future::join_all(others.iter().map(|machine| async {
-                Call::to_machine(mesh, &self.who.session, machine)
-                    .ask(Tool::ListAgents, &none, LIST_LIMIT)
-                    .await
-            }))
-            .await;
-
-            // A machine that does not answer, or an older one that lists
-            // no agents for others, adds none.
-            for (machine, answer) in others.iter().zip(lists) {
-                let Answer::Text(text) = answer else { continue };
-                let Ok(there) = serde_json::from_str::<Vec<ChildView>>(&text) else {
-                    continue;
-                };
-                views.extend(there.into_iter().map(|view| view.named(&machine.name)));
-            }
-        }
 
         if let Some(project) = project {
             views.retain(|view| view.project.as_ref() == Some(&project));
@@ -747,6 +721,21 @@ impl Reach<'_> {
 
 /// The agents this node runs that others may list, each with its project.
 fn agents_here(agents: &Agents) -> Vec<ChildView> {
+    listed_here(agents)
+        .into_iter()
+        .map(|listed| listed.view)
+        .collect()
+}
+
+/// A live agent, its machine's display name, and its folder when it runs on
+/// this machine.
+pub(crate) struct Listed {
+    pub(crate) view: ChildView,
+    pub(crate) machine: String,
+    pub(crate) folder: Option<String>,
+}
+
+fn listed_here(agents: &Agents) -> Vec<Listed> {
     let mesh = agents.mesh();
 
     agents
@@ -758,9 +747,73 @@ fn agents_here(agents: &Agents) -> Vec<ChildView> {
             view.project = mesh
                 .as_ref()
                 .and_then(|mesh| super::projects::of_folder(mesh, &info.cwd, mesh.me()));
-            view
+            Listed {
+                view,
+                machine: String::new(),
+                folder: Some(info.cwd),
+            }
         })
         .collect()
+}
+
+/// Every live agent but `caller`, the session asking: this machine's, then
+/// those of every other machine of `mesh` that answers in time, each named
+/// by its machine.
+pub(crate) async fn in_the_mesh(
+    agents: &Agents,
+    mesh: Option<&Mesh>,
+    caller: &SessionId,
+) -> Vec<Listed> {
+    let here = machine_name(mesh);
+    let display = mesh
+        .and_then(|mesh| mesh.code_hosts().into_iter().find(|status| status.device.id == mesh.me()))
+        .map(|status| status.device.name)
+        .unwrap_or_default();
+    let mut listed: Vec<Listed> = listed_here(agents)
+        .into_iter()
+        .filter(|listed| listed.view.id != *caller)
+        .map(|listed| Listed {
+            view: listed.view.named(&here),
+            machine: display.clone(),
+            ..listed
+        })
+        .collect();
+    let Some(mesh) = mesh else {
+        return listed;
+    };
+
+    let others: Vec<(Machine, String)> = mesh
+        .code_hosts()
+        .into_iter()
+        .filter(|status| status.online && status.device.id != mesh.me())
+        .map(|status| {
+            let display = status.device.name.clone();
+            (Machine::from(status), display)
+        })
+        .collect();
+    let none = json!({});
+    let lists = futures::future::join_all(others.iter().map(|(machine, _)| async {
+        Call::to_machine(mesh, caller, machine)
+            .ask(Tool::ListAgents, &none, LIST_LIMIT)
+            .await
+    }))
+    .await;
+
+    // A machine that does not answer, or an older one that lists no agents
+    // for others, adds none.
+    for ((machine, display), answer) in others.iter().zip(lists) {
+        let Answer::Text(text) = answer else { continue };
+        let Ok(there) = serde_json::from_str::<Vec<ChildView>>(&text) else {
+            continue;
+        };
+        listed.extend(there.into_iter().map(|view| Listed {
+            view: view.named(&machine.name),
+            machine: display.clone(),
+            folder: None,
+        }));
+    }
+
+    listed
 }
 
 enum Found {

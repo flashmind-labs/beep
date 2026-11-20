@@ -61,6 +61,13 @@ impl TeamForge for Forge {
     fn login<'a>(&'a self, _repo: &'a TeamRepo) -> BoxFuture<'a, Result<ForgeLogin, String>> {
         Box::pin(async move { Ok(self.login.parse().unwrap()) })
     }
+
+    fn issue_titles<'a>(
+        &'a self,
+        _repo: &'a TeamRepo,
+    ) -> BoxFuture<'a, Result<crate::team::cards::IssueTitles, String>> {
+        Box::pin(async move { Ok(Default::default()) })
+    }
 }
 
 fn repo() -> TeamRepo {
@@ -154,6 +161,7 @@ impl Pair {
             teams.home.projects.insert(
                 repo(),
                 Project {
+                    name: "org/repo".to_owned(),
                     checkout: Some(Checkout {
                         folder,
                         remote: place,
@@ -245,6 +253,7 @@ async fn joiner_link(inviter: &EndpointAddr, name: &'static str) -> TeamLink {
         teams.home.projects.insert(
             repo(),
             Project {
+                name: "org/repo".to_owned(),
                 checkout: None,
                 devices: vec![EndpointAddr::new(id)],
             },

@@ -1,5 +1,7 @@
 //! Teams: shared work between people who push to the same repository.
 
+pub(crate) mod cards;
+pub(crate) mod gateway;
 pub(crate) mod home;
 pub(crate) mod join;
 pub(crate) mod link;

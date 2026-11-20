@@ -626,6 +626,12 @@ impl Peers {
             offers.skills.clone(),
         );
         let team = crate::team::home::follow(active.mesh.clone(), self.inner.team.clone());
+        let gateway = crate::team::gateway::run(
+            active.mesh.clone(),
+            self.inner.endpoint.id(),
+            self.inner.team.clone(),
+            offers.clone(),
+        );
         let search = crate::agents::follow_search(
             active.mesh.clone(),
             self.inner.dir.clone(),
@@ -638,7 +644,7 @@ impl Peers {
             offers.agents.clone(),
         );
         *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(async move {
-            tokio::join!(follow, moves, runs, skills, libraries, search, team);
+            tokio::join!(follow, moves, runs, skills, libraries, search, team, gateway);
         })));
     }
 

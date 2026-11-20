@@ -176,6 +176,19 @@ impl Rosters {
         Ok(self.change(next))
     }
 
+    /// Takes `login` off `repo`'s team, as a `Remove` from a member does: the
+    /// record after it, when that changed anything.
+    pub(crate) fn remove_member(
+        &mut self,
+        repo: &TeamRepo,
+        login: &ForgeLogin,
+    ) -> Option<TeamRecord> {
+        let mut next = self.get(repo)?.clone();
+        remove(&mut next, login);
+
+        self.change(next)
+    }
+
     /// Whether a join by `entry` from the device `peer` may go ahead: the
     /// device is one it names, and it is new or the member it says it is.
     pub(crate) fn may_join(

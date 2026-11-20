@@ -40,14 +40,14 @@ const MAX_LINE: usize = 256 * 1024;
 
 /// Where a project's runs are.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Target {
+pub(crate) struct Target {
     /// `owner/name`.
-    pub(super) repo: String,
-    pub(super) host: Host,
+    pub(crate) repo: String,
+    pub(crate) host: Host,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Host {
+pub(crate) enum Host {
     GitHub,
     /// A Forgejo or Gitea server: its base URL, as teacli takes it, and its
     /// host name with the port, as the Actions tile names it.
@@ -59,7 +59,7 @@ pub(super) enum Host {
 
 impl Target {
     /// The host's name, such as `github.com`: what its reach is kept under.
-    pub(super) fn host_name(&self) -> &str {
+    pub(crate) fn host_name(&self) -> &str {
         match &self.host {
             Host::GitHub => beep_projects::git_items::github::HOST,
             Host::Forgejo { name, .. } => name,
