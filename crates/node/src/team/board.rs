@@ -141,7 +141,12 @@ pub(super) struct Followed {
 /// Follows `member`'s board of `repo` until stopped: subscribes through
 /// the first of their devices that answers, passes on what it hears, and
 /// dials again a while after the link drops.
-pub(super) async fn follow(link: TeamLink, repo: TeamRepo, member: Member, heard: mpsc::Sender<Followed>) {
+pub(super) async fn follow(
+    link: TeamLink,
+    repo: TeamRepo,
+    member: Member,
+    heard: mpsc::Sender<Followed>,
+) {
     loop {
         if let Err(e) = subscribe(&link, &repo, &member, &heard).await {
             log::debug!("the board of {} on {repo} dropped: {e}", member.login);

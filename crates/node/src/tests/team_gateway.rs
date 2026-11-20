@@ -9,11 +9,11 @@ use crate::{
     },
 };
 use beep_mesh::Key;
-use beep_proto::team::TeamMsg;
 use beep_proto::node::{
     mesh_state::{Place, ProjectRecord, StateValue},
     tools::HostReach,
 };
+use beep_proto::team::TeamMsg;
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 
 #[tokio::test]
@@ -34,9 +34,12 @@ async fn gateway_and_ci_watcher_elect_the_same_machine() {
         url: URL.to_owned(),
         ..ProjectRecord::default()
     };
-    mesh.set(Key::Project("org/repo".into()), Some(record.to_bytes().unwrap()))
-        .await
-        .unwrap();
+    mesh.set(
+        Key::Project("org/repo".into()),
+        Some(record.to_bytes().unwrap()),
+    )
+    .await
+    .unwrap();
     for machine in [me, stranger] {
         let place = Place {
             folder: "/srv/repo".into(),
@@ -83,7 +86,10 @@ async fn gateway_and_ci_watcher_elect_the_same_machine() {
 
 #[test]
 fn a_machine_not_on_the_entry_is_never_elected() {
-    let mut ids = [SecretKey::generate().public(), SecretKey::generate().public()];
+    let mut ids = [
+        SecretKey::generate().public(),
+        SecretKey::generate().public(),
+    ];
     ids.sort();
     let [first, second] = ids;
     let project = Project {
@@ -96,19 +102,35 @@ fn a_machine_not_on_the_entry_is_never_elected() {
 
     // By id the first would win; only the second is on the entry.
     assert_eq!(
-        elected(&project, &member("alice", first), &repo(), first, &ci, &peers),
+        elected(
+            &project,
+            &member("alice", first),
+            &repo(),
+            first,
+            &ci,
+            &peers
+        ),
         Some(first)
     );
     assert_eq!(
-        elected(&project, &member("alice", second), &repo(), first, &ci, &peers),
+        elected(
+            &project,
+            &member("alice", second),
+            &repo(),
+            first,
+            &ci,
+            &peers
+        ),
         Some(second)
     );
 }
 
-
 #[test]
 fn a_pending_announcement_moves_no_election() {
-    let mut ids = [SecretKey::generate().public(), SecretKey::generate().public()];
+    let mut ids = [
+        SecretKey::generate().public(),
+        SecretKey::generate().public(),
+    ];
     ids.sort();
     // The added machine would win by id once the written entry names it.
     let [added, old] = ids;
@@ -135,7 +157,11 @@ fn a_pending_announcement_moves_no_election() {
         repo: repo(),
         members: vec![entry],
     };
-    let applied = on_old.1.rosters.apply(old, Some(alice.mesh), &roster).unwrap();
+    let applied = on_old
+        .1
+        .rosters
+        .apply(old, Some(alice.mesh), &roster)
+        .unwrap();
     assert!(applied.changed.is_some());
 
     let ci = Ci::default();
@@ -145,7 +171,14 @@ fn a_pending_announcement_moves_no_election() {
             let other = if *me == old { added } else { old };
             let peers = [(other, ForgeReach::default())].into();
             let team = &membership::teams(teams)[0];
-            elected(&teams.home.projects[&repo()], &team.mine, &repo(), *me, &ci, &peers)
+            elected(
+                &teams.home.projects[&repo()],
+                &team.mine,
+                &repo(),
+                *me,
+                &ci,
+                &peers,
+            )
         })
         .collect();
 

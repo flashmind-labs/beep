@@ -74,19 +74,44 @@ pub(super) fn teams(teams: &Teams) -> Vec<Team> {
 /// What the gateway keeps of the membership of the teams it holds.
 pub(super) struct Membership {
     me: EndpointId,
-    /// The last announcement on each held team.
+    /// The last time this mesh's entry was sent on each team.
     announced: BTreeMap<TeamRepo, Announced>,
     /// When each held team's members were last checked.
     checked: BTreeMap<TeamRepo, Instant>,
 }
 
-/// This mesh's entry with new devices, as it was sent to the teammates.
+/// This mesh's entry as it was sent to the teammates, and whom it did not
+/// reach yet.
 struct Announced {
     entry: Member,
+    /// The teammates it was sent to.
+    to: Vec<Member>,
+    /// When it was first sent, and last.
+    since: Instant,
     at: Instant,
     /// The send under way; it ends with the meshes it did not reach.
     sending: Option<AbortOnDropHandle<BTreeSet<EndpointId>>>,
     unsent: BTreeSet<EndpointId>,
+}
+
+impl Announced {
+    fn sent(link: &TeamLink, repo: &TeamRepo, entry: Member, to: Vec<Member>) -> Self {
+        let now = Instant::now();
+
+        Self {
+            sending: Some(send(link, repo, &entry, to.clone())),
+            entry,
+            to,
+            since: now,
+            at: now,
+            unsent: BTreeSet::new(),
+        }
+    }
+
+    /// Whether some teammate may still not have it.
+    fn open(&self) -> bool {
+        self.sending.is_some() || !self.unsent.is_empty()
+    }
 }
 
 impl Membership {
@@ -98,18 +123,19 @@ impl Membership {
         }
     }
 
-    /// Forgets the teams that are not `held` here any more.
+    /// Forgets the checks of the teams that are not `held` here any more.
     pub(super) fn keep(&mut self, held: &BTreeSet<TeamRepo>) {
         self.checked.retain(|repo, _| held.contains(repo));
-        self.announced.retain(|repo, _| held.contains(repo));
     }
 
-    /// Names this mesh's machines with each held project on its entry while
-    /// the mesh's record does not: once per change, at most every `ANNOUNCE`.
-    /// Every `RESEND`, the teammates a send did not reach get it again, and
-    /// it is taken here again if the change was dropped before a desktop
-    /// wrote it. `online` and `member` say which machines are online and in
-    /// the mesh.
+    /// Sends this mesh's entry on each of `teams`, the teams held here: the
+    /// entry as written when this machine starts holding one, and the
+    /// entry naming the mesh's machines with the project while the written
+    /// one does not (taken here too, for a desktop to write), once per change
+    /// and at most every `ANNOUNCE`. Every `RESEND`, a send goes again to
+    /// the teammates it did not reach, for a day, even once the team is held
+    /// elsewhere: a teammate only takes it from a device it knows. `online`
+    /// and `member` say which machines are online and in the mesh.
     pub(super) fn announce(
         &mut self,
         link: &TeamLink,
@@ -118,51 +144,73 @@ impl Membership {
         teams: &[Team],
         projects: &BTreeMap<TeamRepo, Project>,
     ) {
+        for last in self.announced.values_mut() {
+            if let Some(sent) = last.sending.take_if(|sending| sending.is_finished()) {
+                last.unsent = sent.now_or_never().and_then(Result::ok).unwrap_or_default();
+            }
+        }
+
+        let held = |repo: &TeamRepo| teams.iter().any(|team| team.repo == *repo);
+        self.announced
+            .retain(|repo, last| held(repo) || (last.open() && last.since.elapsed() < UPKEEP));
+
         for team in teams {
             let devices = &projects[&team.repo].devices;
             let fresh = with_devices(&team.mine, devices, online, &member);
-            let last = self.announced.get_mut(&team.repo);
-            let new = fresh.as_ref().filter(|entry| {
-                last.as_ref().is_none_or(|last| {
-                    ids(&last.entry.devices) != ids(&entry.devices) && last.at.elapsed() >= ANNOUNCE
-                })
-            });
+            let last = self.announced.get(&team.repo);
+            let new = match (&fresh, last) {
+                (_, None) => Some(fresh.clone().unwrap_or_else(|| team.mine.clone())),
+                (Some(entry), Some(last))
+                    if ids(&last.entry.devices) != ids(&entry.devices)
+                        && last.at.elapsed() >= ANNOUNCE =>
+                {
+                    Some(entry.clone())
+                }
+                _ => None,
+            };
 
             if let Some(entry) = new {
-                take(link, self.me, team, entry);
-                let sending = send(link, team, entry, team.others.clone());
-                let announced = Announced {
-                    entry: entry.clone(),
-                    at: Instant::now(),
-                    sending: Some(sending),
-                    unsent: BTreeSet::new(),
-                };
+                if fresh.is_some() {
+                    take(link, self.me, team, &entry);
+                }
+                let announced = Announced::sent(link, &team.repo, entry, team.others.clone());
                 self.announced.insert(team.repo.clone(), announced);
                 continue;
             }
 
-            let Some(last) = last else { continue };
+            let Some(last) = self.announced.get_mut(&team.repo) else {
+                continue;
+            };
+            last.to = team.others.clone();
 
-            if let Some(sent) = last.sending.take_if(|sending| sending.is_finished()) {
-                last.unsent = sent.now_or_never().and_then(Result::ok).unwrap_or_default();
+            // The change was dropped here before a desktop wrote it.
+            let needed = fresh.is_some_and(|entry| ids(&entry.devices) == ids(&last.entry.devices));
+
+            if needed
+                && last.at.elapsed() >= RESEND
+                && !link.with(|link| holds(link, team, &last.entry))
+            {
+                take(link, self.me, team, &last.entry);
+
+                // A resend below starts the wait again otherwise.
+                if !last.open() {
+                    last.at = Instant::now();
+                }
             }
-            if last.sending.is_some() || last.at.elapsed() < RESEND {
+        }
+
+        for (repo, last) in &mut self.announced {
+            if last.sending.is_some() || last.unsent.is_empty() || last.at.elapsed() < RESEND {
                 continue;
             }
 
-            let needed = fresh.is_some_and(|entry| ids(&entry.devices) == ids(&last.entry.devices));
-            let dropped = needed && !link.with(|link| holds(link, team, &last.entry));
-            if dropped {
-                take(link, self.me, team, &last.entry);
-            }
-            if !last.unsent.is_empty() {
-                let to = team.others.iter().filter(|member| last.unsent.contains(&member.mesh));
-                last.sending = Some(send(link, team, &last.entry, to.cloned().collect()));
-                last.unsent.clear();
-            }
-            if dropped || last.sending.is_some() {
-                last.at = Instant::now();
-            }
+            let to = last
+                .to
+                .iter()
+                .filter(|member| last.unsent.contains(&member.mesh));
+            last.sending = Some(send(link, repo, &last.entry, to.cloned().collect()));
+            last.unsent.clear();
+            last.at = Instant::now();
         }
     }
 
@@ -171,7 +219,11 @@ impl Membership {
     /// every other member's side. A failed check waits for the next day.
     pub(super) async fn upkeep(&mut self, link: &TeamLink, teams: &[Team]) {
         for team in teams {
-            if self.checked.get(&team.repo).is_some_and(|at| at.elapsed() < UPKEEP) {
+            if self
+                .checked
+                .get(&team.repo)
+                .is_some_and(|at| at.elapsed() < UPKEEP)
+            {
                 continue;
             }
 
@@ -188,7 +240,12 @@ fn ids(devices: &[EndpointAddr]) -> BTreeSet<EndpointId> {
 /// Whether this device's view of `team` names `entry`'s devices.
 fn holds(teams: &Teams, team: &Team, entry: &Member) -> bool {
     let record = teams.rosters.get(&team.repo);
-    let mine = record.and_then(|record| record.members.iter().find(|member| member.mesh == entry.mesh));
+    let mine = record.and_then(|record| {
+        record
+            .members
+            .iter()
+            .find(|member| member.mesh == entry.mesh)
+    });
 
     mine.is_some_and(|mine| ids(&mine.devices) == ids(&entry.devices))
 }
@@ -227,13 +284,16 @@ pub(crate) fn with_devices(
 /// Takes `entry`, this mesh's entry on `team` with its devices now, as a
 /// teammate's roster is taken, for a desktop to write.
 fn take(link: &TeamLink, me: EndpointId, team: &Team, entry: &Member) {
-    let roster = roster(team, entry);
+    let roster = roster(&team.repo, entry);
     let own = Some(team.mine.mesh);
 
     match link.with(|link| link.rosters.apply(me, own, &roster)) {
         Ok(applied) if applied.changed.is_some() => link.wake(),
         Ok(_) => {}
-        Err(refusal) => log::info!("this mesh's devices on {} did not change: {refusal}", team.repo),
+        Err(refusal) => log::info!(
+            "this mesh's devices on {} did not change: {refusal}",
+            team.repo
+        ),
     }
 }
 
@@ -241,11 +301,11 @@ fn take(link: &TeamLink, me: EndpointId, team: &Team, entry: &Member) {
 /// meshes of those it did not reach.
 fn send(
     link: &TeamLink,
-    team: &Team,
+    repo: &TeamRepo,
     entry: &Member,
     to: Vec<Member>,
 ) -> AbortOnDropHandle<BTreeSet<EndpointId>> {
-    let (link, roster) = (link.clone(), roster(team, entry));
+    let (link, roster) = (link.clone(), roster(repo, entry));
 
     AbortOnDropHandle::new(tokio::spawn(async move {
         let mut unsent = BTreeSet::new();
@@ -261,9 +321,9 @@ fn send(
     }))
 }
 
-fn roster(team: &Team, entry: &Member) -> TeamMsg {
+fn roster(repo: &TeamRepo, entry: &Member) -> TeamMsg {
     TeamMsg::Roster {
-        repo: team.repo.clone(),
+        repo: repo.clone(),
         members: vec![entry.clone()],
     }
 }
@@ -287,14 +347,20 @@ async fn check_members(link: &TeamLink, team: &Team) {
 /// Removes `login` from `team`, as a member's `Remove` does, and tells every
 /// other member.
 fn remove(link: &TeamLink, team: &Team, login: &ForgeLogin) {
-    log::info!("{login} may no longer push to {}: removing them from the team", team.repo);
+    log::info!(
+        "{login} may no longer push to {}: removing them from the team",
+        team.repo
+    );
     let remove = TeamMsg::Remove {
         repo: team.repo.clone(),
         login: login.clone(),
     };
     link.tell(team.others.clone(), remove);
 
-    if link.with(|link| link.rosters.remove_member(&team.repo, login)).is_some() {
+    if link
+        .with(|link| link.rosters.remove_member(&team.repo, login))
+        .is_some()
+    {
         link.wake();
     }
 }

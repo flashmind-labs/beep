@@ -93,7 +93,12 @@ fn lanes_follow_state() {
 
 #[test]
 fn card_carries_no_transcript() {
-    let card = card(&view("waiting_on_user", PROJECT), None, &IssueTitles::default()).unwrap();
+    let card = card(
+        &view("waiting_on_user", PROJECT),
+        None,
+        &IssueTitles::default(),
+    )
+    .unwrap();
     let bytes = rmp_serde::to_vec(&card).unwrap();
 
     assert!(

@@ -162,7 +162,10 @@ impl Teammates {
 
     /// Every teammate's cards.
     pub(crate) fn cards(&self) -> Vec<Card> {
-        self.0.values().flat_map(|cards| cards.values().cloned()).collect()
+        self.0
+            .values()
+            .flat_map(|cards| cards.values().cloned())
+            .collect()
     }
 }
 

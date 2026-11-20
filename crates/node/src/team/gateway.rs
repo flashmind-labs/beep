@@ -220,7 +220,13 @@ impl Gateway {
             .map(|device| device.id)
             .collect();
         let agents = &self.offers.agents;
-        let listed = in_the_mesh(agents, Some(&self.mesh), &SessionId::default(), Some(&machines)).await;
+        let listed = in_the_mesh(
+            agents,
+            Some(&self.mesh),
+            &SessionId::default(),
+            Some(&machines),
+        )
+        .await;
         self.branches
             .retain(|id, _| listed.iter().any(|listed| listed.view.id == *id));
 
@@ -286,7 +292,10 @@ impl Gateway {
             .unwrap_or_else(|_| Err("it took too long".to_owned()));
         let titles = read.unwrap_or_else(|e| {
             log::info!("the issues of {repo} did not read: {e}");
-            self.titles.get(repo).map(|(titles, _)| titles.clone()).unwrap_or_default()
+            self.titles
+                .get(repo)
+                .map(|(titles, _)| titles.clone())
+                .unwrap_or_default()
         });
         self.titles
             .insert(repo.clone(), (titles.clone(), Instant::now()));
@@ -324,7 +333,12 @@ impl Gateway {
                 continue;
             }
 
-            let task = follow(self.link.clone(), key.0.clone(), member.clone(), self.heard.clone());
+            let task = follow(
+                self.link.clone(),
+                key.0.clone(),
+                member.clone(),
+                self.heard.clone(),
+            );
             self.follows
                 .insert(key, (member, AbortOnDropHandle::new(tokio::spawn(task))));
         }

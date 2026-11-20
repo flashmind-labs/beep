@@ -36,7 +36,10 @@ impl TeamForge for Forge {
         Box::pin(async { Ok(login("alice")) })
     }
 
-    fn issue_titles<'a>(&'a self, _repo: &'a TeamRepo) -> BoxFuture<'a, Result<IssueTitles, String>> {
+    fn issue_titles<'a>(
+        &'a self,
+        _repo: &'a TeamRepo,
+    ) -> BoxFuture<'a, Result<IssueTitles, String>> {
         Box::pin(async { Ok(IssueTitles::default()) })
     }
 }
@@ -75,7 +78,7 @@ pub(crate) struct Pair {
 }
 
 /// A device of the team on its own endpoint, served.
-async fn device() -> (TeamLink, Router) {
+pub(crate) async fn device() -> (TeamLink, Router) {
     let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
     let link = TeamLink::new(endpoint.clone(), Arc::new(Forge));
     let router = Router::builder(endpoint)
@@ -121,8 +124,7 @@ impl Pair {
     }
 
     fn set(&self, cards: Vec<Card>) {
-        self.gateway
-            .with(|teams| teams.boards.set(&repo(), cards));
+        self.gateway.with(|teams| teams.boards.set(&repo(), cards));
     }
 }
 
@@ -176,14 +178,13 @@ async fn a_teammate_follows_the_board_until_removed() {
 #[tokio::test]
 async fn a_device_that_does_not_serve_the_board_refuses() {
     let pair = Pair::new().await;
-    let (mut tx, mut rx) = pair
-        .bob_link
-        .dial(&pair.alice.devices[..1])
-        .await
-        .unwrap();
+    let (mut tx, mut rx) = pair.bob_link.dial(&pair.alice.devices[..1]).await.unwrap();
 
     tx.send(&TeamMsg::Subscribe { repo: repo() }).await.unwrap();
 
     let answer = rx.recv::<TeamMsg>().await.unwrap();
-    assert!(matches!(answer, Some(TeamMsg::Refused { .. })), "{answer:?}");
+    assert!(
+        matches!(answer, Some(TeamMsg::Refused { .. })),
+        "{answer:?}"
+    );
 }
