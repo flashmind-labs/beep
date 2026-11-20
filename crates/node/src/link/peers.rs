@@ -18,6 +18,10 @@ use crate::{
     link::serve::{Offers, Who, read_open, serve_open, withheld},
     link::watchdog::{self, Step},
     machine::{env, stats},
+    team::{
+        home::ForgeCli,
+        link::{TeamAlpn, TeamLink},
+    },
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
@@ -94,6 +98,8 @@ struct Inner {
     active: Mutex<Option<Active>>,
     /// Applies the mesh's state to the node while it is a member.
     follower: Mutex<Option<AbortOnDropHandle<()>>>,
+    /// `beep-team/1`, served whether or not the node is in a mesh.
+    team: TeamLink,
 }
 
 impl Inner {
@@ -267,6 +273,7 @@ impl Reach {
 impl Peers {
     pub fn new(endpoint: Endpoint, dir: PathBuf, name: String, offers: Offers) -> Self {
         let reach = offers.reach.clone();
+        let team = TeamLink::new(endpoint.clone(), Arc::new(ForgeCli));
         let inner = Arc::new(Inner {
             endpoint,
             dir,
@@ -276,6 +283,7 @@ impl Peers {
             later: watch::channel(BTreeSet::new()).0,
             active: Mutex::new(None),
             follower: Mutex::new(None),
+            team,
         });
         *crate::lock(&reach.0) = Arc::downgrade(&inner);
         Self { inner }
@@ -360,6 +368,15 @@ impl Peers {
 
     pub fn forward_handler(&self) -> super::forward::ForwardAlpn {
         super::forward::ForwardAlpn(self.clone())
+    }
+
+    /// The `beep-team/1` handler.
+    pub fn team_handler(&self) -> TeamAlpn {
+        self.inner.team.handler()
+    }
+
+    pub(crate) fn team(&self) -> TeamLink {
+        self.inner.team.clone()
     }
 
     pub fn subscriptions_handler(&self) -> super::subscriptions::SubscriptionsAlpn {
@@ -608,6 +625,7 @@ impl Peers {
             self.inner.dir.clone(),
             offers.skills.clone(),
         );
+        let team = crate::team::home::follow(active.mesh.clone(), self.inner.team.clone());
         let search = crate::agents::follow_search(
             active.mesh.clone(),
             self.inner.dir.clone(),
@@ -620,7 +638,7 @@ impl Peers {
             offers.agents.clone(),
         );
         *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(async move {
-            tokio::join!(follow, moves, runs, skills, libraries, search);
+            tokio::join!(follow, moves, runs, skills, libraries, search, team);
         })));
     }
 

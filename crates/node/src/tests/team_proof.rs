@@ -10,6 +10,10 @@ fn run(dir: &Path, args: &[&str]) {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
 }
 
+fn repo() -> TeamRepo {
+    "github.com/org/repo".parse().unwrap()
+}
+
 /// A bare remote and a clone of it.
 fn pair() -> (tempfile::TempDir, std::path::PathBuf, String) {
     let root = tempfile::tempdir().unwrap();
@@ -30,7 +34,7 @@ async fn proof_is_pushed_seen_and_dropped() {
     let nonce = Nonce::generate();
 
     assert!(!proof_seen(&clone, &remote, &nonce).await.unwrap());
-    push_proof(&clone, &remote, &nonce).await.unwrap();
+    push_proof(&clone, &remote, &repo(), &nonce).await.unwrap();
     assert!(proof_seen(&clone, &remote, &nonce).await.unwrap());
     drop_proof(&clone, &remote, &nonce).await.unwrap();
     assert!(!proof_seen(&clone, &remote, &nonce).await.unwrap());
@@ -50,7 +54,7 @@ async fn refused_ref_is_reported() {
     .unwrap();
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-    let error = push_proof(&clone, &remote, &Nonce::generate())
+    let error = push_proof(&clone, &remote, &repo(), &Nonce::generate())
         .await
         .unwrap_err();
 

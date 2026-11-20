@@ -9,6 +9,7 @@ fn caller(table: Table, node_here: bool) -> Caller {
         transfers: None,
         agents: None,
         project_tools: None,
+        team: None,
     }
 }
 

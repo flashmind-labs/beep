@@ -191,7 +191,8 @@ pub async fn serve(
             beep_proto::node::subscriptions::ALPN,
             peers.subscriptions_handler(),
         )
-        .accept(beep_proto::node::forward::ALPN, peers.forward_handler());
+        .accept(beep_proto::node::forward::ALPN, peers.forward_handler())
+        .accept(beep_proto::team::ALPN, peers.team_handler());
     if let Some(served) = served {
         router = served.add_to(router);
     }
@@ -592,6 +593,7 @@ pub(super) async fn serve_open(
                         transfers: offers.transfers.get(),
                         agents: Some(offers.agents.clone()),
                         project_tools: offers.project_tools.clone(),
+                        team: None,
                     },
                 };
                 peer_tools::serve(tx, rx, caller).await

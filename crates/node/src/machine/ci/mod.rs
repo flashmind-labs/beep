@@ -11,7 +11,7 @@
 
 mod book;
 mod check;
-mod forge;
+pub(crate) mod forge;
 mod github;
 mod projects;
 mod watcher;

@@ -45,6 +45,7 @@ mod server;
 mod socket;
 mod transcripts;
 
+pub(crate) use desktop::forward as to_desktop;
 pub(crate) use machines::over_the_mesh;
 pub use machines::command_name;
 pub(crate) use desktop::answer as answer_projects;

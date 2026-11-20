@@ -1,7 +1,8 @@
 //! Proof of push access: the joiner pushes `refs/beep/proof/<nonce>`, the
 //! inviter looks for it with `git ls-remote` and deletes it.
 
-use std::{fmt, path::Path, process::Stdio};
+use beep_proto::team::TeamRepo;
+use std::{fmt, path::Path, process::Stdio, str::FromStr};
 use tokio::io::AsyncWriteExt;
 
 /// A random value that names one proof ref.
@@ -10,6 +11,18 @@ pub(crate) struct Nonce([u8; 16]);
 impl Nonce {
     pub(crate) fn generate() -> Self {
         Self(rand::random())
+    }
+}
+
+impl FromStr for Nonce {
+    type Err = hex::FromHexError;
+
+    /// Reads the hex a `Challenge` carries.
+    fn from_str(text: &str) -> Result<Self, hex::FromHexError> {
+        let mut bytes = [0; 16];
+        hex::decode_to_slice(text, &mut bytes)?;
+
+        Ok(Self(bytes))
     }
 }
 
@@ -29,10 +42,12 @@ pub(crate) enum ProofError {
     Git(String),
 }
 
-/// Pushes an empty commit from `checkout` to the proof ref of `nonce`.
+/// Pushes an empty commit from `checkout` to the proof ref of `nonce`. A
+/// denied push names `repo`, never `remote`, which may hold credentials.
 pub(crate) async fn push_proof(
     checkout: &Path,
     remote: &str,
+    repo: &TeamRepo,
     nonce: &Nonce,
 ) -> Result<(), ProofError> {
     let tree = git(checkout, &["mktree"], Some("")).await?;
@@ -43,6 +58,8 @@ pub(crate) async fn push_proof(
             "user.name=beep",
             "-c",
             "user.email=beep@localhost",
+            "-c",
+            "commit.gpgsign=false",
             "commit-tree",
             tree.trim(),
             "-m",
@@ -56,7 +73,7 @@ pub(crate) async fn push_proof(
     git(checkout, &["push", remote, &refspec], None)
         .await
         .map(drop)
-        .map_err(|error| classify(error, remote))
+        .map_err(|error| classify(error, &repo.to_string()))
 }
 
 /// Whether the remote has the proof ref of `nonce`.
@@ -88,7 +105,7 @@ fn proof_ref(nonce: &Nonce) -> String {
 }
 
 /// Sorts a failed push by what git's stderr says.
-fn classify(error: ProofError, remote: &str) -> ProofError {
+fn classify(error: ProofError, repo: &str) -> ProofError {
     let ProofError::Git(stderr) = error else {
         return error;
     };
@@ -98,7 +115,7 @@ fn classify(error: ProofError, remote: &str) -> ProofError {
         .iter()
         .any(|word| said.contains(word))
     {
-        ProofError::Denied(remote.to_owned())
+        ProofError::Denied(repo.to_owned())
     } else if ["refusing", "not allowed", "hook declined", "invalid ref"]
         .iter()
         .any(|word| said.contains(word))

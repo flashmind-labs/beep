@@ -161,6 +161,16 @@ wire_structs! {
         /// Teammates' agents may ask mine.
         #[serde(default = "yes")]
         pub asks: bool,
+        /// Who was removed or left: a roster that still lists them does not bring them back.
+        #[serde(default)]
+        pub removed: Vec<Removed>,
+    }
+
+    /// A member taken off a team, by the login and mesh they had on it.
+    #[derive(Eq, PartialOrd, Ord)]
+    pub struct Removed {
+        pub login: ForgeLogin,
+        pub mesh: EndpointId,
     }
 
     /// A person from another mesh, across every team they share with me.

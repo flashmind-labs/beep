@@ -2,7 +2,11 @@
 //! work across the user's machines. The node runs each `Request` itself,
 //! reaching the machine it names over the mesh, and answers with a `Reply`.
 
-use crate::SessionId;
+use crate::{
+    SessionId,
+    team::{TeamRecord, TeamRepo},
+};
+use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
@@ -88,6 +92,15 @@ pub enum Tool {
     /// desktop does: its `args` hold the `projects` tool's arguments. A node
     /// forwards it to a desktop of the mesh.
     Projects,
+    /// A desktop asks the machine with a project's checkout to join that
+    /// project's team: `TeamJoinArgs`, then `Done` with the `TeamRecord` as JSON.
+    TeamJoin,
+    /// A node hands a team record it changed to a desktop, which writes it:
+    /// `TeamRosterArgs`. Nodes cannot write the mesh's state.
+    TeamRoster,
+    /// A node hands a contact's invite to a team to a desktop, to show with
+    /// Accept: `TeamInviteArgs`.
+    TeamInvite,
     /// A tool a newer node calls that this one does not know.
     #[serde(other)]
     Unknown,
@@ -188,4 +201,27 @@ impl HostReach {
             self.failures = self.failures.saturating_add(1);
         }
     }
+}
+
+/// `Tool::TeamJoin`'s arguments.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TeamJoinArgs {
+    /// The `beepteam1` ticket.
+    pub ticket: String,
+}
+
+/// `Tool::TeamRoster`'s arguments.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TeamRosterArgs {
+    pub record: TeamRecord,
+}
+
+/// `Tool::TeamInvite`'s arguments.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TeamInviteArgs {
+    /// The contact's mesh.
+    pub from: EndpointId,
+    pub repo: TeamRepo,
+    /// The `beepteam1` ticket accepting runs.
+    pub ticket: String,
 }

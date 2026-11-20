@@ -45,7 +45,7 @@ fn elsewhere(machine: &str) -> String {
 
 /// Sends the call to the first online desktop of the mesh. A phone is a
 /// desktop that only observes, so it is skipped.
-async fn forward(mesh: &Mesh, request: &Request) -> Reply {
+pub(crate) async fn forward(mesh: &Mesh, request: &Request) -> Reply {
     let me = mesh.me();
     let devices = mesh.devices();
     let here = devices
