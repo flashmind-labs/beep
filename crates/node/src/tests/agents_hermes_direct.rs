@@ -893,3 +893,33 @@ async fn a_cancel_while_hermes_is_out_of_reach_ends_the_turn_and_interrupts_it_o
     })
     .await;
 }
+
+#[tokio::test]
+async fn a_stop_lost_with_the_socket_is_sent_again_once_hermes_is_back() {
+    let (listener, port) = listen().await;
+    let fake = tokio::spawn(async move {
+        let (mut server, _) = accept(&listener).await;
+        created(&mut server).await;
+        replied(&mut server, "prompt.submit", json!({})).await;
+        server.send(hermes_event("live1", "message.delta", json!({"text": "Working"}), 3)).await.unwrap();
+        let lost = read(&mut server).await;
+        assert_eq!(lost["method"], "session.interrupt");
+
+        let mut server = dropped_and_resumed(&listener, server, 1).await;
+        let interrupted = replied(&mut server, "session.interrupt", json!({})).await;
+        assert_eq!(interrupted, json!({"session_id": "live2"}));
+        server
+    });
+
+    with_bridge(port, async |cx, mut seen| {
+        let session = new_session(&cx).await;
+        let running = prompt(&cx, &session, "Count to a million");
+
+        next_update(&mut seen).await;
+        cx.send_notification(UntypedMessage::new("session/cancel", json!({"sessionId": session})).unwrap()).unwrap();
+
+        assert_eq!(running.await["stopReason"], "cancelled");
+        fake.await.unwrap();
+    })
+    .await;
+}

@@ -244,18 +244,19 @@ impl Bridge {
             return Ok(());
         }
 
-        // While the socket is down, the turn ends at once and Hermes is told
-        // to stop it once the socket is back. A turn Hermes cannot stop is
-        // not waited on.
+        // While the socket is down, or when it goes with the stop, the turn
+        // ends at once and Hermes is told to stop it once the socket is back.
+        // A turn Hermes cannot stop is not waited on.
         session.cancelled = true;
-        match &session.link {
-            Link::Up(gateway) if interrupt(gateway, &session.live).await.is_ok() => {}
-            Link::Up(_) => ended(session, &Value::Null)?,
-            Link::Down(_) => {
-                session.interrupt = true;
-                ended(session, &Value::Null)?;
-            }
-        }
+        let lost = match &session.link {
+            Link::Up(gateway) => match interrupt(gateway, &session.live).await {
+                Ok(()) => return Ok(()),
+                Err(e) => matches!(e, LinkError::Closed | LinkError::TimedOut(_)),
+            },
+            Link::Down(_) => true,
+        };
+        session.interrupt = lost;
+        ended(session, &Value::Null)?;
 
         Ok(())
     }
