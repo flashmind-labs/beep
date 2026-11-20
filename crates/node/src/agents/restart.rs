@@ -133,6 +133,7 @@ impl From<&OpenSession> for SavedSession {
                 model: open.model.clone(),
                 device: open.device.clone(),
                 worktrees: open.worktrees.clone(),
+                account: open.account.clone(),
                 assistant: open.assistant,
                 ..SessionInfo::default()
             },
@@ -288,11 +289,12 @@ impl Agents {
                     device: info.device.clone(),
                     worktrees: info.worktrees.clone(),
                     assistant: session.assistant,
+                    account: info.account.clone(),
                     ..SessionInfo::default()
                 },
                 effort: live.effort,
                 fast: live.fast,
-                account: session.account.clone(),
+                account: info.account.clone(),
             })
         })
     }

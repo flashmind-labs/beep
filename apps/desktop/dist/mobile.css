@@ -101,6 +101,8 @@ body.mobile .pj-org h3.gp { display: block }
 body.mobile .pj-org h3.gp svg { display: inline; vertical-align: -1px; margin-right: 6px }
 body.mobile .pj-fold { min-height: 44px; align-items: center }
 body.mobile .pl-head { min-height: 44px; flex-wrap: wrap; row-gap: 0 }
+body.mobile .daccounts .dline { flex-wrap: wrap }
+body.mobile .daccounts :is(.dname, .dsecret) { flex: 1 0 100% }
 body.mobile .pl-head .note { flex-basis: 100%; margin: -6px 0 6px 20px }
 body.mobile .pl-row { min-height: 44px; padding-top: 6px; padding-bottom: 6px }
 body.mobile .pl-row.found { grid-template-columns: minmax(0, 1fr); gap: 4px }

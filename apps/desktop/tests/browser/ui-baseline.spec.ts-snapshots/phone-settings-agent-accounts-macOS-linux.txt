@@ -255,7 +255,7 @@ body.cbody.mb-home.mobile
                     span.ddot.off
                     span "offline-box"
                     span.dacts.dmut "not checked"
-                div.dfine.dmt6 "Paste a token from claude setup-token to give every machine one token. Beep"
+                div.dfine.dmt6 "Paste a token from claude setup-token to give every machine one token. Beep keeps it encrypted."
                 div.daccounts
                   div.dline
                     span.dfine "Other accounts"

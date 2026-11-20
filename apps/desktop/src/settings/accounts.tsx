@@ -290,7 +290,7 @@ const agentActions: AgentAccountActions = {
   },
   async claudeSign() {
     if (ACC.claudeFlow) return;
-    agentEditVersion++; ACC.claudeFlow = true; ACC.claudeError = ""; ACC.edit = null; renderAgents();
+    agentEditVersion++; ACC.claudeFlow = true; ACC.claudeError = ""; ACC.edit = null; ACC.add = null; renderAgents();
     try { await invoke("claude_sign_in"); } catch (error) { ACC.claudeError = String(error); }
     ACC.claudeFlow = false; await loadAgentAccounts();
   },
