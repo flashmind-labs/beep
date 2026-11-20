@@ -227,7 +227,7 @@ body.cbody
               div.bd-lane
                 h4
                   button [type="button"] "Working"
-                  span "3"
+                  span "4"
                 div.bd-lane.cell
                   div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
                     b "Fix the login redirect"
@@ -239,6 +239,14 @@ body.cbody
                       span.cc-running
                         span.drun [aria-label="Working" role="img"]
                         span.doing "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
+                      span.sp
+                  div.bd-card [data-card="own:dana:queued:53" role="button" tabindex="0"]
+                    b "Plot export to PDF"
+                    span.sub
+                      span style(display)
+                        svg [fill="none" height="13" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                      span "build-box · #53"
+                    span.ft "queued"
                       span.sp
                   div.bd-card.theirs [data-card="mate:kim:k1" role="button" tabindex="0"]
                     b "Backtest the crossover"

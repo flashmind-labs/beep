@@ -387,6 +387,7 @@ const team = {
       { id: "l1", title: "Signal schema v2", lane: "ready_to_review", login: "lee", machine: "gpu-box", issue: null, pr: 60, updated_at: NOW - 10_800_000 },
       { id: "queued:51", title: "Funding rate cache", lane: "queued", login: "lee", machine: "gpu-box", issue: 51, pr: null, updated_at: NOW - 900_000 },
     ],
+    own_queued: [{ id: "queued:53", title: "Plot export to PDF", lane: "queued", login: "dana", machine: "build-box", issue: 53, pr: null, updated_at: NOW - 600_000 }],
   },
   contacts: [{ mesh: "mesh-d", logins: [{ repo: "example.test/example/gadget", login: "ana" }] }],
 };

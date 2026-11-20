@@ -12,6 +12,7 @@ import { agentLabel } from "./projects-state.ts";
 import type { TaskSession } from "./projectbar.ts";
 import type { SessionState } from "./composer.tsx";
 import type { ProjectRef } from "./localid.ts";
+import { sameLogin } from "./team-state.ts";
 
 /// An open issue (IssueRow).
 export interface IssueRow {
@@ -312,7 +313,7 @@ export function makeThreads(deps: ThreadDeps) {
 
   /// An issue row's right-click menu: what its buttons do.
   function issueMenu(e: MouseEvent, project: ProjectRef, ctx: RepoActs, i: IssueRow) {
-    const logins = ctx.assignees().filter(login => !i.assignees.includes(login));
+    const logins = ctx.assignees().filter(login => !i.assignees.some(assignee => sameLogin(assignee, login)));
     const assign: MenuItem[] = logins.length ? [{ kind: "section", label: "Assign to", items: logins.map(login => ({ label: login, on: () => void act(project.project_id, `g${i.number}`, () => ctx.assign(i, login)) })) }] : [];
     openMenu(e, `#${i.number} ${i.title}`, [
       { label: "Open on forge", on: () => openUrl(i.url) },

@@ -288,4 +288,8 @@ pub struct TeamCards {
     /// request: this mesh's own, never shown to teammates.
     pub needs_you: Vec<Card>,
     pub teammates: Vec<Card>,
+    /// This mesh's own issues the pickup limit holds back, as its board
+    /// shows them to teammates. Missing from an older node's answer.
+    #[serde(default)]
+    pub own_queued: Vec<Card>,
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cardLane, claim, filterCards, needKind, onlineCount, ownedIssues, teamView, teammates, type TeamRecord } from "../src/project/team-state.ts";
+import { cardLane, claim, filterCards, heldText, needKind, onlineCount, ownedIssues, teamView, teammates, type TeamRecord } from "../src/project/team-state.ts";
 
 const record: TeamRecord = {
   repo: "github.com/org/web", me: "dana", pickup: true, pickup_limit: null, asks: true, removed: [],
@@ -59,4 +59,10 @@ test("the Issues list shows all issues, the user's, or nobody's", () => {
   assert.deepEqual(ownedIssues(issues, "all", "dana").map(issue => issue.n), [1, 2, 3]);
   assert.deepEqual(ownedIssues(issues, "mine", "dana").map(issue => issue.n), [1]);
   assert.deepEqual(ownedIssues(issues, "unassigned", "dana").map(issue => issue.n), [2]);
+});
+
+test("the held sheet names every holder", () => {
+  assert.equal(heldText(["kim"], 52), "kim has #52");
+  assert.equal(heldText(["kim", "lee"], 52), "kim and lee have #52");
+  assert.equal(heldText(["kim", "lee", "max"], 52), "kim, lee and max have #52");
 });

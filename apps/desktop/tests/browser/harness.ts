@@ -48,6 +48,8 @@ interface NavigationHarness {
   holdNext(command: string): void;
   release(command: string): void;
   rejectOnce(command: string): void;
+  /// Every later call of `command` fails.
+  rejectAll(command: string): void;
 }
 type NativeHandler = (event: { payload: unknown }) => void;
 interface NativeBoundary {
@@ -137,6 +139,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   interface EventChannel { onmessage(event: unknown): void }
   const channel = (value: unknown): value is EventChannel => value !== null && typeof value === "object" && "onmessage" in value && typeof value.onmessage === "function";
   const rejected = new Set<string>();
+  const failing = new Set<string>();
   const held = new Set<string>();
   const heldOnce = new Set<string>();
   const releases = new Map<string, () => void>();
@@ -172,7 +175,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       async invoke(command, args = {}) {
         calls.push({ command, args });
         if (held.has(command) || heldOnce.delete(command)) await new Promise<void>(resolve => { releases.set(command, resolve); });
-        if (rejected.delete(command)) throw new Error("Requested test failure");
+        if (rejected.delete(command) || failing.has(command)) throw new Error("Requested test failure");
         if (command === "center_pending") { pendingReads++; const target = pending; pending = null; return target; }
 
         if (command === "mesh_watch") {
@@ -258,6 +261,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     },
     emit(name, payload) { for (const handler of handlers.get(name) ?? []) handler({ payload }); },
     rejectOnce(command) { rejected.add(command); },
+    rejectAll(command) { failing.add(command); },
     hold(command) { held.add(command); },
     holdNext(command) { heldOnce.add(command); },
     release(command) { held.delete(command); releases.get(command)?.(); releases.delete(command); },

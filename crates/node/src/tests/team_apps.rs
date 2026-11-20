@@ -87,6 +87,33 @@ async fn a_forwarded_call_is_answered_on_the_gateway() {
 }
 
 #[tokio::test]
+async fn cards_carry_this_meshs_own_queued_issues() {
+    let link = link().await;
+    let me = link.endpoint().id();
+    let queued = Card {
+        id: "queued:51".into(),
+        lane: Lane::Queued {},
+        issue: Some(51),
+        ..ask_card()
+    };
+    let working = Card {
+        id: "s1@build-box".into(),
+        lane: Lane::Working {},
+        ..ask_card()
+    };
+    link.with(|teams| {
+        teams.gateways.insert(repo(), me);
+        teams.boards.set(&repo(), vec![working, queued.clone()]);
+    });
+
+    let (text, failed) = done(answer(&caller(&link, Table::Shared, false), &cards(false)).await);
+
+    assert!(!failed, "{text}");
+    let read: TeamCards = serde_json::from_str(&text).expect("cards");
+    assert_eq!(read.own_queued, vec![queued]);
+}
+
+#[tokio::test]
 async fn a_forwarded_call_is_refused_off_the_gateway() {
     let link = link().await;
     let elsewhere = SecretKey::generate().public();

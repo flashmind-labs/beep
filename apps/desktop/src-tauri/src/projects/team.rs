@@ -102,6 +102,8 @@ pub struct TeamCardsView {
     /// Asks for the user, and automatic sessions that ended without a pull request.
     needs_you: Vec<CardView>,
     teammates: Vec<CardView>,
+    /// The user's own issues the pickup limit holds back.
+    own_queued: Vec<CardView>,
 }
 
 /// A person of another mesh on the user's teams.
@@ -272,11 +274,13 @@ pub async fn team_cards(fleet: FleetState<'_>, project_id: Uuid) -> Result<TeamC
     let TeamCards {
         needs_you,
         teammates,
+        own_queued,
     } = desk.team_cards(&name).await?;
 
     Ok(TeamCardsView {
         needs_you: needs_you.into_iter().map(CardView::from).collect(),
         teammates: teammates.into_iter().map(CardView::from).collect(),
+        own_queued: own_queued.into_iter().map(CardView::from).collect(),
     })
 }
 

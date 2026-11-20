@@ -9,9 +9,10 @@ const record = {
 const issue = (number: number, assignees: string[]) => ({ number, title: `Issue ${number}`, url: `https://example.test/example/widget/issues/${number}`, author: "Example", opened_at: now - number * 1000, comments: 0, labels: [], assignees });
 const lists = { issues: [issue(47, ["kim"]), issue(52, ["kim"]), issue(53, [])], prs: [], issues_error: null, prs_error: null, synced_at: now };
 const teammate = { id: "kim-1", title: "Issue 47", lane: "working", login: "kim", machine: "kim-laptop", issue: 47, pr: null, updated_at: now };
+const queued = { id: "queued:53", title: "Issue 53", lane: "queued", login: "dana", machine: "build-box", issue: 53, pr: null, updated_at: now };
 
 async function openProject(page: Page, tile: string | null, responses: Record<string, unknown> = {}) {
-  await openDesktop(page, false, { team_record: record, team_cards: { needs_you: [], teammates: [teammate] }, center_project_lists: lists, ...responses });
+  await openDesktop(page, false, { team_record: record, team_cards: { needs_you: [], teammates: [teammate], own_queued: [queued] }, center_project_lists: lists, ...responses });
   if (tile) await page.evaluate(([project, tile]) => window.__navigation.open({ projects: { project, tile } }), [projectName, tile]);
   else await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await expect(page.locator(".pj-strip")).toBeVisible();
@@ -41,6 +42,8 @@ test("teammate card opens the issue", async ({ page }) => {
 
   const card = page.locator(".bd-card").filter({ hasText: "Issue 47" });
   await expect(card.locator(".bd-who")).toHaveText("kim");
+  const mine = page.locator(".bd-lane").filter({ hasText: "Working" }).locator(".bd-card:not(.theirs)").filter({ hasText: "Issue 53" });
+  await expect(mine.locator(".ft")).toHaveText("queued");
   await expect(page.locator(".tm-filter").getByRole("button", { name: "kim" })).toBeVisible();
   await card.click();
   await expect(page.locator('.pj-list .pj-li[title="Issues"]')).toHaveAttribute("aria-current", "true");
@@ -80,4 +83,41 @@ test("join sheet shows the import step when not imported", async ({ page }) => {
   await expect(sheet.getByRole("button", { name: "Import" })).toBeVisible();
   await expect(sheet).toContainText("Teammates see your cards on this project's board and can message your agents. They never see your sessions, files, terminals or other projects.");
   expect(await called(page, "team_join")).toEqual([]);
+});
+
+test("a held issue's start that fails says why in the sheet", async ({ page }) => {
+  const detail = { kind: "issue", number: 52, title: "Issue 52", url: issue(52, []).url, author: "Example", state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Fee model</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
+  await openProject(page, "issues", {
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
+    agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] },
+    center_thread_detail: detail,
+  });
+
+  await page.locator('.pj-det .pj-li[title="Issue 52"]').click();
+  await page.locator(".pj-split > .pj-det").getByRole("button", { name: "Work on it" }).click();
+  const picker = page.getByRole("dialog", { name: "Machine, harness, model and thinking" });
+  await picker.locator('[data-agmachine="build-box"]').click();
+  await picker.locator('[data-agh="codex"]').click();
+  await picker.locator('[data-agmo="alpha"]').click();
+  await picker.locator('[data-age=""]').click();
+  const sheet = page.getByRole("dialog", { name: "kim has #52" });
+  await expect(sheet).toBeVisible();
+
+  await page.evaluate(() => window.__navigation.rejectOnce("agent_begin"));
+  await sheet.getByRole("button", { name: "Work on it anyway" }).click();
+
+  await expect(sheet.locator(".am-msg.bad")).toHaveText("Requested test failure");
+  await expect(sheet.getByRole("button", { name: "Work on it anyway" })).toBeEnabled();
+  expect(await called(page, "issue_assign")).toHaveLength(1);
+});
+
+test("a project whose team cannot be read asks again only after a while", async ({ page }) => {
+  await openDesktop(page, false, { center_project_lists: lists });
+  await page.evaluate(() => window.__navigation.rejectAll("team_record"));
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "machines" } }), projectName);
+  await expect(page.locator(".pj-strip")).toBeVisible();
+
+  await page.waitForTimeout(2000);
+  expect((await called(page, "team_record")).length).toBe(1);
+  await expect(page.locator('.pj-list .pj-li[title="Team"]')).toHaveCount(0);
 });

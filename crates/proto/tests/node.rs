@@ -896,12 +896,23 @@ mod tools {
             .into_iter()
             .map(card)
             .collect(),
+            own_queued: vec![card(Lane::Queued {})],
         };
         let text = serde_json::to_string(&cards).expect("encodes");
 
         assert_eq!(
             serde_json::from_str::<TeamCards>(&text).expect("decodes"),
             cards
+        );
+    }
+
+    #[test]
+    fn team_cards_from_an_older_node_have_no_own_queued() {
+        let text = r#"{"needs_you":[],"teammates":[]}"#;
+
+        assert_eq!(
+            serde_json::from_str::<TeamCards>(text).expect("decodes"),
+            TeamCards::default()
         );
     }
 

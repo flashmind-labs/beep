@@ -9,25 +9,31 @@ import { openUrl } from "../center/openitems.ts";
 import { currentLocation } from "../center/views.tsx";
 import { pageShown } from "../ui/active.ts";
 import { formatAgo, plural, reason } from "../ui/format.ts";
-import { PROJECT_COLORS } from "../ui/icons.tsx";
+import { Icon, PROJECT_COLORS } from "../ui/icons.tsx";
 import { Button, ChipToggle, CopyButton, EmptyPanel, LineRow, SectionHead, SheetHead, Switch } from "../ui/kit.tsx";
 import { confirmSheet } from "../ui/menu.tsx";
 import { openSheet } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
-import { fillBar, projectButtons, startTask } from "./composer.tsx";
+import { AgentButton } from "../review/feedback-view.tsx";
+import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
+import { issueSession, projectButtons, startTask } from "./composer.tsx";
 import { localProjectId } from "./localid.ts";
 import { redrawProjects, thr } from "./sections.ts";
 import { openTile } from "./split.tsx";
 import { askPrompt, askWorkPrompt, cardLane, claim, filterCards, heldText, needKind, onlineCount, ownedIssues, repoPath, replyPrompt, sameLogin, teammates, teamView,
   type BoardFilter, type Claim, type IssueOwner, type TeamCard, type TeamCards, type TeamRecord, type TeamView } from "./team-state.ts";
 import type { IssueRow } from "./threads.ts";
+import { forgeLinks } from "./projects-state.ts";
 import { openTeamJoin } from "./teamjoin.tsx";
 
 type Team = Extract<TeamView, { kind: "team" }>;
 
 /// How often the board reads its team's cards while it shows.
 const FOLLOW_MS = 10_000;
-const NO_CARDS: TeamCards = { needs_you: [], teammates: [] };
+const NO_CARDS: TeamCards = { needs_you: [], teammates: [], own_queued: [] };
+/// How long after a failed read the team is not asked again: a project on no
+/// forge fails every time, and each try would draw the page.
+const RETRY_MS = 60_000;
 
 /// What a project's team read last, kept between windows so it shows at once.
 interface KeptTeam { record: TeamRecord | null; cards: TeamCards }
@@ -38,6 +44,13 @@ const kept = keptSection<KeptTeam>("team");
 const views = new Map<string, TeamView>();
 const cards = new Map<string, TeamCards>();
 const reading = new Map<string, Promise<void>>();
+/// What each project's last read answered, to draw only on a change, and
+/// when its last read failed.
+const answers = new Map<string, string>();
+const failed = new Map<string, number>();
+
+/// Whether project `name`'s team may be read now: not while a read failed lately.
+const due = (name: string) => Date.now() - (failed.get(name) ?? -Infinity) >= RETRY_MS;
 
 /// Project `name`'s team as last read, or null before it answered; asks for it the first time.
 export function teamOf(name: string): TeamView | null {
@@ -47,8 +60,8 @@ export function teamOf(name: string): TeamView | null {
   const saved = kept.get(localProjectId(name));
   if (saved) {
     views.set(name, teamView(saved.record));
-    cards.set(name, saved.cards);
-  } else if (!reading.has(name)) void readTeam(name);
+    cards.set(name, { ...NO_CARDS, ...saved.cards });
+  } else if (!reading.has(name) && due(name)) void readTeam(name);
 
   return views.get(name) ?? null;
 }
@@ -67,21 +80,27 @@ export function readTeam(name: string): Promise<void> {
     try {
       const record = await invoke<TeamRecord | null>("team_record", { projectId });
       const view = teamView(record);
-      const read = view.kind === "team" ? await invoke<TeamCards>("team_cards", { projectId }).catch(error => {
+      const read = view.kind === "team" ? await invoke<TeamCards>("team_cards", { projectId }).then(got => ({ ...NO_CARDS, ...got })).catch(error => {
         console.warn("team cards:", reason(error));
         return teamCardsOf(name);
       }) : NO_CARDS;
+      failed.delete(name);
+      const answer = JSON.stringify({ record, cards: read });
+      if (answers.get(name) === answer && views.has(name)) return;
+
+      answers.set(name, answer);
       views.set(name, view);
       cards.set(name, read);
       kept.put(projectId, { record, cards: read });
+      redrawProjects();
     } catch (error) {
-      // A project on no forge has no team; the page leaves the Team row out.
+      // A project on no forge has no team; the page leaves the Team row out
+      // and asks again after a while.
+      failed.set(name, Date.now());
       console.warn("team:", reason(error));
     } finally {
       reading.delete(name);
     }
-
-    redrawProjects();
   })();
   reading.set(name, read);
 
@@ -92,7 +111,7 @@ export function readTeam(name: string): Promise<void> {
 /// page stays mounted behind other views, and a hidden window reads nothing.
 export function TeamFollow({ project }: { project: string }) {
   useEffect(() => {
-    const timer = setInterval(() => { if (pageShown() && currentLocation()?.view === "projects") void readTeam(project); }, FOLLOW_MS);
+    const timer = setInterval(() => { if (pageShown() && currentLocation()?.view === "projects" && due(project)) void readTeam(project); }, FOLLOW_MS);
     return () => clearInterval(timer);
   }, [project]);
 
@@ -137,7 +156,8 @@ export function teamBoard(project: string, mine: readonly BoardCard[], openThrea
   const owned: OwnedCard[] = [
     ...mine.map(card => ({ login: view.me, card })),
     ...team.needs_you.map(card => ({ login: view.me, card: needCard(project, view, card, openThread) })),
-    ...team.teammates.map(card => ({ login: card.login, card: teammateCard(project, card, openThread) })),
+    ...team.own_queued.map(card => ({ login: view.me, card: teamCard(project, card, openThread, false) })),
+    ...team.teammates.map(card => ({ login: card.login, card: teamCard(project, card, openThread, true) })),
   ];
 
   return filterCards(owned, filters.get(project) ?? { kind: "everyone" }, view.me).map(owned => owned.card);
@@ -150,13 +170,16 @@ const threadOf = (card: TeamCard): Thread | null => card.pr !== null ? { kind: "
 
 const threadLabel = (thread: Thread | null) => thread === null ? null : thread.kind === "pr" ? `PR #${thread.number}` : `#${thread.number}`;
 
-/// A teammate's card: their login first, a shade dimmer than the user's, and it opens its issue or pull request, never their session.
-function teammateCard(project: string, card: TeamCard, openThread: (thread: Thread) => void): BoardCard {
+/// A card of the team's board: a teammate's (`theirs`), their login first and
+/// a shade dimmer than the user's, or the user's own issue the pickup limit
+/// holds back. It opens its issue or pull request, never a session.
+function teamCard(project: string, card: TeamCard, openThread: (thread: Thread) => void, theirs: boolean): BoardCard {
   const thread = threadOf(card), lane = cardLane(card.lane);
 
-  return { key: `mate:${card.login}:${card.id}`, lane, project, color: null, session: false, lead: <Who login={card.login}/>, title: card.title,
+  return { key: `${theirs ? "mate" : "own"}:${card.login}:${card.id}`, lane, project, color: null, session: false,
+    lead: theirs ? <Who login={card.login}/> : <span style={{ display: "contents" }}><Icon name="issue"/></span>, title: card.title,
     sub: [card.machine, threadLabel(thread)].filter(Boolean).join(" · "), foot: card.lane === "queued" ? "queued" : formatAgo(card.updated_at, "since"),
-    action: null, dim: false, theirs: true, hint: null, open: () => { if (thread) openThread(thread); }, menu: null };
+    action: null, dim: false, theirs, hint: null, open: () => { if (thread) openThread(thread); }, menu: null };
 }
 
 /// A Needs you card of the team for the user: a teammate's ask, answered by an
@@ -245,8 +268,9 @@ export function IssueOwnersCell({ project, issue }: { project: string; issue: Is
   const view = teamOf(project);
   if (view?.kind !== "team") return null;
 
-  const card = teamCardsOf(project).teammates.find(each => each.issue === issue.number && each.pr === null);
-  const state = card ? (card.lane === "queued" ? "queued" : cardLane(card.lane) === "working" ? "working" : null) : null;
+  const team = teamCardsOf(project), own = issueSession(project, issue);
+  const card = [...team.own_queued, ...team.teammates].find(each => each.issue === issue.number && each.pr === null);
+  const state = own && AGENT_ACTIVE.has(own.status) ? "working" : card?.lane === "queued" ? "queued" : card && cardLane(card.lane) === "working" ? "working" : null;
 
   return <span className="tm-owners">{issue.assignees.length ? issue.assignees.map(login => <Who key={login} login={login}/>) : <span className="tm-none">unassigned</span>}{state && <span>{state}</span>}</span>;
 }
@@ -302,28 +326,36 @@ export async function takeFree(project: string, number: number) {
   if (view?.kind === "team" && issue && claim(issue, view.me).kind === "free") await assign(project, number, []);
 }
 
+/// The held sheet: an agent asks a holder about the issue, or the user takes
+/// it too. The sheet stays until the start went through, and shows why it did not.
 function openHeld(name: string, issue: Pick<IssueRow, "number" | "title" | "url">, by: readonly string[], start: () => unknown) {
   const sheet = openSheet(heldText(by, issue.number), "am-sheet");
-  flushSync(() => sheet.render(<HeldSheet issue={issue} by={by} close={sheet.close}
-    ask={login => { sheet.close(); fillBar(name, askPrompt(login, issue), null); }}
-    anyway={async () => { await assign(name, issue.number, []); sheet.close(); await start(); }}/>));
+  flushSync(() => sheet.render(<HeldSheet name={name} issue={issue} by={by} close={sheet.close}
+    anyway={async () => { await assign(name, issue.number, []); await start(); sheet.close(); }}/>));
 }
 
-function HeldSheet({ issue, by, close, ask, anyway }: { issue: Pick<IssueRow, "number" | "title">; by: readonly string[]; close(): void; ask(login: string): void; anyway(): Promise<void> }) {
-  const [state, setState] = useState<{ kind: "idle" } | { kind: "taking" } | { kind: "failed"; message: string }>({ kind: "idle" });
-  const first = by[0] ?? "";
+type Taking = { kind: "idle" } | { kind: "taking" } | { kind: "failed"; message: string };
+
+function HeldSheet({ name, issue, by, close, anyway }: { name: string; issue: Pick<IssueRow, "number" | "title" | "url">; by: readonly string[]; close(): void; anyway(): Promise<void> }) {
+  const [state, setState] = useState<Taking>({ kind: "idle" });
+  const fail = (error: unknown) => setState({ kind: "failed", message: reason(error) });
 
   const take = () => {
     setState({ kind: "taking" });
-    anyway().catch(error => setState({ kind: "failed", message: reason(error) }));
+    anyway().catch(fail);
   };
+  // Each holder's Ask starts an agent that asks them through the team.
+  const ask = (login: string) => projectButtons(`held ${name}\n${issue.number}\n${login}`, {
+    project: name, machine: null, choose: true, label: `Ask ${login}`, hint: `Pick a model: an agent asks ${login} about #${issue.number}`, session: null,
+    start: (pick, machine) => startTask(name, { prompt: askPrompt(login, issue), target: null }, pick, machine).then(close, fail),
+  });
 
   return <>
     <SheetHead title={heldText(by, issue.number)}/>
-    <div className="am-os">{issue.title}. Ask {first} before starting, or work on it too as a second assignee.</div>
+    <div className="am-os">{issue.title}. Ask before starting, or work on it too as a second assignee.</div>
     <div className={state.kind === "failed" ? "am-msg bad" : "am-msg"}>{state.kind === "failed" ? state.message : ""}</div>
     <div className="am-line">
-      <Button look="primary" onClick={() => ask(first)}>Ask {first}</Button>
+      {by.map(login => <AgentButton key={login} item={ask(login)}/>)}
       <Button disabled={state.kind === "taking"} onClick={take}>Work on it anyway</Button>
       <Button look="quiet" onClick={close}>Cancel</Button>
     </div>
@@ -469,12 +501,16 @@ function Settings({ project, record, machines }: { project: string; record: Team
   </div>;
 }
 
-/// Opens issue or pull request `thread` of project `project` on its page, or on the forge when it is not open.
+/// Opens issue or pull request `thread` of project `project` on its page, or
+/// on the project's forge page when it is closed.
 export function threadOpener(project: string, url: string | null, openTile: (key: string) => void) {
   return (thread: Thread) => {
     const projectId = localProjectId(project);
     const listed = thread.kind === "pr" ? thr.prs(projectId)?.some(pr => pr.number === thread.number) : thr.issues(projectId)?.some(issue => issue.number === thread.number);
     if (listed) return openTile(`${thread.kind}:${thread.number}`);
-    if (url) void openUrl(`${url.replace(/\/+$/, "")}/issues/${thread.number}`);
+
+    const page = forgeLinks(url, null)[0]?.url;
+    // GitHub and Forgejo both answer an issue's number for a pull request too.
+    if (page) void openUrl(`${page}/issues/${thread.number}`);
   };
 }

@@ -17,7 +17,7 @@ use beep_proto::{
         Approved, Reply, Request, TeamAppArgs, TeamAppCall, TeamCards, TeamInviteArgs,
         TeamRosterArgs, Tool,
     },
-    team::{TeamMsg, TeamRepo},
+    team::{Lane, TeamMsg, TeamRepo},
 };
 use iroh::{EndpointAddr, EndpointId};
 use serde::{Serialize, de::DeserializeOwned};
@@ -149,6 +149,13 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
                     .get(&repo)
                     .map(Teammates::cards)
                     .unwrap_or_default(),
+                own_queued: teams
+                    .boards
+                    .cards(&repo)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|card| matches!(card.lane, Lane::Queued {}))
+                    .collect(),
             }
         })),
         TeamAppArgs::Dismiss { repo, card } => {

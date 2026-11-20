@@ -51,6 +51,8 @@ export interface TeamCards {
   /// Teammates' asks for the user, and automatic sessions that ended without a pull request.
   needs_you: TeamCard[];
   teammates: TeamCard[];
+  /// The user's own issues the pickup limit holds back.
+  own_queued: TeamCard[];
 }
 
 /// The lane a team card sits in. An issue held by the pickup limit waits in
@@ -123,7 +125,8 @@ export const sameLogin = (a: string, b: string) => a.toLowerCase() === b.toLower
 
 /// What the held sheet's title says: who has the issue.
 export function heldText(by: readonly string[], issue: number) {
-  return `${by.join(", ")} has #${issue}`;
+  const last = by.at(-1) ?? "", rest = by.slice(0, -1);
+  return rest.length ? `${rest.join(", ")} and ${last} have #${issue}` : `${last} has #${issue}`;
 }
 
 /// The prompt of an agent that asks `login` about issue `issue` through the team.
