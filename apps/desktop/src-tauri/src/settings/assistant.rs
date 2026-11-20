@@ -36,12 +36,7 @@ pub async fn assistant_settings_save(
     fleet: FleetState<'_>,
     settings: AssistantSettings,
 ) -> Result<()> {
-    let desk = desk(&fleet).await?;
-    let settings = AssistantSettings {
-        hermes: desk.assistant().hermes,
-        ..settings
-    };
-    Ok(desk.save_assistant(&settings).await?)
+    Ok(desk(&fleet).await?.save_assistant_pick(settings).await?)
 }
 
 /// Checks the Hermes dashboard from `machine` and, when it takes `token`, uses it for the

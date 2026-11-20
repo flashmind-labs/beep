@@ -433,7 +433,19 @@ impl Desk {
         read::<AssistantSettings>(&self.mesh, &Key::Assistant).unwrap_or_default()
     }
 
-    pub async fn save_assistant(&self, settings: &AssistantSettings) -> Result<()> {
+    /// Saves a harness pick, keeping the saved Hermes connection: that changes only by
+    /// connecting or disconnecting. It reads the connection under the write lock, so it cannot
+    /// bring back one a disconnect just removed.
+    pub async fn save_assistant_pick(&self, pick: AssistantSettings) -> Result<()> {
+        let _write = WRITES.lock().await;
+        let settings = AssistantSettings {
+            hermes: self.assistant().hermes,
+            ..pick
+        };
+        self.save_assistant(&settings).await
+    }
+
+    pub(crate) async fn save_assistant(&self, settings: &AssistantSettings) -> Result<()> {
         write(&self.mesh, Key::Assistant, Some(settings)).await
     }
 

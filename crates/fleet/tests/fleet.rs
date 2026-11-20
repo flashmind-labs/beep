@@ -4019,13 +4019,25 @@ async fn disconnecting_hermes_removes_the_token_and_the_connection_and_keeps_the
     };
     let (studio, said) = connect(&f, valid, HERMES_TOKEN).await;
     said.expect("checked");
-    let mut settings = studio.assistant();
-    settings.agent = Some("claude".into());
-    studio.save_assistant(&settings).await.expect("saved");
+    let pick = AssistantSettings {
+        agent: Some("claude".into()),
+        ..AssistantSettings::default()
+    };
+    studio
+        .save_assistant_pick(pick.clone())
+        .await
+        .expect("saved");
+    assert!(studio.assistant().hermes.is_some(), "a pick keeps Hermes");
 
     studio.disconnect_hermes().await.expect("disconnected");
     assert!(hermes_keys(&f.studio.mesh).is_empty());
     let left: AssistantSettings = studio.assistant();
     assert!(left.hermes.is_none());
     assert_eq!(left.agent.as_deref(), Some("claude"));
+
+    studio.save_assistant_pick(pick).await.expect("saved");
+    assert!(
+        studio.assistant().hermes.is_none(),
+        "a pick after a disconnect adds none"
+    );
 }
