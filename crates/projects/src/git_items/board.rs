@@ -30,7 +30,9 @@ pub async fn ask(hosts: &dyn Hosts, client: &Client, login: &Login<'_>) -> Optio
     let (host, kind) = match login.service {
         Service::GitHub => (github::HOST.to_owned(), GitHostKind::GitHub {}),
         Service::Forgejo { url } => (url.host(), GitHostKind::Forgejo {}),
-        Service::ApiKey { provider: _ } | Service::Agent { agent: _ } => return None,
+        Service::ApiKey { provider: _ } | Service::Agent { agent: _ } | Service::Hermes => {
+            return None;
+        }
     };
     let caller = Caller {
         client,

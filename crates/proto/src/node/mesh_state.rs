@@ -5,7 +5,9 @@
 //! compact msgpack, read by position, like the node link: a field is added
 //! at the end with `#[serde(default)]`.
 
-use super::{AgentLogin, EnvSecret, ForgejoLogin, agent::Effort, harness::HarnessConfig};
+use super::{
+    AgentLogin, EnvSecret, ForgejoLogin, HermesLogin, agent::Effort, harness::HarnessConfig,
+};
 use crate::SessionId;
 use crate::{AgentSlug, ModelId};
 use iroh::EndpointId;
@@ -47,6 +49,15 @@ wire_structs! {
         pub model: Option<String>,
         pub effort: Option<Effort>,
         pub fast: Option<bool>,
+        /// The Hermes Agent the assistant uses in place of a harness. Added after `fast`.
+        pub hermes: Option<HermesConnection>,
+    }
+
+    /// Where a machine reaches the Hermes Agent dashboard; its token is a `Credential::Hermes`.
+    pub struct HermesConnection {
+        pub machine: EndpointId,
+        pub host: String,
+        pub port: u16,
     }
 }
 
@@ -190,6 +201,8 @@ pub enum Credential {
     Forgejo(ForgejoLogin),
     /// A coding agent's named account. A node from before names skips it.
     Agent(AgentLogin),
+    /// The Hermes Agent dashboard's token. A node from before it skips it.
+    Hermes(HermesLogin),
 }
 
 /// `terminal/<id>`: a terminal a desktop keeps running on a machine. The

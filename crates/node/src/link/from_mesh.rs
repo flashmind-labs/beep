@@ -312,6 +312,8 @@ fn credentials(mesh: &Mesh) -> MachineCredentials {
             Credential::Env(secret) => out.env.push(secret),
             Credential::Forgejo(login) => out.forgejo.push(login),
             Credential::Agent(login) => out.agents.push(login),
+            // The Hermes token is for the assistant's bridge, not for processes.
+            Credential::Hermes(_) => {}
         }
     }
 

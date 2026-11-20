@@ -31,6 +31,12 @@ pub struct EnvSecret {
     pub value: SecretText,
 }
 
+/// The token of the Hermes Agent dashboard the Home assistant talks to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HermesLogin {
+    pub token: SecretText,
+}
+
 /// One Forgejo or Gitea server and the token for it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ForgejoLogin {

@@ -4,7 +4,8 @@
 //! GitHub account, whose `~<owner>` siblings carry the same token for each owner it serves,
 //! `forgejo.<ms>.<host>`, `agent.<ms>.<agent>` and `key.<ms>.<provider>` for an API key. Released
 //! desktops delete `api.*` keys, so API keys live under `key.*`. A coding agent's named account is
-//! `agent.<ms>.<agent>.<name>`, a `Credential::Agent` that released nodes and desktops skip.
+//! `agent.<ms>.<agent>.<name>`, a `Credential::Agent` that released nodes and desktops skip. The
+//! Hermes Agent dashboard's token is `hermes.<saved_ms>`, a `Credential::Hermes` they skip too.
 //!
 //! A secret never reaches a log: [`SecretText`] and [`SecretString`] print nothing.
 
@@ -226,7 +227,7 @@ impl Desk {
                 Service::GitHub if std::mem::replace(&mut github_seen, true) => continue,
                 Service::GitHub => saved.github.map(|login| login.login),
                 Service::Forgejo { .. } | Service::ApiKey { .. } => None,
-                Service::Agent { .. } => continue,
+                Service::Agent { .. } | Service::Hermes => continue,
             };
             out.push(Credential {
                 id: saved.id,
@@ -339,7 +340,9 @@ impl Desk {
                 make_id(API_KEY, saved_ms, &provider.to_string()),
                 env(provider.env_var(), &secret),
             ),
-            Service::GitHub | Service::Agent { .. } => return Err(FleetError::NotFound),
+            Service::GitHub | Service::Agent { .. } | Service::Hermes => {
+                return Err(FleetError::NotFound);
+            }
         };
         // One of each: a new token for the same service replaces the old one.
         for old in self
@@ -573,7 +576,7 @@ impl Desk {
         let checked = match service {
             Service::GitHub => checker.github(secret).await,
             Service::Forgejo { url } => checker.forgejo(url, secret).await,
-            Service::ApiKey { .. } | Service::Agent { .. } => return Ok(None),
+            Service::ApiKey { .. } | Service::Agent { .. } | Service::Hermes => return Ok(None),
         };
 
         match checked {

@@ -370,6 +370,14 @@ pub enum SessionsRequest {
         epoch: String,
         after: u64,
     },
+    /// Whether the Hermes Agent dashboard at `host:port` accepts `token`,
+    /// asked from this node. Answered with `Checked`; a node from before it
+    /// closes the stream or answers `Error`.
+    CheckHermes {
+        host: String,
+        port: u16,
+        token: crate::SecretText,
+    },
 }
 
 /// One session `SessionsRequest::Search` found.
@@ -607,6 +615,7 @@ impl SessionsRequest {
             | Self::Present { .. }
             | Self::HashFiles { .. }
             | Self::Search { .. }
+            | Self::CheckHermes { .. }
             | Self::Review { .. }
             | Self::Reviews { .. }
             | Self::Processes { .. }
@@ -832,6 +841,9 @@ pub enum SessionsReply {
         rows: Vec<IndexRow>,
         current: bool,
     },
+    /// The answer to `CheckHermes`: `Valid` carries `Hermes` and its
+    /// version when it says one.
+    Checked(crate::CredentialCheck),
 }
 
 /// A CI run the user started (a push or a pull request) that ended, told by
