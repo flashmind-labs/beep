@@ -51,7 +51,9 @@ pub(crate) use machines::over_the_mesh;
 pub use machines::command_name;
 pub(crate) use desktop::answer as answer_projects;
 pub use desktop::ProjectTools;
-pub(crate) use team::{TeamSessions, answer as answer_team};
+pub(crate) use team::{
+    PickupStart, TeamSessions, answer as answer_team, start_issue, still_runs,
+};
 pub(crate) use server::Backend;
 use server::Called;
 

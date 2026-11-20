@@ -63,9 +63,11 @@ pub(crate) fn card_of(view: &ChildView, facts: &Facts, branch: Option<&str>) -> 
     })
 }
 
-/// The issue a branch named `<number>-...` (or `<who>/<number>-...`) works on.
+/// The issue a branch named `<number>-...`, `issue-<number>-...` (as Work
+/// on it names it) or `<who>/` either works on.
 pub(crate) fn issue_of_branch(branch: &str) -> Option<u64> {
     let name = branch.rsplit('/').next()?;
+    let name = name.strip_prefix("issue-").unwrap_or(name);
     let (number, _) = name.split_once('-').unwrap_or((name, ""));
 
     match number.bytes().all(|b| b.is_ascii_digit()) {

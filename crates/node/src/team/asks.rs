@@ -193,9 +193,11 @@ impl TeamLink {
         Ok(id)
     }
 
-    /// Drops the dismissed ask card `id` of `repo`, and the ask with it.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the Team page dismisses asks"))]
-    pub(crate) fn dismiss_ask(&self, repo: &TeamRepo, id: &str) {
+    /// Drops the dismissed Needs you card `id` of `repo`: an ask's, and the
+    /// ask with it, or that of an automatic session that ended without a
+    /// pull request (`pickup`).
+    #[cfg_attr(not(test), expect(dead_code, reason = "the Team page dismisses cards"))]
+    pub(crate) fn dismiss_card(&self, repo: &TeamRepo, id: &str) {
         self.with(|teams| {
             if let Some(cards) = teams.asks.cards.get_mut(repo) {
                 cards.retain(|card| card.id != id);

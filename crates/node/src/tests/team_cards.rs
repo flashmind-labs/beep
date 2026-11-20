@@ -73,6 +73,9 @@ fn issue_of_branch_reads_leading_number() {
     assert_eq!(issue_of_branch("52-fee-model"), Some(52));
     assert_eq!(issue_of_branch("52"), Some(52));
     assert_eq!(issue_of_branch("alice/52-fee-model"), Some(52));
+    assert_eq!(issue_of_branch("issue-52-fee-model"), Some(52));
+    assert_eq!(issue_of_branch("issue-52"), Some(52));
+    assert_eq!(issue_of_branch("issue-fee"), None);
     assert_eq!(issue_of_branch("main"), None);
     assert_eq!(issue_of_branch("v2-release"), None);
     assert_eq!(issue_of_branch("52fee"), None);

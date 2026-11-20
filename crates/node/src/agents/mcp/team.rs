@@ -2,10 +2,12 @@
 //! `team_ask` asks a teammate's agent or a teammate, or answers an ask. The
 //! session's node makes the call and sends it to the machine of its mesh
 //! that acts for the team (`team::gateway`), which answers it; that machine
-//! hands asks and answers to the sessions they are for (`Tool::TeamDeliver`).
+//! hands asks and answers to the sessions they are for (`Tool::TeamDeliver`),
+//! and has a machine with the project start a session on an issue newly
+//! assigned to the user (`Tool::TeamPickup`).
 
 use super::{
-    children::{full_id, machine_name},
+    children::{ChildView, full_id, machine_name},
     machines::{find, over_the_mesh},
     reply::{fail, json_of, ok, parse},
 };
@@ -15,13 +17,19 @@ use crate::{
     team::{
         asks::{Delivery, MAX_TEXT, Outgoing, Sessions},
         cards::Teammates,
+        gateway::branch_of,
+        home,
         link::TeamLink,
+        pickup::{Auto, issue_branch, issue_prompt},
     },
 };
 use beep_mesh::Mesh;
 use beep_proto::{
     SessionId,
-    node::tools::{Approved, Reply, Request, Tool},
+    node::{
+        agent::CheckoutPlan,
+        tools::{Approved, Reply, Request, Tool},
+    },
     team::{AgentRef, Card, Target, TeamRepo},
 };
 use futures::future::BoxFuture;
@@ -47,6 +55,16 @@ struct AskArgs {
 #[derive(Serialize, Deserialize)]
 struct TeamArgs {
     repo: TeamRepo,
+}
+
+/// `Tool::TeamPickup`: an issue a gateway has a machine with the project's
+/// checkout start a session on (`team::pickup`).
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct PickupStart {
+    pub(crate) repo: TeamRepo,
+    pub(crate) number: u64,
+    pub(crate) title: String,
+    pub(crate) url: String,
 }
 
 /// `Tool::TeamDeliver`: a text for the session on the card `card`, which
@@ -198,7 +216,8 @@ fn outgoing(
 }
 
 /// The answer of the machine that acts for the team to `team` and
-/// `team_ask`, and of a session's machine to `TeamDeliver`.
+/// `team_ask`, of a session's machine to `TeamDeliver`, and of a machine
+/// with the project to `TeamPickup`.
 pub(crate) async fn answer(link: &TeamLink, agents: &Agents, request: &Request) -> Reply {
     match request.tool {
         Tool::Team => match parse::<TeamArgs>(&request.args) {
@@ -220,6 +239,14 @@ pub(crate) async fn answer(link: &TeamLink, agents: &Agents, request: &Request) 
                 Err(e) => fail(e),
             }
         }
+        Tool::TeamPickup => match (parse::<PickupStart>(&request.args), agents.mesh()) {
+            (Ok(order), Some(mesh)) => match start_issue(agents, &mesh, &order).await {
+                Ok(auto) => json_of(&auto),
+                Err(e) => fail(e),
+            },
+            (Err(e), _) => fail(e),
+            (_, None) => fail("This machine is in no mesh."),
+        },
         Tool::TeamDeliver => match parse::<Handed>(&request.args) {
             Ok(Handed {
                 card,
@@ -233,6 +260,80 @@ pub(crate) async fn answer(link: &TeamLink, agents: &Agents, request: &Request) 
         },
         other => fail(format!("{other} is not a team tool.")),
     }
+}
+
+/// Starts `order`'s session in a new worktree of this machine's checkout,
+/// on the branch Work on it names.
+pub(crate) async fn start_issue(
+    agents: &Agents,
+    mesh: &Mesh,
+    order: &PickupStart,
+) -> Result<Auto, String> {
+    let PickupStart {
+        repo,
+        number,
+        title,
+        url,
+    } = order;
+    let checkout = home::read(mesh)
+        .checkout(repo)
+        .ok_or_else(|| format!("This machine has no checkout of {repo}."))?;
+    let branch = issue_branch(*number, title);
+    let plan = CheckoutPlan::NamedWorktree {
+        base: None,
+        branch: branch.clone(),
+    };
+    let (id, cwd) = agents
+        .start_on_issue(
+            &checkout.folder.to_string_lossy(),
+            plan,
+            format!("#{number} {title}"),
+            issue_prompt(*number, title, url),
+        )
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+    let branch = branch_of(&cwd).await.unwrap_or(branch);
+
+    Ok(Auto {
+        card: full_id(id.as_ref(), &machine_name(Some(mesh))),
+        branch,
+    })
+}
+
+/// Whether the session on `card` (`<session>@<machine>`) still runs, as
+/// its machine lists its agents; `None` when that machine does not answer.
+/// This machine's own list is always at hand, so a card of it that is not
+/// on the board no longer runs.
+pub(crate) async fn still_runs(mesh: &Mesh, card: &str) -> Option<bool> {
+    let (session, name) = card.split_once('@')?;
+    let Some(machine) = find(mesh, name) else {
+        return Some(false);
+    };
+
+    if machine.id == mesh.me() {
+        return Some(false);
+    }
+
+    let request = Request {
+        session: SessionId::default(),
+        tool: Tool::ListAgents,
+        args: "{}".to_owned(),
+        approved: Approved::No,
+    };
+    let reply = timeout(LIMIT, over_the_mesh(mesh, machine.id, &request))
+        .await
+        .ok()?
+        .ok()?;
+    let Reply::Done {
+        text,
+        failed: false,
+    } = reply
+    else {
+        return None;
+    };
+    let views: Vec<ChildView> = serde_json::from_str(&text).ok()?;
+
+    Some(views.iter().any(|view| view.id == session))
 }
 
 /// The team of `repo`: its members, this mesh's and the teammates' cards,

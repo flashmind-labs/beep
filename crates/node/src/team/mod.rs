@@ -9,5 +9,6 @@ mod incoming;
 pub(crate) mod join;
 pub(crate) mod link;
 pub(crate) mod membership;
+pub(crate) mod pickup;
 pub(crate) mod proof;
 pub(crate) mod roster;

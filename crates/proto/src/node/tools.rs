@@ -111,6 +111,10 @@ pub enum Tool {
     /// A gateway hands an ask or its answer to the session it is for, on
     /// the machine that runs it: `TeamDeliverArgs`. Between nodes only.
     TeamDeliver,
+    /// A gateway starts an agent on an issue assigned to the user, on a
+    /// machine of the mesh with the project: `PickupStart`, then `Done`
+    /// with the session's card id. Between nodes only.
+    TeamPickup,
     /// A tool a newer node calls that this one does not know.
     #[serde(other)]
     Unknown,

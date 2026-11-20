@@ -22,7 +22,7 @@ use beep_proto::node::{
     usage::PlanUsage,
 };
 use beep_proto::watched;
-use beep_proto::{AccountName, AgentAccount, ModelId, Upload};
+use beep_proto::{AccountName, AgentAccount, AgentHost, ModelId, Upload};
 use std::time::Duration;
 use std::{
     borrow::Cow,
@@ -633,6 +633,46 @@ impl Agents {
         begin.brief = place.brief.map(Cow::Owned);
         begin.worktrees.extend(place.worktree);
         self.start(kind, place.folder.as_deref(), begin)
+    }
+
+    /// The harness Auto starts here, as a desktop picks one when the start
+    /// names none.
+    pub(crate) fn auto_harness(&self) -> Option<AgentKind> {
+        let kinds = self.kinds();
+        let host = AgentHost {
+            machine_id: String::new(),
+            machine_name: String::new(),
+            agents: kinds.iter().map(|kind| kind.name.clone()).collect(),
+            workspace: None,
+            home: None,
+            capabilities: Vec::new(),
+        };
+        let name = beep_mesh::machine::pick_agent(&host, None).ok()?;
+
+        kinds.iter().find(|kind| kind.name == name).cloned()
+    }
+
+    /// Starts an issue's automatic session: the `auto_harness`, on the
+    /// worktree `plan` makes in `cwd`, titled `title`. Its id, as its card
+    /// names it, and the folder it runs in.
+    pub(crate) async fn start_on_issue(
+        &self,
+        cwd: &str,
+        plan: CheckoutPlan,
+        title: String,
+        prompt: String,
+    ) -> Result<(SessionId, String)> {
+        let kind = self
+            .auto_harness()
+            .context("this machine has no coding agent")?;
+        let begin = Begin {
+            prompt: Some(prompt),
+            title: Some(title),
+            ..Begin::default()
+        };
+        let session = self.start_in(&kind, Some(cwd), Some(plan), begin).await?;
+
+        Ok((Self::name_of(&session), session.info().cwd))
     }
 
     /// Readies what `kind` reads before it starts: for flsh, the user's

@@ -100,7 +100,7 @@ impl Agents {
     }
 
     /// The mesh, when this node belongs to one.
-    pub(super) fn mesh(&self) -> Option<beep_mesh::Mesh> {
+    pub(crate) fn mesh(&self) -> Option<beep_mesh::Mesh> {
         self.family.membership.get().and_then(Membership::get)
     }
 

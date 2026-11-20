@@ -144,7 +144,7 @@ async fn ask_to_person_without_session_is_needs_you_card() {
     assert!(kept.taken().is_empty());
 
     // Dismissed, the card and its ask go.
-    pair.gateway.dismiss_ask(&repo(), "ask:a1");
+    pair.gateway.dismiss_card(&repo(), "ask:a1");
     let (cards, waiting) = pair.gateway.with(|teams| {
         let cards = teams.asks.cards(&repo(), SystemTime::now());
         (cards, teams.asks.taken.len())

@@ -9,11 +9,11 @@ use crate::{
 };
 use beep_mesh::{DeviceKind, Key, Mesh};
 use beep_projects::{
-    commands::{OpenIssue, parse_open_issues},
+    commands::{OpenIssue, parse_open_issues, parse_open_prs},
     model::{IssueHost, RepoName},
     team_forge::{
-        ForgeCall, collaborator_answer, collaborator_call, open_issues_call, parse_user_login,
-        user_call,
+        ForgeCall, assigned_issues_call, collaborator_answer, collaborator_call, open_issues_call,
+        parse_user_login, recent_pulls_call, user_call,
     },
 };
 use beep_proto::{
@@ -187,7 +187,7 @@ pub(crate) fn in_team(mesh: &Mesh, folder: &Path) -> bool {
         .is_some_and(|repo| mesh.get(&Key::Team(repo)).is_some())
 }
 
-pub(super) fn read(mesh: &Mesh) -> Home {
+pub(crate) fn read(mesh: &Mesh) -> Home {
     let me = mesh.me();
     let mut records = BTreeMap::new();
     let mut places: BTreeMap<String, Vec<(EndpointId, Place)>> = BTreeMap::new();
@@ -378,19 +378,49 @@ impl TeamForge for ForgeCli {
     ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>> {
         Box::pin(async move {
             let (host, name) = forge_of(repo)?;
-            let out = run(&open_issues_call(&host, &name)).await?;
+            let out = listed(repo, "issues", &open_issues_call(&host, &name)).await?;
 
-            if !out.status.success() {
-                let said = String::from_utf8_lossy(&out.stderr);
-                return Err(format!(
-                    "Could not list the issues of {repo}: {}",
-                    tail(&said)
-                ));
-            }
-
-            parse_open_issues(&String::from_utf8_lossy(&out.stdout)).map_err(|e| format!("{e:#}"))
+            parse_open_issues(&out).map_err(|e| format!("{e:#}"))
         })
     }
+
+    fn assigned_issues<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        login: &'a ForgeLogin,
+    ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>> {
+        Box::pin(async move {
+            let (host, name) = forge_of(repo)?;
+            let out = listed(repo, "issues", &assigned_issues_call(&host, &name, login)).await?;
+
+            parse_open_issues(&out).map_err(|e| format!("{e:#}"))
+        })
+    }
+
+    fn pull_heads<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<Vec<String>, String>> {
+        Box::pin(async move {
+            let (host, name) = forge_of(repo)?;
+            let out = listed(repo, "pull requests", &recent_pulls_call(&host, &name)).await?;
+            let pulls = parse_open_prs(&out).map_err(|e| format!("{e:#}"))?;
+
+            Ok(pulls.into_iter().map(|pull| pull.head).collect())
+        })
+    }
+}
+
+/// What `call`, which lists `what` of `repo`, printed.
+async fn listed(repo: &TeamRepo, what: &str, call: &ForgeCall) -> Result<String, String> {
+    let out = run(call).await?;
+
+    if !out.status.success() {
+        let said = String::from_utf8_lossy(&out.stderr);
+        return Err(format!(
+            "Could not list the {what} of {repo}: {}",
+            tail(&said)
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 fn forge_of(repo: &TeamRepo) -> Result<(IssueHost, RepoName), String> {

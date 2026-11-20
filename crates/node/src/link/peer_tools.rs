@@ -102,11 +102,27 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
 
     // Only the user's desktops join teams; nodes ask and deliver.
     if request.tool == Tool::TeamJoin {
-        let team = caller.team.as_ref().filter(|_| !matches!(caller.table, Table::Peer(_)));
+        let team = caller
+            .team
+            .as_ref()
+            .filter(|_| !matches!(caller.table, Table::Peer(_)));
         return crate::team::join::answer(team, &request).await;
     }
 
-    if matches!(request.tool, Tool::Team | Tool::TeamAsk | Tool::TeamDeliver) {
+    // A gateway may not start sessions on a desktop, nor a session call it.
+    if request.tool == Tool::TeamPickup
+        && (caller.desktop_here || matches!(caller.table, Table::Shared))
+    {
+        return Reply::Done {
+            text: "This machine does not start sessions for a team.".to_owned(),
+            failed: true,
+        };
+    }
+
+    if matches!(
+        request.tool,
+        Tool::Team | Tool::TeamAsk | Tool::TeamDeliver | Tool::TeamPickup
+    ) {
         return match (&caller.team, &caller.agents) {
             (Some(team), Some(agents)) => answer_team(team, agents, &request).await,
             _ => Reply::Done {

@@ -11,6 +11,7 @@ use super::{
     home::Project,
     link::TeamLink,
     membership::{self, Membership, Team},
+    pickup::{Pickups, Round},
 };
 use crate::{
     agents::mcp::children::{Listed, in_the_mesh},
@@ -20,7 +21,7 @@ use crate::{
         elect::{ask_reach, elect, gather, online},
     },
 };
-use beep_mesh::Mesh;
+use beep_mesh::{DeviceKind, Mesh};
 use beep_proto::{
     SessionId,
     node::{events::Topic, tools::ForgeReach},
@@ -30,6 +31,7 @@ use futures::future::join_all;
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    path::PathBuf,
     time::{Duration, SystemTime},
 };
 use tokio::{
@@ -41,8 +43,9 @@ use tokio_util::task::AbortOnDropHandle;
 
 /// How often the boards are made again and the roles elected.
 const TICK: Duration = Duration::from_secs(10);
-/// How often the issue titles are read while a team session works, and
-/// otherwise; the machines are asked how they reach the hosts every `QUIET`.
+/// How often the issue titles, and the issues pickup starts sessions on,
+/// are read while a team session works, and otherwise; the machines are
+/// asked how they reach the hosts every `QUIET`.
 const BUSY: Duration = Duration::from_secs(60);
 const QUIET: Duration = Duration::from_secs(10 * 60);
 /// How long a forge call or a branch read may take.
@@ -76,7 +79,8 @@ pub(crate) fn elected(
 }
 
 /// Acts for the team projects this node is elected for, until the mesh is gone.
-pub(crate) async fn run(mesh: Mesh, me: EndpointId, link: TeamLink, offers: Offers) {
+/// Pickup keeps what it remembers in `dir`, the node's folder.
+pub(crate) async fn run(mesh: Mesh, me: EndpointId, link: TeamLink, offers: Offers, dir: PathBuf) {
     let (heard, mut hearing) = mpsc::channel(CHANGES);
     let mut updates = mesh.updates();
     let mut tick = interval(TICK);
@@ -94,6 +98,7 @@ pub(crate) async fn run(mesh: Mesh, me: EndpointId, link: TeamLink, offers: Offe
         branches: HashMap::new(),
         membership: Membership::new(me),
         follows: BTreeMap::new(),
+        pickups: Pickups::new(dir),
     };
 
     loop {
@@ -126,6 +131,8 @@ struct Gateway {
     membership: Membership,
     /// The follow of each teammate's board, by repository and their mesh.
     follows: BTreeMap<(TeamRepo, EndpointId), (Member, AbortOnDropHandle<()>)>,
+    /// The sessions started on the issues assigned to this mesh's person.
+    pickups: Pickups,
 }
 
 impl Gateway {
@@ -208,18 +215,42 @@ impl Gateway {
         self.peers = gather("team gateway", asked, |peer| ask_reach(mesh, peer)).await;
     }
 
-    /// Makes the cards of every held team with a subscriber.
+    /// Makes the cards of every held team with a subscriber, and of those
+    /// whose pickup is due, which then starts sessions on new issues.
     async fn serve_cards(&mut self, teams: &[Team], projects: &BTreeMap<TeamRepo, Project>) {
-        let watched: Vec<&Team> = teams
+        let pickup = |team: &Team| {
+            let record = self
+                .link
+                .with(|link| link.rosters.written(&team.repo).cloned());
+            record
+                .filter(|record| record.pickup)
+                .map(|record| record.pickup_limit)
+        };
+        let mut picking = BTreeMap::new();
+
+        for team in teams {
+            match pickup(team) {
+                Some(limit) if self.titles_due(&team.repo) => {
+                    picking.insert(&team.repo, limit);
+                }
+                Some(_) => {}
+                None => self.pickups.off(&team.repo),
+            }
+        }
+
+        let served: Vec<&Team> = teams
             .iter()
-            .filter(|team| self.link.with(|link| link.boards.watched(&team.repo)))
+            .filter(|team| {
+                picking.contains_key(&team.repo)
+                    || self.link.with(|link| link.boards.watched(&team.repo))
+            })
             .collect();
 
-        if watched.is_empty() {
+        if served.is_empty() {
             return;
         }
 
-        let machines: BTreeSet<EndpointId> = watched
+        let machines: BTreeSet<EndpointId> = served
             .iter()
             .flat_map(|team| &projects[&team.repo].devices)
             .map(|device| device.id)
@@ -235,7 +266,7 @@ impl Gateway {
         self.branches
             .retain(|id, _| listed.iter().any(|listed| listed.view.id == *id));
 
-        for team in watched {
+        for team in served {
             let (titles, read) = self.read_titles(&team.repo).await;
             self.read_branches(&listed, &team.project, read).await;
             let now = SystemTime::now();
@@ -245,7 +276,7 @@ impl Gateway {
                 linked: &titles,
                 now,
             };
-            let fresh: Vec<Card> = listed
+            let mut fresh: Vec<Card> = listed
                 .iter()
                 .filter_map(|listed| {
                     let mut view = listed.view.clone();
@@ -255,11 +286,49 @@ impl Gateway {
                 })
                 .collect();
 
+            if let Some(limit) = picking.get(&team.repo) {
+                let project = &projects[&team.repo];
+                let round = Round {
+                    link: &self.link,
+                    mesh: &self.mesh,
+                    agents: &self.offers.agents,
+                    team,
+                    project,
+                    cards: &fresh,
+                    elsewhere: self.elsewhere(project, &team.repo),
+                };
+                self.pickups.round(round, *limit).await;
+            }
+
+            fresh.extend(self.pickups.queued(&team.repo));
             self.link.with(|link| {
                 let old = link.boards.cards(&team.repo).unwrap_or_default();
                 link.boards.set(&team.repo, settle(&old, fresh, now));
             });
         }
+    }
+
+    /// The machine of `project` that starts its issues' sessions when this
+    /// one runs no agent: another online one, not a desktop, elected as the
+    /// gateway is.
+    fn elsewhere(&self, project: &Project, repo: &TeamRepo) -> Option<EndpointId> {
+        let online = online(&self.mesh);
+        let desktops: BTreeSet<EndpointId> = self
+            .mesh
+            .devices()
+            .into_iter()
+            .filter(|status| status.device.kind == DeviceKind::Desktop)
+            .map(|status| status.device.id)
+            .collect();
+        let machines = project
+            .devices
+            .iter()
+            .map(|device| device.id)
+            .filter(|machine| online.contains(machine) && !desktops.contains(machine))
+            .collect();
+        let reach = self.offers.agents.ci.reach_of(&repo.host);
+
+        elect(&machines, self.me, reach, &self.peers, &repo.host)
     }
 
     /// Reads the branch of each session here in `project` not read yet, or
@@ -277,17 +346,25 @@ impl Gateway {
             .extend(unread.into_iter().map(|(id, _)| id).zip(read));
     }
 
-    /// `repo`'s open issue titles, and whether they were read now: again
-    /// every `BUSY` while a session on its board works, every `QUIET` otherwise.
-    async fn read_titles(&mut self, repo: &TeamRepo) -> (IssueTitles, bool) {
+    /// Whether `repo`'s issues are read again: every `BUSY` while a session
+    /// on its board works, every `QUIET` otherwise.
+    fn titles_due(&self, repo: &TeamRepo) -> bool {
         let working = self.link.with(|link| {
             let cards = link.boards.cards(repo).unwrap_or_default();
             cards.iter().any(|card| card.lane == Lane::Working {})
         });
         let wait = if working { BUSY } else { QUIET };
 
-        if let Some((titles, at)) = self.titles.get(repo)
-            && at.elapsed() < wait
+        self.titles
+            .get(repo)
+            .is_none_or(|(_, at)| at.elapsed() >= wait)
+    }
+
+    /// `repo`'s open issue titles, and whether they were read now, when
+    /// `titles_due`.
+    async fn read_titles(&mut self, repo: &TeamRepo) -> (IssueTitles, bool) {
+        if !self.titles_due(repo)
+            && let Some((titles, _)) = self.titles.get(repo)
         {
             return (titles.clone(), false);
         }
@@ -388,7 +465,7 @@ impl Gateway {
 }
 
 /// The branch checked out in `folder`; `None` when detached or unknown.
-async fn branch_of(folder: &str) -> Option<String> {
+pub(crate) async fn branch_of(folder: &str) -> Option<String> {
     let args = ["-C", folder, "rev-parse", "--abbrev-ref", "HEAD"].map(str::to_owned);
     let out = timeout(GIT_LIMIT, command("git", &args).output())
         .await

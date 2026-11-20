@@ -68,6 +68,18 @@ impl TeamForge for Forge {
     ) -> BoxFuture<'a, Result<Vec<beep_projects::commands::OpenIssue>, String>> {
         Box::pin(async { Ok(Vec::new()) })
     }
+
+    fn assigned_issues<'a>(
+        &'a self,
+        _repo: &'a TeamRepo,
+        _login: &'a ForgeLogin,
+    ) -> BoxFuture<'a, Result<Vec<beep_projects::commands::OpenIssue>, String>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn pull_heads<'a>(&'a self, _repo: &'a TeamRepo) -> BoxFuture<'a, Result<Vec<String>, String>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
 }
 
 fn repo() -> TeamRepo {

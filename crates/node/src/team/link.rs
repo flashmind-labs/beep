@@ -58,6 +58,16 @@ pub(crate) trait TeamForge: Send + Sync + 'static {
         &'a self,
         repo: &'a TeamRepo,
     ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>>;
+
+    /// `repo`'s open issues assigned to `login`, every page.
+    fn assigned_issues<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        login: &'a ForgeLogin,
+    ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>>;
+
+    /// The branches of `repo`'s pull requests open or closed lately.
+    fn pull_heads<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<Vec<String>, String>>;
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -632,6 +632,7 @@ impl Peers {
             self.inner.endpoint.id(),
             self.inner.team.clone(),
             offers.clone(),
+            self.inner.dir.clone(),
         );
         let search = crate::agents::follow_search(
             active.mesh.clone(),
