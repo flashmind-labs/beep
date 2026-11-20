@@ -653,6 +653,32 @@ async fn a_refused_start_makes_no_branch() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn a_start_git_sync_holds_back_makes_no_worktree() {
+    let (_dir, work) = checkout::tests::repo("held");
+    let kind = sh_agent("codex", "cat > /dev/null");
+    let agents = Arc::new(Agents::new(vec![kind.clone()]));
+    let _hold = agents.reserve_repository(&work).await.unwrap();
+    let plan = CheckoutPlan::NamedWorktree {
+        base: None,
+        branch: "issue-7-fix".to_owned(),
+    };
+    let begin = Begin {
+        prompt: Some("Work on issue #7".into()),
+        ..Begin::default()
+    };
+    let refused = agents
+        .start_in(&kind, work.to_str(), Some(plan), begin)
+        .await
+        .err();
+
+    assert!(refused.is_some_and(|e| e.to_string().contains("preserving local edits")));
+    let trees = checkout::tests::run(&work, &["worktree", "list", "--porcelain"]);
+    assert_eq!(trees.matches("worktree ").count(), 1);
+    assert!(checkout::tests::run(&work, &["branch", "--list", "issue-7*"]).is_empty());
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn a_session_resumes_only_on_its_own_agent() {
     let kind = |name: &str| sh_agent(name, "cat > /dev/null");
     let (claude, codex) = (kind("claude"), kind("codex"));
