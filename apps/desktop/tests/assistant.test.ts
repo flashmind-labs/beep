@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentSession } from "../src/agents/agents.ts";
-import { assistantHost, assistantRows, isAssistant, resolveAssistant } from "../src/agents/assistant-state.ts";
+import { HERMES_AGENT, HIDDEN_AGENTS, HermesUnreachable, assistantHost, assistantRows, hermesMachine, isAssistant, resolveAssistant, resolveHarness, visibleAgents } from "../src/agents/assistant-state.ts";
 
 const HOME = "/home/user";
 
@@ -29,7 +29,7 @@ test("the assistant list splits running from ended, the latest first, and leaves
 
 test("the assistant's harness is the one picked when offered, else the first offered", () => {
   const hosts = [{ machine_id: "build-box", agents: ["flsh", "codex"], assistant: true }, { machine_id: "mac", agents: ["pi"], assistant: true }];
-  const agent = (picked: string | null, on: typeof hosts) => resolveAssistant({ agent: picked, model: null, effort: null, fast: null }, on).agent;
+  const agent = (picked: string | null, on: typeof hosts) => resolveHarness({ agent: picked, model: null, effort: null, fast: null }, on).agent;
   assert.equal(agent("flsh", hosts), "flsh");
   assert.equal(agent(null, hosts), "codex");
   assert.equal(agent("gemini", hosts), "codex");
@@ -41,15 +41,35 @@ test("the assistant's harness is the one picked when offered, else the first off
 
 test("only machines whose node runs the assistant count for its harness and machine", () => {
   const hosts = [{ machine_id: "old-box", agents: ["codex"], assistant: false }, { machine_id: "mac", agents: ["pi"], assistant: true }];
-  assert.equal(resolveAssistant({ agent: "codex", model: "gpt-x", effort: null, fast: null }, hosts).agent, "pi");
+  assert.equal(resolveHarness({ agent: "codex", model: "gpt-x", effort: null, fast: null }, hosts).agent, "pi");
   assert.equal(assistantHost(hosts, "old-box", "codex"), null);
-  assert.equal(resolveAssistant({ agent: null, model: null, effort: null, fast: null }, [hosts[0]]).agent, null);
+  assert.equal(resolveHarness({ agent: null, model: null, effort: null, fast: null }, [hosts[0]]).agent, null);
 });
 
 test("the assistant setting resolves to a harness a machine offers, keeping a model only with its harness", () => {
   const codex = [{ agents: ["codex"], assistant: true }];
-  assert.deepEqual(resolveAssistant({ agent: null, model: "model-a", effort: "max", fast: null }, codex), { agent: "codex", model: null, effort: "max", fast: null });
-  assert.deepEqual(resolveAssistant({ agent: "flsh", model: "deepseek", effort: "high", fast: null }, codex), { agent: "codex", model: null, effort: "high", fast: null });
-  assert.deepEqual(resolveAssistant({ agent: "codex", model: "gpt-x", effort: "low", fast: null }, codex), { agent: "codex", model: "gpt-x", effort: "low", fast: null });
-  assert.deepEqual(resolveAssistant({ agent: null, model: null, effort: null, fast: null }, []), { agent: null, model: null, effort: null, fast: null });
+  assert.deepEqual(resolveHarness({ agent: null, model: "model-a", effort: "max", fast: null }, codex), { agent: "codex", model: null, effort: "max", fast: null });
+  assert.deepEqual(resolveHarness({ agent: "flsh", model: "deepseek", effort: "high", fast: null }, codex), { agent: "codex", model: null, effort: "high", fast: null });
+  assert.deepEqual(resolveHarness({ agent: "codex", model: "gpt-x", effort: "low", fast: null }, codex), { agent: "codex", model: "gpt-x", effort: "low", fast: null });
+  assert.deepEqual(resolveHarness({ agent: null, model: null, effort: null, fast: null }, []), { agent: null, model: null, effort: null, fast: null });
+});
+
+const hermes = { machine: "gpu-box", machine_name: "gpu-box", host: "127.0.0.1", port: 9119, last4: "a1b2" };
+
+test("no harness list shows the Hermes assistant's agent", () => {
+  assert.deepEqual(visibleAgents({ agents: ["claude", HERMES_AGENT, "codex"] }), ["claude", "codex"]);
+  assert.deepEqual(HIDDEN_AGENTS, [HERMES_AGENT]);
+});
+
+test("a Hermes connection stands in for the harness pick", () => {
+  const hosts = [{ agents: ["codex"], assistant: true }];
+  assert.deepEqual(resolveAssistant({ agent: "codex", model: "gpt-x", effort: "low", fast: null, hermes }, hosts), { kind: "hermes", hermes });
+  assert.deepEqual(resolveAssistant({ agent: "codex", model: "gpt-x", effort: "low", fast: null, hermes: null }, hosts), { kind: "harness", pick: { agent: "codex", model: "gpt-x", effort: "low", fast: null } });
+});
+
+test("Hermes starts only on its machine while that machine is online and offers it", () => {
+  const offering = { machine_id: "gpu-box", hermes: true };
+  assert.equal(hermesMachine(hermes, [{ machine_id: "build-box", hermes: true }, offering]), "gpu-box");
+  assert.throws(() => hermesMachine(hermes, [{ machine_id: "build-box", hermes: true }]), { message: "Hermes is not reachable on gpu-box." });
+  assert.throws(() => hermesMachine(hermes, [{ machine_id: "gpu-box", hermes: false }]), (e: unknown) => e instanceof HermesUnreachable && e.message === "Hermes is not reachable on gpu-box.");
 });

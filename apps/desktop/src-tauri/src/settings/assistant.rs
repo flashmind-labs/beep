@@ -7,9 +7,10 @@ use crate::{
         Machines,
         projects::{FleetState, desk},
     },
+    settings::credentials::CheckView,
 };
 use beep_fleet::HermesStatus;
-use beep_proto::{ApiError, CredentialCheck, SecretText, node::mesh_state::AssistantSettings};
+use beep_proto::{ApiError, SecretText, node::mesh_state::AssistantSettings};
 use serde::Serialize;
 
 /// The saved settings, and the Hermes connection beside them.
@@ -49,7 +50,7 @@ pub async fn hermes_connect(
     host: String,
     port: u16,
     token: String,
-) -> Result<CredentialCheck> {
+) -> Result<CheckView> {
     let machine = machines
         .member(&machine)
         .ok_or(DesktopError::Api(ApiError::NotFound {}))?;
@@ -57,7 +58,8 @@ pub async fn hermes_connect(
     Ok(desk(&fleet)
         .await?
         .connect_hermes(machine, &host, port, token)
-        .await?)
+        .await?
+        .into())
 }
 
 #[tauri::command]

@@ -7,6 +7,7 @@ import { AgentPicker, AgentPillContent, StepPicker } from "./agentpicker-view.ts
 import { type AgentModels, MODELS_KEPT_MS } from "./agentmodels.ts";
 import { keepEffort, modelLabel, modelSearch, pillDetail, searchedHarnesses, searchRows, type MachineRow, type PickRow } from "./agentpick.ts";
 import { invoke, logError } from "../ui/tauri.ts";
+import { HERMES_AGENT } from "./assistant-state.ts";
 
 // ----- Models -----
 
@@ -131,6 +132,11 @@ export interface PickerOpts {
 export function pillContent(agent: string, model: string, effort: string | null, machine: string | null) {
   const detail = pillDetail(modelLabel(knownModels(machine, agent), model), agent, effort);
   return <AgentPillContent agent={agent} detail={detail} />;
+}
+
+/// The pill of the assistant on Hermes, which picks its own model.
+export function hermesPill() {
+  return <AgentPillContent agent={HERMES_AGENT} detail="Hermes" />;
 }
 
 // The host's owner renders the picker; it must also clear it on close so

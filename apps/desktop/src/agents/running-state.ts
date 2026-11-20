@@ -37,7 +37,7 @@ export interface AgentQuestion {
   options: { id: string; name: string; allow: boolean }[];
 }
 
-const AGENTS: Record<string, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", pi: "pi", flsh: "flsh", opencode: "OpenCode", hermes: "Hermes" };
+const AGENTS: Record<string, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", pi: "pi", flsh: "flsh", opencode: "OpenCode", hermes: "Hermes", "hermes-gateway": "Hermes" };
 
 export function agentName(name: string | null | undefined) {
   return AGENTS[name ?? ""] || name || "Agent";

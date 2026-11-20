@@ -229,3 +229,50 @@ test("a chat started on the Assistant page stays on it while the list also has i
   await expect(page.locator(".asst-list")).toBeVisible();
   await expect(page.locator("#title")).toContainText("Assistant");
 });
+
+/// Hermes answers on build-box, reached there at its default port.
+const hermes = { machine: "build-box", machine_name: "build-box", host: "127.0.0.1", port: 9119, last4: "a1b2" };
+const firstStart = { center_home: { machines: [], projects: [], running: [], needs_you: [] }, found_projects: [] };
+const settings = { settings: { name: "build-box", version: "0.9.0", autostart: false, agent_notices: false, developer: false }, list_machines: [], list_credentials: [], list_github_accounts: [], skill_sync_get: true, project_sync_get: true };
+const begun = (page: Page) => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").map(call => call.args));
+
+test("with Hermes connected the assistant starts on Hermes's machine, whatever the harness pick", async ({ page }) => {
+  await openDesktop(page, false, { ...firstStart, ...kept, agent_hosts: [{ ...host, agents: ["codex", "hermes-gateway"] }], assistant_settings_get: { agent: "codex", model: "model-a", effort: "high", fast: null, hermes } });
+  const prompt = page.getByRole("textbox", { name: "Message for the assistant" });
+  await expect(page.locator(".painted-empty .pill .hermes-gateway")).toBeVisible();
+
+  await prompt.fill("hello");
+  await prompt.press("Enter");
+  await expect.poll(() => begun(page)).toEqual([
+    { machineId: "build-box", agent: "hermes-gateway", cwd: null, prompt: "hello", images: [], model: null, effort: null, fast: null, checkout: null, assistant: true, account: null },
+  ]);
+});
+
+test("Hermes on a machine that does not offer it fails with the way to its settings", async ({ page }) => {
+  await openDesktop(page, false, { ...firstStart, ...settings, agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null, hermes } });
+  const prompt = page.getByRole("textbox", { name: "Message for the assistant" });
+
+  await prompt.fill("hello");
+  await prompt.press("Enter");
+  await expect(page.getByText("Hermes is not reachable on build-box.")).toBeVisible();
+  expect(await begun(page)).toEqual([]);
+
+  await page.getByRole("button", { name: "Open Assistant settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Settings" }).getByText("Hermes on build-box · 127.0.0.1:9119 · token …a1b2")).toBeVisible();
+});
+
+test("Connect Hermes says why the dashboard refused", async ({ page }) => {
+  await openDesktop(page, false, {
+    ...settings, list_machines: [{ id: "build-box", name: "build-box", online: true, can_host: true, seen_at: 0, version: "0.9.0", env: null }],
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null, hermes: null },
+    hermes_connect: { state: "refused", machine: "build-box", message: "Hermes refused the token." },
+  });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
+
+  await dialog.getByRole("textbox", { name: "Token" }).fill("secret-token");
+  await dialog.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("Hermes refused the token.");
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "hermes_connect").map(call => call.args))).toEqual([{ machine: "build-box", host: "127.0.0.1", port: 9119, token: "secret-token" }]);
+});

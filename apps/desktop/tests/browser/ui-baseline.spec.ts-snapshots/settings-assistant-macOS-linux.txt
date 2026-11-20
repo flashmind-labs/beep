@@ -177,6 +177,7 @@ body.cbody
             span.tt "This computer"
           button.cc-si [data-goto="machines"]
             span.tt "Machines"
+            span.n "3"
           button.cc-si [data-goto="agents"]
             span.tt "Agent accounts"
           button.cc-si [aria-current="true" data-goto="assistant"]
@@ -245,3 +246,14 @@ body.cbody
                       button [data-age="high" type="button"] "High"
                       button [data-age="xhigh" type="button"] "Extra high"
                       button [data-age="max" type="button"] "Max"
+              div#hermesSetting.dtoggle
+                span
+                  b "Connect Hermes"
+                  small "Runs the assistant on a Hermes Agent instead"
+                  div.dhermes.dline.wrap
+                    select.hv-in [aria-label="Machine"] value="build-box"
+                      option [value="build-box"] "build-box"
+                    input.hv-in [aria-label="Host" autocomplete="off" placeholder="Host" spellcheck="false" value="127.0.0.1"] value="127.0.0.1"
+                    input.hv-in.port [aria-label="Port" autocomplete="off" inputmode="numeric" placeholder="Port" spellcheck="false" value="9119"] value="9119"
+                    input.hv-in [aria-label="Token" autocomplete="off" placeholder="Token" spellcheck="false" type="password" value] value=""
+                button.dbtn.pri [disabled type="button"] "Connect"

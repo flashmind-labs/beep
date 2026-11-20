@@ -31,6 +31,7 @@ import { openEditorKey } from "./session-head.tsx";
 import { sessionMenu } from "./sessionmenu.ts";
 import type { AgentQuestion } from "./running-state.ts";
 import { AGENT_ACTIVE, TAKEOVER } from "./sessionmenu-state.ts";
+import { HERMES_AGENT, visibleAgents } from "./assistant-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { jumpToStart, logJumpKey } from "./older.ts";
 import { jumpToLatest } from "./logview.tsx";
@@ -106,6 +107,15 @@ export interface AgentHost {
   capabilities: string[];
   /// Its node runs the home assistant: this computer's, or one new enough.
   assistant: boolean;
+  /// It offers the Home assistant on Hermes, which `agents` leaves out.
+  hermes: boolean;
+}
+
+/// The machines that run agents, online now, each without the agents no harness list shows.
+export async function readAgentHosts(): Promise<AgentHost[]> {
+  const hosts = await invoke<Omit<AgentHost, "hermes">[]>("agent_hosts");
+
+  return hosts.map(host => ({ ...host, agents: visibleAgents(host), hermes: host.agents.includes(HERMES_AGENT) }));
 }
 
 /// One line of a session's log. Only the agent's own and its thoughts
@@ -383,6 +393,7 @@ const AGENT_KINDS: Record<string, AgentKind> = {
   flsh: { ini: "FL", name: "flsh", cls: "flsh" },
   opencode: { ini: "OC", name: "OpenCode", cls: "opencode" },
   hermes: { ini: "HE", name: "Hermes", cls: "hermes" },
+  "hermes-gateway": { ini: "HE", name: "Hermes", cls: "hermes" },
 };
 /// Agents whose outside sessions a node can take over (the ones it reads sessions of).
 export const canTakeOver = (a: string) => TAKEOVER.has(a);
@@ -421,7 +432,7 @@ export async function loadAgentHosts() {
   hostChanges.read("");
 
   try {
-    AG.hosts = await invoke<AgentHost[]>("agent_hosts");
+    AG.hosts = await readAgentHosts();
     preloadModels(AG.hosts);
   } catch {
     AG.hosts = [];

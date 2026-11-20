@@ -5,7 +5,7 @@ import { refreshTopicSubscriptions, subscribeChanges, topic } from "../ui/mesh-e
 // composer, and the lists say "laptop to studio". The records are in the
 // mesh; the target says how far it is (`move-state.ts` holds the logic).
 
-import { type AgentHost, type AgentRow, AG } from "./agents.ts";
+import { type AgentHost, type AgentRow, AG, readAgentHosts } from "./agents.ts";
 import { agentKey } from "./conversation-state.ts";
 import { type MoveRecord, type MoveTarget, canMove, going, moveRows, targetNote } from "./move-state.ts";
 import { isStarting } from "./starting-state.ts";
@@ -120,7 +120,7 @@ async function targets(s: AgentRow): Promise<MoveTarget[]> {
   if (!project) return [];
   const [rows, hosts] = await Promise.all([
     invoke<ProjectMachineRow[] | null>("project_machines", { project }).catch(() => null),
-    invoke<AgentHost[]>("agent_hosts").catch(() => [] as AgentHost[]),
+    readAgentHosts().catch(() => [] as AgentHost[]),
   ]);
   AG.hosts ??= hosts;
   for (const m of rows ?? []) machineNames.set(m.id, m.name);
