@@ -10,18 +10,26 @@ const home = {
   needs_you: [],
 };
 
-test("a project card says what its sessions do, and a row opens its session", async ({ page }) => {
+test("the Projects page lists the active projects on top, and a row opens its session", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
-  const busy = page.locator(".pj-card", { hasText: "widget" }), quiet = page.locator(".pj-card", { hasText: "gadget" });
+  const boxes = page.locator(".bd-projects > div"), box = boxes.filter({ hasText: projectName });
 
-  await expect(busy.locator(".pj-work .cc-line")).toHaveCount(2);
-  await expect(busy).toContainText("Fix the login redirect");
-  await expect(busy).toContainText("Edit src/login.ts");
-  await expect(busy).toContainText("Done. Tests pass.");
-  await expect(quiet.locator(".pj-work")).toHaveCount(0);
+  // A project with nothing open has its card and no box.
+  await expect(boxes).toHaveCount(1);
+  await expect(box.locator(".cc-line")).toHaveCount(2);
+  await expect(box).toContainText("build-box · Edit src/login.ts");
+  await expect(box).toContainText("Done. Tests pass.");
+  await expect(page.locator(".pj-card")).toHaveCount(2);
+  await expect(page.locator(".pj-card .cc-line")).toHaveCount(0);
 
-  await busy.getByRole("button", { name: "Update the changelog" }).click();
+  // A search is for the cards.
+  await page.getByRole("searchbox", { name: "Search projects" }).fill("gadget");
+  await expect(boxes).toHaveCount(0);
+  await expect(page.locator(".pj-card")).toHaveCount(1);
+  await page.getByRole("searchbox", { name: "Search projects" }).fill("");
+
+  await box.getByRole("button", { name: "Update the changelog" }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_view").map(call => call.args.session))).toContain("two");
   await expect(page.locator(".pj-card")).toHaveCount(0);
 });
@@ -42,12 +50,10 @@ test("Home lists the open sessions of each project, and keeps the choice", async
   await expect(page.locator(".bd-projects > div")).toHaveCount(1);
   await expect(page.locator("#sec-running").getByText("Bump the parser")).toHaveCount(0);
 
-  // An idle session closes from its row.
+  // A row has no Close: its time stays in place.
   const idle = box.locator(".cc-line", { hasText: "Update the changelog" });
-  await expect(idle.getByRole("button", { name: "Close" })).toBeHidden();
   await idle.hover();
-  await idle.getByRole("button", { name: "Close" }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").map(call => call.args))).toContainEqual({ machineId: "build-box", agent: "codex", session: "two", steer: "close" });
+  await expect(idle.getByRole("button", { name: "Close" })).toHaveCount(0);
 
   await page.reload();
   await expect(page.locator(".bd-projects .cc-line").first()).toBeVisible();

@@ -70,6 +70,22 @@ export function RepoSection({ id, title, note, repos, sort, open }: { id: string
   </Fold>;
 }
 
+/// Open PRs and issues as a card per repository, packed into two columns: its name, counts
+/// and button, then its items, newest first by `sort`. A card with many scrolls them.
+export function RepoCards({ repos, sort, open }: { repos: RepoLine[]; sort: GitSort; open(url: string): void }) {
+  return <div className="bd-projects">{repos.map(repo => {
+    const items = sort === "default" ? repo.items : [...repo.items].sort((a, b) => itemTime(sort, b) - itemTime(sort, a));
+
+    return <section className="cc-panel pl" key={repo.key}>
+      <div className="pl-row repo">
+        <span className="t"><b title={repo.name}>{repo.name}</b><span className="dim">{repo.failed ?? counts(repo.items)}</span></span>
+        <span className="r"><span className="age">{formatAgo(repo.last, "short")}</span><span className="acts"><Button {...repo.action.windowProps?.clicks} {...repo.action.windowProps?.menu} look={repo.action.primary ? "primary" : "secondary"} small disabled={repo.action.disabled} onClick={repo.action.run}>{repo.action.label}</Button></span></span>
+      </div>
+      <div className="pl-body">{items.map(item => <ItemLine key={item.url} item={item} repo={null} at={itemTime(sort, item)} start={repo.start} open={open} />)}</div>
+    </section>;
+  })}</div>;
+}
+
 export function FoundSection({ rows, importing, error, importOne, add }: { rows: FoundRow[]; importing: string | null; error: { name: string; message: string } | null; importOne(row: FoundRow): void; add(): void }) {
   return <Fold id="section:found" title="Found on your machines" count={plural(rows.length, "folder", "folders")} note="not projects yet">
     {rows.slice(0, FOUND_SHOWN).map(row => <div key={row.name}>

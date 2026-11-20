@@ -163,7 +163,6 @@ body.cbody
                         i.nt-md.rail-reply "Done. The changelog lists ."
                           code "0.9.0"
                     span.r "20m ago"
-                      button.bd-close.dbtn.quiet.small [type="button"] "Close"
               div
                 div.cc-sec
                   h4
@@ -180,7 +179,6 @@ body.cbody
                         i.nt-md.rail-reply "Done. The changelog lists ."
                           code "0.9.0"
                     span.r "10m ago"
-                      button.bd-close.dbtn.quiet.small [type="button"] "Close"
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
         div.asst-list.pj-list [hidden]

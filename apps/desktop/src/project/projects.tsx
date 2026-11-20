@@ -6,7 +6,7 @@ import { ProjectFallback } from "./split-view.tsx";
 import { moveStore } from "../agents/move-store.ts";
 // The Projects page's overview: the list, groups and cards of every
 // project, and a picked project's detail sections.
-import { sessionVisible, visibleRunning } from "../agents/closing.ts";
+import { sessionVisible } from "../agents/closing.ts";
 import { formatAgo, plural } from "../ui/format.ts";
 import { projectRunning, whereRows, whereCount, syncedBy, type Project, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { projectActivity, projectSortTime, overviewGroups, type ProjectSort } from "./overview-state.ts";
@@ -25,7 +25,9 @@ import { drawProjectComp, fillBar } from "./composer.tsx";
 import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsList } from "./loads.tsx";
 import { terminalNote, terminalWhere } from "../terminals/terminals.tsx";
 import { go } from "../center/views.tsx";
-import { byRecent, projectOf, type RunningAgent } from "../agents/running-state.ts";
+import { OpenProjects } from "../center/home-overview.tsx";
+import { homeForDisplay } from "../center/home-state.ts";
+import { type RunningAgent } from "../agents/running-state.ts";
 
 /// Every project as a card, grouped by org: its agents, when it was last
 /// active and where it lives. It stays in one host while the
@@ -44,30 +46,12 @@ export function overviewSection(listed: Project[]): PagePart[] {
   // A card shows when something last happened, as Recent activity sorts it.
   const rows = listed.map(p => ({ ...p, last: projectActivity(p, state.sessions.get(p.name), null) || null }));
   const groups = overviewGroups(rows, state.top, state.groups, overviewOrder(rows));
-  const work = runningByProject();
   overviewHost ??= retainedHost(null);
-  showWindowParts([{ part: "project-overview", host: overviewHost, content: <ProjectsOverview groups={groups} work={(name: string) => work.get(name) ?? NO_WORK} editing={state.renaming} sort={projectSort} changeSort={changeSort}
+  showWindowParts([{ part: "project-overview", host: overviewHost, content: <ProjectsOverview groups={groups} active={state.home ? <OpenProjects home={homeForDisplay(state.home)} /> : null} editing={state.renaming} sort={projectSort} changeSort={changeSort}
     sync={(name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name))} add={addProject}
   /> }]);
   return [hostPart(overviewHost)];
 }
-
-/// The running sessions of each project, the latest first, as Home places them.
-function runningByProject() {
-  const work = new Map<string, RunningAgent[]>();
-
-  for (const row of byRecent(visibleRunning(state.home?.running))) {
-    const project = projectOf(row, state.home?.projects || [])?.name;
-    if (!project) continue;
-    const rows = work.get(project);
-    if (rows) rows.push(row);
-    else work.set(project, [row]);
-  }
-
-  return work;
-}
-
-const NO_WORK: readonly RunningAgent[] = [];
 
 let projectSort = readProjectSort("projects");
 

@@ -317,13 +317,13 @@ test("home PRs and issues sorted", async ({ page }) => {
   };
   await openDesktop(page, false, { center_home: home, git_items: { items, hosts: [] } });
   await page.getByRole("tab", { name: /PRs and issues/ }).click();
-  await expect(page.locator("#sec-git .pl-row.repo")).toHaveCount(6);
+  await expect(page.locator("#sec-git .pl-row.repo")).toHaveCount(4);
+  // The sort orders the cards, then each card's items.
   await sortBy("Recent activity");
-  await expect(page.locator("#sec-git .pl-row.repo")).toHaveCount(0);
-  await expect(page.locator("#sec-git .pl-row.it.flat .num")).toHaveText(["#412", "#398", "#88", "#31", "#85", "#14", "#377", "#12"]);
+  await expect(page.locator("#sec-git .pl-row.it .num")).toHaveText(["#412", "#398", "#377", "#88", "#85", "#31", "#14", "#12"]);
   await baseline(page, "home-git-activity");
   await sortBy("Newest");
-  await expect(page.locator("#sec-git .pl-row.it.flat .num")).toHaveText(["#31", "#85", "#88", "#398", "#412", "#12", "#14", "#377"]);
+  await expect(page.locator("#sec-git .pl-row.it .num")).toHaveText(["#12", "#14", "#31", "#85", "#88", "#377", "#398", "#412"]);
 });
 
 test("sidebar groups folded and collapsed", async ({ page }) => {

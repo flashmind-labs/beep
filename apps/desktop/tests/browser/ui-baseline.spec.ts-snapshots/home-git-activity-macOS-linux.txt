@@ -126,95 +126,118 @@ body.cbody
             button [aria-selected="false" role="tab" type="button"] "Machines"
           div#sec-git.cc-git
             div.home-sort
+              div.hv-seg [aria-label="Period" aria-orientation="horizontal" data-orientation="horizontal" data-rac role="radiogroup"]
+                button.react-aria-ToggleButton [aria-checked="true" data-rac data-react-aria-pressable="true" data-selected="true" role="radio" tabindex="0" type="button"] "All"
+                button.react-aria-ToggleButton [aria-checked="false" data-rac data-react-aria-pressable="true" role="radio" tabindex="0" type="button"] "This week"
+                button.react-aria-ToggleButton [aria-checked="false" data-rac data-react-aria-pressable="true" role="radio" tabindex="0" type="button"] "Today"
+              span.sp
               button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort PRs and issues Recent activity" data-focused="true" data-rac data-react-aria-pressable="true" tabindex="0" type="button"] (focused)
                 svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                 span "Recent activity"
                 svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
-            div.cc-cols
+            div.bd-projects
               section.cc-panel.pl
-                button.pl-head [aria-expanded="true" type="button"]
-                  span.twist
-                    svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
-                  span.lbl "Pull requests"
-                  span.n "3 repos · 5 open"
+                div.pl-row.repo
+                  span.t
+                    b [title="agent/plugins"] "agent/plugins"
+                    span.dim "2 PRs · 1 issue"
+                  span.r
+                    span.age "3 h"
+                    span.acts
+                      button.dbtn.small [type="button"] "Import project"
                 div.pl-body
-                  div.flat.it.pl-row
+                  div.it.pl-row
                     span.ic
                       svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                     button.t [title="https://example.test/agent/plugins/412" type="button"]
-                      span.dim "agent/plugins"
                       span.num "# 412"
                       b "feat: add background and foreground task switch"
                       i.pj-tag "plugins"
                     span.r
                       span.age "3 h"
-                  div.flat.it.pl-row
+                  div.it.pl-row
                     span.ic
                       svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                     button.t [title="https://example.test/agent/plugins/398" type="button"]
-                      span.dim "agent/plugins"
                       span.num "# 398"
                       b "fix: keep a session's model when it resumes"
                     span.r
                       span.bad.chip "checks failing"
                       span.age "1 d"
-                  div.flat.it.pl-row
+                  div.it.pl-row
+                    span.ic
+                      svg [fill="none" height="13" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                    button.t [title="https://example.test/agent/plugins/377" type="button"]
+                      span.num "# 377"
+                      b "Tool calls should be shown in one place"
+                    span.r
+                      span.age "4 d"
+              section.cc-panel.pl
+                div.pl-row.repo
+                  span.t
+                    b [title="docs/handbook"] "docs/handbook"
+                    span.dim "2 PRs"
+                  span.r
+                    span.age "1 d"
+                    span.acts
+                      button.dbtn.small [type="button"] "Import project"
+                div.pl-body
+                  div.it.pl-row
                     span.ic
                       svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                     button.t [title="https://example.test/docs/handbook/88" type="button"]
-                      span.dim "docs/handbook"
                       span.num "# 88"
                       b "docs: a shorter README and a manual"
                     span.r
                       span.age "1 d"
-                  div.flat.it.pl-row
-                    span.ic
-                      svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                    button.t [title="https://example.test/cli/runner/31" type="button"]
-                      span.dim "cli/runner"
-                      span.num "# 31"
-                      b "fix: timeouts other than the default are honoured"
-                    span.r
-                      span.age "2 d"
-                  div.flat.it.pl-row
+                  div.it.pl-row
                     span.ic
                       svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                     button.t [title="https://example.test/docs/handbook/85" type="button"]
-                      span.dim "docs/handbook"
                       span.num "# 85"
                       b "docs: sync, explained in one page"
                     span.r
                       span.age "2 d"
               section.cc-panel.pl
-                button.pl-head [aria-expanded="true" type="button"]
-                  span.twist
-                    svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
-                  span.lbl "Issues"
-                  span.n "3 repos · 3 open"
+                div.pl-row.repo
+                  span.t
+                    b [title="cli/runner"] "cli/runner"
+                    span.dim "1 PR · 1 issue"
+                  span.r
+                    span.age "2 d"
+                    span.acts
+                      button.dbtn.small [type="button"] "Import project"
                 div.pl-body
-                  div.flat.it.pl-row
+                  div.it.pl-row
+                    span.ic
+                      svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                    button.t [title="https://example.test/cli/runner/31" type="button"]
+                      span.num "# 31"
+                      b "fix: timeouts other than the default are honoured"
+                    span.r
+                      span.age "2 d"
+                  div.it.pl-row
                     span.ic
                       svg [fill="none" height="13" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                     button.t [title="https://example.test/cli/runner/14" type="button"]
-                      span.dim "cli/runner"
                       span.num "# 14"
                       b "Exit code is lost in a pipe"
                     span.r
                       span.age "3 d"
-                  div.flat.it.pl-row
-                    span.ic
-                      svg [fill="none" height="13" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                    button.t [title="https://example.test/agent/plugins/377" type="button"]
-                      span.dim "agent/plugins"
-                      span.num "# 377"
-                      b "Tool calls should be shown in one place"
-                    span.r
-                      span.age "4 d"
-                  div.flat.it.pl-row
+              section.cc-panel.pl
+                div.pl-row.repo
+                  span.t
+                    b [title="lib/parser"] "lib/parser"
+                    span.dim "1 issue"
+                  span.r
+                    span.age "7 d"
+                    span.acts
+                      button.dbtn.small [type="button"] "Import project"
+                div.pl-body
+                  div.it.pl-row
                     span.ic
                       svg [fill="none" height="13" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                     button.t [title="https://example.test/lib/parser/12" type="button"]
-                      span.dim "lib/parser"
                       span.num "# 12"
                       b "Tables break on nested pipes"
                     span.r

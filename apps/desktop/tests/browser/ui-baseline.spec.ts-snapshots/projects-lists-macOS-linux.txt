@@ -199,6 +199,37 @@ body.cbody
                 svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                 span "Default"
                 svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
+            div.bd-projects
+              div
+                div.cc-sec
+                  h4
+                    button.dbtn.quiet.small [type="button"] "example/widget"
+                      span.pj-swatch style(--c)
+                    span.n "1"
+                div.cc-panel
+                  div.cc-line.cc-row
+                    span.cc-ag.codex.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    button.t [title="Fix the login redirect" type="button"]
+                      b "Fix the login redirect"
+                      span "build-box · cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
+                    span.r
+                      span.cc-running "now"
+                        span.drun [aria-label="Working" role="img"]
+              div
+                div.cc-sec
+                  h4
+                    button.dbtn.quiet.small [type="button"] "example/gadget"
+                      span.pj-swatch style(--c)
+                    span.n "1"
+                div.cc-panel
+                  div.cc-line.cc-row
+                    span.cc-ag.codex.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    button.t [title="Update the changelog" type="button"]
+                      b "Update the changelog"
+                      span "build-box"
+                    span.r "10m ago"
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
               h3
                 button.pj-fold [aria-expanded="true" type="button"]
@@ -215,16 +246,6 @@ body.cbody
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
                     small.run "1 agent"
                       i
-                  div.pj-work
-                    div.cc-line.cc-row [data-key="agent:build-box:notice-one"]
-                      span.cc-ag.codex.mark
-                        svg [aria-hidden="true" viewBox="0 0 24 24"]
-                      button.t [title="Fix the login redirect" type="button"]
-                        b "Fix the login redirect"
-                        span "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
-                      span.r
-                        span.cc-running "now"
-                          span.drun [aria-label="Working" role="img"]
                   div.f
                     span.ago "just now"
                     span.at [title="build-box"] "build-box"
@@ -236,14 +257,6 @@ body.cbody
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
                     small.run "1 agent"
                       i
-                  div.pj-work
-                    div.cc-line.cc-row [data-key="agent:build-box:notice-two"]
-                      span.cc-ag.codex.mark
-                        svg [aria-hidden="true" viewBox="0 0 24 24"]
-                      button.t [title="Update the changelog" type="button"]
-                        b "Update the changelog"
-                        span
-                      span.r "10m ago"
                   div.f
                     span.ago "10 min ago"
                     span.at [title="build-box"] "build-box"

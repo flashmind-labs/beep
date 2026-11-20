@@ -51,21 +51,58 @@ test("Git issue list loads more rows while scrolling", async ({ page }) => {
   }).toBe(1);
 });
 
-test("Home lists pull requests and issues by repository, unfolded, with their buttons under the pointer", async ({ page }) => {
-  const item = (number: number, kind: string) => ({ host: "example.test", repo: "example/widget", number, title: `Change ${number}`, kind, url: `https://example.test/org/repo/${number}`, updated_at: 1, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: ["bug"] });
-  await openDesktop(page, false, { git_items: { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items: [item(1, "pull_request"), item(2, "issue"), item(3, "issue")] }, agent_hosts: [] });
+test("Home lists pull requests and issues as a card per repository, with their buttons under the pointer", async ({ page }) => {
+  const item = (number: number, kind: string, repo = "example/widget") => ({ host: "example.test", repo, number, title: `Change ${number}`, kind, url: `https://example.test/${repo}/${number}`, updated_at: number, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: ["bug"] });
+  const many = Array.from({ length: 12 }, (_, index) => item(10 + index, "issue", "other/long"));
+  await openDesktop(page, false, { git_items: { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items: [item(1, "pull_request"), item(2, "issue"), item(3, "issue"), ...many] }, agent_hosts: [] });
   await page.getByRole("tab", { name: "PRs and issues" }).click();
-  const pulls = page.locator("#sec-git .cc-cols > .pl").first(), issues = page.locator("#sec-git .cc-cols > .pl").nth(1);
-  await expect(pulls.locator(".pl-head")).toContainText("Pull requests");
-  await expect(pulls.locator(".it")).toHaveCount(1);
-  await expect(issues.locator(".pl-head")).toContainText("1 repo · 2 open");
-  await expect(issues.locator(".it")).toHaveCount(2);
-  const row = pulls.locator(".it"), review = row.getByRole("button", { name: "Review", exact: true });
+  const cards = page.locator("#sec-git .bd-projects > .pl"), card = cards.filter({ hasText: "example/widget" });
+  await expect(cards).toHaveCount(2);
+  await expect(card.locator(".pl-row.repo")).toContainText("1 PR · 2 issues");
+  await expect(card.locator(".it")).toHaveCount(3);
+
+  const row = card.locator(".it", { hasText: "Change 1" }), review = row.getByRole("button", { name: "Review", exact: true });
   await expect(review).toHaveCount(0);
   await row.hover();
   await expect(review).toBeVisible();
-  await issues.getByRole("button", { name: /example\/widget/ }).click();
-  await expect(issues.locator(".it")).toHaveCount(0);
+
+  // A card with many items keeps its height and scrolls them.
+  const long = cards.filter({ hasText: "other/long" }).locator(".pl-body");
+  await expect(long.locator(".it")).toHaveCount(12);
+  expect(await long.evaluate(body => body.scrollHeight > body.clientHeight)).toBe(true);
+});
+
+test("Home keeps pull requests and issues to this week or one day, a day back at a time", async ({ page }) => {
+  // A Thursday at noon: Monday of its week is three days back.
+  const now = new Date(2026, 0, 15, 12).getTime(), hour = 3_600_000;
+  await page.clock.setFixedTime(now);
+  const item = (number: number, ago: number) => ({ host: "example.test", repo: "example/widget", number, title: `Change ${number}`, kind: "issue", url: `https://example.test/example/widget/${number}`, updated_at: now - ago, authored: true, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [] });
+  await openDesktop(page, false, { git_items: { hosts: [], items: [item(1, hour), item(2, 26 * hour), item(3, 72 * hour), item(4, 240 * hour)] }, agent_hosts: [] });
+  await page.getByRole("tab", { name: "PRs and issues" }).click();
+  const rows = page.locator("#sec-git .it"), period = (name: string | RegExp) => page.getByRole("radio", { name });
+  await expect(rows).toHaveCount(4);
+
+  await period("This week").click();
+  await expect(rows).toHaveCount(3);
+
+  await period("Today").click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText("Change 1");
+  await expect(page.getByRole("button", { name: "Next day" })).toBeDisabled();
+
+  await page.getByRole("button", { name: "Previous day" }).click();
+  await expect(period("Yesterday")).toHaveAttribute("aria-checked", "true");
+  await expect(rows).toContainText("Change 2");
+
+  await page.getByRole("button", { name: "Previous day" }).click();
+  await expect(period(/Jan 13/)).toHaveAttribute("aria-checked", "true");
+  await expect(rows).toHaveCount(0);
+  await expect(page.locator("#sec-git")).toContainText("No pull request or issue changed in that time.");
+
+  await page.getByRole("button", { name: "Next day" }).click();
+  await expect(rows).toContainText("Change 2");
+  await period("All").click();
+  await expect(rows).toHaveCount(4);
 });
 
 test("Machines retains a focused terminal action when another machine changes", async ({ page }) => {

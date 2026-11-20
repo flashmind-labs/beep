@@ -43,8 +43,6 @@ html:where(:has(> body.cbody)), body.cbody { background: var(--ink) }
 .cc-sec h4 { margin: 0 }
 .cc-sec small { font-size: 11.5px; color: var(--muted) }
 .cc-panel { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); min-width: 0 }
-.cc-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start }
-.cc-cols > .pl { margin-top: 0 }
 /* Overview boxes and Projects' owners: as many columns as fit, one when narrow. */
 .cc-sec h4 .lk { all: unset; cursor: default }
 .cc-sec h4 .lk:hover { color: var(--fg) }
@@ -92,9 +90,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-comp .in { flex: 1; min-width: 0; font-size: 14px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-comp .in .ph { color: var(--dim) }
 .cc-comp .in .caret { height: 15px }
-@container (max-width: 520px) {
-  .cc-cols { grid-template-columns: minmax(0, 1fr) }
-}
 .cc-view > * { flex: none }
 .cc-comp .cc-err { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-row.bare { grid-template-columns: minmax(0, 1fr) auto }
@@ -547,7 +542,7 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 /* A right-click menu, and the group sheet's folders. */
 .gp-path { display: flex; gap: 8px; align-items: center; padding: 6px 0; font-size: 12.5px; font-family: var(--mono); border-top: 1px solid var(--border) }
 .gp-path span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 8px; align-items: start }
+.pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: 8px }
 .pj-grid > * { min-width: 0 }
 .pj-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; padding: 9px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 3%, transparent); text-align: left; font-size: 12.5px; color: var(--fg); cursor: default }
 .pj-card:hover { border-color: color-mix(in srgb, var(--fg) 18%, transparent) }
@@ -568,10 +563,6 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .pj-card .pa { display: grid; padding: 2px; border: 0; background: transparent; color: var(--dim) }
 .pj-card .pa:hover, .pj-card .pa.on { color: var(--hot) }
 .pj-card .pa svg { width: 13px; height: 13px }
-/* The card's running sessions: what each does, and a row opens its session. */
-.pj-work { display: grid; margin: 0 -6px }
-.pj-work .cc-row { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; padding: 4px 6px; border-top: 0; border-radius: var(--radius-sm) }
-.pj-work .cc-ag { width: 18px; height: 18px; font-size: 8px }
 .pj-add { grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 14px }
 
 /* Instructions: an editor over saved versions, the agent files on each
@@ -1138,7 +1129,12 @@ html[data-move=next]::view-transition-new(page) { animation: .2s cubic-bezier(.2
 @keyframes move-in-up { from { transform: translateY(40px); opacity: 0 } }
 @keyframes move-out-up { to { transform: translateY(-40px); opacity: 0 } }
 
-.home-sort { display: flex; justify-content: flex-end; flex: none }
-/* Home's sessions as rows under their projects, packed into two columns where they fit. */
+.home-sort { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex: none }
+.home-sort .sp { flex: 1 }
+/* Home's boxes, a project's sessions or a repository's open items, packed into two columns where they fit. */
 .bd-projects { columns: 2 420px; column-gap: 12px }
-.bd-projects > div { break-inside: avoid; margin-bottom: 18px }
+.bd-projects > * { break-inside: avoid; margin: 0 0 18px }
+.bd-projects > .pl { margin-bottom: 12px }
+.bd-projects .pl > .pl-row { margin: 6px 6px 0 }
+/* A repository's card shows six of its items and part of the next, and scrolls the rest. */
+.bd-projects .pl-body { max-height: 196px; overflow-y: auto }

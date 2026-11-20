@@ -16,8 +16,8 @@ test("pin and activity updates are shown on the corresponding project cards", ()
   const open = () => {}, pin = () => {}, none = () => {};
   const windowProps = { clicks: { onClickCapture: none, onAuxClick: none, onMouseEnter: none, onMouseLeave: none }, menu: { onContextMenu: none } };
   const render = (first: typeof base, second: typeof base) => flushSync(() => root.render(createElement("div", null,
-    createElement(OverviewCardView, { model: first, work: null, open, pin, windowProps }),
-    createElement(OverviewCardView, { model: second, work: null, open, pin, windowProps }))));
+    createElement(OverviewCardView, { model: first, open, pin, windowProps }),
+    createElement(OverviewCardView, { model: second, open, pin, windowProps }))));
   try {
     render(base, other);
     const firstCard = () => host.querySelector('[role="button"][title="first"]');

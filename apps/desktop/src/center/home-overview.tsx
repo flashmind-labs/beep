@@ -102,10 +102,10 @@ function runningCards(home: HomeView, assistants: ReadonlySet<string>, grouped: 
     const line = runningLineAt(row, projects), work = grouped ? workLine(row) : "";
     const title = line.title, sub = !grouped ? line.sub : work ? <>{row.machine_name} · {work}</> : row.machine_name;
     const status = runningStatus(row, home, !grouped), lane = laneOf(row.status), project = sessionProject(row, home);
-    // A finished turn can be closed from its card, so Ready to review empties.
+    // A finished turn can be closed from its lane's card, so Ready to review empties.
     const close = () => { closeSession(row).catch(error => console.warn("close:", error)); };
     return { key: runningKey(row), lane, project, color: projectColor(project), session: true, lead: <HarnessIcon agent={row.agent} />,
-      title, sub, foot: status.foot, action: lane === "review" ? { kind: "close", run: close } as const : null, dim: status.waiting, hint: status.why,
+      title, sub, foot: status.foot, action: lane === "review" && !grouped ? { kind: "close", run: close } as const : null, dim: status.waiting, hint: status.why,
       open: () => go("pane", { agent: row }),
       menu: event => { void sessionMenu(event, row, s => go("pane", { agent: s })); } };
   });
@@ -165,6 +165,14 @@ export function HomeOverview({ home }: { home: HomeView }) {
     {!!lanes.length && <div id="sec-running">{grouped ? <ByProject cards={lanes}/> : <Board cards={lanes} lanes={QUEUED_LANES} spread more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/>}</div>}
     {!queue.length && !lanes.length && <Empty home={home} />}
   </>;
+}
+
+/// Every project with open sessions as Home lists them, for the Projects page; null when
+/// nothing is open.
+export function OpenProjects({ home }: { home: HomeView }) {
+  const assistants = new Set(sessions.filter(isAssistant).map(runningKey));
+  const cards = runningCards(home, assistants, true);
+  return cards.length ? <ByProject cards={cards}/> : null;
 }
 
 /// The open sessions as rows under their projects, in two columns: a project by its latest
