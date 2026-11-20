@@ -4,7 +4,7 @@
 //! a collaborator, deletes the ref and answers `Roster` or `Refused`.
 
 use super::{
-    link::{TeamError, TeamLink},
+    link::{TeamError, TeamLink, finish},
     proof::{Nonce, ProofError, drop_proof, proof_seen, push_proof},
     roster::{record, was_removed},
 };
@@ -145,7 +145,7 @@ impl TeamLink {
         };
 
         tx.send(&answer).await?;
-        tx.finish().await?;
+        finish(tx).await?;
         Ok(())
     }
 
@@ -225,9 +225,8 @@ impl TeamLink {
             devices: join.devices.clone(),
             joined_at: SystemTime::now(),
         };
-        let changed = self.with(|teams| teams.rosters.admit(repo, member));
-
-        Ok(changed.unwrap_or(team))
+        self.with(|teams| teams.rosters.admit(repo, member))
+            .ok_or_else(|| format!("The team for {repo} is gone from this device"))
     }
 }
 

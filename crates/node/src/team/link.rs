@@ -168,7 +168,7 @@ impl TeamLink {
                 let sent = async {
                     let (mut tx, _rx) = link.dial(&member.devices).await?;
                     tx.send(&roster).await?;
-                    tx.finish().await?;
+                    finish(tx).await?;
                     Ok::<_, TeamError>(())
                 };
 
@@ -212,7 +212,7 @@ impl TeamLink {
                 if let Some(refused) = self.invited(peer, repo, ticket) {
                     tx.send(&refused).await?;
                 }
-                tx.finish().await?;
+                finish(tx).await?;
                 Ok(())
             }
             Some(first) if self.with(|teams| teams.rosters.knows(peer)) => {
@@ -242,7 +242,7 @@ impl TeamLink {
             next = rx.recv().await?;
         }
 
-        tx.finish().await?;
+        finish(tx).await?;
         Ok(())
     }
 
@@ -293,6 +293,16 @@ impl TeamLink {
             }),
         }
     }
+}
+
+/// Finishes `tx` once the peer read it, or after `READ`: a peer that holds
+/// the link without reading does not hold this side with it.
+pub(super) async fn finish(tx: LinkTx) -> Result<(), TeamError> {
+    timeout(READ, tx.finish())
+        .await
+        .map_err(|_| TeamError::Refused("the peer stopped reading".to_owned()))??;
+
+    Ok(())
 }
 
 /// Serves `beep-team/1`.
