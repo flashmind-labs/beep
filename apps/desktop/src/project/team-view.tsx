@@ -453,6 +453,8 @@ function Invite({ project, repo, members }: { project: string; repo: string; mem
     invoke("team_invite_contact", { projectId: localProjectId(project), contact: contact.mesh })
       .then(() => setSent({ kind: "sent", login }), error => setSent({ kind: "failed", message: reason(error) }));
   };
+  const remove = (contact: Contact, login: string) => confirmSheet({ title: `Remove ${login}?`, text: `${login} is taken off every team you share, and their agents can no longer message yours.`, action: "Remove",
+    run: async () => { await invoke("contact_remove", { contact: contact.mesh }); setContacts(now => now.filter(each => each.mesh !== contact.mesh)); } });
 
   if (!code && !others.length) return null;
 
@@ -462,9 +464,11 @@ function Invite({ project, repo, members }: { project: string; repo: string; mem
         <div className="tm-code"><span>{code.code}</span><CopyButton text={code.code} small/></div>
         <div className="tm-note">{codeLife(code.at)}</div></>}
       {!!others.length && <><div className="tm-note">Or invite a contact:</div>
-        <div className="am-line">{others.map(contact => {
+        <div className="tm-contacts">{others.map(contact => {
           const login = contact.logins[0]?.login ?? contact.mesh;
-          return <Button key={contact.mesh} small disabled={sent.kind === "sending"} onClick={() => send(contact, login)}>{login}</Button>;
+          return <LineRow key={contact.mesh} dataKey={`contact:${login}`} lead={null} title={login} sub={contact.logins.map(each => repoPath(each.repo)).join(", ")} onOpen={() => {}}
+            right={<><Button small look="quiet" className="tm-remove" onClick={event => { event.stopPropagation(); remove(contact, login); }}>Remove</Button>
+              <Button small disabled={sent.kind === "sending"} onClick={event => { event.stopPropagation(); send(contact, login); }}>Invite</Button></>}/>;
         })}</div>
         {sent.kind === "sent" && <div className="tm-note">Invited {sent.login}.</div>}
         {sent.kind === "failed" && <div className="am-msg bad">{sent.message}</div>}</>}

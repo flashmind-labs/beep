@@ -273,7 +273,10 @@ async fn roster_from_node_is_written_once() {
         devices: vec![iroh::EndpointAddr::new(SecretKey::generate().public())],
         joined_at: SystemTime::UNIX_EPOCH,
     };
-    let mut team = TeamRecord::new(repo(), vec![member("dana")]);
+    // This mesh's own entry: a record without it is a team that removed it.
+    let mut dana = member("dana");
+    dana.mesh = mesh.id();
+    let mut team = TeamRecord::new(repo(), vec![dana]);
     team.pickup = false;
     let key = Key::Team(repo());
     mesh.set(key.clone(), Some(team.to_bytes().unwrap()))

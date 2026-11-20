@@ -251,6 +251,14 @@ pub async fn contacts(fleet: FleetState<'_>) -> Result<Vec<ContactView>> {
     Ok(desk.contacts().into_iter().map(ContactView::from).collect())
 }
 
+/// Removes a contact from every team shared with them, and forgets them.
+#[tauri::command]
+pub async fn contact_remove(fleet: FleetState<'_>, contact: String) -> Result<()> {
+    let desk = desk(&fleet).await?;
+
+    Ok(desk.remove_contact(parse(&contact)?).await?)
+}
+
 /// Assigns `logins` to issue `number`; none assigns the user.
 #[tauri::command]
 pub async fn issue_assign(
@@ -337,3 +345,7 @@ fn parse<T: FromStr<Err: std::fmt::Display>>(text: &str) -> Result<T> {
     text.parse()
         .map_err(|e: T::Err| DesktopError::BadRequest(e.to_string()))
 }
+
+#[cfg(test)]
+#[path = "../tests/projects_team.rs"]
+mod tests;

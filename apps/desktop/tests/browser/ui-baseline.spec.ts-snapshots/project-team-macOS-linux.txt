@@ -270,8 +270,14 @@ body.cbody
                   h4 "Invite"
                 div.tm-invite
                   div.tm-note "Or invite a contact:"
-                  div.am-line
-                    button.dbtn.small [type="button"] "ana"
+                  div.tm-contacts
+                    div.bare.cc-line.cc-row [data-key="contact:ana"]
+                      button.t [title="ana" type="button"]
+                        b "ana"
+                        span "example/gadget"
+                      span.r
+                        button.dbtn.quiet.small.tm-remove [type="button"] "Remove"
+                        button.dbtn.small [type="button"] "Invite"
                 div.cc-sec
                   h4 "Agents"
                 div.cc-panel

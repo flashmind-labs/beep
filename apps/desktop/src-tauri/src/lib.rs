@@ -447,6 +447,7 @@ pub fn run() {
             projects::runs::center_project_lists,
             projects::runs::center_project_run,
             projects::runs::center_project_runs,
+            projects::team::contact_remove,
             projects::team::contacts,
             projects::team::issue_assign,
             projects::team::team_cards,

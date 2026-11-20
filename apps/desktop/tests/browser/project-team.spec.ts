@@ -121,3 +121,27 @@ test("a project whose team cannot be read asks again only after a while", async 
   expect((await called(page, "team_record")).length).toBe(1);
   await expect(page.locator('.pj-list .pj-li[title="Team"]')).toHaveCount(0);
 });
+
+test("a contact is invited or removed from the team page", async ({ page }) => {
+  const lee = { mesh: "mesh-c", logins: [{ repo: "example.test/example/api", login: "lee" }] };
+  await openProject(page, "team", { contacts: [lee], contact_remove: null });
+
+  const row = page.locator(".tm-contacts .cc-line").filter({ hasText: "lee" });
+  await expect(row).toContainText("example/api");
+  await row.hover();
+  await row.getByRole("button", { name: "Remove" }).click();
+  const sheet = page.getByRole("dialog", { name: "Remove lee?" });
+  await sheet.getByRole("button", { name: "Remove" }).click();
+
+  await expect(row).toHaveCount(0);
+  expect(await called(page, "contact_remove")).toEqual([{ contact: "mesh-c" }]);
+});
+
+test("an ask's agents get the whole ask", async ({ page }) => {
+  const text = "Who owns the fee model? ".repeat(12).trim();
+  const ask = { id: "ask:a1", title: text, lane: "needs_you", login: "kim", machine: "", issue: null, pr: null, updated_at: now };
+  await openProject(page, null, { team_cards: { needs_you: [ask], teammates: [], own_queued: [] } });
+
+  const card = page.locator(".bd-card").filter({ hasText: "asks you" });
+  await expect(card).toHaveAttribute("title", text);
+});

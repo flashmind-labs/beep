@@ -186,6 +186,7 @@ fn refresh(mesh: &Mesh, link: &TeamLink) {
             Key::Team(repo) => Some((repo, lenient::from_slice::<TeamRecord>(&bytes).ok()?)),
             _ => None,
         })
+        .filter(|(_, record)| on_team(record, mesh))
         .collect();
     let home = read(mesh);
 
@@ -195,11 +196,19 @@ fn refresh(mesh: &Mesh, link: &TeamLink) {
     });
 }
 
+/// Whether `record` names this mesh: one a teammate removed it from does
+/// not, and is as good as left until a desktop deletes it.
+fn on_team(record: &TeamRecord, mesh: &Mesh) -> bool {
+    record.members.iter().any(|member| member.mesh == mesh.id())
+}
+
 /// Whether `folder` is in a checkout here of a project with a team.
 pub(crate) fn in_team(mesh: &Mesh, folder: &Path) -> bool {
-    read(mesh)
-        .team_of(folder)
-        .is_some_and(|repo| mesh.get(&Key::Team(repo)).is_some())
+    read(mesh).team_of(folder).is_some_and(|repo| {
+        let record = mesh.get(&Key::Team(repo));
+        let record = record.and_then(|bytes| lenient::from_slice::<TeamRecord>(&bytes).ok());
+        record.is_some_and(|record| on_team(&record, mesh))
+    })
 }
 
 pub(crate) fn read(mesh: &Mesh) -> Home {

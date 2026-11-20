@@ -18,6 +18,7 @@ use beep_proto::{
     },
     team::{ContactRecord, ForgeLogin, Member, OpenInvite, TeamRecord, TeamRepo},
 };
+use futures::future::join_all;
 use iroh::{EndpointAddr, EndpointId};
 use iroh_tickets::Ticket;
 use serde::Serialize;
@@ -25,11 +26,13 @@ use std::time::{Duration, SystemTime};
 
 /// How long an invite code lets people join.
 const INVITE_FOR: Duration = Duration::from_secs(24 * 60 * 60);
-/// How long a call that reaches another mesh may take: a join (the node's
-/// own limit is a minute) or a contact's invite.
-const ACROSS: Duration = Duration::from_secs(75);
-/// How long a call answered within this mesh may take.
-const WITHIN: Duration = Duration::from_secs(30);
+/// How long a call that reaches another mesh may take, past the node's own
+/// limits: a join (90 s with the forge login) or a contact's invite sent on
+/// to the gateway (90 s).
+const ACROSS: Duration = Duration::from_secs(100);
+/// How long a call answered within this mesh may take, past a call the node
+/// sends on to the gateway (30 s).
+const WITHIN: Duration = Duration::from_secs(40);
 
 impl Desk {
     /// The team of `project`, when it has one.
@@ -46,6 +49,7 @@ impl Desk {
         let repo = self.team_repo(project)?;
         let inviter = self.checkout_machine(project)?;
         let founder = match self.team_record(project)? {
+            Some(record) if !self.on_team(&record) => return Err(removed()),
             Some(_) => None,
             None => Some(self.own_member(project).await?),
         };
@@ -58,6 +62,7 @@ impl Desk {
         {
             let _held = TeamWrites::lock().await;
             let mut record = match (self.team_record(project)?, founder) {
+                (Some(record), _) if !self.on_team(&record) => return Err(removed()),
                 (Some(record), _) => record,
                 (None, Some(me)) => TeamRecord::new(repo.clone(), vec![me]),
                 (None, None) => return Err(FleetError::refused("The team was left meanwhile")),
@@ -233,6 +238,38 @@ impl Desk {
             .collect()
     }
 
+    /// Removes `contact` from every team shared with them, telling each
+    /// team, then forgets them. Like a leave, a team not told finds out on
+    /// their next message, which this mesh refuses.
+    pub async fn remove_contact(&self, contact: EndpointId) -> Result<()> {
+        let found: ContactRecord =
+            read(&self.mesh, &Key::Contact(contact)).ok_or(FleetError::NotFound)?;
+        let tell = found.logins.iter().map(|(repo, login)| async move {
+            let remove = TeamAppArgs::Remove {
+                repo: repo.clone(),
+                login: login.clone(),
+            };
+            if let Err(e) = self.team_app(&remove, WITHIN).await {
+                log::warn!("the team of {repo} was not told {login} was removed: {e}");
+            }
+        });
+        join_all(tell).await;
+
+        let held = TeamWrites::lock().await;
+        for (repo, login) in found.logins {
+            let key = Key::Team(repo);
+            let Some(mut record) = read::<TeamRecord>(&self.mesh, &key) else {
+                continue;
+            };
+            record.remove(&login);
+            write(&self.mesh, key, Some(&record)).await?;
+        }
+        write::<ContactRecord>(&self.mesh, Key::Contact(contact), None).await?;
+        keep_contacts(&self.mesh, &held).await?;
+
+        Ok(())
+    }
+
     /// `project`'s Needs you cards and its teammates' cards, from the
     /// machine that acts for its team; none without a team.
     pub async fn team_cards(&self, project: &str) -> Result<TeamCards> {
@@ -291,6 +328,14 @@ impl Desk {
         };
 
         Ok(assign(&store, &machines, number, &logins).await?)
+    }
+
+    /// Whether `record` names this mesh: a teammate may have removed it.
+    fn on_team(&self, record: &TeamRecord) -> bool {
+        record
+            .members
+            .iter()
+            .any(|member| member.mesh == self.mesh.id())
     }
 
     /// The forge repository of `project`.
@@ -415,6 +460,10 @@ impl Desk {
             _ => Err(FleetError::refused("The machine answered something else")),
         }
     }
+}
+
+fn removed() -> FleetError {
+    FleetError::refused("A teammate removed this mesh from the team")
 }
 
 #[cfg(test)]

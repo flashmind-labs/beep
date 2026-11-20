@@ -11,6 +11,8 @@
   code, and contacts to invite to other projects. Switches let you pick
   up assigned issues and let teammates' agents message yours. You can
   leave, remove a member, or allow them back.
+- Desktop: removing a contact from the Team page takes them off every
+  team you share with them.
 - Desktop: issues show who they are assigned to, with Mine and
   Unassigned filters and an Assign menu. In a team project, Work on it
   assigns the issue to you first, and asks before taking one someone

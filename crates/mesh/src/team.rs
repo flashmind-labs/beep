@@ -71,11 +71,13 @@ impl TeamWrites {
 /// Writes `pending`, a team record a node changed, over the mesh's own: its
 /// members and removals count, the invites and settings stay. A removal on
 /// either side wins, so a stale change never brings anyone back. A team the
-/// mesh holds no record of is not written: it was left. Whether it wrote.
+/// mesh holds no record of is not written: it was left. One a teammate
+/// removed this mesh from is left too: its record and the contacts only it
+/// brought are deleted. Whether it wrote.
 pub async fn take_roster(
     mesh: &Mesh,
     pending: TeamRecord,
-    _held: &TeamWrites,
+    held: &TeamWrites,
 ) -> Result<bool, MeshError> {
     let key = Key::Team(pending.repo.clone());
     let Some(current) = read::<TeamRecord>(mesh, &key) else {
@@ -98,6 +100,11 @@ pub async fn take_roster(
         })
         .collect();
 
+    if !next.members.iter().any(|member| member.mesh == mesh.id()) {
+        mesh.set(key, None).await?;
+        keep_contacts(mesh, held).await?;
+        return Ok(true);
+    }
     if next == current {
         return Ok(false);
     }

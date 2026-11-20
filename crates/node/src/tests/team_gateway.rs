@@ -222,9 +222,36 @@ async fn a_folder_is_in_a_team_once_its_project_has_one() {
     assert_eq!(read(&mesh).team_of(worktree), Some(repo()));
     assert!(!in_team(&mesh, worktree));
 
-    let team = rmp_serde::to_vec(&TeamRecord::new(repo(), Vec::new())).unwrap();
-    mesh.set(Key::Team(repo()), Some(team)).await.unwrap();
+    // A team a teammate removed this mesh from is as good as left.
+    let mut team = TeamRecord::new(repo(), vec![member("bob", SecretKey::generate().public())]);
+    let write = |team: &TeamRecord| Some(rmp_serde::to_vec(team).unwrap());
+    mesh.set(Key::Team(repo()), write(&team)).await.unwrap();
+    assert!(!in_team(&mesh, worktree));
+
+    let mut mine = member("alice", mesh.me());
+    mine.mesh = mesh.id();
+    team.members.push(mine);
+    mesh.set(Key::Team(repo()), write(&team)).await.unwrap();
 
     assert!(in_team(&mesh, worktree));
     assert!(!in_team(&mesh, std::path::Path::new("/srv/other")));
+}
+
+/// A desktop-only mesh has no other place to start an issue's session.
+#[test]
+fn issue_sessions_start_on_any_online_machine_with_the_checkout() {
+    let (desktop, node, offline) = (
+        SecretKey::generate().public(),
+        SecretKey::generate().public(),
+        SecretKey::generate().public(),
+    );
+    let project = Project {
+        name: "org/repo".to_owned(),
+        checkout: None,
+        devices: [desktop, node, offline].map(EndpointAddr::new).to_vec(),
+    };
+    let elsewhere = SecretKey::generate().public();
+    let online = [desktop, node, elsewhere].into();
+
+    assert_eq!(starters(&project, &online), [desktop, node].into());
 }

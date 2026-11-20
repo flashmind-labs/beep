@@ -358,3 +358,93 @@ async fn a_project_without_a_team_has_no_team_cards() {
         Err(FleetError::NotFound)
     ));
 }
+
+/// A teammate removed this mesh: the record goes with the contacts only it
+/// brought, and no invite is minted on it.
+#[tokio::test]
+async fn a_team_that_removed_this_mesh_is_left() {
+    let dir = TempDir::new().expect("a temp dir");
+    let (desk, mesh) = desk(&dir).await;
+    let alice = member("alice", SecretKey::generate().public());
+    let mut team = TeamRecord::new(repo("org/web"), vec![member("dana", mesh.id()), alice]);
+    seed(&mesh, &team).await;
+    keep_contacts(&mesh, &TeamWrites::lock().await)
+        .await
+        .expect("kept");
+    assert_eq!(desk.contacts().len(), 1);
+
+    let mut removed = team.clone();
+    removed.remove(&"dana".parse().expect("a login"));
+    // An older desktop wrote it as it came: Invite starts nothing on it.
+    seed(&mesh, &removed).await;
+    assert!(matches!(
+        desk.team_invite("org/web").await,
+        Err(FleetError::Refused(_))
+    ));
+    seed(&mesh, &team).await;
+
+    assert!(
+        take_roster(&mesh, removed, &TeamWrites::lock().await)
+            .await
+            .expect("taken")
+    );
+
+    assert_eq!(desk.team_record("org/web").expect("read"), None);
+    assert!(desk.contacts().is_empty());
+    team.members.clear();
+    assert!(
+        !take_roster(&mesh, team, &TeamWrites::lock().await)
+            .await
+            .expect("taken")
+    );
+}
+
+/// Removing a contact takes them off every team shared with them, and
+/// forgets them, even when no node is there to tell the teams.
+#[tokio::test]
+async fn removing_a_contact_takes_them_off_every_shared_team() {
+    let dir = TempDir::new().expect("a temp dir");
+    let (desk, mesh) = desk(&dir).await;
+    let me = member("dana", mesh.id());
+    let alice = member("alice", SecretKey::generate().public());
+    let mut alice_on_api = alice.clone();
+    alice_on_api.login = "alice-work".parse().expect("a login");
+    let bob = member("bob", SecretKey::generate().public());
+    seed(
+        &mesh,
+        &TeamRecord::new(
+            repo("org/web"),
+            vec![me.clone(), alice.clone(), bob.clone()],
+        ),
+    )
+    .await;
+    seed(
+        &mesh,
+        &TeamRecord::new(repo("org/api"), vec![me, alice_on_api.clone()]),
+    )
+    .await;
+    keep_contacts(&mesh, &TeamWrites::lock().await)
+        .await
+        .expect("kept");
+
+    desk.remove_contact(alice.mesh).await.expect("removed");
+
+    let [contact] = &desk.contacts()[..] else {
+        panic!("bob alone: {:?}", desk.contacts());
+    };
+    assert_eq!(contact.mesh, bob.mesh);
+    for (name, login) in [("org/web", &alice.login), ("org/api", &alice_on_api.login)] {
+        let record: TeamRecord = read(&mesh, &Key::Team(repo(name))).expect("a team");
+        assert!(
+            record
+                .members
+                .iter()
+                .all(|member| member.mesh != alice.mesh)
+        );
+        assert!(record.removed.iter().any(|gone| gone.login == *login));
+    }
+    assert!(matches!(
+        desk.remove_contact(alice.mesh).await,
+        Err(FleetError::NotFound)
+    ));
+}
