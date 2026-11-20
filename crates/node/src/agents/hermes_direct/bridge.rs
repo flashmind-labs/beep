@@ -10,8 +10,8 @@ use super::{
 };
 use crate::agents::acp;
 use agent_client_protocol::{
-    Agent, Builder, Client, ConnectionTo, Dispatch, Handled, JsonRpcMessage, JsonRpcResponse, Responder, UntypedMessage,
-    on_receive_dispatch,
+    Agent, Builder, Client, ConnectionTo, Dispatch, Handled, JsonRpcMessage, JsonRpcResponse, RequestCancellationHandle,
+    Responder, UntypedMessage, on_receive_dispatch,
     schema::ProtocolVersion,
     v1::schema::{
         AgentCapabilities, CLIENT_METHOD_NAMES, CancelNotification, ContentBlock, EmbeddedResourceResource,
@@ -24,7 +24,10 @@ use anyhow::{Context, Result};
 use beep_proto::{SecretText, node::agent::HERMES_GATEWAY};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use serde_json::{Value, json};
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     sync::mpsc,
@@ -141,8 +144,12 @@ struct Session {
     epoch: Value,
     prompt: Option<Responder<PromptResponse>>,
     cancelled: bool,
-    /// Hermes's requests the client is answering.
-    asking: HashSet<String>,
+    /// A turn stopped while the socket was down: Hermes is told to stop it
+    /// once the socket is back.
+    interrupt: bool,
+    /// Hermes's requests the client is answering, each with the way to
+    /// withdraw it.
+    asking: HashMap<String, RequestCancellationHandle>,
     /// Answers made while the socket was down, sent once it is back.
     held: Vec<Answer>,
 }
@@ -237,13 +244,17 @@ impl Bridge {
             return Ok(());
         }
 
-        // While the socket is down, the turn is stopped once it is back. A
-        // turn Hermes cannot stop is not waited on.
+        // While the socket is down, the turn ends at once and Hermes is told
+        // to stop it once the socket is back. A turn Hermes cannot stop is
+        // not waited on.
         session.cancelled = true;
-        if let Link::Up(gateway) = &session.link
-            && interrupt(gateway, &session.live).await.is_err()
-        {
-            ended(session, &Value::Null)?;
+        match &session.link {
+            Link::Up(gateway) if interrupt(gateway, &session.live).await.is_ok() => {}
+            Link::Up(_) => ended(session, &Value::Null)?,
+            Link::Down(_) => {
+                session.interrupt = true;
+                ended(session, &Value::Null)?;
+            }
         }
 
         Ok(())
@@ -280,7 +291,8 @@ impl Bridge {
             epoch: since["epoch"].clone(),
             prompt: None,
             cancelled: false,
-            asking: HashSet::new(),
+            interrupt: false,
+            asking: HashMap::new(),
             held: Vec::new(),
         });
         self.caught_up(&since, replay)?;
@@ -297,10 +309,7 @@ impl Bridge {
         let refusal = match &session.link {
             _ if session.prompt.is_some() => Some("a prompt is running".to_owned()),
             Link::Down(_) => Some("Hermes is out of reach; reconnecting".to_owned()),
-            Link::Up(gateway) => {
-                let submit = json!({"session_id": session.live, "text": text(prompt)});
-                gateway.call("prompt.submit", submit).await.err().map(|e| e.to_string())
-            }
+            Link::Up(gateway) => submit(gateway, &session.live, prompt).await.err().map(|e| e.to_string()),
         };
 
         match refusal {
@@ -340,6 +349,14 @@ impl Bridge {
         if let Some(seq) = params["seq"].as_u64() {
             session.seq = session.seq.max(seq);
         }
+        if let Some(id) = events::withdrawn(params)
+            && let Some(asked) = session.asking.remove(id)
+        {
+            // Its answer, if the client still gives one, is dropped.
+            if let Err(e) = asked.cancel() {
+                log::warn!("a withdrawn question stayed open: {e}");
+            }
+        }
         for update in events::update(params) {
             let notification = json!({"sessionId": session.id, "update": update});
             self.cx.send_notification(UntypedMessage::new(CLIENT_METHOD_NAMES.session_update, notification)?)?;
@@ -359,7 +376,7 @@ impl Bridge {
             return Ok(());
         };
 
-        if session.asking.contains(&id) {
+        if session.asking.contains_key(&id) {
             return Ok(());
         }
 
@@ -382,8 +399,9 @@ impl Bridge {
             Asked::Approval { .. } => CLIENT_METHOD_NAMES.session_request_permission,
             Asked::Clarify { .. } => CLIENT_METHOD_NAMES.elicitation_create,
         };
-        let sent = self.cx.send_request(UntypedMessage::new(method, request)?).block_task();
-        session.asking.insert(id.clone());
+        let sent = self.cx.send_request(UntypedMessage::new(method, request)?);
+        session.asking.insert(id.clone(), sent.cancellation_handle());
+        let sent = sent.block_task();
         self.answers.push(
             async move {
                 // A failed request reads as a refusal.
@@ -396,13 +414,16 @@ impl Bridge {
         Ok(())
     }
 
-    /// Sends the client's answer, or holds it while the socket is down.
+    /// Sends the client's answer, or holds it while the socket is down. An
+    /// answer to a request Hermes withdrew is dropped.
     fn answered(&mut self, answer: Answer) {
         let Some(session) = self.session.as_mut() else {
             return;
         };
 
-        session.asking.remove(&answer.id);
+        if session.asking.remove(&answer.id).is_none() {
+            return;
+        }
         let sent = match &session.link {
             Link::Up(gateway) => gateway.answer(&answer.id, answer.result.clone()),
             Link::Down(_) => Err(LinkError::Closed),
@@ -442,10 +463,14 @@ impl Bridge {
             }
             sent.insert(held.id);
         }
+        let stopped = std::mem::take(&mut session.interrupt);
         if restarted {
             log::warn!("Hermes restarted; its turn ended");
             session.cancelled = true;
             ended(session, &Value::Null)?;
+        } else if stopped {
+            // The turn already ended for the client; a failure is logged.
+            let _ = interrupt(&resumed.gateway, &session.live).await;
         } else if session.cancelled
             && session.prompt.is_some()
             && interrupt(&resumed.gateway, &session.live).await.is_err()
@@ -534,6 +559,23 @@ async fn resume_on(gateway: &Gateway, id: &str, seq: u64) -> Result<(String, Val
     Ok((live, since))
 }
 
+/// Sends the prompt's images, which Hermes queues for the next turn, then
+/// its text.
+async fn submit(gateway: &Gateway, live: &str, prompt: &[ContentBlock]) -> Result<(), LinkError> {
+    for block in prompt {
+        let ContentBlock::Image(image) = block else {
+            continue;
+        };
+        // Hermes takes only strings here, and tells the type by the bytes.
+        let ext = image.mime_type.strip_prefix("image/").unwrap_or_default();
+        let content = format!("data:{};base64,{}", image.mime_type, image.data);
+        let attach = json!({"session_id": live, "content_base64": content, "ext": ext});
+        gateway.call("image.attach_bytes", attach).await?;
+    }
+
+    gateway.call("prompt.submit", json!({"session_id": live, "text": text(prompt)})).await.map(drop)
+}
+
 async fn interrupt(gateway: &Gateway, live: &str) -> Result<(), LinkError> {
     let interrupted = gateway.call("session.interrupt", json!({"session_id": live})).await.map(drop);
     if let Err(e) = &interrupted {
@@ -577,7 +619,7 @@ fn initialized() -> InitializeResponse {
 }
 
 /// A prompt as Hermes takes it: its text, with links and embedded files as
-/// text.
+/// text. Images go before it, by `submit`.
 fn text(prompt: &[ContentBlock]) -> String {
     prompt
         .iter()

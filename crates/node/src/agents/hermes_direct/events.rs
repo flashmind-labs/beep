@@ -52,6 +52,12 @@ pub(super) fn finished(event: &Value) -> bool {
     event["type"] == "message.complete"
 }
 
+/// The id of the request Hermes withdrew (`request.cancel`): answered
+/// elsewhere, timed out or interrupted.
+pub(super) fn withdrawn(event: &Value) -> Option<&str> {
+    (event["type"] == "request.cancel").then(|| event["payload"]["id"].as_str()).flatten()
+}
+
 fn chunk(kind: &str, text: Option<&str>) -> Option<Value> {
     let text = text.filter(|text| !text.is_empty())?;
     Some(json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}}))

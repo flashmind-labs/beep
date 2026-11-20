@@ -787,3 +787,109 @@ async fn the_node_starts_the_hermes_assistant_without_beeps_brief_or_rules() {
     let submitted = tokio::time::timeout(Duration::from_secs(10), fake).await.expect("Hermes is prompted").unwrap();
     assert_eq!(submitted, json!({"session_id": "live1", "text": "Say hi"}));
 }
+
+#[tokio::test]
+async fn an_image_goes_to_hermes_before_the_prompt() {
+    let (listener, port) = listen().await;
+    let fake = tokio::spawn(async move {
+        let (mut server, _) = accept(&listener).await;
+        created(&mut server).await;
+        let attached = replied(&mut server, "image.attach_bytes", json!({"attached": true})).await;
+        assert_eq!(attached, json!({"session_id": "live1", "content_base64": "data:image/png;base64,iVBORw0KGgo=", "ext": "png"}));
+        let submitted = replied(&mut server, "prompt.submit", json!({})).await;
+        assert_eq!(submitted, json!({"session_id": "live1", "text": "What is this?"}));
+        server.send(hermes_event("live1", "message.complete", json!({"status": "complete"}), 3)).await.unwrap();
+        server
+    });
+
+    with_bridge(port, async |cx, _seen| {
+        let session = new_session(&cx).await;
+        let request = json!({"sessionId": session, "prompt": [
+            {"type": "text", "text": "What is this?"},
+            {"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"}]});
+
+        let ended = call(&cx, "session/prompt", request).await;
+
+        assert_eq!(ended["stopReason"], "end_turn");
+    })
+    .await;
+    fake.await.unwrap();
+}
+
+#[tokio::test]
+async fn an_ask_hermes_withdraws_is_cancelled_and_its_late_answer_dropped() {
+    let (listener, port) = listen().await;
+    let (form_shown, shown) = tokio::sync::oneshot::channel::<()>();
+    let fake = tokio::spawn(async move {
+        let (mut server, _) = accept(&listener).await;
+        created(&mut server).await;
+        replied(&mut server, "prompt.submit", json!({})).await;
+        server.send(server_request(&clarify("srq-1"))).await.unwrap();
+        shown.await.unwrap();
+        // Answered in Hermes's own window: every other viewer's card closes.
+        let withdrawn = json!({"id": "srq-1", "method": "clarify", "reason": "resolved"});
+        server.send(hermes_event("live1", "request.cancel", withdrawn, 3)).await.unwrap();
+        server.send(hermes_event("live1", "message.complete", json!({"status": "complete"}), 4)).await.unwrap();
+
+        // The next thing the bridge sends is the next prompt, not the late answer.
+        let next = replied(&mut server, "prompt.submit", json!({})).await;
+        assert_eq!(next["text"], "Again");
+        server.send(hermes_event("live1", "message.complete", json!({"status": "complete"}), 5)).await.unwrap();
+        server
+    });
+
+    with_bridge(port, async |cx, mut seen| {
+        let session = new_session(&cx).await;
+        let running = prompt(&cx, &session, "Pick a color");
+
+        let (_, _, form) = next_ask(&mut seen, &mut Vec::new()).await;
+        form_shown.send(()).unwrap();
+        form.cancellation().cancelled().await;
+        form.respond(json!({"action": "accept", "content": {"q0": "Blue"}})).unwrap();
+
+        assert_eq!(running.await["stopReason"], "end_turn");
+        assert_eq!(prompt(&cx, &session, "Again").await["stopReason"], "end_turn");
+    })
+    .await;
+    fake.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_cancel_while_hermes_is_out_of_reach_ends_the_turn_and_interrupts_it_once_back() {
+    let (listener, port) = listen().await;
+    let (reconnecting, tried) = tokio::sync::oneshot::channel::<()>();
+    let (cancelled, ended) = tokio::sync::oneshot::channel::<()>();
+    let fake = tokio::spawn(async move {
+        let (mut server, _) = accept(&listener).await;
+        created(&mut server).await;
+        replied(&mut server, "prompt.submit", json!({})).await;
+        drop(server);
+
+        // The bridge tries again; Hermes is not back until the turn was stopped.
+        let (held, _) = listener.accept().await.unwrap();
+        reconnecting.send(()).unwrap();
+        ended.await.unwrap();
+        drop(held);
+
+        let (mut server, _) = accept(&listener).await;
+        replied(&mut server, "session.resume", json!({"session_id": "live2"})).await;
+        // The same epoch: Hermes kept the turn running, so it is stopped now.
+        replied(&mut server, "session.events.since", since(1, json!([]))).await;
+        let interrupted = replied(&mut server, "session.interrupt", json!({})).await;
+        assert_eq!(interrupted, json!({"session_id": "live2"}));
+        server
+    });
+
+    with_bridge(port, async |cx, _seen| {
+        let session = new_session(&cx).await;
+        let running = prompt(&cx, &session, "Keep going");
+
+        tried.await.unwrap();
+        cx.send_notification(UntypedMessage::new("session/cancel", json!({"sessionId": session})).unwrap()).unwrap();
+
+        assert_eq!(running.await["stopReason"], "cancelled");
+        cancelled.send(()).unwrap();
+        fake.await.unwrap();
+    })
+    .await;
+}
