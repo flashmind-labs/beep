@@ -93,6 +93,14 @@ pub(crate) fn from_session(id: &str, name: &str, text: &str) -> String {
     )
 }
 
+/// `text` from a teammate's agent `id`, called `name`, as `from_session`
+/// gives it, with the text escaped: it is not this user's, and must not
+/// close the tag and go on as if it were.
+#[cfg(feature = "host")]
+pub(crate) fn from_teammate(id: &str, name: &str, text: &str) -> String {
+    from_session(id, name, &escape(text))
+}
+
 /// `text` about the child `id`, called `name`, which is in `state`.
 #[cfg(feature = "host")]
 pub(crate) fn from_child(id: &str, name: &str, state: &str, text: &str) -> String {

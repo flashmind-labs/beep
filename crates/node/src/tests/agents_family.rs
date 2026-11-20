@@ -1,5 +1,6 @@
 use super::*;
 use crate::agents::{AgentKind, OpenSession, SavedSession};
+use crate::team::asks::Delivery;
 use beep_proto::node::agent::Request;
 use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path};
@@ -949,4 +950,49 @@ async fn a_prompt_to_a_session_that_ended_resumes_it() {
     assert!(rig.read("top.log").contains("carry on"));
 
     rig.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_teammate_reaches_no_session_the_user_stopped() {
+    let rig = Rig::new();
+    let session = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    session
+        .order(Command::Prompt("hang on".to_owned().into()))
+        .await
+        .expect("the session takes the prompt");
+    until(&session, |live| live.status() == Status::Working).await;
+    session
+        .order(Command::Cancel { by_user: true })
+        .await
+        .expect("the session takes the stop");
+    until(&session, |live| live.status() == Status::Idle).await;
+    let id = Agents::name_of(&session);
+    let card = format!("{id}@build-box");
+
+    for delivery in [Delivery::Ask, Delivery::Reply] {
+        let given = rig
+            .agents
+            .deliver_from_teammate(&id, &card, delivery, "Can I take #52?".to_owned())
+            .await;
+        assert_eq!(given, Err(format!("{card} was stopped by its user")));
+    }
+
+    let log = rig.read("top.log");
+    assert!(!log.contains("Can I take #52?"), "{log}");
+    rig.agents.shutdown().await;
+}
+
+#[test]
+fn a_teammate_s_words_never_answer_what_the_user_is_asked() {
+    let mut live = Live::default();
+    live.info.state.status = Status::Asking;
+    assert_eq!(
+        notes::open_to_teammates(&live, "s1@build-box"),
+        Err("s1@build-box is waiting on its user".to_owned())
+    );
+
+    live.info.state.status = Status::Working;
+    assert_eq!(notes::open_to_teammates(&live, "s1@build-box"), Ok(false));
+    live.info.state.status = Status::Idle;
+    assert_eq!(notes::open_to_teammates(&live, "s1@build-box"), Ok(true));
 }

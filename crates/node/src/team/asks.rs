@@ -1,15 +1,14 @@
 //! Asks between the agents of a team. A session's `team_ask` goes through
 //! its mesh's gateway to the teammate's gateway, which hands it to the
-//! session on the card it names, or puts it on its board as a Needs you
-//! card when it is for the person. The session asked answers once, with
-//! `team_ask` and the ask's id, and the answer goes back the same way into
-//! the asking session.
+//! session on the card it names, or keeps it as a Needs you card for this
+//! mesh's apps when it is for the person (`incoming`). The session asked
+//! answers once, with `team_ask` and the ask's id, and the answer goes back
+//! the same way into the asking session.
 
 use super::link::{TeamError, TeamLink, Teams, finish};
-use crate::agents::tags;
 use beep_proto::{
     SessionId,
-    team::{AgentRef, Card, Lane, Member, Target, TeamMsg, TeamRepo},
+    team::{AgentRef, Card, Member, Target, TeamMsg, TeamRepo},
 };
 use futures::future::BoxFuture;
 use iroh::{EndpointAddr, EndpointId};
@@ -25,17 +24,20 @@ pub(crate) const MAX_TEXT: usize = 4000;
 /// What a device that holds no ask by an answer's id says: the sender
 /// tries the teammate's next device.
 pub(super) const NOT_WAITING: &str = "No ask waits for this answer here";
+/// What starts the id of an ask's Needs you card, before the ask's id.
+pub(super) const ASK_CARD: &str = "ask:";
 /// How many asks a session sends in an hour.
 const PER_HOUR: usize = 10;
 const HOUR: Duration = Duration::from_secs(60 * 60);
 /// How long an ask waits for its answer, and its Needs you card stays.
 const KEPT_FOR: Duration = Duration::from_secs(24 * 60 * 60);
-/// The most asks waiting each way, and Needs you cards on one board.
-const MAX_WAITING: usize = 256;
-const MAX_CARDS: usize = 32;
-/// The longest Needs you card title, in characters, and ask id.
-const TITLE: usize = 140;
-const MAX_ID: usize = 64;
+/// The most asks waiting each way, and Needs you cards of one team.
+pub(super) const MAX_WAITING: usize = 256;
+pub(super) const MAX_CARDS: usize = 32;
+/// The longest Needs you card title, in characters, and ask and card id.
+pub(super) const TITLE: usize = 140;
+pub(super) const MAX_ID: usize = 64;
+pub(super) const MAX_CARD: usize = 256;
 /// How long reaching a teammate may take over all their devices, and one
 /// device to say whether it took a message.
 const REACH: Duration = Duration::from_secs(60);
@@ -67,6 +69,13 @@ impl AskLimit {
         sent.push_back(now);
         Ok(())
     }
+
+    /// Takes back the last ask `session` counted: it was not sent.
+    pub(crate) fn give_back(&mut self, session: &SessionId) {
+        if let Some(sent) = self.0.get_mut(session) {
+            sent.pop_back();
+        }
+    }
 }
 
 /// What a text handed to a session is.
@@ -92,12 +101,13 @@ pub(crate) trait Sessions: Send + Sync + 'static {
 }
 
 /// `Tool::TeamAsk` from a session's node to its mesh's gateway: the ask as
-/// that node made it, or the answer to one when `reply_to` is set.
+/// that node made it, or the answer to one when `reply_to` is set, which
+/// goes to whoever asked and needs no `to`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Outgoing {
     pub(crate) repo: TeamRepo,
     pub(crate) from: AgentRef,
-    pub(crate) to: Target,
+    pub(crate) to: Option<Target>,
     pub(crate) text: String,
     pub(crate) reply_to: Option<String>,
 }
@@ -108,43 +118,48 @@ pub(crate) struct Asks {
     /// What this device's sessions sent, so one does not flood the team.
     pub(crate) limit: AskLimit,
     /// Sent to teammates, by id, until answered.
-    sent: BTreeMap<String, Sent>,
+    pub(super) sent: BTreeMap<String, Sent>,
     /// Taken from teammates, by id, until answered once.
-    taken: BTreeMap<String, Taken>,
-    /// The asks for this mesh's person, as Needs you cards.
-    cards: BTreeMap<TeamRepo, Vec<Card>>,
+    pub(super) taken: BTreeMap<String, Taken>,
+    /// The asks for this mesh's person, as Needs you cards for this mesh's
+    /// own apps: they never go on the board teammates see.
+    pub(super) cards: BTreeMap<TeamRepo, Vec<Card>>,
 }
 
 #[derive(Debug, Clone)]
-struct Sent {
-    repo: TeamRepo,
+pub(super) struct Sent {
+    pub(super) repo: TeamRepo,
     /// The asking session's card.
-    asker: String,
+    pub(super) asker: String,
     /// The mesh of the member asked, the only one who answers.
-    mesh: EndpointId,
+    pub(super) mesh: EndpointId,
     /// The card or login asked.
-    asked: String,
-    at: SystemTime,
+    pub(super) asked: String,
+    pub(super) at: SystemTime,
 }
 
 #[derive(Debug, Clone)]
-struct Taken {
-    repo: TeamRepo,
+pub(super) struct Taken {
+    pub(super) repo: TeamRepo,
     /// The card asked: its session answers.
-    card: String,
+    pub(super) card: String,
     /// The mesh of the member who asked.
-    mesh: EndpointId,
-    at: SystemTime,
+    pub(super) mesh: EndpointId,
+    pub(super) at: SystemTime,
 }
 
 impl Asks {
     /// The Needs you cards of `repo`'s asks.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "this mesh's apps show the ask cards")
+    )]
     pub(crate) fn cards(&mut self, repo: &TeamRepo, now: SystemTime) -> Vec<Card> {
         self.expire(now);
         self.cards.get(repo).cloned().unwrap_or_default()
     }
 
-    fn expire(&mut self, now: SystemTime) {
+    pub(super) fn expire(&mut self, now: SystemTime) {
         let fresh = |at: SystemTime| now.duration_since(at).map_or(true, |age| age < KEPT_FOR);
         self.sent.retain(|_, sent| fresh(sent.at));
         self.taken.retain(|_, taken| fresh(taken.at));
@@ -178,16 +193,15 @@ impl TeamLink {
         Ok(id)
     }
 
-    /// Takes the dismissed ask card `id` off `repo`'s board.
+    /// Drops the dismissed ask card `id` of `repo`, and the ask with it.
     #[cfg_attr(not(test), expect(dead_code, reason = "the Team page dismisses asks"))]
     pub(crate) fn dismiss_ask(&self, repo: &TeamRepo, id: &str) {
         self.with(|teams| {
             if let Some(cards) = teams.asks.cards.get_mut(repo) {
                 cards.retain(|card| card.id != id);
             }
-            if let Some(mut cards) = teams.boards.cards(repo) {
-                cards.retain(|card| card.id != id);
-                teams.boards.set(repo, cards);
+            if let Some(ask) = id.strip_prefix(ASK_CARD) {
+                teams.asks.taken.remove(ask);
             }
         });
     }
@@ -235,70 +249,6 @@ impl TeamLink {
             Some(TeamMsg::Refused { reason }) => Some(reason),
             _ => None,
         })
-    }
-
-    /// Takes an ask from `peer`, a device of a teammate: hands it to the
-    /// session on the card it names, or makes it a Needs you card for this
-    /// mesh's person. The refusal when it is not taken.
-    pub(super) async fn asked(&self, peer: EndpointId, ask: &TeamMsg) -> Option<TeamMsg> {
-        let TeamMsg::Ask { id, from, text, .. } = ask else {
-            return None;
-        };
-        let taken = self.with(|teams| take(teams, peer, ask, SystemTime::now()));
-        let (repo, card) = match taken {
-            Ok(Some(taken)) => taken,
-            Ok(None) => return None,
-            Err(reason) => return Some(TeamMsg::Refused { reason }),
-        };
-        let words = format!(
-            "{text}\n\n[An ask from {}'s agent on the team of {repo}. Answer it once with \
-             team_ask: to {}, reply_to {id}.]",
-            from.login, from.card
-        );
-        let words = tags::from_session(&from.card, &format!("{}'s agent", from.login), &words);
-        let delivered = self.deliver(&card, Delivery::Ask, words).await;
-
-        delivered.err().map(|reason| {
-            self.with(|teams| teams.asks.taken.remove(id));
-            TeamMsg::Refused { reason }
-        })
-    }
-
-    /// Takes `peer`'s answer to an ask this mesh sent, into the asking session.
-    pub(super) async fn answered(&self, peer: EndpointId, id: &str, text: &str) -> Option<TeamMsg> {
-        let sent = self.with(|teams| {
-            teams.asks.expire(SystemTime::now());
-            let sent = teams.asks.sent.get(id).ok_or(NOT_WAITING)?;
-            let from = teams.rosters.get(&sent.repo).and_then(|record| {
-                let mut members = record.members.iter();
-                members.find(|member| member.devices.iter().any(|device| device.id == peer))
-            });
-
-            match from {
-                Some(member) if member.mesh == sent.mesh && text.chars().count() <= MAX_TEXT => {
-                    let login = member.login.clone();
-                    Ok((teams.asks.sent.remove(id).ok_or(NOT_WAITING)?, login))
-                }
-                Some(_) => Err("Only the one asked answers an ask, within 4000 characters"),
-                None => Err(NOT_WAITING),
-            }
-        });
-        let (sent, login) = match sent {
-            Ok(sent) => sent,
-            Err(reason) => return Some(refused(reason)),
-        };
-        let words = format!("{text}\n\n[{login}'s answer to your team_ask {id}.]");
-        let words = tags::from_session(&sent.asked, &format!("{login}'s agent"), &words);
-
-        let delivered = self.deliver(&sent.asker, Delivery::Reply, words).await;
-        delivered.err().map(|reason| TeamMsg::Refused { reason })
-    }
-
-    async fn deliver(&self, card: &str, delivery: Delivery, text: String) -> Result<(), String> {
-        match self.sessions() {
-            Some(sessions) => sessions.deliver(card, delivery, text).await,
-            None => Err("This device runs no sessions".to_owned()),
-        }
     }
 }
 
@@ -350,6 +300,7 @@ fn outgoing(
         return Ok((member, reply, id, taken));
     }
 
+    let to = to.ok_or("Give `to`: a card id or a teammate's login.")?;
     let (asked, member) = match &to {
         Target::Person { login } => (
             login.to_string(),
@@ -397,128 +348,8 @@ fn outgoing(
     Ok((member, msg, id, None))
 }
 
-/// Checks `ask` from `peer` and keeps it: its repository and the card of the
-/// session to hand it to, `None` once it is a Needs you card, or the refusal.
-fn take(
-    teams: &mut Teams,
-    peer: EndpointId,
-    ask: &TeamMsg,
-    now: SystemTime,
-) -> Result<Option<(TeamRepo, String)>, String> {
-    let TeamMsg::Ask {
-        id,
-        repo,
-        from,
-        to,
-        text,
-        ..
-    } = ask
-    else {
-        return Ok(None);
-    };
-    let own = teams.home.mesh;
-    let record = teams
-        .rosters
-        .get(repo)
-        .filter(|_| teams.boards.serves(repo))
-        .ok_or_else(|| not_served(repo))?;
-    let mine = record
-        .members
-        .iter()
-        .find(|member| Some(member.mesh) == own)
-        .ok_or_else(|| not_served(repo))?;
-    let sender = record
-        .members
-        .iter()
-        .find(|member| member.devices.iter().any(|device| device.id == peer))
-        .ok_or_else(|| not_served(repo))?;
-
-    if from.login != sender.login {
-        return Err("An ask comes in its sender's own name".to_owned());
-    }
-    if !record.asks {
-        return Err(format!(
-            "{} does not take messages from teammates' agents",
-            mine.login
-        ));
-    }
-    if text.chars().count() > MAX_TEXT {
-        return Err(too_long());
-    }
-
-    teams.asks.expire(now);
-
-    if id.is_empty() || id.len() > MAX_ID || teams.asks.taken.contains_key(id) {
-        return Err("An ask needs a new short id".to_owned());
-    }
-    if teams.asks.taken.len() >= MAX_WAITING {
-        return Err("Too many asks wait here for answers".to_owned());
-    }
-
-    let (login, mesh) = (mine.login.clone(), sender.mesh);
-    let card = match to {
-        Target::Person { login: person } if *person == login => format!("ask:{id}"),
-        Target::Person { login: person } => return Err(format!("{person} is not on this mesh")),
-        Target::Agent { card } => {
-            // A session waiting on its user would take the words as the answer.
-            let cards = teams.boards.cards(repo).unwrap_or_default();
-            let on_board = cards
-                .iter()
-                .any(|on| on.id == *card && on.lane != Lane::NeedsYou {});
-
-            if !on_board || card.starts_with("ask:") {
-                return Err(format!(
-                    "No session {card} on {login}'s board takes asks now"
-                ));
-            }
-            card.clone()
-        }
-    };
-    let taken = Taken {
-        repo: repo.clone(),
-        card: card.clone(),
-        mesh,
-        at: now,
-    };
-    teams.asks.taken.insert(id.clone(), taken);
-
-    if !card.starts_with("ask:") {
-        return Ok(Some((repo.clone(), card)));
-    }
-
-    let cards = teams.asks.cards.entry(repo.clone()).or_default();
-
-    if cards.len() >= MAX_CARDS {
-        teams.asks.taken.remove(id);
-        return Err(format!("Too many asks wait for {login}"));
-    }
-
-    let ask_card = Card {
-        id: card,
-        title: text.chars().take(TITLE).collect(),
-        lane: Lane::NeedsYou {},
-        login,
-        machine: String::new(),
-        issue: None,
-        pr: None,
-        updated_at: now,
-    };
-    cards.push(ask_card.clone());
-    let mut board = teams.boards.cards(repo).unwrap_or_default();
-    board.push(ask_card);
-    teams.boards.set(repo, board);
-
-    Ok(None)
-}
-
-fn too_long() -> String {
+pub(super) fn too_long() -> String {
     format!("An ask holds at most {MAX_TEXT} characters")
-}
-
-fn refused(reason: &str) -> TeamMsg {
-    TeamMsg::Refused {
-        reason: reason.to_owned(),
-    }
 }
 
 #[cfg(test)]

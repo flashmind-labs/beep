@@ -12,7 +12,7 @@
 
 use beep_proto::SessionId;
 use super::{Agents, Command, Live, Session, children};
-use crate::{agents::tags, link::Membership};
+use crate::{agents::tags, link::Membership, team::asks::Delivery};
 use beep_proto::node::agent::{Status, StopReason};
 use beep_proto::watched;
 use iroh::EndpointId;
@@ -175,23 +175,45 @@ impl Agents {
 }
 
 impl Agents {
-    /// Puts `text`, a note such as a teammate's answer, into the live session
-    /// `id` here, the way a child's notes go in: none into a session the
-    /// user stopped.
-    pub(crate) async fn tell(&self, id: &SessionId, text: String) -> Result<(), String> {
+    /// Puts `text` from a teammate's agent into the live session `id` here,
+    /// which the team knows as `card`: an ask as a message from an agent, an
+    /// answer as a note, the way a child's notes go in. Neither goes in while
+    /// the session waits on its user, who alone answers it there, nor into
+    /// a session the user stopped.
+    pub(crate) async fn deliver_from_teammate(
+        &self,
+        id: &SessionId,
+        card: &str,
+        delivery: Delivery,
+        text: String,
+    ) -> Result<(), String> {
         let session = self
             .peers()
             .into_iter()
             .find(|session| session.id == *id || Self::name_of(session) == *id)
-            .ok_or_else(|| format!("No session {id} runs here any more."))?;
-        let (idle, stopped) = idle_or_stopped(&session);
+            .ok_or_else(|| format!("{card} no longer runs"))?;
+        let idle = watched::read(&session.live, |live| open_to_teammates(live, card))?;
 
-        if stopped {
-            return Err(format!("The user stopped session {id}."));
+        match delivery {
+            Delivery::Ask => self.message(&SessionId::default(), id, text).await,
+            Delivery::Reply => put(&session, idle, text).await,
         }
-
-        put(&session, idle, text).await
     }
+}
+
+/// Whether `live`, the session a team knows as `card`, is idle; or why a
+/// teammate's words may not go in now.
+pub(super) fn open_to_teammates(live: &Live, card: &str) -> Result<bool, String> {
+    let (idle, stopped) = idle_or_stopped(live);
+
+    if live.status() == Status::Asking {
+        return Err(format!("{card} is waiting on its user"));
+    }
+    if stopped {
+        return Err(format!("{card} was stopped by its user"));
+    }
+
+    Ok(idle)
 }
 
 /// Follows a child's state and sends a note for each turn it finishes, each
@@ -297,7 +319,7 @@ async fn deliver(
     id: &str,
     note: &ChildNote,
 ) -> Result<(), String> {
-    let (idle, stopped) = idle_or_stopped(parent);
+    let (idle, stopped) = watched::read(&parent.live, idle_or_stopped);
 
     if stopped || waits.holds(&Agents::name_of(parent), id) {
         return Ok(());
@@ -306,14 +328,13 @@ async fn deliver(
     put(parent, idle, note.text_for(id)).await
 }
 
-/// Whether `session` is idle, and whether it ended or the user stopped it.
-fn idle_or_stopped(session: &Session) -> (bool, bool) {
-    watched::read(&session.live, |live| {
-        let status = live.status();
-        let stopped = status == Status::Ended
-            || (status == Status::Idle && live.info.state.last_stop == Some(StopReason::Cancelled));
-        (status == Status::Idle, stopped)
-    })
+/// Whether a session is idle, and whether it ended or the user stopped it.
+fn idle_or_stopped(live: &Live) -> (bool, bool) {
+    let status = live.status();
+    let stopped = status == Status::Ended
+        || (status == Status::Idle && live.info.state.last_stop == Some(StopReason::Cancelled));
+
+    (status == Status::Idle, stopped)
 }
 
 /// Puts `text` into `session`: a prompt when it is `idle`, else a steer.

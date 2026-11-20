@@ -38,7 +38,7 @@ const LIMIT: Duration = Duration::from_secs(30);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AskArgs {
-    to: String,
+    to: Option<String>,
     text: String,
     reply_to: Option<String>,
 }
@@ -49,11 +49,11 @@ struct TeamArgs {
     repo: TeamRepo,
 }
 
-/// `Tool::TeamDeliver`: a text for the session `session` of the machine
-/// that answers.
+/// `Tool::TeamDeliver`: a text for the session on the card `card`, which
+/// runs on the machine that answers.
 #[derive(Serialize, Deserialize)]
 struct Handed {
-    session: SessionId,
+    card: String,
     delivery: Delivery,
     text: String,
 }
@@ -77,14 +77,19 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
     else {
         return fail("This session's project has no team.");
     };
-    let args = match request.tool {
-        Tool::TeamAsk => outgoing(&offers.agents, &mesh, &link, request, repo.clone())
-            .and_then(|ask| serde_json::to_string(&ask).map_err(|e| e.to_string())),
-        _ => serde_json::to_string(&TeamArgs { repo: repo.clone() }).map_err(|e| e.to_string()),
+    let (args, asking) = match request.tool {
+        Tool::TeamAsk => match outgoing(&offers.agents, &mesh, &link, request, repo.clone()) {
+            Ok(ask) => (serde_json::to_string(&ask), ask.reply_to.is_none()),
+            Err(e) => return fail(e),
+        },
+        _ => (
+            serde_json::to_string(&TeamArgs { repo: repo.clone() }),
+            false,
+        ),
     };
     let args = match args {
         Ok(args) => args,
-        Err(e) => return fail(e),
+        Err(e) => return fail(e.to_string()),
     };
     let request = Request {
         session: request.session.clone(),
@@ -93,7 +98,16 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
         approved: Approved::No,
     };
 
-    match link.with(|teams| teams.gateways.get(&repo).copied()) {
+    // Only new asks count against the limit, and only once they are sent.
+    let counted = match asking {
+        true => link.with(|teams| teams.asks.limit.take(&request.session, Instant::now())),
+        false => Ok(()),
+    };
+    if let Err(e) = counted {
+        return fail(e);
+    }
+
+    let reply = match link.with(|teams| teams.gateways.get(&repo).copied()) {
         Some(gateway) if gateway == mesh.me() => answer(&link, &offers.agents, &request).await,
         Some(gateway) => over_the_mesh(&mesh, gateway, &request)
             .await
@@ -103,7 +117,13 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
                 ))
             }),
         None => fail("No machine of this mesh acts for the team yet; try again in a minute."),
+    };
+
+    if asking && matches!(reply, Reply::Done { failed: true, .. }) {
+        link.with(|teams| teams.asks.limit.give_back(&request.session));
     }
+
+    reply
 }
 
 /// The ask `request` makes, from its session's card: to a teammate when it
@@ -116,10 +136,13 @@ fn outgoing(
     repo: TeamRepo,
 ) -> Result<Outgoing, String> {
     let AskArgs { to, text, reply_to } = parse(&request.args)?;
-    let to = to.trim();
+    let to = to.as_deref().map(str::trim).filter(|to| !to.is_empty());
 
-    if text.trim().is_empty() || to.is_empty() {
-        return Err("Give `to` and `text`.".to_owned());
+    if text.trim().is_empty() {
+        return Err("Give `text`.".to_owned());
+    }
+    if to.is_none() && reply_to.is_none() {
+        return Err("Give `to`: a card id or a teammate's login.".to_owned());
     }
     if text.chars().count() > MAX_TEXT {
         return Err(format!(
@@ -135,7 +158,6 @@ fn outgoing(
         &machine_name(Some(mesh)),
     );
     let (login, to) = link.with(|teams| {
-        teams.asks.limit.take(&request.session, Instant::now())?;
         let record = teams
             .rosters
             .get(&repo)
@@ -147,18 +169,22 @@ fn outgoing(
             .ok_or("This mesh is not on the team yet.")?
             .login
             .clone();
-        let named = record
-            .members
-            .iter()
-            .find(|member| Some(member.mesh) != own && member.login.to_string() == to);
-        let to = match named {
+        let named = |to: &str| {
+            let mut others = record
+                .members
+                .iter()
+                .filter(|member| Some(member.mesh) != own);
+            others.find(|member| member.login.to_string() == to)
+        };
+        // An answer goes to whoever asked: its `to` is not needed.
+        let to = to.filter(|_| reply_to.is_none()).map(|to| match named(to) {
             Some(member) => Target::Person {
                 login: member.login.clone(),
             },
             None => Target::Agent {
                 card: to.to_owned(),
             },
-        };
+        });
         Ok::<_, String>((login, to))
     })?;
 
@@ -196,10 +222,10 @@ pub(crate) async fn answer(link: &TeamLink, agents: &Agents, request: &Request) 
         }
         Tool::TeamDeliver => match parse::<Handed>(&request.args) {
             Ok(Handed {
-                session,
+                card,
                 delivery,
                 text,
-            }) => match here(agents, &session, delivery, text).await {
+            }) => match here(agents, &card, delivery, text).await {
                 Ok(()) => ok("Delivered."),
                 Err(e) => fail(e),
             },
@@ -268,17 +294,16 @@ impl Sessions for TeamSessions {
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
             let no_session = || format!("No session {card} runs on this mesh");
-            let (session, machine) = card.split_once('@').ok_or_else(no_session)?;
-            let session = Into::<SessionId>::into(session);
+            let (_, machine) = card.split_once('@').ok_or_else(no_session)?;
             let mesh = self.0.mesh.get().ok_or_else(no_session)?;
             let machine = find(&mesh, machine).ok_or_else(no_session)?;
 
             if machine.id == mesh.me() {
-                return here(&self.0.agents, &session, delivery, text).await;
+                return here(&self.0.agents, card, delivery, text).await;
             }
 
             let handed = Handed {
-                session,
+                card: card.to_owned(),
                 delivery,
                 text,
             };
@@ -304,15 +329,10 @@ impl Sessions for TeamSessions {
     }
 }
 
-/// Puts `text` into the session `session` here.
-async fn here(
-    agents: &Agents,
-    session: &SessionId,
-    delivery: Delivery,
-    text: String,
-) -> Result<(), String> {
-    match delivery {
-        Delivery::Ask => agents.message(&SessionId::default(), session, text).await,
-        Delivery::Reply => agents.tell(session, text).await,
-    }
+/// Puts `text` into the session on the card `card`, which runs here.
+async fn here(agents: &Agents, card: &str, delivery: Delivery, text: String) -> Result<(), String> {
+    let session = card.split_once('@').map_or(card, |(session, _)| session);
+    let session = Into::<SessionId>::into(session);
+
+    agents.deliver_from_teammate(&session, card, delivery, text).await
 }

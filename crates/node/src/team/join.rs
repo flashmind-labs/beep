@@ -4,8 +4,8 @@
 //! a collaborator, deletes the ref and answers `Roster` or `Refused`.
 
 use super::{
-    link::{TeamError, TeamLink, finish},
     home::Checkout,
+    link::{TeamError, TeamLink, finish},
     proof::{Nonce, ProofError, drop_proof, proof_seen, push_proof},
     roster::record,
 };
@@ -211,8 +211,8 @@ impl TeamLink {
 
         self.with(|teams| teams.rosters.may_join(repo, peer, own, &entry))
             .map_err(|refusal| refusal.to_string())?;
-        let checkout =
-            checkout.ok_or_else(|| format!("This device has no checkout of {repo} to check with"))?;
+        let checkout = checkout
+            .ok_or_else(|| format!("This device has no checkout of {repo} to check with"))?;
         let nonce = Nonce::generate();
         let challenge = TeamMsg::Challenge {
             nonce: nonce.to_string(),
@@ -253,9 +253,7 @@ impl TeamLink {
 }
 
 /// One git command of the proof, within `GIT_LIMIT`.
-async fn git_step<T>(
-    step: impl Future<Output = Result<T, ProofError>>,
-) -> Result<T, ProofError> {
+async fn git_step<T>(step: impl Future<Output = Result<T, ProofError>>) -> Result<T, ProofError> {
     timeout(GIT_LIMIT, step)
         .await
         .map_err(|_| ProofError::Git("git took too long".to_owned()))?

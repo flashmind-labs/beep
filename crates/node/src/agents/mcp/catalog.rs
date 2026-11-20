@@ -314,14 +314,14 @@ pub(super) fn team() -> Vec<Value> {
         tool(
             TEAM[1],
             "Ask a teammate's agent (to: a card id from team) or a teammate (to: their login), \
-             at most 10 an hour. Returns once sent; the answer arrives in this session. To \
-             answer an ask, send to its sender with reply_to set to its id, once.",
+             at most 10 asks an hour. Returns once sent; the answer arrives in this session. To \
+             answer an ask, give its id as reply_to, once, and no to: it goes to whoever asked.",
             json!({
-                "to": text("A card id or a teammate's login, as team lists them"),
+                "to": text("A card id or a teammate's login, as team lists them; left out with reply_to"),
                 "text": text("At most 4000 characters"),
                 "reply_to": text("The id of the ask this answers")
             }),
-            &["to", "text"],
+            &["text"],
             json!({ "title": "Ask a teammate", "destructiveHint": false, "openWorldHint": true }),
         ),
     ]

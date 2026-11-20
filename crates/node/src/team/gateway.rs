@@ -245,7 +245,7 @@ impl Gateway {
                 linked: &titles,
                 now,
             };
-            let mut fresh: Vec<Card> = listed
+            let fresh: Vec<Card> = listed
                 .iter()
                 .filter_map(|listed| {
                     let mut view = listed.view.clone();
@@ -256,7 +256,6 @@ impl Gateway {
                 .collect();
 
             self.link.with(|link| {
-                fresh.extend(link.asks.cards(&team.repo, now));
                 let old = link.boards.cards(&team.repo).unwrap_or_default();
                 link.boards.set(&team.repo, settle(&old, fresh, now));
             });
