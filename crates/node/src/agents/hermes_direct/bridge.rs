@@ -31,13 +31,15 @@ use tokio::{
 };
 
 /// The name the node knows this agent by.
-#[allow(dead_code)] // the launch path names it in the next change
 pub(in crate::agents) const NAME: &str = "hermes-gateway";
 /// How many messages from the client wait to be handled.
 const EVENTS: usize = 64;
 /// How long a try at reconnecting may take, and the wait before the next.
 const TRY: Duration = Duration::from_secs(10);
+#[cfg(not(test))]
 const RETRY: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const RETRY: Duration = Duration::from_millis(10);
 
 /// Serves ACP read from `input` and written to `output`, driving Hermes's
 /// dashboard on `host` and `port` with `token`, until the client closes it.

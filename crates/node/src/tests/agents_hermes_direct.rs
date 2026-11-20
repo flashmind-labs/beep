@@ -574,6 +574,37 @@ async fn a_dropped_socket_reconnects_resumes_and_asks_only_what_is_new() {
 }
 
 #[tokio::test]
+async fn hermes_down_after_a_drop_is_tried_again_until_it_is_back() {
+    let (listener, port) = listen().await;
+    let fake = tokio::spawn(async move {
+        let (mut server, _) = accept(&listener).await;
+        created(&mut server).await;
+        replied(&mut server, "prompt.submit", json!({})).await;
+        drop(server);
+
+        // Hermes restarting: the first try finds no socket.
+        let (refused, _) = listener.accept().await.unwrap();
+        drop(refused);
+
+        let (mut server, _) = accept(&listener).await;
+        let resumed = replied(&mut server, "session.resume", json!({"session_id": "live2"})).await;
+        assert_eq!(resumed, json!({"session_id": STORED}));
+        let since = json!({"count": 0, "epoch": 2, "events": [], "latest_seq": 0, "open_requests": [], "truncated": false});
+        replied(&mut server, "session.events.since", since).await;
+        server.send(hermes_event("live2", "message.complete", json!({"status": "complete"}), 1)).await.unwrap();
+        server
+    });
+
+    with_bridge(port, async |cx, _seen| {
+        let session = new_session(&cx).await;
+
+        assert_eq!(prompt(&cx, &session, "Keep going").await["stopReason"], "end_turn");
+    })
+    .await;
+    fake.await.unwrap();
+}
+
+#[tokio::test]
 async fn loading_a_stored_session_resumes_it_and_asks_what_is_open() {
     let (listener, port) = listen().await;
     let fake = tokio::spawn(async move {
