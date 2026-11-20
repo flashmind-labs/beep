@@ -231,11 +231,11 @@ fn a_session_titled_for_an_issue_is_live() {
         listed_card("acp-3", "laptop", "#x9 not an issue"),
     ];
 
-    assert_eq!(live(&pickup(&[], &[]), &cards), set(&[42]));
-    assert_eq!(
-        plan(&mut pickup(&[], &[]), &[42], &cards, None),
-        Plan::default()
-    );
+    let mut state = pickup(&[], &[]);
+    state.on = true;
+
+    assert_eq!(live(&state, &cards), set(&[42]));
+    assert_eq!(plan(&mut state, &[42], &cards, None), Plan::default());
 }
 
 #[test]
