@@ -110,6 +110,14 @@ fn keys_keep_their_released_wire_names() {
             Key::ProjectSkills("acme/widget".into()),
         ),
         ("machine-name/abc", Key::MachineName("abc".into())),
+        (
+            "team/github.com/org/repo",
+            Key::Team("github.com/org/repo".parse().expect("repo")),
+        ),
+        (
+            "contact/ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+            Key::Contact(fixed_id()),
+        ),
         ("future-kind/x y", Key::Other("future-kind/x y".into())),
     ];
 
@@ -123,8 +131,14 @@ fn keys_keep_their_released_wire_names() {
     }
 }
 
+fn fixed_id() -> iroh::EndpointId {
+    iroh::SecretKey::from_bytes(&[7; 32]).public()
+}
+
 #[test]
 fn key_text_rejects_malformed_names() {
+    assert!("team/github.com".parse::<Key>().is_err());
+    assert!("contact/nope".parse::<Key>().is_err());
     assert!("project/".parse::<Key>().is_err());
     assert!("flsh/x".parse::<Key>().is_err());
     assert!("Nope/x".parse::<Key>().is_err());

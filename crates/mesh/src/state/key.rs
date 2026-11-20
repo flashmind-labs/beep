@@ -1,5 +1,7 @@
 use crate::MeshError;
 use beep_proto::SessionId;
+use beep_proto::team::TeamRepo;
+use iroh::EndpointId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{fmt, str::FromStr};
 
@@ -43,6 +45,10 @@ pub enum Key {
     /// The name the user gave a machine, as UTF-8 text in place of the one it joined with:
     /// `machine-name/<id>`.
     MachineName(String),
+    /// A shared forge repository's team: `team/<host>/<org>/<repo>`.
+    Team(TeamRepo),
+    /// A person in another mesh, by their mesh id: `contact/<id>`.
+    Contact(EndpointId),
     /// A kind this build does not know, as its text. A member holds it and passes it on and
     /// nothing reads it, so a newer desktop's new kind never stops an older member's sync.
     Other(String),
@@ -71,6 +77,8 @@ impl fmt::Display for Key {
             Key::SkillLibrary(n) => write!(f, "skill-library/{n}"),
             Key::ProjectSkills(n) => write!(f, "project-skills/{n}"),
             Key::MachineName(n) => write!(f, "machine-name/{n}"),
+            Key::Team(repo) => write!(f, "team/{repo}"),
+            Key::Contact(id) => write!(f, "contact/{id}"),
             Key::Other(text) => f.write_str(text),
         }
     }
@@ -123,6 +131,8 @@ impl FromStr for Key {
             "skill-library" => Ok(Key::SkillLibrary(name)),
             "project-skills" => Ok(Key::ProjectSkills(name)),
             "machine-name" => Ok(Key::MachineName(name)),
+            "team" => name.parse().map(Key::Team).map_err(|_| bad()),
+            "contact" => name.parse().map(Key::Contact).map_err(|_| bad()),
             // Not a kind this build knows, but well formed: kept as it is.
             other if kind_is_well_formed(other) && other != "flsh" => Ok(Key::Other(s.to_owned())),
             _ => Err(bad()),

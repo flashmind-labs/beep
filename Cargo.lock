@@ -724,6 +724,7 @@ dependencies = [
  "anyhow",
  "beep-node",
  "beep-proto",
+ "blake3",
  "bytes",
  "crc32fast",
  "fastrand",

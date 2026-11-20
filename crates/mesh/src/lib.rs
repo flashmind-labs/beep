@@ -10,6 +10,7 @@ pub mod machine;
 mod mesh;
 mod state;
 mod store;
+mod team;
 mod wire;
 
 pub(crate) use client::CALL_TIMEOUT;
@@ -26,6 +27,7 @@ pub use mesh::{
 };
 pub use state::Key;
 pub(crate) use state::{Applied, Entry, Heads, State};
+pub use team::{TeamTicket, secret_hash};
 
 #[cfg(test)]
 mod tests;

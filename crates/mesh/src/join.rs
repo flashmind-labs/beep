@@ -32,6 +32,10 @@ impl JoinSecret {
         Self(SecretKey::generate().to_bytes())
     }
 
+    pub(crate) fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
     /// Compares in constant time.
     pub fn verify(&self, other: &JoinSecret) -> bool {
         self.0.ct_eq(&other.0).into()
