@@ -449,6 +449,7 @@ function Invite({ project, repo, members }: { project: string; repo: string; mem
 
   const others = contacts.filter(contact => !members.includes(contact.mesh) && contact.logins.length);
   const send = (contact: Contact, login: string) => {
+    if (sent.kind === "sending") return;
     setSent({ kind: "sending", mesh: contact.mesh });
     invoke("team_invite_contact", { projectId: localProjectId(project), contact: contact.mesh })
       .then(() => setSent({ kind: "sent", login }), error => setSent({ kind: "failed", message: reason(error) }));
@@ -466,7 +467,7 @@ function Invite({ project, repo, members }: { project: string; repo: string; mem
       {!!others.length && <><div className="tm-note">Or invite a contact:</div>
         <div className="tm-contacts">{others.map(contact => {
           const login = contact.logins[0]?.login ?? contact.mesh;
-          return <LineRow key={contact.mesh} dataKey={`contact:${login}`} lead={null} title={login} sub={contact.logins.map(each => repoPath(each.repo)).join(", ")} onOpen={() => {}}
+          return <LineRow key={contact.mesh} dataKey={`contact:${login}`} lead={null} title={login} sub={contact.logins.map(each => repoPath(each.repo)).join(", ")} onOpen={() => send(contact, login)}
             right={<><Button small look="quiet" className="tm-remove" onClick={event => { event.stopPropagation(); remove(contact, login); }}>Remove</Button>
               <Button small disabled={sent.kind === "sending"} onClick={event => { event.stopPropagation(); send(contact, login); }}>Invite</Button></>}/>;
         })}</div>

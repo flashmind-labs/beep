@@ -11,6 +11,10 @@
 
 #[cfg(feature = "host")]
 use super::text::cut;
+#[cfg(feature = "host")]
+use regex::Regex;
+#[cfg(feature = "host")]
+use std::sync::LazyLock;
 
 /// Claude Code stores interruption notices as synthetic user messages.
 #[cfg(feature = "host")]
@@ -94,25 +98,17 @@ pub(crate) fn from_session(id: &str, name: &str, text: &str) -> String {
 }
 
 /// `text` from a teammate's agent `id`, called `name`, as `from_session`
-/// gives it, with any closing tag in the text neutralised: it is not this
-/// user's, and must not close the tag and go on as if it were. The rest
-/// arrives as written.
+/// gives it, with every tag of Beep's in the text neutralised, opening or
+/// closing, in any case and spacing: it is not this user's, and must not
+/// close the tag and go on as if it were. The rest arrives as written.
 #[cfg(feature = "host")]
 pub(crate) fn from_teammate(id: &str, name: &str, text: &str) -> String {
-    let close = format!("</{FROM_SESSION}");
-    // ASCII lower case keeps every byte where it is.
-    let lower = text.to_ascii_lowercase();
-    let mut kept = String::with_capacity(text.len());
-    let mut from = 0;
+    static TAG: LazyLock<Regex> = LazyLock::new(|| {
+        let names = [CONTEXT, FROM_SESSION, CHILD, CLAUDE_SESSION, CLAUDE_AGENT].join("|");
+        Regex::new(&format!(r"(?i)<(\s*/?\s*(?:{names}))")).expect("a valid pattern")
+    });
 
-    for (at, _) in lower.match_indices(&close) {
-        kept.push_str(&text[from..at]);
-        kept.push_str("&lt;");
-        from = at + 1;
-    }
-
-    kept.push_str(&text[from..]);
-    from_session(id, name, &kept)
+    from_session(id, name, &TAG.replace_all(text, "&lt;$1"))
 }
 
 /// `text` about the child `id`, called `name`, which is in `state`.
