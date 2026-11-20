@@ -294,6 +294,7 @@ pub fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
         assistant: info.assistant,
         reply: first_line(&info.last_message),
         changes: info.changes,
+        account: info.account,
     }
 }
 
@@ -323,6 +324,7 @@ pub fn external_session(host: &Host, session: ExternalSession) -> MachineSession
         assistant: session.assistant,
         reply: None,
         changes: None,
+        account: None,
     }
 }
 
@@ -400,6 +402,7 @@ pub fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
         assistant: session.assistant,
         reply: None,
         changes: None,
+        account: None,
     }
 }
 

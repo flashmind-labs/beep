@@ -153,8 +153,9 @@ function openFolderMenu(e: MouseEvent) {
 function openAccountMenu(e: MouseEvent) {
   const p = barProject(), agent = barAgent();
   if (!p || !agent) return;
-  const pick = (name: string | null) => () => { keepProjectAccount(p.name, agent, name); redrawProjects(); };
-  openMenu(e, "Account", [{ label: "Default", on: pick(null) }, ...accountsOf(agent).map(name => ({ label: name, on: pick(name) }))]);
+  const names = accountsOf(agent), picked = startAccount(names, p.name, agent);
+  const line = (name: string | null) => ({ kind: "toggle", label: name ?? "Default", checked: picked === name, on: () => { keepProjectAccount(p.name, agent, name); redrawProjects(); } }) as const;
+  openMenu(e, "Account", [line(null), ...names.map(line)]);
 }
 
 /// The harness the bar starts, when it has one.

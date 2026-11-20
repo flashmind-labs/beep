@@ -85,6 +85,7 @@ fn pushed(kind: UpdateKind, earlier: u32, texts: &[&str], start: u64) -> Pushed 
                 subagents: 0,
                 model: None,
                 assistant: false,
+                account: None,
             },
             plan: Vec::new(),
             files: Vec::new(),

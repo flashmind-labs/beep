@@ -417,10 +417,10 @@ impl Session {
             model: initial_model,
             worktrees,
             assistant,
+            account: account.clone(),
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);
-        first.account = account.clone();
         if let Some(note) = note {
             first.push(EntryKind::Other, &note);
         }

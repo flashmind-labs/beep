@@ -109,8 +109,8 @@ test("a named account is added beside the default one", async ({ page }) => {
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
   await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
-  await settings.getByRole("button", { name: "Add account" }).click();
-  await settings.locator(".dchip").filter({ hasText: "Codex" }).click();
+  const codex = settings.locator(".dbox").filter({ has: page.locator("b.dtitle", { hasText: /^Codex$/ }) });
+  await codex.getByRole("button", { name: "Add account" }).click();
   await settings.getByRole("textbox", { name: "Account name" }).fill("default");
   await settings.getByRole("textbox", { name: "Codex access token" }).fill("example-token");
   await settings.locator("#agNamedSave").click();

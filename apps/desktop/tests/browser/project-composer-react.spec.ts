@@ -331,7 +331,9 @@ test("the project bar starts as the account picked for the project", async ({ pa
   const account = form.locator('[data-composer="account"]');
   await expect(account).toHaveText("as default");
   await account.click();
-  await page.getByRole("menu", { name: "Account" }).getByRole("menuitem", { name: "Work" }).click();
+  const menu = page.getByRole("menu", { name: "Account" });
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Default" })).toHaveAttribute("aria-checked", "true");
+  await menu.getByRole("menuitemcheckbox", { name: "Work" }).click();
   await expect(account).toHaveText("as Work");
   const input = form.getByRole("textbox", { name: "Task for a coding agent" });
   await input.fill("Inspect the project");

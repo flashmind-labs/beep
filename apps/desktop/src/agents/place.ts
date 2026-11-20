@@ -143,7 +143,8 @@ function changed() {
 /// linked worktree the repository, the worktree and the machine.
 export function runningLineAt(r: RunningAgent, projects: Parameters<typeof runningLine>[1]) {
   const line = runningLine(r, projects);
-  const sub = placeSub(placeOf(r), r.machine_name) ?? line.sub;
+  const placed = placeSub(placeOf(r), r.machine_name);
+  const sub = placed === null ? line.sub : [placed, r.account].filter(Boolean).join(" · ");
   // A session on its way to another machine names both.
   const moving = moveLabel(r);
   return { title: line.title, sub: moving ? sub.replace(r.machine_name, moving.sub) : sub };

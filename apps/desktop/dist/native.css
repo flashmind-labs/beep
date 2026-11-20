@@ -320,7 +320,7 @@ body:not(.mobile) .cc-set :is(.dset-ver, .dset-top kbd, .dmc-head .dmuted, .dmt 
 body:not(.mobile) .cc-set :is(.dsec, .dskins > small) { font-family: var(--mono); color: var(--dim); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) .cc-set .dset-box { border: 0; border-radius: var(--radius); background: var(--lit), color-mix(in srgb, var(--fg) 3.5%, transparent) }
 @media (hover: hover) {
-  body:not(.mobile) .mcp-servers .cc-line:not(:hover, :focus-within) .r { opacity: 0 }
+  body:not(.mobile) .mcp-servers .cc-line:not(:hover, :focus-within) .r, body:not(.mobile) .dnamed:not(:hover, :focus-within) .dbtn { opacity: 0 }
 }
 body:not(.mobile) .dmach + .dmach { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) .dmt > .dmach:hover { background: color-mix(in srgb, var(--fg) 3%, transparent) }

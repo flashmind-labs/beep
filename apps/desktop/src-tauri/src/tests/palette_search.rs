@@ -21,6 +21,7 @@ fn session(machine: &str, id: &str, activity: u64) -> MachineSession {
         subagents: 0,
         model: None,
         assistant: false,
+        account: None,
     }
 }
 

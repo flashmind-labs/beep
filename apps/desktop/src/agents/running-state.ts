@@ -24,6 +24,8 @@ export interface RunningAgent {
   external: boolean;
   /// Its subagents that still run.
   subagents?: number;
+  /// The named account it runs as; null for the agent's default one.
+  account?: string | null;
 }
 
 /// A question a session waits on, such as whether to run a command.
@@ -43,11 +45,11 @@ export function agentName(name: string | null | undefined) {
 
 /// A Running now row: a title and one muted line.
 export function runningLine(
-  r: Pick<RunningAgent, "agent" | "title" | "cwd" | "machine_id" | "machine_name">,
+  r: Pick<RunningAgent, "agent" | "title" | "cwd" | "machine_id" | "machine_name" | "account">,
   projects: readonly ProjectFolder[] = [],
 ) {
   const project = repoOf(r, projects);
-  return { title: r.title || project || agentName(r.agent), sub: [project, r.machine_name].filter(Boolean).join(" · ") };
+  return { title: r.title || project || agentName(r.agent), sub: [project, r.machine_name, r.account].filter(Boolean).join(" · ") };
 }
 
 /// When a Running now row last moved: now for an agent in a turn, else its

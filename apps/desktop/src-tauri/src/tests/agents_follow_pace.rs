@@ -40,6 +40,7 @@ fn pushed(kind: UpdateKind, earlier: u32, texts: &[&str], status: AgentStatus) -
                 subagents: 0,
                 model: None,
                 assistant: false,
+                account: None,
             },
             plan: Vec::new(),
             files: Vec::new(),

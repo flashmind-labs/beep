@@ -42,6 +42,7 @@ fn agent_session(
         subagents: 0,
         model: None,
         assistant: false,
+        account: None,
     }
 }
 

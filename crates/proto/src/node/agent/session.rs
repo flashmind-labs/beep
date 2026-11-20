@@ -200,6 +200,10 @@ pub struct SessionInfo {
     /// before then and outside a git checkout.
     #[serde(default)]
     pub changes: Option<LineChanges>,
+    /// The named account it runs as, whose plan its limits are; `None` for
+    /// the agent's default one.
+    #[serde(default)]
+    pub account: Option<AccountName>,
 }
 
 /// Lines added and removed in a checkout, as its diff counts them.

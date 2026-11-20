@@ -263,12 +263,12 @@ const agentActions: AgentAccountActions = {
   },
   async removeNamed(agent, name) {
     ACC.busy = `remove:${agent}/${name}`; renderAgents();
-    ACC.namedError = "";
+    ACC.namedError = null;
     try { await invoke("revoke_agent_token", { agentSlug: agent, name }); }
-    catch (error) { ACC.namedError = String(error); }
+    catch (error) { ACC.namedError = { agent, text: String(error) }; }
     ACC.busy = ""; await loadAgentAccounts();
   },
-  edit(agent) { agentEditVersion++; ACC.edit = agent; ACC.error = ""; renderAgents(); },
+  edit(agent) { agentEditVersion++; ACC.edit = agent; ACC.add = null; ACC.error = ""; renderAgents(); },
   cancel() { agentEditVersion++; ACC.edit = null; ACC.error = ""; renderAgents(); },
   async save(secret, clear) {
     if (ACC.busy) return;

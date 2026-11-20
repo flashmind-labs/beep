@@ -137,7 +137,7 @@ impl Live {
             }
 
             self.usage.update_credits(
-                &(AgentSlug::new(self.info.agent.as_str()), self.account.clone()),
+                &(AgentSlug::new(self.info.agent.as_str()), self.info.account.clone()),
                 credits,
                 unix_now(),
             );
@@ -145,7 +145,7 @@ impl Live {
 
         if let Some(info) = meta.and_then(|meta| meta.get(CLAUDE_RATE_LIMIT)) {
             self.usage.update_windows(
-                &(AgentSlug::CLAUDE, self.account.clone()),
+                &(AgentSlug::CLAUDE, self.info.account.clone()),
                 claude_rate_limit(info),
                 unix_now(),
             );

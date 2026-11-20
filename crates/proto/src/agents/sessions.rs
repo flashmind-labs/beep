@@ -393,6 +393,10 @@ wire_structs! {
         /// node.
         #[serde(default)]
         pub changes: Option<LineChanges>,
+        /// The named account it runs as; `None` for the agent's default
+        /// one, an external session and from an older node.
+        #[serde(default)]
+        pub account: Option<AccountName>,
     }
 }
 

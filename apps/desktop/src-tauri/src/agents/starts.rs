@@ -179,6 +179,7 @@ impl Start {
             assistant: self.assistant,
             reply: None,
             changes: None,
+            account: self.account.clone(),
         }
     }
 

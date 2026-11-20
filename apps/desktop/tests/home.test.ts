@@ -36,6 +36,7 @@ test("a running agent shows its title, then agent, repo and machine", () => {
   ];
   assert.deepEqual(runningLine(r, projects), { title: "Fix the build", sub: "widget · build-box" });
   assert.deepEqual(runningLine({ ...r, title: null, cwd: "" }), { title: "Claude Code", sub: "build-box" });
+  assert.deepEqual(runningLine({ ...r, account: "Work" }), { title: "Fix the build", sub: "src · build-box · Work" });
 });
 
 test("a remote's path drops the host, the port and .git", () => {

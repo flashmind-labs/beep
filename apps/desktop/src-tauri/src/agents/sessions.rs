@@ -117,6 +117,8 @@ pub struct SessionRow {
     model: Option<ModelId>,
     /// The home assistant.
     assistant: bool,
+    /// The named account it runs as; `None` for the agent's default one.
+    account: Option<AccountName>,
 }
 
 impl From<MachineSession> for SessionRow {
@@ -141,6 +143,7 @@ impl From<MachineSession> for SessionRow {
             subagents: session.subagents,
             model: session.model,
             assistant: session.assistant,
+            account: session.account,
         }
     }
 }

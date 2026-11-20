@@ -226,6 +226,11 @@ body.cbody
                     span.dacts.dmut "not signed in"
                       button.dbtn.small [type="button"] "Sign in"
                 div.dfine.dmt6 "Sign in for all to give every machine one token. Beep keeps it encrypted and never writes it to their disks."
+                div.daccounts
+                  div.dline
+                    span.dfine "Another login, such as Work or Personal, to pick per project"
+                    span.dacts
+                      button.dbtn.quiet.small [type="button"] "Add account"
               div.dbox
                 div.dline
                   span.cc-ag.codex.mark
@@ -237,13 +242,11 @@ body.cbody
                     button.dbtn [type="button"] "Use an API key"
                 div.dmt6
                   div.dfine.dpy "No machine has Codex yet."
-              div.dbox
-                div.dline
-                  span.dstack
-                    b.dtitle "Named accounts"
-                    span.dsub "Work, personal and other accounts to pick per project or session. Without one, a session uses the account above."
-                  span.dacts
-                    button.dbtn [type="button"] "Add account"
+                div.daccounts
+                  div.dline
+                    span.dfine "Another login, such as Work or Personal, to pick per project"
+                    span.dacts
+                      button.dbtn.quiet.small [type="button"] "Add account"
             div#set-agent-overview style(display)
               div.dset-h "Coding agents"
               div.dset-box

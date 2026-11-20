@@ -73,8 +73,8 @@ export interface AccountDraft {
 export interface AgentAccountsState {
   data: AgentAccounts | null | undefined;
   add?: AccountDraft | null;
-  /// Why removing a named account failed.
-  namedError?: string;
+  /// Why removing one of the agent's named accounts failed.
+  namedError?: { agent: AccountAgent; text: string } | null;
   edit?: string | null;
   busy?: string;
   error?: string;

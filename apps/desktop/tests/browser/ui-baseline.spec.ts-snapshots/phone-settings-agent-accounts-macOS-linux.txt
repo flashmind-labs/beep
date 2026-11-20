@@ -256,6 +256,16 @@ body.cbody.mb-home.mobile
                     span "offline-box"
                     span.dacts.dmut "not checked"
                 div.dfine.dmt6 "Paste a token from claude setup-token to give every machine one token. Beep"
+                div.daccounts
+                  div.dline
+                    span.dfine "Other accounts"
+                    span.dacts
+                      button.dbtn.quiet.small [type="button"] "Add account"
+                  div.dline.dnamed.dpy.dsm
+                    span "Work"
+                    span.dacts.dmut "· added Jan 1"
+                      code "… 4a2f"
+                      button.dbtn.quiet.small.warn [type="button"] "Remove"
               div.dbox
                 div.dline
                   span.cc-ag.codex.mark
@@ -267,21 +277,11 @@ body.cbody.mb-home.mobile
                     button.dbtn [type="button"] "Use an API key"
                 div.dmt6
                   div.dfine.dpy "No machine has Codex yet."
-              div.dbox
-                div.dline
-                  span.dstack
-                    b.dtitle "Named accounts"
-                    span.dsub "Work, personal and other accounts to pick per project or session. Without one, a session uses the account above."
-                  span.dacts
-                    button.dbtn [type="button"] "Add account"
-                div.dmt6
-                  div.dline.dpy.dsm
-                    span.cc-ag.claude.mark
-                      svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "Work"
-                    span.dacts.dmut "· added Jan 1"
-                      code "… 4a2f"
-                      button.dbtn.quiet.small.warn [type="button"] "Remove"
+                div.daccounts
+                  div.dline
+                    span.dfine "Another login, such as Work or Personal, to pick per project"
+                    span.dacts
+                      button.dbtn.quiet.small [type="button"] "Add account"
             div#set-agent-overview style(display)
               div.dset-h "Coding agents"
               div.dset-box
