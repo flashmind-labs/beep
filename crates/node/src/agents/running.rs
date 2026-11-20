@@ -666,7 +666,8 @@ impl Agents {
 
     /// Starts an issue's automatic session: the `auto_harness`, on the
     /// worktree `plan` makes in `cwd`, titled `title`. Its id, once the
-    /// agent names it as listings and cards do, and the folder it runs in.
+    /// agent names it as listings and cards do, and the worktree it works
+    /// in (the session itself runs in the project folder).
     pub(crate) async fn start_on_issue(
         &self,
         cwd: &str,
@@ -685,7 +686,9 @@ impl Agents {
         let session = self.start_in(&kind, Some(cwd), Some(plan), begin).await?;
         let named = session.named_info().await.map_err(anyhow::Error::msg)?;
 
-        Ok((named.id, session.info().cwd))
+        let worktree = named.worktrees.into_iter().next();
+
+        Ok((named.id, worktree.unwrap_or(named.cwd)))
     }
 
     /// Readies what `kind` reads before it starts: for flsh, the user's

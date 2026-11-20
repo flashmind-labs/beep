@@ -677,6 +677,38 @@ async fn a_start_git_sync_holds_back_makes_no_worktree() {
     assert!(checkout::tests::run(&work, &["branch", "--list", "issue-7*"]).is_empty());
 }
 
+/// An issue's session is known by the agent's id and its worktree, whose
+/// branch is the issue's.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_issue_session_reports_its_agents_id_and_worktree() {
+    const AGENT_ID: &str = "0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b";
+    let (_dir, work) = checkout::tests::repo("issue");
+    let agents = Agents::new(vec![sh_agent("codex", NAMING_ADAPTER)]);
+    let plan = CheckoutPlan::NamedWorktree {
+        base: None,
+        branch: "issue-7-fix-it".to_owned(),
+    };
+    let started = agents.start_on_issue(
+        work.to_str().unwrap(),
+        plan,
+        "#7 Fix it".to_owned(),
+        "Work on issue #7".to_owned(),
+    );
+    let (id, worktree) = tokio::time::timeout(Duration::from_secs(10), started)
+        .await
+        .expect("the agent names the session")
+        .unwrap();
+
+    assert_eq!(id, AGENT_ID);
+    assert_ne!(Path::new(&worktree), work);
+    assert_eq!(
+        crate::team::gateway::branch_of(&worktree).await.as_deref(),
+        Some("issue-7-fix-it")
+    );
+    agents.shutdown().await;
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn a_session_resumes_only_on_its_own_agent() {

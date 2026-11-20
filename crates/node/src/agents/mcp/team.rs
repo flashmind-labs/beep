@@ -283,7 +283,7 @@ pub(crate) async fn start_issue(
         base: None,
         branch: branch.clone(),
     };
-    let (id, cwd) = agents
+    let (id, worktree) = agents
         .start_on_issue(
             &checkout.folder.to_string_lossy(),
             plan,
@@ -292,7 +292,7 @@ pub(crate) async fn start_issue(
         )
         .await
         .map_err(|e| format!("{e:#}"))?;
-    let branch = branch_of(&cwd).await.unwrap_or(branch);
+    let branch = branch_of(&worktree).await.unwrap_or(branch);
 
     Ok(Auto {
         card: full_id(id.as_ref(), &machine_name(Some(mesh))),
