@@ -4,7 +4,7 @@ use crate::{
     records::{Place, ProjectRecord, place_key, project_key},
 };
 use async_trait::async_trait;
-use beep_mesh::{Mesh, PeerClient, take_roster, transport_config};
+use beep_mesh::{Mesh, PeerClient, TeamWrites, take_roster, transport_config};
 use beep_proto::team::Removed;
 use iroh::{Endpoint, SecretKey, endpoint::presets};
 use std::sync::Arc;
@@ -143,27 +143,6 @@ async fn join_without_import_says_import_first() {
 }
 
 #[tokio::test]
-async fn roster_from_node_is_written_once() {
-    let dir = TempDir::new().expect("a temp dir");
-    let (desk, mesh) = desk(&dir).await;
-    let mut team = TeamRecord::new(repo("org/web"), vec![member("dana", mesh.id())]);
-    team.pickup = false;
-    seed(&mesh, &team).await;
-    // A node took a joiner, from the record it had before pickup was off.
-    let mut pending = TeamRecord::new(repo("org/web"), team.members.clone());
-    pending
-        .members
-        .push(member("alice", SecretKey::generate().public()));
-
-    assert!(take_roster(&mesh, pending.clone()).await.expect("taken"));
-    assert!(!take_roster(&mesh, pending).await.expect("taken"));
-
-    let record = desk.team_record("org/web").expect("read").expect("a team");
-    assert_eq!(record.members.len(), 2);
-    assert!(!record.pickup, "the desktop's settings stay");
-}
-
-#[tokio::test]
 async fn roster_keeps_removals_and_never_starts_a_team() {
     let dir = TempDir::new().expect("a temp dir");
     let (desk, mesh) = desk(&dir).await;
@@ -178,8 +157,16 @@ async fn roster_keeps_removals_and_never_starts_a_team() {
     let stale = TeamRecord::new(repo("org/web"), vec![team.members[0].clone(), alice]);
     let elsewhere = TeamRecord::new(repo("org/api"), stale.members.clone());
 
-    assert!(!take_roster(&mesh, stale).await.expect("taken"));
-    assert!(!take_roster(&mesh, elsewhere).await.expect("taken"));
+    assert!(
+        !take_roster(&mesh, stale, &TeamWrites::lock().await)
+            .await
+            .expect("taken")
+    );
+    assert!(
+        !take_roster(&mesh, elsewhere, &TeamWrites::lock().await)
+            .await
+            .expect("taken")
+    );
 
     let record = desk.team_record("org/web").expect("read").expect("a team");
     assert_eq!(record, team);
@@ -206,7 +193,9 @@ async fn contacts_follow_the_teams() {
     )
     .await;
 
-    keep_contacts(&mesh).await.expect("kept");
+    keep_contacts(&mesh, &TeamWrites::lock().await)
+        .await
+        .expect("kept");
 
     let [contact] = &desk.contacts()[..] else {
         panic!("alice alone: {:?}", desk.contacts());
@@ -244,7 +233,9 @@ async fn leave_deletes_key_and_contacts_only_for_that_team() {
         &TeamRecord::new(repo("org/api"), vec![me, alice.clone()]),
     )
     .await;
-    keep_contacts(&mesh).await.expect("kept");
+    keep_contacts(&mesh, &TeamWrites::lock().await)
+        .await
+        .expect("kept");
     assert_eq!(desk.contacts().len(), 2);
 
     // No node answers: the teammates are not told, and the team is left.
@@ -276,4 +267,73 @@ async fn readmit_clears_the_removal() {
     let record = desk.team_record("org/web").expect("read").expect("a team");
     assert!(record.removed.is_empty());
     assert_eq!(record.members.len(), 1);
+}
+
+/// A roster a node merges while the user changes a setting: neither undoes
+/// the other.
+#[tokio::test]
+async fn settings_wait_for_a_roster_merge_in_progress() {
+    let dir = TempDir::new().expect("a temp dir");
+    let (desk, mesh) = desk(&dir).await;
+    let team = TeamRecord::new(repo("org/web"), vec![member("dana", mesh.id())]);
+    seed(&mesh, &team).await;
+    let mut joined = team.clone();
+    joined
+        .members
+        .push(member("alice", SecretKey::generate().public()));
+
+    let held = TeamWrites::lock().await;
+    let mut settings = std::pin::pin!(desk.team_settings("org/web", false, None, true));
+    assert!(futures::poll!(&mut settings).is_pending());
+    assert!(take_roster(&mesh, joined, &held).await.expect("taken"));
+    drop(held);
+    settings.await.expect("set");
+
+    let record = desk.team_record("org/web").expect("read").expect("a team");
+    assert!(!record.pickup, "the setting stays");
+    assert_eq!(record.members.len(), 2, "the newcomer stays");
+}
+
+/// A roster a node merges while the user leaves: the team does not come back.
+#[tokio::test]
+async fn a_roster_merge_does_not_bring_a_left_team_back() {
+    let dir = TempDir::new().expect("a temp dir");
+    let (desk, mesh) = desk(&dir).await;
+    let team = TeamRecord::new(repo("org/web"), vec![member("dana", mesh.id())]);
+    seed(&mesh, &team).await;
+    let mut joined = team.clone();
+    joined
+        .members
+        .push(member("alice", SecretKey::generate().public()));
+
+    let held = TeamWrites::lock().await;
+    let mut leave = std::pin::pin!(desk.team_leave("org/web"));
+    assert!(futures::poll!(&mut leave).is_pending());
+    assert!(
+        take_roster(&mesh, joined.clone(), &held)
+            .await
+            .expect("taken")
+    );
+    drop(held);
+    leave.await.expect("left");
+
+    assert_eq!(desk.team_record("org/web").expect("read"), None);
+    let held = TeamWrites::lock().await;
+    assert!(!take_roster(&mesh, joined, &held).await.expect("taken"));
+    assert_eq!(desk.team_record("org/web").expect("read"), None);
+}
+
+#[tokio::test]
+async fn a_project_without_a_team_has_no_team_cards() {
+    let dir = TempDir::new().expect("a temp dir");
+    let (desk, _mesh) = desk(&dir).await;
+
+    assert_eq!(
+        desk.team_cards("org/web").await.expect("cards"),
+        TeamCards::default()
+    );
+    assert!(matches!(
+        desk.team_dismiss("org/web", "ask:a1").await,
+        Err(FleetError::NotFound)
+    ));
 }

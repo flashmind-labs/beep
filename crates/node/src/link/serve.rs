@@ -594,6 +594,7 @@ pub(super) async fn serve_open(
                         agents: Some(offers.agents.clone()),
                         project_tools: offers.project_tools.clone(),
                         team: offers.reach.peers().map(|peers| peers.team()),
+                        mesh: offers.mesh.get(),
                     },
                 };
                 peer_tools::serve(tx, rx, caller).await

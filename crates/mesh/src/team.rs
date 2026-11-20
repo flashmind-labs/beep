@@ -2,7 +2,10 @@
 //! another mesh, and the writes every desktop makes alike. The inviter's
 //! desktop keeps the invite's expiry and enforces it when the secret is spent.
 
-use crate::{JoinSecret, Key, Mesh, MeshError, TicketError};
+use crate::{
+    JoinSecret, Key, Mesh, MeshError, TicketError,
+    values::{read, scan},
+};
 use beep_proto::{
     lenient,
     node::mesh_state::StateValue,
@@ -12,6 +15,10 @@ use iroh::EndpointId;
 use iroh_tickets::{ParseError, Ticket};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use tokio::sync::{Mutex as AsyncMutex, MutexGuard};
+
+/// Every read-modify-write of `team/` and `contact/` in this process holds it.
+static TEAM_WRITES: AsyncMutex<()> = AsyncMutex::const_new(());
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TeamTicket {
@@ -46,11 +53,30 @@ pub fn secret_hash(secret: &JoinSecret) -> [u8; 32] {
     *blake3::hash(secret.as_bytes()).as_bytes()
 }
 
+/// The team writes held: what changing `team/` and `contact/` takes, so a
+/// desktop's change and its node's never read and write over each other.
+pub struct TeamWrites {
+    _guard: MutexGuard<'static, ()>,
+}
+
+impl TeamWrites {
+    /// Waits for the writes in progress, then holds them until dropped.
+    pub async fn lock() -> Self {
+        Self {
+            _guard: TEAM_WRITES.lock().await,
+        }
+    }
+}
+
 /// Writes `pending`, a team record a node changed, over the mesh's own: its
 /// members and removals count, the invites and settings stay. A removal on
 /// either side wins, so a stale change never brings anyone back. A team the
 /// mesh holds no record of is not written: it was left. Whether it wrote.
-pub async fn take_roster(mesh: &Mesh, pending: TeamRecord) -> Result<bool, MeshError> {
+pub async fn take_roster(
+    mesh: &Mesh,
+    pending: TeamRecord,
+    _held: &TeamWrites,
+) -> Result<bool, MeshError> {
     let key = Key::Team(pending.repo.clone());
     let Some(current) = read::<TeamRecord>(mesh, &key) else {
         return Ok(false);
@@ -83,15 +109,11 @@ pub async fn take_roster(mesh: &Mesh, pending: TeamRecord) -> Result<bool, MeshE
 /// Keeps a `contact/<mesh>` record for each member of another mesh on this
 /// mesh's teams: the login they hold on each team and all their devices. A
 /// contact who shares no team any more is deleted.
-pub async fn keep_contacts(mesh: &Mesh) -> Result<(), MeshError> {
+pub async fn keep_contacts(mesh: &Mesh, _held: &TeamWrites) -> Result<(), MeshError> {
     let own = mesh.id();
     let mut contacts: BTreeMap<EndpointId, ContactRecord> = BTreeMap::new();
 
-    for (key, bytes) in mesh.scan("team/") {
-        let (Key::Team(_), Ok(record)) = (key, TeamRecord::from_bytes(&bytes)) else {
-            continue;
-        };
-
+    for (_, record) in scan::<TeamRecord>(mesh, "team/") {
         for member in record
             .members
             .into_iter()
@@ -136,10 +158,6 @@ pub async fn keep_contacts(mesh: &Mesh) -> Result<(), MeshError> {
     }
 
     Ok(())
-}
-
-fn read<T: StateValue>(mesh: &Mesh, key: &Key) -> Option<T> {
-    T::from_bytes(&mesh.get(key)?).ok()
 }
 
 #[cfg(test)]

@@ -7,9 +7,9 @@ use crate::{
     desk::Desk,
     error::{FleetError, Result},
     nearest_first,
-    records::{WRITES, find_project, projects, read, scan, write},
+    records::{find_project, projects, read, scan, write},
 };
-use beep_mesh::{JoinSecret, Key, TeamTicket, keep_contacts, secret_hash};
+use beep_mesh::{JoinSecret, Key, TeamTicket, TeamWrites, keep_contacts, secret_hash};
 use beep_projects::team_forge::{assign, my_login};
 use beep_proto::{
     SessionId,
@@ -56,7 +56,7 @@ impl Desk {
         };
 
         {
-            let _writes = WRITES.lock().await;
+            let _held = TeamWrites::lock().await;
             let mut record = match (self.team_record(project)?, founder) {
                 (Some(record), _) => record,
                 (None, Some(me)) => TeamRecord::new(repo.clone(), vec![me]),
@@ -93,7 +93,7 @@ impl Desk {
         let text = self.call(machine, Tool::TeamJoin, &args, ACROSS).await?;
         let joined: TeamRecord = serde_json::from_str(&text).map_err(anyhow::Error::from)?;
 
-        let _writes = WRITES.lock().await;
+        let held = TeamWrites::lock().await;
         let record = match read::<TeamRecord>(&self.mesh, &Key::Team(repo.clone())) {
             // Settings and invites stay; nobody on the team is held off it.
             Some(mut kept) => {
@@ -107,7 +107,7 @@ impl Desk {
             None => joined,
         };
         write(&self.mesh, Key::Team(repo), Some(&record)).await?;
-        keep_contacts(&self.mesh).await?;
+        keep_contacts(&self.mesh, &held).await?;
 
         Ok(record)
     }
@@ -154,9 +154,9 @@ impl Desk {
             log::warn!("the teammates on {repo} were not told this mesh left: {e}");
         }
 
-        let _writes = WRITES.lock().await;
+        let held = TeamWrites::lock().await;
         write::<TeamRecord>(&self.mesh, Key::Team(repo), None).await?;
-        keep_contacts(&self.mesh).await?;
+        keep_contacts(&self.mesh, &held).await?;
 
         Ok(())
     }
@@ -226,9 +226,14 @@ impl Desk {
     }
 
     /// `project`'s Needs you cards and its teammates' cards, from the
-    /// machine that acts for its team.
+    /// machine that acts for its team; none without a team.
     pub async fn team_cards(&self, project: &str) -> Result<TeamCards> {
         let repo = self.team_repo(project)?;
+
+        if self.team_record(project)?.is_none() {
+            return Ok(TeamCards::default());
+        }
+
         let text = self.team_app(&TeamAppArgs::Cards { repo }, WITHIN).await?;
 
         Ok(serde_json::from_str(&text).map_err(anyhow::Error::from)?)
@@ -237,6 +242,7 @@ impl Desk {
     /// Drops `project`'s Needs you card `card`.
     pub async fn team_dismiss(&self, project: &str, card: &str) -> Result<()> {
         let repo = self.team_repo(project)?;
+        self.team_record(project)?.ok_or(FleetError::NotFound)?;
         let dismiss = TeamAppArgs::Dismiss {
             repo,
             card: card.to_owned(),
@@ -293,14 +299,14 @@ impl Desk {
     /// Changes `project`'s team record with `change`, and the contacts with it.
     async fn change_team(&self, project: &str, change: impl FnOnce(&mut TeamRecord)) -> Result<()> {
         let repo = self.team_repo(project)?;
-        let _writes = WRITES.lock().await;
+        let held = TeamWrites::lock().await;
         let mut record = self.team_record(project)?.ok_or(FleetError::NotFound)?;
         let before = record.clone();
         change(&mut record);
 
         if record != before {
             write(&self.mesh, Key::Team(repo), Some(&record)).await?;
-            keep_contacts(&self.mesh).await?;
+            keep_contacts(&self.mesh, &held).await?;
         }
 
         Ok(())

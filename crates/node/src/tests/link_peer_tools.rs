@@ -10,6 +10,7 @@ fn caller(table: Table, node_here: bool) -> Caller {
         agents: None,
         project_tools: None,
         team: None,
+        mesh: None,
     }
 }
 

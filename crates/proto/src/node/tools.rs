@@ -271,6 +271,16 @@ pub enum TeamAppArgs {
     DropInvite { invite: TeamInviteArgs },
 }
 
+/// `Tool::TeamApp` as it goes: the call, and whether a node sent it on to
+/// the team's gateway, which then answers it or refuses it, never sends it on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TeamAppCall {
+    #[serde(flatten)]
+    pub args: TeamAppArgs,
+    #[serde(default)]
+    pub forwarded: bool,
+}
+
 /// What `TeamAppArgs::Cards` answers.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TeamCards {

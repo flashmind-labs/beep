@@ -7,7 +7,7 @@ use crate::{
     agents::mcp::to_desktop,
     machine::ci::forge::{command, tail},
 };
-use beep_mesh::{DeviceKind, Key, Mesh, keep_contacts, take_roster};
+use beep_mesh::{DeviceKind, Key, Mesh, TeamWrites, keep_contacts, take_roster};
 use beep_projects::{
     commands::{OpenIssue, parse_open_issues, parse_open_prs},
     model::{IssueHost, RepoName},
@@ -162,7 +162,7 @@ pub(crate) async fn follow(mesh: Mesh, link: TeamLink) {
         // A desktop's node writes rosters itself, so its desktop keeps the
         // contacts in step with them here.
         if desktop_here(&mesh)
-            && let Err(e) = keep_contacts(&mesh).await
+            && let Err(e) = keep_contacts(&mesh, &TeamWrites::lock().await).await
         {
             log::warn!("the contacts were not kept in step with the teams: {e}");
         }
@@ -289,7 +289,7 @@ async fn hand(mesh: &Mesh, link: &TeamLink, handed: &mut Vec<TeamRecord>) {
 
     for record in unhanded {
         let written = match desktop_here {
-            true => take_roster(mesh, record.clone())
+            true => take_roster(mesh, record.clone(), &TeamWrites::lock().await)
                 .await
                 .map(drop)
                 .map_err(|e| e.to_string()),

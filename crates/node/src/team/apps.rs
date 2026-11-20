@@ -9,29 +9,37 @@ use super::{
     cards::Teammates,
     link::{TeamError, TeamLink},
 };
-use crate::{agents::mcp::over_the_mesh, link::peer_tools::Caller, run::tasks::Table};
-use beep_mesh::{Mesh, take_roster};
+use crate::{agents::mcp::over_the_mesh, link::peer_tools::Caller};
+use beep_mesh::{Mesh, TeamWrites, take_roster};
 use beep_proto::{
-    node::tools::{Reply, Request, TeamAppArgs, TeamCards, TeamInviteArgs, TeamRosterArgs, Tool},
+    SessionId,
+    node::tools::{
+        Approved, Reply, Request, TeamAppArgs, TeamAppCall, TeamCards, TeamInviteArgs,
+        TeamRosterArgs, Tool,
+    },
     team::{TeamMsg, TeamRepo},
 };
-use iroh::EndpointAddr;
+use iroh::{EndpointAddr, EndpointId};
 use serde::{Serialize, de::DeserializeOwned};
 use std::time::{Duration, SystemTime};
 use tokio::time::timeout;
 
 /// How long an invite may take to reach a contact, over all their devices.
 const INVITE_LIMIT: Duration = Duration::from_secs(60);
+/// How long a call sent on to the gateway may take, besides an invite's own time.
+const HOP: Duration = Duration::from_secs(30);
+/// What a call sent on to a machine that no longer acts for the team gets.
+const MOVED: &str = "The team's gateway moved; try again";
 
 /// A result for the caller, or why the call did not work.
 type Outcome = Result<String, String>;
 
 /// Answers `Tool::TeamRoster`, `Tool::TeamInvite` and `Tool::TeamApp`.
 pub(crate) async fn answer(caller: &Caller, request: &Request) -> Reply {
-    let mesh = caller.agents.as_ref().and_then(|agents| agents.mesh());
     let Some(link) = &caller.team else {
         return reply(Err("This machine does not act for a team.".to_owned()));
     };
+    let mesh = caller.mesh.as_ref();
 
     match request.tool {
         Tool::TeamRoster | Tool::TeamInvite if !caller.desktop_here => {
@@ -39,19 +47,17 @@ pub(crate) async fn answer(caller: &Caller, request: &Request) -> Reply {
         }
         Tool::TeamRoster => reply(roster(mesh, request).await),
         Tool::TeamInvite => reply(keep_invite(link, request)),
-        _ => {
-            let from_peer = matches!(caller.table, Table::Peer(_));
-            app(link, mesh, from_peer, request).await
-        }
+        _ => app(link, mesh, request).await,
     }
 }
 
 /// Writes a roster a node changed.
-async fn roster(mesh: Option<Mesh>, request: &Request) -> Outcome {
+async fn roster(mesh: Option<&Mesh>, request: &Request) -> Outcome {
     let mesh = mesh.ok_or("This machine is in no mesh.")?;
     let TeamRosterArgs { record } = parse(&request.args)?;
     let repo = record.repo.clone();
-    take_roster(&mesh, record)
+    let held = TeamWrites::lock().await;
+    take_roster(mesh, record, &held)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -66,11 +72,12 @@ fn keep_invite(link: &TeamLink, request: &Request) -> Outcome {
     Ok("Kept the invite.".to_owned())
 }
 
-/// Answers an app's call here, or sends it on to the team's gateway when an
-/// app of this mesh made it here.
-async fn app(link: &TeamLink, mesh: Option<Mesh>, from_peer: bool, request: &Request) -> Reply {
-    let args: TeamAppArgs = match parse(&request.args) {
-        Ok(args) => args,
+/// Answers a call about a team on its gateway; any other machine sends it
+/// on to the gateway, once. A call sent on that reaches a machine which is
+/// not the gateway in its own view is refused: the gateway moved.
+async fn app(link: &TeamLink, mesh: Option<&Mesh>, request: &Request) -> Reply {
+    let TeamAppCall { args, forwarded } = match parse(&request.args) {
+        Ok(call) => call,
         Err(e) => return reply(Err(e)),
     };
     let repo = match &args {
@@ -78,36 +85,55 @@ async fn app(link: &TeamLink, mesh: Option<Mesh>, from_peer: bool, request: &Req
         | TeamAppArgs::Dismiss { repo, .. }
         | TeamAppArgs::Remove { repo, .. }
         | TeamAppArgs::Leave { repo }
-        | TeamAppArgs::Invite { via: repo, .. } => Some(repo),
-        TeamAppArgs::Invites | TeamAppArgs::DropInvite { .. } => None,
+        | TeamAppArgs::Invite { via: repo, .. } => repo,
+        TeamAppArgs::Invites | TeamAppArgs::DropInvite { .. } => {
+            return reply(here(link, args).await);
+        }
     };
 
-    if let Some(repo) = repo
-        && !from_peer
-    {
-        let gateway = link.with(|teams| teams.gateways.get(repo).copied());
-
-        match (gateway, &mesh) {
-            (Some(gateway), Some(mesh)) if gateway != mesh.me() => {
-                return over_the_mesh(mesh, gateway, request)
-                    .await
-                    .unwrap_or_else(|e| {
-                        reply(Err(format!(
-                            "The machine that acts for the team did not answer: {e:#}"
-                        )))
-                    });
-            }
-            (Some(_), Some(_)) => {}
-            _ => {
-                return reply(Err(
-                    "No machine of this mesh acts for the team yet; try again in a minute."
-                        .to_owned(),
-                ));
-            }
-        }
+    match link.with(|teams| teams.gateways.get(repo).copied()) {
+        Some(gateway) if gateway == link.me() => reply(here(link, args).await),
+        _ if forwarded => reply(Err(MOVED.to_owned())),
+        Some(gateway) => match mesh {
+            Some(mesh) => forward(mesh, gateway, args).await,
+            None => reply(Err("This machine is in no mesh.".to_owned())),
+        },
+        None => reply(Err(
+            "No machine of this mesh acts for the team yet; try again in a minute.".to_owned(),
+        )),
     }
+}
 
-    reply(here(link, args).await)
+/// Sends `args` on to `gateway`, marked as sent on, within `HOP` (an
+/// invite takes `INVITE_LIMIT` there besides).
+async fn forward(mesh: &Mesh, gateway: EndpointId, args: TeamAppArgs) -> Reply {
+    let limit = match args {
+        TeamAppArgs::Invite { .. } => HOP + INVITE_LIMIT,
+        _ => HOP,
+    };
+    let call = TeamAppCall {
+        args,
+        forwarded: true,
+    };
+    let request = match serde_json::to_string(&call) {
+        Ok(args) => Request {
+            session: SessionId::default(),
+            tool: Tool::TeamApp,
+            args,
+            approved: Approved::No,
+        },
+        Err(e) => return reply(Err(e.to_string())),
+    };
+
+    match timeout(limit, over_the_mesh(mesh, gateway, &request)).await {
+        Ok(Ok(answer)) => answer,
+        Ok(Err(e)) => reply(Err(format!(
+            "The machine that acts for the team did not answer: {e:#}"
+        ))),
+        Err(_) => reply(Err(
+            "The machine that acts for the team did not answer in time".to_owned(),
+        )),
+    }
 }
 
 /// The answer of this device to an app's call.
@@ -223,3 +249,7 @@ fn reply(outcome: Outcome) -> Reply {
         Err(text) => Reply::Done { text, failed: true },
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/team_apps.rs"]
+mod tests;

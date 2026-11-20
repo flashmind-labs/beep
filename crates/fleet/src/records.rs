@@ -5,6 +5,7 @@
 
 use crate::AsyncMutex;
 use crate::error::Result;
+pub(crate) use beep_mesh::values::{decode, read, scan};
 use beep_mesh::{Key, Mesh};
 pub(crate) use beep_proto::node::mesh_state::Place;
 use beep_proto::{
@@ -184,33 +185,6 @@ pub(crate) fn project_key(name: &str) -> Key {
 
 pub(crate) fn place_key(name: &str, machine: EndpointId) -> Key {
     Key::Project(format!("{name}/{machine}"))
-}
-
-/// The value at `key`, `None` when there is none or it does not read.
-pub(crate) fn read<T: StateValue>(mesh: &Mesh, key: &Key) -> Option<T> {
-    let bytes = mesh.get(key)?;
-    decode(key, &bytes)
-}
-
-/// Every value under `prefix` that reads; one that does not is left out and its key logged.
-pub(crate) fn scan<T: StateValue>(mesh: &Mesh, prefix: &str) -> Vec<(Key, T)> {
-    mesh.scan(prefix)
-        .into_iter()
-        .filter_map(|(key, bytes)| {
-            let value = decode(&key, &bytes)?;
-            Some((key, value))
-        })
-        .collect()
-}
-
-fn decode<T: StateValue>(key: &Key, bytes: &[u8]) -> Option<T> {
-    match T::from_bytes(bytes) {
-        Ok(value) => Some(value),
-        Err(_) => {
-            log::warn!("ignored {key} in the mesh: it does not read");
-            None
-        }
-    }
 }
 
 /// Writes `value` at `key`, or deletes the key with `None`.

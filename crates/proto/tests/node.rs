@@ -855,6 +855,23 @@ mod tools {
     }
 
     #[test]
+    fn an_apps_team_call_reads_as_not_sent_on() {
+        let repo: beep_proto::team::TeamRepo = "github.com/org/web".parse().expect("a repo");
+        for args in [TeamAppArgs::Invites, TeamAppArgs::Cards { repo }] {
+            let text = serde_json::to_string(&args).expect("encodes");
+            let call: TeamAppCall = serde_json::from_str(&text).expect("decodes");
+
+            assert_eq!(
+                call,
+                TeamAppCall {
+                    args,
+                    forwarded: false
+                }
+            );
+        }
+    }
+
+    #[test]
     fn team_cards_go_as_json_in_every_lane() {
         use beep_proto::team::{Card, Lane};
 

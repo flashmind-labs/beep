@@ -140,6 +140,11 @@ impl TeamLink {
         }
     }
 
+    /// This device's id.
+    pub(crate) fn me(&self) -> EndpointId {
+        self.inner.endpoint.id()
+    }
+
     pub(crate) fn handler(&self) -> TeamAlpn {
         TeamAlpn(self.clone())
     }

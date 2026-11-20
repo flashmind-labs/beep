@@ -6,7 +6,7 @@ mod lifecycle;
 mod membership;
 mod owner;
 mod protocol;
-mod values;
+pub mod values;
 
 use owner::own;
 pub use protocol::{JoinProtocol, MeshProtocol};

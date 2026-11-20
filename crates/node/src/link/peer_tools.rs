@@ -14,6 +14,7 @@ use crate::{
     team::link::TeamLink,
 };
 use anyhow::{Context, Result};
+use beep_mesh::Mesh;
 use beep_proto::node::{
     LinkRx, LinkTx,
     process::{Reply as TaskReply, Request as TaskRequest, TaskId},
@@ -55,6 +56,8 @@ pub(crate) struct Caller {
     /// This device's team link: for its own desktops' joins, and the team
     /// tools of the mesh's sessions.
     pub team: Option<TeamLink>,
+    /// The mesh this device is in.
+    pub mesh: Option<Mesh>,
 }
 
 impl Caller {
@@ -68,6 +71,7 @@ impl Caller {
             agents: Some(offers.agents.clone()),
             project_tools: offers.project_tools.clone(),
             team: offers.reach.peers().map(|peers| peers.team()),
+            mesh: offers.mesh.get(),
         }
     }
 }
