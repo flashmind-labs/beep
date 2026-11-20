@@ -63,8 +63,6 @@ pub enum Error {
         os: &'static str,
         arch: &'static str,
     },
-    #[error("beep-node runs on Macs with Apple silicon; there is no build for Intel Macs")]
-    IntelMac,
     #[error("{archive} is not listed in SHA256SUMS")]
     NotListed { archive: String },
     #[error(

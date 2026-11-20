@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${CARGO_TARGET_DIR:?Set CARGO_TARGET_DIR}"
-: "${VERSION:?Set VERSION}"
+: "${BUNDLE:?Set BUNDLE}"
+: "${DMG:?Set DMG}"
 : "${APPLE_API_KEY_ID:?Set APPLE_API_KEY_ID}"
 : "${APPLE_API_ISSUER_ID:?Set APPLE_API_ISSUER_ID}"
 : "${RUNNER_TEMP:?Run this script through the macOS release workflow}"
 
-app="$CARGO_TARGET_DIR/release/bundle/macos/Beep.app"
-arch=$(uname -m)
-output="$PWD/target/macos-release"
+app="$BUNDLE/Beep.app"
+dmg="$PWD/$DMG"
+output=$(dirname "$dmg")
 mkdir -p "$output"
-dmg="$output/Beep-$VERSION-$arch.dmg"
 
 bash scripts/package-macos-dmg.sh "$app" "$dmg"
 codesign --sign 'Developer ID Application' --timestamp "$dmg"
 
-result="$output/notary-$arch.json"
+result="$output/notary.json"
 xcrun notarytool submit "$dmg" --key "$RUNNER_TEMP/notary-key.p8" \
   --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" \
   --wait --timeout 30m --output-format json > "$result"

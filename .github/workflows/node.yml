@@ -3,7 +3,7 @@
 #
 # Linux runners cross-build the static Linux binaries (x86_64 and aarch64
 # musl) in Docker with zig and x86_64-pc-windows-msvc with cargo-xwin, the Mac
-# runner builds aarch64-apple-darwin, the Linux job pushes the beep-node
+# runner builds aarch64-apple-darwin and x86_64-apple-darwin, the Linux job pushes the beep-node
 # image (amd64 and arm64) to GHCR, and a
 # last job attaches the archives and SHA256SUMS to the tag's GitHub release
 # and uploads them to the R2 bucket under beep/node/<version>/, served at
@@ -117,16 +117,17 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Build and package
         run: |
           set -euo pipefail
-          target=aarch64-apple-darwin
-          cargo build --release --locked --package beep-node --bin beep-node --target "$target"
           mkdir -p dist
-          # Without AppleDouble ._ entries for the binary's extended attributes.
-          COPYFILE_DISABLE=1 tar -czf "dist/beep-node-$VERSION-$target.tar.gz" -C "target/$target/release" beep-node
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked --package beep-node --bin beep-node --target "$target"
+            # Without AppleDouble ._ entries for the binary's extended attributes.
+            COPYFILE_DISABLE=1 tar -czf "dist/beep-node-$VERSION-$target.tar.gz" -C "target/$target/release" beep-node
+          done
 
       - uses: actions/upload-artifact@v7
         with:

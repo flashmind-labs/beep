@@ -33,13 +33,18 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - uses: astral-sh/setup-uv@v7
 
+      # One universal app runs on Apple silicon and Intel Macs.
       - name: Set the build directory
-        run: echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/target" >> "$GITHUB_ENV"
+        run: |
+          echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/target" >> "$GITHUB_ENV"
+          echo "BUNDLE=$GITHUB_WORKSPACE/target/universal-apple-darwin/release/bundle/macos" >> "$GITHUB_ENV"
 
       - name: Check signing credentials and version
         env:
@@ -67,6 +72,7 @@ jobs:
           python3 -m unittest discover -s scripts/tests
           python3 scripts/changelog.py notes "$version" > "$RUNNER_TEMP/release-notes.md"
           echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "DMG=target/macos-release/Beep-$version-universal.dmg" >> "$GITHUB_ENV"
 
       - name: Prepare the native macOS updater
         run: bash scripts/download-sparkle.sh
@@ -112,14 +118,15 @@ jobs:
           # The signed archive is what the app updates itself from.
           # Only this signed build has the native updater: a local build signed
           # ad hoc cannot load Sparkle.framework under the hardened runtime.
-          PATH="/usr/bin:$PATH" ../node_modules/.bin/tauri build --bundles app --features sparkle \
+          PATH="/usr/bin:$PATH" ../node_modules/.bin/tauri build --target universal-apple-darwin \
+            --bundles app --features sparkle \
             --config tauri.sparkle.conf.json \
             --config '{"bundle":{"createUpdaterArtifacts":true}}'
-          app="$CARGO_TARGET_DIR/release/bundle/macos/Beep.app"
+          app="$BUNDLE/Beep.app"
           codesign --verify --deep --strict "$app"
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=2 "$app"
-          lipo "$app/Contents/MacOS/beep-desktop" -verify_arch "$(uname -m)"
+          lipo "$app/Contents/MacOS/beep-desktop" -verify_arch arm64 x86_64
 
       - name: Package and notarize the DMG
         env:
@@ -132,8 +139,7 @@ jobs:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           python3 scripts/write-macos-appcast.py \
-            --app "$CARGO_TARGET_DIR/release/bundle/macos/Beep.app" \
-            --dmg "target/macos-release/Beep-$VERSION-$(uname -m).dmg" \
+            --app "$BUNDLE/Beep.app" --dmg "$DMG" \
             --version "$VERSION" --output target/macos-release/appcast.xml
 
       - name: Remove signing material
@@ -157,13 +163,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          dmg="target/macos-release/Beep-$VERSION-$(uname -m).dmg"
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" --verify-tag \
               --title "Beep desktop $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
           gh release upload "$GITHUB_REF_NAME" --clobber \
-            "$dmg" "$dmg.sha256" target/macos-release/appcast.xml
+            "$DMG" "$DMG.sha256" target/macos-release/appcast.xml
 
       # Also into the R2 bucket under beep/macos/, served at
       # https://releases.flashmind.com/beep/macos/. Beep-latest.dmg is the
@@ -178,21 +183,19 @@ jobs:
           if [[ -z "$CF_ENDPOINT" ]]; then echo "No R2 secrets, skipping"; exit 0; fi
           account=$(bash scripts/r2.sh account)
           echo "account=$account" >> "$GITHUB_OUTPUT"
-          dmg="target/macos-release/Beep-$VERSION-$(uname -m).dmg"
-          bundle="$CARGO_TARGET_DIR/release/bundle/macos"
-          archive="Beep-$VERSION-aarch64.app.tar.gz"
+          archive="Beep-$VERSION-universal.app.tar.gz"
           files="$RUNNER_TEMP/r2-files"
           manifest="$RUNNER_TEMP/r2-manifest"
           mkdir -p "$files" "$manifest"
-          cp "$dmg" "$dmg.sha256" "$files/"
+          cp "$DMG" "$DMG.sha256" "$files/"
           cp target/macos-release/appcast.xml "$manifest/"
-          cp "$dmg" "$files/Beep-latest.dmg"
-          cp "$bundle/Beep.app.tar.gz" "$files/$archive"
+          cp "$DMG" "$files/Beep-latest.dmg"
+          cp "$BUNDLE/Beep.app.tar.gz" "$files/$archive"
           jq -n --arg version "$VERSION" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --rawfile notes "$RUNNER_TEMP/release-notes.md" \
-            --arg signature "$(cat "$bundle/Beep.app.tar.gz.sig")" \
+            --arg signature "$(cat "$BUNDLE/Beep.app.tar.gz.sig")" \
             --arg url "https://releases.flashmind.com/beep/macos/$archive" \
-            '{version: $version, notes: $notes, pub_date: $date, platforms: {"darwin-aarch64": {signature: $signature, url: $url}}}' \
+            '{version: $version, notes: $notes, pub_date: $date, platforms: {"darwin-aarch64": {signature: $signature, url: $url}, "darwin-x86_64": {signature: $signature, url: $url}}}' \
             > "$manifest/latest.json"
           # Apps outside Developer mode read the minor feeds, so they skip patches.
           if [[ "$VERSION" == *.0 ]]; then

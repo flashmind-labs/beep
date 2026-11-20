@@ -13,6 +13,8 @@ pub enum Target {
     LinuxAarch64,
     #[strum(serialize = "aarch64-apple-darwin")]
     MacAarch64,
+    #[strum(serialize = "x86_64-apple-darwin")]
+    MacX86_64,
     /// The x64 build, which Windows on Arm runs too.
     #[strum(serialize = "x86_64-pc-windows-msvc")]
     WindowsX86_64,
@@ -31,7 +33,10 @@ impl From<Target> for Format {
     fn from(target: Target) -> Self {
         match target {
             Target::WindowsX86_64 => Self::Zip,
-            Target::LinuxX86_64 | Target::LinuxAarch64 | Target::MacAarch64 => Self::TarGz,
+            Target::LinuxX86_64
+            | Target::LinuxAarch64
+            | Target::MacAarch64
+            | Target::MacX86_64 => Self::TarGz,
         }
     }
 }
@@ -48,7 +53,7 @@ impl Target {
             ("linux", "x86_64") => Ok(Self::LinuxX86_64),
             ("linux", "aarch64") => Ok(Self::LinuxAarch64),
             ("macos", "aarch64") => Ok(Self::MacAarch64),
-            ("macos", "x86_64") => Err(Error::IntelMac),
+            ("macos", "x86_64") => Ok(Self::MacX86_64),
             ("windows", "x86_64" | "aarch64") => Ok(Self::WindowsX86_64),
             _ => Err(Error::Platform { os, arch }),
         }

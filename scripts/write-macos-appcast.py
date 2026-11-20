@@ -53,7 +53,7 @@ def public_key(seed: str) -> str:
 def appcast(info: dict, version: str, dmg: Path, signature: str, body: str) -> bytes:
     arch = dmg.name.removeprefix(f"Beep-{version}-").removesuffix(".dmg")
 
-    if arch not in {"arm64", "x86_64"} or info.get("CFBundleShortVersionString") != version:
+    if arch not in {"arm64", "x86_64", "universal"} or info.get("CFBundleShortVersionString") != version:
         raise ValueError("Disk image or app version does not match the release")
     if info.get("SUFeedURL") != f"{BASE_URL}/appcast-minor.xml":
         raise ValueError("App update feed does not match the release")
