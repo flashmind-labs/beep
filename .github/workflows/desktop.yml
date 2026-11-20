@@ -1,8 +1,8 @@
 # Builds and releases desktop installers for a `desktop-v<version>` tag
 # (made by `just patch`, `just minor` or `just release`).
-# It must be signed and notarized, its version must match
-# the tag, and the DMG is attached to a GitHub release for the tag and
-# uploaded to R2 with the archive installed apps update themselves from.
+# It must be signed and notarized, its version must match the tag, and the
+# Apple silicon and Intel DMGs are attached to a GitHub release for the tag
+# and uploaded to R2 with the archives installed apps update themselves from.
 #
 # The repository variable BEEP_SERVER_URL sets the report server address.
 #
