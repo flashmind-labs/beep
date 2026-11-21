@@ -195,6 +195,18 @@ fn a_team_record_reads_with_defaults() {
 }
 
 #[test]
+fn a_removal_without_its_join_covers_every_join() {
+    let old = (login("ana"), id(1));
+    let bytes = rmp_serde::to_vec(&old).unwrap();
+    let gone: Removed = lenient::from_slice(&bytes).unwrap();
+    assert_eq!(gone.joined_at, None);
+    assert!(gone.covers(&Member {
+        joined_at: at(1_000),
+        ..member()
+    }));
+}
+
+#[test]
 fn old_project_issue_reads_with_no_assignees() {
     let old = (
         7u64,
