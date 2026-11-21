@@ -318,3 +318,14 @@ async fn gh_runs_as_the_account_for_the_repositorys_owner() {
     assert_eq!(owners.0.as_deref(), Some("acme-token"));
     assert_eq!(owners.1.as_deref(), Some("default-token"));
 }
+
+#[test]
+fn a_forgejo_repository_with_a_port_is_asked_on_its_host() {
+    use crate::team::home::forge_of;
+    use beep_projects::model::IssueHost;
+
+    let (host, name) = forge_of(&repo()).unwrap();
+
+    assert_eq!(host, IssueHost::of_hostname("git.example.com").unwrap());
+    assert_eq!(name.to_string(), "org/repo");
+}

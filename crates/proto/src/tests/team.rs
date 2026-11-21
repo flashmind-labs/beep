@@ -57,7 +57,11 @@ fn repo_forms_are_one() {
 fn a_port_stays_with_the_host() {
     let a: TeamRepo = "https://git.example.com:8443/org/repo.git".parse().unwrap();
     assert_eq!(a.host, "git.example.com:8443");
+    assert_eq!(a.hostname(), "git.example.com");
     assert_eq!(a.repo, "org/repo");
+
+    let b: TeamRepo = "git@git.example.com:org/repo".parse().unwrap();
+    assert_eq!(b.hostname(), "git.example.com");
 }
 
 #[test]

@@ -43,6 +43,16 @@ impl TryFrom<RawRepo> for TeamRepo {
 }
 
 impl TeamRepo {
+    /// The host without its port: what the forge's web pages and API go by.
+    pub fn hostname(&self) -> &str {
+        match self.host.rsplit_once(':') {
+            Some((name, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => {
+                name
+            }
+            _ => &self.host,
+        }
+    }
+
     fn normalize(host: &str, path: &str) -> Result<Self, TeamError> {
         let path = path.trim_matches('/');
         let path = path.strip_suffix(".git").unwrap_or(path);

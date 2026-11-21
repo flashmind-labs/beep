@@ -488,8 +488,8 @@ pub(super) fn forge_command(call: &ForgeCall, repo: &RepoName) -> Command {
     command
 }
 
-fn forge_of(repo: &TeamRepo) -> Result<(IssueHost, RepoName), String> {
-    let host = IssueHost::of_hostname(&repo.host)
+pub(super) fn forge_of(repo: &TeamRepo) -> Result<(IssueHost, RepoName), String> {
+    let host = IssueHost::of_hostname(repo.hostname())
         .ok_or_else(|| format!("{} is not a forge Beep can ask", repo.host))?;
     let name = repo
         .repo
