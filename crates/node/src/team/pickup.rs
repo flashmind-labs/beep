@@ -211,8 +211,9 @@ pub(super) struct Round<'a> {
     pub(super) project: &'a Project,
     /// This mesh's cards of the team now.
     pub(super) cards: &'a [Card],
-    /// The machine that starts sessions when this one runs no agent.
-    pub(super) elsewhere: Option<EndpointId>,
+    /// The machines that start sessions when this one runs no agent, best
+    /// first.
+    pub(super) elsewhere: Vec<EndpointId>,
 }
 
 /// Why a session did not start: refused, or not known, in which case it
@@ -477,7 +478,8 @@ fn off_the_board(state: &Pickup, cards: &[Card]) -> Vec<(u64, String)> {
 }
 
 /// Starts a session on `issue` here, when this machine runs an agent, or
-/// on the machine the round names.
+/// on the first of the machines the round names that does not refuse it,
+/// as one with no agent does.
 async fn start(round: &Round<'_>, issue: &OpenIssue) -> Result<Auto, Unstarted> {
     let order = PickupStart {
         repo: round.team.repo.clone(),
@@ -495,10 +497,6 @@ async fn start(round: &Round<'_>, issue: &OpenIssue) -> Result<Auto, Unstarted> 
         };
     }
 
-    let Some(machine) = round.elsewhere else {
-        let none = "no machine of the mesh with the project runs an agent";
-        return Err(Unstarted::Refused(none.to_owned()));
-    };
     let args = serde_json::to_string(&order).map_err(|e| Unstarted::Refused(e.to_string()))?;
     let request = Request {
         session: SessionId::default(),
@@ -506,10 +504,18 @@ async fn start(round: &Round<'_>, issue: &OpenIssue) -> Result<Auto, Unstarted> 
         args,
         approved: Approved::No,
     };
+    let mut refused = "no machine of the mesh with the project runs an agent".to_owned();
 
-    let answer = timeout(START_LIMIT, over_the_mesh(round.mesh, machine, &request)).await;
+    for machine in &round.elsewhere {
+        let answer = timeout(START_LIMIT, over_the_mesh(round.mesh, *machine, &request)).await;
 
-    started_there(answer.ok())
+        match started_there(answer.ok()) {
+            Err(Unstarted::Refused(e)) => refused = e,
+            started => return started,
+        }
+    }
+
+    Err(Unstarted::Refused(refused))
 }
 
 /// How a start another machine was asked for went, by its `answer`; `None`

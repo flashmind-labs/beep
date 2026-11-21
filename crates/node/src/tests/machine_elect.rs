@@ -1,4 +1,4 @@
-use super::elect;
+use super::{elect, ranked};
 use beep_proto::node::tools::{ForgeReach, HostReach};
 use iroh::{EndpointId, SecretKey};
 use std::collections::{BTreeMap, BTreeSet};
@@ -66,4 +66,31 @@ fn every_machine_elects_the_same_one_and_it_moves_when_that_one_goes() {
         elected(&elsewhere, &reaches, &online),
         [Some(ids[1])].into()
     );
+}
+
+/// Pickup asks the next machine when the first refuses, as one with no
+/// coding agent does.
+#[test]
+fn the_candidates_are_ranked_as_the_election_goes() {
+    let ids = ids(4);
+    let [me, tried, fresh, silent] = [ids[0], ids[1], ids[2], ids[3]];
+    let machines: BTreeSet<EndpointId> = ids.iter().copied().collect();
+    let said = |reach: HostReach| {
+        let mut said = ForgeReach::default();
+        said.hosts.insert(HOST.to_owned(), reach);
+        said
+    };
+    let peers = [
+        (tried, said(reach(true, 0))),
+        (fresh, said(reach(false, 0))),
+    ]
+    .into();
+
+    let order = ranked(&machines, me, reach(false, 0), &peers, HOST);
+
+    // The one that reaches the host first, then by id; one that did not
+    // answer is no candidate.
+    assert_eq!(order, [tried, me, fresh]);
+    assert!(!order.contains(&silent));
+    assert_eq!(elect(&machines, me, reach(false, 0), &peers, HOST), Some(tried));
 }

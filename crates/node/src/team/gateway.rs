@@ -18,7 +18,7 @@ use crate::{
     link::Offers,
     machine::{
         ci::{Ci, forge::command},
-        elect::{ask_reach, elect, gather, online},
+        elect::{ask_reach, elect, gather, online, ranked},
     },
 };
 use beep_mesh::Mesh;
@@ -301,14 +301,14 @@ impl Gateway {
         }
     }
 
-    /// The machine of `project` that starts its issues' sessions when this
-    /// one runs no agent: another online one with its checkout, a desktop
-    /// or a node, elected as the gateway is.
-    fn elsewhere(&self, project: &Project, repo: &TeamRepo) -> Option<EndpointId> {
+    /// The machines of `project` that start its issues' sessions when this
+    /// one runs no agent: the other online ones with its checkout, desktops
+    /// and nodes, ranked as the gateway is elected.
+    fn elsewhere(&self, project: &Project, repo: &TeamRepo) -> Vec<EndpointId> {
         let reach = self.offers.agents.ci.reach_of(&repo.host);
         let machines = starters(project, &online(&self.mesh));
 
-        elect(&machines, self.me, reach, &self.peers, &repo.host)
+        ranked(&machines, self.me, reach, &self.peers, &repo.host)
     }
 
     /// Reads the branch of each session here in `project` not read yet, or

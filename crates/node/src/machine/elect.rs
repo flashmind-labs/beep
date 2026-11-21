@@ -34,17 +34,31 @@ pub(crate) fn elect(
     peers: &BTreeMap<EndpointId, ForgeReach>,
     host: &str,
 ) -> Option<EndpointId> {
-    let candidates = machines.iter().filter_map(|machine| {
-        if *machine == me {
-            return Some((me, reach));
-        }
+    ranked(machines, me, reach, peers, host).into_iter().next()
+}
 
-        let said = peers.get(machine)?;
-        Some((*machine, said.hosts.get(host).copied().unwrap_or_default()))
-    });
-    candidates
-        .min_by_key(|(id, reach)| (reach.rank(), *id))
-        .map(|(id, _)| id)
+/// The candidates `elect` picks from, the one it picks first.
+pub(crate) fn ranked(
+    machines: &BTreeSet<EndpointId>,
+    me: EndpointId,
+    reach: HostReach,
+    peers: &BTreeMap<EndpointId, ForgeReach>,
+    host: &str,
+) -> Vec<EndpointId> {
+    let mut candidates: Vec<(EndpointId, HostReach)> = machines
+        .iter()
+        .filter_map(|machine| {
+            if *machine == me {
+                return Some((me, reach));
+            }
+
+            let said = peers.get(machine)?;
+            Some((*machine, said.hosts.get(host).copied().unwrap_or_default()))
+        })
+        .collect();
+    candidates.sort_by_key(|(id, reach)| (reach.rank(), *id));
+
+    candidates.into_iter().map(|(id, _)| id).collect()
 }
 
 /// The other machines of `mesh` that run code and are online now.
