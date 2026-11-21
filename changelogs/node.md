@@ -2,6 +2,21 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.6] - 2026-11-21
+
+### Added
+
+- Node: flsh's config now carries each model's own quantizations.
+- Node: before pi starts, the OpenRouter routing settings are written into
+  pi's models.json, and the user's other entries are kept. A models.json
+  with comments is left alone, and pi does not start. The error says so.
+
+### Fixed
+
+- beep-node: A subagent started with start_agent and then stopped, whose
+  session is no longer on its machine, now shows as ended in its parent's
+  Subagents list instead of working forever.
+
 ## [0.8.5] - 2026-11-20
 
 ### Added

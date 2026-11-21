@@ -7,6 +7,34 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.9] - 2026-11-21
+
+### Added
+
+- Desktop: on the Coding agents page, each model in flsh's per-model
+  list can have its own quantizations (all, any precision, or a picked
+  list) and its own auto-compact (same as all models, on, or off with a
+  threshold). A model whose only OpenRouter provider serves another
+  precision now works without loosening the list for every model.
+- Desktop: pi's Coding agents page shows the OpenRouter routing settings:
+  zero data retention, quantizations, provider sort, fallbacks, and
+  per-model quantizations. flsh and pi share them.
+- Desktop: when a coding agent's turn fails, its error card offers
+  "Retry with another model". The model picker opens, and the model you
+  pick runs the failed prompt again, without retyping it.
+
+### Changed
+
+- macOS: the download is now two disk images, one for Apple silicon and
+  one for Intel Macs, instead of one universal app, each about half its size.
+- macOS: installed apps update to the build for their own Mac
+  automatically.
+
+### Fixed
+
+- Desktop: opening or stopping a subagent whose session is no longer on
+  its machine now says so under the log, instead of doing nothing.
+
 ## [0.10.8] - 2026-11-20
 
 ### Added
