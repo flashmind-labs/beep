@@ -1,7 +1,7 @@
 //! The teams this mesh is on, as the link checks them: who may say what
 //! about which repository. The mesh's records come from its desktops; a
 //! change this device takes while it cannot write them stays pending until
-//! the mesh moves on.
+//! the mesh's record holds it.
 
 use beep_proto::team::{ForgeLogin, Member, TeamMsg, TeamRecord, TeamRepo};
 use iroh::EndpointId;
@@ -63,16 +63,26 @@ pub(crate) struct Rosters {
 }
 
 impl Rosters {
-    /// Takes the mesh's records. A pending change gives way once the mesh's
-    /// record of its repo is written: as the change, or as a desktop's
-    /// own merge of it.
+    /// Takes the mesh's records. A pending change moves onto the record
+    /// written since, whatever else changed in it, and gives way once the
+    /// record holds all of it.
     pub(crate) fn refresh(&mut self, records: BTreeMap<TeamRepo, TeamRecord>) {
         let old = std::mem::replace(&mut self.records, records);
 
-        self.pending.retain(|repo, pending| {
-            let now = self.records.get(repo);
-            now == old.get(repo) && now != Some(pending)
-        });
+        for (repo, pending) in std::mem::take(&mut self.pending) {
+            let Some(now) = self.records.get(&repo) else {
+                continue;
+            };
+            let mut next = now.clone();
+            next.merge(match old.get(&repo) {
+                Some(base) => pending.since(base),
+                None => pending,
+            });
+
+            if next != *now {
+                self.pending.insert(repo, next);
+            }
+        }
     }
 
     /// `repo`'s record as the mesh holds it, without a change pending here:
@@ -85,9 +95,15 @@ impl Rosters {
         self.pending.get(repo).or_else(|| self.records.get(repo))
     }
 
-    /// The changes waiting for a desktop to write them.
+    /// The changes waiting for a desktop to write them: what each pending
+    /// record changed from the mesh's.
     pub(crate) fn pending(&self) -> Vec<TeamRecord> {
-        self.pending.values().cloned().collect()
+        let changes = self.pending.iter().map(|(repo, pending)| match self.records.get(repo) {
+            Some(written) => pending.since(written),
+            None => pending.clone(),
+        });
+
+        changes.collect()
     }
 
     /// Whether `peer` is a device of a member of `repo`'s team.

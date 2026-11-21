@@ -153,18 +153,13 @@ async fn a_teammate_offline_at_the_announcement_gets_it_later() {
     assert_eq!(sent(&mut membership).await, [pair.bob.mesh].into());
 
     // Bob comes online; meanwhile the mesh wrote another change, which
-    // dropped the one pending here.
+    // keeps the one pending here.
     let _bob = online(&pair);
     pair.gateway.with(|teams| {
         let mut record = teams.rosters.written(&repo()).unwrap().clone();
         record.asks = false;
         teams.rosters.refresh([(repo(), record)].into());
     });
-    assert!(
-        !pair
-            .gateway
-            .with(|teams| teams.rosters.allows(added, &repo()))
-    );
     later(&mut membership);
 
     membership.announce(&pair.gateway, &BTreeSet::new(), |_| true, teams, &projects);
@@ -278,8 +273,11 @@ async fn a_member_who_lost_access_is_removed() {
     timeout(Duration::from_secs(5), pair.gateway.waiting())
         .await
         .expect("the change waits for a desktop");
-    let pending = pair.gateway.with(|teams| teams.rosters.pending());
-    let logins: Vec<&ForgeLogin> = pending[0]
+    let (record, pending) = pair.gateway.with(|teams| {
+        let record = teams.rosters.get(&repo()).unwrap().clone();
+        (record, teams.rosters.pending())
+    });
+    let logins: Vec<&ForgeLogin> = record
         .members
         .iter()
         .map(|member| &member.login)

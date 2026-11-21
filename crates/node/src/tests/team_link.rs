@@ -887,12 +887,38 @@ fn pending_gives_way_to_the_mesh() {
     assert_eq!(rosters.pending().len(), 1);
 
     // Unchanged in the mesh: still pending.
-    rosters.refresh([(repo(), team)].into());
+    rosters.refresh([(repo(), team.clone())].into());
     assert_eq!(rosters.pending().len(), 1);
 
-    let written = rosters.pending().remove(0);
+    let mut written = team;
+    written.merge(rosters.pending().remove(0));
     rosters.refresh([(repo(), written)].into());
     assert!(rosters.pending().is_empty());
+}
+
+/// A desktop writes a setting while an admission waits here: the admission
+/// stays pending, and is all that is handed.
+#[test]
+fn pending_outlasts_an_unrelated_write() {
+    let alice_device = mesh_id();
+    let team = TeamRecord::new(repo(), vec![member("alice", mesh_id(), alice_device)]);
+    let dave = member("dave", mesh_id(), mesh_id());
+    let mut rosters = Rosters::default();
+    rosters.refresh([(repo(), team.clone())].into());
+    rosters
+        .add(&repo(), alice_device, None, dave.clone())
+        .unwrap();
+
+    let mut settings = team;
+    settings.asks = false;
+    rosters.refresh([(repo(), settings.clone())].into());
+
+    assert!(rosters.allows(dave.devices[0].id, &repo()));
+    let [change] = &rosters.pending()[..] else {
+        panic!("one change: {:?}", rosters.pending());
+    };
+    assert_eq!(change.members, [dave]);
+    assert!(!rosters.get(&repo()).unwrap().asks, "the setting stays");
 }
 
 #[test]

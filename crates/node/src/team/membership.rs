@@ -178,24 +178,8 @@ impl Membership {
                 continue;
             }
 
-            let Some(last) = self.announced.get_mut(&team.repo) else {
-                continue;
-            };
-            last.to = team.others.clone();
-
-            // The change was dropped here before a desktop wrote it.
-            let needed = fresh.is_some_and(|entry| ids(&entry.devices) == ids(&last.entry.devices));
-
-            if needed
-                && last.at.elapsed() >= RESEND
-                && !link.with(|link| holds(link, team, &last.entry))
-            {
-                take(link, self.me, team, &last.entry);
-
-                // A resend below starts the wait again otherwise.
-                if !last.open() {
-                    last.at = Instant::now();
-                }
+            if let Some(last) = self.announced.get_mut(&team.repo) {
+                last.to = team.others.clone();
             }
         }
 
@@ -235,19 +219,6 @@ impl Membership {
 
 fn ids(devices: &[EndpointAddr]) -> BTreeSet<EndpointId> {
     devices.iter().map(|device| device.id).collect()
-}
-
-/// Whether this device's view of `team` names `entry`'s devices.
-fn holds(teams: &Teams, team: &Team, entry: &Member) -> bool {
-    let record = teams.rosters.get(&team.repo);
-    let mine = record.and_then(|record| {
-        record
-            .members
-            .iter()
-            .find(|member| member.mesh == entry.mesh)
-    });
-
-    mine.is_some_and(|mine| ids(&mine.devices) == ids(&entry.devices))
 }
 
 /// `mine`, this mesh's entry, naming the devices it should: its own still in

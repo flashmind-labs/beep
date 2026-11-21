@@ -281,6 +281,27 @@ impl TeamRecord {
             !removed.any(|gone| gone.login == member.login && gone.mesh == member.mesh)
         });
     }
+
+    /// What this record changed from `base`: the entries `base` does not hold
+    /// just so, and the removals it does not have. Merged into `base`, it
+    /// gives this record's membership back.
+    pub fn since(&self, base: &TeamRecord) -> TeamRecord {
+        TeamRecord {
+            members: self
+                .members
+                .iter()
+                .filter(|member| !base.members.contains(member))
+                .cloned()
+                .collect(),
+            removed: self
+                .removed
+                .iter()
+                .filter(|gone| !base.removed.contains(gone))
+                .cloned()
+                .collect(),
+            ..self.clone()
+        }
+    }
 }
 
 wire_enum! {
