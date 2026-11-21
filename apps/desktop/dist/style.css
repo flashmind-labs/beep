@@ -304,7 +304,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dstate { font-size: 11px; font-weight: 600; padding: 0 8px; line-height: 19px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); flex: none; white-space: nowrap }
 .dstate.run { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--accent) }
 /* `.ask` is also the prompt bubble, which sits at its row's end. */
-.dstate.ask { align-self: auto; border-color: color-mix(in srgb, var(--hot) 50%, transparent); color: var(--hot) }
+.dstate.ask { align-self: auto; max-width: none; border-color: color-mix(in srgb, var(--hot) 50%, transparent); color: var(--hot) }
 .dapp.dcoderav { width: 28px; height: 28px; border-radius: var(--radius-sm); font-size: 10.5px; background: var(--elev) }
 .dapp.dcoderav.claude { color: #F2A27A } .dapp.dcoderav.codex { color: var(--fg) }
 .dcard.dcoder { flex: none }
@@ -509,7 +509,10 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoderen.tool .dmedia button { all: unset; cursor: default; display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); font: 11.5px var(--mono); color: var(--muted) }
 .dcoderen.tool .dmedia button:hover { color: var(--fg); border-color: var(--border-hi) } .dcoderen.tool .dmedia svg { width: 12px; height: 12px }
 .dagmain { display: flex; flex-direction: column; gap: 10px; min-width: 0 }
-.dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { width: 100%; max-width: 800px; margin-inline: auto }
+.dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr), .ag-threads > * { width: 100%; max-width: 800px; margin-inline: auto }
+/* A chat's threads, above its messages and in their column: they keep their place while the log scrolls, and scroll on their own once they are many. */
+.ag-threads { flex: none; max-height: 40%; overflow-y: auto; padding: 12px 20px 0 }
+.ag-threads .cc-row + .cc-row { border-top: 0 }
 .dsubgrp > .h { display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 12.5px; color: var(--muted) }
 .dsubgrp > .h b { color: var(--fg); font-weight: 600 }
 .dsubgrp { display: grid; gap: 2px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius); white-space: normal }

@@ -626,6 +626,23 @@ test("agent session transcript", async ({ page }) => {
   await baseline(page, "agent-transcript");
 });
 
+test("agent session with threads", async ({ page }) => {
+  const row = { ...session, question: null, parent: null, reviewer: false, assistant: false };
+  const thread = (id: string, title: string, over: object) => ({ ...row, id, title, status: "idle", parent: { machine_id: machineId, id: session.id, key: "" }, ...over });
+  await openAgent(page, { agent_sessions: [
+    row,
+    thread("thread-one", "Sodium-ion cost curve", { status: "working", doing: "Reading the supply reports" }),
+    thread("thread-two", "Solid-state timelines", { reply_html: "Pilot lines in 2027, no volume before 2030" }),
+    thread("thread-three", "Recycling regulation", { status: "asking", question: { id: 1, text: "EU only, or US too?", detail: null, options: [] } }),
+  ] });
+  await expect(page.locator(".ag-threads")).toContainText("Solid-state timelines");
+  await baseline(page, "session-threads");
+  // New thread starts the message that asks the chat's agent for one.
+  await page.getByRole("button", { name: "New thread" }).click();
+  await expect(page.locator("#agmsg")).toHaveValue("New thread: ");
+  await expect(page.locator("#agmsg")).toBeFocused();
+});
+
 test("agent composer with a draft", async ({ page }) => {
   await openAgent(page);
   await page.locator("#agmsg").fill("Also add a test for the query string");

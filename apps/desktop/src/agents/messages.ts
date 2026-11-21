@@ -5,13 +5,14 @@ import { resumePicks } from "./modelpill.tsx";
 import { sessionPicks } from "./session.tsx";
 import { imageLines, sentText } from "./agentlog.ts";
 import { promptParts } from "./promptparts-state.ts";
-import { composeMessage, prependDraft } from "../chat/compose.tsx";
+import { composeMessage, prependDraft, startField } from "../chat/compose.tsx";
+import { NEW_THREAD } from "./threads-state.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, currentMentions, mentionImages, setMentionImages, type MentionState } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue, showUploadPending } from "./composer-ui.tsx";
-import { type AgentQuestion, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
+import { type AgentQuestion, type AgentRow, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns } from "./session.tsx";
 import { redrawAgentHints } from "./session-head.tsx";
@@ -553,3 +554,10 @@ const draftOf = ({ text, images }: Taken): Draft => ({
   typed: text, paths: [],
   images: images.map(({ name, mime, data }) => ({ name, mime, data, size: Math.floor(data.length * 3 / 4), url: `data:${mime};base64,${data}`, original: null })),
 });
+
+/// Starts the message that asks the chat `s` for a thread, for the user to say what it is for:
+/// in its field when it is open, else in its kept draft, which shows once it opens.
+export function draftNewThread(s: AgentRow) {
+  const field = sameSession(AG.open, s) && AG.page ? agentMessage.current : null;
+  if (field) startField(field, NEW_THREAD); else prependDraft(conversationKey(s), NEW_THREAD);
+}

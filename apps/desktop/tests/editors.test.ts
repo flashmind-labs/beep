@@ -30,7 +30,7 @@ test("editor discovery retries after failure and redraws every waiting header", 
 });
 
 test("a late folder lookup cannot overwrite the current session's editor button", async () => {
-  showSessionFrame({ head: createElement(DraftHead, { project: "project", openProject() {}, machine: createStore<string>(() => "") }), field: null, body: document.createElement("div"), hints: { value: { items: [], window: false }, project: null } }, false, () => {});
+  showSessionFrame({ head: createElement(DraftHead, { project: "project", openProject() {}, machine: createStore<string>(() => "") }), threads: null, field: null, body: document.createElement("div"), hints: { value: { items: [], window: false }, project: null } }, false, () => {});
   let resolve!: (folder: string) => void;
   answers.session_folder_here = new Promise<string>(done => { resolve = done; });
   const previous = drawEditors("m1", "/srv/previous", () => true);
@@ -50,7 +50,7 @@ test("a late folder lookup cannot overwrite the current session's editor button"
 });
 
 test("a replacement header gets editor buttons even for the same folder", async () => {
-  showSessionFrame({ head: createElement(DraftHead, { project: "project", openProject() {}, machine: createStore<string>(() => "") }), field: null, body: document.createElement("div"), hints: { value: { items: [], window: false }, project: null } }, false, () => {});
+  showSessionFrame({ head: createElement(DraftHead, { project: "project", openProject() {}, machine: createStore<string>(() => "") }), threads: null, field: null, body: document.createElement("div"), hints: { value: { items: [], window: false }, project: null } }, false, () => {});
   answers.session_folder_here = "/srv/current";
   await drawEditors("m1", "/srv/current", () => true);
   assert.equal(bar.querySelector("#agedit button")!.textContent, "Open in VS Code");
@@ -60,13 +60,13 @@ test("a session drawn in place of a draft releases the draft's field", () => {
   const head = createElement(DraftHead, { project: "project", openProject() {}, machine: createStore<string>(() => "") });
   const hints = { value: { items: [], window: false, model: null, link: null }, project: null };
   const field = document.createElement("textarea");
-  showSessionFrame({ head, field: null, body: document.createElement("div"), hints }, false, () => { draftMessage.current = null; });
+  showSessionFrame({ head, threads: null, field: null, body: document.createElement("div"), hints }, false, () => { draftMessage.current = null; });
   draftMessage.current = field;
   document.body.append(field);
   assert.equal(shownMessage(), field);
 
   let released = 0;
-  showSessionFrame({ head, field: null, body: document.createElement("div"), hints }, true, () => { released++; });
+  showSessionFrame({ head, threads: null, field: null, body: document.createElement("div"), hints }, true, () => { released++; });
   assert.equal(draftMessage.current, null);
   assert.equal(released, 0);
   field.remove();

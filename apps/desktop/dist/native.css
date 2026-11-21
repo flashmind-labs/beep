@@ -131,15 +131,15 @@ body:not(.mobile) :is(.ag-head, .dchat) .dcoderav { width: 18px; height: 18px; b
 body:not(.mobile) .ag-head .tt { display: grid; min-width: 10em; line-height: 16px }
 body:not(.mobile) .ag-head .tt b { font-size: 13px }
 body:not(.mobile) .ag-head .tt small { min-width: 0; line-height: 14px }
-body:not(.mobile) :is(.ag-head, .dchat) .dstate { padding: 0; border: 0; background: none; font-size: 10.5px; font-weight: 500 }
-body:not(.mobile) :is(.ag-head, .dchat) .dstate::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: 1px }
+body:not(.mobile) :is(.ag-head, .dchat, .ag-threads) .dstate { padding: 0; border: 0; background: none; font-size: 10.5px; font-weight: 500 }
+body:not(.mobile) :is(.ag-head, .dchat, .ag-threads) .dstate::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: 1px }
 
 /* ----- Session screen: no rules between the parts, a narrower column, one text size ----- */
 body:not(.mobile) .dcoderturn { padding-bottom: 0; border-bottom: 0 }
 body:not(.mobile) .agphead, body:not(.mobile) .agfbar { border-bottom: 0 }
 body:not(.mobile) .agpacts { border-top: 0 }
 body:not(.mobile) .dagmain { gap: 14px; padding-top: 10px }
-body:not(.mobile) .dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { max-width: 720px }
+body:not(.mobile) :is(.dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr), .ag-threads > *) { max-width: 720px }
 body:not(.mobile) .dcoderen.agent { font-size: 13.5px; line-height: 21px; color: var(--fg) }
 body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
 

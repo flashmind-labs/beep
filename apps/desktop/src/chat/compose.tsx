@@ -52,6 +52,19 @@ export function prependDraft(draft: string, text: string) {
   } catch { /* Storage can be unavailable. */ }
 }
 
+/// Starts the field on screen with `text`, unless it starts with it already, and leaves the
+/// caret at the end to go on typing.
+export function startField(field: HTMLTextAreaElement, text: string) {
+  field.focus();
+
+  if (!field.value.startsWith(text)) {
+    field.setSelectionRange(0, 0);
+    insert(field, text);
+  }
+
+  field.setSelectionRange(field.value.length, field.value.length);
+}
+
 /// A composer's field: a textarea with the layer behind it that draws its
 /// pills and code outlines, and the preview of a clicked pill.
 export function ComposeField({ draft, images, grow, removeLast, ref, className, onInput, onFocus, onScroll, onPaste, onKeyDown, onClick, onSelect, onKeyUp, onMouseUp, onCompositionStart, onCompositionEnd, ...rest }: ComposeFieldProps) {
