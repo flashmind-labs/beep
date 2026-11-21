@@ -12,7 +12,7 @@ use super::machines::{Machine, command_name, find, machines};
 use super::reply::{fail, json_of, ok, parse};
 use crate::agents::{
     Agents, Command, Session,
-    family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, WAIT_POLL, Who},
+    family::{ChildNote, ChildStart, Mark, RemoteKid, WAIT_LIMIT, WAIT_POLL, Who},
 };
 use crate::link::Offers;
 use beep_mesh::{Key, Mesh};
@@ -263,9 +263,21 @@ impl Reach<'_> {
         crate::agents::tags::from_session(id, &name, text)
     }
 
-    /// `child` as it stands on this machine.
+    /// `child` as it stands on this machine, which the caller has now seen.
     fn view_here(&self, child: &Session) -> ChildView {
+        self.shown(child);
         ChildView::of(&child.info(), &Agents::name_of(child)).named(&self.my_name())
+    }
+
+    /// Notes that the caller was shown `child` as it stands, so its next
+    /// turn is not told of it again.
+    fn shown(&self, child: &Session) {
+        if let Some(caller) = self.agents.get(&self.who.session) {
+            caller.see(
+                &child.id,
+                watched::read(&child.live, |live| Into::<Mark>::into(live)),
+            );
+        }
     }
 
     async fn dispatch(&self, session: &Arc<Session>, request: &Request) -> Result<Reply, String> {
@@ -690,6 +702,7 @@ impl Reach<'_> {
             .children_of(self.who)
             .iter()
             .filter_map(|child| {
+                self.shown(child);
                 watched::read(&child.live, |live| {
                     let id = live.agent_session.as_ref()?;
                     Some(ChildView::of(&live.info, id).named(&here))

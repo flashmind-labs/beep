@@ -24,10 +24,12 @@ use std::{
 use tokio::sync::watch;
 use tokio_util::task::AbortOnDropHandle;
 
+mod changes;
 mod notes;
 mod orphans;
 mod remote;
 
+pub(in crate::agents) use changes::Mark;
 pub(crate) use notes::{ChildNote, Waits};
 pub(crate) use orphans::Parent;
 pub(crate) use remote::RemoteKid;
@@ -283,6 +285,9 @@ impl Agents {
             None => child_mode(&link, &kind.name)?,
         };
         let follows = self.parent_live_of(&link);
+        let parent = (link.machine == self.me())
+            .then(|| self.get(&link.session))
+            .flatten();
         let root = (link.root_machine, link.root.clone());
         let begin = Begin {
             prompt: Some(start.prompt),
@@ -313,6 +318,15 @@ impl Agents {
                 .map_err(|e| format!("{e:#}"))?
         };
         self.watch_parent(&session);
+
+        // Its prompt says what the parent knew: it has seen the parent so far.
+        if let Some(parent) = parent {
+            session.see(
+                &parent.id,
+                watched::read(&parent.live, |live| Into::<Mark>::into(live)),
+            );
+        }
+
         session.named_info().await?;
         Ok(session)
     }

@@ -7,6 +7,7 @@ use super::{
     acp::Prompt,
     alerts::AlertHub,
     compaction::{Compactor, Policy, Route},
+    family::Mark,
     images::Images,
     kinds::{CODEX_CONFIG, known},
     live::{Live, Sent},
@@ -30,7 +31,7 @@ use beep_proto::watched;
 use futures::stream::FuturesUnordered;
 use std::{
     borrow::Cow,
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::Path,
     sync::{
         Arc, Mutex,
@@ -189,6 +190,12 @@ pub(super) struct Session {
     /// Messages from agents that are not its parent since the user last
     /// wrote, so two agents cannot keep each other talking.
     peer_messages: AtomicU32,
+    /// What it last saw of each relative in its chat (`family::changes`),
+    /// by the relative's `id` here. Not kept over a restart.
+    seen: Mutex<HashMap<SessionId, Mark>>,
+    /// The user's message began the turn that runs or ran last, so its end
+    /// is no news to its parent (`family::notes`).
+    pub(super) user_turn: Arc<AtomicBool>,
 }
 
 /// The most messages a session takes from other agents between two of the
@@ -510,6 +517,8 @@ impl Session {
             _task: AbortOnDropHandle::new(task),
             guards: Mutex::new(guard.into_iter().collect()),
             peer_messages: AtomicU32::new(0),
+            seen: Mutex::default(),
+            user_turn: Arc::default(),
         })
     }
 
@@ -533,6 +542,12 @@ impl Session {
                      Stop and let the user decide."
                 )
             })
+    }
+
+    /// Notes what it now saw of the relative `id`, and gives what it saw
+    /// of it before.
+    pub(super) fn see(&self, id: &SessionId, mark: Mark) -> Option<Mark> {
+        crate::lock(&self.seen).insert(id.clone(), mark)
     }
 
     /// The user wrote: other agents may message the session again.
