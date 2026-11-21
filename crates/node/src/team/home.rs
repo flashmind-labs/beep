@@ -17,7 +17,7 @@ use beep_projects::{
     model::{IssueHost, RepoName},
     team_forge::{
         ForgeCall, assigned_issues_call, collaborator_answer, collaborator_call, open_issues_call,
-        parse_user_login, permission_answer, permission_call, recent_pulls_call, user_call,
+        branch_pulls_call, parse_user_login, permission_answer, permission_call, user_call,
     },
 };
 use beep_proto::{
@@ -439,10 +439,14 @@ impl TeamForge for ForgeCli {
         })
     }
 
-    fn pull_heads<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<Vec<String>, String>> {
+    fn pull_heads<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        branch: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<String>, String>> {
         Box::pin(async move {
             let (host, name) = forge_of(repo)?;
-            let call = recent_pulls_call(&host, &name);
+            let call = branch_pulls_call(&host, &name, branch);
             let out = listed(repo, "pull requests", &call, &name).await?;
             let pulls = parse_open_prs(&out).map_err(|e| format!("{e:#}"))?;
 

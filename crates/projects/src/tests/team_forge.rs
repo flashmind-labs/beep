@@ -154,16 +154,36 @@ fn assigned_issues_read_every_page() {
     assert!(crate::commands::parse_open_issues("").is_err());
 }
 
+/// However many others were updated since, a branch's pull request is listed.
 #[test]
-fn recent_pulls_list_open_and_closed() {
+fn a_branchs_pulls_are_read_open_and_closed_on_every_page() {
+    let github = branch_pulls_call(&github(), &repo(), "issue-52-fix");
     assert_eq!(
-        words(&recent_pulls_call(&github(), &repo()))[1],
-        "repos/acme/widget/pulls?state=all&sort=updated&direction=desc&per_page=100"
+        words(&github)[1..],
+        [
+            "repos/acme/widget/pulls?state=all&head=acme%3Aissue-52-fix&per_page=100",
+            "--paginate"
+        ]
     );
+    let forgejo = branch_pulls_call(&forgejo(), &repo(), "issue-52-fix");
     assert_eq!(
-        words(&recent_pulls_call(&forgejo(), &repo()))[1],
+        words(&forgejo)[1],
         "repos/acme/widget/pulls?state=all&sort=recentupdate&limit=50"
     );
+    assert!(words(&forgejo).contains(&"--paginate"));
+
+    let pull = |n: u64, head: &str| {
+        format!(
+            r#"[{{"number":{n},"created_at":"2026-11-20T10:00:00Z","head":{{"ref":"{head}"}}}}]"#
+        )
+    };
+    let pages = format!("{}\n{}null", pull(1, "other"), pull(2, "issue-52-fix"));
+    let heads: Vec<String> = crate::commands::parse_open_prs(&pages)
+        .expect("pages")
+        .into_iter()
+        .map(|pull| pull.head)
+        .collect();
+    assert_eq!(heads, ["other", "issue-52-fix"]);
 }
 
 #[test]

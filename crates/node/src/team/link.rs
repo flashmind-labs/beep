@@ -71,8 +71,13 @@ pub(crate) trait TeamForge: Send + Sync + 'static {
         login: &'a ForgeLogin,
     ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>>;
 
-    /// The branches of `repo`'s pull requests open or closed lately.
-    fn pull_heads<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<Vec<String>, String>>;
+    /// The branches of `repo`'s pull requests, open or closed, that may come from `branch`:
+    /// `branch` among them when one does.
+    fn pull_heads<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        branch: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<String>, String>>;
 }
 
 #[derive(Debug, thiserror::Error)]

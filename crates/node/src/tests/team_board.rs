@@ -51,7 +51,11 @@ impl TeamForge for Forge {
         Box::pin(async { Ok(Vec::new()) })
     }
 
-    fn pull_heads<'a>(&'a self, _repo: &'a TeamRepo) -> BoxFuture<'a, Result<Vec<String>, String>> {
+    fn pull_heads<'a>(
+        &'a self,
+        _repo: &'a TeamRepo,
+        _branch: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<String>, String>> {
         Box::pin(async { Ok(Vec::new()) })
     }
 }

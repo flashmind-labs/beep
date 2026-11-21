@@ -220,17 +220,20 @@ pub fn assigned_issues_call(host: &IssueHost, repo: &RepoName, login: &ForgeLogi
     ForgeCall::api(host, path, &["--paginate"])
 }
 
-/// The pull requests open or closed lately, the last updated first, in the shape
-/// `parse_open_prs` reads: their head branches say which branch has one.
-pub fn recent_pulls_call(host: &IssueHost, repo: &RepoName) -> ForgeCall {
+/// The pull requests, open or closed, that may come from `branch`, every page, in the shape
+/// `parse_open_prs` reads: their head branches say whether `branch` has one. GitHub lists those
+/// of the repository's `branch`; Forgejo cannot pick by branch, so it lists them all.
+pub fn branch_pulls_call(host: &IssueHost, repo: &RepoName, branch: &str) -> ForgeCall {
     let path = match host {
         IssueHost::Github => {
-            format!("repos/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=100")
+            let head: String =
+                byte_serialize(format!("{}:{branch}", repo.owner()).as_bytes()).collect();
+            format!("repos/{repo}/pulls?state=all&head={head}&per_page=100")
         }
         IssueHost::Forgejo(_) => format!("repos/{repo}/pulls?state=all&sort=recentupdate&limit=50"),
     };
 
-    ForgeCall::api(host, path, &[])
+    ForgeCall::api(host, path, &["--paginate"])
 }
 
 fn open_issues(host: &IssueHost, repo: &RepoName) -> String {

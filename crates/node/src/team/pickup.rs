@@ -380,11 +380,18 @@ async fn ended(round: &Round<'_>, state: &mut Pickup) {
     }
 
     let repo = &round.team.repo;
-    let heads = match timeout(FORGE_LIMIT, round.link.forge().pull_heads(repo)).await {
-        Ok(Ok(heads)) => heads,
-        Ok(Err(e)) => return log::info!("the pull requests of {repo} did not read: {e}"),
-        Err(_) => return log::info!("the pull requests of {repo} took too long to read"),
-    };
+    let forge = round.link.forge();
+    let branches = ended.iter().filter_map(|n| state.running.get(n));
+    let reads = branches.map(|auto| timeout(FORGE_LIMIT, forge.pull_heads(repo, &auto.branch)));
+    let mut heads = Vec::new();
+
+    for read in join_all(reads).await {
+        match read {
+            Ok(Ok(read)) => heads.extend(read),
+            Ok(Err(e)) => return log::info!("the pull requests of {repo} did not read: {e}"),
+            Err(_) => return log::info!("the pull requests of {repo} took too long to read"),
+        }
+    }
 
     report_ended(state, &ended, &heads, |n, title| needs_you(round, n, title));
 }

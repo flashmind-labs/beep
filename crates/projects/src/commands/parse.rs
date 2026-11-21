@@ -194,10 +194,10 @@ pub(super) fn time_of(
         .with_timezone(&Utc))
 }
 
-/// Parses [`HostCommand::ListOpenPrs`] from gh (camelCase) or Forgejo (snake_case).
+/// Parses [`HostCommand::ListOpenPrs`] from gh (camelCase) or Forgejo (snake_case), every
+/// page of it.
 pub fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
-    let value = json(out)?;
-    let items = list_of(&value, "pull requests")?;
+    let items = pages(out, "pull requests")?;
     items
         .iter()
         .map(|item| {
