@@ -7,6 +7,7 @@ use super::{
     billing::{Accounts, flsh_provider},
     ledger::{BucketKey, Part, UNKNOWN_MODEL},
 };
+use crate::agents::claude::unix_seconds;
 use crate::agents::found::{Agent, open_database};
 use crate::agents::prices::Tokens;
 use beep_proto::{ModelId, node::usage::Billing};
@@ -142,6 +143,7 @@ pub(super) fn flsh(
             model: row.get(2)?,
             totals,
             turns: Vec::new(),
+            started: None,
             last: count(last.unwrap_or(0)),
         };
         add_flsh(&mut parts, session, None, accounts);
@@ -179,11 +181,18 @@ fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
     use std::io::{BufRead, BufReader, Read};
     let file = std::fs::File::open(path)?;
     let modified = file.metadata()?.modified()?;
+    let mut reader = BufReader::new(file.take(MAX_HEADER));
     let mut line = String::new();
-    BufReader::new(file.take(MAX_HEADER)).read_line(&mut line)?;
+    reader.read_line(&mut line)?;
     let Ok(header) = serde_json::from_str::<FlshHeader>(&line) else {
         return Ok(None);
     };
+    // The first message tells when the session started.
+    line.clear();
+    reader.read_line(&mut line)?;
+    let started = serde_json::from_str::<FlshMessage>(&line)
+        .ok()
+        .and_then(|message| unix_seconds(&message.timestamp));
     let (Some(totals), Some(cwd)) = (header.metadata.total_usage, header.metadata.working_dir)
     else {
         return Ok(None);
@@ -197,6 +206,7 @@ fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
         model: header.metadata.model.unwrap_or_default(),
         totals,
         turns: header.metadata.usage_log,
+        started,
         last,
     }))
 }
@@ -209,6 +219,11 @@ const MAX_HEADER: u64 = 1024 * 1024;
 struct FlshHeader {
     session_id: SessionId,
     metadata: FlshMetadata,
+}
+
+#[derive(Deserialize)]
+struct FlshMessage {
+    timestamp: String,
 }
 
 #[derive(Deserialize)]
@@ -299,14 +314,16 @@ struct FlshSession {
     model: String,
     totals: FlshTotals,
     turns: Vec<FlshTurn>,
+    /// Unix seconds of its first message, when known.
+    started: Option<u64>,
     /// Unix seconds of its last change.
     last: u64,
 }
 
 /// Adds what `session` spent beyond `counted` to `parts`: each turn in its
 /// hour, and what the totals have beyond the turns, spent before flsh
-/// logged turns, at the first turn or the last change. `counted` is taken
-/// from the oldest spend first.
+/// logged turns: at the session's start when it logged turns, else at its
+/// last change. `counted` is taken from the oldest spend first.
 fn add_flsh(
     parts: &mut BTreeMap<SessionId, Part>,
     session: FlshSession,
@@ -319,6 +336,7 @@ fn add_flsh(
         model,
         totals,
         turns,
+        started,
         last,
     } = session;
 
@@ -333,7 +351,9 @@ fn add_flsh(
     }
 
     let (earlier, _) = Counted::from(&totals).beyond(logged);
-    let first = turns.first().map_or(last, |turn| turn.at);
+    let first = turns
+        .first()
+        .map_or(last, |turn| started.unwrap_or(turn.at).min(turn.at));
     let spends = std::iter::once((first, model.clone(), earlier)).chain(turns.iter().map(|turn| {
         let model = turn.model.clone().unwrap_or_else(|| model.clone());
         (turn.at, model, Counted::from(turn))
@@ -453,12 +473,13 @@ pub(super) mod tests {
                 "{{\"at\":{at},\"model\":\"openrouter:example/model\",\"input_tokens\":{input},\"cached_input_tokens\":0,\"output_tokens\":10,\"cost\":\"{cost}\"}}"
             )
         };
-        // 0.10 spent before turns were logged, then a turn a day ago and one now.
+        // 0.10 spent before turns were logged, from its start two days ago, then
+        // a turn a day ago and one now.
         let log = [turn(1_793_520_000, 300, "0.20"), turn(1_793_606_400, 500, "0.30")].join(",");
         fs::write(
             &path,
             format!(
-                "{{\"type\":\"system\",\"subtype\":\"session_metadata\",\"version\":2,\"sessionId\":\"c1\",\"metadata\":{{\"model\":\"openrouter:example/model\",\"working_dir\":\"/srv/project\",\"total_usage\":{{\"input_tokens\":1000,\"cached_input_tokens\":0,\"output_tokens\":30,\"total_cost\":\"0.60\",\"tokens_unknown\":false,\"cost_unknown\":false}},\"usage_log\":[{log}]}}}}\n"
+                "{{\"type\":\"system\",\"subtype\":\"session_metadata\",\"version\":2,\"sessionId\":\"c1\",\"metadata\":{{\"model\":\"openrouter:example/model\",\"working_dir\":\"/srv/project\",\"total_usage\":{{\"input_tokens\":1000,\"cached_input_tokens\":0,\"output_tokens\":30,\"total_cost\":\"0.60\",\"tokens_unknown\":false,\"cost_unknown\":false}},\"usage_log\":[{log}]}}}}\n{{\"type\":\"user\",\"timestamp\":\"2026-10-31T08:02:00Z\"}}\n"
             ),
         )
         .expect("a session file");
@@ -473,8 +494,12 @@ pub(super) mod tests {
         };
         assert_eq!(
             costs(None),
-            [(1_793_520_000, 0.30), (1_793_606_400, 0.30)],
-            "the earlier spend joins the first turn"
+            [
+                (1_793_433_600, 0.10),
+                (1_793_520_000, 0.20),
+                (1_793_606_400, 0.30)
+            ],
+            "the earlier spend counts at the session's start"
         );
 
         // It moved here after the first turn: only the second counts.
