@@ -47,7 +47,8 @@ interface NavigationHarness {
   hold(command: string): void;
   holdNext(command: string): void;
   release(command: string): void;
-  rejectOnce(command: string): void;
+  /// Fails the next `command` with `error`, a plain test failure when none is given.
+  rejectOnce(command: string, error?: string): void;
 }
 type NativeHandler = (event: { payload: unknown }) => void;
 interface NativeBoundary {
@@ -141,7 +142,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   try { localStorage.setItem("beep.firstRunDone", "1"); } catch { /* the page has no storage */ }
   interface EventChannel { onmessage(event: unknown): void }
   const channel = (value: unknown): value is EventChannel => value !== null && typeof value === "object" && "onmessage" in value && typeof value.onmessage === "function";
-  const rejected = new Set<string>();
+  const rejected = new Map<string, string>();
   const held = new Set<string>();
   const heldOnce = new Set<string>();
   const releases = new Map<string, () => void>();
@@ -177,7 +178,8 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       async invoke(command, args = {}) {
         calls.push({ command, args });
         if (held.has(command) || heldOnce.delete(command)) await new Promise<void>(resolve => { releases.set(command, resolve); });
-        if (rejected.delete(command)) throw new Error("Requested test failure");
+        const failure = rejected.get(command);
+        if (rejected.delete(command)) throw new Error(failure);
         if (command === "center_pending") { pendingReads++; const target = pending; pending = null; return target; }
 
         if (command === "mesh_watch") {
@@ -262,7 +264,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       follows.get(id)?.onmessage({ kind: "delta", resumed: false, cursor: empty, page: { ...agentPage(id), usage }, modes: null, tasks: [] });
     },
     emit(name, payload) { for (const handler of handlers.get(name) ?? []) handler({ payload }); },
-    rejectOnce(command) { rejected.add(command); },
+    rejectOnce(command, error = "Requested test failure") { rejected.set(command, error); },
     hold(command) { held.add(command); },
     holdNext(command) { heldOnce.add(command); },
     release(command) { held.delete(command); releases.get(command)?.(); releases.delete(command); },

@@ -156,7 +156,7 @@ test("a project window shows its sessions in the sidebar's place, and its Back c
   await page.keyboard.press(`${modifier}+e`);
   await expect(rail).toBeVisible();
 
-  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.setViewportSize({ width: 640, height: 800 });
   await expect(rail).toBeHidden();
   const back = page.locator("#pw-back");
   await expect(back).toBeVisible();

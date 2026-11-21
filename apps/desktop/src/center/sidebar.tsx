@@ -1,6 +1,6 @@
 import { projectName } from "../project/projects-state.ts";
 import { renameProject } from "../project/rename.tsx";
-import { WINDOWS, onPhone } from "../ui/platform.ts";
+import { WINDOWS, isMobile, onPhone } from "../ui/platform.ts";
 // The sidebar: its groups (pinned, views, projects, machines) and the
 // sheets that add a machine or a project.
 import { onClosing } from "../agents/closing.ts";
@@ -97,12 +97,12 @@ shell.subscribe((now, was) => { if (!now.assistant !== !was.assistant) drawSide(
 
 /// Draws a project's sessions in place of the sidebar while one of them shows, or the sidebar again. The project's page opened from them keeps
 /// them beside it. A project window, which has no sidebar, shows its project's sessions on every
-/// page. Their reads redraw only this.
+/// page. The phone layout has no column for them. Their reads redraw only this.
 export function drawRail() {
   const view = currentLocation()?.view, side = shell.getState().side;
   const project = windowProject ?? (view === "pane" ? projectHere()?.project ?? null
     : view === "projects" && side.rail && !side.railHidden && state.picked === side.rail ? side.rail : null);
-  const rail = !onPhone() ? project : null;
+  const rail = onPhone() || isMobile() ? null : project;
   setRail(rail);
   placeWindowParts({ rail: rail && projectRail(rail, openKey()) });
 }

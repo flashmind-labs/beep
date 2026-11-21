@@ -11,7 +11,7 @@ import { openTile } from "../project/split.tsx";
 import { pa } from "../project/sections.ts";
 import { HOME_TAB_EVENT, homeTab, jump } from "./home.tsx";
 import { currentLocation, go, goHistory, asBack } from "./views.tsx";
-import { openProjects, paneOn } from "./sidebar.tsx";
+import { drawRail, openProjects, paneOn } from "./sidebar.tsx";
 import { openSettings } from "../settings/sheet.ts";
 import { activeTab, backTo, fullScreen, type MobileAt, type MobileTab } from "./mobile-state.ts";
 import { state } from "./state.ts";
@@ -85,6 +85,7 @@ function apply() {
   document.body.classList.toggle("mobile", on);
   watchPage(on);
   syncMobile();
+  drawRail();
 }
 
 /// A long press opens the menu a right-click does, in either layout on a phone: the touch webviews send no `contextmenu`
