@@ -181,6 +181,35 @@ fn a_restarted_node_takes_the_assigned_issues_as_backlog() {
 }
 
 #[test]
+fn a_restarted_node_keeps_its_queue() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo: TeamRepo = "github.com/org/repo".parse().unwrap();
+    let mut pickups = Pickups::new(dir.path().to_owned());
+    let mut state = pickup(&[], &[1]);
+    state.on = true;
+    let first = plan(&mut state, &[1, 5, 6], &[], Some(1));
+    assert_eq!((first.start, first.queued), (vec![5], vec![6]));
+    state.started.insert(5);
+    pickups.save(&repo, &state);
+
+    // The session on #5 ended while the node was down: #6 gets its room.
+    let mut state = Pickups::new(dir.path().to_owned()).take(&repo);
+    assert_eq!(plan(&mut state, &[1, 5, 6], &[], Some(1)).start, [6]);
+    assert_eq!(state.seen_at_enable, set(&[1, 5]));
+
+    // Turned off, the queue goes: on again, it is backlog.
+    let mut state = pickup(&[], &[1]);
+    state.on = true;
+    plan(&mut state, &[1, 5, 6], &[], Some(0));
+    pickups.save(&repo, &state);
+    pickups.states.insert(repo.clone(), state);
+    pickups.off(&repo);
+    let mut state = pickups.take(&repo);
+    assert!(state.queued.is_empty());
+    assert_eq!(plan(&mut state, &[1, 5, 6], &[], Some(1)), Plan::default());
+}
+
+#[test]
 fn turning_pickup_off_is_remembered() {
     let dir = tempfile::tempdir().unwrap();
     let repo: TeamRepo = "github.com/org/repo".parse().unwrap();

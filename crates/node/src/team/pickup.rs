@@ -63,6 +63,9 @@ pub(crate) struct Pickup {
     /// The refused starts of each issue not started yet: none after
     /// `ATTEMPTS`.
     pub(crate) failed: BTreeMap<u64, u32>,
+    /// The issues the limit held back in the last round: they wait for room
+    /// across a restart, not taken for the backlog.
+    pub(crate) queued: BTreeSet<u64>,
 }
 
 /// An automatic session: its card and the branch it works on.
@@ -153,16 +156,20 @@ pub(crate) fn issue_of_repo(repo: &TeamRepo, number: u64, url: &str) -> bool {
     at == repo.hostname() && format!("/{path}").ends_with(&format!("/{}/issues/{number}", repo.repo))
 }
 
-/// Snapshots the issues `assigned` now as the backlog the first round
-/// pickup is on, then plans the round as `due` does with the live sessions
-/// of `cards`.
+/// Snapshots the issues `assigned` now, but those queued, as the backlog
+/// the first round pickup is on, then plans the round as `due` does with
+/// the live sessions of `cards`.
 fn plan(state: &mut Pickup, assigned: &[u64], cards: &[Card], limit: Option<u32>) -> Plan {
     if !state.on {
         state.on = true;
-        state.seen_at_enable = assigned.iter().copied().collect();
+        let backlog = assigned.iter().filter(|n| !state.queued.contains(n));
+        state.seen_at_enable = backlog.copied().collect();
     }
 
-    due(state, assigned, &live(state, cards), limit)
+    let plan = due(state, assigned, &live(state, cards), limit);
+    state.queued = plan.queued.iter().copied().collect();
+
+    plan
 }
 
 /// The issues of `cards` with a session that has not ended: those its
@@ -241,11 +248,18 @@ impl Pickups {
         self.queued.get(repo).cloned().unwrap_or_default()
     }
 
-    /// Notes that pickup is off for `repo`: its state goes from memory, so
-    /// turning it on again leaves the issues assigned by then alone.
+    /// Notes that pickup is off for `repo`: its state goes from memory and
+    /// its queue from disk, so turning it on again leaves the issues
+    /// assigned by then alone.
     pub(super) fn off(&mut self, repo: &TeamRepo) {
         self.queued.remove(repo);
-        self.states.remove(repo);
+
+        if let Some(mut state) = self.states.remove(repo)
+            && !state.queued.is_empty()
+        {
+            state.queued.clear();
+            self.save(repo, &state);
+        }
     }
 
     /// Notes pickup off for each team this machine no longer acts for.
