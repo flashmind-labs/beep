@@ -5,7 +5,7 @@
 use beep_proto::SessionId;
 use super::{
     billing::{Accounts, flsh_provider},
-    ledger::{Bucket, BucketKey, Part, UNKNOWN_MODEL},
+    ledger::{BucketKey, Part, UNKNOWN_MODEL},
 };
 use crate::agents::found::{Agent, open_database};
 use crate::agents::prices::Tokens;
@@ -35,7 +35,7 @@ const OPENCODE: &str = "SELECT m.session_id, s.directory, (m.time_created / 3600
 
 /// Each session's totals, `session_meta.total_usage` (`input_tokens`
 /// counting cached input, `total_cost` a decimal string), counted in the
-/// hour of its last entry.
+/// hour of its last entry: the database keeps no turns.
 const FLSH: &str = "SELECT m.chat_key, m.working_dir, COALESCE(m.model, ''), m.total_usage,
         (SELECT MAX(s.created_at) FROM sessions s WHERE s.chat_key = m.chat_key) AS last
      FROM session_meta m
@@ -141,6 +141,7 @@ pub(super) fn flsh(
             cwd: row.get(1)?,
             model: row.get(2)?,
             totals,
+            turns: Vec::new(),
             last: count(last.unwrap_or(0)),
         };
         add_flsh(&mut parts, session, None, accounts);
@@ -150,8 +151,10 @@ pub(super) fn flsh(
 }
 
 /// What a flsh session file spent beyond `counted`, which was counted
-/// where it ran before it moved here: its header's `total_usage`, in the
-/// hour the file last changed. flsh writes the whole file on each change.
+/// where it ran before it moved here: each turn of its header's
+/// `usage_log` in its own hour, and what its `total_usage` has beyond them
+/// at the first turn, or in the hour the file last changed when no turn was
+/// logged. flsh writes the whole file on each change.
 pub(super) fn flsh_file(
     path: &Path,
     counted: Option<&Counted>,
@@ -193,6 +196,7 @@ fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
         cwd,
         model: header.metadata.model.unwrap_or_default(),
         totals,
+        turns: header.metadata.usage_log,
         last,
     }))
 }
@@ -212,6 +216,33 @@ struct FlshMetadata {
     model: Option<String>,
     working_dir: Option<String>,
     total_usage: Option<FlshTotals>,
+    #[serde(default)]
+    usage_log: Vec<FlshTurn>,
+}
+
+/// What one flsh turn spent, from its session header's `usage_log`.
+#[derive(Deserialize)]
+struct FlshTurn {
+    /// Unix seconds.
+    at: u64,
+    model: Option<String>,
+    /// Counting cached input.
+    input_tokens: u64,
+    cached_input_tokens: u64,
+    output_tokens: u64,
+    /// USD as a decimal string.
+    cost: String,
+}
+
+impl From<&FlshTurn> for Counted {
+    fn from(turn: &FlshTurn) -> Self {
+        Self {
+            input: turn.input_tokens,
+            cached: turn.cached_input_tokens,
+            output: turn.output_tokens,
+            cost: turn.cost.parse().unwrap_or(0.0),
+        }
+    }
 }
 
 /// What a flsh session spent until it moved here, counted on the machine
@@ -222,6 +253,32 @@ pub(super) struct Counted {
     cached: u64,
     output: u64,
     cost: f64,
+}
+
+impl Counted {
+    /// What `self` has beyond `before`, and what is left of `before` after it.
+    fn beyond(self, before: Self) -> (Self, Self) {
+        let kept = Self {
+            input: self.input.saturating_sub(before.input),
+            cached: self.cached.saturating_sub(before.cached),
+            output: self.output.saturating_sub(before.output),
+            cost: (self.cost - before.cost).max(0.0),
+        };
+        let left = Self {
+            input: before.input.saturating_sub(self.input),
+            cached: before.cached.saturating_sub(self.cached),
+            output: before.output.saturating_sub(self.output),
+            cost: (before.cost - self.cost).max(0.0),
+        };
+        (kept, left)
+    }
+
+    fn add(&mut self, other: Self) {
+        self.input += other.input;
+        self.cached += other.cached;
+        self.output += other.output;
+        self.cost += other.cost;
+    }
 }
 
 impl From<&FlshTotals> for Counted {
@@ -235,18 +292,21 @@ impl From<&FlshTotals> for Counted {
     }
 }
 
-/// One flsh session's totals.
+/// One flsh session's totals and the turns it logged.
 struct FlshSession {
     id: SessionId,
     cwd: String,
     model: String,
     totals: FlshTotals,
+    turns: Vec<FlshTurn>,
     /// Unix seconds of its last change.
     last: u64,
 }
 
-/// Adds what `session` spent beyond `counted` to `parts`, in the hour of
-/// its last change.
+/// Adds what `session` spent beyond `counted` to `parts`: each turn in its
+/// hour, and what the totals have beyond the turns, spent before flsh
+/// logged turns, at the first turn or the last change. `counted` is taken
+/// from the oldest spend first.
 fn add_flsh(
     parts: &mut BTreeMap<SessionId, Part>,
     session: FlshSession,
@@ -258,6 +318,7 @@ fn add_flsh(
         cwd,
         model,
         totals,
+        turns,
         last,
     } = session;
 
@@ -265,62 +326,72 @@ fn add_flsh(
         return;
     }
 
-    let before = counted.copied().unwrap_or_default();
-    let input = totals.input_tokens.saturating_sub(before.input);
-    let cached = totals
-        .cached_input_tokens
-        .unwrap_or(0)
-        .saturating_sub(before.cached)
-        .min(input);
-    let tokens = Tokens {
-        input: input - cached,
-        output: totals.output_tokens.saturating_sub(before.output),
-        cache_read: cached,
-        cache_write: 0,
-        cache_write_long: 0,
-    };
-    let cost = totals
-        .total_cost
-        .parse::<f64>()
-        .ok()
-        .map(|cost| cost - before.cost)
-        .filter(|cost| cost.is_finite() && *cost > 0.0);
-    if tokens.total() == 0 && cost.is_none() {
-        return;
+    let mut logged = Counted::default();
+
+    for turn in &turns {
+        logged.add(Counted::from(turn));
     }
 
-    let billing = accounts.resolve(
-        Agent::Flsh,
-        Billing::Unknown,
-        flsh_provider(&model),
-        Some(cwd.as_str()),
-    );
-    let model = match model.as_str() {
-        "" => UNKNOWN_MODEL.to_owned(),
-        _ => model,
-    };
-    let mut bucket = Bucket::default();
+    let (earlier, _) = Counted::from(&totals).beyond(logged);
+    let first = turns.first().map_or(last, |turn| turn.at);
+    let spends = std::iter::once((first, model.clone(), earlier)).chain(turns.iter().map(|turn| {
+        let model = turn.model.clone().unwrap_or_else(|| model.clone());
+        (turn.at, model, Counted::from(turn))
+    }));
+    let mut before = counted.copied().unwrap_or_default();
+    let part = parts.entry(id.clone()).or_default();
+    part.cwd.clone_from(&cwd);
 
-    match cost {
-        Some(cost) => bucket.add(&model, &tokens, Some(cost)),
-        // flsh found no price; neither would the table, mostly.
-        None if totals.cost_unknown => {
-            bucket.tokens = tokens;
-            bucket.unpriced = tokens.total();
+    for (at, model, spend) in spends {
+        let (spend, left) = spend.beyond(before);
+        before = left;
+        let cached = spend.cached.min(spend.input);
+        let tokens = Tokens {
+            input: spend.input - cached,
+            output: spend.output,
+            cache_read: cached,
+            cache_write: 0,
+            cache_write_long: 0,
+        };
+        let cost = Some(spend.cost).filter(|cost| cost.is_finite() && *cost > 0.0);
+
+        if tokens.total() == 0 && cost.is_none() {
+            continue;
         }
-        None => bucket.add(&model, &tokens, None),
+
+        let billing = accounts.resolve(
+            Agent::Flsh,
+            Billing::Unknown,
+            flsh_provider(&model),
+            Some(cwd.as_str()),
+        );
+        let model = match model.as_str() {
+            "" => UNKNOWN_MODEL.to_owned(),
+            _ => model,
+        };
+        let bucket = part
+            .buckets
+            .entry(BucketKey {
+                hour: at - at % 3600,
+                model: ModelId::new(model.as_str()),
+                billing,
+            })
+            .or_default();
+
+        match cost {
+            Some(cost) => bucket.add(&model, &tokens, Some(cost)),
+            // flsh found no price; neither would the table, mostly.
+            None if totals.cost_unknown => {
+                bucket.tokens.add(&tokens);
+                bucket.unpriced = bucket.unpriced.saturating_add(tokens.total());
+            }
+            None => bucket.add(&model, &tokens, None),
+        }
     }
 
-    let part = parts.entry(id).or_default();
-    part.cwd = cwd;
-    part.buckets.insert(
-        BucketKey {
-            hour: last - last % 3600,
-            model: ModelId::new(model),
-            billing,
-        },
-        bucket,
-    );
+    if part.buckets.is_empty() {
+        parts.remove(&id);
+    }
 }
 
 #[cfg(test)]
@@ -371,6 +442,52 @@ pub(super) mod tests {
         assert_eq!((bucket.tokens.input, bucket.tokens.cache_read), (400, 100));
         assert_eq!(bucket.tokens.output, 0);
         assert!((bucket.cost_usd - 0.10).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_flsh_session_file_counts_each_logged_turn_in_its_hour() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let path = dir.path().join("a.jsonl");
+        let turn = |at: u64, input: u64, cost: &str| {
+            format!(
+                "{{\"at\":{at},\"model\":\"openrouter:example/model\",\"input_tokens\":{input},\"cached_input_tokens\":0,\"output_tokens\":10,\"cost\":\"{cost}\"}}"
+            )
+        };
+        // 0.10 spent before turns were logged, then a turn a day ago and one now.
+        let log = [turn(1_793_520_000, 300, "0.20"), turn(1_793_606_400, 500, "0.30")].join(",");
+        fs::write(
+            &path,
+            format!(
+                "{{\"type\":\"system\",\"subtype\":\"session_metadata\",\"version\":2,\"sessionId\":\"c1\",\"metadata\":{{\"model\":\"openrouter:example/model\",\"working_dir\":\"/srv/project\",\"total_usage\":{{\"input_tokens\":1000,\"cached_input_tokens\":0,\"output_tokens\":30,\"total_cost\":\"0.60\",\"tokens_unknown\":false,\"cost_unknown\":false}},\"usage_log\":[{log}]}}}}\n"
+            ),
+        )
+        .expect("a session file");
+        let accounts = &mut Accounts::default();
+        let costs = |counted: Option<&Counted>| -> Vec<(u64, f64)> {
+            let parts = flsh_file(&path, counted, &mut Accounts::default()).expect("the session");
+            parts["c1"]
+                .buckets
+                .iter()
+                .map(|(key, bucket)| (key.hour, (bucket.cost_usd * 100.0).round() / 100.0))
+                .collect()
+        };
+        assert_eq!(
+            costs(None),
+            [(1_793_520_000, 0.30), (1_793_606_400, 0.30)],
+            "the earlier spend joins the first turn"
+        );
+
+        // It moved here after the first turn: only the second counts.
+        let moved = Counted {
+            input: 500,
+            cached: 0,
+            output: 20,
+            cost: 0.30,
+        };
+        assert_eq!(costs(Some(&moved)), [(1_793_606_400, 0.30)]);
+        let parts = flsh_file(&path, Some(&moved), accounts).expect("the session");
+        let bucket = parts["c1"].buckets.values().next().expect("a bucket");
+        assert_eq!((bucket.tokens.input, bucket.tokens.output), (500, 10));
     }
 
     #[test]
