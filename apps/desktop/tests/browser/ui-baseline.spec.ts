@@ -186,10 +186,13 @@ test("home overview", async ({ page }) => {
 
 test("home by project", async ({ page }) => {
   const widget = [agentRow("notice-three", "Add CSV export to reports", "idle", 1_200_000, "/srv/example/widget"), agentRow("notice-four", "Bump the parser", "working", 60_000, "/srv/example/widget")];
-  const replied = [...running, ...widget].map(row => row.status === "idle" ? { ...row, reply_html: "Done. The changelog lists <code>0.9.0</code>." } : row);
+  // A session idle since yesterday rests: its project is one line under Earlier.
+  const rested = agentRow("notice-five", "Sort the delta tables", "idle", 72_000_000, "/srv/tools/delta");
+  const replied = [...running, ...widget, rested].map(row => row.status === "idle" ? { ...row, reply_html: "Done. The changelog lists <code>0.9.0</code>." } : row);
   await openDesktop(page, false, { center_home: { ...home, running: replied } });
   await page.getByRole("radio", { name: "Projects" }).click();
-  await expect(page.locator(".bd-projects .cc-line")).toHaveCount(4);
+  await expect(page.locator(".bd-projects .cc-line")).toHaveCount(5);
+  await expect(page.locator(".bd-log .cc-line")).toHaveText("tools/delta20h ago");
   await baseline(page, "home-projects");
 });
 

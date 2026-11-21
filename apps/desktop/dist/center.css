@@ -1080,6 +1080,7 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .bd-log { display: grid; min-width: 0 }
 .bd-log .cc-row { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; padding: 5px 8px; border: 0; border-radius: var(--radius-sm) }
 .bd-log .cc-row .t > span:empty { display: none }
+.bd-log .cc-row .r { gap: 10px }
 .bd-lane.log > .dbtn { justify-self: start }
 .bd-art { display: none }
 .bd-card .ft .cc-running { min-width: 0 }

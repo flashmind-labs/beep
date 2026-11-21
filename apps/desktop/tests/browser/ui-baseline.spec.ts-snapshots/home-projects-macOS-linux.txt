@@ -56,9 +56,10 @@ body.cbody
                 svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               span.tt "tools/"
             div.cc-chat.cc-si.pj-repo
-              button.open [aria-label="tools/delta" title="tools/delta build-box: /srv/tools/delta" type="button"]
+              button.open [aria-label="tools/delta 1" title="tools/delta build-box: /srv/tools/delta" type="button"]
                 span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                 span.tt "delta"
+                span.n "1"
               button.pa [aria-label="Pin to top" data-id="tools/delta" type="button"]
                 svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
         div.cc-grp.machines
@@ -175,6 +176,17 @@ body.cbody
                         i.nt-md.rail-reply "Done. The changelog lists ."
                           code "0.9.0"
                     span.r "10m ago"
+              div
+                div.cc-sec
+                  h4 "Earlier"
+                div.cc-panel
+                  div.bd-log
+                    div.cc-line.cc-row
+                      span.pj-swatch style(--c)
+                      button.t [title="tools/delta" type="button"]
+                        b "tools/delta"
+                        span
+                      span.r "20h ago"
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
         div.asst-list.pj-list [hidden]

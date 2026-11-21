@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
-const row = (id: string, title: string, status: string, doing: string | null, cwd: string) => ({ kind: "agent", machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title, cwd, status, doing, reply_html: status === "idle" ? "Done. Tests pass." : null, started_at: 1, last_activity: 2, external: false, question: null });
+const row = (id: string, title: string, status: string, doing: string | null, cwd: string) => ({ kind: "agent", machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title, cwd, status, doing, reply_html: status === "idle" ? "Done. Tests pass." : null, started_at: 1, last_activity: Date.now(), external: false, question: null });
 const project = (name: string) => ({ name, url: `https://example.test/${name}`, machine_id: "build-box", machine_name: "build-box", folder: `/srv/${name}`, cloned: true, imported_at: 1 });
 const home = {
   machines: [{ id: "build-box", name: "build-box", online: true, can_host: true, seen_at: 1, version: "0.9.0", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 2, stats: null }],

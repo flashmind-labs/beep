@@ -4,7 +4,7 @@ import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
 import { byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
 import { Board, CardRow, type BoardCard } from "./lanes-view.tsx";
-import { LANES, endedToday, laneOf } from "./lanes-state.ts";
+import { LANES, endedToday, laneOf, resting } from "./lanes-state.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { conflictList, conflictSub } from "../project/filesync.ts";
 import { fsync } from "../project/sections.ts";
@@ -18,9 +18,9 @@ import { loadFound, projectRows, projectWindowProps } from "./sidebar.tsx";
 import { HomeAssistant } from "./home-assistant.tsx";
 import { state } from "./state.ts";
 import { go } from "./views.tsx";
-import { formatAgo } from "../ui/format.ts";
+import { formatAgo, plural } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
-import { Button, Section, EmptyPanel } from "../ui/kit.tsx";
+import { Button, LineRow, Section, EmptyPanel } from "../ui/kit.tsx";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
 import { RunningStatus, workLine } from "../project/split-view.tsx";
 import { sessions } from "../agents/sessions.ts";
@@ -151,22 +151,29 @@ export function HomeOverview({ home, grouped }: { home: HomeView; grouped: boole
 
   return <>
     {!!queue.length && <Section id="sec-needs" title="Needs you" count={queue.length}>{queue.map(card => <CardRow key={card.key} card={card}/>)}</Section>}
-    {!!lanes.length && <div id="sec-running">{grouped ? <ByProject cards={lanes}/> : <Board cards={lanes} lanes={QUEUED_LANES} spread more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/>}</div>}
+    {!!lanes.length && <div id="sec-running">{grouped ? <ByProject cards={lanes} rests={restingKeys(home)} earlier/> : <Board cards={lanes} lanes={QUEUED_LANES} spread more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/>}</div>}
     {!queue.length && !lanes.length && <Empty home={home} />}
   </>;
 }
 
-/// Every project with open sessions as Home lists them, for the Projects page; null when
-/// nothing is open.
+/// The projects at work as Home lists them, for the Projects page; null when none is.
 export function OpenProjects({ home }: { home: HomeView }) {
   const assistants = new Set(sessions.filter(isAssistant).map(runningKey));
+  const rests = restingKeys(home);
   const cards = runningCards(home, assistants, true);
-  return cards.length ? <ByProject cards={cards}/> : null;
+  return cards.some(card => !rests.has(card.key)) ? <ByProject cards={cards} rests={rests} earlier={false}/> : null;
+}
+
+/// The open sessions that rest: their turn finished hours ago.
+function restingKeys(home: HomeView): ReadonlySet<string> {
+  const now = Date.now();
+  return new Set((home.running || []).filter(row => resting(row, now)).map(runningKey));
 }
 
 /// The open sessions as rows under their projects, in two columns: a project by its latest
-/// session, with the sessions in no project last. A project lists its first `ROWS_SHOWN`.
-function ByProject({ cards }: { cards: readonly BoardCard[] }) {
+/// session, with the sessions in no project last. A project lists its first `ROWS_SHOWN` that
+/// do not rest. With `earlier`, the projects whose sessions all rest follow as one line each.
+function ByProject({ cards, rests, earlier }: { cards: readonly BoardCard[]; rests: ReadonlySet<string>; earlier: boolean }) {
   const groups = new Map<string | null, BoardCard[]>();
 
   for (const card of cards) {
@@ -175,19 +182,27 @@ function ByProject({ cards }: { cards: readonly BoardCard[] }) {
     else groups.set(card.project, [card]);
   }
 
-  const boxes = [...groups].sort(([a], [b]) => Number(a === null) - Number(b === null));
-
-  return <div className="bd-projects">{boxes.map(([project, rows]) => {
+  const boxes = [...groups].sort(([a], [b]) => Number(a === null) - Number(b === null)).map(([project, rows]) => {
     // A listed project has its colour, and its name opens its page, where the rest of it is.
     const color = rows[0].color, listed = project !== null && color !== null;
-    const all = listed ? () => go("projects", { project }) : () => go("pane", "agents");
-    const title = !listed ? project ?? "Other folders"
-      : <Button look="quiet" small {...projectWindowProps(project).clicks} {...projectWindowProps(project).menu} onClick={all}><span className="pj-swatch" style={{ "--c": color } as CSSProperties}/>{project}</Button>;
+    const open = listed ? () => go("projects", { project }) : () => go("pane", "agents");
+    return { project, rows, color, open, windowProps: listed ? projectWindowProps(project) : null, shown: rows.filter(card => !rests.has(card.key)).slice(0, ROWS_SHOWN) };
+  });
+  const quiet = earlier ? boxes.filter(box => !box.shown.length) : [];
 
-    return <Section key={project ?? ""} title={title} action={rows.length > ROWS_SHOWN ? <Button look="quiet" small onClick={all}>All {rows.length}</Button> : null}>
-      {rows.slice(0, ROWS_SHOWN).map(card => <CardRow key={card.key} card={{ ...card, color: null }}/>)}
-    </Section>;
-  })}</div>;
+  return <div className="bd-projects">
+    {boxes.filter(box => box.shown.length).map(({ project, rows, color, open, windowProps, shown }) => {
+      const title = !windowProps ? project ?? "Other folders"
+        : <Button look="quiet" small {...windowProps.clicks} {...windowProps.menu} onClick={open}><span className="pj-swatch" style={{ "--c": color } as CSSProperties}/>{project}</Button>;
+
+      return <Section key={project ?? ""} title={title} action={rows.length > shown.length ? <Button look="quiet" small onClick={open}>All {rows.length}</Button> : null}>
+        {shown.map(card => <CardRow key={card.key} card={{ ...card, color: null }}/>)}
+      </Section>;
+    })}
+    {!!quiet.length && <Section title="Earlier"><div className="bd-log">{quiet.map(({ project, rows, color, open, windowProps }) =>
+      <LineRow key={project ?? ""} events={{ ...windowProps?.clicks, ...windowProps?.menu }} lead={<span className="pj-swatch" style={{ "--c": color ?? "var(--dim)" } as CSSProperties}/>} title={project ?? "Other folders"} sub=""
+        right={<>{rows.length > 1 && <span>{plural(rows.length, "session", "sessions")}</span>}{rows[0].foot}</>} onOpen={open}/>)}</div></Section>}
+  </div>;
 }
 
 /// The sessions a project lists on Home.
