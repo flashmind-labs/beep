@@ -16,7 +16,7 @@ use tokio_tungstenite::{
 };
 
 fn approval(allow_session: bool, allow_permanent: bool) -> Value {
-    json!({"session_id": "12b450c6", "request_id": "ap1", "command": "rm -rf build", "description": "Delete the build",
+    json!({"session_id": "live0001", "request_id": "ap1", "command": "rm -rf build", "description": "Delete the build",
         "choices": ["once", "session", "always", "deny"], "allow_permanent": allow_permanent, "allow_session": allow_session,
         "smart_denied": null, "tool_name": "terminal", "gateway_session_id": null})
 }
@@ -27,7 +27,7 @@ fn selected(option: &str) -> Value {
 
 #[test]
 fn a_clarify_becomes_a_form_and_its_answer_goes_back_by_qid() {
-    let params = json!({"session_id": "a3026a4a", "questions": [
+    let params = json!({"session_id": "live0002", "questions": [
         {"qid": "q0", "question": "Which color do you prefer?", "choices": ["Red (Recommended)", "Green", "Blue"], "multi_select": false},
         {"qid": "q1", "question": "Which sizes?", "choices": ["S", "M"], "multi_select": true}]});
     let (asked, form) = to_client("clarify", &params).unwrap();
@@ -89,14 +89,14 @@ fn a_declined_form_or_rejected_approval_denies() {
 
 #[test]
 fn message_and_thinking_deltas_become_chunks() {
-    let message = json!({"type": "message.delta", "session_id": "12b450c6", "payload": {"text": " command", "turn_id": "t", "segment": 0, "offset": 5}, "seq": 15});
+    let message = json!({"type": "message.delta", "session_id": "live0001", "payload": {"text": " command", "turn_id": "t", "segment": 0, "offset": 5}, "seq": 15});
     assert_eq!(update(&message), vec![json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": " command"}})]);
 
-    let reasoning = json!({"type": "reasoning.delta", "session_id": "12b450c6", "payload": {"text": "Let me think"}, "seq": 4});
+    let reasoning = json!({"type": "reasoning.delta", "session_id": "live0001", "payload": {"text": "Let me think"}, "seq": 4});
     assert_eq!(update(&reasoning), vec![json!({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "Let me think"}})]);
 
     // The spinner text is not reasoning.
-    let spinner = json!({"type": "thinking.delta", "session_id": "12b450c6", "payload": {"text": "( \u{2d8}\u{2323}\u{2d8})\u{2661} brainstorming..."}, "seq": 4});
+    let spinner = json!({"type": "thinking.delta", "session_id": "live0001", "payload": {"text": "( \u{2d8}\u{2323}\u{2d8})\u{2661} brainstorming..."}, "seq": 4});
     assert!(update(&spinner).is_empty());
     assert!(update(&json!({"type": "sessions.changed", "session_id": "", "payload": {}})).is_empty());
 }
@@ -309,7 +309,7 @@ fn an_ipv6_host_goes_in_brackets_with_or_without_them() {
 
 // The bridge, driven by an ACP client over pipes against a fake Hermes.
 
-const STORED: &str = "20261120_190828_8c264b";
+const STORED: &str = "20260101_000000_stored1";
 
 /// What the client was sent: a session update, or a request to answer.
 enum Seen {
