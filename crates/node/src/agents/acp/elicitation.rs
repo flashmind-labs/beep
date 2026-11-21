@@ -153,6 +153,11 @@ impl Form {
         Ok(Answer::Next(Box::new(self)))
     }
 
+    /// What tells that the agent withdrew the form.
+    pub(in crate::agents) fn cancellation(&self) -> agent_client_protocol::RequestCancellation {
+        self.responder.cancellation()
+    }
+
     /// Answers that the user never filled it in.
     pub(in crate::agents) fn cancel(self) -> Result<(), agent_client_protocol::Error> {
         self.responder.respond(response(ElicitationAction::Cancel))

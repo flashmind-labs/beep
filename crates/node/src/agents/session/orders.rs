@@ -491,12 +491,45 @@ impl Actor {
                 &format!("Asked: {}{detail}", question.text),
             );
         });
+        let id = question.id;
+        let watched = waiting.cancellation().map(|cancellation| {
+            let (watched, answered) = tokio::sync::oneshot::channel::<()>();
+            self.replies.push(Box::pin(async move {
+                tokio::select! {
+                    () = cancellation.cancelled() => Reply::Withdrawn(Some(id)),
+                    // Answered first: nothing to withdraw.
+                    _ = answered => Reply::Withdrawn(None),
+                }
+            }));
+            watched
+        });
         self.asked.push_back(Asked {
             question,
             waiting,
             plan,
+            _watched: watched,
         });
         self.show_question();
+    }
+
+    /// The agent withdrew question `id`, answered elsewhere or no longer
+    /// needed: it goes from the queue.
+    pub(super) fn withdrawn(&mut self, id: u32) -> Result<()> {
+        let Some(at) = self.asked.iter().position(|asked| asked.question.id == id) else {
+            return Ok(());
+        };
+        let Some(asked) = self.asked.remove(at) else {
+            return Ok(());
+        };
+
+        // The agent no longer reads the answer.
+        let _ = asked.waiting.cancel();
+        self.live.send_modify(|live| {
+            live.push(EntryKind::Question, &format!("Withdrawn: {}", asked.question.text));
+        });
+        self.show_question();
+
+        Ok(())
     }
 
     fn answer(&mut self, question: u32, reply: &str) -> Result<Result<(), String>> {

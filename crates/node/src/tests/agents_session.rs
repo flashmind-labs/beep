@@ -570,6 +570,39 @@ cat > /dev/null
     session.close().await;
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn a_question_the_agent_withdraws_leaves_the_queue() {
+    // Asks, then withdraws it, as Hermes does when it is answered elsewhere,
+    // and logs what the node answers.
+    const ADAPTER: &str = r#"
+handshake "$1"
+read -r line
+echo '{"jsonrpc":"2.0","id":"e1","method":"elicitation/create","params":{"mode":"form","sessionId":"s","message":"Hermes needs your input to continue.","requestedSchema":{"type":"object","properties":{"q0":{"type":"string","title":"Which layout?"}}}}}'
+echo '{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":"e1"}}'
+read -r line; log "$1"
+cat > /dev/null
+"#;
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let session = Session::start(start_on(&script("pi", ADAPTER, &log), dir, None)).unwrap();
+    let mut live = session.live.clone();
+
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        watched::wait_for(&mut live, |live| {
+            live.info.question.is_none()
+                && live.transcript(10).0.iter().any(|entry| entry.text.starts_with("Withdrawn: "))
+        }),
+    )
+    .await
+    .expect("the withdrawn question stayed")
+    .unwrap();
+
+    session.close().await;
+}
+
 /// An adapter that puts a choice to the user, then ends its turn without
 /// waiting for it, logs the answer the node gives and exits.
 const ABANDONING_ADAPTER: &str = r#"

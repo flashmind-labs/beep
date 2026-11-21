@@ -62,6 +62,9 @@ pub(super) enum Event {
 pub(super) enum Reply {
     /// What pi's log says the session spent so far, when it could be read.
     PiCost(Option<f64>),
+    /// The agent withdrew the request behind question `id`; `None` when it
+    /// was answered first.
+    Withdrawn(Option<u32>),
     /// Capabilities for the protocol selected by the agent.
     Initialized(Result<acp::Capabilities, agent_client_protocol::Error>),
     Accepted {
@@ -152,6 +155,8 @@ pub(super) struct Asked {
     pub(super) waiting: Waiting,
     /// The plan it asks to approve, for a plan's approval.
     pub(super) plan: Option<String>,
+    /// Ends the watch for the agent withdrawing it once it is answered.
+    pub(super) _watched: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 pub(super) struct PendingSteer {
@@ -170,6 +175,16 @@ pub(super) enum Waiting {
 }
 
 impl Waiting {
+    /// What tells that the agent withdrew its request; `None` for the node's
+    /// own questions.
+    pub(super) fn cancellation(&self) -> Option<agent_client_protocol::RequestCancellation> {
+        match self {
+            Self::Agent(responder) => Some(responder.cancellation()),
+            Self::Node(_) => None,
+            Self::Form(form) => Some(form.cancellation()),
+        }
+    }
+
     /// Answers that the question was dropped. The node hears it as its
     /// sender going away.
     pub(super) fn cancel(self) -> Result<(), agent_client_protocol::Error> {
@@ -832,6 +847,8 @@ impl Actor {
 
     fn reply(&mut self, cx: &ConnectionTo<Agent>, reply: Reply) -> Result<Option<End>> {
         match reply {
+            Reply::Withdrawn(Some(id)) => self.withdrawn(id)?,
+            Reply::Withdrawn(None) => {}
             Reply::PiCost(cost) => {
                 self.reading_cost = false;
 
