@@ -34,8 +34,7 @@ const KEPT_FOR: Duration = Duration::from_secs(24 * 60 * 60);
 /// The most asks waiting each way, and Needs you cards of one team.
 pub(super) const MAX_WAITING: usize = 256;
 pub(super) const MAX_CARDS: usize = 32;
-/// The longest ask id and card id.
-pub(super) const MAX_ID: usize = 64;
+/// The longest card id.
 pub(super) const MAX_CARD: usize = 256;
 /// How long reaching a teammate may take over all their devices, and one
 /// device to say whether it took a message.
@@ -336,7 +335,7 @@ fn outgoing(
         return Err("Too many asks wait for answers; try again later".to_owned());
     }
 
-    let id = format!("{:016x}", rand::random::<u64>());
+    let id = new_id();
     let sent = Sent {
         repo: repo.clone(),
         asker: from.card.clone(),
@@ -355,6 +354,17 @@ fn outgoing(
     };
 
     Ok((member, msg, id, None))
+}
+
+/// A new ask's id: 16 lowercase hex digits.
+fn new_id() -> String {
+    format!("{:016x}", rand::random::<u64>())
+}
+
+/// Whether `id` is shaped as [`new_id`] makes them. A teammate's ask id
+/// reaches prompts, so nothing else is taken.
+pub(super) fn is_ask_id(id: &str) -> bool {
+    id.len() == 16 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 pub(super) fn too_long() -> String {

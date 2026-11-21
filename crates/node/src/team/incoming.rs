@@ -6,8 +6,8 @@
 
 use super::{
     asks::{
-        ASK_CARD, Delivery, MAX_CARD, MAX_CARDS, MAX_ID, MAX_TEXT, MAX_WAITING, NOT_WAITING, Taken,
-        not_served, too_long,
+        ASK_CARD, Delivery, MAX_CARD, MAX_CARDS, MAX_TEXT, MAX_WAITING, NOT_WAITING, Taken,
+        is_ask_id, not_served, too_long,
     },
     link::{TeamLink, Teams},
 };
@@ -141,7 +141,7 @@ fn take(
 
     teams.asks.expire(now);
 
-    if id.is_empty() || id.len() > MAX_ID || teams.asks.taken.contains_key(id) {
+    if !is_ask_id(id) || teams.asks.taken.contains_key(id) {
         return Err("An ask needs a new short id".to_owned());
     }
     if teams.asks.taken.len() >= MAX_WAITING {
