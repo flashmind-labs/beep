@@ -1,11 +1,11 @@
 use super::*;
 use crate::{
     run::tasks::Table,
-    team::board::tests::{Forge, repo},
+    team::board::tests::{Forge, member, repo},
 };
 use beep_proto::{
     SessionId,
-    team::{Card, Lane},
+    team::{Card, Lane, TeamRecord},
 };
 use iroh::{Endpoint, SecretKey, endpoint::presets};
 use std::sync::Arc;
@@ -111,6 +111,28 @@ async fn cards_carry_this_meshs_own_queued_issues() {
     assert!(!failed, "{text}");
     let read: TeamCards = serde_json::from_str(&text).expect("cards");
     assert_eq!(read.own_queued, vec![queued]);
+}
+
+#[tokio::test]
+async fn a_followed_teammate_with_no_cards_is_online() {
+    let link = link().await;
+    let me = link.endpoint().id();
+    let device = || SecretKey::generate().public();
+    let (bob, carol) = (member("bob", device()), member("carol", device()));
+    let team = TeamRecord::new(repo(), vec![bob.clone(), carol]);
+    link.with(|teams| {
+        teams.gateways.insert(repo(), me);
+        teams.rosters.refresh([(repo(), team)].into());
+        let teammates = teams.teammates.entry(repo()).or_default();
+        teammates.board(bob.mesh, &bob.login, Vec::new());
+    });
+
+    let (text, failed) = done(answer(&caller(&link, Table::Shared, false), &cards(false)).await);
+
+    assert!(!failed, "{text}");
+    let read: TeamCards = serde_json::from_str(&text).expect("cards");
+    assert!(read.teammates.is_empty());
+    assert_eq!(read.online, vec![bob.login]);
 }
 
 #[tokio::test]

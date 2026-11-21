@@ -104,6 +104,8 @@ pub struct TeamCardsView {
     teammates: Vec<CardView>,
     /// The user's own issues the pickup limit holds back.
     own_queued: Vec<CardView>,
+    /// The teammates whose board the mesh follows now, cards or none.
+    online: Vec<String>,
 }
 
 /// A person of another mesh on the user's teams.
@@ -283,12 +285,14 @@ pub async fn team_cards(fleet: FleetState<'_>, project_id: Uuid) -> Result<TeamC
         needs_you,
         teammates,
         own_queued,
+        online,
     } = desk.team_cards(&name).await?;
 
     Ok(TeamCardsView {
         needs_you: needs_you.into_iter().map(CardView::from).collect(),
         teammates: teammates.into_iter().map(CardView::from).collect(),
         own_queued: own_queued.into_iter().map(CardView::from).collect(),
+        online: online.iter().map(ToString::to_string).collect(),
     })
 }
 

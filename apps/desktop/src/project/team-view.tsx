@@ -30,7 +30,7 @@ type Team = Extract<TeamView, { kind: "team" }>;
 
 /// How often the board reads its team's cards while it shows.
 const FOLLOW_MS = 10_000;
-const NO_CARDS: TeamCards = { needs_you: [], teammates: [], own_queued: [] };
+const NO_CARDS: TeamCards = { needs_you: [], teammates: [], own_queued: [], online: [] };
 /// How long after a failed read the team is not asked again: a project on no
 /// forge fails every time, and each try would draw the page.
 const RETRY_MS = 60_000;
@@ -124,7 +124,7 @@ export function teamNote(name: string) {
   const view = teamOf(name);
   if (!view) return null;
 
-  return view.kind === "team" ? `${onlineCount(view, teamCardsOf(name).teammates)} online` : "";
+  return view.kind === "team" ? `${onlineCount(view, teamCardsOf(name).online)} online` : "";
 }
 
 /// A login as a coloured tag, the same colour wherever it shows.
@@ -415,7 +415,7 @@ export function TeamPage({ project, machines, running }: { project: string; mach
 }
 
 function Members({ project, view, machines, running, remove }: { project: string; view: Team; machines: readonly string[]; running: number; remove(login: string): void }) {
-  const theirs = teamCardsOf(project).teammates;
+  const { teammates: theirs, online: followed } = teamCardsOf(project);
   // A member's row shows the board with their cards alone.
   const show = (filter: BoardFilter) => { filters.set(project, filter); openTile("overview"); };
 
@@ -423,7 +423,7 @@ function Members({ project, view, machines, running, remove }: { project: string
     const me = sameLogin(member.login, view.me), mine = theirs.filter(card => sameLogin(card.login, member.login));
     const where = me ? machines : [...new Set(mine.map(card => card.machine))];
     const agents = me ? running : mine.filter(card => cardLane(card.lane) === "working" && card.lane !== "queued").length;
-    const online = me || mine.length > 0;
+    const online = me || followed.some(login => sameLogin(login, member.login));
 
     return <LineRow key={member.mesh} dataKey={`member:${member.login}`} lead={<span className="tm-face" style={{ background: whoColor(member.login) }}>{member.login.slice(0, 1).toUpperCase()}</span>}
       title={member.login} sub={[me ? "you" : null, where.join(", "), agents ? plural(agents, "agent", "agents") : null].filter(Boolean).join(" · ")}

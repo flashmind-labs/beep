@@ -142,13 +142,19 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
 
     match args {
         TeamAppArgs::Cards { repo } => json(&link.with(|teams| {
+            let teammates = teams.teammates.get(&repo);
+            let followed: Vec<EndpointId> = teammates.into_iter().flat_map(Teammates::meshes).collect();
+            let members = teams.rosters.get(&repo).map(|record| record.members.iter());
+            let online = members
+                .into_iter()
+                .flatten()
+                .filter(|member| followed.contains(&member.mesh))
+                .map(|member| member.login.clone())
+                .collect();
+
             TeamCards {
                 needs_you: teams.asks.cards(&repo, now),
-                teammates: teams
-                    .teammates
-                    .get(&repo)
-                    .map(Teammates::cards)
-                    .unwrap_or_default(),
+                teammates: teammates.map(Teammates::cards).unwrap_or_default(),
                 own_queued: teams
                     .boards
                     .cards(&repo)
@@ -156,6 +162,7 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
                     .into_iter()
                     .filter(|card| matches!(card.lane, Lane::Queued {}))
                     .collect(),
+                online,
             }
         })),
         TeamAppArgs::Dismiss { repo, card } => {

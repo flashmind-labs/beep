@@ -897,6 +897,7 @@ mod tools {
             .map(card)
             .collect(),
             own_queued: vec![card(Lane::Queued {})],
+            online: vec!["dana".parse().expect("a login")],
         };
         let text = serde_json::to_string(&cards).expect("encodes");
 

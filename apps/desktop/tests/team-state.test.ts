@@ -47,9 +47,9 @@ test("a Needs you card is an ask, an issue picked up, or unknown", () => {
   assert.deepEqual(needKind({ id: "later:1", issue: null }), { kind: "other" });
 });
 
-test("the user and teammates with cards count as online, teammates in the order they joined", () => {
+test("the user and followed teammates count as online, teammates in the order they joined", () => {
   assert.equal(onlineCount(team, []), 1);
-  assert.equal(onlineCount(team, [{ login: "kim" }, { login: "kim" }, { login: "gone" }]), 2);
+  assert.equal(onlineCount(team, ["Kim", "gone"]), 2);
   assert.deepEqual(teammates(team), ["kim", "lee"]);
 });
 

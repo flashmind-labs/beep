@@ -292,4 +292,8 @@ pub struct TeamCards {
     /// shows them to teammates. Missing from an older node's answer.
     #[serde(default)]
     pub own_queued: Vec<Card>,
+    /// The teammates whose board this mesh follows now, cards or none.
+    /// Missing from an older node's answer.
+    #[serde(default)]
+    pub online: Vec<ForgeLogin>,
 }

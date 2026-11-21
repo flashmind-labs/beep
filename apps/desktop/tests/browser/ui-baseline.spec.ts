@@ -388,6 +388,7 @@ const team = {
       { id: "queued:51", title: "Funding rate cache", lane: "queued", login: "lee", machine: "gpu-box", issue: 51, pr: null, updated_at: NOW - 900_000 },
     ],
     own_queued: [{ id: "queued:53", title: "Plot export to PDF", lane: "queued", login: "dana", machine: "build-box", issue: 53, pr: null, updated_at: NOW - 600_000 }],
+    online: ["kim", "lee"],
   },
   contacts: [{ mesh: "mesh-d", logins: [{ repo: "example.test/example/gadget", login: "ana" }] }],
 };

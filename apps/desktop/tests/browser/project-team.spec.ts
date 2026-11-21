@@ -12,7 +12,7 @@ const teammate = { id: "kim-1", title: "Issue 47", lane: "working", login: "kim"
 const queued = { id: "queued:53", title: "Issue 53", lane: "queued", login: "dana", machine: "build-box", issue: 53, pr: null, updated_at: now };
 
 async function openProject(page: Page, tile: string | null, responses: Record<string, unknown> = {}) {
-  await openDesktop(page, false, { team_record: record, team_cards: { needs_you: [], teammates: [teammate], own_queued: [queued] }, center_project_lists: lists, ...responses });
+  await openDesktop(page, false, { team_record: record, team_cards: { needs_you: [], teammates: [teammate], own_queued: [queued], online: ["kim"] }, center_project_lists: lists, ...responses });
   if (tile) await page.evaluate(([project, tile]) => window.__navigation.open({ projects: { project, tile } }), [projectName, tile]);
   else await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await expect(page.locator(".pj-strip")).toBeVisible();
@@ -34,6 +34,15 @@ test("team page shows members and invite", async ({ page }) => {
   await pane.getByRole("button", { name: "Invite", exact: true }).click();
   await expect(pane).toContainText("Anyone with push access to example/widget can join with this code.");
   await expect(pane.locator(".tm-code")).toContainText("beepteam1abc");
+  await expect(page.locator(".pj-strip button").filter({ hasText: "Team" })).toContainText("2 online");
+});
+
+test("a followed teammate with no cards is online", async ({ page }) => {
+  await openProject(page, "team", { team_cards: { needs_you: [], teammates: [], own_queued: [], online: ["kim"] } });
+
+  const kim = page.locator(".pj-split > .pj-det .tm-members .cc-line").nth(1);
+  await expect(kim).toContainText("online");
+  await expect(kim).not.toContainText("offline");
   await expect(page.locator(".pj-strip button").filter({ hasText: "Team" })).toContainText("2 online");
 });
 

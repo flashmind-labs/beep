@@ -164,6 +164,11 @@ impl Teammates {
         self.0.remove(&mesh);
     }
 
+    /// The meshes of the teammates whose board is followed, cards or none.
+    pub(crate) fn meshes(&self) -> impl Iterator<Item = EndpointId> + '_ {
+        self.0.keys().copied()
+    }
+
     /// The mesh of the teammate whose card `id` is.
     pub(crate) fn mesh_of(&self, id: &str) -> Option<EndpointId> {
         let mut theirs = self.0.iter();

@@ -53,6 +53,8 @@ export interface TeamCards {
   teammates: TeamCard[];
   /// The user's own issues the pickup limit holds back.
   own_queued: TeamCard[];
+  /// The teammates whose board the mesh follows now, cards or none.
+  online: string[];
 }
 
 /// The lane a team card sits in. An issue held by the pickup limit waits in
@@ -97,11 +99,11 @@ export function claim(issue: { assignees: readonly string[] }, me: string): Clai
   return { kind: "held", by: [...issue.assignees] };
 }
 
-/// How many of the team are online: the user, and each teammate whose cards
-/// came from their machines.
-export function onlineCount(view: Extract<TeamView, { kind: "team" }>, teammates: readonly Pick<TeamCard, "login">[]) {
+/// How many of the team are online: the user, and each teammate whose board
+/// the mesh follows, with cards or none.
+export function onlineCount(view: Extract<TeamView, { kind: "team" }>, online: readonly string[]) {
   const others = view.record.members.filter(member => !sameLogin(member.login, view.me));
-  return 1 + others.filter(member => teammates.some(card => sameLogin(card.login, member.login))).length;
+  return 1 + others.filter(member => online.some(login => sameLogin(login, member.login))).length;
 }
 
 /// The team's logins other than the user's, in the order they joined.

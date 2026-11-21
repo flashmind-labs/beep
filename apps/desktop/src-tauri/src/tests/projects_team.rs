@@ -72,10 +72,14 @@ fn team_cards_have_the_cards_keys() {
         needs_you: vec![CardView::from(card())],
         teammates: Vec::new(),
         own_queued: Vec::new(),
+        online: vec!["kim".to_owned()],
     };
     let view = json(cards);
 
-    assert_eq!(keys(&view), ["needs_you", "own_queued", "teammates"]);
+    assert_eq!(
+        keys(&view),
+        ["needs_you", "online", "own_queued", "teammates"]
+    );
     assert_eq!(
         keys(&view["needs_you"][0]),
         [
