@@ -34,32 +34,52 @@ test("the Projects page lists the active projects on top, and a row opens its se
   await expect(page.locator(".pj-card")).toHaveCount(0);
 });
 
-test("Home lists the open sessions, the finished ones from the latest or the oldest, and keeps the choice", async ({ page }) => {
+test("Home's review walks the idle sessions by time, and keeps the order", async ({ page }) => {
   const now = Date.now();
   const ended = { machine_id: "build-box", machine_name: "build-box", id: "three", agent: "codex", title: "Bump the parser", cwd: "/srv/example/gadget", status: "ended", doing: null, started_at: now - 1000, last_activity: now, external: false, reviewer: false, parent: null };
   const later = { ...row("four", "Sort the tables", "idle", null, "/srv/example/gadget"), last_activity: now };
   await openDesktop(page, false, { center_home: { ...home, running: [...home.running, later] }, session_moves: [], session_copies: [], projects_sessions: [ended] });
   await expect(page.locator("#sec-running").getByText("Bump the parser")).toBeVisible();
 
-  await page.getByRole("radio", { name: "List" }).click();
-  const sections = page.locator(".bd-list > div"), working = sections.nth(0), finished = sections.nth(1).locator(".cc-line");
-  await expect(working).toContainText("build-box · Edit src/login.ts");
-  await expect(working.locator(".bd-tag")).toHaveText(projectName);
-  await expect(finished).toHaveText([/^Sort the tables/, /^Update the changelog/]);
-  await expect(finished.first().locator(".bd-tag")).toHaveText("example/gadget");
-  await expect(page.locator(".bd-lanes")).toHaveCount(0);
-  // An ended session is left out.
+  await page.getByRole("radio", { name: "Review" }).click();
+  const review = page.locator(".bd-review"), deck = review.locator(".bd-deck"), inHand = deck.locator("> b"), rows = review.locator(".bd-log .cc-line");
+  // What runs is a card. The idle sessions are a list, the latest first and in hand.
+  await expect(review.locator(".bd-runs .bd-card")).toContainText("Edit src/login.ts");
+  await expect(rows).toHaveText([/^Sort the tables/, /^Update the changelog/]);
+  await expect(rows.first().locator(".bd-tag")).toHaveText("example/gadget");
+  await expect(inHand).toHaveText("Sort the tables");
+  await expect(deck).toContainText("Done. Tests pass.");
+  // An ended session is left to the lanes.
   await expect(page.locator("#sec-running").getByText("Bump the parser")).toHaveCount(0);
 
-  // A row has no Close: its time stays in place.
-  const idle = finished.filter({ hasText: "Update the changelog" });
-  await idle.hover();
-  await expect(idle.getByRole("button", { name: "Close" })).toHaveCount(0);
+  // Next and the arrows walk the list and come round, and a click picks a row.
+  await deck.getByRole("button", { name: "Next" }).click();
+  await expect(inHand).toHaveText("Update the changelog");
+  await expect(rows.nth(1)).toHaveAttribute("aria-current", "true");
+  await page.keyboard.press("ArrowRight");
+  await expect(inHand).toHaveText("Sort the tables");
+  await page.keyboard.press("ArrowLeft");
+  await expect(inHand).toHaveText("Update the changelog");
+  await rows.first().click();
+  await expect(inHand).toHaveText("Sort the tables");
 
+  // The oldest first, kept over a reload.
   await page.getByRole("radio", { name: "Oldest" }).click();
-  await expect(finished).toHaveText([/^Update the changelog/, /^Sort the tables/]);
-
+  await expect(rows).toHaveText([/^Update the changelog/, /^Sort the tables/]);
   await page.reload();
-  await expect(finished).toHaveText([/^Update the changelog/, /^Sort the tables/]);
-  await expect(page.getByRole("radio", { name: "List" })).toHaveAttribute("aria-checked", "true");
+  await expect(rows).toHaveText([/^Update the changelog/, /^Sort the tables/]);
+  await expect(page.getByRole("radio", { name: "Review" })).toHaveAttribute("aria-checked", "true");
+
+  // One project's sessions alone.
+  await review.getByRole("button", { name: /^Project/ }).click();
+  await page.getByRole("menuitemradio", { name: "example/gadget" }).click();
+  await expect(rows).toHaveText([/^Sort the tables/]);
+
+  // Close closes the one in hand, and a click on the row in hand opens it.
+  await deck.getByRole("button", { name: "Close" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").map(call => `${call.args.session} ${call.args.steer}`))).toContain("four close");
+  // The other session is in hand now, and all projects show again.
+  await expect(inHand).toHaveText("Update the changelog");
+  await rows.filter({ hasText: "Update the changelog" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_view").map(call => call.args.session))).toContain("two");
 });

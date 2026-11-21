@@ -37,13 +37,13 @@ export function SkeletonRows({ widths }: { widths: readonly number[] }) {
 }
 
 /// One row of a section: `lead` (a harness or icon), a title over one muted
-/// line, then `right`. A click anywhere opens it.
-export function LineRow({ lead, title, sub, right, onOpen, onContext, dim = false, rowTitle, textTitle, dataKey, events }: {
+/// line, then `right`. A click anywhere opens it. `current` marks the row in hand.
+export function LineRow({ lead, title, sub, right, onOpen, onContext, dim = false, current = false, rowTitle, textTitle, dataKey, events }: {
   lead: ReactNode; title: string; sub: ReactNode; right?: ReactNode; onOpen(): void; onContext?(event: MouseEvent): void;
   events?: Pick<HTMLAttributes<HTMLDivElement>, "onClickCapture" | "onAuxClick" | "onMouseEnter" | "onMouseLeave" | "onContextMenu">;
-  dim?: boolean; rowTitle?: string; textTitle?: string; dataKey?: string;
+  dim?: boolean; current?: boolean; rowTitle?: string; textTitle?: string; dataKey?: string;
 }) {
-  return <div data-key={dataKey} className={`cc-row cc-line${lead ? "" : " bare"}`} title={rowTitle} style={dim ? { opacity: .55 } : undefined} onClick={onOpen} onContextMenu={onContext ? event => onContext(event.nativeEvent) : undefined} {...events}>
+  return <div data-key={dataKey} className={`cc-row cc-line${lead ? "" : " bare"}`} aria-current={current || undefined} title={rowTitle} style={dim ? { opacity: .55 } : undefined} onClick={onOpen} onContextMenu={onContext ? event => onContext(event.nativeEvent) : undefined} {...events}>
     {lead}<button type="button" className="t" title={textTitle ?? title}><b>{title}</b><span>{sub}</span></button><span className="r">{right}</span>
   </div>;
 }

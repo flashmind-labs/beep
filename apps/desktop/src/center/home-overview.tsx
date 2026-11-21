@@ -1,10 +1,10 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useState, type CSSProperties } from "react";
 import { closeSession, sessionVisible, visibleRunning } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
 import { byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
-import { Board, CardRow, type BoardCard } from "./lanes-view.tsx";
-import { LANES, byLane, endedToday, laneOf } from "./lanes-state.ts";
+import { Board, Card, CardRow, type BoardCard } from "./lanes-view.tsx";
+import { LANES, STRETCHES, byLane, endedToday, laneOf, stretchOf } from "./lanes-state.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { conflictList, conflictSub } from "../project/filesync.ts";
 import { fsync } from "../project/sections.ts";
@@ -20,8 +20,11 @@ import { state } from "./state.ts";
 import { go } from "./views.tsx";
 import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
-import { Button, Section, EmptyPanel } from "../ui/kit.tsx";
+import { Button, LineRow, Section, SectionHead, EmptyPanel } from "../ui/kit.tsx";
 import { Segmented } from "../ui/aria-kit.tsx";
+import { Dropdown } from "../ui/dropdown.tsx";
+import { setHeroCard, withMove } from "../ui/motion.ts";
+import { dialogOpen } from "../ui/parts.tsx";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
 import { RunningStatus, workLine } from "../project/split-view.tsx";
 import { sessions } from "../agents/sessions.ts";
@@ -142,43 +145,107 @@ const DONE_SHOWN = 8;
 const QUEUED_LANES = LANES.filter(({ lane }) => lane !== "needs");
 
 /// Home: what waits on the user as a queue, answered in place, over the lanes
-/// of every other session, or over the open sessions as one `list`.
-export function HomeOverview({ home, list }: { home: HomeView; list: boolean }) {
+/// of every other session, or over the open sessions for `review`.
+export function HomeOverview({ home, review }: { home: HomeView; review: boolean }) {
   // The assistant's chats have their own page.
   const assistants = new Set(sessions.filter(isAssistant).map(runningKey));
-  const cards = boardCards(home, needsCards(home), runningCards(home, assistants, list), assistants);
-  // The list is of the open sessions: the ended ones are in the lanes.
-  const queue = cards.filter(card => card.lane === "needs"), lanes = cards.filter(card => card.lane !== "needs" && !(list && card.lane === "done"));
+  const cards = boardCards(home, needsCards(home), runningCards(home, assistants, false), assistants);
+  // The review is of the open sessions: the ended ones are in the lanes.
+  const queue = cards.filter(card => card.lane === "needs"), lanes = cards.filter(card => card.lane !== "needs" && !(review && card.lane === "done"));
 
   return <>
     {!!queue.length && <Section id="sec-needs" title="Needs you" count={queue.length}>{queue.map(card => <CardRow key={card.key} card={card}/>)}</Section>}
-    {!!lanes.length && <div id="sec-running">{list ? <SessionList cards={lanes}/> : <Board cards={lanes} lanes={QUEUED_LANES} spread more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/>}</div>}
+    {!!lanes.length && <div id="sec-running">{review ? <Review cards={lanes} rows={new Map((home.running || []).map(row => [runningKey(row), row]))}/> : <Board cards={lanes} lanes={QUEUED_LANES} spread more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/>}</div>}
     {!queue.length && !lanes.length && <Empty home={home} />}
   </>;
 }
 
-/// The open sessions as one list, a line each with its project and its time: those at work,
-/// then the finished turns, which the user orders from the latest or from the oldest.
-function SessionList({ cards }: { cards: readonly BoardCard[] }) {
+/// The open sessions for review: the idle one in hand over those that run, beside every idle
+/// session, a line each, by when its turn finished. Next and Back, or the arrow keys, walk
+/// the list, and a click picks a row; a second click opens it.
+function Review({ cards, rows }: { cards: readonly BoardCard[]; rows: ReadonlyMap<string, RunningAgent> }) {
   const [order, setOrder] = useState(readOrder);
+  const [project, setProject] = useState(ALL_PROJECTS);
+  const [picked, setPicked] = useState<string | null>(null);
   const changeOrder = (next: Order) => { setOrder(next); try { localStorage.setItem(ORDER_KEY, next); } catch { /* kept for this launch only */ } };
-  const lanes = byLane(cards);
-  const rows = { ...lanes, review: order === "oldest" ? lanes.review.reverse() : lanes.review };
 
-  return <div className="bd-list">{LISTED.map(({ lane, title }) => !!rows[lane].length &&
-    <Section key={lane} title={title} count={rows[lane].length} action={lane === "review" ? <Segmented label="Order" options={ORDERS} value={order} onChange={changeOrder}/> : null}>
-      <div className="bd-log">{rows[lane].map(card => {
-        const tag = <span className="bd-tag">{card.color !== null && <span className="pj-swatch" style={{ "--c": card.color } as CSSProperties}/>}{card.project}</span>;
-        // What a session at work does stays under its title; a finished one is its title alone.
-        return <CardRow key={card.key} card={{ ...card, color: null, sub: lane === "working" ? card.sub : "", foot: <>{tag}{card.foot}</> }}/>;
-      })}</div>
-    </Section>)}</div>;
+  const lanes = byLane(cards), now = Date.now();
+  const projects = [{ id: ALL_PROJECTS, label: "All projects" }, ...[...new Set(lanes.review.flatMap(card => card.project ?? []))].sort().map(name => ({ id: name, label: name }))];
+  // A project whose last idle session left shows them all again.
+  const filter = projects.some(option => option.id === project) ? project : ALL_PROJECTS;
+  const idle = (order === "oldest" ? [...lanes.review].reverse() : lanes.review).filter(card => filter === ALL_PROJECTS || card.project === filter);
+  const at = Math.max(0, idle.findIndex(card => card.key === picked)), inHand = idle.at(at) ?? null;
+  const step = (by: number) => setPicked(idle.at((at + by) % idle.length)?.key ?? null);
+  const open = (card: BoardCard) => { setHeroCard(null); withMove("open", card.open); };
+  useArrowKeys(step);
+
+  const running = !!lanes.working.length && <div><SectionHead title="Running" count={lanes.working.length}/><div className="bd-runs">{lanes.working.map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}</div></div>;
+  if (!inHand) return running;
+  const stretches = order === "oldest" ? [...STRETCHES].reverse() : STRETCHES;
+  const stretchOfCard = (card: BoardCard) => { const row = rows.get(card.key); return stretchOf(row ? row.last_activity || row.started_at : now, now); };
+
+  return <div className="bd-review">
+    <div className="bd-side">
+      <div><SectionHead title={`${at + 1} of ${idle.length}`}/><Deck card={inHand} row={rows.get(inHand.key) ?? null} done={(at + 1) / idle.length} open={() => open(inHand)} step={step}/></div>
+      {running}
+    </div>
+    <div>
+      <SectionHead title="Idle" count={idle.length}><span className="bd-tools"><Dropdown label="Project" options={projects} value={filter} onChange={setProject}/><Segmented label="Order" options={ORDERS} value={order} onChange={changeOrder}/></span></SectionHead>
+      <div className="cc-panel"><div className="bd-log">{stretches.map(({ stretch, title }) => {
+        const part = idle.filter(card => stretchOfCard(card) === stretch);
+        if (!part.length) return null;
+
+        return <Fragment key={stretch}><h5>{title}<span className="n">{part.length}</span></h5>{part.map(card =>
+          <LineRow key={card.key} lead={card.lead} title={card.title} sub="" dim={card.dim} current={card.key === inHand.key} rowTitle={card.hint ?? undefined} onContext={card.menu ?? undefined}
+            onOpen={() => card.key === inHand.key ? open(card) : setPicked(card.key)} right={<><ProjectTag card={card}/>{card.foot}</>}/>)}</Fragment>;
+      })}</div></div>
+    </div>
+  </div>;
 }
 
-/// The lanes the list shows: those of the open sessions.
-const LISTED = LANES.filter(({ lane }) => lane === "working" || lane === "review");
+/// The idle session in hand: what to do with it, how far down the list it is, and its last
+/// reply. The buttons come first, so they stay put from one session to the next.
+function Deck({ card, row, done, open, step }: { card: BoardCard; row: RunningAgent | null; done: number; open(): void; step(by: number): void }) {
+  // Closing moves on first: the list has lost the session by the time it has closed.
+  const close = row ? () => { step(1); closeSession(row).catch(error => console.warn("close:", error)); } : null;
 
-/// How the finished turns are ordered.
+  return <div className="bd-deck">
+    <div className="acts"><Button small onClick={open}>Open</Button>{close && <Button small onClick={close}>Close</Button>}<Button small className="back" onClick={() => step(-1)}>Back<kbd>←</kbd></Button><Button small onClick={() => step(1)}>Next<kbd>→</kbd></Button></div>
+    <div className="bar" aria-hidden><i style={{ width: `${done * 100}%` }}/></div>
+    <div className="meta"><ProjectTag card={card}/><span>{card.foot}</span></div>
+    <b>{card.title}</b>
+    {row && <div className="reply">{workLine(row)}</div>}
+  </div>;
+}
+
+/// A session's project, with its colour.
+function ProjectTag({ card }: { card: BoardCard }) {
+  return <span className="bd-tag">{card.color !== null && <span className="pj-swatch" style={{ "--c": card.color } as CSSProperties}/>}{card.project}</span>;
+}
+
+/// The left and right arrows step back and on while the review shows and nothing else takes them.
+function useArrowKeys(step: (by: number) => void) {
+  useEffect(() => {
+    const keys = (event: KeyboardEvent) => {
+      const by = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      // A field, a menu or a group of options moves its own caret or choice with the arrows.
+      const taken = !!target && (target.isContentEditable || !!target.closest("input, textarea, select, [role=menu], [role=radiogroup], [role=tablist], [role=listbox]"));
+      if (!by || taken || event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || dialogOpen() || !document.querySelector(".bd-review")?.checkVisibility()) return;
+
+      event.preventDefault();
+      step(by);
+    };
+
+    document.addEventListener("keydown", keys);
+    return () => document.removeEventListener("keydown", keys);
+  });
+}
+
+/// The filter that leaves every project in: no project has an empty name.
+const ALL_PROJECTS = "";
+
+/// How the idle sessions are ordered.
 const ORDERS = [{ id: "latest", label: "Latest" }, { id: "oldest", label: "Oldest" }] as const;
 type Order = typeof ORDERS[number]["id"];
 const ORDER_KEY = "beep.home.order";

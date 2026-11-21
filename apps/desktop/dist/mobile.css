@@ -76,10 +76,10 @@ body.mobile .cc-tabs.pj-tabs { margin: 0; padding: 2px }
 body.mobile .cc-panel { background: var(--surface) }
 body.mobile .cc-row { padding: 9px 11px; grid-template-columns: 24px minmax(0, 1fr) auto }
 /* A listed row's project goes under its title. */
-body.mobile .bd-list .cc-row { row-gap: 0 }
-body.mobile .bd-list .cc-row .r { display: contents }
-body.mobile .bd-list .bd-tag { grid-area: 2 / 2; max-width: none }
-body.mobile .bd-list .cc-row > .cc-ag { grid-row: span 2 }
+body.mobile .bd-review .cc-row { row-gap: 0 }
+body.mobile .bd-review .cc-row .r { display: contents }
+body.mobile .bd-review .bd-tag { grid-area: 2 / 2; max-width: none }
+body.mobile .bd-review .cc-row > .cc-ag { grid-row: span 2 }
 body.mobile .cc-ag { width: 24px; height: 24px; border-radius: var(--radius); font-size: 9px; border: 0 }
 body.mobile .cc-sec h4 { font-size: 12px }
 

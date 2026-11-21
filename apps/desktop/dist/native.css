@@ -228,7 +228,7 @@ body:not(.mobile) .cwin::after { content: ""; position: absolute; z-index: -1; l
   background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 26%, transparent), transparent); filter: blur(30px) }
 
 /* Mono chrome. */
-body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-pal h5, .cc-set .dset-h, .agc-think h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-pal h5, .cc-set .dset-h, .agc-think h5, .bd-log > h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
 body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .cc-tabs button, .agtab, .hv-seg button, .us-pill, .mvb, .agc-pill) { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0 }
 body:not(.mobile) :is(.cc-tabs button, .agtab) { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) .agtab span { font: inherit }
@@ -351,11 +351,11 @@ body:not(.mobile) .agpstrip[data-dock="right"] .agtab { width: var(--ctl-h); hei
 /* ----- Boards, the projects page and lists: lit cards without rules, mono labels and details ----- */
 body:not(.mobile) .cc-mstrip { gap: 4px; border: 0; background: none; overflow: visible }
 body:not(.mobile) .cc-mstrip > .m { height: var(--ctl-h); padding: 0 9px; border: 0; border-radius: var(--radius-sm); background: var(--ctl-fill) }
-body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3 small, .pj-li.nav .c, .pj-list .note, .tl-it small, .tl-m h5, .tl-empty, .tl-m > p, .bd-tag) { font-family: var(--mono); font-size: 11px }
+body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3 small, .pj-li.nav .c, .pj-list .note, .tl-it small, .tl-m h5, .tl-empty, .tl-m > p, .bd-tag, .bd-deck > .meta) { font-family: var(--mono); font-size: 11px }
 body:not(.mobile) .cc-mstrip > button.m:hover { background: var(--ctl-fill-hi) }
 body:not(.mobile) .bd-lane > h4 { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) :is(.bd-card, .pj-card) { border-color: transparent }
-body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine, .mcard), body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-list .cc-panel) { background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine, .mcard), body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-review .cc-panel) { background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
 body:not(.mobile) :is(.bd-card, .pj-card):hover, body:not(.mobile) .bd-card:focus-visible { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 7%, transparent) }
 body:not(.mobile) :is(.pj-list, .tl-list) { border-right-color: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) .pj-list hr { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
@@ -379,13 +379,21 @@ body:not(.mobile) .pm-head > .pm-actions .dbtn.danger:hover:not(:disabled) { col
 body:not(.mobile) .pm-body { padding: 0 12px 10px 30px }
 body:not(.mobile) .pm-body .pm-sync { gap: 5px }
 body:not(.mobile) .pm-body hr { margin: 8px 0; background: color-mix(in srgb, var(--fg) 6%, transparent) }
-body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-list .cc-panel) { border: 0; border-radius: var(--radius) }
+body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-review .cc-panel) { border: 0; border-radius: var(--radius) }
 /* Home's rows: no rules between them, and a harness mark without its tile. */
 body:not(.mobile) :is(.bd-projects, #sec-needs) .cc-row + .cc-row { border-top: 0 }
-body:not(.mobile) :is(.bd-projects, .bd-list) .cc-ag { border: 0; background: none }
+body:not(.mobile) :is(.bd-projects, .bd-review) .cc-ag { border: 0; background: none }
 /* The list's rows keep their projects and their times in two columns. */
-body:not(.mobile) .bd-list .cc-row .r { grid-template-columns: 200px 72px }
+body:not(.mobile) .bd-review .cc-row .r { grid-template-columns: 200px 72px }
 body:not(.mobile) .bd-tag { max-width: none; justify-self: start }
+/* The review's two columns: the side stays while the list scrolls, and scrolls in itself when it is taller than the window. */
+body:not(.mobile) .bd-review { grid-template-columns: 400px minmax(0, 1fr); gap: 22px; align-items: start }
+body:not(.mobile) .bd-side { position: sticky; top: 38px; max-height: calc(100vh - 120px); overflow-y: auto; scrollbar-width: none }
+body:not(.mobile) .bd-deck { border: 0; background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+@media (max-width: 1040px) {
+  body:not(.mobile) .bd-review { grid-template-columns: minmax(0, 1fr) }
+  body:not(.mobile) .bd-side { position: static; max-height: none }
+}
 body:not(.mobile) .pl { border: 0; border-radius: var(--radius); background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
 body:not(.mobile) .pl-row.it .t .pj-tag { flex: none }
 body:not(.mobile) .pl-row.it .t { overflow: hidden }

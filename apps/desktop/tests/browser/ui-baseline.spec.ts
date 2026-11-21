@@ -184,12 +184,14 @@ test("home overview", async ({ page }) => {
   await baseline(page, "home-overview");
 });
 
-test("home as a list", async ({ page }) => {
+test("home review", async ({ page }) => {
   const widget = [agentRow("notice-three", "Add CSV export to reports", "idle", 1_200_000, "/srv/example/widget"), agentRow("notice-four", "Bump the parser", "working", 60_000, "/srv/example/widget")];
-  await openDesktop(page, false, { center_home: { ...home, running: [...running, ...widget] } });
-  await page.getByRole("radio", { name: "List" }).click();
-  await expect(page.locator(".bd-list .cc-line")).toHaveCount(4);
-  await baseline(page, "home-list");
+  const replied = [...running, ...widget].map(row => row.status === "idle" ? { ...row, reply_html: "Done. The changelog lists <code>0.9.0</code>." } : row);
+  await openDesktop(page, false, { center_home: { ...home, running: replied } });
+  await page.getByRole("radio", { name: "Review" }).click();
+  await expect(page.locator(".bd-review .bd-log .cc-line")).toHaveCount(2);
+  await expect(page.locator(".bd-review .bd-card")).toHaveCount(2);
+  await baseline(page, "home-review");
 });
 
 test("assistant page", async ({ page }) => {

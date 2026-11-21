@@ -126,6 +126,11 @@ export async function openDesktop(page: Page, streaming = false, responses: Reco
     try { await route.fulfill({ body: await readFile(path), contentType: contentTypes.get(extname(path)) ?? "application/octet-stream" }); }
     catch { await route.fulfill({ status: 404 }); }
   });
+  // Most flows here look at Home's lanes: a test of the review picks it before it opens.
+  await page.addInitScript(() => {
+    try { if (localStorage.getItem("beep.home.grouping") === null) localStorage.setItem("beep.home.grouping", "lanes"); }
+    catch { /* a blank page has no storage */ }
+  });
   await page.addInitScript(installNativeBoundary, { ...fixture, streaming, responses });
   await page.goto("https://app.test/center.html");
   await page.waitForFunction(() => window.__navigation.ready());
