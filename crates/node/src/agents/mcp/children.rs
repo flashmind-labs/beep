@@ -730,8 +730,8 @@ pub(crate) fn listed(agents: &Agents) -> Reply {
     json_of(&views)
 }
 
-/// A live agent, its machine's display name, and its folder when it runs on
-/// this machine.
+/// A live agent, its machine's display name, and the folder it works in
+/// when it runs on this machine: the worktree Beep made for it, or its own.
 pub(crate) struct Listed {
     pub(crate) view: ChildView,
     pub(crate) machine: String,
@@ -750,10 +750,11 @@ fn listed_here(agents: &Agents) -> Vec<Listed> {
             view.project = mesh
                 .as_ref()
                 .and_then(|mesh| super::projects::of_folder(mesh, &info.cwd, mesh.me()));
+            let worktree = info.worktrees.first().cloned();
             Listed {
                 view,
                 machine: String::new(),
-                folder: Some(info.cwd),
+                folder: Some(worktree.unwrap_or(info.cwd)),
             }
         })
         .collect()
