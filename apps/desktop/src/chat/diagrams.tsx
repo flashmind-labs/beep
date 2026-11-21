@@ -189,8 +189,11 @@ function scan() {
   next();
 }
 /// Forgets frames a redraw removed; a block whose frame went shows its source and is found again.
+/// A frame whose block a redraw replaced goes too, so the new block's frame is the only one.
 function sweep() {
-  for (const [frame, diagram] of diagrams) if (!frame.isConnected) {
+  for (const [frame, diagram] of diagrams) {
+    if (diagram.fallback && !diagram.fallback.isConnected) frame.remove();
+    if (frame.isConnected) continue;
     clearTimeout(diagram.timer); diagrams.delete(frame);
     if (diagram.fallback) {
       delete diagram.fallback.dataset.diagram;
