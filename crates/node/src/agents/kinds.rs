@@ -101,12 +101,9 @@ pub enum Bridge {
     Codex { wsl: Option<DistroName> },
     /// An ACP agent in the WSL distribution `wsl`, its paths turned across.
     Relay { wsl: DistroName },
-    /// Hermes Agent's dashboard on `host` and `port`, which takes `token`.
-    Hermes {
-        host: String,
-        port: u16,
-        token: SecretText,
-    },
+    /// Hermes Agent's dashboard, or `None` after Disconnect: a chat still
+    /// running keeps its controls, and a new one cannot start.
+    Hermes(Option<HermesLink>),
 }
 
 impl Bridge {
@@ -115,7 +112,7 @@ impl Bridge {
         match self {
             Self::Claude { wsl, .. } | Self::Codex { wsl } => wsl.as_ref(),
             Self::Relay { wsl } => Some(wsl),
-            Self::Hermes { .. } => None,
+            Self::Hermes(_) => None,
         }
     }
 }
@@ -124,16 +121,16 @@ impl Bridge {
 /// as the mesh's assistant settings and Hermes credential say. It stays on
 /// the node: it never crosses a wire.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct HermesLink {
+pub struct HermesLink {
     pub(crate) host: String,
     pub(crate) port: u16,
     pub(crate) token: SecretText,
 }
 
-/// The hidden agent that runs the Home assistant on Hermes: offered, so the
-/// desktop can start it, but no harness.
-impl From<HermesLink> for AgentKind {
-    fn from(HermesLink { host, port, token }: HermesLink) -> Self {
+/// The hidden agent that runs the Home assistant on Hermes at `link`:
+/// offered, so the desktop can start it, but no harness.
+impl From<Option<HermesLink>> for AgentKind {
+    fn from(link: Option<HermesLink>) -> Self {
         Self {
             name: HERMES_GATEWAY.to_owned(),
             program: HERMES_GATEWAY.to_owned(),
@@ -142,14 +139,14 @@ impl From<HermesLink> for AgentKind {
             compact: None,
             compact_models: Vec::new(),
             default_model: None,
-            bridge: Some(Bridge::Hermes { host, port, token }),
+            bridge: Some(Bridge::Hermes(link)),
         }
     }
 }
 
 /// `kind` is the Home assistant on Hermes.
 pub(super) fn is_hermes(kind: &AgentKind) -> bool {
-    matches!(kind.bridge, Some(Bridge::Hermes { .. }))
+    matches!(kind.bridge, Some(Bridge::Hermes(_)))
 }
 
 /// `kind` runs inside WSL, which only this node can start: its program and

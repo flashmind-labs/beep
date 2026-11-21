@@ -484,8 +484,12 @@ impl Agents {
     /// The agent `protocol` names, when this node has it and serves it: a
     /// harness or the Home assistant on Hermes. Other agents `node.toml`
     /// names are offered but not served.
+    /// A Hermes chat still running after Disconnect keeps its controls.
     pub fn kind(&self, protocol: &str) -> Option<AgentKind> {
-        self.named(agent::served_agent(protocol)?)
+        let name = agent::served_agent(protocol)?;
+
+        self.named(name)
+            .or_else(|| (name == agent::HERMES_GATEWAY).then(|| AgentKind::from(None)))
     }
 
     /// The agent called `name`, when this node has it.
@@ -541,7 +545,9 @@ impl Agents {
     pub(crate) fn set_hermes(&self, link: Option<HermesLink>) {
         self.replace_kinds(|current| {
             let detected = current.iter().filter(|kind| !is_hermes(kind)).cloned();
-            detected.chain(link.map(AgentKind::from)).collect()
+            detected
+                .chain(link.map(|link| AgentKind::from(Some(link))))
+                .collect()
         });
     }
 

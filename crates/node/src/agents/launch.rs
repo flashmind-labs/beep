@@ -3,7 +3,7 @@
 //! the session over an in-memory pipe and starts the agent's CLI itself.
 //! The node never starts its own executable to run an agent.
 
-use super::{Bridge, Line, LineReader, claude_direct, codex_direct, hermes_direct};
+use super::{Bridge, HermesLink, Line, LineReader, claude_direct, codex_direct, hermes_direct};
 use crate::machine::wsl::{self, DistroName, LinuxPath};
 use crate::run::process::{GroupLeader, Held, command, own_group};
 use anyhow::{Context, Result};
@@ -99,8 +99,10 @@ pub fn start(process: Command, bridge: Option<&Bridge>) -> Result<Started> {
                 codex_direct::serve(input, output, cli, wsl)
             })
         }
-        Some(Bridge::Hermes { host, port, token }) => {
-            let (host, port, token) = (host.clone(), *port, token.clone());
+        Some(Bridge::Hermes(link)) => {
+            let HermesLink { host, port, token } = link
+                .clone()
+                .context("Hermes is no longer connected. Connect it in Settings > Assistant.")?;
             bridged(process, lines, stderr, |input, output, _cli| {
                 hermes_direct::serve(input, output, host, port, token)
             })

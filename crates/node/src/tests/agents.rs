@@ -1201,4 +1201,7 @@ async fn the_hermes_assistant_is_offered_and_outlives_detection() {
     agents.set_hermes(None);
     assert!(!agents.offers().contains(&agent::protocol(agent::HERMES_GATEWAY)));
     assert!(agents.offers().contains(&agent::protocol("claude")));
+    // A chat still running after Disconnect is still reached, to stop it.
+    let gone = agents.kind(&agent::protocol(agent::HERMES_GATEWAY)).expect("routed");
+    assert!(matches!(gone.bridge, Some(super::Bridge::Hermes(None))));
 }
