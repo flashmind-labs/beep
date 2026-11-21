@@ -145,7 +145,8 @@ async fn ask_to_person_without_session_is_needs_you_card() {
     assert_eq!(cards.len(), 1);
     assert_eq!(cards[0].id, "ask:00000000000000a1");
     assert_eq!(cards[0].lane, Lane::NeedsYou {});
-    assert_eq!(cards[0].login, login("alice"));
+    // Who asked: the person answers them.
+    assert_eq!(cards[0].login, login("bob"));
     // The whole ask: answers are made from it.
     assert_eq!(cards[0].title, text);
     assert!(kept.taken().is_empty());

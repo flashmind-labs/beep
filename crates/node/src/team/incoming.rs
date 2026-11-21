@@ -185,12 +185,13 @@ fn take(
         return Err(format!("Too many asks wait for {login}"));
     }
 
-    // The whole ask: the card is this mesh's own, and answers are made from it.
+    // The whole ask, in the name of the member who asked: the card is this
+    // mesh's own, answers are made from it, and its id holds the ask's.
     cards.push(Card {
         id: card,
         title: text.clone(),
         lane: Lane::NeedsYou {},
-        login,
+        login: sender.login.clone(),
         machine: String::new(),
         issue: None,
         pr: None,
