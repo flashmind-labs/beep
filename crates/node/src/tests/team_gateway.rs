@@ -284,3 +284,37 @@ fn issue_sessions_start_on_any_online_machine_with_the_checkout() {
 
     assert_eq!(starters(&project, &online), [desktop, node].into());
 }
+
+#[tokio::test]
+async fn gh_runs_as_the_account_for_the_repositorys_owner() {
+    use crate::{machine::provision::spawn_env, team::home::forge_command};
+    use beep_projects::{
+        model::{IssueHost, RepoName},
+        team_forge::user_call,
+    };
+    use beep_proto::{GITHUB_ENV_VAR, SecretText, node::EnvSecret};
+    use std::ffi::OsStr;
+
+    let _env = spawn_env::TEST_LOCK.lock().await;
+    let secret = |name: &str, value: &str| EnvSecret {
+        name: name.to_owned(),
+        value: SecretText::new(value),
+    };
+    spawn_env::set_vars(vec![
+        secret(GITHUB_ENV_VAR, "default-token"),
+        secret("BEEP_GH_TOKEN_ACME_LABS", "acme-token"),
+    ]);
+    let token = |repo: &str| {
+        let repo: RepoName = repo.parse().unwrap();
+        let command = forge_command(&user_call(&IssueHost::Github), &repo);
+        let envs: Vec<_> = command.as_std().get_envs().collect();
+        let gh = envs.iter().rev().find(|(name, _)| *name == OsStr::new(GITHUB_ENV_VAR));
+        gh.and_then(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()))
+    };
+
+    let owners = (token("acme-labs/widget"), token("someone/else"));
+    spawn_env::set_vars(Vec::new());
+
+    assert_eq!(owners.0.as_deref(), Some("acme-token"));
+    assert_eq!(owners.1.as_deref(), Some("default-token"));
+}

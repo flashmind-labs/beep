@@ -5,10 +5,14 @@
 use super::link::{TeamForge, TeamLink};
 use crate::{
     agents::mcp::to_desktop,
-    machine::ci::forge::{command, tail},
+    machine::{
+        ci::forge::{command, tail},
+        provision::spawn_env,
+    },
 };
 use beep_mesh::{DeviceKind, Key, Mesh, TeamWrites, keep_contacts, take_roster};
 use beep_projects::{
+    github_owner_var,
     commands::{OpenIssue, parse_open_issues, parse_open_prs},
     model::{IssueHost, RepoName},
     team_forge::{
@@ -17,7 +21,7 @@ use beep_projects::{
     },
 };
 use beep_proto::{
-    SessionId, lenient,
+    GITHUB_ENV_VAR, SessionId, lenient,
     node::{
         mesh_state::{Place, ProjectRecord, StateValue},
         tools::{Reply, Request, TeamInviteArgs, TeamRosterArgs, Tool},
@@ -34,6 +38,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio::{
+    process::Command,
     select,
     sync::broadcast::error::RecvError,
     time::{MissedTickBehavior, interval, timeout},
@@ -372,7 +377,7 @@ impl TeamForge for ForgeCli {
     ) -> BoxFuture<'a, Result<bool, String>> {
         Box::pin(async move {
             let (host, name) = forge_of(repo)?;
-            let out = run(&permission_call(&host, &name, login)).await?;
+            let out = run(&permission_call(&host, &name, login), &name).await?;
             let (stdout, stderr) = (
                 String::from_utf8_lossy(&out.stdout),
                 String::from_utf8_lossy(&out.stderr),
@@ -383,7 +388,7 @@ impl TeamForge for ForgeCli {
                 return Ok(pushes);
             }
 
-            let out = run(&collaborator_call(&host, &name, login)).await?;
+            let out = run(&collaborator_call(&host, &name, login), &name).await?;
             let stderr = String::from_utf8_lossy(&out.stderr);
 
             collaborator_answer(out.status.success(), &stderr).map_err(|e| e.to_string())
@@ -392,8 +397,8 @@ impl TeamForge for ForgeCli {
 
     fn login<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<ForgeLogin, String>> {
         Box::pin(async move {
-            let (host, _) = forge_of(repo)?;
-            let out = run(&user_call(&host)).await?;
+            let (host, name) = forge_of(repo)?;
+            let out = run(&user_call(&host), &name).await?;
 
             if !out.status.success() {
                 let said = String::from_utf8_lossy(&out.stderr);
@@ -414,7 +419,7 @@ impl TeamForge for ForgeCli {
     ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>> {
         Box::pin(async move {
             let (host, name) = forge_of(repo)?;
-            let out = listed(repo, "issues", &open_issues_call(&host, &name)).await?;
+            let out = listed(repo, "issues", &open_issues_call(&host, &name), &name).await?;
 
             parse_open_issues(&out).map_err(|e| format!("{e:#}"))
         })
@@ -427,7 +432,8 @@ impl TeamForge for ForgeCli {
     ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>> {
         Box::pin(async move {
             let (host, name) = forge_of(repo)?;
-            let out = listed(repo, "issues", &assigned_issues_call(&host, &name, login)).await?;
+            let call = assigned_issues_call(&host, &name, login);
+            let out = listed(repo, "issues", &call, &name).await?;
 
             parse_open_issues(&out).map_err(|e| format!("{e:#}"))
         })
@@ -436,7 +442,8 @@ impl TeamForge for ForgeCli {
     fn pull_heads<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<Vec<String>, String>> {
         Box::pin(async move {
             let (host, name) = forge_of(repo)?;
-            let out = listed(repo, "pull requests", &recent_pulls_call(&host, &name)).await?;
+            let call = recent_pulls_call(&host, &name);
+            let out = listed(repo, "pull requests", &call, &name).await?;
             let pulls = parse_open_prs(&out).map_err(|e| format!("{e:#}"))?;
 
             Ok(pulls.into_iter().map(|pull| pull.head).collect())
@@ -444,9 +451,14 @@ impl TeamForge for ForgeCli {
     }
 }
 
-/// What `call`, which lists `what` of `repo`, printed.
-async fn listed(repo: &TeamRepo, what: &str, call: &ForgeCall) -> Result<String, String> {
-    let out = run(call).await?;
+/// What `call`, which lists `what` of `repo` (`name` on its forge), printed.
+async fn listed(
+    repo: &TeamRepo,
+    what: &str,
+    call: &ForgeCall,
+    name: &RepoName,
+) -> Result<String, String> {
+    let out = run(call, name).await?;
 
     if !out.status.success() {
         let said = String::from_utf8_lossy(&out.stderr);
@@ -457,6 +469,23 @@ async fn listed(repo: &TeamRepo, what: &str, call: &ForgeCall) -> Result<String,
     }
 
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// `call` as a process. `gh` runs as the user's account for `repo`'s owner,
+/// as [`ForgeCall::render`] has it in a shell: that owner's token when the
+/// user gave one, else the default account's.
+pub(super) fn forge_command(call: &ForgeCall, repo: &RepoName) -> Command {
+    let mut command = command(call.program, &call.args);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let owner = github_owner_var(repo.owner()).and_then(|var| spawn_env::secret(&var));
+
+    if call.program == "gh"
+        && let Some(token) = owner
+    {
+        command.env(GITHUB_ENV_VAR, token.expose());
+    }
+
+    command
 }
 
 fn forge_of(repo: &TeamRepo) -> Result<(IssueHost, RepoName), String> {
@@ -470,9 +499,8 @@ fn forge_of(repo: &TeamRepo) -> Result<(IssueHost, RepoName), String> {
     Ok((host, name))
 }
 
-async fn run(call: &ForgeCall) -> Result<Output, String> {
-    let mut command = command(call.program, &call.args);
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+async fn run(call: &ForgeCall, repo: &RepoName) -> Result<Output, String> {
+    let mut command = forge_command(call, repo);
 
     timeout(FORGE_LIMIT, command.output())
         .await
