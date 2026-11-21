@@ -90,11 +90,10 @@ body.cbody
               span.ddot.off [title="Offline"]
               b "test-box"
               span "offline"
-            button.dbtn.quiet.small [type="button"] "Add a machine"
-              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-          div.cc-tabs [role="tablist"]
-            button [aria-selected="true" role="tab" type="button"] "Board"
-            button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.cc-tabbar
+            div.cc-tabs [role="tablist"]
+              button [aria-selected="true" role="tab" type="button"] "Board"
+              button [aria-selected="false" role="tab" type="button"] "Machines"
           div.painted-empty
             canvas.painted-art.sunrise [aria-hidden="true" height="130" width="235"]
             div.cc-empty.cc-panel

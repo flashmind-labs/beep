@@ -55,7 +55,6 @@ html:where(:has(> body.cbody)), body.cbody { background: var(--ink) }
 .cc-mstrip > .m b { color: var(--fg); font-weight: 600 }
 .cc-mstrip > .m.off b { color: var(--muted) }
 .cc-mstrip > .m .bad { color: var(--err) }
-.cc-mstrip > .dbtn { margin: 4px 6px 4px auto }
 .cc-tabs { position: sticky; top: -14px; z-index: 2; display: flex; gap: 2px; margin: 0 -16px; padding: 0 12px; background: var(--ink); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none }
 .cc-tabs button { flex: none; display: flex; align-items: center; gap: 6px; padding: 9px 9px 7px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: inherit; font-size: 12.5px; cursor: default }
 .cc-tabs button:hover { color: var(--fg) }
@@ -1060,6 +1059,8 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .cc-rail .rail-live > .pj-li > .r { display: flex; flex-direction: column; align-items: flex-end; gap: 2px }
 .cc-rail .rail-diff { display: flex; gap: 6px; font: 11px var(--mono) }
 .rail-reply { font: 11.5px var(--body); color: color-mix(in srgb, var(--muted) 85%, var(--ink)) }
+/* Under a project on Home a reply is one plain line. */
+.bd-projects .rail-reply :is(b, strong, code) { font: inherit; color: inherit }
 .rail-scroll > .rail-all { margin-top: 6px; justify-content: flex-start }
 /* A phone has no window buttons to clear: the rail is as narrow as its icons. */
 html[data-phone] .cwin.side-collapsed { grid-template-columns: 32px minmax(0, 1fr) }
@@ -1131,8 +1132,9 @@ html[data-move=next]::view-transition-new(page) { animation: .2s cubic-bezier(.2
 @keyframes move-in-up { from { transform: translateY(40px); opacity: 0 } }
 @keyframes move-out-up { to { transform: translateY(-40px); opacity: 0 } }
 
-.home-sort { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex: none }
-.home-sort .sp { flex: 1 }
+/* Home's tabs and the open tab's switch: one row on the desktop, the switch under the tabs on a phone. */
+.cc-tabbar { display: contents }
+.cc-tabbar > .hv-seg { margin-left: auto }
 /* Home's boxes, a project's sessions or a repository's open items, packed into two columns where they fit. */
 .bd-projects { columns: 2 420px; column-gap: 12px }
 .bd-projects > * { break-inside: avoid; margin: 0 0 18px }

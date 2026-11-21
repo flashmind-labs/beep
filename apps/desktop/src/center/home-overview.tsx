@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, type CSSProperties } from "react";
 import { closeSession, sessionVisible, visibleRunning } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
@@ -21,7 +21,6 @@ import { go } from "./views.tsx";
 import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
 import { Button, Section, EmptyPanel } from "../ui/kit.tsx";
-import { Segmented } from "../ui/aria-kit.tsx";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
 import { RunningStatus, workLine } from "../project/split-view.tsx";
 import { sessions } from "../agents/sessions.ts";
@@ -141,18 +140,9 @@ const DONE_SHOWN = 8;
 /// Home's lanes below the queue: Needs you is the queue.
 const QUEUED_LANES = LANES.filter(({ lane }) => lane !== "needs");
 
-/// How Home lays its sessions out: by lane, or under their projects.
-const GROUPINGS = [{ id: "lanes", label: "Lanes" }, { id: "projects", label: "Projects" }] as const;
-type Grouping = typeof GROUPINGS[number]["id"];
-const GROUPING_KEY = "beep.home.grouping";
-const readGrouping = (): Grouping => { try { return GROUPINGS.find(grouping => grouping.id === localStorage.getItem(GROUPING_KEY))?.id ?? "lanes"; } catch { return "lanes"; } };
-
 /// Home: what waits on the user as a queue, answered in place, over the lanes
-/// of every other session, or over the open sessions as rows under their projects.
-export function HomeOverview({ home }: { home: HomeView }) {
-  const [grouping, setGrouping] = useState(readGrouping);
-  const changeGrouping = (next: Grouping) => { setGrouping(next); try { localStorage.setItem(GROUPING_KEY, next); } catch { /* kept for this launch only */ } };
-  const grouped = grouping === "projects";
+/// of every other session, or over the open sessions `grouped` as rows under their projects.
+export function HomeOverview({ home, grouped }: { home: HomeView; grouped: boolean }) {
   // The assistant's chats have their own page.
   const assistants = new Set(sessions.filter(isAssistant).map(runningKey));
   const cards = boardCards(home, needsCards(home), runningCards(home, assistants, grouped), assistants);
@@ -160,7 +150,6 @@ export function HomeOverview({ home }: { home: HomeView }) {
   const queue = cards.filter(card => card.lane === "needs"), lanes = cards.filter(card => card.lane !== "needs" && !(grouped && card.lane === "done"));
 
   return <>
-    {!!cards.length && <div className="home-sort"><Segmented label="Group sessions" options={GROUPINGS} value={grouping} onChange={changeGrouping}/></div>}
     {!!queue.length && <Section id="sec-needs" title="Needs you" count={queue.length}>{queue.map(card => <CardRow key={card.key} card={card}/>)}</Section>}
     {!!lanes.length && <div id="sec-running">{grouped ? <ByProject cards={lanes}/> : <Board cards={lanes} lanes={QUEUED_LANES} spread more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/>}</div>}
     {!queue.length && !lanes.length && <Empty home={home} />}
@@ -195,7 +184,7 @@ function ByProject({ cards }: { cards: readonly BoardCard[] }) {
     const title = !listed ? project ?? "Other folders"
       : <Button look="quiet" small {...projectWindowProps(project).clicks} {...projectWindowProps(project).menu} onClick={all}><span className="pj-swatch" style={{ "--c": color } as CSSProperties}/>{project}</Button>;
 
-    return <Section key={project ?? ""} title={title} count={rows.length} action={rows.length > ROWS_SHOWN ? <Button look="quiet" small onClick={all}>All {rows.length}</Button> : null}>
+    return <Section key={project ?? ""} title={title} action={rows.length > ROWS_SHOWN ? <Button look="quiet" small onClick={all}>All {rows.length}</Button> : null}>
       {rows.slice(0, ROWS_SHOWN).map(card => <CardRow key={card.key} card={{ ...card, color: null }}/>)}
     </Section>;
   })}</div>;

@@ -2,13 +2,14 @@
 import { conflicted, invoke } from "../ui/tauri.ts";
 import { isMobile } from "../ui/platform.ts";
 import { Button } from "../ui/kit.tsx";
+import { Segmented } from "../ui/aria-kit.tsx";
 import { Icon } from "../ui/icons.tsx";
 import { homeForDisplay, type HomeView, type NeedsYou } from "./home-state.ts";
 import { type CenterView, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
 import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.ts";
 import { refreshGit } from "./openitems.ts";
 import { currentLocation, go } from "./views.tsx";
-import { openAddMachine, projectRows } from "./sidebar.tsx";
+import { projectRows } from "./sidebar.tsx";
 import { ensureHome, refresh } from "./refresh.ts";
 import { ConnectingView } from "./connecting-view.tsx";
 import { UNWATCHED_MS } from "../ui/pagecache.ts";
@@ -61,6 +62,19 @@ const TAB_OF: Record<string, HomeTab> = {
 export const HOME_TAB_EVENT = "beep:home-tab";
 const homeTabChanged = () => document.dispatchEvent(new Event(HOME_TAB_EVENT));
 
+/// How the board lays its sessions out: by lane, or under their projects.
+const GROUPINGS = [{ id: "lanes", label: "Lanes" }, { id: "projects", label: "Projects" }] as const;
+type Grouping = typeof GROUPINGS[number]["id"];
+const GROUPING_KEY = "beep.home.grouping";
+const readGrouping = (): Grouping => { try { return GROUPINGS.find(grouping => grouping.id === localStorage.getItem(GROUPING_KEY))?.id ?? "lanes"; } catch { return "lanes"; } };
+let grouping = readGrouping();
+
+function changeGrouping(next: Grouping) {
+  grouping = next;
+  try { localStorage.setItem(GROUPING_KEY, next); } catch { /* kept for this launch only */ }
+  draw();
+}
+
 function openHomeTab(tab: HomeTab) {
   homeTab = tab;
   homeTabChanged();
@@ -85,7 +99,10 @@ function page(home: HomeView) {
 
   return { machines, mac: machines ? thisMacRow(state.mac, machines) : null, jump,
     menu: (machine: NonNullable<typeof machines>[number], event: MouseEvent) => showMachineMenu(machine, () => [], event),
-    addMachine: openAddMachine, useMac: () => { void useThisMac(); }, error: state.error, unavailable: !machines && !running, offline, content: tab.key === "overview" ? <HomeOverview home={home} /> : tab.key === "git" ? <HomeGit view={git || { items: [], hosts: [] }} /> : machines ? <HomeMachines machines={machines} /> : null,
+    useMac: () => { void useThisMac(); }, error: state.error, unavailable: !machines && !running, offline,
+    // The board's switch shows while a session is open: without one there is nothing to group.
+    tools: tab.key === "overview" && running?.length ? <Segmented label="Group sessions" options={GROUPINGS} value={grouping} onChange={changeGrouping}/> : null,
+    content: tab.key === "overview" ? <HomeOverview home={home} grouped={!!running?.length && grouping === "projects"} /> : tab.key === "git" ? <HomeGit view={git || { items: [], hosts: [] }} /> : machines ? <HomeMachines machines={machines} /> : null,
     tabs: shownTabs, selected: tab.key, open: openHomeTab };
 }
 
