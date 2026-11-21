@@ -34,6 +34,8 @@ fn a_clarify_becomes_a_form_and_its_answer_goes_back_by_qid() {
     assert_eq!(form["mode"], "form");
     assert_eq!(form["requestedSchema"]["properties"]["q0"]["oneOf"][2]["const"], "Blue");
     assert_eq!(form["requestedSchema"]["properties"]["q1"]["type"], "array");
+    // The node shows a lone field's description before the form's message.
+    assert_eq!(form["requestedSchema"]["properties"]["q0"]["description"], "Which color do you prefer?");
 
     let result = answer(&asked, &json!({"action": "accept", "content": {"q0": "Blue", "q1": ["S", "M"]}}));
     assert_eq!(result, json!({"answers": {"q0": "Blue", "q1": ["S", "M"]}}));
@@ -412,6 +414,8 @@ async fn initialized(cx: &ConnectionTo<Agent>) {
     let init = call(cx, "initialize", json!({"protocolVersion": 1, "clientCapabilities": {"elicitation": {"form": {}}}})).await;
     assert_eq!(init["agentInfo"]["name"], "Hermes");
     assert_eq!(init["agentCapabilities"]["loadSession"], true);
+    // Without it the node drops a prompt's images before they reach the bridge.
+    assert_eq!(init["agentCapabilities"]["promptCapabilities"]["image"], true);
     assert_eq!(init["authMethods"].as_array().map_or(0, Vec::len), 0);
 }
 
@@ -927,20 +931,25 @@ async fn a_stop_lost_with_the_socket_is_sent_again_once_hermes_is_back() {
 #[tokio::test]
 async fn a_stop_hermes_never_answered_is_not_sent_into_a_later_turn() {
     let (listener, port) = listen().await;
+    let (refuse, refused) = tokio::sync::oneshot::channel::<()>();
     let fake = tokio::spawn(async move {
         let (mut server, _) = accept(&listener).await;
         created(&mut server).await;
         replied(&mut server, "prompt.submit", json!({})).await;
         server.send(hermes_event("live1", "message.delta", json!({"text": "Working"}), 3)).await.unwrap();
-        // The stop goes unanswered, on a socket that stays up.
+        // The stop goes unanswered, on a socket that stays up, and the turn
+        // ends later.
         assert_eq!(read(&mut server).await["method"], "session.interrupt");
+        refused.await.unwrap();
+        server.send(hermes_event("live1", "message.complete", json!({"status": "interrupted"}), 4)).await.unwrap();
+        server.send(hermes_event("live1", "message.delta", json!({"text": "Stopped"}), 5)).await.unwrap();
         let again = replied(&mut server, "prompt.submit", json!({})).await;
         assert_eq!(again["text"], "Again");
 
         let mut server = dropped_and_resumed(&listener, server, 1).await;
         let sent = tokio::time::timeout(Duration::from_millis(500), read(&mut server)).await;
         assert!(sent.is_err(), "the bridge sent {sent:?}");
-        server.send(hermes_event("live2", "message.complete", json!({"status": "complete"}), 4)).await.unwrap();
+        server.send(hermes_event("live2", "message.complete", json!({"status": "complete"}), 6)).await.unwrap();
         server
     });
 
@@ -952,6 +961,13 @@ async fn a_stop_hermes_never_answered_is_not_sent_into_a_later_turn() {
         cx.send_notification(UntypedMessage::new("session/cancel", json!({"sessionId": session})).unwrap()).unwrap();
         assert_eq!(running.await["stopReason"], "cancelled");
 
+        // The old turn's end must not end the next prompt: it waits for it.
+        let request = json!({"sessionId": session, "prompt": [{"type": "text", "text": "Too soon"}]});
+        let early = cx.send_request(UntypedMessage::new("session/prompt", request).unwrap()).block_task().await;
+        let refusal = format!("{:?}", early.expect_err("a prompt before the stopped turn ended"));
+        assert!(refusal.contains("still stopping the last turn"), "{refusal}");
+        refuse.send(()).unwrap();
+        assert_eq!(text_of(&next_update(&mut seen).await), "Stopped");
         assert_eq!(prompt(&cx, &session, "Again").await["stopReason"], "end_turn");
         fake.await.unwrap();
     })

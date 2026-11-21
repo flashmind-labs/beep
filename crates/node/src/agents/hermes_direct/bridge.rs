@@ -16,7 +16,7 @@ use agent_client_protocol::{
     v1::schema::{
         AgentCapabilities, CLIENT_METHOD_NAMES, CancelNotification, ContentBlock, EmbeddedResourceResource,
         Implementation, InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionResponse,
-        PromptRequest, PromptResponse, ResumeSessionRequest, ResumeSessionResponse, SessionCapabilities, SessionId,
+        PromptCapabilities, PromptRequest, PromptResponse, ResumeSessionRequest, ResumeSessionResponse, SessionCapabilities, SessionId,
         SessionResumeCapabilities, StopReason,
     },
 };
@@ -147,6 +147,9 @@ struct Session {
     /// A turn stopped while the socket was down: Hermes is told to stop it
     /// once the socket is back.
     interrupt: bool,
+    /// A turn ended for the client before Hermes said it ended: the next
+    /// prompt waits for that, so the old turn's end cannot end it.
+    stopping: bool,
     /// Hermes's requests the client is answering, each with the way to
     /// withdraw it.
     asking: HashMap<String, RequestCancellationHandle>,
@@ -248,16 +251,19 @@ impl Bridge {
         // ends at once and Hermes is told to stop it once the socket is back.
         // A turn Hermes cannot stop is not waited on.
         session.cancelled = true;
-        let lost = match &session.link {
+        let (lost, running) = match &session.link {
             Link::Up(gateway) => match interrupt(gateway, &session.live).await {
                 Ok(()) => return Ok(()),
+                // Hermes refused the stop: it runs no turn to wait for.
+                Err(LinkError::Rpc { .. }) => (false, false),
                 // Only a stop lost with the socket is sent again: one that timed
                 // out on a socket still up could reach a later turn.
-                Err(e) => matches!(e, LinkError::Closed),
+                Err(e) => (matches!(e, LinkError::Closed), true),
             },
-            Link::Down(_) => true,
+            Link::Down(_) => (true, true),
         };
         session.interrupt = lost;
+        session.stopping = running;
         ended(session, &Value::Null)?;
 
         Ok(())
@@ -295,6 +301,7 @@ impl Bridge {
             prompt: None,
             cancelled: false,
             interrupt: false,
+            stopping: false,
             asking: HashMap::new(),
             held: Vec::new(),
         });
@@ -311,6 +318,7 @@ impl Bridge {
 
         let refusal = match &session.link {
             _ if session.prompt.is_some() => Some("a prompt is running".to_owned()),
+            _ if session.stopping => Some("Hermes is still stopping the last turn".to_owned()),
             Link::Down(_) => Some("Hermes is out of reach; reconnecting".to_owned()),
             Link::Up(gateway) => submit(gateway, &session.live, prompt).await.err().map(|e| e.to_string()),
         };
@@ -365,6 +373,7 @@ impl Bridge {
             self.cx.send_notification(UntypedMessage::new(CLIENT_METHOD_NAMES.session_update, notification)?)?;
         }
         if events::finished(params) {
+            session.stopping = false;
             ended(session, &params["payload"])?;
         }
 
@@ -470,6 +479,7 @@ impl Bridge {
         if restarted {
             log::warn!("Hermes restarted; its turn ended");
             session.cancelled = true;
+            session.stopping = false;
             ended(session, &Value::Null)?;
         } else if stopped {
             // The turn already ended for the client; a failure is logged.
@@ -478,6 +488,7 @@ impl Bridge {
             && session.prompt.is_some()
             && interrupt(&resumed.gateway, &session.live).await.is_err()
         {
+            session.stopping = true;
             ended(session, &Value::Null)?;
         }
         session.link = Link::Up(resumed.gateway);
@@ -610,12 +621,14 @@ fn refused<T: JsonRpcResponse>(responder: Responder<T>, e: anyhow::Error) -> Res
     Err(e)
 }
 
-/// What this agent can do: load and resume Hermes's stored sessions.
+/// What this agent can do: take images, and load and resume Hermes's stored
+/// sessions.
 fn initialized() -> InitializeResponse {
     InitializeResponse::new(ProtocolVersion::V1)
         .agent_capabilities(
             AgentCapabilities::new()
                 .load_session(true)
+                .prompt_capabilities(PromptCapabilities::new().image(true))
                 .session_capabilities(SessionCapabilities::new().resume(SessionResumeCapabilities::new())),
         )
         .agent_info(Implementation::new("Hermes", env!("CARGO_PKG_VERSION")))

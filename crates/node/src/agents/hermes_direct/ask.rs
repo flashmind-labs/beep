@@ -66,9 +66,10 @@ pub(super) fn answer(asked: &Asked, reply: &Value) -> Value {
     }
 }
 
-/// A permission request. Every allow is of the kind `allow_once` and `once`
-/// comes first, so an auto-allow, which prefers `allow_always`, never finds
-/// anything but `once`: only the user picks the session or always.
+/// A permission request, which the node puts to the user. Every allow is of
+/// the kind `allow_once` and `once` comes first, so an auto-allow, which
+/// prefers `allow_always`, never finds anything but `once`: only the user
+/// picks the session or always.
 fn approval(params: &Value) -> Option<(Asked, Value)> {
     let request_id = params["request_id"].as_str()?.to_owned();
     let allow_session = params["allow_session"] == true;
@@ -123,10 +124,14 @@ fn clarify(params: &Value) -> Option<(Asked, Value)> {
             .filter_map(Value::as_str)
             .map(|choice| json!({"const": choice, "title": choice}))
             .collect();
+        // The question is the field's description too, which the node shows
+        // before the form's message.
         let field = match (choices.is_empty(), question["multi_select"] == true) {
-            (true, _) => json!({"type": "string", "title": title}),
-            (false, false) => json!({"type": "string", "title": title, "oneOf": choices}),
-            (false, true) => json!({"type": "array", "title": title, "items": {"anyOf": choices}}),
+            (true, _) => json!({"type": "string", "title": title, "description": title}),
+            (false, false) => json!({"type": "string", "title": title, "description": title, "oneOf": choices}),
+            (false, true) => {
+                json!({"type": "array", "title": title, "description": title, "items": {"anyOf": choices}})
+            }
         };
         properties.insert(qid.to_owned(), field);
         qids.push(qid.to_owned());

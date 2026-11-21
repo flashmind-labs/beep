@@ -28,7 +28,8 @@ use agent_client_protocol::{
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
-    AlertKind, Effort, Entry, EntryKind, LineChanges, ModeOption, Question, Status, StopReason, WorkPlace,
+    AlertKind, Effort, Entry, EntryKind, HERMES_GATEWAY, LineChanges, ModeOption, Question, Status, StopReason,
+    WorkPlace,
 };
 use beep_proto::watched;
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
@@ -698,7 +699,14 @@ impl Actor {
                 else {
                     return Ok(());
                 };
-                if let Some(responder) = self.allow(&permission.question, responder)? {
+                // Hermes runs with its own approvals on: what it asks is
+                // the user's to answer.
+                let responder = if self.agent == HERMES_GATEWAY {
+                    Some(responder)
+                } else {
+                    self.allow(&permission.question, responder)?
+                };
+                if let Some(responder) = responder {
                     self.ask(permission.question, responder);
                 }
             }
