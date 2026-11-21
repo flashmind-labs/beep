@@ -7,6 +7,42 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.10] - 2026-11-21
+
+### Added
+
+- Desktop: a project's menu has "Harnesses...", which picks the coding agent
+  harnesses that may run in that project on every machine. For example, allow
+  only flsh and pi with zero data retention. Every harness may run by default.
+
+### Changed
+
+- Desktop: the per-harness "Can start" setting in Settings is removed. Limit
+  harnesses per project instead.
+- Desktop: Home's board opens on Review. The left side shows the idle
+  session in hand: its project, its last reply, and Open, Close, Back and
+  Next. Running sessions appear as cards under it. The right side lists
+  every idle session, one line each with its project and time, grouped as
+  Last hour, Today and Older.
+- Desktop: in Review, Next and Back, or the left and right arrow keys, walk
+  the idle list. A click picks a row, and a click on the row in hand opens
+  it. The list sorts from the latest or the oldest and can show one
+  project.
+- Desktop: a Review / Lanes switch sits on the row of Home's tabs and shows
+  while a session is open. Lanes is still there. Grouping by project on Home
+  is gone. The Projects page keeps its active projects.
+- Desktop: Home's machines strip no longer has "Add a machine". It stays in
+  the sidebar and on the Machines tab.
+- Desktop: the active projects on the Projects page are calmer. A project
+  has no outline, rows have no lines between them, a row's second line is
+  plain text, and the header shows no session count.
+
+### Fixed
+
+- Desktop: file paths in chat replies now show the hand cursor when they
+  can be clicked to open in the side pane.
+- Desktop: Text in a Markdown preview can now be selected and copied.
+
 ## [0.10.9] - 2026-11-21
 
 ### Added

@@ -2,6 +2,28 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.7] - 2026-11-21
+
+### Added
+
+- beep-node: a session cannot start or resume with a harness that its project
+  does not allow. This applies when you start it, when another agent starts it
+  with start_agent or review, and when a session moves in. The error names the
+  allowed harnesses.
+
+### Changed
+
+- beep-node: the harness "Can start" limit no longer applies to agents that
+  a session starts. Limit harnesses per project instead.
+
+### Fixed
+
+- Node: usage and cost views counted all of a flsh session's spend in
+  the hour of its last message, so a resumed session showed its whole
+  cost as today's. Each flsh turn's spend now counts in the hour it
+  happened, for sessions written by a flsh version that logs turns.
+  Older sessions keep their earlier spend in one lump.
+
 ## [0.8.6] - 2026-11-21
 
 ### Added
