@@ -719,12 +719,15 @@ impl Reach<'_> {
     }
 }
 
-/// The agents this node runs that others may list, each with its project.
-fn agents_here(agents: &Agents) -> Vec<ChildView> {
-    listed_here(agents)
+/// The agents this node runs that other machines may list, each with its
+/// project.
+pub(crate) fn listed(agents: &Agents) -> Reply {
+    let views: Vec<ChildView> = listed_here(agents)
         .into_iter()
         .map(|listed| listed.view)
-        .collect()
+        .collect();
+
+    json_of(&views)
 }
 
 /// A live agent, its machine's display name, and its folder when it runs on
@@ -1000,7 +1003,7 @@ async fn serve_peer(
                 .to_string()))
         }
         // Another machine's agent lists the agents here.
-        Tool::ListAgents => Ok(json_of(&agents_here(agents))),
+        Tool::ListAgents => Ok(listed(agents)),
         // To its own child, or to any agent here as a message from another.
         Tool::SendToAgent => {
             let call: PeerCall = parse(&request.args)?;

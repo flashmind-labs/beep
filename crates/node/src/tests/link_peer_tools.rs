@@ -264,3 +264,31 @@ async fn team_pickup_is_taken_from_a_desktop_and_on_one() {
         assert_eq!(text, "This machine does not act for a team.");
     }
 }
+
+/// A desktop that acts for a team lists the agents of the mesh's nodes; it
+/// starts none through `tools/1`.
+#[tokio::test]
+async fn a_desktop_lists_a_nodes_agents() {
+    let dir = tempfile::tempdir().unwrap();
+    let offers = Offers::local(&[], crate::machine::provision::Provision::new(dir.path()));
+    let request = |tool, args: &str| Request {
+        session: SessionId::default(),
+        tool,
+        args: args.to_owned(),
+        approved: Default::default(),
+    };
+
+    let Reply::Done { text, failed } =
+        answer(request(Tool::ListAgents, "{}"), Caller::local(&offers)).await
+    else {
+        panic!("not done");
+    };
+    assert!(!failed, "{text}");
+    assert_eq!(text, "[]");
+
+    let start = request(Tool::StartAgent, r#"{"harness":"codex","prompt":"hi"}"#);
+    let Reply::Done { failed, .. } = answer(start, Caller::local(&offers)).await else {
+        panic!("not done");
+    };
+    assert!(failed);
+}

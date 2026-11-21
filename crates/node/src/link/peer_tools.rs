@@ -186,13 +186,22 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
 }
 
 /// An agent tool another node's agent calls on this machine. A desktop is
-/// the user's own: another node's agent may not start agents on it.
+/// the user's own: another node's agent may not start agents on it. Any
+/// machine lists the agents here, a desktop acting for a team too.
 async fn agent_call(request: Request, caller: &Caller) -> Reply {
     let failed = |text: &str| Reply::Done {
         text: text.to_owned(),
         failed: true,
     };
-    let (Table::Peer(peer), Some(agents)) = (caller.table, &caller.agents) else {
+    let Some(agents) = &caller.agents else {
+        return failed("Agents are started through the node's own Beep MCP server.");
+    };
+
+    if request.tool == Tool::ListAgents {
+        return children::listed(agents);
+    }
+
+    let Table::Peer(peer) = caller.table else {
         return failed("Agents are started through the node's own Beep MCP server.");
     };
 
