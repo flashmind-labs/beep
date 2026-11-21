@@ -114,7 +114,7 @@ struct Gateway {
     offers: Offers,
     heard: mpsc::Sender<Followed>,
     /// What the online machines said of their reach, and when they were
-    /// asked and which were online then.
+    /// asked and which were asked then.
     peers: BTreeMap<EndpointId, ForgeReach>,
     asked: Option<(Instant, BTreeSet<EndpointId>)>,
     held: BTreeSet<TeamRepo>,
@@ -188,25 +188,22 @@ impl Gateway {
     }
 
     /// Asks the online machines with a team project how they reach the
-    /// hosts, every `QUIET` and when one comes or goes.
+    /// hosts, every `QUIET` and when one of them comes or goes, or a team
+    /// brings others.
     async fn ask_peers(&mut self, teams: &[Team], projects: &BTreeMap<TeamRepo, Project>) {
         let online = online(&self.mesh);
-        let due = self
-            .asked
-            .as_ref()
-            .is_none_or(|(at, then)| at.elapsed() >= QUIET || *then != online);
-
-        if !due {
-            return;
-        }
-
         let asked: BTreeSet<EndpointId> = teams
             .iter()
             .flat_map(|team| &projects[&team.repo].devices)
             .map(|device| device.id)
             .filter(|machine| online.contains(machine))
             .collect();
-        self.asked = Some((Instant::now(), online));
+
+        if !ask_due(self.asked.as_ref(), &asked) {
+            return;
+        }
+
+        self.asked = Some((Instant::now(), asked.clone()));
         let mesh = &self.mesh;
         self.peers = gather("team gateway", asked, |peer| ask_reach(mesh, peer)).await;
     }
@@ -427,6 +424,12 @@ impl Gateway {
             }
         });
     }
+}
+
+/// Whether the machines are asked of their reach again: every `QUIET`, and
+/// whenever those to ask are not the ones `asked` last.
+fn ask_due(asked: Option<&(Instant, BTreeSet<EndpointId>)>, now: &BTreeSet<EndpointId>) -> bool {
+    asked.is_none_or(|(at, then)| at.elapsed() >= QUIET || then != now)
 }
 
 /// The machines of `project` that may start its issues' sessions for the

@@ -329,3 +329,15 @@ fn a_forgejo_repository_with_a_port_is_asked_on_its_host() {
     assert_eq!(host, IssueHost::of_hostname("git.example.com").unwrap());
     assert_eq!(name.to_string(), "org/repo");
 }
+
+/// A team made on two machines already online asks them at once, though
+/// the machines were asked moments before, when there was no team.
+#[test]
+fn a_new_team_asks_its_machines_at_once() {
+    let other = SecretKey::generate().public();
+    let none = (Instant::now(), BTreeSet::new());
+
+    assert!(ask_due(None, &BTreeSet::new()));
+    assert!(!ask_due(Some(&none), &BTreeSet::new()));
+    assert!(ask_due(Some(&none), &[other].into()));
+}
