@@ -11,6 +11,8 @@ fn rule(name: &str, tokens: Option<u32>) -> FlshModelRule {
             enabled: true,
             tokens,
         },
+        inherits_compaction: false,
+        quantizations: None,
     }
 }
 
@@ -64,4 +66,53 @@ fn bad_values_are_refused() {
         ..FlshSettings::default()
     };
     assert_eq!(many.check(), Err(FlshSettingsError::TooManyModels));
+    let not_openrouter = FlshSettings {
+        models: vec![FlshModelRule {
+            quantizations: Some(Vec::new()),
+            ..rule("anthropic:claude-model", None)
+        }],
+        ..FlshSettings::default()
+    };
+    assert!(matches!(
+        not_openrouter.check(),
+        Err(FlshSettingsError::NotOpenRouter(_))
+    ));
+    let twice_per_model = FlshSettings {
+        models: vec![FlshModelRule {
+            quantizations: Some(vec![FlshQuantization::Fp4, FlshQuantization::Fp4]),
+            ..rule("openrouter:vendor/model", None)
+        }],
+        ..FlshSettings::default()
+    };
+    assert_eq!(
+        twice_per_model.check(),
+        Err(FlshSettingsError::DuplicateQuantization("fp4"))
+    );
+}
+
+/// A rule a released desktop wrote, with only a model and its compaction,
+/// reads as its own compaction and the quantizations for all models.
+#[test]
+fn an_older_rule_reads_with_its_own_compaction() {
+    #[derive(serde::Serialize)]
+    struct Older {
+        model: FlshModel,
+        autocompact: FlshAutoCompact,
+    }
+    let older = Older {
+        model: model("openrouter:vendor/model"),
+        autocompact: FlshAutoCompact {
+            enabled: false,
+            tokens: None,
+        },
+    };
+    let bytes = rmp_serde::to_vec(&older).expect("encodes");
+    let read: FlshModelRule = crate::lenient::from_slice(&bytes).expect("reads");
+    assert_eq!(
+        read,
+        FlshModelRule {
+            autocompact: older.autocompact,
+            ..rule("openrouter:vendor/model", None)
+        }
+    );
 }

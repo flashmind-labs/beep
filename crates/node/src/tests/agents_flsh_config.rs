@@ -1,7 +1,7 @@
 use super::*;
 use beep_proto::{FlshModelRule, FlshQuantization, FlshSort};
 use flashmind_types::{Model, ProviderPreferences, ProviderSort, Quantization};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// flsh's config as flsh reads it: the parts Beep writes, with flsh's own
 /// types where they are public and its serde attributes copied where not
@@ -18,6 +18,8 @@ struct FlshConfig {
 #[derive(Debug, Default, Deserialize)]
 struct OpenRouterConfig {
     routing: Option<ProviderPreferences>,
+    #[serde(default)]
+    model_quantizations: BTreeMap<String, Vec<Quantization>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -53,6 +55,8 @@ fn rule(name: &str, enabled: bool, tokens: Option<u32>) -> FlshModelRule {
     FlshModelRule {
         model: name.parse().expect("a valid model"),
         autocompact: FlshAutoCompact { enabled, tokens },
+        inherits_compaction: false,
+        quantizations: None,
     }
 }
 
@@ -234,4 +238,52 @@ fn a_config_that_does_not_read_is_left_alone() {
     assert!(format!("{error:#}").contains("not valid TOML"), "{error:#}");
     assert_eq!(fs::read_to_string(&path).unwrap(), "model = \n");
     assert!(!dir.path().join(OWNED).exists());
+}
+
+#[test]
+fn a_models_own_quantizations_are_written_and_cleared() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(CONFIG),
+        "[openrouter.model_quantizations]\n\"vendor/mine\" = [\"int8\"]\n",
+    )
+    .unwrap();
+    let mut settings = FlshSettings {
+        models: vec![
+            FlshModelRule {
+                inherits_compaction: true,
+                quantizations: Some(Vec::new()),
+                ..rule("openrouter:vendor/any", true, None)
+            },
+            FlshModelRule {
+                quantizations: Some(vec![FlshQuantization::Fp4]),
+                ..rule("openrouter:vendor/small", false, None)
+            },
+        ],
+        ..FlshSettings::default()
+    };
+    apply(dir.path(), &settings).unwrap();
+    let config = as_flsh(dir.path());
+    assert_eq!(
+        config.openrouter.model_quantizations,
+        BTreeMap::from([
+            ("vendor/any".to_owned(), Vec::new()),
+            ("vendor/mine".to_owned(), vec![Quantization::Int8]),
+            ("vendor/small".to_owned(), vec![Quantization::Other("fp4".to_owned())]),
+        ])
+    );
+    // A model that compacts as all models do has no rule of its own.
+    assert_eq!(
+        config.auto_compact_models.keys().collect::<Vec<_>>(),
+        [&model("openrouter:vendor/small")]
+    );
+
+    settings.models.clear();
+    apply(dir.path(), &settings).unwrap();
+    let config = as_flsh(dir.path());
+    assert_eq!(
+        config.openrouter.model_quantizations.keys().collect::<Vec<_>>(),
+        ["vendor/mine"]
+    );
+    assert!(config.auto_compact_models.is_empty());
 }

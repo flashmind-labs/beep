@@ -733,7 +733,9 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .fl-tbl { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 10px; border: 1px solid var(--border); border-radius: var(--radius) }
 .fl-tbl th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--border) }
 .fl-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: middle }
-.fl-tbl th:nth-child(2) { width: 52px } .fl-tbl th:nth-child(3) { width: 32% } .fl-tbl th:nth-child(4) { width: 96px }
+.fl-tbl .fl-head td { border-bottom: 0; padding-bottom: 2px }
+.fl-tbl small { font-family: var(--mono); font-size: 11px; color: var(--muted) }
+.fl-tbl .fl-c { width: 196px } .fl-tbl .fl-t { width: 28% } .fl-tbl .fl-x { width: 96px }
 .fl-tbl td:last-child { text-align: right; white-space: nowrap }
 .cc-ag.pi { color: #B18CE0 } .cc-ag.gemini { color: #6FA8DC } .cc-ag.flsh { color: #3B9B7A } .cc-ag.opencode { color: var(--warn) }
 /* Terminals on every machine: the page's machine list beside the open terminal. */

@@ -66,7 +66,7 @@ function SharedSettings({ value, p }: { value: SharedProviderSettings; p: Provid
     </span></div><div className="hv-acts"><Button look="primary" disabled={!compact.canSave} onClick={() => p.saveCompact(value.agent)}>{compact.busy ? "Saving…" : "Save auto-compact"}</Button><Button look="quiet" hidden={!compact.edited} disabled={compact.busy} onClick={() => p.discardCompact(value.agent)}>Discard</Button><span className="derr">{compact.error}</span></div></>}
     {directCli && <DriverField key={value.agent} agent={value.agent} cli={directCli} invoke={p.invoke} />}
     <SpawnsField key={`spawns-${value.agent}`} agent={value.agent} agents={p.view?.harnesses.map(h => h.agent) ?? []} invoke={p.invoke} />
-    {value.agent === "flsh" && <FlshView panel={p.flsh} />}
+    {(value.agent === "flsh" || value.agent === "pi") && <FlshView panel={p.flsh} agent={value.agent} />}
     {value.machineName && <div className="hv-note">Model choices and reported limits come from {value.machineName}.</div>}
     {p.machine && <ModelContextView panel={p.contexts} machine={p.machine} agent={value.agent} />}
   </section>;

@@ -33,7 +33,7 @@ pub(crate) use codex::configured as codex_home;
 pub(crate) use flsh::sessions_dir as flsh_sessions_dir;
 pub(crate) use opencode::databases_at as opencode_databases;
 mod pi;
-pub(crate) use pi::configured as pi_sessions;
+pub(crate) use pi::{agent_dir_in as pi_agent_dir, configured as pi_sessions};
 mod transcript;
 
 pub(crate) use delete::{remove_dir_in, remove_file_in};

@@ -1,7 +1,7 @@
 //! flsh's own settings, which Beep sets for the user on every machine:
 //! OpenRouter provider routing (zero data retention, allowed quantizations,
 //! provider sort, fallbacks) and when flsh compacts a conversation, for all
-//! models and per model.
+//! models and per model. pi takes the routing too, in its `models.json`.
 //!
 //! Each field is one key of flsh's `config.toml`. Unset (`None`, or empty
 //! for a list) means Beep leaves that key to flsh's own default.
@@ -14,6 +14,8 @@ use thiserror::Error;
 /// `openrouter:moonshotai/kimi-k2`: flsh's own type, so a model Beep writes
 /// is one flsh reads.
 pub use flashmind_types::Model as FlshModel;
+/// Who serves a model, the part of [`FlshModel`] before the colon.
+pub use flashmind_types::Provider as FlshProvider;
 
 /// The fewest tokens a compaction threshold may be: below it flsh would
 /// compact on every turn.
@@ -46,8 +48,7 @@ wire_structs! {
         /// `[autocompact]`: when flsh compacts with no model rule. `None` is
         /// flsh's default, on at the model's own trigger.
         pub autocompact: Option<FlshAutoCompact>,
-        /// `[auto_compact_models."<model>"]`: rules that replace the one above
-        /// for their model only.
+        /// Rules that replace the ones above for their model only.
         pub models: Vec<FlshModelRule>,
     }
 
@@ -61,10 +62,21 @@ wire_structs! {
         pub tokens: Option<u32>,
     }
 
-    /// The compaction rule for one model.
+    /// The settings of one model.
     pub struct FlshModelRule {
         pub model: FlshModel,
+        /// `[auto_compact_models."<model>"]`, unless `inherits_compaction`.
+        /// A rule that inherits holds the rule for all models here, which
+        /// is what a node that predates `inherits_compaction` writes.
         pub autocompact: FlshAutoCompact,
+        /// The model compacts as all models do.
+        #[serde(default)]
+        pub inherits_compaction: bool,
+        /// `[openrouter.model_quantizations]`: the weight precisions allowed
+        /// for this OpenRouter model, empty for any. `None` keeps the list
+        /// for all models.
+        #[serde(default)]
+        pub quantizations: Option<Vec<FlshQuantization>>,
     }
 }
 
@@ -137,6 +149,8 @@ pub enum FlshSettingsError {
         "A model is named provider:model, such as openrouter:vendor/model, in at most {MAX_MODEL_LEN} characters."
     )]
     BadModel,
+    #[error("{0} is not an OpenRouter model, so it has no quantizations to allow.")]
+    NotOpenRouter(String),
 }
 
 impl FlshAutoCompact {
@@ -153,15 +167,7 @@ impl FlshAutoCompact {
 impl FlshSettings {
     /// Whether these settings can be written to flsh's config as they are.
     pub fn check(&self) -> Result<(), FlshSettingsError> {
-        let mut seen = HashSet::new();
-
-        for quantization in &self.quantizations {
-            if !seen.insert(*quantization) {
-                return Err(FlshSettingsError::DuplicateQuantization(
-                    quantization.into(),
-                ));
-            }
-        }
+        unique(&self.quantizations)?;
 
         if let Some(autocompact) = &self.autocompact {
             autocompact.check()?;
@@ -187,10 +193,33 @@ impl FlshSettings {
             }
 
             rule.autocompact.check()?;
+
+            if let Some(quantizations) = &rule.quantizations {
+                if rule.model.provider != FlshProvider::OpenRouter {
+                    return Err(FlshSettingsError::NotOpenRouter(name));
+                }
+
+                unique(quantizations)?;
+            }
         }
 
         Ok(())
     }
+}
+
+/// An error when a quantization is listed twice.
+fn unique(quantizations: &[FlshQuantization]) -> Result<(), FlshSettingsError> {
+    let mut seen = HashSet::new();
+
+    for quantization in quantizations {
+        if !seen.insert(*quantization) {
+            return Err(FlshSettingsError::DuplicateQuantization(
+                quantization.into(),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

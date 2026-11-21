@@ -274,11 +274,20 @@ fn flsh_listing(output: &str) -> Vec<ModelOption> {
 /// Where `kind` keeps flsh's `config.toml`: flsh runs with the kind's
 /// variables on top of the node's own.
 pub(super) fn flsh_dir_of(kind: &AgentKind) -> Option<PathBuf> {
-    let env = |name: &str| match kind.env.get(name) {
+    flsh_config_dir(&env_of(kind), dirs::home_dir().as_deref())
+}
+
+/// Where `kind` keeps pi's `models.json`.
+pub(super) fn pi_dir_of(kind: &AgentKind) -> Option<PathBuf> {
+    crate::agents::found::pi_agent_dir(&env_of(kind))
+}
+
+/// The variables `kind` runs with: its own on top of the node's.
+fn env_of(kind: &AgentKind) -> impl Fn(&str) -> Option<OsString> + '_ {
+    |name: &str| match kind.env.get(name) {
         Some(value) => Some(OsString::from(value)),
         None => std::env::var_os(name),
-    };
-    flsh_config_dir(&env, dirs::home_dir().as_deref())
+    }
 }
 
 /// Where flsh keeps `config.toml`, as flsh finds it: `$FLASHMIND_HOME`,

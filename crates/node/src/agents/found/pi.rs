@@ -8,6 +8,7 @@ use crate::agents::claude::unix_seconds;
 use serde_json::Value;
 use std::{
     env,
+    ffi::OsString,
     path::{Path, PathBuf},
 };
 
@@ -26,7 +27,12 @@ pub(crate) fn configured() -> Option<PathBuf> {
 
 /// pi's agent dir, which holds its `auth.json`.
 pub(super) fn agent_dir() -> Option<PathBuf> {
-    match env::var_os("PI_CODING_AGENT_DIR") {
+    agent_dir_in(&|name| env::var_os(name))
+}
+
+/// pi's agent dir with the variables `env` gives.
+pub(crate) fn agent_dir_in(env: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    match env("PI_CODING_AGENT_DIR") {
         Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir)),
         _ => Some(dirs::home_dir()?.join(".pi/agent")),
     }

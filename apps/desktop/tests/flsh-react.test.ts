@@ -17,13 +17,13 @@ test("flsh routing preserves edits and focus during save and reuses the panel on
     if (cmd === "flsh_settings_save") { submitted = args.settings; return new Promise<void>(resolve => { finish = resolve; }); }
     return null;
   }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
-  const { act, render, fireEvent, waitFor, cleanup } = await import("@testing-library/react");
+  const { act, render, fireEvent, waitFor, cleanup, within } = await import("@testing-library/react");
   const { FlshView } = await import("../src/settings/flsh-view.tsx");
   const { invoke } = await import("../src/ui/tauri.ts");
   const { flshPanel } = await import("../src/settings/flsh.ts");
   const panel = flshPanel(invoke);
   try {
-    const view = render(createElement(FlshView, { panel }));
+    const view = render(createElement(FlshView, { panel, agent: "flsh" }));
     await waitFor(() => assert.ok(view.getByLabelText("Auto-compact threshold")));
     const input = view.getByLabelText("Auto-compact threshold") as HTMLInputElement;
     input.focus();
@@ -40,11 +40,22 @@ test("flsh routing preserves edits and focus during save and reuses the panel on
     assert.equal(dom.window.document.activeElement, input);
     assert.equal(input.selectionStart, 1); assert.equal(input.selectionEnd, 3);
     view.unmount();
-    const reopened = render(createElement(FlshView, { panel }));
+    const reopened = render(createElement(FlshView, { panel, agent: "flsh" }));
     assert.equal((reopened.getByLabelText("Auto-compact threshold") as HTMLInputElement).value, "400k");
     assert.equal(reads, 2, "remount reuses the loaded state");
     fireEvent.click(reopened.getByRole("button", { name: "Discard" }));
     assert.equal((reopened.getByLabelText("Auto-compact threshold") as HTMLInputElement).value, "300000");
+    reopened.unmount();
+    // pi takes the routing only: a model's quantizations, no compaction.
+    const pi = render(createElement(FlshView, { panel, agent: "pi" }));
+    assert.equal(pi.queryByLabelText("Auto-compact threshold"), null);
+    fireEvent.click(pi.getByRole("button", { name: "Add model" }));
+    assert.equal(pi.queryByLabelText("Auto-compact for model 1"), null);
+    fireEvent.change(pi.getByLabelText("Model 1"), { target: { value: "openrouter:vendor/fp4-only" } });
+    fireEvent.click(within(pi.getByRole("group", { name: "Allowed quantizations for model 1" })).getByRole("button", { name: "fp4" }));
+    fireEvent.click(pi.getByRole("button", { name: "Save" }));
+    assert.deepEqual(submitted, { ...saved, models: [{ model: "openrouter:vendor/fp4-only", inherits_compaction: true, enabled: true, tokens: null, quantizations: ["fp4"] }] });
+    await act(async () => { finish(); await Promise.resolve(); });
   } finally {
     cleanup(); dom.window.close();
     for (const [key, descriptor] of previous) {

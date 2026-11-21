@@ -438,6 +438,8 @@ mod harness {
                         enabled: true,
                         tokens: Some(120_000),
                     },
+                    inherits_compaction: false,
+                    quantizations: Some(vec![beep_proto::FlshQuantization::Fp4]),
                 }],
                 ..beep_proto::FlshSettings::default()
             }),

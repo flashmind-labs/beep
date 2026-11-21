@@ -7,7 +7,8 @@ mod install;
 use super::{
     Adapter, AgentKind, KNOWN, flsh_config,
     kinds::{direct, in_wsl},
-    models::flsh_dir_of, unix_now,
+    models::{flsh_dir_of, pi_dir_of},
+    unix_now,
 };
 use crate::{
     AsyncMutex, lock,
@@ -24,7 +25,7 @@ use reqwest::Client;
 use std::{
     collections::HashMap,
     ffi::OsString,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Stdio,
     sync::Mutex,
     time::{Duration, Instant},
@@ -89,23 +90,30 @@ impl Settings {
     }
 
     /// Writes the user's flsh settings into the config `kind` (as
-    /// `configured` gives it) reads, before it starts. Nothing for another
-    /// agent, or while the user has none. An error when they cannot be
-    /// written: flsh must not start without a setting such as zero data
-    /// retention.
+    /// `configured` gives it) reads, before it starts: all of them for
+    /// flsh, the routing for pi. Nothing for another agent, or while the
+    /// user has none. An error when they cannot be written: an agent must
+    /// not start without a setting such as zero data retention.
     pub(super) async fn prepare(&self, kind: &AgentKind) -> Result<()> {
-        if AgentSlug::FLSH != kind.name.as_str() {
+        let (dir, apply): (_, fn(&Path, &FlshSettings) -> Result<()>) = if AgentSlug::FLSH
+            == kind.name.as_str()
+        {
+            (flsh_dir_of(kind), flsh_config::apply)
+        } else if AgentSlug::PI == kind.name.as_str() {
+            (pi_dir_of(kind), flsh_config::pi::apply)
+        } else {
             return Ok(());
-        }
+        };
 
         let Some(flsh) = lock(&self.0).flsh.clone() else {
             return Ok(());
         };
-        let dir = flsh_dir_of(kind).context("flsh's config folder is not known")?;
-        tokio::task::spawn_blocking(move || flsh_config::apply(&dir, &flsh))
+        let name = kind.name.clone();
+        let dir = dir.with_context(|| format!("{name}'s config folder is not known"))?;
+        tokio::task::spawn_blocking(move || apply(&dir, &flsh))
             .await
-            .context("writing flsh's settings stopped")?
-            .context("Beep's flsh settings could not be written to flsh's config")
+            .context("writing the agent's settings stopped")?
+            .with_context(|| format!("Beep's settings could not be written to {name}'s config"))
     }
 
     /// How `kind` starts with the user's settings; an error when they

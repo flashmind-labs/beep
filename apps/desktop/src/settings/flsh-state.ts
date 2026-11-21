@@ -1,5 +1,6 @@
-// flsh's own settings on the Coding agents page: OpenRouter routing and
-// auto-compact, the same on every machine.
+// flsh's own settings on the Coding agents page: OpenRouter routing, which
+// pi takes too, and auto-compact, for all models and per model, the same on
+// every machine.
 
 export const QUANTIZATIONS = ["int4", "int8", "fp4", "fp6", "fp8", "fp16", "bf16", "fp32", "unknown"] as const;
 export const SORTS = ["price", "throughput", "latency"] as const;
@@ -9,8 +10,16 @@ export type Sort = (typeof SORTS)[number];
 const MIN_TOKENS = 1_000;
 const MAX_TOKENS = 10_000_000;
 
+/// The agents that take these settings: flsh all of them, pi the routing.
+export type RoutingAgent = "flsh" | "pi";
+
 interface AutoCompact { enabled: boolean; tokens: number | null }
-interface ModelRule { model: string; enabled: boolean; tokens: number | null }
+/// `enabled` and `tokens` are unused while the rule inherits compaction.
+/// `quantizations` null keeps the list for all models; empty allows any.
+interface ModelRule { model: string; inherits_compaction: boolean; enabled: boolean; tokens: number | null; quantizations: string[] | null }
+/// How one model compacts: as all models do, or by its own rule.
+export type ModelCompact = "all" | "on" | "off";
+export interface ModelDraft { model: string; compact: ModelCompact; tokens: string; quantizations: string[] | null }
 
 /// What `flsh_settings_get` gives and `flsh_settings_save` takes. Null or
 /// empty is flsh's own default.
@@ -31,20 +40,27 @@ export interface FlshDraft {
   allow_fallbacks: boolean | null;
   compact_on: boolean;
   compact_tokens: string;
-  models: { model: string; enabled: boolean; tokens: string }[];
+  models: ModelDraft[];
 }
+
+export const NEW_MODEL: ModelDraft = { model: "", compact: "all", tokens: "", quantizations: null };
 
 export const EMPTY: FlshSettings = { zdr: null, quantizations: [], sort: null, allow_fallbacks: null, autocompact: null, models: [] };
 
 export function flshDraft(s: FlshSettings): FlshDraft {
   return {
     zdr: s.zdr,
-    quantizations: QUANTIZATIONS.filter(q => s.quantizations.includes(q)),
+    quantizations: ordered(s.quantizations),
     sort: s.sort,
     allow_fallbacks: s.allow_fallbacks,
     compact_on: s.autocompact?.enabled ?? true,
     compact_tokens: s.autocompact?.tokens != null ? String(s.autocompact.tokens) : "",
-    models: s.models.map(m => ({ model: m.model, enabled: m.enabled, tokens: m.tokens != null ? String(m.tokens) : "" })),
+    models: s.models.map(m => ({
+      model: m.model,
+      compact: m.inherits_compaction ? "all" : m.enabled ? "on" : "off",
+      tokens: !m.inherits_compaction && m.tokens != null ? String(m.tokens) : "",
+      quantizations: m.quantizations && ordered(m.quantizations),
+    })),
   };
 }
 
@@ -70,7 +86,8 @@ export function flshProblem(d: FlshDraft): string {
     if (!/^[^:\s,]+:\S/.test(name)) return `Name each model provider:model, such as openrouter:vendor/model.`;
     if (seen.has(name.toLowerCase())) return `${name} is listed twice.`;
     seen.add(name.toLowerCase());
-    if (!tokensOk(parseTokens(m.tokens))) return `The threshold for ${name} is a token count from ${MIN_TOKENS.toLocaleString("en")} to ${MAX_TOKENS.toLocaleString("en")}.`;
+    if (m.compact !== "all" && !tokensOk(parseTokens(m.tokens))) return `The threshold for ${name} is a token count from ${MIN_TOKENS.toLocaleString("en")} to ${MAX_TOKENS.toLocaleString("en")}.`;
+    if (m.quantizations !== null && !/^openrouter:/i.test(name)) return `${name} is not an OpenRouter model, so it has no quantizations to allow.`;
   }
 
   return "";
@@ -82,11 +99,17 @@ export function flshInput(d: FlshDraft): FlshSettings {
   const tokens = parseTokens(d.compact_tokens);
   return {
     zdr: d.zdr,
-    quantizations: QUANTIZATIONS.filter(q => d.quantizations.includes(q)),
+    quantizations: ordered(d.quantizations),
     sort: d.sort,
     allow_fallbacks: d.allow_fallbacks,
     autocompact: d.compact_on && tokens === null ? null : { enabled: d.compact_on, tokens },
-    models: d.models.map(m => ({ model: m.model.trim(), enabled: m.enabled, tokens: parseTokens(m.tokens) })),
+    models: d.models.map(m => ({
+      model: m.model.trim(),
+      inherits_compaction: m.compact === "all",
+      enabled: m.compact !== "off",
+      tokens: m.compact === "all" ? null : parseTokens(m.tokens),
+      quantizations: m.quantizations && ordered(m.quantizations),
+    })),
   };
 }
 
@@ -94,6 +117,9 @@ export function flshChanged(saved: FlshSettings, d: FlshDraft) {
   return JSON.stringify(flshInput(flshDraft(saved))) !== JSON.stringify(flshInput(d));
 }
 
-export function toggleQuantization(d: FlshDraft, q: string): string[] {
-  return d.quantizations.includes(q) ? d.quantizations.filter(x => x !== q) : QUANTIZATIONS.filter(x => x === q || d.quantizations.includes(x));
+export function toggleQuantization(list: string[], q: string): string[] {
+  return list.includes(q) ? list.filter(x => x !== q) : ordered([...list, q]);
 }
+
+/// `list` in the page's order.
+function ordered(list: string[]) { return QUANTIZATIONS.filter(q => list.includes(q)); }
