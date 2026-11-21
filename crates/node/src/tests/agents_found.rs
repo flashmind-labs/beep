@@ -165,3 +165,20 @@ fn discovery_keeps_files_past_the_former_store_limit() {
     }
     assert_eq!(newest_files(root.path(), 0, &|_| true).len(), MAX_FILES + 1);
 }
+
+#[test]
+fn an_assistant_conversation_s_folder_is_no_project() {
+    let root = tempfile::tempdir().expect("a temp folder");
+    let home = root.path().to_owned();
+    let conversation = home.join(".beep").join("assistant").join("ab12cd");
+    std::fs::create_dir_all(&conversation).expect("folders");
+    let all = vec![seen(Agent::Claude, "a", &conversation, 1)];
+    let lookup = |dir: &Path| {
+        Some(Checkout {
+            root: dir.to_owned(),
+            origin: "git@example.com:org/notes.git".into(),
+        })
+    };
+
+    assert!(folders(&all, Some(&home), 10, lookup).is_empty());
+}

@@ -35,6 +35,7 @@ host! {
     mod alerts;
     mod checkout;
     mod compaction;
+    mod conversation;
     pub(crate) mod custom_agents;
     mod delete;
     mod family;

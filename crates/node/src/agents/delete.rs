@@ -5,7 +5,7 @@ use super::{Agents, found::Agent};
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::Status;
 use beep_proto::watched;
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 use tokio::{
     task::spawn_blocking,
     time::{sleep, timeout},
@@ -41,6 +41,13 @@ impl Agents {
         }
 
         ensure!(valid_id(id.as_ref()), "{id:?} is not a session id");
+        // The main chat of an assistant conversation takes its folder with it.
+        let conversation = self
+            .get(id)
+            .filter(|ours| ours.assistant)
+            .map(|ours| ours.info())
+            .filter(|info| info.parent.is_none())
+            .map(|info| PathBuf::from(info.cwd));
         let agent_id = match self.get(id) {
             Some(ours) => {
                 ensure!(ours.agent == agent, "session {id} runs {}", ours.agent);
@@ -100,6 +107,15 @@ impl Agents {
                 index.forget(key).await;
             }
             index.forget(indexed).await;
+        }
+
+        if let (Some(folder), Some(home)) = (conversation, dirs::home_dir()) {
+            let removed =
+                spawn_blocking(move || super::conversation::remove(&home, &folder)).await;
+
+            if let Ok(Err(e)) = removed {
+                log::warn!("the deleted conversation's folder stays: {e}");
+            }
         }
 
         Ok(())

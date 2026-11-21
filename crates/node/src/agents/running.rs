@@ -673,7 +673,8 @@ impl Agents {
     ) -> Result<Arc<Session>> {
         let kind = &self.settings.configured(kind)?;
         signs_in(&kind.name, begin.account.as_ref())?;
-        let (cwd, brief) = in_project(cwd, begin.resume.is_some(), begin.brief)?;
+        let own = own_folder(cwd, &begin)?;
+        let (cwd, brief) = in_project(own.as_deref().or(cwd), begin.resume.is_some(), begin.brief)?;
 
         if let Some(mesh) = self.mesh() {
             mcp::projects::may_run(&mesh, &cwd, &kind.name).map_err(anyhow::Error::msg)?;
@@ -953,6 +954,19 @@ fn in_project(
         ),
     };
     Ok((project, brief.or(Some(Cow::Owned(said)))))
+}
+
+/// The folder of its own a new assistant conversation starts in, which its
+/// threads share. `None` for every other start.
+fn own_folder(cwd: Option<&str>, begin: &Begin) -> Result<Option<String>> {
+    if !begin.assistant || begin.resume.is_some() {
+        return Ok(None);
+    }
+
+    let home = dirs::home_dir().context("this machine has no home folder")?;
+    let made = super::conversation::own(&home, cwd, &new_id())
+        .context("making the conversation's folder")?;
+    Ok(made.map(|folder| folder.to_string_lossy().into_owned()))
 }
 
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or

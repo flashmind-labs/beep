@@ -490,8 +490,8 @@ impl Tally {
 }
 
 /// The checkouts `seen` ran in, newest activity first, at most `limit`.
-/// `home` and the root, and folders that are gone or not in a checkout,
-/// are left out. `lookup` finds a folder's checkout, as `checkout` does.
+/// `home` and the root, what Beep keeps hidden in `home`, and folders that
+/// are gone or not in a checkout, are left out. `lookup` finds a folder's checkout, as `checkout` does.
 pub(crate) fn folders(
     seen: &[Seen],
     home: Option<&Path>,
@@ -509,7 +509,12 @@ pub(crate) fn folders(
 
     let mut cwds: Vec<(&Path, Tally)> = by_cwd.into_iter().collect();
     cwds.sort_by_key(|(cwd, tally)| (Reverse(tally.last_activity), *cwd));
-    let skipped = |path: &Path| path.parent().is_none() || Some(path) == home;
+    let hidden = home.map(|home| home.join(super::conversation::HIDDEN));
+    let skipped = |path: &Path| {
+        path.parent().is_none()
+            || Some(path) == home
+            || hidden.as_ref().is_some_and(|hidden| path.starts_with(hidden))
+    };
     let mut roots: HashMap<PathBuf, (String, Tally)> = HashMap::new();
 
     for (cwd, tally) in cwds.into_iter().take(MAX_LOOKUPS) {
