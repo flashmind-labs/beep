@@ -134,6 +134,23 @@ pub(crate) fn issue_prompt(number: u64, title: &str, url: &str) -> String {
     )
 }
 
+/// Whether `url` is the web page of issue `number` of `repo`, as the forge
+/// lists it: on its host, ending in `/<org>/<name>/issues/<number>`.
+pub(crate) fn issue_of_repo(repo: &TeamRepo, number: u64, url: &str) -> bool {
+    let url = url.to_lowercase();
+    let host = repo.host.rsplit_once(':').map_or(&*repo.host, |(host, _)| host);
+    let Some(rest) = ["https://", "http://"]
+        .iter()
+        .find_map(|scheme| url.strip_prefix(scheme))
+    else {
+        return false;
+    };
+    let (at, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let at = at.rsplit_once(':').map_or(at, |(at, _)| at);
+
+    at == host && format!("/{path}").ends_with(&format!("/{}/issues/{number}", repo.repo))
+}
+
 /// Snapshots the issues `assigned` now as the backlog the first round
 /// pickup is on, then plans the round as `due` does with the live sessions
 /// of `cards`.

@@ -18,6 +18,19 @@ fn set(issues: &[u64]) -> BTreeSet<u64> {
 }
 
 #[test]
+fn a_start_names_an_issue_of_its_own_repository() {
+    let github: TeamRepo = "github.com/org/repo".parse().unwrap();
+    let forgejo: TeamRepo = "ssh://git@git.example.com:2222/org/repo".parse().unwrap();
+
+    assert!(issue_of_repo(&github, 52, "https://github.com/Org/Repo/issues/52"));
+    assert!(issue_of_repo(&forgejo, 7, "https://git.example.com:3000/org/repo/issues/7"));
+    assert!(!issue_of_repo(&github, 52, "https://github.com/org/repo/issues/53"));
+    assert!(!issue_of_repo(&github, 52, "https://github.com/org/other/issues/52"));
+    assert!(!issue_of_repo(&github, 52, "https://evil.example/org/repo/issues/52"));
+    assert!(!issue_of_repo(&github, 52, "github.com/org/repo/issues/52"));
+}
+
+#[test]
 fn backlog_is_not_started() {
     let plan = due(&pickup(&[], &[1, 2]), &[1, 2], &set(&[]), None);
 

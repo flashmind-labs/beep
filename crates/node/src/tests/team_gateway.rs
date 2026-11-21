@@ -3,7 +3,7 @@ use crate::{
     machine::ci::projects::pinned,
     team::{
         board::tests::{URL, member, repo},
-        home::{Project, in_team, read},
+        home::{Project, in_team, picks_up, read},
         link::Teams,
     },
 };
@@ -235,6 +235,35 @@ async fn a_folder_is_in_a_team_once_its_project_has_one() {
 
     assert!(in_team(&mesh, worktree));
     assert!(!in_team(&mesh, std::path::Path::new("/srv/other")));
+}
+
+#[tokio::test]
+async fn only_a_team_this_mesh_is_on_with_pickup_on_picks_up() {
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .bind()
+        .await
+        .unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let write = |team: &TeamRecord| Some(rmp_serde::to_vec(team).unwrap());
+    assert!(!picks_up(&mesh, &repo()));
+
+    let mut team = TeamRecord::new(repo(), vec![member("bob", SecretKey::generate().public())]);
+    mesh.set(Key::Team(repo()), write(&team)).await.unwrap();
+    assert!(!picks_up(&mesh, &repo()));
+
+    let mut mine = member("alice", mesh.me());
+    mine.mesh = mesh.id();
+    team.members.push(mine);
+    mesh.set(Key::Team(repo()), write(&team)).await.unwrap();
+    assert!(picks_up(&mesh, &repo()));
+
+    team.pickup = false;
+    mesh.set(Key::Team(repo()), write(&team)).await.unwrap();
+    assert!(!picks_up(&mesh, &repo()));
 }
 
 /// A desktop-only mesh has no other place to start an issue's session.

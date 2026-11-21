@@ -20,7 +20,7 @@ use crate::{
         gateway::branch_of,
         home,
         link::TeamLink,
-        pickup::{Auto, issue_branch, issue_prompt},
+        pickup::{Auto, issue_branch, issue_of_repo, issue_prompt},
     },
 };
 use beep_mesh::Mesh;
@@ -263,7 +263,8 @@ pub(crate) async fn answer(link: &TeamLink, agents: &Agents, request: &Request) 
 }
 
 /// Starts `order`'s session in a new worktree of this machine's checkout,
-/// on the branch Work on it names.
+/// on the branch Work on it names, when the mesh's team of its repository
+/// picks up issues and the order names one of its issues.
 pub(crate) async fn start_issue(
     agents: &Agents,
     mesh: &Mesh,
@@ -275,6 +276,13 @@ pub(crate) async fn start_issue(
         title,
         url,
     } = order;
+    if !home::picks_up(mesh, repo) {
+        return Err(format!("{repo} has no team that picks up issues here."));
+    }
+    if !issue_of_repo(repo, *number, url) {
+        return Err(format!("{url} is not issue #{number} of {repo}."));
+    }
+
     let checkout = home::read(mesh)
         .checkout(repo)
         .ok_or_else(|| format!("This machine has no checkout of {repo}."))?;

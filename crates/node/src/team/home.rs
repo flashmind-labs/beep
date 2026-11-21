@@ -204,11 +204,23 @@ fn on_team(record: &TeamRecord, mesh: &Mesh) -> bool {
 
 /// Whether `folder` is in a checkout here of a project with a team.
 pub(crate) fn in_team(mesh: &Mesh, folder: &Path) -> bool {
-    read(mesh).team_of(folder).is_some_and(|repo| {
-        let record = mesh.get(&Key::Team(repo));
-        let record = record.and_then(|bytes| lenient::from_slice::<TeamRecord>(&bytes).ok());
-        record.is_some_and(|record| on_team(&record, mesh))
-    })
+    read(mesh)
+        .team_of(folder)
+        .is_some_and(|repo| team(mesh, &repo).is_some())
+}
+
+/// Whether `repo`'s team, as the mesh holds it, picks up issues assigned to
+/// this mesh's person.
+pub(crate) fn picks_up(mesh: &Mesh, repo: &TeamRepo) -> bool {
+    team(mesh, repo).is_some_and(|record| record.pickup)
+}
+
+/// `repo`'s team as the mesh holds it, when this mesh is on it.
+fn team(mesh: &Mesh, repo: &TeamRepo) -> Option<TeamRecord> {
+    let bytes = mesh.get(&Key::Team(repo.clone()))?;
+    let record = lenient::from_slice::<TeamRecord>(&bytes).ok()?;
+
+    on_team(&record, mesh).then_some(record)
 }
 
 pub(crate) fn read(mesh: &Mesh) -> Home {
