@@ -82,6 +82,10 @@ export interface AgentSession {
   model?: string | null;
   /// The Home assistant.
   assistant: boolean;
+  /// The first line of its last reply, as inline HTML.
+  reply_html?: string | null;
+  /// Started in the background by its parent, which alone shows it.
+  background?: boolean;
 }
 
 /// Where the session that started another runs and the ids it is listed

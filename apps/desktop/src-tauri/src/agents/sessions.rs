@@ -111,6 +111,8 @@ pub struct SessionRow {
     parent: Option<SessionParent>,
     /// A temporary reviewer of its parent's changes.
     reviewer: bool,
+    /// Started in the background by its parent, so no thread of its chat.
+    background: bool,
     /// Its subagents that still run.
     subagents: u32,
     /// The model it runs on, when its node says.
@@ -140,6 +142,7 @@ impl From<MachineSession> for SessionRow {
             question: session.question,
             parent: None,
             reviewer: false,
+            background: false,
             subagents: session.subagents,
             model: session.model,
             assistant: session.assistant,
@@ -302,19 +305,20 @@ pub async fn agent_sessions(
     held: State<'_, MachineLists>,
 ) -> Result<Vec<SessionRow>> {
     let sessions = machine_sessions(&app, &fleet, &held).await;
-    let children = fleet
-        .children()
-        .into_iter()
-        .map(|linked| (linked.session, linked.reviewer));
+    let children = fleet.children().into_iter().map(|linked| {
+        let background = linked.parent.is_some_and(|link| link.background);
+        (linked.session, linked.reviewer, background)
+    });
     Ok(sessions
         .into_iter()
-        .map(|session| (session, false))
+        .map(|session| (session, false, false))
         .chain(children)
-        .map(|(session, reviewer)| {
+        .map(|(session, reviewer, background)| {
             let parent = fleet.parent_of(&session.machine_id, &session.id);
             SessionRow {
                 parent,
                 reviewer,
+                background,
                 ..SessionRow::from(session)
             }
         })
