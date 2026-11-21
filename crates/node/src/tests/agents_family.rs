@@ -950,3 +950,28 @@ async fn a_prompt_to_a_session_that_ended_resumes_it() {
 
     rig.agents.shutdown().await;
 }
+
+#[tokio::test]
+async fn an_agent_cannot_start_the_hermes_assistant_nor_see_it_listed() {
+    let rig = Rig::new();
+    rig.agents.set_hermes(Some(crate::agents::HermesLink {
+        host: "127.0.0.1".into(),
+        port: 9,
+        token: beep_proto::SecretText::new("placeholder"),
+    }));
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let who = rig.agents.who_of(&parent);
+    let link = rig.agents.link_for(&parent, &who).expect("within limits");
+
+    let refused = rig
+        .agents
+        .start_child(link, start(beep_proto::node::agent::HERMES_GATEWAY, "go", rig.dir.path()))
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        refused,
+        "This machine has no hermes-gateway agent. It has: top, kid."
+    );
+    rig.agents.shutdown().await;
+}

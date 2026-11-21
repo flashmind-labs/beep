@@ -526,11 +526,72 @@ mod harness {
 mod mesh_state {
     use beep_proto::AgentSlug;
     use beep_proto::SecretText;
-    use beep_proto::node::EnvSecret;
     use beep_proto::node::mesh_state::*;
+    use beep_proto::node::{EnvSecret, HermesLogin};
     use iroh::{EndpointId, SecretKey};
     use serde::Serialize;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn assistant_settings_from_before_hermes_read_with_no_connection() {
+        let old = rmp_serde::to_vec(&(
+            Some("claude"),
+            None::<String>,
+            None::<beep_proto::node::agent::Effort>,
+            None::<bool>,
+        ))
+        .unwrap();
+        let read: AssistantSettings = beep_proto::lenient::from_slice(&old).unwrap();
+        assert_eq!(read.hermes, None);
+        assert_eq!(read.agent.as_deref(), Some("claude"));
+    }
+
+    #[test]
+    fn a_hermes_connection_round_trips() {
+        let settings = AssistantSettings {
+            hermes: Some(HermesConnection {
+                machine: SecretKey::generate().public(),
+                host: "127.0.0.1".into(),
+                port: 9119,
+            }),
+            ..Default::default()
+        };
+        let bytes = rmp_serde::to_vec(&settings).unwrap();
+        assert_eq!(
+            beep_proto::lenient::from_slice::<AssistantSettings>(&bytes).unwrap(),
+            settings
+        );
+    }
+
+    #[test]
+    fn a_hermes_credential_prints_no_token_and_round_trips() {
+        let c = Credential::Hermes(HermesLogin {
+            token: SecretText::new("s3cret-token"),
+        });
+        assert!(!format!("{c:?}").contains("s3cret"));
+        assert_eq!(Credential::from_bytes(&c.to_bytes().unwrap()).unwrap(), c);
+    }
+
+    #[test]
+    fn a_node_from_before_hermes_skips_the_credential_it_cannot_read() {
+        // Released nodes read `credential/` entry by entry and keep what decodes.
+        #[derive(Debug, PartialEq, serde::Deserialize)]
+        enum Released {
+            Env(EnvSecret),
+        }
+        let env = Credential::Env(EnvSecret {
+            name: "GH_TOKEN".into(),
+            value: SecretText::new("ghp_example1234"),
+        });
+        let hermes = Credential::Hermes(HermesLogin {
+            token: SecretText::new("s3cret-token"),
+        });
+        let read = |c: &Credential| {
+            beep_proto::lenient::from_slice::<Released>(&c.to_bytes().unwrap()).ok()
+        };
+        assert!(read(&env).is_some());
+        assert_eq!(read(&hermes), None);
+    }
 
     #[test]
     fn ignored_sync_defaults_off_for_released_specs_and_older_readers_skip_the_selection() {
@@ -2424,5 +2485,41 @@ mod plan {
         let bytes = rmp_serde::to_vec(&read).expect("encodes");
         let read: Vec<PlanEntry> = beep_proto::lenient::from_slice(&bytes).expect("decodes");
         assert_eq!((read[0].started_at, read[0].ended_at), (None, None));
+    }
+}
+
+mod hermes_check {
+    use beep_proto::SecretText;
+    use beep_proto::node::agent::{SessionsReply, SessionsRequest};
+    use beep_proto::{CredentialCheck, Service};
+
+    #[test]
+    fn a_hermes_check_and_its_answer_round_trip() {
+        let ask = SessionsRequest::CheckHermes {
+            host: "127.0.0.1".into(),
+            port: 9119,
+            token: SecretText::new("s3cret-token"),
+        };
+        assert!(!format!("{ask:?}").contains("s3cret"));
+        let bytes = rmp_serde::to_vec(&ask).unwrap();
+        assert_eq!(
+            beep_proto::lenient::from_slice::<SessionsRequest>(&bytes).unwrap(),
+            ask
+        );
+
+        let reply = SessionsReply::Checked(CredentialCheck::Valid {
+            account: "Hermes".into(),
+            machine: None,
+        });
+        let bytes = rmp_serde::to_vec(&reply).unwrap();
+        assert_eq!(
+            beep_proto::lenient::from_slice::<SessionsReply>(&bytes).unwrap(),
+            reply
+        );
+    }
+
+    #[test]
+    fn the_hermes_service_has_no_env_var() {
+        assert_eq!(Service::Hermes.env_var(), None);
     }
 }

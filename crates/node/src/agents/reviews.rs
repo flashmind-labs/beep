@@ -105,7 +105,7 @@ impl Agents {
         self: &Arc<Self>,
         order: ReviewOrder,
     ) -> Result<ReviewRun, String> {
-        self.kind_or_refusal(&order.agent)?;
+        self.harness_or_refusal(&order.agent)?;
 
         let (cwd, base, harness) = (order.cwd.clone(), order.base.clone(), order.agent.clone());
         let house = tokio::task::spawn_blocking(move || {

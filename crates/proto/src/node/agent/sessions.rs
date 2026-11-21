@@ -370,6 +370,14 @@ pub enum SessionsRequest {
         epoch: String,
         after: u64,
     },
+    /// Whether the Hermes Agent dashboard at `host:port` accepts `token`,
+    /// asked from this node. Answered with `Checked`; a node from before it
+    /// closes the stream or answers `Error`.
+    CheckHermes {
+        host: String,
+        port: u16,
+        token: crate::SecretText,
+    },
 }
 
 /// One session `SessionsRequest::Search` found.
@@ -607,6 +615,7 @@ impl SessionsRequest {
             | Self::Present { .. }
             | Self::HashFiles { .. }
             | Self::Search { .. }
+            | Self::CheckHermes { .. }
             | Self::Review { .. }
             | Self::Reviews { .. }
             | Self::Processes { .. }
@@ -832,6 +841,9 @@ pub enum SessionsReply {
         rows: Vec<IndexRow>,
         current: bool,
     },
+    /// The answer to `CheckHermes`: `Valid` carries `Hermes` and its
+    /// version when it says one.
+    Checked(crate::CredentialCheck),
 }
 
 /// A CI run the user started (a push or a pull request) that ended, told by
@@ -918,10 +930,21 @@ pub fn protocol(name: &str) -> String {
     format!("{name}/{VERSION}")
 }
 
+/// The agent a node offers for the Home assistant on Hermes. It is no coding
+/// agent: `agent_of` leaves it out.
+pub const HERMES_GATEWAY: &str = "hermes-gateway";
+
 /// The agent a protocol name serves, such as `claude` for `claude/1`.
 pub fn agent_of(protocol: &str) -> Option<&str> {
     let (name, version) = protocol.split_once('/')?;
     (version == VERSION && crate::node::harness::harness(name).is_some()).then_some(name)
+}
+
+/// The agent a node serves on `protocol`: a harness, as `agent_of` says, or
+/// the Home assistant on Hermes. Routing and withholding go by it.
+pub fn served_agent(protocol: &str) -> Option<&str> {
+    agent_of(protocol)
+        .or_else(|| (protocol == self::protocol(HERMES_GATEWAY)).then_some(HERMES_GATEWAY))
 }
 
 /// A step of a move, in order.

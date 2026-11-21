@@ -3,11 +3,12 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { makeStartComposer } from "../agents/start-composer.tsx";
 import { lastAssistantMachine, startAssistant } from "../agents/agentnew.tsx";
 import { AG, loadAgentHosts, type AgentHost } from "../agents/agents.ts";
-import { pillContent } from "../agents/agentpicker.tsx";
-import { ASSISTANT_WORDS, assistantHost, resolveAssistant } from "../agents/assistant-state.ts";
+import { hermesPill, pillContent } from "../agents/agentpicker.tsx";
+import { ASSISTANT_WORDS, HermesUnreachable, assistantHost, resolveAssistant } from "../agents/assistant-state.ts";
 import { loadAssistant, onAssistantSaved } from "../settings/assistant.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { FoundSection } from "../project/outside-lists.tsx";
+import { HermesHelp } from "../agents/start-composer-view.tsx";
 import type { FoundRow } from "../project/projects-state.ts";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
 import { Button } from "../ui/kit.tsx";
@@ -32,7 +33,8 @@ export function HomeAssistant({ found }: { found: FoundRow[] | null }) {
   // Read again when Settings saves the setting.
   useEffect(() => {
     void showHarness();
-    return onAssistantSaved(() => void showHarness());
+    // A Hermes just connected shows in the hosts read after it.
+    return onAssistantSaved(() => void loadAgentHosts().then(showHarness));
   }, []);
 
   const suggest = () => {
@@ -72,7 +74,14 @@ async function agentHosts(): Promise<readonly AgentHost[]> {
 /// Shows the harness, model and thinking level the assistant starts with.
 async function showHarness() {
   const [pick, hosts] = await Promise.all([loadAssistant(), agentHosts()]).catch((e: unknown) => { console.warn("assistant setting:", e); return [null, []] as const; });
-  const resolved = pick && resolveAssistant(pick, hosts);
+  const target = pick && resolveAssistant(pick, hosts);
+  if (target?.kind === "hermes") {
+    composer.update({ harnessDisabled: false });
+    composer.setHarness(hermesPill());
+    return;
+  }
+
+  const resolved = target?.pick ?? null;
   const agent = resolved?.agent ?? null;
   composer.update({ harnessDisabled: !agent });
 
@@ -91,7 +100,7 @@ async function send() {
   if (!text) { composer.update({ invalid: true }); composer.input.focus(); return; }
   if (sending) return;
   sending = true;
-  composer.update({ busy: true, invalid: false, error: "" });
+  composer.update({ busy: true, invalid: false, error: "", notes: null });
 
   try {
     const [pick, hosts] = await Promise.all([loadAssistant(), agentHosts()]);
@@ -99,7 +108,7 @@ async function send() {
     composer.setText("");
     go("pane", { agent: started.session, adopt: true });
   } catch (e) {
-    composer.update({ error: reason(e) });
+    composer.update({ error: reason(e), notes: e instanceof HermesUnreachable ? <HermesHelp open={() => openSettings("assistant")} /> : null });
   } finally {
     sending = false;
     composer.setBusy(false);

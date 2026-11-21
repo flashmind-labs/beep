@@ -29,7 +29,7 @@ import { renderWaiting } from "../bar/waiting.ts";
 import { openAgent, closeOpenSession, submitAgentMessage } from "./session.tsx";
 import { openEditorKey } from "./session-head.tsx";
 import { sessionMenu } from "./sessionmenu.ts";
-import type { AgentQuestion } from "./running-state.ts";
+import { HERMES_AGENT, type AgentQuestion } from "./running-state.ts";
 import { AGENT_ACTIVE, TAKEOVER } from "./sessionmenu-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { jumpToStart, logJumpKey } from "./older.ts";
@@ -106,6 +106,13 @@ export interface AgentHost {
   capabilities: string[];
   /// Its node runs the home assistant: this computer's, or one new enough.
   assistant: boolean;
+  /// It offers the Home assistant on Hermes, which `agents` leaves out.
+  hermes: boolean;
+}
+
+/// The machines that run agents or the assistant on Hermes, online now.
+export async function readAgentHosts(): Promise<AgentHost[]> {
+  return invoke<AgentHost[]>("agent_hosts");
 }
 
 /// One line of a session's log. Only the agent's own and its thoughts
@@ -383,6 +390,7 @@ const AGENT_KINDS: Record<string, AgentKind> = {
   flsh: { ini: "FL", name: "flsh", cls: "flsh" },
   opencode: { ini: "OC", name: "OpenCode", cls: "opencode" },
   hermes: { ini: "HE", name: "Hermes", cls: "hermes" },
+  [HERMES_AGENT]: { ini: "HE", name: "Hermes", cls: "hermes" },
 };
 /// Agents whose outside sessions a node can take over (the ones it reads sessions of).
 export const canTakeOver = (a: string) => TAKEOVER.has(a);
@@ -421,7 +429,7 @@ export async function loadAgentHosts() {
   hostChanges.read("");
 
   try {
-    AG.hosts = await invoke<AgentHost[]>("agent_hosts");
+    AG.hosts = await readAgentHosts();
     preloadModels(AG.hosts);
   } catch {
     AG.hosts = [];

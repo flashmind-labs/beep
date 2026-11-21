@@ -310,3 +310,35 @@ fn a_machine_off_since_a_restart_keeps_when_it_was_seen() {
     );
     assert_eq!(shared.seen_times(), seen);
 }
+
+#[test]
+fn a_node_offering_hermes_hosts_the_assistant_and_no_coding_agent() {
+    use super::{Peer, agent_host};
+    use beep_mesh::Device;
+    use beep_proto::node::agent::{HERMES_GATEWAY, protocol};
+
+    let id = iroh::SecretKey::generate().public();
+    let mut peer = Peer::new(Device {
+        id,
+        name: "gpu-box".into(),
+        kind: DeviceKind::Node,
+        added_at_ms: 0,
+    });
+
+    peer.offers = vec![protocol(HERMES_GATEWAY), "events/1".into()];
+    let alone = agent_host(&peer, |_| false).expect("a host for the assistant");
+    assert!(alone.hermes);
+    assert!(alone.agents.is_empty());
+
+    peer.offers.push(protocol("claude"));
+    let beside = agent_host(&peer, |_| false).expect("a host");
+    assert!(beside.hermes);
+    assert_eq!(beside.agents, ["claude"]);
+
+    peer.offers = vec![protocol("claude")];
+    let without = agent_host(&peer, |_| false).expect("a host");
+    assert!(!without.hermes);
+
+    peer.offers = vec!["events/1".into()];
+    assert_eq!(agent_host(&peer, |_| false), None);
+}

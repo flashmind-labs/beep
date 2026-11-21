@@ -128,6 +128,11 @@ export function NoAgentHelp({ openAgents, openMachines }: NoAgentActions) {
   return <div className="agc-help"><b>No machine has a coding agent yet</b><ol><li>Install Claude Code, Codex or another agent on a machine from Coding agents.</li><li>Or add a machine that has one: install beep-node there and run the <code>beep-node mesh join</code> command from Add a machine.</li></ol><div className="dline wrap"><Button look="primary" onClick={openAgents}>Install a coding agent</Button><Button onClick={openMachines}>Machines settings</Button></div></div>;
 }
 
+/// Hermes did not start: its connection is in Settings > Assistant.
+export function HermesHelp({ open }: { open: () => void }) {
+  return <div className="dline wrap"><Button small onClick={open}>Open Assistant settings</Button></div>;
+}
+
 /// The project is only on `host`, whose coding agents Beep cannot run yet:
 /// why, when known, and the machine's page.
 export function BlockedHelp({ host, open }: { host: { machine_name: string; problem: string | null }; open: () => void }) {

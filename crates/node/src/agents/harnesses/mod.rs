@@ -6,7 +6,7 @@ mod install;
 
 use super::{
     Adapter, AgentKind, KNOWN, flsh_config,
-    kinds::{direct, in_wsl},
+    kinds::{direct, in_wsl, is_hermes},
     models::flsh_dir_of, unix_now,
 };
 use crate::{
@@ -344,11 +344,13 @@ struct Found {
     kind: Option<AgentKind>,
 }
 
-/// The harnesses Beep knows, then any other `kinds` holds.
+/// The harnesses Beep knows, then any other `kinds` holds but the Home
+/// assistant on Hermes, which is no harness.
 fn found(kinds: &[AgentKind]) -> Vec<Found> {
     let known = HARNESSES.iter().map(|harness| harness.agent);
     let extra = kinds
         .iter()
+        .filter(|kind| !is_hermes(kind))
         .map(|kind| kind.name.as_str())
         .filter(|name| harness(name).is_none());
     known

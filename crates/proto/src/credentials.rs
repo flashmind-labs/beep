@@ -8,7 +8,7 @@ use url::Url;
 
 /// What a credential signs in to. The apps read it as `{"kind": "github"}`,
 /// `{"kind": "forgejo", "url": ...}`, `{"kind": "api_key", "provider": ...}` or
-/// `{"kind": "agent", "agent": ...}`; the mesh keeps it as `[op, field]` (`wire`).
+/// `{"kind": "agent", "agent": ...}` or `{"kind": "hermes"}`; the mesh keeps it as `[op, field]` (`wire`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Service {
@@ -24,6 +24,9 @@ pub enum Service {
     Agent {
         agent: AgentAccount,
     },
+    /// The Hermes Agent dashboard token; set in the assistant's settings, never listed with
+    /// the others.
+    Hermes,
 }
 
 impl Service {
@@ -34,6 +37,7 @@ impl Service {
             Self::Forgejo { .. } => None,
             Self::ApiKey { provider } => Some(provider.env_var()),
             Self::Agent { agent } => Some(agent.env_var()),
+            Self::Hermes => None,
         }
     }
 }
@@ -72,6 +76,7 @@ mod wire {
             Service::Forgejo { url } => (1u8, url.as_ref()).serialize(s),
             Service::ApiKey { provider } => (2u8, provider.to_string()).serialize(s),
             Service::Agent { agent } => (3u8, agent.as_ref()).serialize(s),
+            Service::Hermes => (4u8,).serialize(s),
         }
     }
 
@@ -93,6 +98,7 @@ mod wire {
             3 => Ok(Service::Agent {
                 agent: text()?.parse().map_err(D::Error::custom)?,
             }),
+            4 => Ok(Service::Hermes),
             other => Err(D::Error::custom(format!("unknown service {other}"))),
         }
     }

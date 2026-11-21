@@ -298,3 +298,24 @@ fn the_prompt_names_the_base_and_the_tool() {
     );
     assert!(with.contains("defined in .codex/agents/reviewer.toml"));
 }
+
+#[tokio::test]
+async fn no_review_runs_on_the_hermes_assistant() {
+    let rig = Rig::new();
+    rig.agents.set_hermes(Some(crate::agents::HermesLink {
+        host: "127.0.0.1".into(),
+        port: 9,
+        token: beep_proto::SecretText::new("placeholder"),
+    }));
+    let order = ReviewOrder {
+        agent: beep_proto::node::agent::HERMES_GATEWAY.into(),
+        ..rig.order("", None)
+    };
+
+    let refused = rig.agents.start_review(order).await.unwrap_err();
+
+    assert_eq!(
+        refused,
+        "This machine has no hermes-gateway agent. It has: top, kid."
+    );
+}

@@ -479,6 +479,8 @@ pub fn run() {
             settings::skill_libraries::skill_libraries_problems,
             settings::assistant::assistant_settings_get,
             settings::assistant::assistant_settings_save,
+            settings::assistant::hermes_connect,
+            settings::assistant::hermes_disconnect,
             settings::skill_sync::skill_sync_get,
             settings::skill_sync::skill_sync_set,
             settings::skill_sync::project_sync_get,

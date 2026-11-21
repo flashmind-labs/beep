@@ -187,10 +187,17 @@ impl Agents {
         }
     }
 
-    /// The agents this node offers and how their adapters stand, for
-    /// `beep-node status`.
+    /// The coding agents this node offers and how their adapters stand, for
+    /// `beep-node status`. The Home assistant on Hermes is no coding agent.
     pub(crate) fn agent_report(&self) -> Vec<Agent> {
-        self.adapters.report(&self.kinds())
+        let kinds: Vec<AgentKind> = self
+            .kinds()
+            .iter()
+            .filter(|kind| !kinds::is_hermes(kind))
+            .cloned()
+            .collect();
+
+        self.adapters.report(&kinds)
     }
 
     /// The adapters on their way or failed, for `EnvReport::adapters`.

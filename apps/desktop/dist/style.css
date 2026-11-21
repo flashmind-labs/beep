@@ -183,6 +183,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dtoggle small { font-size: 12px; color: var(--muted) }
 /* Stacked settings rows: room between one row's text and the next title. */
 .dtoggle + .dtoggle { margin-top: 10px }
+.dhermes { margin: 8px 0 2px }
+.dhermes .hv-in { width: auto; flex: 1 1 140px }
+.dhermes .hv-in.port { flex: 0 0 76px }
 .dsec.flat { padding: 0; border: 0 }
 
 .dmach small { font-size: 12px; color: var(--muted); line-height: 17px }
@@ -902,8 +905,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .cc-ag.mark, .dcoderav.mark { padding: 0 }
 .cc-ag.mark svg, .dcoderav.mark svg { width: 58%; height: 58%; display: block }
 /* Hermes's mark is its whole app icon, so it fills the tile. */
-.hermes.mark { overflow: hidden }
-.hermes.mark svg, .dcoderav.hermes.mark svg { width: 100%; height: 100% }
+.hermes.mark, .hermes-gateway.mark { overflow: hidden }
+.hermes.mark svg, .hermes-gateway.mark svg, .dcoderav.hermes.mark svg { width: 100%; height: 100% }
 .agkeys.away { visibility: hidden }
 /* Composers (chat/compose.ts): a long paste is a pill, the part sent as code
    has a dim outline. Both are drawn on a layer behind the field's own text. */

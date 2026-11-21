@@ -73,7 +73,7 @@ const HOSTS_MS = 30_000;
 function readHosts(done: () => void) {
   if (hosts && Date.now() - hostsAsked < HOSTS_MS) return;
   hostsAsked = Date.now();
-  invoke<AgentHost[]>("agent_hosts")
+  import("../agents/agents.ts").then(agents => agents.readAgentHosts())
     .then(list => { ({ hosts, failed: hostsFailed } = hostsAfterRead(hosts, list)); void picker().then(p => p.preloadModels(list)); done(); })
     .catch(e => { console.warn("agent hosts:", e); ({ hosts, failed: hostsFailed } = hostsAfterRead(hosts, null)); done(); });
 }

@@ -1,7 +1,8 @@
 //! The agents a node knows how to start, and how it starts them.
 
 use super::{Route, adapters, locate};
-use beep_proto::ModelId;
+use beep_proto::node::agent::HERMES_GATEWAY;
+use beep_proto::{ModelId, SecretText};
 use beep_proto::node::harness::{AutoCompact, ModelCompact};
 use serde::{Deserialize, Serialize};
 use crate::machine::wsl::{DistroName, LinuxPath};
@@ -100,6 +101,12 @@ pub enum Bridge {
     Codex { wsl: Option<DistroName> },
     /// An ACP agent in the WSL distribution `wsl`, its paths turned across.
     Relay { wsl: DistroName },
+    /// Hermes Agent's dashboard on `host` and `port`, which takes `token`.
+    Hermes {
+        host: String,
+        port: u16,
+        token: SecretText,
+    },
 }
 
 impl Bridge {
@@ -108,8 +115,41 @@ impl Bridge {
         match self {
             Self::Claude { wsl, .. } | Self::Codex { wsl } => wsl.as_ref(),
             Self::Relay { wsl } => Some(wsl),
+            Self::Hermes { .. } => None,
         }
     }
+}
+
+/// Where this machine reaches the Hermes Agent the Home assistant runs on,
+/// as the mesh's assistant settings and Hermes credential say. It stays on
+/// the node: it never crosses a wire.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HermesLink {
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    pub(crate) token: SecretText,
+}
+
+/// The hidden agent that runs the Home assistant on Hermes: offered, so the
+/// desktop can start it, but no harness.
+impl From<HermesLink> for AgentKind {
+    fn from(HermesLink { host, port, token }: HermesLink) -> Self {
+        Self {
+            name: HERMES_GATEWAY.to_owned(),
+            program: HERMES_GATEWAY.to_owned(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            compact: None,
+            compact_models: Vec::new(),
+            default_model: None,
+            bridge: Some(Bridge::Hermes { host, port, token }),
+        }
+    }
+}
+
+/// `kind` is the Home assistant on Hermes.
+pub(super) fn is_hermes(kind: &AgentKind) -> bool {
+    matches!(kind.bridge, Some(Bridge::Hermes { .. }))
 }
 
 /// `kind` runs inside WSL, which only this node can start: its program and

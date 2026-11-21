@@ -9,7 +9,7 @@ const SETTINGS_PAGES = [
   ["mac", "This computer", "control screen recording accessibility"],
   ["machines", "Machines", "nodes devices"],
   ["agents", "Agent accounts", "login sign in models coding agents"],
-  ["assistant", "Assistant", ""],
+  ["assistant", "Assistant", "hermes harness"],
   ["creds", "Credentials", "tokens keys api github forgejo gitea secrets"],
   ["instr", "Instructions", "agents.md claude.md prompt rules"],
   ["skills", "Skills", ""],

@@ -29,7 +29,7 @@ import type { Machine } from "../machines/machines.tsx";
 import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, machineRows, type MachineRow, startPlace } from "../agents/agentpick.ts";
 import { BlockedHelp, NoAgentHelp } from "../agents/start-composer-view.tsx";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent, preloadModels } from "../agents/agentpicker.tsx";
-import { AG, accountsOf, type AgentHost, agentKind, loadAccountNames } from "../agents/agents.ts";
+import { AG, accountsOf, type AgentHost, agentKind, loadAccountNames, readAgentHosts } from "../agents/agents.ts";
 import { draftPlace } from "../agents/draft.tsx";
 import { S } from "../bar/core.ts";
 import { ensureSessions, sessions } from "../agents/sessions.ts";
@@ -217,7 +217,7 @@ export function barOn(name: string) {
 const hostsRead = latest();
 async function readProjectHosts() {
   try {
-    const read = await hostsRead.run(Promise.all([invoke<AgentHost[]>("agent_hosts"), invoke<Machine[] | null>("list_machines").catch((e: unknown) => { console.warn("machines for the bar:", e); return null; })]));
+    const read = await hostsRead.run(Promise.all([readAgentHosts(), invoke<Machine[] | null>("list_machines").catch((e: unknown) => { console.warn("machines for the bar:", e); return null; })]));
     if (read === STALE) return;
     const [list, machines] = read;
     pc.hosts = list;
@@ -410,7 +410,7 @@ export function issueStartPlan(entries: readonly StartEntry[]) {
 
 /// Reads the machines when no project's bar has.
 export async function loadStartHosts() {
-  pc.hosts ??= await invoke<AgentHost[]>("agent_hosts");
+  pc.hosts ??= await readAgentHosts();
 }
 
 /// Starts one agent per row, one at a time in a new worktree each, waiting

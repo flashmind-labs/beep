@@ -97,14 +97,12 @@ pub(crate) async fn answer(agents: &Agents, request: &Request) -> Reply {
         Ok(args) => args,
         Err(e) => return failed(e),
     };
+    if let Err(refused) = agents.harness_or_refusal(&args.harness) {
+        return failed(refused);
+    }
+
     let Some(models) = agents.models(&args.harness).await else {
-        let kinds = agents.kinds();
-        let names: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
-        return failed(format!(
-            "This machine has no {} agent. It has: {}.",
-            args.harness,
-            names.join(", ")
-        ));
+        return failed(agents.no_agent(&args.harness));
     };
 
     match serde_json::to_string(&HarnessInfo::new(args.harness, models)) {

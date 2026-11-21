@@ -248,3 +248,14 @@ body.cbody
                       button [data-age="max" type="button"] "Max"
                       button.on [data-age="ultra" type="button"] "Ultra"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+              div#hermesSetting.dtoggle
+                span
+                  b "Connect Hermes"
+                  small "Runs the assistant on a Hermes Agent instead"
+                  div.dhermes.dline.wrap
+                    select.hv-in [aria-label="Machine" disabled] value=""
+                      option [value] "No machine online"
+                    input.hv-in [aria-label="Host" autocomplete="off" placeholder="Host" spellcheck="false" value="127.0.0.1"] value="127.0.0.1"
+                    input.hv-in.port [aria-label="Port" autocomplete="off" inputmode="numeric" placeholder="Port" spellcheck="false" value="9119"] value="9119"
+                    input.hv-in [aria-label="Token" autocomplete="off" placeholder="Token" spellcheck="false" type="password" value] value=""
+                button.dbtn.pri [disabled type="button"] "Connect"

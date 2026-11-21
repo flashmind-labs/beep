@@ -2,6 +2,7 @@
 // strings for the code that still builds HTML strings. Convert a view to
 // `<Icon>` and drop the string it used once nothing else reads it.
 import { cloneElement, type ReactElement } from "react";
+import { HERMES_AGENT } from "../agents/running-state.ts";
 
 /// Every icon a React view draws, by name.
 const ICONS = {
@@ -93,6 +94,9 @@ export function HarnessIcon({ agent, className = "cc-ag", title }: { agent: stri
   return <span className={cls} title={title}>{mark ?? String(agent || "?").slice(0, 2).toUpperCase()}</span>;
 }
 
+/// Hermes's app icon, for the Hermes harness and the Home assistant on Hermes alike.
+const HERMES_MARK = <svg aria-hidden="true" viewBox="0 0 96 96"><image href="hermes.png" width="96" height="96"/></svg>;
+
 /// The mark of harness `agent`, or null when it has none.
 export function harnessMark(agent: string): ReactElement | null {
   return Object.hasOwn(MARKS, agent) ? MARKS[agent] : null;
@@ -107,7 +111,8 @@ const MARKS: Record<string, ReactElement> = {
   gemini: <svg aria-hidden="true" viewBox="0 0 24 24"><path fill="#8E9CF5" d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg>,
   pi: <svg aria-hidden="true" viewBox="0 0 24 24"><path fill="currentColor" fillRule="evenodd" d="M3 2h13v3h3v8h-3v3H9v6H3zM9 7v4h5V7zM17 18h4v4h-4z"/></svg>,
   flsh: <svg aria-hidden="true" viewBox="0 0 28 28"><path fill="currentColor" d="M14 1 27 27h-3.1L15.4 10v17h-2.8V10L4.1 27H1Z"/></svg>,
-  hermes: <svg aria-hidden="true" viewBox="0 0 96 96"><image href="hermes.png" width="96" height="96"/></svg>,
+  hermes: HERMES_MARK,
+  [HERMES_AGENT]: HERMES_MARK,
   opencode: <svg aria-hidden="true" viewBox="96 96 320 320"><path fill="#5A5858" d="M320 224v128H192V224z"/><path fill="#F1ECEC" fillRule="evenodd" d="M384 416H128V96h256zM320 160H192v192h128z"/></svg>,
 };
 

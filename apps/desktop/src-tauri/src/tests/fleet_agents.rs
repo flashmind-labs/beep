@@ -8,6 +8,7 @@ fn host(name: &str) -> AgentHost {
         workspace: None,
         home: None,
         capabilities: Vec::new(),
+        hermes: false,
     }
 }
 
@@ -46,4 +47,36 @@ fn the_assistant_prefers_this_computer_when_it_offers_the_harness() {
     );
     assert_eq!(this_computer(&hosts, "this-box", Some("codex")), None);
     assert_eq!(this_computer(&hosts[..1], "this-box", Some("claude")), None);
+}
+
+#[test]
+fn hermes_starts_only_as_the_assistant_on_a_machine_that_offers_it() {
+    let hermes = Some(HERMES_GATEWAY);
+    let offering = AgentHost {
+        agents: Vec::new(),
+        hermes: true,
+        ..host("gpu-box")
+    };
+
+    assert_eq!(
+        start_agent(&offering, hermes, true).unwrap(),
+        HERMES_GATEWAY
+    );
+    assert_eq!(
+        start_agent(&offering, hermes, false)
+            .unwrap_err()
+            .to_string(),
+        "Hermes runs only as the Home assistant."
+    );
+    assert!(
+        start_agent(&host("build-box"), hermes, true)
+            .unwrap_err()
+            .to_string()
+            .ends_with("build-box does not offer Hermes.")
+    );
+    assert_eq!(
+        start_agent(&host("build-box"), None, false).unwrap(),
+        "claude"
+    );
+    assert!(start_agent(&offering, None, true).is_err());
 }

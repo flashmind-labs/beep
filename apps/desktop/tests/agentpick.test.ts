@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentModels } from "../src/agents/agentmodels.ts";
-import { harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, startPlace } from "../src/agents/agentpick.ts";
+import { harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, modelRows, startPlace } from "../src/agents/agentpick.ts";
 
 const ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 
@@ -144,4 +144,11 @@ test("a search names a model, a thinking level and a harness, subscription harne
   assert.deepEqual(rows("pi opus 5.5 h"), ["pi/anthropic/claude-opus-5-5", "pi/anthropic/claude-opus-5-5 high"], "a word in the model also reads as a level");
   assert.ok(searchRows([{ agent: "claude", list: claude }], modelSearch("opus h", offered)).rows.some(r => r.label === "Opus 5.5 · High"));
   assert.deepEqual(rows("claude opus 5-5"), ["claude/opus", "claude/"], "a version matches with any separator");
+});
+
+test("a machine that offers only the assistant on Hermes is no coding agent's machine", () => {
+  const hosts = [{ machine_id: "gpu-box", machine_name: "gpu-box", agents: [] }, { machine_id: "build-box", machine_name: "build-box", agents: ["claude"] }];
+  const known = [{ id: "gpu-box", name: "gpu-box", online: true }, { id: "build-box", name: "build-box", online: true }];
+  const rows = machineRows(hosts, known, agent => agent, ["claude"]);
+  assert.deepEqual(rows.map(row => [row.id, row.enabled, row.note]), [["build-box", true, "claude"], ["gpu-box", false, "no coding agent"]]);
 });

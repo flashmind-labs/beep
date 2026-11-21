@@ -512,13 +512,24 @@ test("settings instructions", async ({ page }) => {
 });
 
 test("settings assistant", async ({ page }) => {
-  await openDesktop(page, false, { ...settingsResponses, assistant_settings_get: { agent: null, model: null, effort: null, fast: null }, mac_control: { id: "build-box" }, agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["claude", "codex"], workspace: null, home: "/srv", capabilities: [], assistant: true }], agent_models: { pick: "listed", current: null, models: [{ id: "model-a", name: "Example Model A", description: null, provider: null }, { id: "model-b", name: "Example Model B", description: null, provider: null }] } });
+  await openDesktop(page, false, { ...settingsResponses, list_machines: [machine("build-box", "build-box", true, 0), machine("test-box", "test-box", false, 0), { ...machine("phone", "Phone", true, 0), can_host: false }], assistant_settings_get: { agent: null, model: null, effort: null, fast: null, hermes: null }, mac_control: { id: "build-box" }, agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["claude", "codex"], workspace: null, home: "/srv", capabilities: [], assistant: true, hermes: true }], agent_models: { pick: "listed", current: null, models: [{ id: "model-a", name: "Example Model A", description: null, provider: null }, { id: "model-b", name: "Example Model B", description: null, provider: null }] } });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Settings" });
   await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
   await dialog.locator("#assistantSetting").getByRole("button").click();
   await expect(page.getByRole("dialog", { name: "Harness, model and thinking" }).getByText("Example Model B")).toBeVisible();
   await baseline(page, "settings-assistant");
+});
+
+test("settings assistant on hermes", async ({ page }) => {
+  const hermes = { machine: "build-box", machine_name: "build-box", host: "127.0.0.1", port: 9119, last4: "a1b2" };
+  await openDesktop(page, false, { ...settingsResponses, assistant_settings_get: { agent: "codex", model: null, effort: null, fast: null, hermes } });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
+  await expect(dialog.getByText("Hermes on build-box · 127.0.0.1:9119 · token …a1b2")).toBeVisible();
+  await expect(dialog.locator("#assistantSetting")).toHaveCount(0);
+  await baseline(page, "settings-assistant-hermes");
 });
 
 test("settings claude code", async ({ page }) => {

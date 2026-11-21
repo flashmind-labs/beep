@@ -1,8 +1,9 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use super::{
-    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, Prompt, Session, Start, checkout,
-    harnesses,
+    AgentKind, Agents, Answered, Asking, Command, HermesLink, MAX_KEPT, Prompt, Session, Start,
+    checkout, harnesses,
+    kinds::is_hermes,
     live::{Live, Sent},
     models, plans,
 };
@@ -480,10 +481,11 @@ impl Agents {
         offers
     }
 
-    /// The agent `protocol` names, when this node has it.
+    /// The agent `protocol` names, when this node has it and serves it: a
+    /// harness or the Home assistant on Hermes. Other agents `node.toml`
+    /// names are offered but not served.
     pub fn kind(&self, protocol: &str) -> Option<AgentKind> {
-        let name = agent::agent_of(protocol)?;
-        self.named(name)
+        self.named(agent::served_agent(protocol)?)
     }
 
     /// The agent called `name`, when this node has it.
@@ -493,19 +495,32 @@ impl Agents {
 
     /// The agent called `name`, or why this node cannot start it.
     pub(super) fn kind_or_refusal(&self, name: &str) -> Result<AgentKind, String> {
-        let kinds = self.kinds();
+        self.named(name).ok_or_else(|| self.no_agent(name))
+    }
 
-        kinds
+    /// The coding agent called `name` that another agent may start, or why
+    /// it may not. The Home assistant on Hermes is the user's alone: to
+    /// agents this node has no such agent.
+    pub(super) fn harness_or_refusal(&self, name: &str) -> Result<AgentKind, String> {
+        self.named(name)
+            .filter(|kind| !is_hermes(kind))
+            .ok_or_else(|| self.no_agent(name))
+    }
+
+    /// This node has no agent `name`: what it has instead, the Home
+    /// assistant on Hermes left out.
+    pub(super) fn no_agent(&self, name: &str) -> String {
+        let kinds = self.kinds();
+        let have: Vec<&str> = kinds
             .iter()
-            .find(|kind| kind.name == name)
-            .cloned()
-            .ok_or_else(|| {
-                let have: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
-                format!(
-                    "This machine has no {name} agent. It has: {}.",
-                    have.join(", ")
-                )
-            })
+            .filter(|kind| !is_hermes(kind))
+            .map(|kind| kind.name.as_str())
+            .collect();
+
+        format!(
+            "This machine has no {name} agent. It has: {}.",
+            have.join(", ")
+        )
     }
 
     /// The agents this node can start now.
@@ -513,9 +528,28 @@ impl Agents {
         watched::read_sent(&self.kinds, Clone::clone)
     }
 
-    /// Takes the agents a new detection found, when they differ.
+    /// Takes the agents a new detection found, when they differ. The Home
+    /// assistant on Hermes comes from the mesh, not from detection: it stays.
     pub(super) fn set_kinds(&self, kinds: Vec<AgentKind>) {
+        self.replace_kinds(|current| {
+            let hermes = current.iter().find(|kind| is_hermes(kind)).cloned();
+            kinds.into_iter().chain(hermes).collect()
+        });
+    }
+
+    /// Offers the Home assistant on Hermes at `link`, or no longer.
+    pub(crate) fn set_hermes(&self, link: Option<HermesLink>) {
+        self.replace_kinds(|current| {
+            let detected = current.iter().filter(|kind| !is_hermes(kind)).cloned();
+            detected.chain(link.map(AgentKind::from)).collect()
+        });
+    }
+
+    /// Takes the agents `replace` makes of the ones now, when they differ.
+    fn replace_kinds(&self, replace: impl FnOnce(&[AgentKind]) -> Vec<AgentKind>) {
         let changed = self.kinds.send_if_modified(|current| {
+            let kinds = replace(current);
+
             if **current == kinds {
                 return false;
             }
@@ -667,6 +701,10 @@ impl Agents {
             "Git sync is preserving local edits in this checkout; try starting the session again shortly."
         );
         let assistant = begin.assistant;
+        // Hermes runs on its own host and keeps its own prompt: it cannot
+        // start this node's MCP servers, and Beep's brief, rules and skills
+        // name tools and paths it does not have.
+        let hermes = is_hermes(kind);
         // A reviewer changes nothing, so it needs no git rule.
         let rule = super::session::standing(
             crate::lock(&self.instructions)
@@ -748,13 +786,18 @@ impl Agents {
             follows: begin.follows,
             note: begin.note,
             worktrees: begin.worktrees,
-            brief,
-            rule,
+            brief: brief.filter(|_| !hermes),
+            rule: rule.filter(|_| !hermes),
             skills: self
                 .skills_dir
                 .get()
+                .filter(|_| !hermes)
                 .and_then(|dir| crate::machine::provision::skills_brief(dir)),
-            mcp: self.mcp.get().map(|launch| launch.server(&id)),
+            mcp: self
+                .mcp
+                .get()
+                .filter(|_| !hermes)
+                .map(|launch| launch.server(&id)),
             assistant,
             account: begin.account,
             images: self.images.clone(),

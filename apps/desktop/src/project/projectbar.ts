@@ -68,7 +68,7 @@ interface ListedMachine {
 /// or installing, but are not among the `hosts` that run one.
 export function blockedHosts(machines: readonly ListedMachine[], hosts: readonly BarHost[]): BlockedHost[] {
   return machines
-    .filter(m => m.online && !hosts.some(h => h.machine_id === m.id))
+    .filter(m => m.online && !addHosts(hosts).some(h => h.machine_id === m.id))
     .filter(m => (m.adapters ?? []).length > 0 || (m.env?.tools ?? []).some(t => isCoder(t.name)))
     .map(m => {
       const adapter = (m.adapters ?? []).find(a => a.failed !== null) ?? m.adapters?.[0];

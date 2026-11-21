@@ -29,8 +29,9 @@ use tracing_subscriber::{
 /// Starts logging with `default_filter` unless `RUST_LOG` is set: to stderr
 /// when `stderr`, and to `file` when given.
 pub fn start(default_filter: &str, stderr: bool, file: Option<RollingFile>) -> Result<()> {
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
+    let filter = capped(
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter)),
+    );
     let stderr = stderr.then(|| {
         tracing_subscriber::fmt::layer()
             .event_format(TextLayout)
@@ -49,6 +50,18 @@ pub fn start(default_filter: &str, stderr: bool, file: Option<RollingFile>) -> R
         .with(file)
         .try_init()
         .context("starting the log")
+}
+
+/// Targets held at `info` whatever `RUST_LOG` says: tungstenite's trace
+/// logs a WebSocket handshake's URL, whose query can carry a token.
+const CAPPED: [&str; 2] = ["tungstenite=info", "tokio_tungstenite=info"];
+
+/// `filter` with the `CAPPED` targets held at `info`.
+fn capped(filter: EnvFilter) -> EnvFilter {
+    CAPPED
+        .iter()
+        .filter_map(|directive| directive.parse().ok())
+        .fold(filter, EnvFilter::add_directive)
 }
 
 /// `2026-11-03T14:30:59.238909Z   INFO beep_node::link: link.rs:10 connected`.

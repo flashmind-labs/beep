@@ -8,6 +8,7 @@
 //! the device list applies what differs from what was applied before.
 
 use crate::{
+    agents::HermesLink,
     link::Offers,
     link::watchdog::{self, Step},
 };
@@ -19,8 +20,8 @@ use beep_proto::{
         MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
         mesh_state::{
-            Credential, Place, ProjectRecord, ProjectSyncSettings, SavedVersion, StateValue,
-            SyncSpec,
+            AssistantSettings, Credential, Place, ProjectRecord, ProjectSyncSettings,
+            SavedVersion, StateValue, SyncSpec,
         },
         sync::{Project, ignored_project},
     },
@@ -190,8 +191,10 @@ struct Applied {
 
 impl Applied {
     async fn apply(&mut self, mesh: &Mesh, me: EndpointId, offers: &Offers) {
+        let stored = stored(mesh);
+
         if let Some(provision) = &offers.provision {
-            let credentials = credentials(mesh);
+            let credentials = credentials(&stored);
 
             if self.credentials.as_ref() != Some(&credentials) {
                 provision.apply(credentials.clone()).await;
@@ -204,6 +207,9 @@ impl Applied {
         }
 
         offers.agents.set_instructions(instructions(mesh));
+        // Before the settings arrive, so a Hermes session held over a restart
+        // finds its agent.
+        offers.agents.set_hermes(hermes(mesh, me, &stored));
 
         let settings = settings(mesh);
 
@@ -296,26 +302,54 @@ fn read<T: StateValue>(mesh: &Mesh, prefix: &str) -> Vec<(Key, T)> {
 
 /// The base URLs of the Forgejo and Gitea servers the mesh holds logins for.
 pub(crate) fn forgejo_servers(mesh: &Mesh) -> Vec<String> {
-    credentials(mesh)
+    credentials(&stored(mesh))
         .forgejo
         .into_iter()
         .map(|login| login.url)
         .collect()
 }
 
-/// The credentials the node uses.
-fn credentials(mesh: &Mesh) -> MachineCredentials {
+/// The credentials the mesh holds.
+fn stored(mesh: &Mesh) -> Vec<Credential> {
+    read(mesh, "credential/")
+        .into_iter()
+        .map(|(_, credential)| credential)
+        .collect()
+}
+
+/// The credentials the node uses, of those `stored`.
+fn credentials(stored: &[Credential]) -> MachineCredentials {
     let mut out = MachineCredentials::default();
 
-    for (_, credential) in read::<Credential>(mesh, "credential/") {
+    for credential in stored {
         match credential {
-            Credential::Env(secret) => out.env.push(secret),
-            Credential::Forgejo(login) => out.forgejo.push(login),
-            Credential::Agent(login) => out.agents.push(login),
+            Credential::Env(secret) => out.env.push(secret.clone()),
+            Credential::Forgejo(login) => out.forgejo.push(login.clone()),
+            Credential::Agent(login) => out.agents.push(login.clone()),
+            // The Hermes token is for the assistant's bridge (`hermes`), not
+            // for processes.
+            Credential::Hermes(_) => {}
         }
     }
 
     out
+}
+
+/// Where this machine reaches Hermes, when the assistant's settings name it
+/// and `stored` holds Hermes's token.
+fn hermes(mesh: &Mesh, me: EndpointId, stored: &[Credential]) -> Option<HermesLink> {
+    let assistant = AssistantSettings::from_bytes(&mesh.get(&Key::Assistant)?).ok()?;
+    let connection = assistant.hermes.filter(|connection| connection.machine == me)?;
+    let token = stored.iter().find_map(|credential| match credential {
+        Credential::Hermes(login) => Some(login.token.clone()),
+        _ => None,
+    })?;
+
+    Some(HermesLink {
+        host: connection.host,
+        port: connection.port,
+        token,
+    })
 }
 
 fn settings(mesh: &Mesh) -> AgentSettings {

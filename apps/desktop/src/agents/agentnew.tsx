@@ -7,15 +7,16 @@ import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { startAttachments } from "./start-attachments.tsx";
 import { makeStartComposer, type StartComposer } from "./start-composer.tsx";
 import { menuPlaceFor } from "./mentionmenu.ts";
-import { FolderChoice, NewAgentNotes } from "./start-composer-view.tsx";
+import { FolderChoice, HermesHelp, NewAgentNotes } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { AccountChoice, BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
-import { AG, accountsOf, agentKind, type AgentHost, hostChanges, loadAccountNames, loadAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
-import { ASSISTANT_WORDS, TASK_WORDS, assistantHost, resolveAssistant } from "./assistant-state.ts";
-import { loadAssistant, type AssistantPick } from "../settings/assistant.ts";
+import { AG, accountsOf, agentKind, type AgentHost, hostChanges, loadAccountNames, loadAgentHosts, readAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
+import { HERMES_AGENT } from "./running-state.ts";
+import { ASSISTANT_WORDS, HermesUnreachable, TASK_WORDS, assistantHost, hermesMachine, resolveAssistant, resolveHarness } from "./assistant-state.ts";
+import { loadAssistant, type AssistantSetting } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks, startedWith } from "./session.tsx";
-import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.tsx";
+import { closedPicker, drawPicker as drawPickerIn, focusSearch, hermesPill, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.tsx";
 import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, baseRows, type CheckoutPick, type CheckoutPlan, DEFAULT_CHECKOUT, folderPill, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, startPlace, tildePath } from "./agentpick.ts";
 import { type AgentReturn, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
@@ -115,6 +116,7 @@ export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: Agen
     : { prompt, assistant, machine: at?.machine || lastMachine(at?.project), machinePicked: false, agent: null, cwd: at?.cwd || "", places: at?.places, project: at?.project ?? null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
   if (assistant) presetAssistant(); else restoreProjectPick();
   AG.error = "";
+  hermesDown = false;
   AG.busy = false;
   drawFrame();
   composer?.input.focus();
@@ -196,8 +198,11 @@ function drawParts() {
 
   // With no machine picked, or one that no longer runs agents: the project's
   // first machine with a checkout and an agent, else the first with an agent.
-  // The assistant's is the one it last ran on, else the first that offers its harness.
-  if (AG.hosts && !formHost()) {
+  // The assistant's is the one it last ran on, else the first that offers its harness; on
+  // Hermes, Hermes's own.
+  const hermes = formHermes();
+  if (hermes) f.machine = hermes.machine;
+  else if (AG.hosts && !formHost()) {
     const harness = f.assistant ? formPick()?.agent ?? null : null;
     const offering = harness ? assistantHost(addHosts(AG.hosts), lastAssistantMachine(), harness) : null;
     f.machine = offering?.machine_id || (f.places && barPlace(f.places, AG.hosts, "")?.machine_id) || addHosts(AG.hosts)[0]?.machine_id || "";
@@ -227,16 +232,19 @@ function drawParts() {
   drawPill(c, none);
   drawPicker(c);
   drawUnder(c);
-  c.update({ notes: <NewAgentNotes waiting={!AG.hosts} none={none} noMachine={!f.machine && !!AG.hosts?.length} openAgents={openAgents} openMachines={openMachines} /> });
+  c.update({ notes: <><NewAgentNotes waiting={!AG.hosts} none={none && !hermes} noMachine={!f.machine && !!AG.hosts?.length} openAgents={openAgents} openMachines={openMachines} />{hermesDown && <HermesHelp open={openAssistantSettings} />}</> });
 }
 
 export function openMachines() { void import("../machines/machines.tsx").then(m => m.renderMachines()); }
 /// Opens machine `id`'s page in Settings.
 export function openMachine(id: string) { void import("../settings/sheet.ts").then(m => m.openMachineSettings(id)); }
 export function openAgents() { void import("../center/views.tsx").then(v => v.go("providers")); }
+function openAssistantSettings() { void import("../settings/sheet.ts").then(m => m.openSettings("assistant")); }
 
 function drawPill(c: StartComposer, none: boolean) {
   const f = AG.form;
+  // Hermes picks its own model: nothing to pick here.
+  if (formHermes()) { c.update({ harnessDisabled: true }); c.setHarness(hermesPill()); return; }
   c.update({ harnessDisabled: none || !f.agent });
   c.setHarness(none || !f.agent ? "No agent" : pillContent(f.agent, f.model ?? "", f.effort ?? null, f.modelFor ? f.machine || null : null));
 }
@@ -562,7 +570,14 @@ function restoreProjectPick() {
 }
 
 /// The assistant setting, once read for the form open now; null until then.
-let assistantPick: AssistantPick | null = null;
+let assistantPick: AssistantSetting | null = null;
+/// The last start failed as Hermes was not reachable: the form offers its settings.
+let hermesDown = false;
+
+/// The Hermes connection the assistant form starts on; null for a coding agent's form or a harness.
+function formHermes() {
+  return AG.form.assistant ? assistantPick?.hermes ?? null : null;
+}
 
 /// Presets the form to the assistant setting once it is read.
 function presetAssistant() {
@@ -587,7 +602,7 @@ function formPick(): { agent: string | null; model: string; effort: string | nul
   const f = AG.form;
   if (!f.assistant) return lastProjectPick(f.project ?? null);
   if (!assistantPick || !AG.hosts) return null;
-  const pick = resolveAssistant(assistantPick, AG.hosts);
+  const pick = resolveHarness(assistantPick, AG.hosts);
   return { ...pick, model: pick.model ?? "" };
 }
 
@@ -615,6 +630,7 @@ export async function startAgent() {
   if (!f.machine) { f.open = "host"; return drawParts(); }
   AG.busy = true;
   AG.error = "";
+  hermesDown = false;
   f.open = null;
   drawParts();
 
@@ -634,7 +650,7 @@ export async function startAgent() {
     if (attachments.files.pending.length) composer?.update({ progress: "Starting the agent…" });
     const images = attachments.images.map(sentImage);
     const started = f.assistant
-      ? await startAssistant(prompt, { agent: f.agent, model, effort, fast: f.fast ?? null }, AG.hosts ?? [], f.machinePicked ? f.machine : null, images)
+      ? await startAssistant(prompt, { agent: f.agent, model, effort, fast: f.fast ?? null, hermes: (assistantPick ?? await loadAssistant()).hermes }, AG.hosts ?? [], f.machinePicked ? f.machine : null, images)
       : await start({ machine: f.machine, agent: f.agent, cwd: cwd || null, prompt, images, model, effort, fast: f.agent === "codex" ? f.fast ?? null : null, checkout, assistant: false, account: formAccount() });
     attachments.clear();
     AG.busy = false;
@@ -646,17 +662,27 @@ export async function startAgent() {
     AG.busy = false;
     composer?.update({ progress: "" });
     AG.error = String(e).replace(/^bad request: /, "");
+    hermesDown = e instanceof HermesUnreachable;
     if (S.view === "agentnew") drawParts();
   }
 }
 
-/// Starts the Home assistant in a machine's home folder with `pick`, the
-/// setting as `loadAssistant` reads it, resolved against `hosts`: on `machine`
-/// when the user picked one, else on the one it last ran on while that offers
-/// the harness, else on the one Auto picks, this computer first. Remembers
-/// where it ran.
-export async function startAssistant(prompt: string, pick: AssistantPick, hosts: readonly AgentHost[], machine: string | null, images: readonly SentImage[] = []): Promise<Started> {
-  const resolved = resolveAssistant(pick, hosts);
+/// Starts the Home assistant with `setting`, as `loadAssistant` reads it, resolved against
+/// `hosts`. While Hermes is connected, on Hermes's machine, failing with `HermesUnreachable`
+/// when that machine is offline or does not offer it. Else in a machine's home folder: on
+/// `machine` when the user picked one, else on the one it last ran on while that offers the
+/// harness, else on the one Auto picks, this computer first; it remembers where it ran.
+export async function startAssistant(prompt: string, setting: AssistantSetting, hosts: readonly AgentHost[], machine: string | null, images: readonly SentImage[] = []): Promise<Started> {
+  const target = resolveAssistant(setting, hosts);
+  if (target.kind === "hermes") {
+    // Hosts read before Hermes was connected do not list it yet: they are read again once.
+    const on = hermesMachine(target.hermes, hosts) ?? hermesMachine(target.hermes, await readAgentHosts());
+    if (!on) throw new HermesUnreachable(target.hermes);
+
+    return start({ machine: on, agent: HERMES_AGENT, cwd: null, prompt, images, model: null, effort: null, fast: null, checkout: null, assistant: true, account: null });
+  }
+
+  const resolved = target.pick;
   const last = hosts.find(host => host.machine_id === lastAssistantMachine());
   const lastOffers = !!resolved.agent && !!last?.assistant && last.agents.includes(resolved.agent);
   const started = await start({ machine: machine ?? (lastOffers ? last.machine_id : null), agent: resolved.agent, cwd: null, prompt, images, model: resolved.model, effort: resolved.effort, fast: resolved.fast ?? null, checkout: null, assistant: true, account: null });

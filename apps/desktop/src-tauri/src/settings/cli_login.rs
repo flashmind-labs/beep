@@ -208,7 +208,7 @@ pub async fn use_cli_login(fleet: FleetState<'_>, host: Service) -> Result<Crede
             .find(|login| same_server(&login.url, url.as_ref()))
             .map(|login| login.token)
             .ok_or_else(|| refused("teacli has no token for this server"))?,
-        Service::ApiKey { .. } | Service::Agent { .. } => {
+        Service::ApiKey { .. } | Service::Agent { .. } | Service::Hermes => {
             return Err(refused("No command line tool holds this credential"));
         }
     };

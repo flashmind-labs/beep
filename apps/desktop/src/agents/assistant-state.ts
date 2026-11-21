@@ -1,7 +1,7 @@
 // The Home assistant: which sessions are it, and which harness and machine it starts on.
 import type { AgentHost, AgentSession } from "./agents.ts";
 import { AGENT_ORDER, harnessFor, keepEffort } from "./agentpick.ts";
-import type { AssistantPick } from "../settings/assistant.ts";
+import type { AssistantPick, AssistantSetting, HermesConnection } from "../settings/assistant.ts";
 
 /// What a start composer says: its field to a screen reader, its heading (a new one drawn by
 /// lot each time when null), the line under it and the field's placeholder.
@@ -30,10 +30,34 @@ export function assistantAgents(hosts: readonly Pick<AgentHost, "agents" | "assi
   return [...new Set(hosts.filter(host => host.assistant).flatMap(host => host.agents))];
 }
 
-/// The assistant setting as a start uses it: its harness resolved to one a machine that runs
+/// What the assistant starts on: Hermes on its machine while connected, else a harness.
+export type AssistantStart = { kind: "hermes"; hermes: HermesConnection } | { kind: "harness"; pick: AssistantPick };
+
+/// The assistant setting as a start uses it: a Hermes connection stands in for the harness pick.
+export function resolveAssistant(setting: AssistantSetting, hosts: readonly Pick<AgentHost, "agents" | "assistant">[]): AssistantStart {
+  if (setting.hermes) return { kind: "hermes", hermes: setting.hermes };
+  const { agent, model, effort, fast } = setting;
+
+  return { kind: "harness", pick: resolveHarness({ agent, model, effort, fast }, hosts) };
+}
+
+/// Hermes's machine is offline or does not offer it.
+export class HermesUnreachable extends Error {
+  constructor(hermes: HermesConnection) {
+    super(`Hermes is not reachable on ${hermes.machine_name}.`);
+  }
+}
+
+/// The machine Hermes starts on: its own, while online and offering it, else null. Hosts are
+/// the online machines, so a missing one is offline.
+export function hermesMachine(hermes: HermesConnection, hosts: readonly Pick<AgentHost, "machine_id" | "hermes">[]): string | null {
+  return hosts.some(host => host.machine_id === hermes.machine && host.hermes) ? hermes.machine : null;
+}
+
+/// The harness pick as a start uses it: its harness resolved to one a machine that runs
 /// the assistant offers, else the first offered (null while none is), the model kept only with
 /// the harness it was picked for, and a thinking level that harness takes.
-export function resolveAssistant(pick: AssistantPick, hosts: readonly Pick<AgentHost, "agents" | "assistant">[]): AssistantPick {
+export function resolveHarness(pick: AssistantPick, hosts: readonly Pick<AgentHost, "agents" | "assistant">[]): AssistantPick {
   const agent = harnessFor(pick.agent, assistantAgents(hosts), AGENT_ORDER);
   return { agent, model: agent === pick.agent ? pick.model : null, effort: keepEffort(agent, pick.effort), fast: agent === "codex" ? pick.fast ?? null : null };
 }

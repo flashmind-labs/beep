@@ -5,7 +5,8 @@ import { modelPickHost, showAgentControl, showAgentControlFor } from "./composer
 import type { SessionPick } from "./agentmodels.ts";
 import { isNativeSession } from "./native-session-state.ts";
 import { modelId } from "./agentpick.ts";
-import { closedPicker, knownModels, modelsOn, drawPicker, type Picked, pillContent } from "./agentpicker.tsx";
+import { closedPicker, hermesPill, knownModels, modelsOn, drawPicker, type Picked, pillContent } from "./agentpicker.tsx";
+import { HERMES_AGENT } from "./running-state.ts";
 import { type AgentRow, AG, agentKind, canTakeOver } from "./agents.ts";
 import { SWITCHES, sessionPicks } from "./session.tsx";
 import { drawAgentBody } from "./logview.tsx";
@@ -25,10 +26,12 @@ export function drawModelPill() {
     && (s.status === "ended" ? !s.external || canTakeOver(s.agent) : !s.external);
   const p = sessionPicks.get(s.id) ?? { model: "", effort: null, fast: null };
   const model = resumePicks.get(s.id)?.model ?? (AG.page?.model || p.model);
-  const models = modelsOn(s.machine_id, s.agent, () => { if (AG.page?.session.id === s.id) drawModelPill(); });
+  // Hermes picks its own model: there is none to list or show.
+  const hermes = s.agent === HERMES_AGENT;
+  const models = hermes ? null : modelsOn(s.machine_id, s.agent, () => { if (AG.page?.session.id === s.id) drawModelPill(); });
   const displayModel = model || (models?.current ? "" : "Model unknown");
   const why = can ? "Switch the model or thinking; applies from the next turn" : `${agentKind(s.agent).name} cannot switch models in a running session`;
-  const content = pillContent(s.agent, displayModel, p.effort, s.machine_id);
+  const content = hermes ? hermesPill() : pillContent(s.agent, displayModel, p.effort, s.machine_id);
   const signature = JSON.stringify([s.agent, content.props.detail, AG.modelOpen, why, can]);
   showAgentControlFor("model", signature, () => <button ref={modelPill} className="agc-pill agm" id="agmodelb" aria-expanded={AG.modelOpen} title={why} disabled={!can}>{content}</button>);
 }
