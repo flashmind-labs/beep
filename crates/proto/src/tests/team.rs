@@ -231,3 +231,41 @@ fn a_repo_decodes_normalized() {
     let bad = rmp_serde::to_vec(&("github.com", "repo")).unwrap();
     assert!(lenient::from_slice::<TeamRepo>(&bad).is_err());
 }
+
+#[test]
+fn a_merge_adds_and_updates_but_removes_only_through_removals() {
+    let ana = member();
+    let ben = Member {
+        login: login("ben"),
+        mesh: id(3),
+        devices: vec![EndpointAddr::new(id(4))],
+        joined_at: at(20),
+    };
+    let mut record = TeamRecord::new(repo(), vec![ana.clone(), ben.clone()]);
+    let mut moved = ana.clone();
+    moved.devices.push(EndpointAddr::new(id(5)));
+    let cy = Member {
+        login: login("cy"),
+        mesh: id(6),
+        devices: vec![EndpointAddr::new(id(7))],
+        joined_at: at(30),
+    };
+    // Ben's login under another mesh: Ben keeps it.
+    let ben_elsewhere = Member {
+        mesh: id(8),
+        ..ben.clone()
+    };
+
+    record.merge(TeamRecord::new(
+        repo(),
+        vec![moved.clone(), cy.clone(), ben_elsewhere],
+    ));
+    assert_eq!(record.members, [moved.clone(), ben.clone(), cy.clone()]);
+
+    let mut gone = TeamRecord::new(repo(), Vec::new());
+    gone.members.push(ben.clone());
+    gone.remove(&ben.login);
+    record.merge(gone);
+    assert_eq!(record.members, [moved, cy]);
+    assert_eq!(record.removed.len(), 1);
+}

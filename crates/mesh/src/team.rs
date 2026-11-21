@@ -68,12 +68,13 @@ impl TeamWrites {
     }
 }
 
-/// Writes `pending`, a team record a node changed, over the mesh's own: its
-/// members and removals count, the invites and settings stay. A removal on
-/// either side wins, so a stale change never brings anyone back. A team the
-/// mesh holds no record of is not written: it was left. One a teammate
-/// removed this mesh from is left too: its record and the contacts only it
-/// brought are deleted. Whether it wrote.
+/// Writes `pending`, the change a node made to a team record, over the
+/// mesh's own: its members and removals merge in, the invites and settings
+/// stay. A member it does not name stays, and a removal on either side wins,
+/// so neither a concurrent change nor a stale one drops or brings back
+/// anyone. A team the mesh holds no record of is not written: it was left.
+/// One a teammate removed this mesh from is left too: its record and the
+/// contacts only it brought are deleted. Whether it wrote.
 pub async fn take_roster(
     mesh: &Mesh,
     pending: TeamRecord,
@@ -84,21 +85,7 @@ pub async fn take_roster(
         return Ok(false);
     };
     let mut next = current.clone();
-
-    for gone in pending.removed {
-        if !next.removed.contains(&gone) {
-            next.removed.push(gone);
-        }
-    }
-
-    next.members = pending
-        .members
-        .into_iter()
-        .filter(|member| {
-            let mut removed = next.removed.iter();
-            !removed.any(|gone| gone.login == member.login && gone.mesh == member.mesh)
-        })
-        .collect();
+    next.merge(pending);
 
     if !next.members.iter().any(|member| member.mesh == mesh.id()) {
         mesh.set(key, None).await?;

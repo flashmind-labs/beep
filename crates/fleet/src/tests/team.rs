@@ -290,6 +290,35 @@ async fn readmit_clears_the_removal() {
     assert_eq!(record.members.len(), 1);
 }
 
+/// Two machines admit different people from the same record: the second
+/// write keeps the first one's newcomer.
+#[tokio::test]
+async fn concurrent_admissions_both_stay() {
+    let dir = TempDir::new().expect("a temp dir");
+    let (desk, mesh) = desk(&dir).await;
+    let team = TeamRecord::new(repo("org/web"), vec![member("dana", mesh.id())]);
+    seed(&mesh, &team).await;
+    let (alice, bob) = (
+        member("alice", SecretKey::generate().public()),
+        member("bob", SecretKey::generate().public()),
+    );
+    let mut with_alice = team.clone();
+    with_alice.members.push(alice.clone());
+    let mut with_bob = team.clone();
+    with_bob.members.push(bob.clone());
+
+    for pending in [with_alice, with_bob] {
+        assert!(
+            take_roster(&mesh, pending, &TeamWrites::lock().await)
+                .await
+                .expect("taken")
+        );
+    }
+
+    let record = desk.team_record("org/web").expect("read").expect("a team");
+    assert_eq!(record.members, [team.members[0].clone(), alice, bob]);
+}
+
 /// A roster a node merges while the user changes a setting: neither undoes
 /// the other.
 #[tokio::test]

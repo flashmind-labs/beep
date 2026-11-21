@@ -244,6 +244,43 @@ impl TeamRecord {
             self.removed.push(removed);
         }
     }
+
+    /// Takes `changes`, another record's membership, into this one: every
+    /// member either lists, with `changes`' entry where both list it, and
+    /// every removal either holds. A member missing from `changes` stays:
+    /// only a removal takes someone off. An entry whose login or mesh another
+    /// member holds here is left out.
+    pub fn merge(&mut self, changes: TeamRecord) {
+        for gone in changes.removed {
+            if !self.removed.contains(&gone) {
+                self.removed.push(gone);
+            }
+        }
+
+        for entry in changes.members {
+            let held = self
+                .members
+                .iter()
+                .position(|member| member.login == entry.login || member.mesh == entry.mesh);
+
+            match held {
+                None => self.members.push(entry),
+                Some(at)
+                    if self.members[at].login == entry.login
+                        && self.members[at].mesh == entry.mesh =>
+                {
+                    self.members[at] = entry;
+                }
+                Some(_) => {}
+            }
+        }
+
+        let removed = &self.removed;
+        self.members.retain(|member| {
+            let mut removed = removed.iter();
+            !removed.any(|gone| gone.login == member.login && gone.mesh == member.mesh)
+        });
+    }
 }
 
 wire_enum! {
