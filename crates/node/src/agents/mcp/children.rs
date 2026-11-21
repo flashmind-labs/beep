@@ -124,6 +124,7 @@ struct StartArgs {
     project: Option<String>,
     cwd: Option<String>,
     model: Option<String>,
+    title: Option<String>,
     #[serde(default)]
     wait: bool,
     #[serde(default)]
@@ -185,6 +186,9 @@ pub(crate) struct PeerStart {
     /// ignores it.
     #[serde(default)]
     pub(crate) account: Option<AccountName>,
+    /// The name its parent gives it. A node from before threads ignores it.
+    #[serde(default)]
+    pub(crate) title: Option<String>,
 }
 
 /// What a call to a child on another machine carries besides its id.
@@ -333,6 +337,7 @@ impl Reach<'_> {
             project,
             cwd,
             model,
+            title,
             wait,
             background,
         } = args;
@@ -381,6 +386,7 @@ impl Reach<'_> {
             prompt,
             cwd,
             model,
+            title,
         };
         let started = match target {
             None => self.start_here(parent, link, parts).await,
@@ -401,7 +407,13 @@ impl Reach<'_> {
         link: ParentLink,
         start: StartParts,
     ) -> Result<ChildView, String> {
-        let cwd = start.cwd.unwrap_or_else(|| parent.info().cwd);
+        let cwd = match start.cwd {
+            Some(cwd) => cwd,
+            None => self
+                .agents
+                .child_folder(parent, start.title.as_deref())
+                .map_err(|e| format!("{e:#}"))?,
+        };
         let child = self
             .agents
             .start_child(
@@ -413,6 +425,7 @@ impl Reach<'_> {
                     model: start.model.map(ModelId::new),
                     review: None,
                     account: parent.account.clone(),
+                    title: start.title,
                 },
             )
             .await?;
@@ -444,6 +457,7 @@ impl Reach<'_> {
             model: start.model,
             parent: link,
             account: parent.account.clone(),
+            title: start.title,
         };
         let me = &self.who.session;
         self.agents
@@ -797,6 +811,7 @@ struct StartParts {
     prompt: String,
     cwd: Option<String>,
     model: Option<String>,
+    title: Option<String>,
 }
 
 /// The call that started a child, as its parent's transcript shows it:
@@ -933,6 +948,7 @@ async fn serve_peer(
                 model: order.model.map(ModelId::new),
                 review: None,
                 account: order.account,
+                title: order.title,
             };
             let child = agents.start_child(order.parent, start).await?;
 

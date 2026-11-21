@@ -969,6 +969,21 @@ fn own_folder(cwd: Option<&str>, begin: &Begin) -> Result<Option<String>> {
     Ok(made.map(|folder| folder.to_string_lossy().into_owned()))
 }
 
+impl Agents {
+    /// The folder a child called `title` starts in when its parent names
+    /// none: a subfolder of its own when `parent` is in an assistant
+    /// conversation's folder, else the parent's folder.
+    pub(super) fn child_folder(&self, parent: &Session, title: Option<&str>) -> Result<String> {
+        let folder = parent.info().cwd;
+        let Some(home) = dirs::home_dir() else {
+            return Ok(folder);
+        };
+        let made = super::conversation::thread_folder(&home, Path::new(&folder), title, &new_id())
+            .context("making the thread's folder")?;
+        Ok(made.map_or(folder, |made| made.to_string_lossy().into_owned()))
+    }
+}
+
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or
 /// the home folder itself.
 pub(super) fn folder(cwd: Option<&str>) -> Result<PathBuf> {

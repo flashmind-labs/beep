@@ -81,6 +81,7 @@ fn start(harness: &str, prompt: &str, dir: &Path) -> ChildStart {
         model: None,
         review: None,
         account: None,
+        title: None,
     }
 }
 
@@ -493,6 +494,31 @@ async fn a_users_steer_into_a_working_thread_still_tells_the_main_chat() {
     let id = Agents::name_of(&child);
     let log = rig.read("top.log");
     assert!(log.contains(&format!("[child {id} finished]")), "{log}");
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_thread_takes_the_title_its_parent_gives() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let who = rig.agents.who_of(&parent);
+    let link = rig.agents.link_for(&parent, &who).expect("within limits");
+    let child = rig
+        .agents
+        .start_child(
+            link,
+            ChildStart {
+                title: Some("Solid-state timelines".into()),
+                ..start("kid", "work", rig.dir.path())
+            },
+        )
+        .await
+        .expect("the child starts");
+    until(&child, |live| live.info.turns == 1).await;
+    assert_eq!(
+        child.info().title.as_deref(),
+        Some("Solid-state timelines")
+    );
     rig.agents.shutdown().await;
 }
 

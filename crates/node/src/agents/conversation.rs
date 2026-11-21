@@ -1,7 +1,9 @@
 //! The folder an assistant conversation runs in: its own, under the hidden
-//! `.beep/assistant` in the home folder, shared with its threads.
+//! `.beep/assistant` in the home folder. Each of its threads gets a subfolder
+//! named after it, so the conversation's notes sit above what its threads
+//! keep and no two threads write over each other.
 
-use beep_proto::SessionId;
+use beep_proto::{SessionId, node::agent::slug};
 use std::{
     io,
     path::{Path, PathBuf},
@@ -24,6 +26,31 @@ pub(super) fn own(home: &Path, cwd: Option<&str>, id: &SessionId) -> io::Result<
     }
 
     let made = folder(home, id);
+    std::fs::create_dir_all(&made)?;
+    Ok(Some(made))
+}
+
+/// The subfolder the thread `id`, called `title`, gets of its parent's
+/// folder `parent`, made now, when that is a conversation's or under one.
+/// `None` for a chat anywhere else, whose children start in its own folder.
+pub(super) fn thread_folder(
+    home: &Path,
+    parent: &Path,
+    title: Option<&str>,
+    id: &SessionId,
+) -> io::Result<Option<PathBuf>> {
+    let root = root(home);
+
+    if parent == root || !parent.starts_with(&root) {
+        return Ok(None);
+    }
+
+    let name = title.map(slug).filter(|name| !name.is_empty());
+    let made = match name {
+        Some(name) if !parent.join(&name).exists() => parent.join(name),
+        Some(name) => parent.join(format!("{name}-{id}")),
+        None => parent.join(id.as_ref()),
+    };
     std::fs::create_dir_all(&made)?;
     Ok(Some(made))
 }

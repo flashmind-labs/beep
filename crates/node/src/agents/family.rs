@@ -85,6 +85,8 @@ pub(crate) struct ChildStart {
     /// The named account its parent runs as. A child of an agent that keeps
     /// accounts runs as that agent's account of the same name, or not at all.
     pub(crate) account: Option<AccountName>,
+    /// The name its parent gives it, which its chat lists it under.
+    pub(crate) title: Option<String>,
 }
 
 /// What a reviewer child starts with besides `ChildStart`'s.
@@ -291,6 +293,7 @@ impl Agents {
         let root = (link.root_machine, link.root.clone());
         let begin = Begin {
             prompt: Some(start.prompt),
+            title: start.title.filter(|title| !title.trim().is_empty()),
             model: start.model,
             effort: start.review.as_ref().and_then(|review| review.effort),
             fast: start.review.as_ref().and_then(|review| review.fast),

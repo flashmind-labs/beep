@@ -127,6 +127,7 @@ impl Agents {
 
                 let link = self.link_for(&parent, &who)?;
                 let start = ChildStart {
+                    title: None,
                     harness: order.agent.clone(),
                     prompt,
                     cwd: Some(order.cwd.clone()),
