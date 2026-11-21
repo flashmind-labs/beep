@@ -109,13 +109,23 @@ impl Entry {
         detail: String,
         keys: &[&str],
     ) -> Self {
+        // A project named as its repository, or a session titled as its
+        // project, gives the same key twice; it is kept once.
+        let mut lowered: Vec<String> = Vec::with_capacity(keys.len());
+
+        for key in keys.iter().map(|key| key.to_lowercase()) {
+            if !lowered.contains(&key) {
+                lowered.push(key);
+            }
+        }
+
         Self {
             kind,
             id,
             title,
             detail,
             snippet: None,
-            keys: keys.iter().map(|key| key.to_lowercase()).collect(),
+            keys: lowered,
             session: None,
             project: None,
         }
