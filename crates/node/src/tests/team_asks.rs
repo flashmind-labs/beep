@@ -47,9 +47,15 @@ fn card(id: &str, owner: &str) -> Card {
 /// The board's gateway, alice's, with sessions that keep what they get,
 /// following bob's board with his asking session on it.
 async fn served() -> (Pair, Arc<Kept>) {
-    let pair = Pair::new().await;
     let kept = Arc::new(Kept::default());
-    pair.gateway.serve_sessions(kept.clone());
+
+    (serving(kept.clone()).await, kept)
+}
+
+/// The board's gateway, as `served` has it, handing to `sessions`.
+async fn serving(sessions: Arc<dyn Sessions>) -> Pair {
+    let pair = Pair::new().await;
+    pair.gateway.serve_sessions(sessions);
     let bob = pair.bob.clone();
     pair.gateway.with(|teams| {
         teams.boards.set(&repo(), Vec::new());
@@ -57,7 +63,7 @@ async fn served() -> (Pair, Arc<Kept>) {
         teammates.board(bob.mesh, &bob.login, vec![card(BOBS, "bob")]);
     });
 
-    (pair, kept)
+    pair
 }
 
 fn ask(id: &str, to: Target, text: &str) -> TeamMsg {
@@ -231,6 +237,60 @@ async fn reply_reaches_asking_session() {
     // It is answered: a second reply finds nothing waiting.
     let again = pair.bob_link.reach(&pair.alice, &reply).await;
     assert_eq!(again, Err(NOT_WAITING.to_owned()));
+}
+
+/// Sessions that cannot be reached once, then keep what they are handed.
+#[derive(Default)]
+struct Flaky {
+    failed: std::sync::atomic::AtomicBool,
+    kept: Kept,
+}
+
+impl Sessions for Flaky {
+    fn deliver<'a>(
+        &'a self,
+        card: &'a str,
+        delivery: Delivery,
+        text: String,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        if !self.failed.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            return Box::pin(async { Err("The machine that runs it did not answer".to_owned()) });
+        }
+
+        self.kept.deliver(card, delivery, text)
+    }
+}
+
+#[tokio::test]
+async fn a_reply_that_did_not_reach_the_asking_session_can_be_sent_again() {
+    let flaky = Arc::new(Flaky::default());
+    let pair = serving(flaky.clone()).await;
+    let bob = pair.bob.clone();
+    pair.gateway.with(|teams| {
+        let sent = Sent {
+            repo: repo(),
+            asker: "s1@alices-box".to_owned(),
+            mesh: bob.mesh,
+            asked: BOBS.to_owned(),
+            at: SystemTime::now(),
+        };
+        teams.asks.sent.insert("00000000000000b1".to_owned(), sent);
+    });
+    let reply = TeamMsg::Reply {
+        id: "00000000000000b1".to_owned(),
+        text: "Take it".to_owned(),
+    };
+
+    let first = pair.bob_link.reach(&pair.alice, &reply).await;
+    assert_eq!(
+        first,
+        Err("The machine that runs it did not answer".to_owned())
+    );
+    pair.bob_link.reach(&pair.alice, &reply).await.unwrap();
+
+    let taken = flaky.kept.taken();
+    assert_eq!(taken.len(), 1);
+    assert!(taken[0].2.contains("Take it"));
 }
 
 #[tokio::test]

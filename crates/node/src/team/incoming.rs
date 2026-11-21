@@ -71,7 +71,12 @@ impl TeamLink {
         let words = tags::from_teammate(&sent.asked, &format!("{login}'s agent"), &words);
 
         let delivered = self.deliver(&sent.asker, Delivery::Reply, words).await;
-        delivered.err().map(refused)
+
+        delivered.err().map(|reason| {
+            // Not handed on: it waits for the teammate to send it again.
+            self.with(|teams| teams.asks.sent.insert(id.to_owned(), sent));
+            refused(reason)
+        })
     }
 
     async fn deliver(&self, card: &str, delivery: Delivery, text: String) -> Result<(), String> {
