@@ -777,12 +777,7 @@ fn removed_member_stays_out() {
         },
     );
     assert_eq!(stale, Ok(Applied::default()));
-    let rejoin = rosters.add(
-        &repo(),
-        alice_device,
-        None,
-        member("carol", carol, carol_device),
-    );
+    let rejoin = rosters.add(&repo(), alice_device, None, team.members[1].clone());
     assert_eq!(rejoin, Err(Refusal::Removed(login("carol"))));
     let from_carol = rosters.apply(
         carol_device,
@@ -796,6 +791,45 @@ fn removed_member_stays_out() {
     let subscribe = rosters.apply(carol_device, None, &TeamMsg::Subscribe { repo: repo() });
     assert_eq!(subscribe, Err(Refusal::NotMember(repo())));
     assert!(!rosters.allows(carol_device, &repo()));
+}
+
+/// A removed member let back in by one teammate, who admits their new
+/// join, is taken by every other: the removal covers only the earlier join.
+/// A join here still needs a readmission here.
+#[test]
+fn a_member_let_back_in_is_taken_everywhere() {
+    let (alice, carol) = (mesh_id(), mesh_id());
+    let (alice_device, carol_device) = (mesh_id(), mesh_id());
+    let old = member("carol", carol, carol_device);
+    let team = TeamRecord::new(
+        repo(),
+        vec![member("alice", alice, alice_device), old.clone()],
+    );
+    let mut rosters = Rosters::default();
+    rosters.refresh([(repo(), team)].into());
+    rosters.remove_member(&repo(), &login("carol")).unwrap();
+    let again = Member {
+        joined_at: old.joined_at + Duration::from_secs(60),
+        ..old
+    };
+
+    assert_eq!(
+        rosters.may_join(&repo(), carol_device, None, &again),
+        Err(Refusal::Removed(login("carol")))
+    );
+
+    let roster = TeamMsg::Roster {
+        repo: repo(),
+        members: vec![again.clone()],
+    };
+    let applied = rosters.apply(alice_device, None, &roster).unwrap();
+    assert_eq!(applied.newcomers, std::slice::from_ref(&again));
+    rosters
+        .add(&repo(), alice_device, None, again)
+        .unwrap();
+
+    assert!(rosters.allows(carol_device, &repo()));
+    assert!(rosters.get(&repo()).unwrap().removed.is_empty());
 }
 
 #[test]

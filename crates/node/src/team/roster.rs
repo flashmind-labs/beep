@@ -144,7 +144,7 @@ impl Rosters {
         match msg {
             TeamMsg::Roster { members, .. } => {
                 for entry in members {
-                    if was_removed(&next, &entry.login, entry.mesh) {
+                    if removes(&next, entry) {
                         continue;
                     }
 
@@ -183,7 +183,7 @@ impl Rosters {
             .ok_or_else(|| Refusal::NotMember(repo.clone()))?;
         let sender = sender_of(record, from).ok_or_else(|| Refusal::NotMember(repo.clone()))?;
 
-        if was_removed(record, &entry.login, entry.mesh) {
+        if removes(record, &entry) {
             return Err(Refusal::Removed(entry.login));
         }
         if Some(entry.mesh) == own {
@@ -193,8 +193,9 @@ impl Rosters {
             return Ok(None);
         }
 
+        // A removal of an earlier join of theirs ends.
         let mut next = record.clone();
-        next.members.push(entry);
+        next.merge(TeamRecord::new(repo.clone(), vec![entry]));
         Ok(self.change(next))
     }
 
@@ -261,7 +262,10 @@ impl Rosters {
         if Some(entry.mesh) == own {
             return Err(Refusal::OwnMesh);
         }
-        if was_removed(record, &entry.login, entry.mesh) {
+        // Only a readmission here lets a removed member join again, however
+        // late: a teammate's removal stands against an invite still open.
+        let mut removed = record.removed.iter();
+        if removed.any(|gone| gone.login == entry.login && gone.mesh == entry.mesh) {
             return Err(Refusal::Removed(entry.login.clone()));
         }
 
@@ -298,12 +302,10 @@ pub(crate) fn vet_roster(repo: &TeamRepo, members: &[Member]) -> Result<(), Refu
     Ok(())
 }
 
-/// Whether `login` in `mesh` was removed from `record`'s team.
-pub(crate) fn was_removed(record: &TeamRecord, login: &ForgeLogin, mesh: EndpointId) -> bool {
-    record
-        .removed
-        .iter()
-        .any(|gone| gone.login == *login && gone.mesh == mesh)
+/// Whether a removal on `record`'s team keeps `entry` off: one who joined
+/// after it was let back in.
+fn removes(record: &TeamRecord, entry: &Member) -> bool {
+    record.removed.iter().any(|gone| gone.covers(entry))
 }
 
 /// The member whose devices `peer` is one of: one at most, since no two

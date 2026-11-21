@@ -181,6 +181,10 @@ wire_structs! {
     pub struct Removed {
         pub login: ForgeLogin,
         pub mesh: EndpointId,
+        /// When the removed member had joined: one who joined later was let
+        /// back in. `None` keeps them out however they join.
+        #[serde(default)]
+        pub joined_at: Option<SystemTime>,
     }
 
     /// A person from another mesh, across every team they share with me.
@@ -240,16 +244,18 @@ impl TeamRecord {
             let removed = Removed {
                 login: member.login,
                 mesh: member.mesh,
+                joined_at: Some(member.joined_at),
             };
             self.removed.push(removed);
         }
     }
 
     /// Takes `changes`, another record's membership, into this one: every
-    /// member either lists, with `changes`' entry where both list it, and
-    /// every removal either holds. A member missing from `changes` stays:
-    /// only a removal takes someone off. An entry whose login or mesh another
-    /// member holds here is left out.
+    /// member either lists, with the later join of the two where both list
+    /// them, and every removal either holds. A member missing from `changes`
+    /// stays: only a removal takes someone off, and a member who joined after
+    /// it ends it. An entry whose login or mesh another member holds here is
+    /// left out.
     pub fn merge(&mut self, changes: TeamRecord) {
         for gone in changes.removed {
             if !self.removed.contains(&gone) {
@@ -267,7 +273,8 @@ impl TeamRecord {
                 None => self.members.push(entry),
                 Some(at)
                     if self.members[at].login == entry.login
-                        && self.members[at].mesh == entry.mesh =>
+                        && self.members[at].mesh == entry.mesh
+                        && self.members[at].joined_at <= entry.joined_at =>
                 {
                     self.members[at] = entry;
                 }
@@ -276,9 +283,12 @@ impl TeamRecord {
         }
 
         let removed = &self.removed;
-        self.members.retain(|member| {
-            let mut removed = removed.iter();
-            !removed.any(|gone| gone.login == member.login && gone.mesh == member.mesh)
+        self.members
+            .retain(|member| !removed.iter().any(|gone| gone.covers(member)));
+        let members = &self.members;
+        self.removed.retain(|gone| {
+            let mut members = members.iter();
+            !members.any(|member| member.login == gone.login && member.mesh == gone.mesh)
         });
     }
 
@@ -301,6 +311,16 @@ impl TeamRecord {
                 .collect(),
             ..self.clone()
         }
+    }
+}
+
+impl Removed {
+    /// Whether this removal keeps `member` off: the same login and mesh,
+    /// joined no later than the member removed.
+    pub fn covers(&self, member: &Member) -> bool {
+        self.login == member.login
+            && self.mesh == member.mesh
+            && self.joined_at.is_none_or(|at| member.joined_at <= at)
     }
 }
 

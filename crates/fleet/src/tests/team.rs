@@ -172,6 +172,7 @@ async fn roster_keeps_removals_and_never_starts_a_team() {
     team.removed.push(Removed {
         login: alice.login.clone(),
         mesh: alice.mesh,
+        joined_at: Some(alice.joined_at),
     });
     seed(&mesh, &team).await;
     // A change from before alice was removed.
@@ -192,6 +193,36 @@ async fn roster_keeps_removals_and_never_starts_a_team() {
     let record = desk.team_record("org/web").expect("read").expect("a team");
     assert_eq!(record, team);
     assert!(mesh.get(&Key::Team(repo("org/api"))).is_none());
+}
+
+/// A teammate let alice back in and admitted her new join: writing it
+/// ends this mesh's removal of her earlier one.
+#[tokio::test]
+async fn a_later_join_ends_an_earlier_removal() {
+    let dir = TempDir::new().expect("a temp dir");
+    let (desk, mesh) = desk(&dir).await;
+    let alice = member("alice", SecretKey::generate().public());
+    let mut team = TeamRecord::new(
+        repo("org/web"),
+        vec![member("dana", mesh.id()), alice.clone()],
+    );
+    team.remove(&alice.login);
+    seed(&mesh, &team).await;
+    let again = Member {
+        joined_at: alice.joined_at + Duration::from_secs(60),
+        ..alice
+    };
+
+    let change = TeamRecord::new(repo("org/web"), vec![again.clone()]);
+    assert!(
+        take_roster(&mesh, change, &TeamWrites::lock().await)
+            .await
+            .expect("taken")
+    );
+
+    let record = desk.team_record("org/web").expect("read").expect("a team");
+    assert_eq!(record.members, [team.members[0].clone(), again]);
+    assert!(record.removed.is_empty());
 }
 
 #[tokio::test]
