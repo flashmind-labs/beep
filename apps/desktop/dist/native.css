@@ -351,11 +351,11 @@ body:not(.mobile) .agpstrip[data-dock="right"] .agtab { width: var(--ctl-h); hei
 /* ----- Boards, the projects page and lists: lit cards without rules, mono labels and details ----- */
 body:not(.mobile) .cc-mstrip { gap: 4px; border: 0; background: none; overflow: visible }
 body:not(.mobile) .cc-mstrip > .m { height: var(--ctl-h); padding: 0 9px; border: 0; border-radius: var(--radius-sm); background: var(--ctl-fill) }
-body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3 small, .pj-li.nav .c, .pj-list .note, .tl-it small, .tl-m h5, .tl-empty, .tl-m > p) { font-family: var(--mono); font-size: 11px }
+body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3 small, .pj-li.nav .c, .pj-list .note, .tl-it small, .tl-m h5, .tl-empty, .tl-m > p, .bd-tag) { font-family: var(--mono); font-size: 11px }
 body:not(.mobile) .cc-mstrip > button.m:hover { background: var(--ctl-fill-hi) }
 body:not(.mobile) .bd-lane > h4 { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) :is(.bd-card, .pj-card) { border-color: transparent }
-body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine, .mcard), body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel) { background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine, .mcard), body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-list .cc-panel) { background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
 body:not(.mobile) :is(.bd-card, .pj-card):hover, body:not(.mobile) .bd-card:focus-visible { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 7%, transparent) }
 body:not(.mobile) :is(.pj-list, .tl-list) { border-right-color: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) .pj-list hr { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
@@ -379,10 +379,13 @@ body:not(.mobile) .pm-head > .pm-actions .dbtn.danger:hover:not(:disabled) { col
 body:not(.mobile) .pm-body { padding: 0 12px 10px 30px }
 body:not(.mobile) .pm-body .pm-sync { gap: 5px }
 body:not(.mobile) .pm-body hr { margin: 8px 0; background: color-mix(in srgb, var(--fg) 6%, transparent) }
-body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel) { border: 0; border-radius: var(--radius) }
+body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-list .cc-panel) { border: 0; border-radius: var(--radius) }
 /* Home's rows: no rules between them, and a harness mark without its tile. */
 body:not(.mobile) :is(.bd-projects, #sec-needs) .cc-row + .cc-row { border-top: 0 }
-body:not(.mobile) .bd-projects .cc-ag { border: 0; background: none }
+body:not(.mobile) :is(.bd-projects, .bd-list) .cc-ag { border: 0; background: none }
+/* The list's rows keep their projects and their times in two columns. */
+body:not(.mobile) .bd-list .cc-row .r { grid-template-columns: 200px 72px }
+body:not(.mobile) .bd-tag { max-width: none; justify-self: start }
 body:not(.mobile) .pl { border: 0; border-radius: var(--radius); background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
 body:not(.mobile) .pl-row.it .t .pj-tag { flex: none }
 body:not(.mobile) .pl-row.it .t { overflow: hidden }

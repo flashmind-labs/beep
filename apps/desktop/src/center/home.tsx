@@ -62,8 +62,8 @@ const TAB_OF: Record<string, HomeTab> = {
 export const HOME_TAB_EVENT = "beep:home-tab";
 const homeTabChanged = () => document.dispatchEvent(new Event(HOME_TAB_EVENT));
 
-/// How the board lays its sessions out: by lane, or under their projects.
-const GROUPINGS = [{ id: "lanes", label: "Lanes" }, { id: "projects", label: "Projects" }] as const;
+/// How the board lays its sessions out: by lane, or as one list.
+const GROUPINGS = [{ id: "lanes", label: "Lanes" }, { id: "list", label: "List" }] as const;
 type Grouping = typeof GROUPINGS[number]["id"];
 const GROUPING_KEY = "beep.home.grouping";
 const readGrouping = (): Grouping => { try { return GROUPINGS.find(grouping => grouping.id === localStorage.getItem(GROUPING_KEY))?.id ?? "lanes"; } catch { return "lanes"; } };
@@ -100,9 +100,9 @@ function page(home: HomeView) {
   return { machines, mac: machines ? thisMacRow(state.mac, machines) : null, jump,
     menu: (machine: NonNullable<typeof machines>[number], event: MouseEvent) => showMachineMenu(machine, () => [], event),
     useMac: () => { void useThisMac(); }, error: state.error, unavailable: !machines && !running, offline,
-    // The board's switch shows while a session is open: without one there is nothing to group.
-    tools: tab.key === "overview" && running?.length ? <Segmented label="Group sessions" options={GROUPINGS} value={grouping} onChange={changeGrouping}/> : null,
-    content: tab.key === "overview" ? <HomeOverview home={home} grouped={!!running?.length && grouping === "projects"} /> : tab.key === "git" ? <HomeGit view={git || { items: [], hosts: [] }} /> : machines ? <HomeMachines machines={machines} /> : null,
+    // The board's switch shows while a session is open: without one there is nothing to list.
+    tools: tab.key === "overview" && running?.length ? <Segmented label="Lay out sessions" options={GROUPINGS} value={grouping} onChange={changeGrouping}/> : null,
+    content: tab.key === "overview" ? <HomeOverview home={home} list={!!running?.length && grouping === "list"} /> : tab.key === "git" ? <HomeGit view={git || { items: [], hosts: [] }} /> : machines ? <HomeMachines machines={machines} /> : null,
     tabs: shownTabs, selected: tab.key, open: openHomeTab };
 }
 

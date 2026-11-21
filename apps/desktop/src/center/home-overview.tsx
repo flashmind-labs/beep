@@ -1,10 +1,10 @@
-import { useEffect, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { closeSession, sessionVisible, visibleRunning } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
 import { byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
 import { Board, CardRow, type BoardCard } from "./lanes-view.tsx";
-import { LANES, endedToday, laneOf, resting } from "./lanes-state.ts";
+import { LANES, byLane, endedToday, laneOf } from "./lanes-state.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { conflictList, conflictSub } from "../project/filesync.ts";
 import { fsync } from "../project/sections.ts";
@@ -18,9 +18,10 @@ import { loadFound, projectRows, projectWindowProps } from "./sidebar.tsx";
 import { HomeAssistant } from "./home-assistant.tsx";
 import { state } from "./state.ts";
 import { go } from "./views.tsx";
-import { formatAgo, plural } from "../ui/format.ts";
+import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
-import { Button, LineRow, Section, EmptyPanel } from "../ui/kit.tsx";
+import { Button, Section, EmptyPanel } from "../ui/kit.tsx";
+import { Segmented } from "../ui/aria-kit.tsx";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
 import { RunningStatus, workLine } from "../project/split-view.tsx";
 import { sessions } from "../agents/sessions.ts";
@@ -141,39 +142,59 @@ const DONE_SHOWN = 8;
 const QUEUED_LANES = LANES.filter(({ lane }) => lane !== "needs");
 
 /// Home: what waits on the user as a queue, answered in place, over the lanes
-/// of every other session, or over the open sessions `grouped` as rows under their projects.
-export function HomeOverview({ home, grouped }: { home: HomeView; grouped: boolean }) {
+/// of every other session, or over the open sessions as one `list`.
+export function HomeOverview({ home, list }: { home: HomeView; list: boolean }) {
   // The assistant's chats have their own page.
   const assistants = new Set(sessions.filter(isAssistant).map(runningKey));
-  const cards = boardCards(home, needsCards(home), runningCards(home, assistants, grouped), assistants);
-  // A project shows while a session is open in it: the ended ones are in the lanes.
-  const queue = cards.filter(card => card.lane === "needs"), lanes = cards.filter(card => card.lane !== "needs" && !(grouped && card.lane === "done"));
+  const cards = boardCards(home, needsCards(home), runningCards(home, assistants, list), assistants);
+  // The list is of the open sessions: the ended ones are in the lanes.
+  const queue = cards.filter(card => card.lane === "needs"), lanes = cards.filter(card => card.lane !== "needs" && !(list && card.lane === "done"));
 
   return <>
     {!!queue.length && <Section id="sec-needs" title="Needs you" count={queue.length}>{queue.map(card => <CardRow key={card.key} card={card}/>)}</Section>}
-    {!!lanes.length && <div id="sec-running">{grouped ? <ByProject cards={lanes} rests={restingKeys(home)} earlier/> : <Board cards={lanes} lanes={QUEUED_LANES} spread more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/>}</div>}
+    {!!lanes.length && <div id="sec-running">{list ? <SessionList cards={lanes}/> : <Board cards={lanes} lanes={QUEUED_LANES} spread more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/>}</div>}
     {!queue.length && !lanes.length && <Empty home={home} />}
   </>;
 }
 
-/// The projects at work as Home lists them, for the Projects page; null when none is.
-export function OpenProjects({ home }: { home: HomeView }) {
-  const assistants = new Set(sessions.filter(isAssistant).map(runningKey));
-  const rests = restingKeys(home);
-  const cards = runningCards(home, assistants, true);
-  return cards.some(card => !rests.has(card.key)) ? <ByProject cards={cards} rests={rests} earlier={false}/> : null;
+/// The open sessions as one list, a line each with its project and its time: those at work,
+/// then the finished turns, which the user orders from the latest or from the oldest.
+function SessionList({ cards }: { cards: readonly BoardCard[] }) {
+  const [order, setOrder] = useState(readOrder);
+  const changeOrder = (next: Order) => { setOrder(next); try { localStorage.setItem(ORDER_KEY, next); } catch { /* kept for this launch only */ } };
+  const lanes = byLane(cards);
+  const rows = { ...lanes, review: order === "oldest" ? lanes.review.reverse() : lanes.review };
+
+  return <div className="bd-list">{LISTED.map(({ lane, title }) => !!rows[lane].length &&
+    <Section key={lane} title={title} count={rows[lane].length} action={lane === "review" ? <Segmented label="Order" options={ORDERS} value={order} onChange={changeOrder}/> : null}>
+      <div className="bd-log">{rows[lane].map(card => {
+        const tag = <span className="bd-tag">{card.color !== null && <span className="pj-swatch" style={{ "--c": card.color } as CSSProperties}/>}{card.project}</span>;
+        // What a session at work does stays under its title; a finished one is its title alone.
+        return <CardRow key={card.key} card={{ ...card, color: null, sub: lane === "working" ? card.sub : "", foot: <>{tag}{card.foot}</> }}/>;
+      })}</div>
+    </Section>)}</div>;
 }
 
-/// The open sessions that rest: their turn finished hours ago.
-function restingKeys(home: HomeView): ReadonlySet<string> {
-  const now = Date.now();
-  return new Set((home.running || []).filter(row => resting(row, now)).map(runningKey));
+/// The lanes the list shows: those of the open sessions.
+const LISTED = LANES.filter(({ lane }) => lane === "working" || lane === "review");
+
+/// How the finished turns are ordered.
+const ORDERS = [{ id: "latest", label: "Latest" }, { id: "oldest", label: "Oldest" }] as const;
+type Order = typeof ORDERS[number]["id"];
+const ORDER_KEY = "beep.home.order";
+const readOrder = (): Order => { try { return ORDERS.find(order => order.id === localStorage.getItem(ORDER_KEY))?.id ?? "latest"; } catch { return "latest"; } };
+
+/// Every project with open sessions as Home lists them, for the Projects page; null when
+/// nothing is open.
+export function OpenProjects({ home }: { home: HomeView }) {
+  const assistants = new Set(sessions.filter(isAssistant).map(runningKey));
+  const cards = runningCards(home, assistants, true);
+  return cards.length ? <ByProject cards={cards}/> : null;
 }
 
 /// The open sessions as rows under their projects, in two columns: a project by its latest
-/// session, with the sessions in no project last. A project lists its first `ROWS_SHOWN` that
-/// do not rest. With `earlier`, the projects whose sessions all rest follow as one line each.
-function ByProject({ cards, rests, earlier }: { cards: readonly BoardCard[]; rests: ReadonlySet<string>; earlier: boolean }) {
+/// session, with the sessions in no project last. A project lists its first `ROWS_SHOWN`.
+function ByProject({ cards }: { cards: readonly BoardCard[] }) {
   const groups = new Map<string | null, BoardCard[]>();
 
   for (const card of cards) {
@@ -182,30 +203,22 @@ function ByProject({ cards, rests, earlier }: { cards: readonly BoardCard[]; res
     else groups.set(card.project, [card]);
   }
 
-  const boxes = [...groups].sort(([a], [b]) => Number(a === null) - Number(b === null)).map(([project, rows]) => {
+  const boxes = [...groups].sort(([a], [b]) => Number(a === null) - Number(b === null));
+
+  return <div className="bd-projects">{boxes.map(([project, rows]) => {
     // A listed project has its colour, and its name opens its page, where the rest of it is.
     const color = rows[0].color, listed = project !== null && color !== null;
-    const open = listed ? () => go("projects", { project }) : () => go("pane", "agents");
-    return { project, rows, color, open, windowProps: listed ? projectWindowProps(project) : null, shown: rows.filter(card => !rests.has(card.key)).slice(0, ROWS_SHOWN) };
-  });
-  const quiet = earlier ? boxes.filter(box => !box.shown.length) : [];
+    const all = listed ? () => go("projects", { project }) : () => go("pane", "agents");
+    const title = !listed ? project ?? "Other folders"
+      : <Button look="quiet" small {...projectWindowProps(project).clicks} {...projectWindowProps(project).menu} onClick={all}><span className="pj-swatch" style={{ "--c": color } as CSSProperties}/>{project}</Button>;
 
-  return <div className="bd-projects">
-    {boxes.filter(box => box.shown.length).map(({ project, rows, color, open, windowProps, shown }) => {
-      const title = !windowProps ? project ?? "Other folders"
-        : <Button look="quiet" small {...windowProps.clicks} {...windowProps.menu} onClick={open}><span className="pj-swatch" style={{ "--c": color } as CSSProperties}/>{project}</Button>;
-
-      return <Section key={project ?? ""} title={title} action={rows.length > shown.length ? <Button look="quiet" small onClick={open}>All {rows.length}</Button> : null}>
-        {shown.map(card => <CardRow key={card.key} card={{ ...card, color: null }}/>)}
-      </Section>;
-    })}
-    {!!quiet.length && <Section title="Earlier"><div className="bd-log">{quiet.map(({ project, rows, color, open, windowProps }) =>
-      <LineRow key={project ?? ""} events={{ ...windowProps?.clicks, ...windowProps?.menu }} lead={<span className="pj-swatch" style={{ "--c": color ?? "var(--dim)" } as CSSProperties}/>} title={project ?? "Other folders"} sub=""
-        right={<>{rows.length > 1 && <span>{plural(rows.length, "session", "sessions")}</span>}{rows[0].foot}</>} onOpen={open}/>)}</div></Section>}
-  </div>;
+    return <Section key={project ?? ""} title={title} action={rows.length > ROWS_SHOWN ? <Button look="quiet" small onClick={all}>All {rows.length}</Button> : null}>
+      {rows.slice(0, ROWS_SHOWN).map(card => <CardRow key={card.key} card={{ ...card, color: null }}/>)}
+    </Section>;
+  })}</div>;
 }
 
-/// The sessions a project lists on Home.
+/// The sessions a project lists.
 const ROWS_SHOWN = 5;
 
 /// Nothing to show: nothing runs, or no machine has answered yet. Before any

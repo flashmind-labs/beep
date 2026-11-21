@@ -22,15 +22,6 @@ export function laneOf(status: string): Lane {
   }
 }
 
-/// How long a finished turn keeps its session among Home's projects.
-const RESTS_AFTER_MS = 3 * 3_600_000;
-
-/// True for an open session whose turn finished longer ago than that: Home lists its
-/// project under Earlier.
-export function resting(session: { status: string; started_at: number; last_activity: number }, now: number) {
-  return laneOf(session.status) === "review" && now - (session.last_activity || session.started_at) > RESTS_AFTER_MS;
-}
-
 /// `cards` by lane, in the order given, every lane present.
 export function byLane<T extends { lane: Lane }>(cards: readonly T[]): Record<Lane, T[]> {
   const lanes: Record<Lane, T[]> = { needs: [], working: [], review: [], done: [] };

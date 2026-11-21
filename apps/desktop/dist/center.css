@@ -1081,6 +1081,9 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .bd-log .cc-row { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; padding: 5px 8px; border: 0; border-radius: var(--radius-sm) }
 .bd-log .cc-row .t > span:empty { display: none }
 .bd-log .cc-row .r { gap: 10px }
+/* Home's list: its sections apart, and a row's project before its time. */
+.bd-list { display: grid; gap: 18px }
+.bd-tag { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 11em; white-space: nowrap; overflow: hidden }
 .bd-lane.log > .dbtn { justify-self: start }
 .bd-art { display: none }
 .bd-card .ft .cc-running { min-width: 0 }
