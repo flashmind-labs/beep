@@ -101,7 +101,8 @@ impl Live {
                 }));
             }
             SessionUpdate::SessionInfoUpdate(info) => {
-                if let MaybeUndefined::Value(new) = &info.title
+                if !self.named
+                    && let MaybeUndefined::Value(new) = &info.title
                     && let Some(title) = crate::agents::tags::title(new)
                 {
                     self.naming = false;

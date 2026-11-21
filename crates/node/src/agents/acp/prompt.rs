@@ -17,6 +17,10 @@ use serde_json::json;
 pub(in crate::agents) struct Prompt {
     pub(in crate::agents) text: String,
     pub(in crate::agents) images: Vec<Upload>,
+    /// Beep's word to the agent that goes with this message, ahead of the
+    /// text and apart from it: the text stays what the user typed.
+    #[serde(default)]
+    pub(in crate::agents) context: Option<String>,
 }
 
 impl From<String> for Prompt {
@@ -24,6 +28,7 @@ impl From<String> for Prompt {
         Self {
             text,
             images: Vec::new(),
+            context: None,
         }
     }
 }
@@ -62,7 +67,11 @@ impl Prompt {
             ApiError::BadRequest { message } => message,
             other => other.to_string(),
         })?;
-        Ok(Self { text, images })
+        Ok(Self {
+            text,
+            images,
+            context: None,
+        })
     }
 
     /// The bytes it holds, to bound what waits in a queue.
@@ -131,19 +140,19 @@ pub(in crate::agents) enum SteeringOutcome {
     Failed,
 }
 
-/// `session/prompt` with `brief` (Beep's word to the agent, tagged) and the text
-/// first, then each image as an image block. Only images go when there is
+/// `session/prompt` with `brief` and the prompt's own context (Beep's word to
+/// the agent, each tagged) and the text first, then each image as an image block. Only images go when there is
 /// no text.
 pub(in crate::agents) fn prompt(
     session: &SessionId,
     prompt: &Prompt,
     brief: Option<&str>,
 ) -> PromptRequest {
-    let mut blocks = Vec::with_capacity(2 + prompt.images.len());
+    let mut blocks = Vec::with_capacity(3 + prompt.images.len());
 
-    if let Some(brief) = brief {
+    for context in brief.into_iter().chain(prompt.context.as_deref()) {
         blocks.push(ContentBlock::Text(TextContent::new(
-            crate::agents::tags::context(brief),
+            crate::agents::tags::context(context),
         )));
     }
 

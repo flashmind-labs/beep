@@ -41,13 +41,7 @@ impl Agents {
         }
 
         ensure!(valid_id(id.as_ref()), "{id:?} is not a session id");
-        // The main chat of an assistant conversation takes its folder with it.
-        let conversation = self
-            .get(id)
-            .filter(|ours| ours.assistant)
-            .map(|ours| ours.info())
-            .filter(|info| info.parent.is_none())
-            .map(|info| PathBuf::from(info.cwd));
+        let conversation = self.conversation_of(id);
         let agent_id = match self.get(id) {
             Some(ours) => {
                 ensure!(ours.agent == agent, "session {id} runs {}", ours.agent);
@@ -119,6 +113,17 @@ impl Agents {
         }
 
         Ok(())
+    }
+
+    /// The folder session `id` takes with it when it is deleted: its own,
+    /// when it is the main chat of an assistant conversation, as it is here
+    /// or as it was kept from before the node restarted. `delete_session`
+    /// removes it only if it is a conversation's folder.
+    pub(super) fn conversation_of(&self, id: &SessionId) -> Option<PathBuf> {
+        self.saved(id)
+            .map(|saved| saved.info)
+            .filter(|info| info.assistant && info.parent.is_none())
+            .map(|info| PathBuf::from(info.cwd))
     }
 
     /// Checks that no process has `agent`'s files of its session `id` open.

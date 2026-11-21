@@ -572,7 +572,7 @@ impl Reach<'_> {
         let text = Self::tagged(parent, self.who.session.as_ref(), &text);
 
         match found {
-            Found::Here(child) => match child.order(Command::Steer(text.into())).await {
+            Found::Here(child) => match Agents::tell_child(&child, text).await {
                 Ok(()) => ok("Sent. It reads it at its next step."),
                 Err(e) => fail(e),
             },
@@ -992,7 +992,7 @@ async fn serve_peer(
             };
 
             match agents.child_of(&who, &call.id) {
-                Ok(child) => child.order(Command::Steer(text.into())).await?,
+                Ok(child) => Agents::tell_child(&child, text).await?,
                 Err(_) => agents.message(&who.session, &call.id, text).await?,
             }
 

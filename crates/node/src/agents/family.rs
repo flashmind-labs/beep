@@ -18,7 +18,7 @@ use iroh::EndpointId;
 use std::{
     collections::HashMap,
     str::FromStr,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock, atomic::Ordering},
     time::Duration,
 };
 use tokio::sync::watch;
@@ -268,6 +268,14 @@ impl Agents {
 
         session.take_peer_message()?;
         session.order(Command::Steer(text.into())).await
+    }
+
+    /// Hands `text`, from its parent, to the child `child` here. What the
+    /// child does with it is the parent's to hear the end of, whoever began
+    /// the turn it joins.
+    pub(super) async fn tell_child(child: &Session, text: String) -> Result<(), String> {
+        child.user_turn.store(false, Ordering::Relaxed);
+        child.order(Command::Steer(text.into())).await
     }
 
     /// Starts the child `link` describes, here. The node that starts it

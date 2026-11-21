@@ -12,6 +12,8 @@ fn a_conversation_folder_is_under_the_hidden_assistant_folder() {
     assert!(!holds(home, home));
     assert!(!holds(home, &root));
     assert!(!holds(home, &root.join("a").join("b")));
+    assert!(!holds(home, &root.join("..")));
+    assert!(!holds(home, &root.join(".")));
     assert!(!holds(home, &home.join("projects").join("x")));
 }
 

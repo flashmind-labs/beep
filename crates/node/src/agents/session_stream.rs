@@ -152,7 +152,7 @@ pub async fn serve_session(
             images,
             assistant,
         } => match Prompt::with_images(prompt, images) {
-            Ok(Prompt { text, images }) => {
+            Ok(Prompt { text, images, .. }) => {
                 let begin = Begin {
                     prompt: Some(text),
                     images,

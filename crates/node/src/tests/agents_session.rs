@@ -848,6 +848,7 @@ fn shot() -> Prompt {
             mime: "image/png".into(),
             data: b"\x89PNG\r\n\x1a\n".to_vec(),
         }],
+        context: None,
     }
 }
 
@@ -901,6 +902,7 @@ fn the_queue_is_bounded_in_prompts_and_bytes() {
             mime: "image/png".into(),
             data: vec![0; len],
         }],
+        context: None,
     };
     queued.push_back(image(MAX_QUEUED_BYTES / 2));
     queued.push_back(image(MAX_QUEUED_BYTES / 2 - 10));

@@ -7,7 +7,8 @@ use tokio::time::timeout;
 
 /// An ACP adapter in shell: it logs what it reads to `$1`, answers each
 /// prompt at once, except one that starts with `hang`, which ends when the
-/// turn is cancelled, and says "It is done." to one that holds `say it`.
+/// turn is cancelled, says "It is done." to one that holds `say it` and
+/// names its session on one that holds `name it`.
 /// Each run names its session after its process.
 const ADAPTER: &str = r#"
 id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
@@ -21,6 +22,7 @@ while read -r line; do
     *'"session/load"'*) reply '{}' ;;
     *'"text":"hang'*) prompt=$(id) ;;
     *'"session/cancel"'*) [ -n "$prompt" ] && printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"cancelled"}}\n' "$prompt" ;;
+    *'name it'*) printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-%s","update":{"sessionUpdate":"session_info_update","title":"Named by the agent"}}}\n' "$$"; reply '{"stopReason":"end_turn"}' ;;
     *'say it'*) printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-%s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"It is done."}}}}\n' "$$"; reply '{"stopReason":"end_turn"}' ;;
     *'"session/prompt"'*) reply '{"stopReason":"end_turn"}' ;;
     *'"method"'*'"id"'*|*'"id"'*'"method"'*) reply '{}' ;;
@@ -426,6 +428,12 @@ async fn a_users_message_to_the_main_chat_says_what_its_threads_came_to() {
     assert_eq!(log.matches(CHANGES).count(), 1, "{log}");
     assert!(log.contains("- thread \\\""), "{log}");
     assert!(log.contains(&format!("{id}, idle: It is done.")), "{log}");
+    // The user's words stay as typed: the context goes beside them.
+    let (entries, _) = watched::read(&parent.live, |live| live.transcript(usize::MAX));
+    assert!(
+        entries.iter().any(|en| en.text == "where are we"),
+        "{entries:?}"
+    );
     // What it was told is not told again.
     rig.agents
         .send_session("top", &parent.id, said("and now"))
@@ -461,6 +469,119 @@ async fn a_users_message_to_a_thread_says_what_its_siblings_and_main_came_to() {
     assert!(log.contains("- main chat: It is done."), "{log}");
     assert!(log.contains(&format!("{other}, idle: It is done.")), "{log}");
     assert!(!log.contains(&format!("{own}, idle")), "{log}");
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_slash_command_takes_no_context() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
+    until(&parent, |live| live.info.turns == 2).await;
+    rig.agents
+        .send_session("kid", &child.id, said("say it"))
+        .await
+        .expect("the thread takes the user's message");
+    until(&child, |live| {
+        live.info.turns == 2 && live.status() == Status::Idle
+    })
+    .await;
+    // A command must stay the whole message, so the news waits for the next.
+    rig.agents
+        .send_session("top", &parent.id, said("/status"))
+        .await
+        .expect("the parent takes the command");
+    until(&parent, |live| live.info.turns == 3).await;
+    assert_eq!(rig.read("top.log").matches(CHANGES).count(), 0);
+    rig.agents
+        .send_session("top", &parent.id, said("go"))
+        .await
+        .expect("the parent takes the user's message");
+    until(&parent, |live| live.info.turns == 4).await;
+    assert_eq!(rig.read("top.log").matches(CHANGES).count(), 1);
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_parents_message_makes_the_turn_its_own() {
+    use std::sync::atomic::Ordering;
+
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
+    until(&child, |live| {
+        live.info.turns == 1 && live.status() == Status::Idle
+    })
+    .await;
+    rig.agents
+        .send_session("kid", &child.id, said("hang on"))
+        .await
+        .expect("the thread takes the user's message");
+    assert!(child.user_turn.load(Ordering::Relaxed));
+    // What the parent now asks of it is the parent's to hear the end of.
+    Agents::tell_child(&child, "more".to_owned())
+        .await
+        .expect("the thread takes its parent's message");
+    assert!(!child.user_turn.load(Ordering::Relaxed));
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_reviewer_is_no_thread_of_its_parents_chat() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let who = rig.agents.who_of(&parent);
+    let link = rig.agents.link_for(&parent, &who).expect("within limits");
+    let reviewer = rig
+        .agents
+        .start_child(
+            link,
+            ChildStart {
+                review: Some(Review::default()),
+                ..start("kid", "say it", rig.dir.path())
+            },
+        )
+        .await
+        .expect("the reviewer starts");
+    until(&reviewer, |live| {
+        live.info.turns >= 1 && live.status() == Status::Idle
+    })
+    .await;
+    rig.agents
+        .send_session("top", &parent.id, said("where are we"))
+        .await
+        .expect("the parent takes the user's message");
+    until(&parent, |live| live.info.turns == 2).await;
+    let log = rig.read("top.log");
+    assert!(!log.contains(CHANGES), "{log}");
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_thread_keeps_the_name_its_parent_gave_when_its_agent_names_it() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let named = |title: Option<&str>| ChildStart {
+        title: title.map(str::to_owned),
+        ..start("kid", "name it", rig.dir.path())
+    };
+    let who = rig.agents.who_of(&parent);
+    let link = rig.agents.link_for(&parent, &who).expect("within limits");
+    let given = rig
+        .agents
+        .start_child(link, named(Some("Solid-state timelines")))
+        .await
+        .expect("the child starts");
+    let link = rig.agents.link_for(&parent, &who).expect("within limits");
+    let unnamed = rig
+        .agents
+        .start_child(link, named(None))
+        .await
+        .expect("the child starts");
+    until(&given, |live| live.info.turns == 1).await;
+    until(&unnamed, |live| live.info.turns == 1).await;
+    assert_eq!(given.info().title.as_deref(), Some("Solid-state timelines"));
+    assert_eq!(unnamed.info().title.as_deref(), Some("Named by the agent"));
     rig.agents.shutdown().await;
 }
 

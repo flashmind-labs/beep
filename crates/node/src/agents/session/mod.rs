@@ -411,6 +411,7 @@ impl Session {
         // bridge starts its CLI the same way, once the session starts.
         let agent = super::start(process, kind.bridge.as_ref())?;
         let processes = Processes::new(agent.running.pid());
+        let named = title.is_some() && parent.is_some() && resume.is_none();
         let info = SessionInfo {
             title,
             id: resume.clone().unwrap_or_default(),
@@ -429,6 +430,7 @@ impl Session {
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);
+        first.named = named;
         if let Some(note) = note {
             first.push(EntryKind::Other, &note);
         }

@@ -6,7 +6,7 @@
 use beep_proto::{SessionId, node::agent::slug};
 use std::{
     io,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 /// The hidden folder in the home folder that holds what Beep keeps there.
@@ -55,10 +55,12 @@ pub(super) fn thread_folder(
     Ok(Some(made))
 }
 
-/// Whether `folder` is a conversation's: directly under the assistant's
-/// folder in `home`.
+/// Whether `folder` is a conversation's: a named folder directly under the
+/// assistant's folder in `home`, so never that folder itself by `.` or what
+/// is above it by `..`.
 pub(super) fn holds(home: &Path, folder: &Path) -> bool {
     folder.parent() == Some(root(home).as_path())
+        && matches!(folder.components().next_back(), Some(Component::Normal(_)))
 }
 
 /// Removes a conversation's `folder` with what it holds. Any other folder

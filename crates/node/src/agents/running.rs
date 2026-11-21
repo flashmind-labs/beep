@@ -755,6 +755,7 @@ impl Agents {
             prompt: begin.prompt.map(|text| Prompt {
                 text,
                 images: begin.images,
+                context: None,
             }),
             resume: begin.resume,
             earlier: begin.earlier,

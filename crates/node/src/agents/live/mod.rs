@@ -111,6 +111,9 @@ pub(crate) struct Live {
     /// The first replayed prompt is still arriving in chunks and names a
     /// session the agent has not named.
     naming: bool,
+    /// Its parent named it when it started it: the agent's own names for
+    /// the session do not replace that. Not kept over a restart.
+    pub(crate) named: bool,
     /// Where the pictures its transcript shows are kept, shared by the
     /// node's sessions.
     images: Arc<Images>,

@@ -795,3 +795,49 @@ async fn a_reopened_session_takes_the_title_the_agent_sends_after_loading() {
     .await;
     after.shutdown().await;
 }
+
+#[tokio::test]
+async fn a_saved_assistant_chat_still_names_its_folder_to_delete() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let agents = Agents::new(vec![adapter(&dir.path().join("log"))]);
+    let kept = |id: &str, assistant: bool, parent: Option<ParentLink>| SavedSession {
+        info: SessionInfo {
+            id: id.into(),
+            agent: "fake".into(),
+            cwd: format!("/home/user/.beep/assistant/{id}"),
+            assistant,
+            parent,
+            ..SessionInfo::default()
+        },
+        effort: None,
+        fast: None,
+        account: None,
+    };
+    let link = ParentLink {
+        machine: None,
+        session: "main-1".into(),
+        key: "main-1".into(),
+        root_machine: None,
+        root: "main-1".into(),
+        depth: 1,
+        others: 0,
+        agent: "fake".into(),
+        mode: None,
+        background: false,
+    };
+    agents.keep_saved(vec![
+        kept("main-1", true, None),
+        kept("thread-1", true, Some(link)),
+        kept("plain-1", false, None),
+    ]);
+
+    // Only the main chat of an assistant conversation takes its folder with it.
+    assert_eq!(
+        agents.conversation_of(&SessionId::from("main-1")),
+        Some(std::path::PathBuf::from("/home/user/.beep/assistant/main-1"))
+    );
+    assert_eq!(agents.conversation_of(&SessionId::from("thread-1")), None);
+    assert_eq!(agents.conversation_of(&SessionId::from("plain-1")), None);
+    assert_eq!(agents.conversation_of(&SessionId::from("gone-1")), None);
+    agents.shutdown().await;
+}

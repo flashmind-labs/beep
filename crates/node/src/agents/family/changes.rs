@@ -1,14 +1,14 @@
 //! What a session of a chat hears of the others when the user writes to it:
 //! which threads changed since its last turn, and for a thread what the main
 //! chat said last. Nobody is prompted for it, so an idle session stays idle;
-//! the words go ahead of the user's own, as Beep's context.
+//! the words go with the user's message as its context, apart from its text.
 //!
 //! A session's relatives are its threads, its main chat and that chat's
 //! other threads, on this machine. What it last saw of each is kept while
 //! the node runs: after a restart each thread is told of once more.
 
 use super::{Agents, Command, Live, Session, children};
-use crate::agents::{acp::Prompt, cut, tags};
+use crate::agents::{acp::Prompt, cut};
 use beep_proto::node::agent::{SessionInfo, Status, StopReason};
 use beep_proto::watched;
 use std::sync::{Arc, atomic::Ordering};
@@ -89,11 +89,10 @@ impl Agents {
             session.user_turn.store(true, Ordering::Relaxed);
         }
 
-        // Words sent while it asks may be the answer, which takes nothing else.
-        if status != Status::Asking
-            && let Some(changes) = self.changes(session)
-        {
-            prompt.text = format!("{changes}\n\n{}", prompt.text);
+        // Words sent while it asks may be the answer, and a command is the
+        // whole message: neither takes anything else, so the news waits.
+        if status != Status::Asking && !prompt.text.trim_start().starts_with('/') {
+            prompt.context = self.changes(session);
         }
 
         prompt
@@ -128,8 +127,10 @@ impl Agents {
             .filter(|other| !Arc::ptr_eq(other, session));
 
         for thread in self.children_of(&me).into_iter().chain(siblings) {
+            // A reviewer is known by its session: its state does not say.
             let Some((mark, line)) = watched::read(&thread.live, |live| {
-                is_thread(&live.info).then(|| (Into::<Mark>::into(live), line(live, &here)))
+                (!thread.reviewer && is_thread(&live.info))
+                    .then(|| (Into::<Mark>::into(live), line(live, &here)))
             }) else {
                 continue;
             };
@@ -144,7 +145,7 @@ impl Agents {
             }
         }
 
-        (!lines.is_empty()).then(|| tags::context(&format!("{HEAD}\n{}", lines.join("\n"))))
+        (!lines.is_empty()).then(|| format!("{HEAD}\n{}", lines.join("\n")))
     }
 }
 

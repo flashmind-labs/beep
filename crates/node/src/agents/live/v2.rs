@@ -175,6 +175,7 @@ impl Live {
                     }));
                 }
             }
+            v2::SessionUpdate::SessionInfoUpdate(_) if self.named => {}
             v2::SessionUpdate::SessionInfoUpdate(update) => match &update.title {
                 MaybeUndefined::Value(title) => self.info.title = crate::agents::tags::title(title),
                 MaybeUndefined::Null => self.info.title = None,
