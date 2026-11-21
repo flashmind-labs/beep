@@ -553,6 +553,7 @@ mod mesh_state {
                 machine: SecretKey::generate().public(),
                 host: "127.0.0.1".into(),
                 port: 9119,
+                credential: "hermes.1".into(),
             }),
             ..Default::default()
         };

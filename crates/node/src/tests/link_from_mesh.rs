@@ -217,6 +217,7 @@ async fn the_hermes_link_reaches_only_the_machine_the_assistant_names() {
             machine,
             host: "hermes.local".into(),
             port: 9119,
+            credential: "hermes.2".into(),
         }),
         ..AssistantSettings::default()
     };
@@ -225,17 +226,24 @@ async fn the_hermes_link_reaches_only_the_machine_the_assistant_names() {
         mesh.set(Key::Assistant, Some(bytes)).await.unwrap();
     };
 
-    set_assistant(me).await;
-    assert_eq!(hermes(&mesh, me, &stored(&mesh)), None, "no token, no link");
+    let save_token = async |id: &str, token: &str| {
+        let token = Credential::Hermes(HermesLogin {
+            token: beep_proto::SecretText::new(token),
+        });
+        mesh.set(Key::Credential(id.into()), Some(token.to_bytes().unwrap()))
+            .await
+            .unwrap();
+    };
 
-    let token = Credential::Hermes(HermesLogin {
-        token: beep_proto::SecretText::new("placeholder"),
-    });
-    mesh.set(Key::Credential("hermes".into()), Some(token.to_bytes().unwrap()))
-        .await
-        .unwrap();
+    set_assistant(me).await;
+    assert_eq!(hermes(&mesh, me), None, "no token, no link");
+
+    save_token("hermes.1", "for another address").await;
+    assert_eq!(hermes(&mesh, me), None, "only the token the address names");
+
+    save_token("hermes.2", "placeholder").await;
     assert_eq!(
-        hermes(&mesh, me, &stored(&mesh)),
+        hermes(&mesh, me),
         Some(HermesLink {
             host: "hermes.local".into(),
             port: 9119,
@@ -245,5 +253,5 @@ async fn the_hermes_link_reaches_only_the_machine_the_assistant_names() {
     assert!(credentials(&stored(&mesh)).env.is_empty(), "the token is no process's");
 
     set_assistant(SecretKey::generate().public()).await;
-    assert_eq!(hermes(&mesh, me, &stored(&mesh)), None, "another machine runs it");
+    assert_eq!(hermes(&mesh, me), None, "another machine runs it");
 }

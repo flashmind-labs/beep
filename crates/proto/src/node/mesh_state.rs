@@ -58,6 +58,10 @@ wire_structs! {
         pub machine: EndpointId,
         pub host: String,
         pub port: u16,
+        /// The id of the `Credential::Hermes` whose token goes with this address. Added after
+        /// `port`.
+        #[serde(default)]
+        pub credential: String,
     }
 }
 

@@ -688,8 +688,10 @@ impl Desk {
         let last4 = self
             .hermes_tokens()
             .into_iter()
-            .find_map(|(_, value)| match value {
-                Value::Hermes(login) => Some(last4(login.token.expose())),
+            .find_map(|(id, value)| match value {
+                Value::Hermes(login) if id == connection.credential => {
+                    Some(last4(login.token.expose()))
+                }
                 _ => None,
             })
             .unwrap_or_default();
@@ -760,8 +762,9 @@ impl Desk {
             return Ok(check);
         }
 
+        // The new token is saved before the address that names it, and the
+        // old ones go after: a node never pairs a token with another address.
         let _write = WRITES.lock().await;
-        self.drop_hermes_tokens().await?;
         let login = HermesLogin {
             token: SecretText::new(token.expose_secret()),
         };
@@ -772,10 +775,12 @@ impl Desk {
                 machine,
                 host: host.to_owned(),
                 port,
+                credential: id.clone(),
             }),
             ..self.assistant()
         };
         self.save_assistant(&settings).await?;
+        self.drop_hermes_tokens(Some(&id)).await?;
         Ok(check)
     }
 
@@ -787,12 +792,15 @@ impl Desk {
             ..self.assistant()
         };
         self.save_assistant(&settings).await?;
-        self.drop_hermes_tokens().await
+        self.drop_hermes_tokens(None).await
     }
 
-    async fn drop_hermes_tokens(&self) -> Result<()> {
+    /// Forgets the Hermes tokens but `kept`.
+    async fn drop_hermes_tokens(&self, kept: Option<&str>) -> Result<()> {
         for (id, _) in self.hermes_tokens() {
-            crate::records::write::<Value>(&self.mesh, key(&id), None).await?;
+            if Some(id.as_str()) != kept {
+                crate::records::write::<Value>(&self.mesh, key(&id), None).await?;
+            }
         }
 
         Ok(())

@@ -209,7 +209,7 @@ impl Applied {
         offers.agents.set_instructions(instructions(mesh));
         // Before the settings arrive, so a Hermes session held over a restart
         // finds its agent.
-        offers.agents.set_hermes(hermes(mesh, me, &stored));
+        offers.agents.set_hermes(hermes(mesh, me));
 
         let settings = settings(mesh);
 
@@ -336,14 +336,16 @@ fn credentials(stored: &[Credential]) -> MachineCredentials {
 }
 
 /// Where this machine reaches Hermes, when the assistant's settings name it
-/// and `stored` holds Hermes's token.
-fn hermes(mesh: &Mesh, me: EndpointId, stored: &[Credential]) -> Option<HermesLink> {
+/// and the mesh holds the token they name: never another token, which may be
+/// for another address.
+fn hermes(mesh: &Mesh, me: EndpointId) -> Option<HermesLink> {
     let assistant = AssistantSettings::from_bytes(&mesh.get(&Key::Assistant)?).ok()?;
     let connection = assistant.hermes.filter(|connection| connection.machine == me)?;
-    let token = stored.iter().find_map(|credential| match credential {
-        Credential::Hermes(login) => Some(login.token.clone()),
-        _ => None,
-    })?;
+    let stored = mesh.get(&Key::Credential(connection.credential.clone()))?;
+    let Credential::Hermes(login) = Credential::from_bytes(&stored).ok()? else {
+        return None;
+    };
+    let token = login.token;
 
     Some(HermesLink {
         host: connection.host,
