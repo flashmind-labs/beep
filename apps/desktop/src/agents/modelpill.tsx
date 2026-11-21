@@ -9,20 +9,25 @@ import { closedPicker, knownModels, modelsOn, drawPicker, type Picked, pillConte
 import { type AgentRow, AG, agentKind, canTakeOver } from "./agents.ts";
 import { SWITCHES, sessionPicks } from "./session.tsx";
 import { drawAgentBody } from "./logview.tsx";
-import { steerAgent } from "./messages.ts";
+import { resendPrompt, steerAgent } from "./messages.ts";
 import { perfLayer, perfOpen } from "../ui/perf.ts";
 
 export const resumePicks = new Map<string, SessionPick>();
 /// The model pill, which the picker opens from.
 const modelPill = createRef<HTMLButtonElement>();
+/// The session whose failed prompt goes again once a model is picked.
+let retryIn: string | null = null;
+
+/// Whether session `s` can switch its model or thinking.
+export const canSwitchModel = (s: AgentRow) => SWITCHES.has(s.agent) && !isNativeSession(s.id)
+  && (s.status === "ended" ? !s.external || canTakeOver(s.agent) : !s.external);
 
 /// The pill by the field: the harness, the model and thinking switched to.
 /// A harness that cannot switch in a running session shows it disabled.
 export function drawModelPill() {
   const s = AG.page?.session;
   if (!s) return;
-  const can = SWITCHES.has(s.agent) && !isNativeSession(s.id)
-    && (s.status === "ended" ? !s.external || canTakeOver(s.agent) : !s.external);
+  const can = canSwitchModel(s);
   const p = sessionPicks.get(s.id) ?? { model: "", effort: null, fast: null };
   const model = resumePicks.get(s.id)?.model ?? (AG.page?.model || p.model);
   const models = modelsOn(s.machine_id, s.agent, () => { if (AG.page?.session.id === s.id) drawModelPill(); });
@@ -43,9 +48,19 @@ export function toggleModelPicker() {
   opened();
 }
 
+/// Opens the picker for a failed turn: the model picked runs its prompt again.
+export function retryWithModel() {
+  const s = AG.page?.session;
+  if (!s) return;
+
+  retryIn = s.id;
+  if (!AG.modelOpen) toggleModelPicker();
+}
+
 /// Closes the model picker; true when it was open, so Esc goes no further.
 export function closeModelPicker() {
   if (!AG.modelOpen) return false;
+  retryIn = null;
   AG.modelOpen = false;
   drawModelPicker();
   drawModelPill();
@@ -86,13 +101,16 @@ function drawModelPicker() {
       if (what === "agent" || what === "done") return;
       // A search such as `opus high` picks the thinking level with the model.
       const both = what === "model" && picked.effort !== was;
-      if (what === "model") { AG.modelOpen = false; drawModelPicker(); }
-      switchSessionModel(s, { model: picked.model, effort: picked.effort, fast: picked.fast }, both ? "both" : what);
+      const retry = what === "model" && retryIn === s.id;
+      if (what === "model") { AG.modelOpen = false; retryIn = null; drawModelPicker(); }
+
+      void switchSessionModel(s, { model: picked.model, effort: picked.effort, fast: picked.fast }, both ? "both" : what)
+        .then(switched => { if (retry && switched) void resendPrompt(); });
     },
   });
 }
 
-/// Switches session `s` to the model, the thinking or both in `next`.
+/// Switches session `s` to the model, the thinking or both in `next`; true when it took.
 export async function switchSessionModel(s: AgentRow, next: SessionPick, what: "model" | "effort" | "fast" | "both") {
   next = { ...next, model: modelId(knownModels(s.machine_id, s.agent), next.model) };
   if (s.status === "ended") {
@@ -100,15 +118,17 @@ export async function switchSessionModel(s: AgentRow, next: SessionPick, what: "
     sessionPicks.set(s.id, next);
     drawModelPicker();
     drawModelPill();
-    return;
+    return true;
   }
 
   const was = sessionPicks.get(s.id) ?? { model: "", effort: null, fast: null };
   const model = what === "model" || what === "both" ? next.model || null : null, effort = what === "effort" || what === "both" ? next.effort : null;
 
   const fast = what === "fast" ? next.fast : null;
+  let switched = false;
   if (model || effort || fast !== null) {
-    if (await steerAgent({ configure: { model, effort, fast } })) sessionPicks.set(s.id, next);
+    switched = await steerAgent({ configure: { model, effort, fast } });
+    if (switched) sessionPicks.set(s.id, next);
   } else if (what === "effort" ? was.effort : was.model) {
     AG.note = `A running session cannot go back to Default; pick ${what === "effort" ? "a level" : "a model"} by name.`;
     drawAgentBody();
@@ -116,4 +136,5 @@ export async function switchSessionModel(s: AgentRow, next: SessionPick, what: "
 
   drawModelPicker();
   drawModelPill();
+  return switched;
 }

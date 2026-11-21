@@ -11,7 +11,7 @@ import { fullPic } from "./images.tsx";
 import { childRow } from "./nesting-state.ts";
 import { parentSession, keepNativeSession, loadSessions, sessions } from "./sessions.ts";
 import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub } from "./logview.tsx";
-import { toggleModelPicker, closeModelPicker } from "./modelpill.tsx";
+import { toggleModelPicker, closeModelPicker, retryWithModel } from "./modelpill.tsx";
 import { cycleMode } from "./modepill.tsx";
 import { answerAgentQuestion, interruptAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -55,6 +55,7 @@ export function agentClick(e: MouseEvent) {
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt), opt.dataset.agquestion ?? "");
   if (target.closest("[data-agcancel]")) return void interruptAgent();
   if (target.closest("#agmodelb")) return toggleModelPicker();
+  if (target.closest("[data-agretrymodel]")) return retryWithModel();
   if (target.closest("#agmodeb")) { cycleMode(); agentMessage.current?.focus(); return; }
   if (AG.modelOpen && !target.closest(".agc-pick, [data-agtask]")) closeModelPicker();
   const closing = target.closest<HTMLElement>(".agpane [data-subclose]");

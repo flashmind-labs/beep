@@ -3,7 +3,8 @@
 import { type Attached, dropDelivered, type OutboxRow, sentFromOutbox, type Waiting } from "./agentqueue.ts";
 import { resumePicks } from "./modelpill.tsx";
 import { sessionPicks } from "./session.tsx";
-import { sentText } from "./agentlog.ts";
+import { imageLines, sentText } from "./agentlog.ts";
+import { promptParts } from "./promptparts-state.ts";
 import { composeMessage, prependDraft } from "../chat/compose.tsx";
 import { conversationKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
@@ -397,10 +398,18 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
   return false;
 }
 
-/// Sends the diff review `text` as one message: a steer while a turn runs,
-/// else a message, or what continues an ended session. "" when it went,
-/// else why not; the field keeps what was typed.
-export async function sendReview(text: string) {
+/// Sends the last prompt's words again, without Beep's context or images.
+export async function resendPrompt() {
+  const said = AG.page?.entries.findLast(en => en.kind === "user");
+  const own = said ? promptParts(said.text).filter(p => p.kind === "user").map(p => p.text).join("\n") : "";
+  const text = imageLines(own).text.trim();
+  if (text) await sendPrompt(text);
+}
+
+/// Sends `text` as one message: a steer while a turn runs, else a message,
+/// or what continues an ended session. "" when it went, else why not; the
+/// field keeps what was typed.
+export async function sendPrompt(text: string) {
   const o = AG.open, page = AG.page;
   if (!o || !page) return "No session is open.";
   let ok: boolean;
