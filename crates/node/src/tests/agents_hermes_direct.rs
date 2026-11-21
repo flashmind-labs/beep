@@ -309,6 +309,17 @@ fn an_ipv6_host_goes_in_brackets_with_or_without_them() {
     }
 }
 
+#[test]
+fn a_wss_or_https_host_goes_over_tls() {
+    let token = SecretText::new("t");
+
+    for host in ["wss://hermes.example", "https://hermes.example/"] {
+        assert_eq!(socket_url(host, 443, &token).unwrap().as_str(), "wss://hermes.example/api/ws?token=t");
+    }
+    assert_eq!(socket_url("ws://hermes.local", 9119, &token).unwrap().as_str(), "ws://hermes.local:9119/api/ws?token=t");
+    assert_eq!(socket_url("ftp://hermes.local", 9119, &token), None);
+}
+
 // The bridge, driven by an ACP client over pipes against a fake Hermes.
 
 const STORED: &str = "20260101_000000_stored1";

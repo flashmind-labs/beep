@@ -5,10 +5,10 @@
 use beep_proto::{CredentialCheck, SecretText};
 use futures::{SinkExt, StreamExt};
 use serde_json::{Value, json};
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::{
-    connect_async,
+    Connector, connect_async_tls_with_config,
     tungstenite::{Error as WsError, Message},
 };
 use url::Url;
@@ -60,7 +60,11 @@ impl Gateway {
         let unreachable = || LinkError::Unreachable(format!("nothing answers on {host}:{port}"));
         let url = socket_url(host, port, token).ok_or_else(unreachable)?;
 
-        let connected = tokio::time::timeout(TIMEOUT, connect_async(url.as_str())).await.map_err(|_| unreachable())?;
+        // A `wss://` host goes over the shared TLS setup, which installs no
+        // process-wide crypto provider.
+        let tls = Connector::Rustls(Arc::new(beep_proto::https::tls()));
+        let connecting = connect_async_tls_with_config(url.as_str(), None, false, Some(tls));
+        let connected = tokio::time::timeout(TIMEOUT, connecting).await.map_err(|_| unreachable())?;
         let (mut socket, _) = connected.map_err(|err| match err {
             WsError::Http(response) if matches!(response.status().as_u16(), 401 | 403) => LinkError::Refused,
             _ => unreachable(),
@@ -131,12 +135,18 @@ pub(in crate::agents) async fn check(host: &str, port: u16, token: &SecretText) 
     }
 }
 
-/// The socket's address, with the token as a query value. `None` for a host
-/// that makes no address.
+/// The socket's address, with the token as a query value: over TLS for a
+/// `wss://` or `https://` host. `None` for a host that makes no address.
 pub(super) fn socket_url(host: &str, port: u16, token: &SecretText) -> Option<Url> {
-    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let (scheme, host) = match host.split_once("://") {
+        Some(("wss" | "https", host)) => ("wss", host),
+        Some(("ws" | "http", host)) => ("ws", host),
+        Some(_) => return None,
+        None => ("ws", host),
+    };
+    let host = host.trim_end_matches('/').trim_start_matches('[').trim_end_matches(']');
     let host = if host.contains(':') { format!("[{host}]") } else { host.to_owned() };
-    let mut url = Url::parse(&format!("ws://{host}:{port}/api/ws")).ok()?;
+    let mut url = Url::parse(&format!("{scheme}://{host}:{port}/api/ws")).ok()?;
     url.query_pairs_mut().append_pair("token", token.expose());
 
     Some(url)
