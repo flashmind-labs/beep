@@ -78,7 +78,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
 
     if (offers.delete) {
       const targets = windowHooks?.sessionDestinations?.(s) ?? [];
-      if (targets.length) items.push({ label: "Move to project…", on: () => {
+      if (targets.length) items.push({ label: "Move to project", on: () => {
         openMenu(e, "Move to project", targets.map(target => ({ label: target.name, on: () => confirmSheet({
           title: `Move to ${target.name}?`,
           text: "Keeps the conversation and changes its working folder. Files stay where they are. Resume the session after moving it.",
@@ -103,7 +103,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
 
     if (offers.delete) {
       items.push({
-        label: "Delete…",
+        label: "Delete",
         warn: true,
         on: () => confirmSheet({
           title: "Delete this session?",

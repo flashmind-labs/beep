@@ -41,5 +41,5 @@ export function confirmRemove(project: string, m: WhereRow) {
 /// The row menu's line for it; none when it cannot, as the x says why.
 export function removeMenuItems(project: string, rows: readonly WhereRow[], m: WhereRow): MenuItem[] {
   if (m.kind !== "here" || blocked(project, rows, m)) return [];
-  return [{ label: "Remove from this machine…", warn: true, on: () => confirmRemove(project, m) }];
+  return [{ label: "Remove from this machine", warn: true, on: () => confirmRemove(project, m) }];
 }

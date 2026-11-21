@@ -9,7 +9,7 @@ use crate::{
     records::{SavedVersion, WRITES, now_ms, read, scan, time, write},
 };
 use beep_mesh::Key;
-use beep_proto::{AgentSlug, ModelId};
+use beep_proto::ModelId;
 use beep_proto::{
     ApiError, FlshSettings, HarnessEnv, HarnessSettings, InstructionsVersion,
     MachineHarnessSettings, check_agent, check_settings, merged_env,
@@ -204,29 +204,6 @@ impl Desk {
         }
 
         self.update_harness(agent, |config| config.driver = driver)
-            .await
-    }
-
-    /// The harnesses `agent`'s sessions may start, the same on every machine; `None` is any.
-    pub fn harness_spawns(&self, agent: &str) -> Result<Option<Vec<AgentSlug>>> {
-        check_agent(agent)?;
-        Ok(read::<HarnessConfig>(&self.mesh, &Self::harness_key(agent))
-            .and_then(|config| config.spawns))
-    }
-
-    /// Saves the harnesses `agent`'s sessions may start, for every machine.
-    pub async fn save_harness_spawns(
-        &self,
-        agent: &str,
-        spawns: Option<Vec<AgentSlug>>,
-    ) -> Result<()> {
-        check_agent(agent)?;
-
-        for spawn in spawns.iter().flatten() {
-            check_agent(spawn.as_ref())?;
-        }
-
-        self.update_harness(agent, |config| config.spawns = spawns)
             .await
     }
 

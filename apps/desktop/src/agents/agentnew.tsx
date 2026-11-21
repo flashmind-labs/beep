@@ -322,7 +322,7 @@ function baseMenu(): ChoiceMenu | null {
   const list = formBranches(), picked = baseFor(f.base, list);
   const rows: ChoiceRow[] = baseRows(list).map(name => ({ kind: "button", action: "agb", value: name, selected: picked === name, label: <span className="mono">{name}</span>, detail: name === list?.default_branch ? "default" : "" }));
   const note: ChoiceRow[] = list === undefined ? [{ kind: "button", action: null, value: "loading", disabled: true, label: <span><Spinner /> Reading branches…</span>, detail: "" }] : [];
-  return { style: "base", rows: [...note, ...rows, ...(rows.length || note.length ? [{ kind: "rule" } as const] : []), { kind: "button", action: "agbtype", value: "1", label: "Type a branch or commit…", detail: "" }] };
+  return { style: "base", rows: [...note, ...rows, ...(rows.length || note.length ? [{ kind: "rule" } as const] : []), { kind: "button", action: "agbtype", value: "1", label: "Type a branch or commit", detail: "" }] };
 }
 
 /// The Account menu: the agent's default account, then its named ones.
@@ -381,7 +381,7 @@ function folderMenu(checkout: boolean): ChoiceMenu | null {
       ...trees.map(t => ({ kind: "button", action: "agw", value: t, selected: same({ worktree: t }), label: <span className="mono">{t.split("/").slice(-2).join("/")}</span>, detail: "worktree" } as const))] : []),
     ...(places.length || checkout ? [{ kind: "rule" } as const] : []),
     { kind: "button", action: "agf", value: "", selected: !f.cwd.trim(), label: "Workspace", detail: workspace, mono: true },
-    { kind: "button", action: "agtype", value: "1", label: "Type a folder…", detail: "" },
+    { kind: "button", action: "agtype", value: "1", label: "Type a folder", detail: "" },
   ];
   return { style: "folder", rows };
 }

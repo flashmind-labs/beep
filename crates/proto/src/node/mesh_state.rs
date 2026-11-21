@@ -152,6 +152,10 @@ pub struct ProjectRecord {
     /// Repository URL changes, replayed on machines that were offline.
     #[serde(default)]
     pub remote_renames: Vec<RemoteRename>,
+    /// The harnesses whose sessions may run in its checkouts; `None` allows
+    /// every harness. Each node refuses a session of another harness there.
+    #[serde(default)]
+    pub harnesses: Option<Vec<AgentSlug>>,
 }
 
 impl ProjectRecord {

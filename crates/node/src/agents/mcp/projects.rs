@@ -87,6 +87,37 @@ pub(super) fn folder(mesh: &Mesh, name: &str, machine: EndpointId) -> Result<Str
         })
 }
 
+/// Refuses a session of `agent` in `cwd` when the project whose checkout here holds it limits
+/// the harnesses that run in it.
+pub(crate) fn may_run(mesh: &Mesh, cwd: &Path, agent: &str) -> Result<(), String> {
+    let Some(name) = of_folder(mesh, &cwd.to_string_lossy(), mesh.me()) else {
+        return Ok(());
+    };
+    let Some(record) = mesh
+        .get(&Key::Project(name.clone()))
+        .and_then(|bytes| ProjectRecord::from_bytes(&bytes).ok())
+    else {
+        return Ok(());
+    };
+    let Some(allowed) = record.harnesses else {
+        return Ok(());
+    };
+
+    if allowed.iter().any(|harness| harness.as_ref() == agent) {
+        return Ok(());
+    }
+
+    let project = record.display_name.unwrap_or(name);
+    let allowed: Vec<&str> = allowed.iter().map(AsRef::as_ref).collect();
+    Err(match allowed.as_slice() {
+        [] => format!("No agent may run in {project}, as set in its Harnesses."),
+        _ => format!(
+            "{agent} may not run in {project}: it allows only {}, as set in its Harnesses.",
+            allowed.join(", ")
+        ),
+    })
+}
+
 /// The project whose checkout on `machine` holds `cwd`, the innermost when
 /// checkouts nest.
 pub(super) fn of_folder(mesh: &Mesh, cwd: &str, machine: EndpointId) -> Option<String> {

@@ -116,15 +116,15 @@ function McpServers({ machineId, harness, invoke }: MachineProps & { harness: Ha
     const { name } = server;
     const args = { machineId, harness, name };
     openMenu(event, name, [
-      { label: "Edit…", on: () => edit(server) },
-      { label: "Apply to all…", on: () => confirmSheet({
+      { label: "Edit", on: () => edit(server) },
+      { label: "Apply to all", on: () => confirmSheet({
         title: `Apply ${name} to all machines?`,
         text: `Copies this entry, including any credentials in it, to ${title} on other linked machines. A server with the same name is replaced.`,
         action: "Apply to all machines",
         run: async () => { setApplied(await invoke<Applied[]>("apply_machine_mcp_server", args)); },
       }) },
       { kind: "separator" },
-      { label: "Remove…", warn: true, on: () => confirmSheet({
+      { label: "Remove", warn: true, on: () => confirmSheet({
         title: `Remove ${name} from ${title}?`,
         text: `Removes this server from ${title}’s user configuration on this machine.`,
         action: "Remove server",

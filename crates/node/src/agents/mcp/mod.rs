@@ -38,7 +38,7 @@ mod devices;
 pub(crate) mod harness;
 mod machines;
 mod media;
-mod projects;
+pub(crate) mod projects;
 mod reply;
 mod review;
 mod server;

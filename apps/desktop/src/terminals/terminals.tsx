@@ -400,7 +400,7 @@ export function makeTerminals(deps: TerminalDeps) {
         run: () => close(name, open.id),
       });
     };
-    items.push({ label: running ? "Kill…" : "Close", warn: true, on: stop });
+    items.push({ label: running ? "Kill" : "Close", warn: true, on: stop });
     let body: ReactNode;
 
     if (live.link === "view_only") {

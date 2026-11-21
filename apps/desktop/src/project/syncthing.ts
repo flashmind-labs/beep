@@ -107,12 +107,12 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
         retry(e, change);
       }
     };
-    const choose = { label: "Choose ignored folders…", on: () => chooseIgnoredFolders(project.name, project.machines, settings, onChanged) };
+    const choose = { label: "Choose ignored folders", on: () => chooseIgnoredFolders(project.name, project.machines, settings, onChanged) };
     insert("ignored", [{ kind: "toggle", label: "Sync ignored folders", checked: settings.enabled, on: change }, ...(settings.enabled ? [choose] : [])]);
   }, e => insert("ignored", [{ label: `Ignored folders: ${reason(e)} (retry)`, on: reopen }]));
 
   invoke<string>("project_sync_rules", { project: project.name }).then(rules => {
-    insert("rules", [{ label: "Sync rules…", on: () => editSyncRules(project.name, rules, onChanged) }]);
+    insert("rules", [{ label: "Sync rules", on: () => editSyncRules(project.name, rules, onChanged) }]);
   }, e => insert("rules", [{ label: `Sync rules: ${reason(e)} (retry)`, on: reopen }]));
 
   // Unset keeps each folder's own Syncthing share, so it reads as Syncthing.

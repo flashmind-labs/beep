@@ -5,7 +5,7 @@ test("ignored sync validates, retries and blocks dismissal while saving", async 
   await openDesktop(page, false, { project_ignored_sync: { enabled: true, folders: ["assets"] }, project_git_auto_recovery: false, project_syncthing_mode: null });
   await page.evaluate(() => window.__navigation.open({ projects: { project: "example/widget" } }));
   await page.getByRole("button", { name: "More", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Choose ignored folders…" }).click();
+  await page.getByRole("menuitem", { name: "Choose ignored folders" }).click();
   const sheet = page.getByRole("dialog", { name: "Sync gitignored" });
   const paths = sheet.getByRole("textbox", { name: "Folders relative to the project, one per line" });
   await expect(paths).toBeFocused();
@@ -34,7 +34,7 @@ test("the ignored folder list takes the sheet's width", async ({ page }) => {
   await openDesktop(page, false, { project_ignored_sync: { enabled: true, folders: ["assets"] }, project_git_auto_recovery: false, project_syncthing_mode: null });
   await page.evaluate(() => window.__navigation.open({ projects: { project: "example/widget" } }));
   await page.getByRole("button", { name: "More", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Choose ignored folders…" }).click();
+  await page.getByRole("menuitem", { name: "Choose ignored folders" }).click();
   const sheet = page.getByRole("dialog", { name: "Sync gitignored" });
   const paths = sheet.getByRole("textbox", { name: "Folders relative to the project, one per line" });
   const label = sheet.getByText("Each folder must be wholly ignored by Git");
@@ -46,7 +46,7 @@ test("sync rules open with the project's rules and save them", async ({ page }) 
   await openDesktop(page, false, { project_sync_rules: "datasets/", project_ignored_sync: { enabled: false, folders: [] }, project_git_auto_recovery: false, project_syncthing_mode: null });
   await page.evaluate(() => window.__navigation.open({ projects: { project: "example/widget" } }));
   await page.getByRole("button", { name: "More", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Sync rules…" }).click();
+  await page.getByRole("menuitem", { name: "Sync rules" }).click();
   const sheet = page.getByRole("dialog", { name: "Sync rules" });
   const rules = sheet.getByRole("textbox", { name: "Rules in .gitignore syntax, one per line" });
   await expect(rules).toBeFocused();

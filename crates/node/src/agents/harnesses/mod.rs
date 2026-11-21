@@ -132,32 +132,6 @@ impl Settings {
         }
     }
 
-    /// Refuses a child of `child` harness under a session of `parent` harness when the user
-    /// limited what `parent` may start.
-    pub(super) fn may_start(&self, parent: &str, child: &str) -> Result<(), String> {
-        let saved = lock(&self.0);
-        let Some(spawns) = saved
-            .harnesses
-            .get(parent)
-            .and_then(|config| config.spawns.as_ref())
-        else {
-            return Ok(());
-        };
-
-        if spawns.iter().any(|spawn| spawn.as_ref() == child) {
-            return Ok(());
-        }
-
-        let allowed: Vec<&str> = spawns.iter().map(AsRef::as_ref).collect();
-        Err(match allowed.as_slice() {
-            [] => format!("{parent} sessions may not start other agents, as set in Settings."),
-            _ => format!(
-                "{parent} sessions may start only {} agents, as set in Settings. Use one of those as `harness`.",
-                allowed.join(", ")
-            ),
-        })
-    }
-
     fn get(&self, agent: &str) -> Option<HarnessConfig> {
         lock(&self.0).harnesses.get(agent).cloned()
     }

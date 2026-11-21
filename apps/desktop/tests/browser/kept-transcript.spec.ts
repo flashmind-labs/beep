@@ -127,7 +127,7 @@ test("a deleted session's kept log is not drawn again", async ({ page }) => {
 
   await page.evaluate(() => window.__navigation.open("home"));
   await page.locator(".cwin").getByText("First notification").first().click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Delete…" }).click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
   await expect.poll(() => calls(page, "agent_delete")).toHaveLength(1);
 

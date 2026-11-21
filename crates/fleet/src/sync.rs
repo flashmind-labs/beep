@@ -11,8 +11,8 @@ use crate::{
 use beep_mesh::{Key, PeerClient};
 use beep_projects::model::plain_path;
 use beep_proto::{
-    ConflictKeep, MachineSync, MachineSyncDetail, ProjectMachine, ProjectSync, ProjectSyncDetail,
-    SyncProgress, SyncStatus, SyncthingPlace,
+    AgentSlug, ConflictKeep, MachineSync, MachineSyncDetail, ProjectMachine, ProjectSync,
+    ProjectSyncDetail, SyncProgress, SyncStatus, SyncthingPlace, check_agent,
     node::{
         mesh_state::{ProjectSyncSettings, SyncSpec},
         sync::{Keep, PROTOCOL, ProjectStatus, Reply, Request, State},
@@ -116,6 +116,28 @@ impl Desk {
         }
 
         Ok(stored.record.git_auto_recovery)
+    }
+
+    /// The harnesses whose sessions may run in `project`; `None` is every harness.
+    pub fn project_harnesses(&self, project: &str) -> Result<Option<Vec<AgentSlug>>> {
+        let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        Ok(stored.record.harnesses)
+    }
+
+    /// Saves the harnesses whose sessions may run in `project`, for every machine.
+    pub async fn save_project_harnesses(
+        &self,
+        project: &str,
+        harnesses: Option<Vec<AgentSlug>>,
+    ) -> Result<()> {
+        for agent in harnesses.iter().flatten() {
+            check_agent(agent.as_ref())?;
+        }
+
+        let _write = WRITES.lock().await;
+        let mut stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        stored.record.harnesses = harnesses;
+        write(&self.mesh, project_key(&stored.name), Some(&stored.record)).await
     }
 
     /// A replicated choice, applied on each machine when it is reachable.

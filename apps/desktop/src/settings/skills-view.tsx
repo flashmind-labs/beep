@@ -49,7 +49,7 @@ function libraryMenu(library: SkillLibrary): MenuItem[] {
     ...(projects.length ? [{ label: `Uninstall from ${plural(projects.length, "project")}`, on: () => void skills.uninstallProjects(library.name) }] : []),
     { label: "Update", on: () => void skills.update(library.name) },
     { kind: "separator" },
-    { label: "Remove library…", warn: true, on: () => confirmSheet({
+    { label: "Remove library", warn: true, on: () => confirmSheet({
       title: `Remove ${library.name}?`,
       text: "Every machine uninstalls its skills, globally and in projects. Skills you wrote yourself stay.",
       action: "Remove",

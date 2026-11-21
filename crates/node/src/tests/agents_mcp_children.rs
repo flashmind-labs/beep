@@ -5,7 +5,6 @@ use crate::{
 };
 use beep_proto::AgentSlug;
 use beep_proto::node::agent::{Question, State};
-use beep_proto::node::harness::{AgentSettings, HarnessConfig};
 use serde_json::Value;
 use beep_proto::watched;
 use std::{collections::BTreeMap, time::Duration};
@@ -240,7 +239,7 @@ fn view(text: &str) -> ChildView {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_project_child_uses_its_checkout_and_accepts_followups() {
-    use beep_proto::node::mesh_state::Place;
+    use beep_proto::node::mesh_state::{Place, ProjectRecord};
     use iroh::{Endpoint, endpoint::presets};
 
     let dir = tempfile::tempdir().unwrap();
@@ -299,17 +298,26 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
         assert!(failed, "{text}");
     }
 
-    // A harness limited to starting its own kind cannot start another.
-    let limited = |spawns: Option<Vec<AgentSlug>>| AgentSettings {
-        harnesses: vec![HarnessConfig {
-            spawns,
-            ..HarnessConfig::new("top")
-        }],
-        flsh: None,
+    // A project limited to one harness refuses a session of another.
+    let limit = |harnesses: Option<Vec<AgentSlug>>| {
+        let mesh = offers.mesh.get().unwrap();
+        async move {
+            mesh.set(
+                Key::Project("example/app".to_owned()),
+                Some(
+                    ProjectRecord {
+                        harnesses,
+                        ..ProjectRecord::default()
+                    }
+                    .to_bytes()
+                    .unwrap(),
+                ),
+            )
+            .await
+            .unwrap();
+        }
     };
-    offers
-        .agents
-        .set_settings(limited(Some(vec![AgentSlug::new("top")])));
+    limit(Some(vec![AgentSlug::new("top")])).await;
     let (failed, text) = tool(
         &offers,
         &parent_id,
@@ -317,10 +325,8 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
         json!({"harness":"kid", "prompt":"work", "project":"example/app"}),
     )
     .await;
-    assert!(failed && text.contains("only top"), "{text}");
-    offers
-        .agents
-        .set_settings(limited(Some(vec![AgentSlug::new("top"), AgentSlug::new("kid")])));
+    assert!(failed && text.contains("allows only top"), "{text}");
+    limit(Some(vec![AgentSlug::new("top"), AgentSlug::new("kid")])).await;
 
     let (failed, text) = tool(
         &offers,

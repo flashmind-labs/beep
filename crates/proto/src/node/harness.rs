@@ -163,8 +163,8 @@ pub struct HarnessConfig {
     /// a node that runs neither directly uses ACP.
     #[serde(default)]
     pub driver: HarnessDriver,
-    /// The harnesses its sessions may start as children through
-    /// `start_agent` and `review`. `None` allows every harness.
+    /// No longer read: projects limit their harnesses instead
+    /// (`ProjectRecord::harnesses`). Kept for the positional wire format.
     #[serde(default)]
     pub spawns: Option<Vec<AgentSlug>>,
 }

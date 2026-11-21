@@ -78,7 +78,7 @@ test("machine MCP servers are loaded, edited and applied for the selected harnes
   await page.keyboard.press("Escape");
   await expect(more).toBeFocused();
   await more.click();
-  await page.getByRole("menuitem", { name: "Apply to all…" }).click();
+  await page.getByRole("menuitem", { name: "Apply to all" }).click();
   const applySheet = page.getByRole("dialog", { name: "Apply docs to all machines?" });
   await expect(applySheet.getByText(/to Codex on other linked machines/)).toBeVisible();
   await applySheet.getByRole("button", { name: "Apply to all machines" }).click();
@@ -114,7 +114,7 @@ test("machine MCP servers are loaded, edited and applied for the selected harnes
   expect((await calls(page, "save_machine_mcp_server")).at(-1)).toEqual({ machineId: buildBox.id, harness: "claude", previous: null, server: claude });
 
   await section.getByRole("button", { name: "More for example" }).click();
-  await page.getByRole("menuitem", { name: "Remove…" }).click();
+  await page.getByRole("menuitem", { name: "Remove" }).click();
   await page.getByRole("dialog", { name: "Remove example from Claude Code?" }).getByRole("button", { name: "Remove server" }).click();
   await expect(section.getByRole("button", { name: /^example/ })).toHaveCount(0);
   expect(await calls(page, "remove_machine_mcp_server")).toEqual([{ machineId: buildBox.id, harness: "claude", name: "example" }]);

@@ -9,6 +9,7 @@ import { overviewGroups, overviewSub } from "./overview-state.ts";
 import { openMenu, type MenuAction } from "../ui/menu.tsx";
 import { openProjectMenu } from "./syncthing.ts";
 import { openProjectSkills } from "./project-skills.tsx";
+import { openProjectHarnesses } from "./project-harnesses.tsx";
 import { editorsFor } from "./editors.ts";
 import { ProjectEditors } from "./header-view.tsx";
 import { type ReactNode } from "react";
@@ -159,8 +160,8 @@ export const projectsView: CenterView<"projects"> = {
         const items: MenuAction[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(project.name, !on) }];
         if (isMobile()) items.push(...forges.map(f => ({ label: `Open on ${f.label}`, on: () => openUrl(f.url) })));
         if (!windowProject && !onPhone()) items.push({ label: NEW_WINDOW, on: () => openProjectWindow(project.name) });
-        if (project.imported) items.push({ label: "Rename…", on: () => renameProject(project) });
-        items.push({ label: "Skills…", on: () => openProjectSkills(project.name) });
+        if (project.imported) items.push({ label: "Rename", on: () => renameProject(project) });
+        items.push({ label: "Skills", on: () => openProjectSkills(project.name) }, { label: "Harnesses", on: () => openProjectHarnesses(project.name) });
         if (project.imported) openProjectMenu(event.nativeEvent, project, items, { label: REMOVE_PROJECT, warn: true, on: () => removeProject(project.name) }, () => { whereDue.add(project.name); revalidate(project.name); });
         else openMenu(event.nativeEvent, project.name, items);
       }}>⋯</Button>);

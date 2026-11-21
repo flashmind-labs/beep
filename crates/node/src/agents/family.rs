@@ -278,7 +278,6 @@ impl Agents {
         }
 
         let kind = self.kind_or_refusal(&start.harness)?;
-        self.settings.may_start(&link.agent, &kind.name)?;
         let mode = match &start.review {
             Some(_) => review_mode(&link, &kind.name)?,
             None => child_mode(&link, &kind.name)?,

@@ -269,7 +269,7 @@ export function forgeLinks(url: string | null | undefined, hosts: readonly Pick<
 }
 
 /// The menu line and button that remove a project from Beep.
-export const REMOVE_PROJECT = "Remove project…";
+export const REMOVE_PROJECT = "Remove project";
 
 /// What the sheet that asks before removing project `name` says.
 export function removeProjectSheet(name: string) {

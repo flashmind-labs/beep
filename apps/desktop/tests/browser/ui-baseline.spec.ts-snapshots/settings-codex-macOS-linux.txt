@@ -239,14 +239,6 @@ body.cbody
                         button.dbtn.dchip [aria-pressed="false" type="button"] "ACP adapter"
                         button.dbtn.dchip [aria-pressed="true" type="button"] "Direct"
                       span.derr
-                  div.hv-f
-                    span
-                      b "Can start"
-                      small "Harnesses its sessions may start as other agents."
-                    span.fl-row
-                      span.dchips [aria-label="Can start" role="group"]
-                        button.dbtn.dchip [aria-pressed="true" type="button"] "Codex"
-                      span.derr
                   div.hv-note "Model choices and reported limits come from build-box ."
                   h4 "Models and context"
                   div.hv-f

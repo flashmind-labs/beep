@@ -15,9 +15,9 @@ import { type MachineCard, type MacRow, thisMacRow } from "../machines/machine-s
 export function groupMenu(e: MouseEvent, g: ProjectGroup, extra: MenuItem[] = []) {
   openMenu(e, g.name, [
     ...extra,
-    { label: "Rename…", on: () => startRename(g) },
-    { label: "Folders…", on: () => editGroup(g) },
-    { label: "Remove group…", warn: true, on: () => removeGroup(g) },
+    { label: "Rename", on: () => startRename(g) },
+    { label: "Folders", on: () => editGroup(g) },
+    { label: "Remove group", warn: true, on: () => removeGroup(g) },
   ]);
 }
 

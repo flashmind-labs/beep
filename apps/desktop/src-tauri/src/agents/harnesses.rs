@@ -320,24 +320,24 @@ pub async fn harness_driver_save(
         .await?)
 }
 
-/// The harnesses `agent`'s sessions may start, on every machine; `None` is any.
+/// The harnesses whose sessions may run in `project`, on every machine; `None` is any.
 #[tauri::command]
-pub async fn harness_spawns(
+pub async fn project_harnesses(
     fleet: FleetState<'_>,
-    agent: String,
+    project: String,
 ) -> Result<Option<Vec<AgentSlug>>> {
-    Ok(desk(&fleet).await?.harness_spawns(&agent)?)
+    Ok(desk(&fleet).await?.project_harnesses(&project)?)
 }
 
 #[tauri::command]
-pub async fn harness_spawns_save(
+pub async fn project_harnesses_save(
     fleet: FleetState<'_>,
-    agent: String,
-    spawns: Option<Vec<AgentSlug>>,
+    project: String,
+    harnesses: Option<Vec<AgentSlug>>,
 ) -> Result<()> {
     Ok(desk(&fleet)
         .await?
-        .save_harness_spawns(&agent, spawns)
+        .save_project_harnesses(&project, harnesses)
         .await?)
 }
 

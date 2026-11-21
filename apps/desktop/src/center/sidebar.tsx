@@ -215,7 +215,7 @@ function openProjectMenu(e: MouseEvent, name: string) {
   if (folder && !onPhone()) items.push({ label: "Open in editor", on: () => void openInEditor(folder) });
   const label = p?.url ? openOnLabel(p.url) : null;
   if (p?.url && label) items.push({ label, on: () => openUrl(p.url!) });
-  if (p?.imported) items.push({ label: "Rename…", on: () => renameProject(p) });
+  if (p?.imported) items.push({ label: "Rename", on: () => renameProject(p) });
   if (p?.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(name) });
   openMenu(e, name, items);
 }

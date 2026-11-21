@@ -59,7 +59,7 @@ test("a project's Skills sheet saves its picks", async ({ page }) => {
   await openDesktop(page, false, responses);
   await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
   await page.getByRole("button", { name: "More", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Skills…" }).click();
+  await page.getByRole("menuitem", { name: "Skills" }).click();
   const sheet = page.getByRole("dialog", { name: `Skills in ${projectName}` });
   await expect(sheet).toContainText("1 of 3 skills");
   await expect(sheet.getByRole("checkbox", { name: "writing" })).toBeDisabled();

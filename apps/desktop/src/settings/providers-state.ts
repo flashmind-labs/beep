@@ -102,6 +102,9 @@ const NAMES: Record<string, string> = {
   hermes: "Hermes",
 };
 
+/// The harnesses Beep knows, by slug.
+export const HARNESS_SLUGS: readonly string[] = Object.keys(NAMES);
+
 /// What each harness is called on screen.
 export function harnessName(agent: string) { return NAMES[agent] ?? agent; }
 
