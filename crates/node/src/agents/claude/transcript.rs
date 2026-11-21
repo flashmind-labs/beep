@@ -171,7 +171,12 @@ impl Digest {
 
         self.before_ms = self.line_ms.take().or(self.before_ms);
         self.line_ms = at_ms;
-        if let Some(cwd) = value["cwd"].as_str() {
+        // A resumed Claude starts in the session's launch folder, so only a
+        // tool line moves the folder: a restart alone must not leave the
+        // worktree the session works in.
+        if let Some(cwd) = value["cwd"].as_str()
+            && (self.said.cwd.is_none() || runs_tool(&value))
+        {
             self.said.cwd = Some(cwd.to_owned());
         }
         match value["type"].as_str().unwrap_or("") {
@@ -528,6 +533,15 @@ impl Digest {
     fn push(&mut self, kind: EntryKind, text: &str) {
         self.entries.push(Entry::new(kind, cut(text, MAX_ENTRY)));
     }
+}
+
+/// Whether a transcript line calls a tool or carries a tool's result.
+fn runs_tool(value: &Value) -> bool {
+    value["message"]["content"].as_array().is_some_and(|blocks| {
+        blocks
+            .iter()
+            .any(|block| matches!(block["type"].as_str(), Some("tool_use" | "tool_result")))
+    })
 }
 
 fn text_field(value: &Value, key: &str) -> Option<String> {
@@ -1244,6 +1258,25 @@ pub(super) mod tests {
         );
         let gist = Gist::of(digest, 0, 0, Vec::new());
         assert_eq!(gist.said.title().as_deref(), Some(custom.as_str()));
+    }
+
+    #[test]
+    fn a_resume_in_the_launch_folder_keeps_the_worktree_its_tools_ran_in() {
+        let line = |cwd: &str, content: Value| {
+            serde_json::json!({"type": "user", "cwd": cwd, "message": {"role": "user", "content": content}})
+                .to_string()
+        };
+        let tool = serde_json::json!([{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]);
+        let lines = [
+            line("/srv/project", "start".into()),
+            line("/srv/project/.worktrees/fix", tool.clone()),
+            line("/srv/project", "how does it work?".into()),
+        ];
+        let digest = Digest::read(&lines.join("\n"));
+        assert_eq!(digest.said.cwd.as_deref(), Some("/srv/project/.worktrees/fix"));
+
+        let back = [lines.join("\n"), line("/srv/project", tool)].join("\n");
+        assert_eq!(Digest::read(&back).said.cwd.as_deref(), Some("/srv/project"));
     }
 
     #[test]
