@@ -70,6 +70,24 @@ fn live_automatic_sessions_count_against_the_limit() {
     assert_eq!(plan.queued, [10]);
 }
 
+/// A session off the last list, whose machine did not say it ended, may
+/// still work: its slot is not handed out again.
+#[test]
+fn a_followed_session_not_known_to_have_ended_counts_against_the_limit() {
+    let mut p = pickup(&[9], &[]);
+    p.running.insert(
+        9,
+        Auto {
+            card: "s9@laptop".to_owned(),
+            branch: "issue-9".to_owned(),
+        },
+    );
+    let plan = due(&p, &[9, 10], &set(&[]), Some(1));
+
+    assert_eq!(plan.start, Vec::<u64>::new());
+    assert_eq!(plan.queued, [10]);
+}
+
 #[test]
 fn no_limit_starts_all() {
     let plan = due(&pickup(&[], &[]), &[5, 6, 7], &set(&[]), None);
