@@ -13,7 +13,7 @@ use beep_projects::{
     model::{IssueHost, RepoName},
     team_forge::{
         ForgeCall, assigned_issues_call, collaborator_answer, collaborator_call, open_issues_call,
-        parse_user_login, recent_pulls_call, user_call,
+        parse_user_login, permission_answer, permission_call, recent_pulls_call, user_call,
     },
 };
 use beep_proto::{
@@ -372,13 +372,21 @@ impl TeamForge for ForgeCli {
     ) -> BoxFuture<'a, Result<bool, String>> {
         Box::pin(async move {
             let (host, name) = forge_of(repo)?;
-            let out = run(&collaborator_call(&host, &name, login)).await?;
+            let out = run(&permission_call(&host, &name, login)).await?;
             let (stdout, stderr) = (
                 String::from_utf8_lossy(&out.stdout),
                 String::from_utf8_lossy(&out.stderr),
             );
+            let answer = permission_answer(out.status.success(), &stdout, &stderr);
 
-            collaborator_answer(out.status.success(), &stdout, &stderr).map_err(|e| e.to_string())
+            if let Some(pushes) = answer.map_err(|e| e.to_string())? {
+                return Ok(pushes);
+            }
+
+            let out = run(&collaborator_call(&host, &name, login)).await?;
+            let stderr = String::from_utf8_lossy(&out.stderr);
+
+            collaborator_answer(out.status.success(), &stderr).map_err(|e| e.to_string())
         })
     }
 

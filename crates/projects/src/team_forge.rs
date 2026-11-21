@@ -4,7 +4,7 @@
 
 use crate::{
     commands::{gh_account, json, parse_login, text},
-    issues::{HostExit, IssueSource, SourceError, host_failed, issue_source, run_rendered},
+    issues::{IssueSource, SourceError, host_failed, issue_source, run_rendered},
     issues::{Machines, ProjectStore},
     model::{IssueHost, RepoName},
     quote,
@@ -56,7 +56,44 @@ impl ForgeCall {
     }
 }
 
-/// `GET repos/{repo}/collaborators/{login}`: 204 when they may push, 404 when not.
+/// `GET repos/{repo}/collaborators/{login}/permission`: what `login` may do there.
+pub fn permission_call(host: &IssueHost, repo: &RepoName, login: &ForgeLogin) -> ForgeCall {
+    let path = format!("repos/{repo}/collaborators/{}/permission", escaped(login));
+    ForgeCall::api(host, path, &[])
+}
+
+/// Reads [`permission_call`]'s outcome: whether they may push, or `None` when the forge does
+/// not say. Forgejo tells only a repository's admins what others may do and refuses the rest
+/// with a 403; [`collaborator_call`] answers for them. GitHub reports maintain as `write` in
+/// `permission` and names it in `role_name`; Forgejo also has `owner`.
+pub fn permission_answer(
+    exit_ok: bool,
+    stdout: &str,
+    stderr: &str,
+) -> Result<Option<bool>, SourceError> {
+    if !exit_ok {
+        return match status_of(stderr) {
+            Some("404") => Ok(Some(false)),
+            Some("403") => Ok(None),
+            _ => Err(SourceError::Refused(format!(
+                "Could not check the collaborator: {}",
+                stderr.trim()
+            ))),
+        };
+    }
+
+    let reply = json(stdout).map_err(|error| host_failed(&error))?;
+    let pushes = ["permission", "role_name"].into_iter().any(|key| {
+        matches!(
+            &*text(&reply, key),
+            "admin" | "owner" | "maintain" | "write"
+        )
+    });
+
+    Ok(Some(pushes))
+}
+
+/// `GET repos/{repo}/collaborators/{login}`: 204 for a collaborator at any level, 404 when not.
 pub fn collaborator_call(host: &IssueHost, repo: &RepoName, login: &ForgeLogin) -> ForgeCall {
     let path = format!("repos/{repo}/collaborators/{}", escaped(login));
     ForgeCall::api(host, path, &[])
@@ -65,18 +102,11 @@ pub fn collaborator_call(host: &IssueHost, repo: &RepoName, login: &ForgeLogin) 
 /// Reads [`collaborator_call`]'s outcome. `gh api` and `teacli api` both exit non-zero on a 404
 /// and print its status ("HTTP 404") on stderr, so a 404 token says no. A bare "not found" is
 /// also what a missing CLI prints, so it is an error.
-pub fn collaborator_answer(
-    exit_ok: bool,
-    _stdout: &str,
-    stderr: &str,
-) -> Result<bool, SourceError> {
+pub fn collaborator_answer(exit_ok: bool, stderr: &str) -> Result<bool, SourceError> {
     if exit_ok {
         return Ok(true);
     }
-    if stderr
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .any(|token| token == "404")
-    {
+    if status_of(stderr) == Some("404") {
         return Ok(false);
     }
 
@@ -84,6 +114,13 @@ pub fn collaborator_answer(
         "Could not check the collaborator: {}",
         stderr.trim()
     )))
+}
+
+/// The HTTP status a failed `gh api` or `teacli api` printed: 403 or 404, as a token of its own.
+fn status_of(stderr: &str) -> Option<&'static str> {
+    let mut tokens = stderr.split(|c: char| !c.is_ascii_alphanumeric());
+
+    tokens.find_map(|token| ["403", "404"].into_iter().find(|status| *status == token))
 }
 
 /// `GET user`, the signed-in account.
@@ -236,25 +273,6 @@ pub async fn assign(
     Ok(())
 }
 
-/// Whether `login` is a collaborator on the project's repository.
-pub async fn is_collaborator(
-    store: &dyn ProjectStore,
-    machines: &dyn Machines,
-    login: &ForgeLogin,
-) -> Result<bool, SourceError> {
-    let source = source(store, machines).await?;
-    let call = collaborator_call(&source.host, store.name(), login);
-
-    match run(machines, &source, store.name(), &call).await {
-        Ok(out) => collaborator_answer(true, &out, ""),
-        Err(SourceError::Store(error)) => match error.downcast_ref::<HostExit>() {
-            Some(exit) => collaborator_answer(false, "", &exit.tail),
-            None => Err(host_failed(&error)),
-        },
-        Err(other) => Err(other),
-    }
-}
-
 /// The login the project's host machine is signed in as.
 pub async fn my_login(
     store: &dyn ProjectStore,
@@ -275,7 +293,8 @@ async fn source(
     })
 }
 
-/// Runs `call` on `source`'s machine; a failed command is the [`HostExit`] inside `Store`.
+/// Runs `call` on `source`'s machine; a failed command is the [`crate::issues::HostExit`]
+/// inside `Store`.
 async fn run(
     machines: &dyn Machines,
     source: &IssueSource,

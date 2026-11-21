@@ -40,20 +40,27 @@ fn forgejo_assign_keeps_existing() {
 #[test]
 fn calls_use_the_gh_and_teacli_api_shapes() {
     let who = login("alice");
-    let gh = collaborator_call(&github(), &repo(), &who);
+    let gh = permission_call(&github(), &repo(), &who);
     assert_eq!(gh.program, "gh");
-    assert_eq!(words(&gh), ["api", "repos/acme/widget/collaborators/alice"]);
+    assert_eq!(
+        words(&gh),
+        ["api", "repos/acme/widget/collaborators/alice/permission"]
+    );
 
-    let tea = collaborator_call(&forgejo(), &repo(), &who);
+    let tea = permission_call(&forgejo(), &repo(), &who);
     assert_eq!(tea.program, "teacli");
     assert_eq!(
         words(&tea),
         [
             "api",
-            "repos/acme/widget/collaborators/alice",
+            "repos/acme/widget/collaborators/alice/permission",
             "--host",
             "forge.example"
         ]
+    );
+    assert_eq!(
+        words(&collaborator_call(&github(), &repo(), &who)),
+        ["api", "repos/acme/widget/collaborators/alice"]
     );
 
     assert_eq!(words(&user_call(&github())), ["api", "user"]);
@@ -161,11 +168,56 @@ fn recent_pulls_list_open_and_closed() {
 
 #[test]
 fn a_404_says_no_and_other_failures_are_errors() {
-    assert!(collaborator_answer(true, "", "").expect("204"));
-    assert!(!collaborator_answer(false, "", "gh: Not Found (HTTP 404)").expect("404"));
-    assert!(collaborator_answer(false, "", "sh: 1: gh: not found").is_err());
-    assert!(collaborator_answer(false, "", "teacli: not found").is_err());
-    assert!(collaborator_answer(false, "", "gh: Bad credentials (HTTP 401)").is_err());
+    assert!(collaborator_answer(true, "").expect("204"));
+    assert!(!collaborator_answer(false, "gh: Not Found (HTTP 404)").expect("404"));
+    assert!(collaborator_answer(false, "sh: 1: gh: not found").is_err());
+    assert!(collaborator_answer(false, "teacli: not found").is_err());
+    assert!(collaborator_answer(false, "gh: Bad credentials (HTTP 401)").is_err());
+}
+
+#[test]
+fn only_write_access_and_above_may_push() {
+    let said = |reply: &str| permission_answer(true, reply, "").expect("read");
+
+    assert_eq!(
+        said(r#"{"permission":"admin","role_name":"admin"}"#),
+        Some(true)
+    );
+    assert_eq!(
+        said(r#"{"permission":"write","role_name":"maintain"}"#),
+        Some(true)
+    );
+    assert_eq!(
+        said(r#"{"permission":"write","role_name":"write"}"#),
+        Some(true)
+    );
+    assert_eq!(
+        said(r#"{"permission":"owner","role_name":"owner"}"#),
+        Some(true)
+    );
+    // A collaborator downgraded to read, or triage, may no longer push.
+    assert_eq!(
+        said(r#"{"permission":"read","role_name":"read"}"#),
+        Some(false)
+    );
+    assert_eq!(
+        said(r#"{"permission":"read","role_name":"triage"}"#),
+        Some(false)
+    );
+    assert_eq!(said(r#"{"permission":"none","role_name":""}"#), Some(false));
+
+    assert_eq!(
+        permission_answer(false, "", "gh: Not Found (HTTP 404)").expect("404"),
+        Some(false)
+    );
+    // Forgejo tells only admins: the collaborator check answers.
+    assert_eq!(
+        permission_answer(false, "", "teacli: Forbidden (HTTP 403)").expect("403"),
+        None
+    );
+    assert!(permission_answer(false, "", "sh: 1: gh: not found").is_err());
+    assert!(permission_answer(false, "", "gh: Bad credentials (HTTP 401)").is_err());
+    assert!(permission_answer(true, "not json", "").is_err());
 }
 
 #[test]
@@ -259,37 +311,6 @@ fn setup(url: &str, rules: Vec<(&'static str, i32, &'static str)>) -> (Store, Fl
     }]);
 
     (store, Fleet(shell.clone()), shell)
-}
-
-#[tokio::test]
-async fn is_collaborator_maps_204_and_404() {
-    let url = "https://github.com/acme/widget";
-    let (store, fleet, _) = setup(url, vec![("collaborators/alice", 0, "")]);
-    assert!(
-        is_collaborator(&store, &fleet, &login("alice"))
-            .await
-            .expect("yes")
-    );
-
-    let (store, fleet, _) = setup(
-        url,
-        vec![("collaborators/bob", 1, "gh: Not Found (HTTP 404)")],
-    );
-    assert!(
-        !is_collaborator(&store, &fleet, &login("bob"))
-            .await
-            .expect("no")
-    );
-
-    let (store, fleet, _) = setup(
-        url,
-        vec![("collaborators", 1, "gh: Bad credentials (HTTP 401)")],
-    );
-    assert!(
-        is_collaborator(&store, &fleet, &login("bob"))
-            .await
-            .is_err()
-    );
 }
 
 #[tokio::test]
