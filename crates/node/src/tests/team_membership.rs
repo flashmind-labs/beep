@@ -285,3 +285,40 @@ async fn a_member_who_lost_access_is_removed() {
     assert_eq!(logins, [&pair.alice.login, &pair.bob.login]);
     assert_eq!(pending[0].removed[0].login, carol.login);
 }
+
+/// Carol is removed while Bob is offline: once he is back, the removal
+/// reaches him and he turns her away too.
+#[tokio::test]
+async fn a_teammate_offline_at_a_removal_gets_it_later() {
+    let pair = Pair::new().await;
+    let carol = member("carol", SecretKey::generate().public());
+    pair.gateway.with(|teams| {
+        let mut team = teams.rosters.get(&repo()).unwrap().clone();
+        team.members.push(carol.clone());
+        teams.rosters.refresh([(repo(), team)].into());
+    });
+    bob_knows_the_team(&pair);
+    let team = Team {
+        repo: repo(),
+        project: "org/repo".to_owned(),
+        mine: pair.alice.clone(),
+        others: vec![reachable_bob(&pair), carol.clone()],
+    };
+    let carol_device = carol.devices[0].id;
+
+    // The first send to him gives up after the 5 s a dial gets.
+    remove(&pair.gateway, &team, &carol.login);
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    let _bob = online(&pair);
+
+    timeout(Duration::from_secs(30), async {
+        while pair
+            .bob_link
+            .with(|teams| teams.rosters.allows(carol_device, &repo()))
+        {
+            pair.bob_link.waiting().await;
+        }
+    })
+    .await
+    .expect("the removal reaches bob");
+}

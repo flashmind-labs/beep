@@ -30,7 +30,10 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
     time::{Duration, SystemTime},
 };
-use tokio::{sync::Notify, time::timeout};
+use tokio::{
+    sync::Notify,
+    time::{sleep, timeout},
+};
 
 /// How long a device gets to connect when dialed.
 const DIAL: Duration = Duration::from_secs(5);
@@ -40,6 +43,8 @@ const READ: Duration = Duration::from_secs(10);
 const FIRST_FRAME: usize = 16 * 1024;
 /// How long the forge gets to say whether a login may push.
 const VOUCH_LIMIT: Duration = Duration::from_secs(20);
+/// How often a removal goes again to the members it did not reach. Short in tests.
+const RESEND: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 10 * 60 });
 
 /// What the forge says about a team's people. In tests it answers without one.
 pub(crate) trait TeamForge: Send + Sync + 'static {
@@ -219,15 +224,34 @@ impl TeamLink {
         self.tell(others, roster);
     }
 
-    /// Sends `msg` to each of `members`, in the background.
+    /// Sends `msg` to each of `members`, in the background. A removal goes
+    /// again every `RESEND` to those it did not reach, for as long as they
+    /// still owe it: a member offline then would keep the removed one on.
     pub(super) fn tell(&self, members: Vec<Member>, msg: TeamMsg) {
         let link = self.clone();
 
         tokio::spawn(async move {
-            for member in members {
-                if let Err(e) = link.send(&member, &msg).await {
-                    log::info!("a team message did not reach {}: {e}", member.login);
+            let mut unreached = members;
+
+            loop {
+                let mut missed = Vec::new();
+
+                for member in unreached {
+                    if let Err(e) = link.send(&member, &msg).await {
+                        log::info!("a team message did not reach {}: {e}", member.login);
+                        missed.push(member);
+                    }
                 }
+
+                if missed.is_empty() || !matches!(msg, TeamMsg::Remove { .. }) {
+                    return;
+                }
+
+                sleep(RESEND).await;
+                unreached = link.with(|teams| {
+                    let owed = missed.into_iter().filter(|member| owes(teams, member, &msg));
+                    owed.collect()
+                });
             }
         });
     }
@@ -408,6 +432,24 @@ impl TeamLink {
             Err(reason) => Some(TeamMsg::Refused { reason }),
         }
     }
+}
+
+/// Whether `member` still owes `msg`, a removal: they are on its team here,
+/// and its login is removed here and held by no member. A readmission ends
+/// it, so that it never takes off the member let back in.
+fn owes(teams: &Teams, member: &Member, msg: &TeamMsg) -> bool {
+    let TeamMsg::Remove { repo, login } = msg else {
+        return false;
+    };
+
+    teams.rosters.get(repo).is_some_and(|record| {
+        let mut members = record.members.iter();
+        let mut removed = record.removed.iter();
+
+        record.members.iter().any(|on| on.mesh == member.mesh)
+            && removed.any(|gone| gone.login == *login)
+            && !members.any(|on| on.login == *login)
+    })
 }
 
 /// Finishes `tx` once the peer read it, or after `READ`: a peer that holds

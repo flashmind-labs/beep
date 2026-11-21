@@ -1007,3 +1007,29 @@ async fn member_roster_past_the_first_frame_limit_is_taken() {
             .with(|teams| teams.rosters.allows(laptop, &repo()))
     );
 }
+
+/// A removal still owed stops once the member is let back in.
+#[test]
+fn a_readmission_ends_a_removal_still_owed() {
+    let (bob, carol) = (
+        member("bob", mesh_id(), mesh_id()),
+        member("carol", mesh_id(), mesh_id()),
+    );
+    let mut team = TeamRecord::new(repo(), vec![bob.clone(), carol.clone()]);
+    team.remove(&carol.login);
+    let mut teams = Teams::default();
+    teams.rosters.refresh([(repo(), team.clone())].into());
+    let remove = TeamMsg::Remove {
+        repo: repo(),
+        login: carol.login.clone(),
+    };
+    assert!(owes(&teams, &bob, &remove));
+
+    team.removed.clear();
+    teams.rosters.refresh([(repo(), team.clone())].into());
+    assert!(!owes(&teams, &bob, &remove));
+
+    team.members.push(carol);
+    teams.rosters.refresh([(repo(), team)].into());
+    assert!(!owes(&teams, &bob, &remove));
+}
