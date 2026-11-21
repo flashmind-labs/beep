@@ -31,6 +31,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio::time::timeout;
+use url::Url;
 
 /// What starts the id of the Needs you card of an automatic session that
 /// ended without a pull request, and of a Queued card, before the issue.
@@ -143,17 +144,14 @@ pub(crate) fn issue_prompt(number: u64, title: &str, url: &str) -> String {
 /// Whether `url` is the web page of issue `number` of `repo`, as the forge
 /// lists it: on its host, ending in `/<org>/<name>/issues/<number>`.
 pub(crate) fn issue_of_repo(repo: &TeamRepo, number: u64, url: &str) -> bool {
-    let url = url.to_lowercase();
-    let Some(rest) = ["https://", "http://"]
-        .iter()
-        .find_map(|scheme| url.strip_prefix(scheme))
-    else {
+    let Ok(url) = Url::parse(url) else {
         return false;
     };
-    let (at, path) = rest.split_once('/').unwrap_or((rest, ""));
-    let at = at.rsplit_once(':').map_or(at, |(at, _)| at);
+    let wanted = format!("/{}/issues/{number}", repo.repo).to_lowercase();
 
-    at == repo.hostname() && format!("/{path}").ends_with(&format!("/{}/issues/{number}", repo.repo))
+    matches!(url.scheme(), "https" | "http")
+        && url.host_str().is_some_and(|host| host.eq_ignore_ascii_case(repo.hostname()))
+        && url.path().to_lowercase().ends_with(&wanted)
 }
 
 /// Snapshots the issues `assigned` now, but those queued, as the backlog
