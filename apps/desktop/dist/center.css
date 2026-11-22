@@ -440,6 +440,7 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .asst-threads { display: grid; justify-items: start; padding-bottom: 4px }
 .asst-threads > .pj-li { padding: 4px 12px 4px 50px }
 .asst-threads > .dbtn { margin: 2px 0 0 44px }
+.asst-threads > .dagfold { margin: 0; padding: 4px 12px 4px 50px; border: 0; font-weight: 400 }
 .asst-list > .dagfold { margin: 0; padding: 6px 12px 6px 14px; border: 0 }
 .pj-li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 6px 12px 6px 14px; border: 0; background: none; color: var(--fg); font: inherit; text-align: left; cursor: default }
 .pj-li:has(> .lead) { grid-template-columns: 28px minmax(0, 1fr) auto }

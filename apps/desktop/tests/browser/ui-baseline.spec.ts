@@ -214,12 +214,14 @@ test("assistant page", async ({ page }) => {
 });
 
 test("assistant chat with threads", async ({ page }) => {
-  const chat = { ...assistantSessions[0], title: "Battery chemistries after 2030" };
+  const chat = { ...assistantSessions[0], title: "Battery chemistries after 2030", cwd: "/srv/.beep/assistant/ab12cd" };
   const thread = (id: string, title: string, over: object) => ({ ...chat, id, title, status: "idle", assistant: false, parent: { machine_id: machineId, id: chat.id, key: "" }, ...over });
   const threads = [
     thread("thread-one", "Sodium-ion cost curve", { status: "working", doing: "Reading the supply reports" }),
     thread("thread-two", "Solid-state timelines", { reply_html: "Pilot lines in 2027, no volume before 2030" }),
     thread("thread-three", "Recycling regulation", { status: "asking", question: { id: 1, text: "EU only, or US too?", detail: null, options: [] } }),
+    // One that ended, found in its agent's files once its node started again: no link to its chat but its folder.
+    { ...thread("thread-four", "Cathode prices", { status: "ended", external: true, parent: null }), cwd: `${chat.cwd}/cathode-prices` },
   ];
   const view = (row: object, text: string) => ({ ...agentView, session: { ...row, question: null }, entries: [{ kind: "agent", text }] });
   await openDesktop(page, false, {
@@ -231,6 +233,10 @@ test("assistant chat with threads", async ({ page }) => {
   const list = page.locator(".asst-list");
   await list.getByRole("button", { name: /Battery chemistries/ }).click();
   await expect(list.locator(".asst-threads")).toContainText("Solid-state timelines");
+  // The thread that ended waits under the chat's own fold.
+  await expect(list.locator(".asst-threads")).not.toContainText("Cathode prices");
+  await list.locator(".asst-threads").getByRole("button", { name: /Ended/ }).click();
+  await expect(list.locator(".asst-threads")).toContainText("Cathode prices");
   await baseline(page, "assistant-threads");
 
   // New thread starts the message that asks the chat's agent for one.

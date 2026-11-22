@@ -166,7 +166,7 @@ impl Agents {
     pub async fn external_sessions(&self, limit: u32) -> Result<Vec<ExternalSession>> {
         let mut sessions = self.external.list(limit, None, self.owned()).await?;
         self.observe_external(&sessions);
-        self.mark_assistants(&mut sessions);
+        self.mark_kept(&mut sessions);
         Ok(sessions)
     }
 
@@ -337,6 +337,7 @@ impl Agents {
                 .is_some_and(|id| self.is_reviewer(id))
         });
 
+        self.mark_kept(&mut sessions);
         sessions.sort_by_key(|session| Reverse(session.last_activity));
         Ok(sessions)
     }
@@ -355,17 +356,27 @@ impl Agents {
             self.stores_external(agent, limit, session).await?
         };
 
-        self.mark_assistants(&mut sessions);
+        self.mark_kept(&mut sessions);
         Ok(sessions)
     }
 
-    /// Marks those of `sessions` that ran here as the home assistant, so
-    /// they stay with its chats once they ended.
-    fn mark_assistants(&self, sessions: &mut [ExternalSession]) {
-        let assistants = self.assistants();
+    /// Gives those of `sessions` that ran here what this node kept of them:
+    /// that one was the home assistant, so it stays with its chats once it
+    /// ended, and the name its parent gave it, which its agent's files lack.
+    pub(super) fn mark_kept(&self, sessions: &mut [ExternalSession]) {
+        let kept: HashMap<SessionId, SavedSession> = self
+            .saved_sessions()
+            .into_iter()
+            .map(|saved| (saved.info.id.clone(), saved))
+            .collect();
 
         for session in sessions {
-            session.assistant = assistants.contains(&session.id);
+            let kept = kept.get(&session.id);
+            session.assistant = kept.is_some_and(|kept| kept.info.assistant && !kept.info.reviewer);
+
+            if let Some(kept) = kept.filter(|kept| kept.named) {
+                session.title.clone_from(&kept.info.title);
+            }
         }
     }
 

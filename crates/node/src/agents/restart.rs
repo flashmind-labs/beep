@@ -17,7 +17,6 @@ use beep_proto::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -231,29 +230,6 @@ impl Agents {
     /// Takes the sessions kept in the note from before the node started.
     pub(crate) fn keep_saved(&self, saved: Vec<SavedSession>) {
         *crate::lock(&self.saved) = saved;
-    }
-
-    /// The sessions, by the agent's own id, that ran here as the home
-    /// assistant: those here now and those kept from before.
-    pub(super) fn assistants(&self) -> HashSet<SessionId> {
-        let here: Vec<Arc<Session>> = self
-            .lock()
-            .values()
-            .filter(|session| session.assistant && !session.reviewer)
-            .cloned()
-            .collect();
-        let mut ids: HashSet<SessionId> = here
-            .iter()
-            .filter_map(|session| watched::read(&session.live, |live| live.agent_session.clone()))
-            .collect();
-
-        ids.extend(
-            crate::lock(&self.saved)
-                .iter()
-                .filter(|kept| kept.info.assistant && !kept.info.reviewer)
-                .map(|kept| kept.info.id.clone()),
-        );
-        ids
     }
 
     /// What session `id`, by the agent's own id, is: from its state when it

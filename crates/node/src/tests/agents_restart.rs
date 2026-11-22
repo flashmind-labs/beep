@@ -3,7 +3,7 @@ use crate::{
     agents::{AgentKind, Session, live::Live},
     link::restart::{self, Reopen},
 };
-use beep_proto::node::agent::EntryKind;
+use beep_proto::node::agent::{EntryKind, ExternalSession};
 use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use tokio::sync::watch;
@@ -629,14 +629,39 @@ fn an_ended_assistant_kept_from_before_is_still_the_assistant() {
         account: None,
         named: false,
     };
+    let mut thread = kept("thread", false, false);
+    thread.info.title = Some("Prices".into());
+    thread.named = true;
+    let mut task = kept("task", false, false);
+    task.info.title = Some("An older name".into());
     agents.keep_saved(vec![
         kept("chat", true, false),
-        kept("task", false, false),
+        task,
         kept("review", true, true),
+        thread,
     ]);
 
-    let assistants = agents.assistants();
-    assert_eq!(assistants, HashSet::from([SessionId::from("chat")]));
+    // What the agents' files say of them, and of one never run here.
+    let mut found: Vec<ExternalSession> = ["chat", "task", "review", "thread", "outside"]
+        .into_iter()
+        .map(|id| ExternalSession {
+            id: id.into(),
+            title: Some("Its agent's name".into()),
+            assistant: true,
+            ..ExternalSession::default()
+        })
+        .collect();
+    agents.mark_kept(&mut found);
+    let assistants: Vec<&str> = found
+        .iter()
+        .filter(|session| session.assistant)
+        .map(|session| session.id.as_ref())
+        .collect();
+    assert_eq!(assistants, ["chat"]);
+    // Only a name its parent gave stands in for its agent's.
+    let titles: Vec<_> = found.iter().map(|session| session.title.as_deref()).collect();
+    let agents_name = Some("Its agent's name");
+    assert_eq!(titles, [agents_name, agents_name, agents_name, Some("Prices"), agents_name]);
 }
 
 #[test]

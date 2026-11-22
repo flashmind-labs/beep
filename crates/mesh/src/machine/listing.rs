@@ -27,6 +27,8 @@ pub const NODE_LIMIT: Duration = Duration::from_secs(3);
 /// The agents whose outside sessions are listed, and how many of each.
 const EXTERNAL_AGENTS: [&str; 3] = ["claude", "codex", "flsh"];
 const EXTERNAL_LIMIT: u32 = 20;
+/// How many of a machine's ended conversations and their threads are listed, the newest.
+const CONVERSATIONS_LIMIT: u32 = 100;
 /// The page size used when asking each machine for project history.
 pub const MAX_PROJECT_SESSIONS: usize = 50;
 /// A node slower than this to list a project's sessions is logged.
@@ -101,6 +103,53 @@ pub async fn outside_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Ve
         .filter(|session| session.taken_over.is_none() && runs_now(session, SystemTime::now()))
         .map(|session| external_session(host, session))
         .collect()
+}
+
+/// The assistant's conversations that no longer run, with their threads: the
+/// newest sessions agents ran under the conversations' folder in the node's
+/// `home`. The node lists only the sessions it holds and `outside_sessions`
+/// only those that run, so one that ended is here once its node started
+/// again. A scan takes seconds.
+pub async fn ended_conversations<S: Sessions + ?Sized>(
+    node: &S,
+    host: &Host,
+    home: &str,
+) -> Vec<MachineSession> {
+    let folders = vec![conversations_folder(home)];
+
+    match timeout(
+        NODE_LIMIT,
+        sessions::in_folders(node, folders, CONVERSATIONS_LIMIT),
+    )
+    .await
+    {
+        Ok(Ok(found)) => found
+            .into_iter()
+            .filter(|session| session.taken_over.is_none() && !runs_now(session, SystemTime::now()))
+            .map(|session| past_session(host, session))
+            .collect(),
+        Ok(Err(e)) => {
+            tracing::debug!(
+                "ended conversations not listed; node={} error={e:#}",
+                host.id
+            );
+            Vec::new()
+        }
+        Err(_) => {
+            tracing::debug!("ended conversations not listed in time; node={}", host.id);
+            Vec::new()
+        }
+    }
+}
+
+/// The folder in `home` that holds each assistant conversation's own, as the
+/// node makes them, with the separator `home` uses.
+fn conversations_folder(home: &str) -> String {
+    let separator = if home.contains('\\') { '\\' } else { '/' };
+    format!(
+        "{}{separator}.beep{separator}assistant",
+        home.trim_end_matches(separator)
+    )
 }
 
 /// The sessions of `agent` started outside Beep; none, with a line in the

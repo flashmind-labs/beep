@@ -222,13 +222,32 @@ fn noted(fleet: &Fleet, host: &Host, linked: Vec<Linked>) -> Vec<MachineSession>
         .collect()
 }
 
-/// The sessions started outside Beep that run now, on every online machine.
+/// What only a scan of each online machine finds: the sessions started
+/// outside Beep that run now, and the assistant's conversations that ended,
+/// with their threads.
 pub(crate) async fn scanned_sessions(fleet: &Fleet) -> Vec<MachineSession> {
     each(
         fleet,
         fleet.online(),
         SCAN_LIMIT,
-        |client, host| async move { listing::outside_sessions(&client, &host).await },
+        |client, host| async move {
+            let home = host
+                .id
+                .parse()
+                .ok()
+                .and_then(|machine| fleet.status().last_env(machine))
+                .map(|env| env.home)
+                .filter(|home| !home.is_empty());
+            let ended = async {
+                match &home {
+                    Some(home) => listing::ended_conversations(&client, &host, home).await,
+                    None => Vec::new(),
+                }
+            };
+            let (mut found, ended) = tokio::join!(listing::outside_sessions(&client, &host), ended);
+            found.extend(ended);
+            found
+        },
     )
     .await
 }

@@ -6,7 +6,7 @@ import { createStore, useStore } from "zustand";
 import { AG, type AgentRow, type AgentSession } from "./agents.ts";
 import { renderAgentNew } from "./agentnew.tsx";
 import { assistantRows } from "./assistant-state.ts";
-import { chatOf, type ThreadDetail, threadsByChat } from "./threads-state.ts";
+import { chatOf, type Thread, type ThreadDetail, threadsByChat } from "./threads-state.ts";
 import { sessionMenu } from "./sessionmenu.ts";
 import { agentName, runningKey } from "./running-state.ts";
 import { ensureSessions, sessions, sessionsChanged, sessionsRead } from "./sessions.ts";
@@ -89,11 +89,14 @@ sessionsRead.add(() => { read += 1; });
 
 /// The assistant's chats: New chat, then the running ones, then the ended ones under their fold,
 /// with a grip on their right edge. A chat's threads are its subitems, oldest first, each with
-/// what it asks or last said; the chat in hand offers a new one.
+/// what it asks or last said, those that ended under a fold of the chat's own; the chat in hand
+/// offers a new one.
 export function AssistantList() {
   const on = useStore(shell, s => !!s.assistant), chat = useStore(openChat, s => s.key);
   useSyncExternalStore(subscribeSessions, () => read);
   const [endedOpen, setEndedOpen] = useState(false);
+  /// The chats whose ended threads show.
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
 
   // Read again while on screen when the sessions change.
   useEffect(() => {
@@ -114,15 +117,22 @@ export function AssistantList() {
     // Also how a phone, whose list hides while a chat shows, reaches New thread.
     menu: event => void sessionMenu(event, session, goChat),
   }} />;
+  const thread = ({ row, name, detail }: Thread) => item(row, name, null, <Detail detail={detail} />);
   const row = (session: AgentSession) => {
-    const threads = threadsOf.get(session) ?? [];
-    const inHand = [session, ...threads.map(thread => thread.row)].some(one => runningKey(one) === chat);
+    const key = runningKey(session), threads = threadsOf.get(session) ?? [];
+    const inHand = [session, ...threads.map(one => one.row)].some(one => runningKey(one) === chat);
+    const over = threads.filter(one => one.row.status === "ended");
+    // The thread in hand shows even when its fold is closed.
+    const overOpen = unfolded.has(key) || over.some(one => runningKey(one.row) === chat);
+    const fold = () => setUnfolded(open => new Set(open.has(key) ? [...open].filter(one => one !== key) : [...open, key]));
 
-    return <Fragment key={runningKey(session)}>
+    return <Fragment key={key}>
       {item(session, session.title || agentName(session.agent), <HarnessIcon agent={session.agent} />, session.machine_name)}
       {(!!threads.length || inHand) && <div className="asst-threads">
-        {threads.map(thread => item(thread.row, thread.name, null, <Detail detail={thread.detail} />))}
+        {threads.filter(one => one.row.status !== "ended").map(thread)}
         {inHand && session.status !== "ended" && <Button look="quiet" small onClick={() => newThread(session)}>New thread</Button>}
+        {!!over.length && <EndedFold count={over.length} open={overOpen} onToggle={fold} />}
+        {overOpen && over.map(thread)}
       </div>}
     </Fragment>;
   };

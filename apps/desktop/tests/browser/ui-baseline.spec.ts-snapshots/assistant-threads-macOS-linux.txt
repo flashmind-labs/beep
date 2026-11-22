@@ -172,9 +172,9 @@ body.cbody
                 svg [aria-hidden="true" viewBox="0 0 28 28"]
               span.tt
                 b#agtitle [aria-label="Rename session: Battery chemistries after 2030" role="button" tabindex="0" title="Battery chemistries after 2030 Double-click to rename (Enter)"] "Battery chemistries after 2030"
-                small.aglocation [title="/srv"]
+                small.aglocation [title="/srv/.beep/assistant/ab12cd"]
                   span.agfolder
-                    span#agproj "srv"
+                    span#agproj "ab12cd"
                     span#agbranch
                   span "@"
                   span#aghere "build-box"
@@ -220,7 +220,7 @@ body.cbody
                     input [hidden multiple type="file"] value=""
                     div [data-agent-attachment-slot="true"] style(display)
                     div.cx-layer [aria-hidden="true" hidden]
-                    textarea#agmsg.cx-field [aria-busy="false" autocomplete="off" data-prompt-stash placeholder="Message flsh" rows="1" spellcheck="false"] style(height) value="" (focused)
+                    textarea#agmsg.cx-field [aria-busy="false" autocomplete="off" data-prompt-stash placeholder="Message flsh" rows="1" spellcheck="false"] style(height) value=""
                     span#agmode
                     span#agmodel
                       button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"]
@@ -363,7 +363,7 @@ body.cbody
                       div.agtree [aria-busy="false" aria-label="Working files" aria-multiselectable="true" role="tree" tabindex="0"]
                         div.agpmsg.derr "The machine sent no file listing."
                       div.agpacts
-                        span.meta.mono [title="/srv"] "/srv"
+                        span.meta.mono [title="/srv/.beep/assistant/ab12cd"] "/srv/.beep/assistant/ab12cd"
                         span [data-fstatus="true" role="status"]
                         span.sp
                         span.hint "Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting."
@@ -413,6 +413,14 @@ body.cbody
               span.r
                 span.chip.wait "needs you"
             button.dbtn.quiet.small [type="button"] "New thread"
+            button.dagfold [aria-expanded="true" type="button"] (focused) "Ended"
+              span.chev [aria-hidden="true"] "▾"
+              span.n "1"
+            button.pj-li [title="Cathode prices" type="button"]
+              span.t
+                b "Cathode prices"
+                span
+              span.r "1 min ago"
         div.cc-grip [aria-label="Resize the chats" aria-orientation="vertical" aria-valuemax="560" aria-valuemin="200" aria-valuenow="300" role="separator" tabindex="0"]
       div.cc-box [hidden]
       div.cc-box [hidden]
