@@ -132,6 +132,40 @@ pub fn repo_call(host: &IssueHost, repo: &RepoName) -> ForgeCall {
     ForgeCall::api(host, format!("repos/{repo}"), &[])
 }
 
+/// `POST repos/{repo}/statuses/{sha}`: marks commit `sha` with a status named `context`, in the
+/// signed-in account's name. Only those who may push mark commits.
+pub fn stamp_call(host: &IssueHost, repo: &RepoName, sha: &str, context: &str) -> ForgeCall {
+    let context = format!("context={context}");
+    let rest = ["-X", "POST", "-f", "state=success", "-f", &context];
+
+    ForgeCall::api(host, format!("repos/{repo}/statuses/{sha}"), &rest)
+}
+
+/// `GET repos/{repo}/commits/{sha}/statuses`: the statuses on commit `sha`.
+pub fn stamps_call(host: &IssueHost, repo: &RepoName, sha: &str) -> ForgeCall {
+    ForgeCall::api(host, format!("repos/{repo}/commits/{sha}/statuses"), &[])
+}
+
+/// The logins that put a status named `context` on the commit, as [`stamps_call`] printed
+/// them. GitHub takes contexts in any case; teacli prints `null` for none.
+pub fn parse_stampers(stdout: &str, context: &str) -> Result<Vec<String>, SourceError> {
+    let statuses = json(stdout).map_err(|error| host_failed(&error))?;
+    let statuses = match statuses {
+        Value::Array(statuses) => statuses,
+        Value::Null => Vec::new(),
+        _ => return Err(host_failed(&anyhow::anyhow!("the statuses are not a list"))),
+    };
+    let logins = statuses
+        .iter()
+        .filter(|status| text(status, "context").eq_ignore_ascii_case(context))
+        .filter_map(|status| status.get("creator"))
+        .map(|creator| text(creator, "login"))
+        .filter(|login| !login.is_empty())
+        .collect();
+
+    Ok(logins)
+}
+
 /// `GET user`, the signed-in account.
 pub fn user_call(host: &IssueHost) -> ForgeCall {
     ForgeCall::api(host, "user".to_owned(), &[])

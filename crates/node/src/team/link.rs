@@ -78,6 +78,23 @@ pub(crate) trait TeamForge: Send + Sync + 'static {
         repo: &'a TeamRepo,
         branch: &'a str,
     ) -> BoxFuture<'a, Result<Vec<String>, String>>;
+
+    /// Marks commit `sha` of `repo` with the status `context`, as this
+    /// machine's account: only one who may push can.
+    fn stamp<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        sha: &'a str,
+        context: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>>;
+
+    /// The logins that marked commit `sha` of `repo` with the status `context`.
+    fn stampers<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        sha: &'a str,
+        context: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<String>, String>>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -392,23 +409,22 @@ impl TeamLink {
         }
     }
 
-    /// Whether the forge says `login` may push to `repo`; the reason to give
-    /// when not, which says nothing of this machine.
+    /// Whether the forge lets `login`, a member another mesh admitted, stay
+    /// on `repo`'s team; the reason to give when not, which says nothing of
+    /// this machine. Only a forge that says they may not push refuses them:
+    /// the mesh that admitted them saw their proof, and Forgejo shows what
+    /// others may do only to a repository's admins.
     pub(super) async fn vouch(&self, repo: &TeamRepo, login: &ForgeLogin) -> Result<(), String> {
         let answer = timeout(VOUCH_LIMIT, self.forge().collaborator(repo, login)).await;
 
         match answer {
-            Ok(Ok(true)) => Ok(()),
-            Ok(Ok(false)) => Err(format!("{login} is not a collaborator on {repo}")),
-            Ok(Err(e)) => {
-                log::warn!("could not check {login} on {repo}: {e}");
-                Err("Could not check access on the forge".to_owned())
-            }
-            Err(_) => {
-                log::warn!("the forge took too long to check {login} on {repo}");
-                Err("Could not check access on the forge".to_owned())
-            }
+            Ok(Ok(true)) => {}
+            Ok(Ok(false)) => return Err(format!("{login} is not a collaborator on {repo}")),
+            Ok(Err(e)) => log::info!("could not check {login} on {repo}: {e}"),
+            Err(_) => log::info!("the forge took too long to check {login} on {repo}"),
         }
+
+        Ok(())
     }
 
     /// Keeps a contact's invite for a desktop to show; refuses anyone else's,

@@ -1,13 +1,15 @@
 //! Joining a team, both sides. The joiner sends `Join` with an invite's
-//! secret; the inviter answers `Challenge`, the joiner pushes the proof ref
-//! and sends `Proved`, and the inviter checks the ref and that the login is
-//! a collaborator, deletes the ref and answers `Roster` or `Refused`. The
-//! joiner checks every member of that roster on the forge in turn.
+//! secret and its forge CLI's login; the inviter answers `Challenge`, the
+//! joiner pushes the proof ref, marks its commit in that login's name and
+//! sends `Proved`, and the inviter checks the ref and that the login marked
+//! it, deletes the ref and answers `Roster` or `Refused`. The joiner checks
+//! every member of that roster on the forge in turn.
 
 use super::{
     home::Checkout,
     link::{TeamError, TeamLink, finish},
-    proof::{Nonce, ProofError, drop_proof, proof_seen, push_proof},
+    gateway::FORGE_LIMIT,
+    proof::{Nonce, ProofError, drop_proof, proof_context, proof_seen, push_proof},
     roster::vet_roster,
 };
 use beep_mesh::{JoinSecret, TeamTicket, secret_hash};
@@ -134,7 +136,11 @@ impl TeamLink {
                 .map_err(|_| TeamError::Refused("The inviter's challenge does not read".into()))?,
             other => return Err(unexpected(other)),
         };
-        git_step(push_proof(checkout, remote, &repo, &nonce)).await?;
+        let sha = git_step(push_proof(checkout, remote, &repo, &nonce)).await?;
+        self.forge()
+            .stamp(&repo, &sha, &proof_context(&nonce))
+            .await
+            .map_err(|e| TeamError::Forge(format!("Could not mark the proof on {}: {e}", repo.host)))?;
         tx.send(&TeamMsg::Proved {
             nonce: nonce.to_string(),
         })
@@ -299,14 +305,42 @@ impl TeamLink {
                 log::warn!("could not check the proof of a join to {repo}: {e}");
                 "Could not check the proof".to_owned()
             })?;
+        let sha = seen.ok_or_else(|| ProofError::Denied(repo.to_string()).to_string())?;
 
-        if !seen {
-            return Err(ProofError::Denied(repo.to_string()).to_string());
-        }
-
-        self.vouch(repo, &join.login).await?;
+        self.marked(repo, &sha, &nonce, &join.login).await?;
         self.with(|teams| teams.rosters.admit(repo, peer, own, entry))
             .map_err(|refusal| refusal.to_string())
+    }
+
+    /// Whether `login` marked the proof commit `sha` of `nonce`: the forge
+    /// lets only those who may push mark a commit, and names who did. The
+    /// reason to give when not, which says nothing of this machine.
+    async fn marked(
+        &self,
+        repo: &TeamRepo,
+        sha: &str,
+        nonce: &Nonce,
+        login: &ForgeLogin,
+    ) -> Result<(), String> {
+        let context = proof_context(nonce);
+        let answer = timeout(FORGE_LIMIT, self.forge().stampers(repo, sha, &context)).await;
+        let by = |stampers: &[String]| {
+            let login = login.to_string();
+            stampers.iter().any(|by| by.eq_ignore_ascii_case(&login))
+        };
+
+        match answer {
+            Ok(Ok(stampers)) if by(&stampers) => Ok(()),
+            Ok(Ok(_)) => Err(format!("{login} did not mark the proof on the forge")),
+            Ok(Err(e)) => {
+                log::warn!("could not read the proof of {login} on {repo}: {e}");
+                Err("Could not check access on the forge".to_owned())
+            }
+            Err(_) => {
+                log::warn!("the forge took too long to show the proof of {login} on {repo}");
+                Err("Could not check access on the forge".to_owned())
+            }
+        }
     }
 }
 

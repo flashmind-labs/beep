@@ -58,6 +58,24 @@ impl TeamForge for Forge {
     ) -> BoxFuture<'a, Result<Vec<String>, String>> {
         Box::pin(async { Ok(Vec::new()) })
     }
+
+    fn stamp<'a>(
+        &'a self,
+        _repo: &'a TeamRepo,
+        _sha: &'a str,
+        _context: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn stampers<'a>(
+        &'a self,
+        _repo: &'a TeamRepo,
+        _sha: &'a str,
+        _context: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<String>, String>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
 }
 
 pub(crate) fn member(name: &str, device: EndpointId) -> Member {

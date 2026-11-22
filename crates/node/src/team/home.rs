@@ -17,7 +17,8 @@ use beep_projects::{
     model::{IssueHost, RepoName},
     team_forge::{
         ForgeCall, assigned_issues_call, collaborator_answer, collaborator_call, open_issues_call,
-        branch_pulls_call, parse_user_login, permission_answer, permission_call, repo_call, user_call,
+        branch_pulls_call, parse_stampers, parse_user_login, permission_answer, permission_call,
+        repo_call, stamp_call, stamps_call, user_call,
     },
 };
 use beep_proto::{
@@ -464,6 +465,39 @@ impl TeamForge for ForgeCli {
             let pulls = parse_open_prs(&out).map_err(|e| format!("{e:#}"))?;
 
             Ok(pulls.into_iter().map(|pull| pull.head).collect())
+        })
+    }
+
+    fn stamp<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        sha: &'a str,
+        context: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let (host, name) = forge_of(repo)?;
+            let out = run(&stamp_call(&host, &name, sha, context), &name).await?;
+
+            if !out.status.success() {
+                let said = String::from_utf8_lossy(&out.stderr);
+                return Err(tail(&said).to_owned());
+            }
+
+            Ok(())
+        })
+    }
+
+    fn stampers<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        sha: &'a str,
+        context: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<String>, String>> {
+        Box::pin(async move {
+            let (host, name) = forge_of(repo)?;
+            let out = listed(repo, "statuses", &stamps_call(&host, &name, sha), &name).await?;
+
+            parse_stampers(&out, context).map_err(|e| e.to_string())
         })
     }
 }

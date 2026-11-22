@@ -1,5 +1,7 @@
-//! Proof of push access: the joiner pushes `refs/beep/proof/<nonce>`, the
-//! inviter looks for it with `git ls-remote` and deletes it.
+//! Proof of push access: the joiner pushes `refs/beep/proof/<nonce>` and
+//! marks its commit with the status `beep/proof/<nonce>` through its forge
+//! CLI, which names its login; the inviter finds the commit with `git
+//! ls-remote`, reads who marked it, and deletes the ref.
 
 use beep_proto::team::TeamRepo;
 use std::{fmt, path::Path, process::Stdio, str::FromStr};
@@ -43,14 +45,16 @@ pub(crate) enum ProofError {
     Git(String),
 }
 
-/// Pushes an empty commit from `checkout` to the proof ref of `nonce`. A
-/// denied push names `repo`, never `remote`, which may hold credentials.
+/// Pushes an empty commit of its own from `checkout` to the proof ref of
+/// `nonce`, and gives the commit. A denied push names `repo`, never
+/// `remote`, which may hold credentials.
 pub(crate) async fn push_proof(
     checkout: &Path,
     remote: &str,
     repo: &TeamRepo,
     nonce: &Nonce,
-) -> Result<(), ProofError> {
+) -> Result<String, ProofError> {
+    let message = format!("beep team proof {nonce}");
     let tree = git(checkout, &["mktree"], Some("")).await?;
     let commit = git(
         checkout,
@@ -64,28 +68,36 @@ pub(crate) async fn push_proof(
             "commit-tree",
             tree.trim(),
             "-m",
-            "beep team proof",
+            &message,
         ],
         None,
     )
     .await?;
-    let refspec = format!("{}:{}", commit.trim(), proof_ref(nonce));
+    let commit = commit.trim().to_owned();
+    let refspec = format!("{commit}:{}", proof_ref(nonce));
 
     git(checkout, &["push", remote, &refspec], None)
         .await
-        .map(drop)
-        .map_err(|error| classify(error, &repo.to_string()))
+        .map_err(|error| classify(error, &repo.to_string()))?;
+
+    Ok(commit)
 }
 
-/// Whether the remote has the proof ref of `nonce`.
+/// The commit of the proof ref of `nonce` on the remote, if it has one.
 pub(crate) async fn proof_seen(
     checkout: &Path,
     remote: &str,
     nonce: &Nonce,
-) -> Result<bool, ProofError> {
+) -> Result<Option<String>, ProofError> {
     let seen = git(checkout, &["ls-remote", remote, &proof_ref(nonce)], None).await?;
 
-    Ok(!seen.trim().is_empty())
+    Ok(seen.split_whitespace().next().map(str::to_owned))
+}
+
+/// The status the joiner marks the proof commit of `nonce` with: one
+/// challenge's, so a status from an earlier proof proves nothing.
+pub(crate) fn proof_context(nonce: &Nonce) -> String {
+    format!("beep/proof/{nonce}")
 }
 
 /// Deletes the proof ref of `nonce` from the remote.

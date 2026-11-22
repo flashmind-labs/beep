@@ -17,7 +17,7 @@ use iroh_tickets::Ticket;
 use std::{
     path::{Path, PathBuf},
     process::Command,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
 
@@ -34,10 +34,26 @@ enum Answer {
     Hangs,
 }
 
+/// The statuses the fake forges put on commits: commit, context and login.
+static STAMPS: Mutex<Vec<(String, String, String)>> = Mutex::new(Vec::new());
+
 /// A forge that answers without a network.
 struct Forge {
     login: &'static str,
     collaborator: Answer,
+    /// Whom its statuses on commits name; `None` when it refuses them, as
+    /// the forge does for one who may not push.
+    marks_as: Option<&'static str>,
+}
+
+impl Forge {
+    fn signed_in(login: &'static str, collaborator: Answer) -> Self {
+        Self {
+            login,
+            collaborator,
+            marks_as: Some(login),
+        }
+    }
 }
 
 const LOCAL_DETAIL: &str = "gh: token for /home/someone expired";
@@ -83,6 +99,41 @@ impl TeamForge for Forge {
         _branch: &'a str,
     ) -> BoxFuture<'a, Result<Vec<String>, String>> {
         Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn stamp<'a>(
+        &'a self,
+        _repo: &'a TeamRepo,
+        sha: &'a str,
+        context: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let by = self.marks_as.ok_or("Forbidden (HTTP 403)")?;
+            let stamp = (sha.to_owned(), context.to_owned(), by.to_owned());
+            STAMPS.lock().unwrap().push(stamp);
+            Ok(())
+        })
+    }
+
+    fn stampers<'a>(
+        &'a self,
+        _repo: &'a TeamRepo,
+        sha: &'a str,
+        context: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<String>, String>> {
+        Box::pin(async move {
+            match self.collaborator {
+                Answer::Fails => Err(LOCAL_DETAIL.to_owned()),
+                Answer::Hangs => std::future::pending().await,
+                Answer::Yes | Answer::No => Ok(STAMPS
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|(on, of, _)| on == sha && of == context)
+                    .map(|(_, _, by)| by.clone())
+                    .collect()),
+            }
+        })
     }
 }
 
@@ -160,10 +211,7 @@ impl Pair {
         let inviter_addr = endpoint.addr();
         let inviter = TeamLink::new(
             endpoint.clone(),
-            Arc::new(Forge {
-                login: "alice",
-                collaborator,
-            }),
+            Arc::new(Forge::signed_in("alice", collaborator)),
         );
         let router = Router::builder(endpoint)
             .accept(beep_proto::team::ALPN, inviter.handler())
@@ -193,7 +241,7 @@ impl Pair {
             );
         });
 
-        let joiner = joiner_link(&inviter_addr, joiner, Answer::Yes).await;
+        let joiner = joiner_link(&inviter_addr, Forge::signed_in(joiner, Answer::Yes)).await;
 
         Self {
             _root: root,
@@ -253,9 +301,9 @@ impl Pair {
     }
 }
 
-/// A joiner signed in as `name` in a mesh of its own, which finds the inviter by
-/// `inviter`'s address, and whose forge gives `collaborator`.
-async fn joiner_link(inviter: &EndpointAddr, name: &'static str, collaborator: Answer) -> TeamLink {
+/// A joiner on `forge` in a mesh of its own, which finds the inviter by
+/// `inviter`'s address.
+async fn joiner_link(inviter: &EndpointAddr, forge: Forge) -> TeamLink {
     let lookup = MemoryLookup::new();
     lookup.add_endpoint_info(inviter.clone());
     let endpoint = Endpoint::builder(presets::Minimal)
@@ -264,13 +312,7 @@ async fn joiner_link(inviter: &EndpointAddr, name: &'static str, collaborator: A
         .await
         .unwrap();
     let id = endpoint.id();
-    let link = TeamLink::new(
-        endpoint,
-        Arc::new(Forge {
-            login: name,
-            collaborator,
-        }),
-    );
+    let link = TeamLink::new(endpoint, Arc::new(forge));
     link.with(|teams| {
         teams.home.mesh = Some(mesh_id());
         teams.home.projects.insert(
@@ -383,20 +425,55 @@ async fn expired_invite_is_refused() {
 }
 
 #[tokio::test]
-async fn non_collaborator_is_refused() {
-    let pair = Pair::with(SystemTime::now() + DAY, Answer::No, "bob").await;
+async fn a_joiner_the_forge_does_not_let_mark_the_proof_is_refused() {
+    let mut pair = Pair::new(SystemTime::now() + DAY).await;
+    let forge = Forge {
+        marks_as: None,
+        ..Forge::signed_in("bob", Answer::Yes)
+    };
+    pair.joiner = joiner_link(&pair.inviter_addr, forge).await;
 
-    let reason = refused(pair.join(pair.secret.clone()).await);
+    let joined = pair.join(pair.secret.clone()).await;
 
-    assert!(reason.contains("not a collaborator"), "{reason}");
+    assert!(
+        matches!(&joined, Err(TeamError::Forge(e)) if e.contains("Could not mark the proof")),
+        "{joined:?}"
+    );
     assert!(pair.inviter_pending().is_empty());
     no_proof_refs(&pair.remote).await;
 }
 
 #[tokio::test]
+async fn a_joiner_cannot_join_under_another_writers_login() {
+    // Bob may push, and claims carol, who may too.
+    let mut pair = Pair::new(SystemTime::now() + DAY).await;
+    let forge = Forge {
+        marks_as: Some("bob"),
+        ..Forge::signed_in("carol", Answer::Yes)
+    };
+    pair.joiner = joiner_link(&pair.inviter_addr, forge).await;
+
+    let reason = refused(pair.join(pair.secret.clone()).await);
+
+    assert_eq!(reason, "carol did not mark the proof on the forge");
+    assert!(pair.inviter_pending().is_empty());
+    no_proof_refs(&pair.remote).await;
+}
+
+#[tokio::test]
+async fn a_joiner_takes_members_the_forge_cannot_tell_of() {
+    let mut pair = Pair::new(SystemTime::now() + DAY).await;
+    pair.joiner = joiner_link(&pair.inviter_addr, Forge::signed_in("bob", Answer::Fails)).await;
+
+    let joined = pair.join(pair.secret.clone()).await.unwrap();
+
+    assert_eq!(joined.members.len(), 2);
+}
+
+#[tokio::test]
 async fn a_joiner_refuses_an_inviter_the_forge_does_not_vouch_for() {
     let mut pair = Pair::new(SystemTime::now() + DAY).await;
-    pair.joiner = joiner_link(&pair.inviter_addr, "bob", Answer::No).await;
+    pair.joiner = joiner_link(&pair.inviter_addr, Forge::signed_in("bob", Answer::No)).await;
 
     let reason = refused(pair.join(pair.secret.clone()).await);
 

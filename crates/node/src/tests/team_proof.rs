@@ -37,11 +37,20 @@ async fn proof_is_pushed_seen_and_dropped() {
     let (_root, clone, remote) = pair();
     let nonce = Nonce::generate();
 
-    assert!(!proof_seen(&clone, &remote, &nonce).await.unwrap());
-    push_proof(&clone, &remote, &repo(), &nonce).await.unwrap();
-    assert!(proof_seen(&clone, &remote, &nonce).await.unwrap());
+    assert_eq!(proof_seen(&clone, &remote, &nonce).await.unwrap(), None);
+    let commit = push_proof(&clone, &remote, &repo(), &nonce).await.unwrap();
+    assert_eq!(
+        proof_seen(&clone, &remote, &nonce).await.unwrap(),
+        Some(commit.clone())
+    );
     drop_proof(&clone, &remote, &nonce).await.unwrap();
-    assert!(!proof_seen(&clone, &remote, &nonce).await.unwrap());
+    assert_eq!(proof_seen(&clone, &remote, &nonce).await.unwrap(), None);
+
+    // Each challenge's proof is a commit of its own.
+    let other = push_proof(&clone, &remote, &repo(), &Nonce::generate())
+        .await
+        .unwrap();
+    assert_ne!(commit, other);
 }
 
 #[cfg(unix)]

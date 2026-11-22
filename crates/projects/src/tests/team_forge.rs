@@ -246,6 +246,50 @@ fn only_write_access_and_above_may_push() {
 }
 
 #[test]
+fn a_proof_is_stamped_and_its_stampers_read() {
+    assert_eq!(
+        words(&stamp_call(&github(), &repo(), "abc1", "beep/proof/n1")),
+        [
+            "api",
+            "repos/acme/widget/statuses/abc1",
+            "-X",
+            "POST",
+            "-f",
+            "state=success",
+            "-f",
+            "context=beep/proof/n1"
+        ]
+    );
+    assert_eq!(
+        words(&stamps_call(&forgejo(), &repo(), "abc1")),
+        [
+            "api",
+            "repos/acme/widget/commits/abc1/statuses",
+            "--host",
+            "forge.example"
+        ]
+    );
+
+    let statuses = r#"[
+        {"context":"beep/proof/n1","creator":{"login":"alice"}},
+        {"context":"Beep/Proof/N1","creator":{"login":"bob"}},
+        {"context":"beep/proof/n2","creator":{"login":"carol"}},
+        {"context":"ci","creator":{"login":"dave"}},
+        {"context":"beep/proof/n1","creator":null}
+    ]"#;
+    assert_eq!(
+        parse_stampers(statuses, "beep/proof/n1").expect("read"),
+        ["alice", "bob"]
+    );
+    assert!(
+        parse_stampers("null", "beep/proof/n1")
+            .expect("none")
+            .is_empty()
+    );
+    assert!(parse_stampers("{}", "beep/proof/n1").is_err());
+}
+
+#[test]
 fn logins_and_assignees_are_read() {
     assert_eq!(parse_user_login("alice\n").expect("bare"), login("alice"));
     assert_eq!(
