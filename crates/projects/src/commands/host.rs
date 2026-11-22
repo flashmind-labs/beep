@@ -132,23 +132,9 @@ impl HostCommand<'_> {
                 )
             }
             Self::ListOpenPrs => {
-                let jq = "[.[] | {number, title, url, author: .author.login, \
-                          isDraft, createdAt, updatedAt, headRefName, \
-                          labels: [.labels[].name]}]";
                 let limit = GH_OPEN_LIMIT.to_string();
-                gh(
-                    &["pr", "list"],
-                    &[
-                        "--state",
-                        "open",
-                        "--limit",
-                        &limit,
-                        "--json",
-                        "number,title,url,author,isDraft,createdAt,updatedAt,headRefName,labels",
-                        "--jq",
-                        jq,
-                    ],
-                )
+                let flags = [&["--state", "open", "--limit", &limit][..], &GH_PRS].concat();
+                gh(&["pr", "list"], &flags)
             }
             Self::ViewPrHead { number } => number_command(
                 &["pr", "view"],
@@ -264,4 +250,13 @@ pub(crate) const GH_ISSUES: [&str; 4] = [
     "--jq",
     "[.[] | {number, title, labels: [.labels[].name], author: .author.login, createdAt, \
      comments: (.comments | length), url, assignees: [.assignees[].login]}]",
+];
+
+/// What `gh pr list` keeps of each pull request.
+pub(crate) const GH_PRS: [&str; 4] = [
+    "--json",
+    "number,title,url,author,isDraft,createdAt,updatedAt,headRefName,labels",
+    "--jq",
+    "[.[] | {number, title, url, author: .author.login, isDraft, createdAt, updatedAt, \
+     headRefName, labels: [.labels[].name]}]",
 ];

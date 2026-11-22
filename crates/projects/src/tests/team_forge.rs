@@ -182,13 +182,20 @@ fn assigned_issues_read_every_page() {
 
 /// However many others were updated since, a branch's pull request is listed.
 #[test]
-fn a_branchs_pulls_are_read_open_and_closed_on_every_page() {
+fn a_branchs_pulls_are_read_open_and_closed_from_any_fork() {
     let github = branch_pulls_call(&github(), &repo(), "issue-52-fix");
+    assert_eq!(github.program, "gh");
     assert_eq!(
-        words(&github)[1..],
+        words(&github)[..8],
         [
-            "repos/acme/widget/pulls?state=all&head=acme%3Aissue-52-fix&per_page=100",
-            "--paginate"
+            "pr",
+            "list",
+            "-R",
+            "acme/widget",
+            "--head",
+            "issue-52-fix",
+            "--state",
+            "all"
         ]
     );
     let forgejo = branch_pulls_call(&forgejo(), &repo(), "issue-52-fix");

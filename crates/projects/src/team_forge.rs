@@ -3,7 +3,7 @@
 //! a machine the project is on.
 
 use crate::{
-    commands::{GH_ISSUES, GH_OPEN_LIMIT, gh_account, json, parse_login, text},
+    commands::{GH_ISSUES, GH_OPEN_LIMIT, GH_PRS, gh_account, json, parse_login, text},
     issues::{IssueSource, SourceError, host_failed, issue_source, run_rendered},
     issues::{Machines, ProjectStore},
     model::{IssueHost, RepoName},
@@ -39,6 +39,14 @@ impl ForgeCall {
         args.extend(rest.iter().map(|arg| (*arg).to_owned()));
 
         ForgeCall { program, args }
+    }
+
+    /// `gh` with `words`.
+    fn gh<'a>(words: impl IntoIterator<Item = &'a str>) -> ForgeCall {
+        ForgeCall {
+            program: "gh",
+            args: words.into_iter().map(str::to_owned).collect(),
+        }
     }
 
     /// The shell command for `repo`'s owner, quoted; `gh` runs as the user's account there.
@@ -254,15 +262,8 @@ pub fn open_issues_call(host: &IssueHost, repo: &RepoName) -> ForgeCall {
             let words = [
                 "issue", "list", "-R", &repo, "--state", "open", "--limit", &limit,
             ];
-            let args = words
-                .iter()
-                .chain(&GH_ISSUES)
-                .map(|word| (*word).to_owned());
 
-            ForgeCall {
-                program: "gh",
-                args: args.collect(),
-            }
+            ForgeCall::gh(words.into_iter().chain(GH_ISSUES))
         }
         IssueHost::Forgejo(_) => ForgeCall::api(host, open_issues(host, repo), &["--paginate"]),
     }
@@ -280,20 +281,25 @@ pub fn assigned_issues_call(host: &IssueHost, repo: &RepoName, login: &ForgeLogi
     ForgeCall::api(host, path, &["--paginate"])
 }
 
-/// The pull requests, open or closed, that may come from `branch`, every page, in the shape
-/// `parse_open_prs` reads: their head branches say whether `branch` has one. GitHub lists those
-/// of the repository's `branch`; Forgejo cannot pick by branch, so it lists them all.
+/// The pull requests, open or closed, that may come from `branch`, in the shape `parse_open_prs`
+/// reads: their head branches say whether `branch` has one. GitHub lists those from a branch of
+/// that name in the repository or any fork; Forgejo cannot pick by branch, so it lists them all,
+/// every page.
 pub fn branch_pulls_call(host: &IssueHost, repo: &RepoName, branch: &str) -> ForgeCall {
-    let path = match host {
+    match host {
         IssueHost::Github => {
-            let head: String =
-                byte_serialize(format!("{}:{branch}", repo.owner()).as_bytes()).collect();
-            format!("repos/{repo}/pulls?state=all&head={head}&per_page=100")
-        }
-        IssueHost::Forgejo(_) => format!("repos/{repo}/pulls?state=all&sort=recentupdate&limit=50"),
-    };
+            let repo = repo.to_string();
+            let words = [
+                "pr", "list", "-R", &repo, "--head", branch, "--state", "all",
+            ];
 
-    ForgeCall::api(host, path, &["--paginate"])
+            ForgeCall::gh(words.into_iter().chain(["--limit", "100"]).chain(GH_PRS))
+        }
+        IssueHost::Forgejo(_) => {
+            let path = format!("repos/{repo}/pulls?state=all&sort=recentupdate&limit=50");
+            ForgeCall::api(host, path, &["--paginate"])
+        }
+    }
 }
 
 fn open_issues(host: &IssueHost, repo: &RepoName) -> String {
