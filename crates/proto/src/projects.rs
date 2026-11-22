@@ -15,6 +15,52 @@ use crate::FoundAgent;
 use std::time::SystemTime;
 use uuid::Uuid;
 
+pub(crate) mod epoch_ms {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    pub(crate) fn serialize<S: Serializer>(at: &SystemTime, s: S) -> Result<S::Ok, S::Error> {
+        let ms = at
+            .duration_since(UNIX_EPOCH)
+            .map(|since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+            .unwrap_or_default();
+        s.serialize_u64(ms)
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<SystemTime, D::Error> {
+        let ms = u64::deserialize(d)?;
+        Ok(UNIX_EPOCH + Duration::from_millis(ms))
+    }
+
+    pub(crate) mod option {
+        use super::*;
+        use serde::Serialize;
+
+        pub(crate) fn serialize<S: Serializer>(
+            at: &Option<SystemTime>,
+            s: S,
+        ) -> Result<S::Ok, S::Error> {
+            at.map(|t| {
+                t.duration_since(UNIX_EPOCH)
+                    .map(|since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+                    .unwrap_or_default()
+            })
+            .serialize(s)
+        }
+
+        pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
+            d: D,
+        ) -> Result<Option<SystemTime>, D::Error> {
+            let ms = Option::<u64>::deserialize(d)?;
+            Ok(ms.map(|ms| UNIX_EPOCH + Duration::from_millis(ms)))
+        }
+    }
+}
+
+fn is_github<S: serde::Serializer>(kind: &GitHostKind, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_bool(matches!(kind, GitHostKind::GitHub {}))
+}
+
 wire_structs! {
     /// A project's open pull requests and issues.
     pub struct ProjectLists {
@@ -83,6 +129,7 @@ wire_structs! {
         /// Its last commit.
         pub head: String,
         pub subject: String,
+        #[serde(with = "epoch_ms")]
         pub committed_at: SystemTime,
         /// It is a branch of the checkout, not only on `origin`.
         pub local: bool,
@@ -133,6 +180,7 @@ wire_structs! {
         /// It is in the checkout read, locally or on `origin`.
         pub in_checkout: bool,
         /// Its last commit; `None` when not read.
+        #[serde(with = "epoch_ms::option")]
         pub committed_at: Option<SystemTime>,
     }
 
@@ -158,6 +206,7 @@ wire_structs! {
     /// A git checkout the user's coding agents worked in.
     pub struct FoundProject {
         /// `org/repo` from its remote, else the remote as it is.
+        #[serde(rename = "name")]
         pub project: String,
         /// Its `origin` remote, what `ImportProject::repo` takes.
         pub remote: String,
@@ -167,18 +216,8 @@ wire_structs! {
         pub agents: Vec<FoundAgent>,
         /// When a session there last changed or its checked-out commit was
         /// made, whichever is newer.
+        #[serde(with = "epoch_ms")]
         pub last_activity: SystemTime,
-    }
-
-    /// One git host's repositories.
-    pub struct HostRepos {
-        /// `github.com`, or a Forgejo server's host, such as `git.example.com`.
-        pub host: String,
-        pub kind: GitHostKind,
-        /// Newest update first.
-        pub repos: Vec<HostRepo>,
-        /// Why `repos` is empty, for the user; `None` when the host answered.
-        pub error: Option<String>,
     }
 
     /// A repository on a git host.
@@ -187,6 +226,7 @@ wire_structs! {
         pub name: String,
         /// Its web page, what `ImportProject::repo` takes.
         pub url: String,
+        #[serde(with = "epoch_ms")]
         pub updated_at: SystemTime,
     }
 
@@ -200,7 +240,9 @@ wire_structs! {
 
     /// One of the caller's machines as a project's page lists it.
     pub struct ProjectMachine {
+        #[serde(rename = "id")]
         pub machine_id: String,
+        #[serde(rename = "name")]
         pub machine_name: String,
         pub online: bool,
         /// The project's absolute folder there; `None` without a checkout.
@@ -208,6 +250,7 @@ wire_structs! {
         /// Beep is looking through it for a checkout now.
         pub checking: bool,
         /// When Beep last looked through it, since the project was imported.
+        #[serde(with = "epoch_ms::option")]
         pub checked_at: Option<SystemTime>,
     }
 
@@ -261,74 +304,94 @@ wire_structs! {
         /// Cut short when long.
         pub body: String,
     }
+}
 
-    /// A pull request or issue in detail. Its text is the
-    /// host's, written by anyone: show it as data, never as markup.
-    pub struct ThreadDetail {
-        pub kind: GitItemKind,
-        pub number: u64,
-        pub title: String,
-        /// Its web page.
-        pub url: String,
-        /// The login of who opened it.
-        pub author: String,
-        pub state: ThreadState,
-        pub draft: bool,
-        pub labels: Vec<String>,
-        pub opened_at: SystemTime,
-        /// The opening post, Markdown, cut short when long.
-        pub body: String,
-        /// Comments and reviews, oldest first; the newest when there are many.
-        pub comments: Vec<ThreadPost>,
-        /// How many older comments and reviews `comments` leaves out.
-        pub earlier: u32,
-        /// A pull request's review decision; `None` for an issue or where the
-        /// host does not say.
-        pub review: GitReview,
-        /// How a pull request's checks stand on its head commit, where the host
-        /// says.
-        pub checks: Option<RunState>,
-        /// For an issue, the pull requests that will close it or mention it.
-        /// GitHub only.
-        #[serde(default)]
-        pub linked_prs: Vec<LinkedPr>,
-    }
+/// One git host's repositories.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct HostRepos {
+    /// `github.com`, or a Forgejo server's host, such as `git.example.com`.
+    pub host: String,
+    #[serde(rename = "github", serialize_with = "is_github")]
+    pub kind: GitHostKind,
+    /// Newest update first.
+    pub repos: Vec<HostRepo>,
+    /// Why `repos` is empty, for the user; `None` when the host answered.
+    pub error: Option<String>,
+}
 
-    /// A pull request linked to an issue.
-    pub struct LinkedPr {
-        pub number: u64,
-        pub title: String,
-        /// Its web page, which names its repository.
-        pub url: String,
-        pub state: ThreadState,
+/// A pull request or issue in detail. Its text is the
+/// host's, written by anyone: show it as data, never as markup.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThreadDetail {
+    pub kind: GitItemKind,
+    pub number: u64,
+    pub title: String,
+    /// Its web page.
+    pub url: String,
+    /// The login of who opened it.
+    pub author: String,
+    pub state: ThreadState,
+    pub draft: bool,
+    pub labels: Vec<String>,
+    pub opened_at: SystemTime,
+    /// The opening post, Markdown, cut short when long.
+    pub body: String,
+    /// Comments and reviews, oldest first; the newest when there are many.
+    pub comments: Vec<ThreadPost>,
+    /// How many older comments and reviews `comments` leaves out.
+    pub earlier: u32,
+    /// A pull request's review decision; `None` for an issue or where the
+    /// host does not say.
+    pub review: GitReview,
+    /// How a pull request's checks stand on its head commit, where the host
+    /// says.
+    pub checks: Option<RunState>,
+    /// For an issue, the pull requests that will close it or mention it.
+    /// GitHub only.
+    pub linked_prs: Vec<LinkedPr>,
+}
+
+/// A pull request linked to an issue.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct LinkedPr {
+    pub number: u64,
+    pub title: String,
+    /// Its web page, which names its repository.
+    pub url: String,
+    pub state: ThreadState,
+}
+
+/// Whether a pull request or issue is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum ThreadState {
+    Open {},
+    Closed {},
+    Merged {},
+}
+
+impl serde::Serialize for ThreadState {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(Into::<&'static str>::into(*self))
     }
 }
 
-wire_enum! {
-    /// Whether a pull request or issue is open.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::IntoStaticStr)]
-    #[strum(serialize_all = "snake_case")]
-    pub enum ThreadState {
-        0 Open {}
-        1 Closed {}
-        2 Merged {}
-    }
+/// A git host `CreateProject` can make a repository on.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ProjectForge {
+    /// `github.com`, or a Forgejo or Gitea server's host; what
+    /// `NewRepository::host` takes.
+    pub host: String,
+    #[serde(rename = "github", serialize_with = "is_github")]
+    pub kind: GitHostKind,
+    /// What `NewRepository::owner` takes: each account, then the
+    /// organizations it can create in.
+    pub owners: Vec<String>,
+    /// Why `owners` is empty, for the user; `None` when the host answered.
+    pub error: Option<String>,
 }
 
 wire_structs! {
-    /// A git host `CreateProject` can make a repository on.
-    pub struct ProjectForge {
-        /// `github.com`, or a Forgejo or Gitea server's host; what
-        /// `NewRepository::host` takes.
-        pub host: String,
-        pub kind: GitHostKind,
-        /// What `NewRepository::owner` takes: each account, then the
-        /// organizations it can create in.
-        pub owners: Vec<String>,
-        /// Why `owners` is empty, for the user; `None` when the host answered.
-        pub error: Option<String>,
-    }
-
     /// The repository `CreateProject` makes on a git host.
     pub struct NewRepository {
         /// `ProjectForge::host`.

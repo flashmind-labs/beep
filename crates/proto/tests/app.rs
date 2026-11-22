@@ -416,7 +416,7 @@ mod projects {
                     "{list:?}"
                 );
             }
-            let many: Vec<String> = (0..=MAX_PATHS).map(|i| format!("~/f{i}")).collect();
+            let many: Vec<String> = (0..=16).map(|i| format!("~/f{i}")).collect();
             assert!(group_paths(&many).is_err());
         }
     }

@@ -23,7 +23,7 @@ async fn the_master_pause_applies_to_all_projects_and_ignored_datasets() {
     .await
     .unwrap();
     let mut specs = BTreeMap::new();
-    assert!(projects(&mesh, me, &mut specs).0.iter().all(|p| !p.paused));
+    assert!(projects(&mesh, me, &mut specs).iter().all(|p| !p.paused));
     mesh.set(
         Key::ProjectSync,
         Some(
@@ -37,7 +37,7 @@ async fn the_master_pause_applies_to_all_projects_and_ignored_datasets() {
     )
     .await
     .unwrap();
-    let configured = projects(&mesh, me, &mut specs).0;
+    let configured = projects(&mesh, me, &mut specs);
     assert_eq!(configured.len(), 2);
     assert!(configured.iter().all(|p| p.paused));
     mesh.set(
@@ -46,7 +46,7 @@ async fn the_master_pause_applies_to_all_projects_and_ignored_datasets() {
     )
     .await
     .unwrap();
-    assert!(projects(&mesh, me, &mut specs).0.iter().all(|p| !p.paused));
+    assert!(projects(&mesh, me, &mut specs).iter().all(|p| !p.paused));
 }
 
 #[tokio::test]
@@ -69,7 +69,7 @@ async fn selected_ignored_folders_are_independent_datasets_with_the_same_peers_a
     )
     .await
     .unwrap();
-    let (configured, _) = projects(&mesh, me, &mut BTreeMap::new());
+    let configured = projects(&mesh, me, &mut BTreeMap::new());
     assert_eq!(configured.len(), 2);
     assert_eq!(configured[0].name, "acme/widget");
     assert_eq!(
@@ -104,7 +104,10 @@ async fn an_api_key_in_the_mesh_reaches_the_processes() {
         })
     };
     for (id, value) in [
-        ("key.1.openrouter", env(beep_proto::ApiKey::OpenRouter.env_var())),
+        (
+            "key.1.openrouter",
+            env(beep_proto::ApiKey::OpenRouter.env_var()),
+        ),
         ("gh.2.octo", env(beep_proto::GITHUB_ENV_VAR)),
     ] {
         let bytes = value.to_bytes().expect("a credential encodes");
@@ -118,30 +121,6 @@ async fn an_api_key_in_the_mesh_reaches_the_processes() {
         .map(|secret| secret.name)
         .collect();
     assert_eq!(names, [beep_proto::GITHUB_ENV_VAR, "OPENROUTER_API_KEY"]);
-}
-
-#[tokio::test]
-async fn a_project_naming_a_machine_that_has_not_joined_is_pending() {
-    let (mesh, _dir) = lone_mesh().await;
-    let (me, other) = (mesh.me(), SecretKey::generate().public());
-    let spec = |ids: &[EndpointId]| SyncSpec {
-        ignored: Default::default(),
-        folders: ids.iter().map(|id| (*id, "/srv/app".to_owned())).collect(),
-        paused: false,
-        rules: String::new(),
-    };
-
-    for (name, ids) in [("alone", vec![me]), ("waiting", vec![me, other])] {
-        let bytes = spec(&ids).to_bytes().expect("a spec encodes");
-        mesh.set(Key::Sync(name.to_owned()), Some(bytes))
-            .await
-            .expect("written");
-    }
-
-    let (projects, pending) = projects(&mesh, me, &mut BTreeMap::new());
-    assert_eq!(projects.len(), 2);
-    assert_eq!(pending, BTreeSet::from(["waiting".to_owned()]));
-    assert!(projects.iter().all(|project| project.peers.is_empty()));
 }
 
 fn config(agent: &str, program: Option<&str>) -> HarnessConfig {

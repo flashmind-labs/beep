@@ -6,14 +6,15 @@ use crate::{
 };
 use std::{collections::HashSet, str::FromStr, time::SystemTime};
 
-wire_structs! {
-    /// One machine's settings for a harness.
-    pub struct MachineHarnessSettings {
-        pub machine_id: String,
-        pub machine_name: String,
-        pub settings: HarnessSettings,
-    }
+/// One machine's settings for a harness.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct MachineHarnessSettings {
+    pub machine_id: String,
+    pub machine_name: String,
+    pub settings: HarnessSettings,
+}
 
+wire_structs! {
     /// One custom agent a coding agent harness defines: a named prompt with a description, and
     /// optionally the model, tools and color it runs with.
     #[derive(Eq)]
@@ -81,54 +82,89 @@ wire_enum! {
     }
 }
 
-wire_structs! {
-    /// The coding agent harnesses on one machine.
-    pub struct AgentHarnesses {
-        pub machine_id: String,
-        pub machine_name: String,
-        /// When the machine last looked the newest versions up; `None` when it
-        /// never did.
-        pub checked_at: Option<SystemTime>,
-        /// Every harness Beep knows, installed or not, then any other the
-        /// machine runs.
-        pub harnesses: Vec<AgentHarness>,
-    }
+/// The coding agent harnesses on one machine.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct AgentHarnesses {
+    pub machine_id: String,
+    pub machine_name: String,
+    /// When the machine last looked the newest versions up; `None` when it
+    /// never did.
+    #[serde(with = "crate::projects::epoch_ms::option")]
+    pub checked_at: Option<SystemTime>,
+    /// Every harness Beep knows, installed or not, then any other the
+    /// machine runs.
+    pub harnesses: Vec<AgentHarness>,
+}
 
-    /// One harness on a machine.
-    pub struct AgentHarness {
-        /// Its slug, such as `claude`.
-        pub agent: String,
-        /// Its CLI is on the machine.
-        pub installed: bool,
-        /// The machine can start it; only these are offered.
-        pub runnable: bool,
-        /// Its version, such as `2.1.312`.
-        pub version: Option<String>,
-        /// The newest version, when it could be looked up.
-        pub latest: Option<String>,
-        /// What the machine starts for it when no binary path is set.
-        pub program: Option<String>,
-        /// The variable its home folder is set with, such as `CODEX_HOME`.
-        pub home_var: Option<String>,
-        /// Its home folder when that variable is not set, such as `~/.codex`.
-        pub home_default: Option<String>,
-        pub sign_in: HarnessSignIn,
-        /// The command Install or Update runs there; `None` when there is none.
-        pub install: Option<String>,
-        pub settings: HarnessSettings,
+/// One harness on a machine.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct AgentHarness {
+    /// Its slug, such as `claude`.
+    pub agent: String,
+    /// Its CLI is on the machine.
+    pub installed: bool,
+    /// The machine can start it; only these are offered.
+    pub runnable: bool,
+    /// Its version, such as `2.1.312`.
+    pub version: Option<String>,
+    /// The newest version, when it could be looked up.
+    pub latest: Option<String>,
+    /// What the machine starts for it when no binary path is set.
+    pub program: Option<String>,
+    /// The variable its home folder is set with, such as `CODEX_HOME`.
+    pub home_var: Option<String>,
+    /// Its home folder when that variable is not set, such as `~/.codex`.
+    pub home_default: Option<String>,
+    pub sign_in: HarnessSignIn,
+    /// The command Install or Update runs there; `None` when there is none.
+    pub install: Option<String>,
+    pub settings: HarnessSettings,
+}
+
+/// How a harness signs in on a machine. `BeepToken` is the token Beep
+/// keeps for it (Agent accounts), handed to every session it starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HarnessSignIn {
+    Unknown {},
+    SignedIn {
+        account: Option<String>,
+        plan: Option<String>,
+    },
+    SignedOut {},
+    BeepToken {
+        last4: String,
+    },
+}
+
+impl serde::Serialize for HarnessSignIn {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+
+        let (state, account, plan, last4) = match self {
+            Self::Unknown {} => ("unknown", None, None, None),
+            Self::SignedOut {} => ("signed_out", None, None, None),
+            Self::SignedIn { account, plan } => {
+                ("signed_in", account.as_deref(), plan.as_deref(), None)
+            }
+            Self::BeepToken { last4 } => ("beep_token", None, None, Some(last4.as_str())),
+        };
+        let mut out = s.serialize_struct("HarnessSignIn", 4)?;
+        out.serialize_field("state", state)?;
+        out.serialize_field("account", &account)?;
+        out.serialize_field("plan", &plan)?;
+        out.serialize_field("last4", &last4)?;
+        out.end()
     }
 }
 
-wire_enum! {
-    /// How a harness signs in on a machine. `BeepToken` is the token Beep
-    /// keeps for it (Agent accounts), handed to every session it starts.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum HarnessSignIn {
-        0 Unknown {}
-        1 SignedIn { account: Option<String>, plan: Option<String> }
-        2 SignedOut {}
-        3 BeepToken { last4: String }
+fn serialize_env_names<S: serde::Serializer>(env: &[HarnessEnv], s: S) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeSeq;
+
+    let mut seq = s.serialize_seq(Some(env.len()))?;
+    for var in env {
+        seq.serialize_element(&var.name)?;
     }
+    seq.end()
 }
 
 wire_structs! {
@@ -143,6 +179,7 @@ wire_structs! {
         pub home: String,
         /// Added to every session it starts.
         pub args: Vec<String>,
+        #[serde(serialize_with = "serialize_env_names")]
         pub env: Vec<HarnessEnv>,
     }
 
@@ -328,29 +365,32 @@ impl std::fmt::Display for AccountName {
     }
 }
 
-wire_structs! {
-    /// The models a coding agent can run on a machine, as `ListAgentModels`
-    /// gives them.
-    pub struct AgentModels {
-        pub pick: AgentModelPick,
-        /// The model the agent runs when none is picked, when it says.
-        pub current: Option<String>,
-        /// The models to pick from, for `AgentModelPick::Listed`.
-        pub models: Vec<AgentModel>,
-    }
+/// The models a coding agent can run on a machine, as `ListAgentModels`
+/// gives them.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct AgentModels {
+    pub pick: AgentModelPick,
+    /// The model the agent runs when none is picked, when it says.
+    pub current: Option<String>,
+    /// The models to pick from, for `AgentModelPick::Listed`.
+    pub models: Vec<AgentModel>,
 }
 
-wire_enum! {
-    /// How the start form picks a coding agent's model: `Fixed` when none
-    /// can be picked (the agent runs its own, or the machine's beep-node is
-    /// too old to pick one), `Listed` from `AgentModels::models`, `Named`
-    /// by any name the agent takes when it lists none.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
-    #[strum(serialize_all = "snake_case")]
-    pub enum AgentModelPick {
-        0 Fixed {}
-        1 Listed {}
-        2 Named {}
+/// How the start form picks a coding agent's model: `Fixed` when none
+/// can be picked (the agent runs its own, or the machine's beep-node is
+/// too old to pick one), `Listed` from `AgentModels::models`, `Named`
+/// by any name the agent takes when it lists none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum AgentModelPick {
+    Fixed {},
+    Listed {},
+    Named {},
+}
+
+impl serde::Serialize for AgentModelPick {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(Into::<&'static str>::into(*self))
     }
 }
 

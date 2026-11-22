@@ -14,9 +14,7 @@ async fn bind() -> Endpoint {
 }
 
 #[tokio::test]
-async fn a_removed_device_is_refused_on_a_list_the_server_set() {
-    // A desktop's mesh with a node that joins it, and no `sync/` key:
-    // the server sets the project list.
+async fn a_removed_device_is_refused_and_mesh_owns_configure() {
     let desktop_dir = TempDir::new().expect("a temp folder");
     let desktop = bind().await;
     let mesh = Mesh::create(desktop_dir.path(), desktop.clone(), "desktop")
@@ -51,18 +49,36 @@ async fn a_removed_device_is_refused_on_a_list_the_server_set() {
     .expect("the transfers start");
     let syncs = transfers.syncs();
     syncs.follow(mesh.clone());
-    let refused = syncs
-        .configure(vec![Project {
-            name: "proj".to_owned(),
-            folder: paths::canonicalize(shared.path().join("proj"))
-                .expect("the folder exists")
-                .display()
-                .to_string(),
-            peers: vec![node.addr()],
-            paused: false,
-            rules: String::new(),
-        }])
-        .await;
+    let project = Project {
+        name: "proj".to_owned(),
+        folder: paths::canonicalize(shared.path().join("proj"))
+            .expect("the folder exists")
+            .display()
+            .to_string(),
+        peers: vec![node.addr()],
+        paused: false,
+        rules: String::new(),
+    };
+    let reply = answer(
+        &syncs,
+        Request::Configure {
+            projects: vec![project.clone()],
+        },
+    )
+    .await
+    .expect("answered");
+    assert_eq!(
+        reply,
+        Reply::Configured {
+            addr: syncs.addr(),
+            refused: vec![Refused {
+                project: "proj".to_owned(),
+                message: "this machine takes its projects from its mesh".to_owned(),
+            }],
+        }
+    );
+
+    let refused = syncs.configure_from_mesh(vec![project]).await;
     assert!(refused.is_empty(), "{refused:?}");
     let id = node.id();
     assert!(syncs.inner.may_connect(&id), "a peer of the list connects");

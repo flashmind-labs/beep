@@ -29,11 +29,11 @@ fn project_group_path(path: &str) -> String {
 }
 
 /// The longest group name.
-pub const MAX_NAME: usize = 100;
+const MAX_NAME: usize = 100;
 /// The longest folder.
-pub const MAX_PATH: usize = 500;
+const MAX_PATH: usize = 500;
 /// The most folders one group holds.
-pub const MAX_PATHS: usize = 16;
+const MAX_PATHS: usize = 16;
 
 /// The folders as groups keep them, repeats left out, in the order given.
 pub fn group_paths(given: &[String]) -> Result<Vec<String>, ApiError> {

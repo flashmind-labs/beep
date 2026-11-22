@@ -1,7 +1,6 @@
 //! Branches with work before an import, and giving a branch a worktree.
 
 use crate::{
-    beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
@@ -9,10 +8,7 @@ use crate::{
         projects::{FleetState, desk},
     },
 };
-use beep_proto::{
-    ImportCheckout, ImportFork, ImportPreview, ProjectBranch, ProjectBranches, WorkBranch,
-};
-use serde::Serialize;
+use beep_proto::{ImportFork, ImportPreview, ProjectBranches};
 
 /// Where `project` has a checkout on a machine of the mesh that is online, nearest first. With
 /// none online, or a project the mesh does not record, that is an error.
@@ -38,114 +34,16 @@ pub(crate) fn placed(fleet: &Fleet, project: &str) -> Result<Vec<Place>> {
     Ok(recorded)
 }
 
-#[derive(Debug, Serialize)]
-pub struct WorkBranchRow {
-    name: String,
-    pr: Option<u64>,
-    pr_title: String,
-    ahead: u32,
-    worktree: Option<String>,
-    in_checkout: bool,
-    /// In milliseconds since the Unix epoch.
-    committed_at: Option<u64>,
-}
-
-impl From<WorkBranch> for WorkBranchRow {
-    fn from(b: WorkBranch) -> Self {
-        Self {
-            name: b.name,
-            pr: b.pr,
-            pr_title: b.pr_title,
-            ahead: b.ahead,
-            worktree: b.worktree,
-            in_checkout: b.in_checkout,
-            committed_at: b.committed_at.map(epoch_ms),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub struct PreviewView {
-    project: String,
-    checkouts: Vec<ImportCheckout>,
-    default_branch: String,
-    branches: Vec<WorkBranchRow>,
-    note: String,
-}
-
-impl From<ImportPreview> for PreviewView {
-    fn from(p: ImportPreview) -> Self {
-        Self {
-            project: p.project,
-            checkouts: p.checkouts,
-            default_branch: p.default_branch,
-            branches: p.branches.into_iter().map(Into::into).collect(),
-            note: p.note,
-        }
-    }
-}
-
 /// What importing `repo` would find.
 #[tauri::command]
-pub async fn preview_import(fleet: FleetState<'_>, repo: String) -> Result<Option<PreviewView>> {
-    Ok(Some(desk(&fleet).await?.preview(&repo).await?.into()))
+pub async fn preview_import(fleet: FleetState<'_>, repo: String) -> Result<Option<ImportPreview>> {
+    Ok(Some(desk(&fleet).await?.preview(&repo).await?))
 }
 
 /// The user's fork that importing `repo` would clone.
 #[tauri::command]
 pub async fn find_import_fork(fleet: FleetState<'_>, repo: String) -> Result<Option<ImportFork>> {
     Ok(Some(desk(&fleet).await?.find_fork(&repo).await?))
-}
-
-/// One branch as the window shows it.
-#[derive(Debug, Serialize)]
-pub struct BranchRow {
-    name: String,
-    worktree: Option<String>,
-    ahead: u32,
-    behind: u32,
-    head: String,
-    subject: String,
-    /// In milliseconds since the Unix epoch.
-    committed_at: u64,
-    local: bool,
-    pushed: bool,
-}
-
-impl From<ProjectBranch> for BranchRow {
-    fn from(b: ProjectBranch) -> Self {
-        Self {
-            name: b.name,
-            worktree: b.worktree,
-            ahead: b.ahead,
-            behind: b.behind,
-            head: b.head,
-            subject: b.subject,
-            committed_at: epoch_ms(b.committed_at),
-            local: b.local,
-            pushed: b.pushed,
-        }
-    }
-}
-
-/// A project's branches on the machine that read them.
-#[derive(Debug, Serialize)]
-pub struct BranchesView {
-    machine_id: String,
-    machine_name: String,
-    default_branch: String,
-    branches: Vec<BranchRow>,
-}
-
-impl From<ProjectBranches> for BranchesView {
-    fn from(b: ProjectBranches) -> Self {
-        Self {
-            machine_id: b.machine_id,
-            machine_name: b.machine_name,
-            default_branch: b.default_branch,
-            branches: b.branches.into_iter().map(Into::into).collect(),
-        }
-    }
 }
 
 /// `project`'s branches, read at its nearest online checkout on a machine of the mesh.
@@ -170,6 +68,6 @@ pub(crate) async fn read_branches(fleet: &Fleet, project: String) -> Result<Proj
 pub async fn project_branches(
     fleet: Machines<'_>,
     project: String,
-) -> Result<Option<BranchesView>> {
-    Ok(Some(read_branches(&fleet, project).await?.into()))
+) -> Result<Option<ProjectBranches>> {
+    Ok(Some(read_branches(&fleet, project).await?))
 }

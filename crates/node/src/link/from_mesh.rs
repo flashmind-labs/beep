@@ -27,11 +27,7 @@ use beep_proto::{
 };
 use iroh::{EndpointAddr, EndpointId};
 use std::time::Duration;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::BTreeMap, sync::Arc, time::Instant};
 use tokio::sync::{broadcast::error::RecvError, watch};
 
 /// How often the state is applied again with no change to wake it, for what
@@ -125,15 +121,17 @@ pub(crate) fn placed_projects(
     mesh: &Mesh,
     me: EndpointId,
 ) -> impl Iterator<Item = (String, ProjectRecord, Place)> {
-    mesh.scan("project/").into_iter().filter_map(move |(key, bytes)| {
-        let Key::Project(name) = key else {
-            return None;
-        };
-        let record = ProjectRecord::from_bytes(&bytes).ok()?;
-        let place = mesh.get(&Key::Project(format!("{name}/{me}")))?;
-        let place = Place::from_bytes(&place).ok()?;
-        Some((name, record, place))
-    })
+    mesh.scan("project/")
+        .into_iter()
+        .filter_map(move |(key, bytes)| {
+            let Key::Project(name) = key else {
+                return None;
+            };
+            let record = ProjectRecord::from_bytes(&bytes).ok()?;
+            let place = mesh.get(&Key::Project(format!("{name}/{me}")))?;
+            let place = Place::from_bytes(&place).ok()?;
+            Some((name, record, place))
+        })
 }
 
 /// Each machine applies the replicated preference to its own local share.
@@ -182,8 +180,6 @@ struct Applied {
     credentials: Option<MachineCredentials>,
     settings: Option<AgentSettings>,
     projects: Option<Vec<Project>>,
-    /// The projects among them that name a machine that has not joined.
-    pending: BTreeSet<String>,
     /// The last spec of each project that read, for a key that stops reading.
     specs: BTreeMap<Key, SyncSpec>,
 }
@@ -218,19 +214,18 @@ impl Applied {
         }
 
         if let Some(transfers) = offers.transfers.get() {
-            let (projects, pending) = projects(mesh, me, &mut self.specs);
+            let projects = projects(mesh, me, &mut self.specs);
 
-            if self.projects.as_ref() != Some(&projects) || self.pending != pending {
+            if self.projects.as_ref() != Some(&projects) {
                 let started = Instant::now();
                 log::info!(
-                    "from the mesh: applying the sync set, {} projects, {} waiting for a machine",
+                    "from the mesh: applying the sync set, {} projects",
                     projects.len(),
-                    pending.len()
                 );
                 let applying = watchdog::enter(Step::SyncApply);
                 let refused = transfers
                     .syncs()
-                    .configure_from_mesh(projects.clone(), pending.clone())
+                    .configure_from_mesh(projects.clone())
                     .await;
                 drop(applying);
 
@@ -252,7 +247,6 @@ impl Applied {
                     refused.len()
                 );
                 self.projects = Some(projects);
-                self.pending = pending;
             }
 
             transfers.syncs().set_git_auto_recovery(
@@ -373,14 +367,9 @@ fn harnesses_for(me: &str, named: Vec<(String, HarnessConfig)>) -> Vec<HarnessCo
 }
 
 /// The projects this device syncs: those whose spec names it, with the
-/// other devices of the spec that are in the mesh now, and the names of those
-/// that name a machine that is neither in the mesh nor removed from it. A
-/// spec that stops reading keeps the last one that did, in `specs`.
-fn projects(
-    mesh: &Mesh,
-    me: EndpointId,
-    specs: &mut BTreeMap<Key, SyncSpec>,
-) -> (Vec<Project>, BTreeSet<String>) {
+/// other devices of the spec that are in the mesh now. A spec that stops
+/// reading keeps the last one that did, in `specs`.
+fn projects(mesh: &Mesh, me: EndpointId, specs: &mut BTreeMap<Key, SyncSpec>) -> Vec<Project> {
     let devices = mesh.code_hosts();
     let sync_enabled = mesh
         .get(&Key::ProjectSync)
@@ -403,20 +392,8 @@ fn projects(
         }
     }
     *specs = now;
-    let pending = specs
-        .iter()
-        .filter_map(|(key, spec)| match key {
-            Key::Sync(name) => Some((name, spec)),
-            _ => None,
-        })
-        .filter(|(_, spec)| {
-            spec.folders
-                .keys()
-                .any(|id| *id != me && !mesh.is_member(*id) && !mesh.is_removed(*id))
-        })
-        .map(|(name, _)| name.clone())
-        .collect();
-    let projects = specs
+
+    specs
         .iter()
         .filter_map(|(key, spec)| {
             let Key::Sync(name) = key else {
@@ -466,8 +443,7 @@ fn projects(
             Some(all)
         })
         .flatten()
-        .collect();
-    (projects, pending)
+        .collect()
 }
 
 #[cfg(test)]

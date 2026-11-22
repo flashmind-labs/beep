@@ -8,7 +8,6 @@ use crate::{
     },
 };
 use std::time::SystemTime;
-use uuid::Uuid;
 
 wire_structs! {
     /// How many sessions of one agent ran in a found folder.
@@ -16,16 +15,6 @@ wire_structs! {
         /// Such as `claude`, `codex`, `pi`, `flsh` or `opencode`.
         pub agent: String,
         pub sessions: u32,
-    }
-
-    /// A project and its agent chat.
-    pub struct ProjectAgent {
-        pub project_id: Uuid,
-        /// `org/repo`.
-        pub name: String,
-        pub chat_id: Uuid,
-        pub open_tasks: u32,
-        pub open_workers: u32,
     }
 
     /// One picture of a coding agent session's log, as `GetAgentImage` gives it.
@@ -54,59 +43,58 @@ wire_structs! {
 /// The most of a file one `GetAgentFile` gives, well under a frame.
 pub const AGENT_FILE_CHUNK: usize = 4 * 1024 * 1024;
 
+/// A machine that can run coding agents.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct AgentHost {
+    /// The `Machine::id` it is.
+    pub machine_id: String,
+    pub machine_name: String,
+    /// The agents it offers, such as `claude` and `codex`.
+    pub agents: Vec<String>,
+    /// The user's environment folder, when this machine is it.
+    pub workspace: Option<String>,
+    /// Its home folder, as it last reported it.
+    pub home: Option<String>,
+    pub capabilities: Vec<MachineCapability>,
+}
+
+/// The session `StartAgentSession` started.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StartedAgent {
+    pub session: MachineSession,
+    /// Why it runs on that machine, such as "It has Xcode." Empty when the
+    /// caller named the machine.
+    pub why: String,
+}
+
+/// One session in full, as `GetAgentSession` reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentSessionView {
+    pub session: MachineSession,
+    pub plan: Vec<AgentPlanStep>,
+    /// Files it changed, newest last.
+    pub files: Vec<String>,
+    /// Its last message, cut short.
+    pub last_message: String,
+    /// Why it failed or its last turn went wrong.
+    pub error: Option<String>,
+    /// Messages waiting for the running turn to end.
+    pub queued: u32,
+    pub turns: u32,
+    pub entries: Vec<AgentEntry>,
+    /// Transcript entries before `entries`.
+    pub earlier: u32,
+    /// Text of messages waiting to be delivered.
+    pub queued_messages: Vec<String>,
+    /// The model reported by the session.
+    pub model: Option<String>,
+    /// Why its last turn ended; none before the first.
+    pub last_stop: Option<StopReason>,
+    /// The latest usage of a session Beep runs.
+    pub usage: Option<AgentSessionUsage>,
+}
+
 wire_structs! {
-    /// A machine that can run coding agents.
-    pub struct AgentHost {
-        /// The `Machine::id` it is.
-        pub machine_id: String,
-        pub machine_name: String,
-        /// The agents it offers, such as `claude` and `codex`.
-        pub agents: Vec<String>,
-        /// The user's environment folder, when this machine is it.
-        pub workspace: Option<String>,
-        /// Its home folder, as it last reported it.
-        pub home: Option<String>,
-        pub capabilities: Vec<MachineCapability>,
-    }
-
-    /// The session `StartAgentSession` started.
-    pub struct StartedAgent {
-        pub session: MachineSession,
-        /// Why it runs on that machine, such as "It has Xcode." Empty when the
-        /// caller named the machine.
-        pub why: String,
-    }
-
-    /// One session in full, as `GetAgentSession` reads it.
-    pub struct AgentSessionView {
-        pub session: MachineSession,
-        pub plan: Vec<AgentPlanStep>,
-        /// Files it changed, newest last.
-        pub files: Vec<String>,
-        /// Its last message, cut short.
-        pub last_message: String,
-        /// Why it failed or its last turn went wrong.
-        pub error: Option<String>,
-        /// Messages waiting for the running turn to end.
-        pub queued: u32,
-        pub turns: u32,
-        pub entries: Vec<AgentEntry>,
-        /// Transcript entries before `entries`.
-        pub earlier: u32,
-        /// Text of messages waiting to be delivered.
-        #[serde(default)]
-        pub queued_messages: Vec<String>,
-        /// The model reported by the session.
-        #[serde(default)]
-        pub model: Option<String>,
-        /// Why its last turn ended; none before the first.
-        #[serde(default)]
-        pub last_stop: Option<StopReason>,
-        /// The latest usage of a session Beep runs.
-        #[serde(default)]
-        pub usage: Option<AgentSessionUsage>,
-    }
-
     /// What a session Beep runs has used.
     #[derive(Default)]
     pub struct AgentSessionUsage {
@@ -176,26 +164,29 @@ wire_structs! {
         /// The window's size in tokens.
         pub size: u64,
     }
-
-    /// One step of a session's plan.
-    pub struct AgentPlanStep {
-        pub content: String,
-        pub status: AgentPlanStatus,
-        /// Unix seconds when the step first ran, and when it stopped.
-        #[serde(default)]
-        pub started_at: Option<u64>,
-        #[serde(default)]
-        pub ended_at: Option<u64>,
-    }
 }
 
-wire_enum! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
-    #[strum(serialize_all = "snake_case")]
-    pub enum AgentPlanStatus {
-        0 Pending {}
-        1 InProgress {}
-        2 Completed {}
+/// One step of a session's plan.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct AgentPlanStep {
+    pub content: String,
+    pub status: AgentPlanStatus,
+    /// Unix seconds when the step first ran, and when it stopped.
+    pub started_at: Option<u64>,
+    pub ended_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum AgentPlanStatus {
+    Pending {},
+    InProgress {},
+    Completed {},
+}
+
+impl serde::Serialize for AgentPlanStatus {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(Into::<&'static str>::into(*self))
     }
 }
 
@@ -465,16 +456,6 @@ pub struct StartAgentSession {
     pub assistant: bool,
     /// The agent's named account to sign in as; `None` for its default one.
     pub account: Option<AccountName>,
-}
-
-/// The machine `StartAgentSession` without a `machine_id` would start on
-/// now, and why, without starting anything.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PreviewAgentMachine {
-    pub agent: Option<String>,
-    pub cwd: Option<String>,
-    pub prompt: String,
-    pub needs: Vec<MachineCapability>,
 }
 
 /// Resumes a session started outside Beep, by the agent's own id: it then

@@ -11,8 +11,8 @@ use crate::{
     projects::threads::{IssueRow, PullRequestRow},
 };
 use beep_proto::{
-    ApiError, GitHostKind, HostedChecks, HostedRun, HostedRuns, LabeledProjectLists, PrChecks,
-    ProjectRunDetail, RunJob, RunLog, RunProgress, RunStep, RunsHost, StepProgress, WorkflowRun,
+    ApiError, HostedChecks, HostedRun, HostedRuns, LabeledProjectLists, PrChecks, ProjectRunDetail,
+    RunJob, RunLog, RunProgress, RunsHost, StepProgress, WorkflowRun,
 };
 use serde::Serialize;
 use std::time::SystemTime;
@@ -187,39 +187,6 @@ impl From<HostedChecks> for ChecksRow {
     }
 }
 
-/// One host the runs are read from (RunsHost).
-#[derive(Debug, Serialize)]
-pub struct HostRow {
-    host: String,
-    /// `github` or `forgejo`.
-    kind: &'static str,
-    repo: String,
-    primary: bool,
-    synced_at: Option<u64>,
-    error: Option<String>,
-    rate_limited_until: Option<u64>,
-    /// The repository's web page there, when known.
-    url: Option<String>,
-}
-
-impl From<RunsHost> for HostRow {
-    fn from(h: RunsHost) -> Self {
-        Self {
-            kind: match h.kind {
-                GitHostKind::GitHub {} => "github",
-                GitHostKind::Forgejo {} => "forgejo",
-            },
-            host: h.host,
-            repo: h.repo,
-            primary: h.primary,
-            synced_at: ms(h.synced_at),
-            error: h.error,
-            rate_limited_until: ms(h.rate_limited_until),
-            url: h.url,
-        }
-    }
-}
-
 /// The project's runs (HostedRuns).
 #[derive(Debug, Serialize)]
 pub struct RunsRow {
@@ -228,7 +195,7 @@ pub struct RunsRow {
     synced_at: Option<u64>,
     error: Option<String>,
     rate_limited_until: Option<u64>,
-    hosts: Vec<HostRow>,
+    hosts: Vec<RunsHost>,
 }
 
 impl From<HostedRuns> for RunsRow {
@@ -237,10 +204,10 @@ impl From<HostedRuns> for RunsRow {
         Self {
             synced_at: ms(r.hosts.iter().filter_map(|h| h.synced_at).max()),
             rate_limited_until: ms(primary.and_then(|h| h.rate_limited_until)),
-            runs: r.runs.into_iter().map(Into::into).collect(),
-            checks: r.checks.into_iter().map(Into::into).collect(),
+            runs: r.runs.into_iter().map(RunRow::from).collect(),
+            checks: r.checks.into_iter().map(ChecksRow::from).collect(),
             error: r.error,
-            hosts: r.hosts.into_iter().map(Into::into).collect(),
+            hosts: r.hosts,
         }
     }
 }
@@ -254,60 +221,14 @@ pub async fn center_project_runs(
     refresh: bool,
 ) -> Result<RunsRow> {
     let name = named(&fleet, project_id).await?;
-    Ok(fleet.runs(&name, refresh).await?.into())
-}
-
-#[derive(Debug, Serialize)]
-pub struct RunStepRow {
-    number: u32,
-    name: String,
-    state: &'static str,
-    started_at: Option<u64>,
-    finished_at: Option<u64>,
-}
-
-impl From<RunStep> for RunStepRow {
-    fn from(s: RunStep) -> Self {
-        Self {
-            number: s.number,
-            name: s.name,
-            state: s.state.into(),
-            started_at: ms(s.started_at),
-            finished_at: ms(s.finished_at),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub struct RunJobRow {
-    id: u64,
-    name: String,
-    state: &'static str,
-    started_at: Option<u64>,
-    finished_at: Option<u64>,
-    steps: Vec<RunStepRow>,
-    url: String,
-}
-
-impl From<RunJob> for RunJobRow {
-    fn from(j: RunJob) -> Self {
-        Self {
-            id: j.id,
-            name: j.name,
-            state: j.state.into(),
-            started_at: ms(j.started_at),
-            finished_at: ms(j.finished_at),
-            steps: j.steps.into_iter().map(Into::into).collect(),
-            url: j.url,
-        }
-    }
+    Ok(RunsRow::from(fleet.runs(&name, refresh).await?))
 }
 
 /// One run opened (ProjectRunDetail).
 #[derive(Debug, Serialize)]
 pub struct RunDetailRow {
     run: RunRow,
-    jobs: Vec<RunJobRow>,
+    jobs: Vec<RunJob>,
     log: Option<RunLog>,
     error: Option<String>,
     rate_limited_until: Option<u64>,
@@ -316,8 +237,8 @@ pub struct RunDetailRow {
 impl From<ProjectRunDetail> for RunDetailRow {
     fn from(d: ProjectRunDetail) -> Self {
         Self {
-            run: d.run.into(),
-            jobs: d.jobs.into_iter().map(Into::into).collect(),
+            run: RunRow::from(d.run),
+            jobs: d.jobs,
             log: d.log,
             error: d.error,
             rate_limited_until: ms(d.rate_limited_until),

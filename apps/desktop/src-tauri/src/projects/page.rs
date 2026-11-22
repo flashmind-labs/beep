@@ -2,7 +2,6 @@
 
 use crate::{
     agents::sessions::SessionRow,
-    beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
         Machines, files as direct,
@@ -54,28 +53,16 @@ pub async fn projects_sessions(fleet: Machines<'_>) -> Result<Vec<SessionRow>> {
 /// One of the user's machines as a project's page lists it.
 #[derive(Debug, Serialize)]
 pub struct ProjectMachineRow {
-    id: String,
-    name: String,
-    online: bool,
-    /// The project's folder there; `None` without a checkout.
-    folder: Option<String>,
-    /// The machine is looking through it for a checkout now.
-    checking: bool,
-    /// In milliseconds since the Unix epoch.
-    checked_at: Option<u64>,
+    #[serde(flatten)]
+    machine: ProjectMachine,
     /// The mesh holds the project, so Add reaches this machine.
     mesh: bool,
 }
 
 impl From<ProjectMachine> for ProjectMachineRow {
-    fn from(m: ProjectMachine) -> Self {
+    fn from(machine: ProjectMachine) -> Self {
         Self {
-            id: m.machine_id,
-            name: m.machine_name,
-            online: m.online,
-            folder: m.folder,
-            checking: m.checking,
-            checked_at: m.checked_at.map(epoch_ms),
+            machine,
             mesh: true,
         }
     }

@@ -24,7 +24,7 @@ use beep_node::agents::tags::own_words;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{LineChanges, Persona};
 use beep_proto::{
-    AccountName, AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels,
+    AccountName, AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModels, AgentPlanStep,
     AgentQuestion, AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask,
     AgentToolCall, ApiError, GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks,
     ListAgentModels, MachineSession, ModelId, ResumeAgentSession, StartAgentSession,
@@ -59,35 +59,12 @@ const RELIST_LAST: Duration = Duration::from_secs(16);
 /// A machine that can run a coding agent.
 #[derive(Debug, Serialize)]
 pub struct HostRow {
-    machine_id: String,
-    machine_name: String,
-    agents: Vec<String>,
-    workspace: Option<String>,
-    home: Option<String>,
-    capabilities: Vec<&'static str>,
+    #[serde(flatten)]
+    host: AgentHost,
     /// Its node runs the home assistant.
     assistant: bool,
     /// Its node takes part in moving a chat.
     moves_chats: bool,
-}
-
-impl From<AgentHost> for HostRow {
-    fn from(host: AgentHost) -> Self {
-        Self {
-            machine_id: host.machine_id,
-            machine_name: host.machine_name,
-            agents: host.agents,
-            workspace: host.workspace,
-            home: host.home,
-            capabilities: host
-                .capabilities
-                .into_iter()
-                .map(<&'static str>::from)
-                .collect(),
-            assistant: false,
-            moves_chats: false,
-        }
-    }
 }
 
 /// One session as the views list it.
@@ -155,14 +132,6 @@ impl From<MachineSession> for SessionRow {
             persona: session.persona,
         }
     }
-}
-
-#[derive(Debug, Serialize)]
-struct StepRow {
-    content: String,
-    status: &'static str,
-    started_at: Option<u64>,
-    ended_at: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -235,7 +204,7 @@ fn without_image_lines(text: &str) -> String {
 pub struct SessionPage {
     model: Option<String>,
     session: SessionRow,
-    plan: Vec<StepRow>,
+    plan: Vec<AgentPlanStep>,
     files: Vec<String>,
     last_message: String,
     error: Option<String>,
@@ -253,17 +222,8 @@ impl From<AgentSessionView> for SessionPage {
     fn from(view: AgentSessionView) -> Self {
         Self {
             model: view.model,
-            session: view.session.into(),
-            plan: view
-                .plan
-                .into_iter()
-                .map(|step| StepRow {
-                    content: step.content,
-                    status: step.status.into(),
-                    started_at: step.started_at,
-                    ended_at: step.ended_at,
-                })
-                .collect(),
+            session: SessionRow::from(view.session),
+            plan: view.plan,
             files: view.files,
             last_message: view.last_message,
             error: view.error,
@@ -302,7 +262,7 @@ pub async fn agent_hosts(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<HostRow>> {
             moves_chats: fleet
                 .member(&host.machine_id)
                 .is_some_and(|machine| direct::moves_chats(&fleet, machine)),
-            ..HostRow::from(host)
+            host,
         })
         .collect())
 }
@@ -596,26 +556,6 @@ pub async fn agent_start(
     })
 }
 
-/// The models an agent can run on a machine, as the start form's Model
-/// field lists them.
-#[derive(Debug, Serialize)]
-pub struct ModelsView {
-    /// "listed", "named" or "fixed".
-    pick: &'static str,
-    current: Option<String>,
-    models: Vec<AgentModel>,
-}
-
-impl From<AgentModels> for ModelsView {
-    fn from(list: AgentModels) -> Self {
-        Self {
-            pick: list.pick.into(),
-            current: list.current,
-            models: list.models,
-        }
-    }
-}
-
 /// The models `agent` can run on `machine_id`; failures retain their context
 /// for the picker and the local log.
 #[tauri::command]
@@ -623,7 +563,7 @@ pub async fn agent_models(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-) -> Result<Option<ModelsView>> {
+) -> Result<Option<AgentModels>> {
     let request = ListAgentModels {
         machine_id: machine_id.clone(),
         agent: agent.clone(),
@@ -631,7 +571,7 @@ pub async fn agent_models(
     let machine = fleet.machine(&machine_id)?;
 
     match direct::models(&fleet, machine, &request).await {
-        Ok(list) => Ok(Some(list.into())),
+        Ok(list) => Ok(Some(list)),
         Err(e) => {
             log::warn!("model lookup failed: machine={machine_id} harness={agent}: {e:#}");
             Err(e)
