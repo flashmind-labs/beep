@@ -164,3 +164,59 @@ fn the_exclude_block_is_replaced_and_lines_outside_it_stay() {
     assert_eq!(with_block(&more, &[]), "one\ntwo\nthree\n");
     assert_eq!(with_block("one", &[]), "one");
 }
+
+#[test]
+fn a_root_skill_can_be_picked_for_a_project_on_either_node() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("Example-Skill.git");
+    let reader = temp.path().join("reader");
+    let peer = temp.path().join("peer");
+    put(&repo, "", "Reads examples.", "Body");
+    fs::create_dir(repo.join("references")).unwrap();
+    fs::write(repo.join("references/guide.md"), "Guide").unwrap();
+    run_git(&repo, &["init", "--quiet"]);
+    run_git(&repo, &["add", "."]);
+    run_git(&repo, &["commit", "--quiet", "-m", "Add skill"]);
+
+    let url = repo.to_str().unwrap();
+    let (revision, skills) = store::inspect_git(&reader, url).unwrap();
+    assert_eq!(skills.len(), 1);
+    let name = &skills[0].name;
+    assert_eq!(name, "example-skill");
+    assert_eq!(skills[0].description, "Reads examples.");
+
+    let files = store::skill_at(&reader, url, &revision, name).unwrap().unwrap();
+    let copy = store::copy_root(&peer, url, &revision).unwrap();
+    write(&copy.join(name), &files).unwrap();
+    let clone = store::ensure_git(&reader, url, &revision).unwrap();
+
+    for (node, source) in [(reader, clone), (peer, copy)] {
+        let checkout = Checkout {
+            place: Place::Project(PROJECT.into()),
+            folder: node.join("project"),
+            keep_out_of_git: false,
+        };
+        fs::create_dir_all(&checkout.folder).unwrap();
+        let ready = Ready {
+            name: name.clone(),
+            library: SkillLibrary {
+                url: url.into(),
+                revision: revision.clone(),
+                skills: skills.clone(),
+                ..library(Pick::None, names(&[name]))
+            },
+            store: Some(source),
+        };
+        let checkouts = std::slice::from_ref(&checkout);
+        let mut record = Record::load(&node).unwrap();
+        let problems = apply(&mut record, wants(&[ready], &[], checkouts), checkouts);
+        assert!(problems.is_empty(), "{problems:?}");
+
+        for folder in PROJECT_FOLDERS {
+            let installed = checkout.folder.join(folder).join(name);
+            assert_eq!(read(&installed), read(&repo));
+            assert_eq!(fs::read_to_string(installed.join("references/guide.md")).unwrap(), "Guide");
+            assert!(!installed.join(".git").exists());
+        }
+    }
+}

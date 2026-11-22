@@ -138,7 +138,7 @@ pub(super) fn wants(ready: &[Ready], global: &[PathBuf], checkouts: &[Checkout])
 
     for lib in ready {
         let skills: Vec<(String, Option<PathBuf>)> = match &lib.store {
-            Some(root) => store::skills_in(root)
+            Some(root) => store::skills_in(root, &lib.library.url)
                 .into_iter()
                 .map(|(name, dir)| (name, Some(dir)))
                 .collect(),

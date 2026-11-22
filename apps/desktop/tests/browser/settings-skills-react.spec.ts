@@ -5,6 +5,7 @@ const skills = [{ name: "crawl", description: "Crawl a site" }, { name: "map", d
 const libraries = [
   { name: "firecrawl", url: "https://git.example.com/tools/firecrawl-skills.git", revision: "a3f91c2d00", skills, global: "None", projects: { [projectName]: { Only: ["map"] } }, chats: {} },
   { name: "writing", url: "https://git.example.com/team/writing-skills", revision: "77de0b4aa1", skills: [{ name: "release-notes", description: "Write release notes" }], global: "All", projects: {}, chats: {} },
+  { name: "notes", url: "https://example.com/notes.git", revision: "abcdef0", skills: [{ name: "notes", description: "Take notes" }], global: "None", projects: {}, chats: {} },
 ];
 const responses = {
   settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
@@ -64,10 +65,13 @@ test("a project's Skills sheet saves its picks", async ({ page }) => {
   await expect(sheet).toContainText("1 of 3 skills");
   await expect(sheet.getByRole("checkbox", { name: "writing" })).toBeDisabled();
   await expect(sheet.getByRole("checkbox", { name: "firecrawl" })).toHaveJSProperty("indeterminate", true);
+  const notes = sheet.getByRole("checkbox", { name: "notes", exact: true });
+  await notes.check();
+  await expect(notes).toBeChecked();
   await sheet.getByRole("button", { name: "Choose skills" }).click();
   await sheet.getByRole("checkbox", { name: "scrape" }).check();
   await sheet.getByRole("checkbox", { name: "Keep out of Git" }).uncheck();
   await sheet.getByRole("button", { name: "Save" }).click();
   await expect(sheet).toHaveCount(0);
-  expect(await calls(page, "project_skills_set")).toEqual([{ project: projectName, picks: { firecrawl: { Only: ["map", "scrape"] }, writing: "None" }, keepOutOfGit: false }]);
+  expect(await calls(page, "project_skills_set")).toEqual([{ project: projectName, picks: { firecrawl: { Only: ["map", "scrape"] }, notes: "All", writing: "None" }, keepOutOfGit: false }]);
 });

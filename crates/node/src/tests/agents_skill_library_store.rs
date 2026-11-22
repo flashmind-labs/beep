@@ -46,13 +46,13 @@ fn skills_are_folders_with_a_skill_md_outside_hidden_folders_and_other_skills() 
         ".claude/skills/SKILL.md",
         ".claude/skills/.hidden/SKILL.md",
     ];
-    let found = skill_dirs(paths.iter().map(|p| p.to_string()));
+    let found = skill_dirs(paths.into_iter(), "bundle.git");
     assert_eq!(
         found.into_iter().collect::<Vec<_>>(),
         [
-            ("blend".to_owned(), ".claude/skills/blend".to_owned()),
-            ("docx".to_owned(), "group/docx".to_owned()),
-            ("pdf".to_owned(), "pdf".to_owned()),
+            ("blend".to_owned(), ".claude/skills/blend/".to_owned()),
+            ("docx".to_owned(), "group/docx/".to_owned()),
+            ("pdf".to_owned(), "pdf/".to_owned()),
         ]
     );
 }
@@ -100,7 +100,7 @@ fn a_git_library_is_inspected_and_checked_out_at_a_revision() {
     let text = fs::read_to_string(root.join("skills/pdf/SKILL.md")).unwrap();
     assert!(text.contains("Reads PDFs."), "{text}");
     assert_eq!(
-        skills_in(&root).into_keys().collect::<Vec<_>>(),
+        skills_in(&root, url).into_keys().collect::<Vec<_>>(),
         ["blend", "notes", "pdf"]
     );
 
@@ -141,7 +141,7 @@ fn a_node_without_the_clone_installs_from_a_copy_another_node_serves() {
     prune_copies(&other, url, &revision);
 
     assert!(!old.exists());
-    assert_eq!(skills_in(&root).into_keys().collect::<Vec<_>>(), ["pdf"]);
+    assert_eq!(skills_in(&root, url).into_keys().collect::<Vec<_>>(), ["pdf"]);
     assert_eq!(skill_at(&other, url, &revision, "pdf").unwrap().unwrap(), files);
     assert!(copy_root(&other, url, "../x").is_err());
 }
