@@ -306,11 +306,12 @@ function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Parti
   focusTab(t.id);
 }
 
-/// Folds dock `d` or shows it, as the user asked. On a window too narrow for the right pane
-/// beside the conversation, that is also the choice it goes back to once the window is wide.
+/// Folds dock `d` or shows it, as the user asked. A right pane shown on a window too narrow for
+/// it beside the conversation stays shown once the window is wide, as when an assistant chat's
+/// list steps aside for it; one hidden there leaves the wide layout's choice as it was.
 export function setFolded(d: Dock, folded: boolean) {
   P.layout.hidden[d] = folded;
-  if (d === "right" && P.wideFolded !== null) P.wideFolded = folded;
+  if (d === "right" && !folded && P.wideFolded !== null) P.wideFolded = false;
 }
 
 /// Shows tab `id`, unfolding its dock, and gives the pane the keys.
