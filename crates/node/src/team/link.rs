@@ -16,7 +16,7 @@ use beep_mesh::TeamTicket;
 use beep_projects::commands::OpenIssue;
 use beep_proto::{
     node::{LinkRx, LinkTx, link, tools::TeamInviteArgs},
-    team::{ALPN, ForgeLogin, Member, TeamMsg, TeamRecord, TeamRepo},
+    team::{ALPN, ForgeLogin, Member, Removed, TeamMsg, TeamRecord, TeamRepo},
 };
 use futures::future::BoxFuture;
 use iroh::{
@@ -439,21 +439,22 @@ impl TeamLink {
     }
 }
 
-/// Whether `member` still owes `msg`, a removal: they are on its team here,
-/// and its login is removed here and held by no member. A readmission ends
-/// it, so that it never takes off the member let back in.
+/// Whether `member` still owes `msg`, a removal: they are on its team here
+/// or are the one it removed, and its login is removed here and held by no
+/// member. A readmission ends it, so that it never takes off the member let
+/// back in.
 fn owes(teams: &Teams, member: &Member, msg: &TeamMsg) -> bool {
     let TeamMsg::Remove { repo, login } = msg else {
         return false;
     };
 
     teams.rosters.get(repo).is_some_and(|record| {
-        let mut members = record.members.iter();
-        let mut removed = record.removed.iter();
+        let removed = |gone: &Removed| gone.login == *login;
+        let on = record.members.iter().any(|on| on.mesh == member.mesh);
+        let them = record.removed.iter().any(|gone| removed(gone) && gone.mesh == member.mesh);
+        let back = record.members.iter().any(|on| on.login == *login);
 
-        record.members.iter().any(|on| on.mesh == member.mesh)
-            && removed.any(|gone| gone.login == *login)
-            && !members.any(|on| on.login == *login)
+        (on || them) && record.removed.iter().any(removed) && !back
     })
 }
 

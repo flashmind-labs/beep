@@ -1058,3 +1058,26 @@ fn a_readmission_ends_a_removal_still_owed() {
     teams.rosters.refresh([(repo(), team)].into());
     assert!(!owes(&teams, &bob, &remove));
 }
+
+/// The removed member still owes their own removal: one offline at the first
+/// send would otherwise keep the team.
+#[test]
+fn the_removed_member_owes_their_removal() {
+    let (bob, carol) = (
+        member("bob", mesh_id(), mesh_id()),
+        member("carol", mesh_id(), mesh_id()),
+    );
+    let mut team = TeamRecord::new(repo(), vec![bob, carol.clone()]);
+    team.remove(&carol.login);
+    let mut teams = Teams::default();
+    teams.rosters.refresh([(repo(), team.clone())].into());
+    let remove = TeamMsg::Remove {
+        repo: repo(),
+        login: carol.login.clone(),
+    };
+    assert!(owes(&teams, &carol, &remove));
+
+    team.members.push(carol.clone());
+    teams.rosters.refresh([(repo(), team)].into());
+    assert!(!owes(&teams, &carol, &remove));
+}
