@@ -166,7 +166,8 @@ impl Gateway {
         let held = &self.held;
         self.titles.retain(|repo, _| held.contains(repo));
         self.membership.keep(held);
-        self.pickups.keep(held);
+        let queues = self.link.with(|link| std::mem::take(&mut link.queues));
+        self.pickups.keep(held, queues);
         self.link.with(|link| {
             link.gateways = gateways;
             link.boards.keep(held);
@@ -223,13 +224,17 @@ impl Gateway {
                 .map(|record| record.pickup_limit)
         };
         let mut picking = BTreeMap::new();
+        let mut on = BTreeSet::new();
 
         for team in teams {
             match pickup(team) {
-                Some(limit) if self.titles_due(&team.repo) => {
-                    picking.insert(&team.repo, limit);
+                Some(limit) => {
+                    on.insert(&team.repo);
+
+                    if self.titles_due(&team.repo) {
+                        picking.insert(&team.repo, limit);
+                    }
                 }
-                Some(_) => {}
                 None => self.pickups.off(&team.repo),
             }
         }
@@ -292,6 +297,9 @@ impl Gateway {
                 self.pickups.round(round, *limit).await;
             }
 
+            let others = starters(&projects[&team.repo], &online(&self.mesh));
+            let on = on.contains(&team.repo);
+            self.pickups.hand(&self.mesh, &team.repo, on, others);
             fresh.extend(self.pickups.queued(&team.repo));
             self.link.with(|link| {
                 let old = link.boards.cards(&team.repo).unwrap_or_default();

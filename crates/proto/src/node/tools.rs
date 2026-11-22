@@ -269,6 +269,10 @@ pub enum TeamAppArgs {
     Invites,
     /// Drops a contact's invite this device keeps.
     DropInvite { invite: TeamInviteArgs },
+    /// The assigned `issues` the gateway's pickup holds back for room, sent
+    /// to the other machines with `repo`'s checkout, which keep them: the
+    /// one that takes over starts them rather than take them for backlog.
+    Queued { repo: TeamRepo, issues: Vec<u64> },
 }
 
 /// `Tool::TeamApp` as it goes: the call, and whether a node sent it on to

@@ -86,7 +86,7 @@ async fn app(link: &TeamLink, mesh: Option<&Mesh>, request: &Request) -> Reply {
         | TeamAppArgs::Remove { repo, .. }
         | TeamAppArgs::Leave { repo }
         | TeamAppArgs::Invite { via: repo, .. } => repo,
-        TeamAppArgs::Invites | TeamAppArgs::DropInvite { .. } => {
+        TeamAppArgs::Invites | TeamAppArgs::DropInvite { .. } | TeamAppArgs::Queued { .. } => {
             return reply(here(link, args).await);
         }
     };
@@ -202,6 +202,10 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
         TeamAppArgs::DropInvite { invite } => {
             link.with(|teams| teams.invites.remove(&invite));
             Ok("Dropped the invite.".to_owned())
+        }
+        TeamAppArgs::Queued { repo, issues } => {
+            link.with(|teams| teams.queues.insert(repo, issues));
+            Ok("Kept the queue.".to_owned())
         }
     }
 }

@@ -342,7 +342,7 @@ fn a_team_acted_for_again_leaves_its_assigned_issues_alone() {
     pickups.states.insert(repo.clone(), state);
 
     // Another machine acts for the team and starts #42.
-    pickups.keep(&BTreeSet::new());
+    pickups.keep(&BTreeSet::new(), BTreeMap::new());
     assert!(pickups.states.is_empty());
 
     let mut state = pickups.take(&repo);
@@ -350,6 +350,39 @@ fn a_team_acted_for_again_leaves_its_assigned_issues_alone() {
     assert_eq!(plan(&mut state, &[1, 42], &[], None), Plan::default());
     assert_eq!(state.seen_at_enable, set(&[1, 42]));
     assert_eq!(plan(&mut state, &[1, 42, 43], &[], None).start, [43]);
+}
+
+#[test]
+fn issues_waiting_for_room_go_on_waiting_on_the_gateway_that_takes_over() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo: TeamRepo = "github.com/org/repo".parse().unwrap();
+    let mut pickups = Pickups::new(dir.path().to_owned());
+    let mut old = pickup(&[5], &[1]);
+    old.on = true;
+    old.queued = set(&[6]);
+    pickups.save(&repo, &old);
+    pickups.states.insert(repo.clone(), old);
+
+    // Another machine acts for the team: the queue stays on disk.
+    pickups.keep(&BTreeSet::new(), BTreeMap::new());
+    assert_eq!(pickups.take(&repo).queued, set(&[6]));
+
+    // The gateway of the team hands this machine its queue.
+    let handed = BTreeMap::from([(repo.clone(), vec![6, 7])]);
+    pickups.keep(&BTreeSet::new(), handed);
+    let mut state = pickups.take(&repo);
+    assert_eq!(state.queued, set(&[6, 7]));
+
+    // Taking the team over, it starts them, and leaves #1 as the backlog.
+    assert_eq!(plan(&mut state, &[1, 6, 7], &[], None).start, [6, 7]);
+    assert_eq!(state.seen_at_enable, set(&[1]));
+
+    // A machine acting for the team keeps its own queue.
+    pickups.states.insert(repo.clone(), state);
+    let handed = BTreeMap::from([(repo.clone(), vec![9])]);
+    pickups.keep(&BTreeSet::from([repo.clone()]), handed);
+    let saved: Pickup = note::read(&pickups.file(&repo));
+    assert_eq!(saved.queued, set(&[6, 7]));
 }
 
 #[test]

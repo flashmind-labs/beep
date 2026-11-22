@@ -133,6 +133,8 @@ pub(crate) struct Teams {
     pub(crate) teammates: BTreeMap<TeamRepo, Teammates>,
     /// The asks this device's sessions sent, and those it keeps as gateway.
     pub(crate) asks: Asks,
+    /// The pickup queues the gateways handed this device, for it to keep.
+    pub(crate) queues: BTreeMap<TeamRepo, Vec<u64>>,
 }
 
 /// The team link of this device, shared by its handler, its dialing and the

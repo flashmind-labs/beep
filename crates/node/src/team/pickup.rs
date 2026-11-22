@@ -19,7 +19,7 @@ use beep_mesh::Mesh;
 use beep_projects::commands::OpenIssue;
 use beep_proto::{
     SessionId,
-    node::tools::{Approved, Reply, Request, Tool},
+    node::tools::{Approved, Reply, Request, TeamAppArgs, TeamAppCall, Tool},
     team::{Card, Lane, TeamRepo},
 };
 use futures::future::join_all;
@@ -43,6 +43,8 @@ const BRANCH_SLUG: usize = 30;
 const ATTEMPTS: u32 = 3;
 /// How long a session gets to start and be named by its agent.
 const START_LIMIT: Duration = Duration::from_secs(120);
+/// How long handing a queue to a machine may take.
+const HAND_LIMIT: Duration = Duration::from_secs(30);
 
 /// What pickup remembers of a team, kept on disk.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,7 +67,9 @@ pub(crate) struct Pickup {
     /// `ATTEMPTS`.
     pub(crate) failed: BTreeMap<u64, u32>,
     /// The issues the limit held back in the last round: they wait for room
-    /// across a restart, not taken for the backlog.
+    /// across a restart, not taken for the backlog. A machine that does not
+    /// act for the team keeps here what its gateway handed it, for a
+    /// handover.
     pub(crate) queued: BTreeSet<u64>,
 }
 
@@ -210,6 +214,9 @@ pub(super) struct Pickups {
     states: BTreeMap<TeamRepo, Pickup>,
     /// Each team's Queued cards, for its board.
     queued: BTreeMap<TeamRepo, Vec<Card>>,
+    /// The queue last handed to the other machines with each team's
+    /// checkout, and those machines.
+    handed: BTreeMap<TeamRepo, (BTreeSet<u64>, BTreeSet<EndpointId>)>,
 }
 
 /// What one pickup round of a team works from.
@@ -240,6 +247,7 @@ impl Pickups {
             dir: dir.join("team-pickup"),
             states: BTreeMap::new(),
             queued: BTreeMap::new(),
+            handed: BTreeMap::new(),
         }
     }
 
@@ -262,18 +270,76 @@ impl Pickups {
         }
     }
 
-    /// Notes pickup off for each team this machine no longer acts for.
-    pub(super) fn keep(&mut self, held: &BTreeSet<TeamRepo>) {
-        let gone: Vec<TeamRepo> = self
-            .states
-            .keys()
-            .filter(|repo| !held.contains(*repo))
-            .cloned()
-            .collect();
+    /// Forgets the teams this machine no longer acts for, but for what it
+    /// saved of them, and saves the queues `handed` by the gateways of the
+    /// others: the queue goes on with the team when another machine takes it.
+    pub(super) fn keep(&mut self, held: &BTreeSet<TeamRepo>, handed: BTreeMap<TeamRepo, Vec<u64>>) {
+        self.states.retain(|repo, _| held.contains(repo));
+        self.queued.retain(|repo, _| held.contains(repo));
+        self.handed.retain(|repo, _| held.contains(repo));
 
-        for repo in gone {
-            self.off(&repo);
+        for (repo, issues) in handed {
+            let mut state: Pickup = note::read(&self.file(&repo));
+            let queued: BTreeSet<u64> = issues.into_iter().collect();
+
+            if !held.contains(&repo) && state.queued != queued {
+                state.queued = queued;
+                self.save(&repo, &state);
+            }
         }
+    }
+
+    /// Hands `repo`'s queue to `machines`, the other online ones with its
+    /// checkout, when it or they changed since it was last handed: none
+    /// while pickup is not `on`, and nothing before the first round.
+    pub(super) fn hand(
+        &mut self,
+        mesh: &Mesh,
+        repo: &TeamRepo,
+        on: bool,
+        machines: BTreeSet<EndpointId>,
+    ) {
+        let queue = match (on, self.states.get(repo)) {
+            (false, _) => BTreeSet::new(),
+            (true, Some(state)) => state.queued.clone(),
+            (true, None) => return,
+        };
+        let handed = (queue, machines);
+
+        if self.handed.get(repo) == Some(&handed) {
+            return;
+        }
+
+        let call = TeamAppCall {
+            args: TeamAppArgs::Queued {
+                repo: repo.clone(),
+                issues: handed.0.iter().copied().collect(),
+            },
+            forwarded: false,
+        };
+        let args = match serde_json::to_string(&call) {
+            Ok(args) => args,
+            Err(e) => return log::warn!("the pickup queue of {repo} was not handed: {e}"),
+        };
+        let request = Request {
+            session: SessionId::default(),
+            tool: Tool::TeamApp,
+            args,
+            approved: Approved::No,
+        };
+        let (mesh, to, of) = (mesh.clone(), handed.1.clone(), repo.clone());
+        tokio::spawn(async move {
+            let sends = to
+                .iter()
+                .map(|machine| timeout(HAND_LIMIT, over_the_mesh(&mesh, *machine, &request)));
+
+            for (machine, sent) in to.iter().zip(join_all(sends).await) {
+                if !matches!(sent, Ok(Ok(Reply::Done { failed: false, .. }))) {
+                    log::info!("the pickup queue of {of} did not reach {}", machine.fmt_short());
+                }
+            }
+        });
+        self.handed.insert(repo.clone(), handed);
     }
 
     /// Starts sessions on the issues newly assigned to this mesh's person,
