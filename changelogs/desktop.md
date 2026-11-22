@@ -7,6 +7,12 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.14] - 2026-11-22
+
+### Changed
+
+- Desktop: The agent chat scroll-to-bottom button is larger, easier to see, and clearly labeled.
+
 ## [0.10.13] - 2026-11-22
 
 ### Added

@@ -2,6 +2,15 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.11] - 2026-11-22
+
+### Changed
+
+- Node: assistant chats now hand off work only as threads the user can
+  see and open. The coding agent's own hidden subagent tools are
+  switched off in those chats for Claude Code, Codex and OpenCode, and
+  for flsh once it supports it.
+
 ## [0.8.10] - 2026-11-22
 
 ### Added
