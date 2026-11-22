@@ -43,7 +43,7 @@ beep-projects = { path = "crates/projects" }
 beep-proto = { path = "crates/proto" }
 beep-report = { path = "crates/report" }
 
-agent-client-protocol = "5.2"
+agent-client-protocol = "5.5"
 ammonia = "4"
 anyhow = "1"
 arboard = "3.7"
@@ -75,8 +75,8 @@ hyper-util = "0.1"
 ignore = "0.4"
 image = { version = "0.25", default-features = false }
 # Lean for the phone; a node turns on the defaults.
-iroh = { version = "1.4.1", default-features = false, features = ["tls-ring", "fast-apple-datapath", "metrics", "unstable-net-report"] }
-iroh-base = { version = "1.4.1", default-features = false }
+iroh = { version = "1.5.0", default-features = false, features = ["tls-ring", "fast-apple-datapath", "metrics", "unstable-net-report"] }
+iroh-base = { version = "1.5.0", default-features = false }
 iroh-blobs = { version = "0.105", default-features = false, features = ["fs-store"] }
 iroh-metrics = "1"
 iroh-tickets = "1"
@@ -205,10 +205,3 @@ opt-level = 3
 
 [profile.dev.package.zlib-rs]
 opt-level = 3
-
-# iOS build fixes not released yet. Drop each once iroh pulls a release with it:
-# netdev 0.47.0 (macOS-only IPv6 flag code) and netwatch with n0-computer/net-tools#267
-# (route constants libc 0.2.190 removed on iOS).
-[patch.crates-io]
-netdev = { path = "patches/netdev" }
-netwatch = { path = "patches/netwatch" }

@@ -192,7 +192,7 @@ impl Live {
                         .as_opt_ref()
                         .flatten()
                         .map(|cost| (cost.amount, cost.currency.as_str())),
-                    update.meta.as_ref(),
+                    update.meta.as_opt_ref().flatten(),
                 );
             }
             v2::SessionUpdate::AvailableCommandsUpdate(update) => {
