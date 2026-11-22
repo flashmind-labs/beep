@@ -21,7 +21,7 @@ use anyhow::{Context, Result, bail};
 use beep_proto::node::{agent::MovePhase, link, mesh_state::SessionMove};
 use std::{
     path::{Component, Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{task::spawn_blocking, time::sleep};
 
@@ -30,6 +30,8 @@ const FIRST_WAIT: Duration = Duration::from_secs(1);
 const LAST_WAIT: Duration = Duration::from_secs(10);
 /// How often the checkouts are compared while they differ.
 const CHECKOUT_LOOK: Duration = Duration::from_secs(2);
+/// The longest a chat's files go untold while they come in.
+const TELL_EVERY: Duration = Duration::from_millis(250);
 
 /// The conversation is all here, and the name the source keeps the
 /// transcript under.
@@ -507,7 +509,14 @@ async fn chat_files(
         let connection = dial(env, record.from).await?;
         let (send, recv) = connection.open_bi().await?;
         let (tx, rx) = link(send, recv);
-        let came = |held| show(tracker, |progress| progress.files_copied = held);
+        // Chunks come hundreds a second: each percent, or a quarter second, is told.
+        let (step, mut told) = ((checkout.files / 100).max(1), (Instant::now(), 0));
+        let came = |held: u64| {
+            if held.saturating_sub(told.1) >= step || told.0.elapsed() >= TELL_EVERY {
+                told = (Instant::now(), held);
+                show(tracker, |progress| progress.files_copied = held);
+            }
+        };
         let brought = read::files(tx, rx, &record.id, &archive, came).await;
         connection.close(0u32.into(), b"done");
         brought.map(|()| checkout.session)

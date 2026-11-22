@@ -123,7 +123,7 @@ impl Desk {
                 .await?;
         }
 
-        self.carry_titles(&records).await?;
+        self.carry_titles(&records).await;
         Ok(records)
     }
 
@@ -177,13 +177,14 @@ impl Desk {
                 Some(record.to_bytes().map_err(anyhow::Error::from)?),
             )
             .await?;
-        self.carry_titles(std::slice::from_ref(&record)).await?;
+        self.carry_titles(std::slice::from_ref(&record)).await;
         Ok(record)
     }
 
     /// Gives each moving session the title the user gave it on its machine,
-    /// which is kept by machine, on the machine it moves to.
-    async fn carry_titles(&self, records: &[SessionMove]) -> Result<()> {
+    /// which is kept by machine, on the machine it moves to. The move has
+    /// started already: a title that does not carry is only logged.
+    async fn carry_titles(&self, records: &[SessionMove]) {
         for record in records {
             let (from, to, agent) = (
                 record.from.to_string(),
@@ -191,12 +192,16 @@ impl Desk {
                 record.agent.to_string(),
             );
 
-            if let Some(title) = session_titles::get(&self.mesh, &from, &agent, &record.id) {
-                session_titles::save(&self.mesh, &to, &agent, &record.id, &title).await?;
+            if let Some(title) = session_titles::get(&self.mesh, &from, &agent, &record.id)
+                && let Err(e) =
+                    session_titles::save(&self.mesh, &to, &agent, &record.id, &title).await
+            {
+                log::warn!(
+                    "carrying the title of {} to its new machine: {e}",
+                    record.id
+                );
             }
         }
-
-        Ok(())
     }
 
     /// The folder `project` has on `machine`: from its `sync/<name>` record
