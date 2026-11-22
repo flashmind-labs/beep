@@ -152,6 +152,39 @@ async fn a_forwarded_call_is_refused_off_the_gateway() {
     }
 }
 
+/// Only the node this machine elects for the team, or a desktop, starts
+/// sessions on its issues here.
+#[tokio::test]
+async fn pickup_is_taken_only_from_the_gateway() {
+    let link = link().await;
+    let dir = tempfile::tempdir().expect("a folder");
+    let offers = crate::link::Offers::local(&[], crate::machine::provision::Provision::new(dir.path()));
+    let gateway = SecretKey::generate().public();
+    link.with(|teams| teams.gateways.insert(repo(), gateway));
+    let order = serde_json::json!({
+        "repo": serde_json::to_value(repo()).expect("a repo"),
+        "number": 52,
+        "title": "Fix it",
+        "url": "https://github.com/org/repo/issues/52",
+    });
+    let pickup = |table| {
+        let caller = Caller {
+            agents: Some(offers.agents.clone()),
+            ..caller(&link, table, true)
+        };
+        crate::link::peer_tools::answer(request(Tool::TeamPickup, order.clone()), caller)
+    };
+
+    let (text, failed) = done(pickup(Table::Peer(SecretKey::generate().public())).await);
+    assert!(failed && text.contains("does not act for the team"), "{text}");
+
+    // Past the gate: this test machine is in no mesh.
+    for table in [Table::Peer(gateway), Table::Shared] {
+        let (text, failed) = done(pickup(table).await);
+        assert!(failed && text == "This machine is in no mesh.", "{text}");
+    }
+}
+
 #[tokio::test]
 async fn rosters_and_invites_are_taken_only_on_a_desktop() {
     let link = link().await;

@@ -125,7 +125,13 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
         Tool::Team | Tool::TeamAsk | Tool::TeamDeliver | Tool::TeamPickup
     ) {
         return match (&caller.team, &caller.agents) {
-            (Some(team), Some(agents)) => answer_team(team, agents, &request).await,
+            (Some(team), Some(agents)) => {
+                let from = match caller.table {
+                    Table::Peer(peer) => Some(peer),
+                    Table::Shared => None,
+                };
+                answer_team(team, agents, from, &request).await
+            }
             _ => Reply::Done {
                 text: "This machine does not act for a team.".to_owned(),
                 failed: true,

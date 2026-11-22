@@ -33,6 +33,7 @@ use beep_proto::{
     team::{AgentRef, Card, Target, TeamRepo},
 };
 use futures::future::BoxFuture;
+use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::{Duration, Instant};
@@ -126,7 +127,9 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
     }
 
     let reply = match link.with(|teams| teams.gateways.get(&repo).copied()) {
-        Some(gateway) if gateway == mesh.me() => answer(&link, &offers.agents, &request).await,
+        Some(gateway) if gateway == mesh.me() => {
+            answer(&link, &offers.agents, None, &request).await
+        }
         Some(gateway) => over_the_mesh(&mesh, gateway, &request)
             .await
             .unwrap_or_else(|e| {
@@ -217,8 +220,14 @@ fn outgoing(
 
 /// The answer of the machine that acts for the team to `team` and
 /// `team_ask`, of a session's machine to `TeamDeliver`, and of a machine
-/// with the project to `TeamPickup`.
-pub(crate) async fn answer(link: &TeamLink, agents: &Agents, request: &Request) -> Reply {
+/// with the project to `TeamPickup`. `from` is the node of the mesh that
+/// called, or `None` for this machine and the mesh's desktops.
+pub(crate) async fn answer(
+    link: &TeamLink,
+    agents: &Agents,
+    from: Option<EndpointId>,
+    request: &Request,
+) -> Reply {
     match request.tool {
         Tool::Team => match parse::<TeamArgs>(&request.args) {
             Ok(TeamArgs { repo }) => team(link, &repo).await,
@@ -239,14 +248,23 @@ pub(crate) async fn answer(link: &TeamLink, agents: &Agents, request: &Request) 
                 Err(e) => fail(e),
             }
         }
-        Tool::TeamPickup => match (parse::<PickupStart>(&request.args), agents.mesh()) {
-            (Ok(order), Some(mesh)) => match start_issue(agents, &mesh, &order).await {
+        Tool::TeamPickup => {
+            let order = match parse::<PickupStart>(&request.args) {
+                Ok(order) => order,
+                Err(e) => return fail(e),
+            };
+            if let Err(e) = acts_for(link, &order.repo, from) {
+                return fail(e);
+            }
+            let Some(mesh) = agents.mesh() else {
+                return fail("This machine is in no mesh.");
+            };
+
+            match start_issue(agents, &mesh, &order).await {
                 Ok(auto) => json_of(&auto),
                 Err(e) => fail(e),
-            },
-            (Err(e), _) => fail(e),
-            (_, None) => fail("This machine is in no mesh."),
-        },
+            }
+        }
         Tool::TeamDeliver => match parse::<Handed>(&request.args) {
             Ok(Handed {
                 card,
@@ -259,6 +277,22 @@ pub(crate) async fn answer(link: &TeamLink, agents: &Agents, request: &Request) 
             Err(e) => fail(e),
         },
         other => fail(format!("{other} is not a team tool.")),
+    }
+}
+
+/// Whether `from` may act for `repo`'s team here: the machine this machine
+/// elects as the team's gateway, or this machine or a desktop (`None`).
+fn acts_for(link: &TeamLink, repo: &TeamRepo, from: Option<EndpointId>) -> Result<(), String> {
+    let Some(from) = from else {
+        return Ok(());
+    };
+
+    match link.with(|teams| teams.gateways.get(repo).copied()) {
+        Some(gateway) if gateway == from => Ok(()),
+        _ => Err(format!(
+            "{} does not act for the team of {repo} here.",
+            from.fmt_short()
+        )),
     }
 }
 
