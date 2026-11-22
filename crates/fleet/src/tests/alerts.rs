@@ -331,6 +331,32 @@ async fn a_machines_question_arrives_with_its_options() {
 }
 
 #[tokio::test]
+async fn a_notice_carries_the_title_the_user_gave_its_session() {
+    let (desktop, node) = two(Arc::new(Notify::new())).await;
+    session_titles::save(
+        &desktop.mesh,
+        &node.id.to_string(),
+        "claude",
+        &"s1".into(),
+        "Renamed",
+    )
+    .await
+    .expect("the title is saved");
+    let (following, mut heard) = follow(Arc::new(Test(desktop.mesh.clone())), desktop.mesh.clone());
+    let _following = tokio::spawn(following);
+    let notice = timeout(LIMIT, async {
+        loop {
+            if let Heard::Notice { notice, .. } = heard.recv().await.expect("the feed follows") {
+                return notice;
+            }
+        }
+    })
+    .await
+    .expect("a notice came in time");
+    assert_eq!(notice.title, "Renamed");
+}
+
+#[tokio::test]
 async fn machine_leaving_stops_its_stream() {
     let closed = Arc::new(Notify::new());
     let (desktop, node) = two(closed.clone()).await;

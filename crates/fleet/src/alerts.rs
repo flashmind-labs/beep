@@ -8,6 +8,7 @@ use crate::{
     left_folder::{normal, within},
     peer::Peers,
     records::projects,
+    session_titles,
 };
 use beep_mesh::{Mesh, MeshError, PeerClient, RETRY};
 use beep_proto::watched;
@@ -319,8 +320,14 @@ async fn stream(
         };
         *replied = true;
         let heard = match reply {
-            SessionsReply::Alert { alert } => {
+            SessionsReply::Alert { mut alert } => {
                 let key = alert.key(&id.to_string(), &name_of(mesh, id));
+                // The title the user gave the session, over the one its agent keeps.
+                if let Some(title) =
+                    session_titles::get(mesh, &key.machine_id, &key.agent, &key.session)
+                {
+                    alert.title = Some(title);
+                }
                 let project = project_at(mesh, id, &alert.cwd);
                 let notice = Notice {
                     title: alert.notice_title(project.as_deref()),
