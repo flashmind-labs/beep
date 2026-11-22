@@ -1,4 +1,5 @@
-//! Installs `gh`, `teacli` and `flsh` in the node's own `bin` folder:
+//! Installs `gh` and `teacli` in the node's own `bin` folder and `flsh` in
+//! the user's `~/.local/bin`, where its own installer puts it:
 //! `Pinned::install` and `install_newest` for machines that lack them,
 //! `install_release` for a release the server asks for.
 
@@ -363,6 +364,36 @@ impl Download {
             .with_context(|| format!("moving {} into place", self.name))?;
         Ok(target)
     }
+}
+
+/// Where flsh is installed, as its own installer puts it: `~/.local/bin`.
+pub(super) fn flsh_bin(home: &Path) -> PathBuf {
+    home.join(".local").join("bin")
+}
+
+/// Moves a flsh the node installed in its own `node_bin` to `own_bin`, or
+/// drops it when `own_bin` has one already, so only one flsh is found.
+pub(super) fn settle_flsh(node_bin: &Path, own_bin: &Path) -> io::Result<()> {
+    let name = format!("flsh{}", env::consts::EXE_SUFFIX);
+    let (old, own) = (node_bin.join(&name), own_bin.join(&name));
+
+    if !old.is_file() {
+        return Ok(());
+    }
+
+    if own.is_file() {
+        return fs::remove_file(&old);
+    }
+
+    fs::create_dir_all(own_bin)?;
+
+    // Another file system takes a copy.
+    if fs::rename(&old, &own).is_err() {
+        fs::copy(&old, &own)?;
+        fs::remove_file(&old)?;
+    }
+
+    Ok(())
 }
 
 /// The SHA-256 that `sums`, as `sha256sum` prints them, lists for `file`.

@@ -1,5 +1,5 @@
 //! Readies the machine for Beep's agents: `Provision` installs `gh`, `teacli`,
-//! `flsh` and Beep's skills, and `Provision::apply` hands the processes the
+//! `flsh` (in `~/.local/bin`) and Beep's skills, and `Provision::apply` hands the processes the
 //! node starts the user's credentials, kept in memory.
 
 mod setup;
@@ -78,6 +78,20 @@ impl Provision {
         self.dir.join("bin")
     }
 
+    /// Where flsh goes: the user's `~/.local/bin`, else the node's `bin`
+    /// when there is no home folder.
+    fn flsh_bin(&self) -> PathBuf {
+        dirs::home_dir().map_or_else(|| self.bin(), |home| tools::flsh_bin(&home))
+    }
+
+    /// The folder `tool` is installed in.
+    fn bin_of(&self, tool: Tool) -> PathBuf {
+        match tool {
+            Tool::Flsh => self.flsh_bin(),
+            Tool::Gh | Tool::Teacli => self.bin(),
+        }
+    }
+
     /// Removes the teacli config a node before this one left, then
     /// installs the skills, then each missing tool in turn, in the
     /// background. A failure is logged and the node goes on without it.
@@ -91,6 +105,13 @@ impl Provision {
             // Tokens wait for the mesh: a node that stopped while they
             // were revoked must not keep using them.
             provision.configure_teacli().await;
+            let (bin, flsh_bin) = (provision.bin(), provision.flsh_bin());
+
+            match spawn_blocking(move || tools::settle_flsh(&bin, &flsh_bin)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => log::warn!("flsh not moved out of the node's folder: {e}"),
+                Err(e) => log::warn!("moving flsh failed: {e}"),
+            }
             let dir = provision.dir.clone();
 
             match spawn_blocking(move || install_skills(&dir)).await {
@@ -201,7 +222,7 @@ impl Provision {
 
         if missing("flsh") && tools::flsh_target(env::consts::OS, env::consts::ARCH).is_some() {
             log::info!("installing flsh");
-            let result = tools::install_newest(Tool::Flsh, &self.bin()).await;
+            let result = tools::install_newest(Tool::Flsh, &self.flsh_bin()).await;
             installed |= installed_ok("flsh", result);
         }
 
@@ -267,7 +288,7 @@ impl Provision {
         {
             let _one = self.installing.lock().await;
             log::info!("installing {tool} {version}");
-            let path = tools::install_release(tool, version, &self.bin()).await?;
+            let path = tools::install_release(tool, version, &self.bin_of(tool)).await?;
             log::info!("installed {tool} {version} at {}", path.display());
         }
         if tool == Tool::Teacli {
@@ -343,18 +364,21 @@ impl Provision {
         spawn_env::set_path(path);
     }
 
-    /// The node's `bin`, then what the setup installed.
+    /// The node's `bin`, flsh's, then what the setup installed.
     fn tool_dirs(&self) -> Vec<PathBuf> {
-        std::iter::once(self.bin())
+        [self.bin(), self.flsh_bin()]
+            .into_iter()
             .chain(setup::path_dirs(&self.dir))
             .collect()
     }
 
-    /// The node's `bin` then the inherited `PATH`, without the shims: where
-    /// the real tools are.
+    /// The node's `bin`, flsh's, then the inherited `PATH`, without the
+    /// shims: where the real tools are.
     fn tool_path(&self) -> OsString {
         let inherited = env::var_os("PATH").unwrap_or_default();
-        let dirs = std::iter::once(self.bin()).chain(env::split_paths(&inherited));
+        let dirs = [self.bin(), self.flsh_bin()]
+            .into_iter()
+            .chain(env::split_paths(&inherited));
         env::join_paths(dirs).unwrap_or(inherited)
     }
 }

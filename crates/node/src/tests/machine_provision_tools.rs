@@ -172,3 +172,49 @@ async fn a_zip_unpacks_in_process() {
         b"MZ"
     );
 }
+
+#[test]
+fn flsh_lives_in_the_users_own_bin_folder() {
+    let home = Path::new("/home/someone");
+    assert_eq!(flsh_bin(home), home.join(".local").join("bin"));
+}
+
+#[test]
+fn a_flsh_in_the_nodes_folder_moves_to_the_users_own() {
+    let temp = tempfile::tempdir().unwrap();
+    let (node, own) = (temp.path().join("node/bin"), temp.path().join("home/.local/bin"));
+    let name = format!("flsh{}", env::consts::EXE_SUFFIX);
+    fs::create_dir_all(&node).unwrap();
+    fs::write(node.join(&name), b"old").unwrap();
+
+    settle_flsh(&node, &own).unwrap();
+
+    assert!(!node.join(&name).exists(), "the node's copy is gone");
+    assert_eq!(fs::read(own.join(&name)).unwrap(), b"old");
+}
+
+#[test]
+fn the_users_own_flsh_wins_over_the_nodes_copy() {
+    let temp = tempfile::tempdir().unwrap();
+    let (node, own) = (temp.path().join("node/bin"), temp.path().join("home/.local/bin"));
+    let name = format!("flsh{}", env::consts::EXE_SUFFIX);
+    fs::create_dir_all(&node).unwrap();
+    fs::create_dir_all(&own).unwrap();
+    fs::write(node.join(&name), b"old").unwrap();
+    fs::write(own.join(&name), b"new").unwrap();
+
+    settle_flsh(&node, &own).unwrap();
+
+    assert!(!node.join(&name).exists(), "the node's copy is gone");
+    assert_eq!(fs::read(own.join(&name)).unwrap(), b"new");
+}
+
+#[test]
+fn settling_with_no_flsh_anywhere_does_nothing() {
+    let temp = tempfile::tempdir().unwrap();
+    let (node, own) = (temp.path().join("node/bin"), temp.path().join("home/.local/bin"));
+
+    settle_flsh(&node, &own).unwrap();
+
+    assert!(!own.exists());
+}
