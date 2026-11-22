@@ -5,7 +5,7 @@ import type { SubagentRow } from "./subagents-view.tsx";
 import { chatAgentsCount } from "./chat-agents.tsx";
 import type { PaneTabItem } from "./tabs-view.tsx";
 import { hasPreview } from "./html-preview-state.ts";
-import { baseName, type Dock, DOCKS, moveTab } from "./media-state.ts";
+import { baseName, type Dock, DOCKS } from "./media-state.ts";
 import type { Artifact } from "./artifacts-state.ts";
 import { artifactCount, artifactsTab, setArtifacts } from "./artifacts.ts";
 import { changesTab } from "./changes.ts";
@@ -253,9 +253,11 @@ export function pickTab(d: Dock, id: string) {
 /// This dock's tabs go to the other, which shows the one on screen here.
 export function moveDock(d: Dock) {
   const to: Dock = d === "right" ? "bottom" : "right", on = P.on[d];
-  for (const id of docked()[d]) P.layout = moveTab(P.layout, id, to);
-  for (const id of P.moved.keys()) if (docked()[d].includes(id)) P.moved.set(id, to);
+  // Moving the whole pane also places tabs that only appear in other sessions.
   P.layout.dock = to;
+  P.layout.tabs = {};
+  P.moved.clear();
+  setFolded(to, false);
   P.on[to] = on;
   saveLayout();
   draw();

@@ -240,6 +240,23 @@ test("a chat shows what its threads do, and the Assistant link counts the chats 
   await expect(first).toContainText("1 thread working");
 });
 
+test("moving the assistant pane also moves Changes when opening a project session", async ({ page }) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("beep.mediaPane.window", JSON.stringify({
+    dock: "right", tabs: { changes: "right" },
+  })));
+  const project = { ...chat, id: "project-session", assistant: false, cwd: "/srv/project" };
+  await openChat(page, [chat, project]);
+  await expect(page.getByRole("tab", { name: "Changes", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Dock these tabs at the bottom" }).click();
+  await page.evaluate(row => {
+    window.__navigation.respond("agent_view", row.view);
+    window.__navigation.open({ agent: { kind: "agent", ...row.session } });
+  }, { session: project, view: view(project) });
+  await expect(page.locator("#agpane-bottom").getByRole("tab", { name: "Changes" })).toBeVisible();
+  await expect(page.locator("#agpane-right")).toBeHidden();
+});
+
 test("a chat's pane folded once opens beside the chat again", async ({ page }) => {
   const entry = (name: string, folder: boolean) => ({ name, folder, size: 1, ignored: false, change: null });
   await openDesktop(page, false, {
