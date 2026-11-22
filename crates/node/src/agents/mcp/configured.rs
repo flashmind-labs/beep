@@ -20,7 +20,7 @@ use std::{
 use tokio::task::spawn_blocking;
 use toml_edit::{DocumentMut, Item, Table};
 
-const HARNESSES: [Harness; 2] = [Harness::Codex, Harness::Claude];
+const HARNESSES: [Harness; 3] = [Harness::Codex, Harness::Claude, Harness::Agy];
 const MAX_CONFIG: u64 = 8 * 1024 * 1024;
 const MAX_SERVER: usize = 64 * 1024;
 static WRITING: Mutex<()> = Mutex::new(());
@@ -77,6 +77,10 @@ fn config_path(agents: &Agents, harness: Harness) -> Option<PathBuf> {
             .or_else(|| env::var_os("CLAUDE_CONFIG_DIR").filter(|dir| !dir.is_empty()).map(PathBuf::from))
             .or(home.clone())?
             .join(".claude.json"),
+        // Nothing but its home moves Antigravity's configuration.
+        Harness::Agy => override_dir("HOME")
+            .or(home.clone())?
+            .join(".gemini/config/mcp_config.json"),
     };
 
     if !path.is_absolute() {
@@ -139,16 +143,24 @@ fn change(path: &Path, harness: Harness, change: Change) -> Result<Reply> {
 
 enum Document {
     Codex(DocumentMut),
-    Claude(Map<String, Value>),
+    /// A JSON file with the servers under `mcpServers`, and the name of the
+    /// harness it belongs to.
+    Json(&'static str, Map<String, Value>),
 }
 
 impl Document {
     fn parse(harness: Harness, original: &str) -> Result<Self> {
         match harness {
             Harness::Codex => original.parse().map(Self::Codex).map_err(|_| anyhow::anyhow!("Codex's configuration is invalid TOML.")),
-            Harness::Claude if original.is_empty() => Ok(Self::Claude(Map::new())),
-            Harness::Claude => serde_json::from_str(original).map(Self::Claude)
-                .map_err(|_| anyhow::anyhow!("Claude Code's configuration is invalid JSON.")),
+            Harness::Claude | Harness::Agy => {
+                let label = if harness == Harness::Claude { "Claude Code" } else { "Antigravity" };
+                if original.is_empty() {
+                    return Ok(Self::Json(label, Map::new()));
+                }
+
+                serde_json::from_str(original).map(|doc| Self::Json(label, doc))
+                    .map_err(|_| anyhow::anyhow!("{label}'s configuration is invalid JSON."))
+            }
         }
     }
 
@@ -168,8 +180,8 @@ impl Document {
                     .iter().map(|(name, _)| name).collect(),
                 None => Vec::new(),
             }),
-            Self::Claude(doc) => Ok(match doc.get("mcpServers") {
-                Some(item) => item.as_object().context("Claude Code's mcpServers must be an object.")?
+            Self::Json(label, doc) => Ok(match doc.get("mcpServers") {
+                Some(item) => item.as_object().with_context(|| format!("{label}'s mcpServers must be an object."))?
                     .keys().map(String::as_str).collect(),
                 None => Vec::new(),
             }),
@@ -182,7 +194,7 @@ impl Document {
                 .and_then(|table| table.get(name))
                 .and_then(|item| item.as_table().cloned().or_else(|| item.as_inline_table().cloned().map(|table| table.into_table())))
                 .map(|table| DocumentMut::from(table).to_string()),
-            Self::Claude(doc) => doc.get("mcpServers").and_then(Value::as_object)
+            Self::Json(_, doc) => doc.get("mcpServers").and_then(Value::as_object)
                 .and_then(|servers| servers.get(name))
                 .map(serde_json::to_string)
                 .transpose()?,
@@ -196,8 +208,8 @@ impl Document {
                 item.as_table_like().context("Codex's mcp_servers must be a table.")
                     .map(|table| table.contains_key(name))
             ).transpose()?.unwrap_or_default(),
-            Self::Claude(doc) => doc.get("mcpServers").map(|item|
-                item.as_object().context("Claude Code's mcpServers must be an object.")
+            Self::Json(label, doc) => doc.get("mcpServers").map(|item|
+                item.as_object().with_context(|| format!("{label}'s mcpServers must be an object."))
                     .map(|object| object.contains_key(name))
             ).transpose()?.unwrap_or_default(),
         })
@@ -234,18 +246,20 @@ impl Document {
                 let value = if inline { Item::Value(table.into_inline_table().into()) } else { Item::Table(table) };
                 servers.insert(&server.name, value);
             }
-            Self::Claude(doc) => {
+            Self::Json(label, doc) => {
                 let entry: Map<String, Value> = serde_json::from_str(config)
-                    .map_err(|_| anyhow::anyhow!("The Claude Code MCP entry is invalid."))?;
-                validate_transport(entry.get("command").and_then(Value::as_str), entry.get("url").and_then(Value::as_str))?;
+                    .map_err(|_| anyhow::anyhow!("The {label} MCP entry is invalid."))?;
+                // Antigravity names its URL `serverUrl` and has one remote transport.
+                let url = entry.get("url").or_else(|| entry.get("serverUrl")).and_then(Value::as_str);
+                validate_transport(entry.get("command").and_then(Value::as_str), url)?;
                 if entry.contains_key("url") {
                     ensure!(
                         entry.get("type").and_then(Value::as_str).is_some_and(|kind| !kind.trim().is_empty()),
-                        "Specify the transport type for a Claude Code MCP server with a URL."
+                        "Specify the transport type for a {label} MCP server with a URL."
                     );
                 }
                 let item = doc.entry("mcpServers").or_insert_with(|| Value::Object(Map::new()));
-                let servers = item.as_object_mut().context("Claude Code's mcpServers must be an object.")?;
+                let servers = item.as_object_mut().with_context(|| format!("{label}'s mcpServers must be an object."))?;
                 servers.insert(server.name.clone(), Value::Object(entry));
             }
         }
@@ -260,7 +274,7 @@ impl Document {
         Ok(match self {
             Self::Codex(doc) => doc.get_mut("mcp_servers").and_then(Item::as_table_like_mut)
                 .and_then(|table| table.remove(name)).is_some(),
-            Self::Claude(doc) => doc.get_mut("mcpServers").and_then(Value::as_object_mut)
+            Self::Json(_, doc) => doc.get_mut("mcpServers").and_then(Value::as_object_mut)
                 .and_then(|object| object.remove(name)).is_some(),
         })
     }
@@ -268,7 +282,7 @@ impl Document {
     fn text(&self) -> Result<String> {
         match self {
             Self::Codex(doc) => Ok(doc.to_string()),
-            Self::Claude(doc) => Ok(format!("{}\n", serde_json::to_string_pretty(doc)?)),
+            Self::Json(_, doc) => Ok(format!("{}\n", serde_json::to_string_pretty(doc)?)),
         }
     }
 }

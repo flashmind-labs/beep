@@ -21,6 +21,9 @@ struct NativeFields {
     env: BTreeMap<String, SecretText>,
     cwd: Option<String>,
     url: Option<SecretText>,
+    #[serde(rename = "serverUrl")]
+    server_url: Option<SecretText>,
+    disabled: Option<bool>,
     headers: BTreeMap<String, SecretText>,
     http_headers: BTreeMap<String, SecretText>,
     env_http_headers: BTreeMap<String, String>,
@@ -35,9 +38,10 @@ struct NativeFields {
 pub(super) fn settings(harness: Harness, entry: &str) -> Option<Settings> {
     let mut native: NativeFields = match harness {
         Harness::Codex => toml::from_str(entry).ok()?,
-        Harness::Claude => serde_json::from_str(entry).ok()?,
+        Harness::Claude | Harness::Agy => serde_json::from_str(entry).ok()?,
     };
-    let connection = match (native.kind.as_deref(), native.command, native.url) {
+    let url = if harness == Harness::Agy { native.server_url } else { native.url };
+    let connection = match (native.kind.as_deref(), native.command, url) {
         (None | Some("stdio"), Some(command), None) => Connection::Stdio(Stdio {
             command,
             args: native.args,
@@ -46,7 +50,7 @@ pub(super) fn settings(harness: Harness, entry: &str) -> Option<Settings> {
         }),
         (kind, None, Some(url)) => {
             let transport = match (harness, kind) {
-                (Harness::Codex, None) | (Harness::Claude, Some("http" | "streamable-http")) => RemoteTransport::Http,
+                (Harness::Codex | Harness::Agy, None) | (Harness::Claude, Some("http" | "streamable-http")) => RemoteTransport::Http,
                 (Harness::Claude, Some("sse")) => RemoteTransport::Sse,
                 (Harness::Claude, Some("ws")) => RemoteTransport::Ws,
                 _ => return None,
@@ -63,14 +67,18 @@ pub(super) fn settings(harness: Harness, entry: &str) -> Option<Settings> {
     };
     let codex = harness == Harness::Codex;
     native.codex.startup_timeout_sec = native.codex.startup_timeout_sec.or(native.startup_timeout_ms.map(|ms| ms / 1000.0));
-    let claude_oauth = if !codex && matches!(&connection, Connection::Remote(remote) if remote.transport != RemoteTransport::Ws) {
+    let claude_oauth = if harness == Harness::Claude && matches!(&connection, Connection::Remote(remote) if remote.transport != RemoteTransport::Ws) {
         native.oauth
     } else {
         None
     };
     Some(Settings {
         connection,
-        enabled: !codex || native.enabled.unwrap_or(true),
+        enabled: match harness {
+            Harness::Codex => native.enabled.unwrap_or(true),
+            Harness::Claude => true,
+            Harness::Agy => !native.disabled.unwrap_or(false),
+        },
         codex: codex.then_some(native.codex),
         claude_oauth,
     })
@@ -113,7 +121,7 @@ pub(super) fn patch(harness: Harness, original: Option<(&str, &Settings)>, edite
             }
             Ok(doc.to_string())
         }
-        Harness::Claude => {
+        Harness::Claude | Harness::Agy => {
             let mut entry: Map<String, Value> = match original {
                 Some(original) => serde_json::from_str(original)
                     .map_err(|_| anyhow::anyhow!("Could not read the existing MCP entry."))?,
@@ -183,8 +191,8 @@ fn validate(harness: Harness, settings: &Settings) -> Result<()> {
             ensure!(stdio.env.values().all(|value| !value.expose().contains('\0')), "An environment variable contains an invalid character.");
         }
         Connection::Remote(remote) => {
-            if harness == Harness::Codex {
-                ensure!(remote.transport == RemoteTransport::Http, "Codex uses Streamable HTTP for remote servers.");
+            if harness != Harness::Claude {
+                ensure!(remote.transport == RemoteTransport::Http, "This harness uses Streamable HTTP for remote servers.");
             }
             let url = remote.url.expose();
             let scheme = if remote.transport == RemoteTransport::Ws { ["ws", "wss"] } else { ["http", "https"] };
@@ -206,10 +214,14 @@ fn fields(harness: Harness, settings: &Settings) -> Result<Map<String, Value>> {
     let mut values = Map::new();
     match &settings.connection {
         Connection::Stdio(stdio) => {
-            if harness == Harness::Claude {
-                add(&mut values, "type", "stdio")?;
-            } else if let Some(cwd) = &stdio.cwd {
-                add(&mut values, "cwd", cwd)?;
+            match harness {
+                Harness::Claude => add(&mut values, "type", "stdio")?,
+                Harness::Codex => {
+                    if let Some(cwd) = &stdio.cwd {
+                        add(&mut values, "cwd", cwd)?;
+                    }
+                }
+                Harness::Agy => {}
             }
             add(&mut values, "command", &stdio.command)?;
             if !stdio.args.is_empty() {
@@ -220,7 +232,7 @@ fn fields(harness: Harness, settings: &Settings) -> Result<Map<String, Value>> {
             }
         }
         Connection::Remote(remote) => {
-            add(&mut values, "url", &remote.url)?;
+            add(&mut values, if harness == Harness::Agy { "serverUrl" } else { "url" }, &remote.url)?;
             match harness {
                 Harness::Codex => {
                     if !remote.headers.is_empty() {
@@ -239,6 +251,11 @@ fn fields(harness: Harness, settings: &Settings) -> Result<Map<String, Value>> {
                         add(&mut values, "headers", &remote.headers)?;
                     }
                 }
+                Harness::Agy => {
+                    if !remote.headers.is_empty() {
+                        add(&mut values, "headers", &remote.headers)?;
+                    }
+                }
             }
         }
     }
@@ -248,6 +265,10 @@ fn fields(harness: Harness, settings: &Settings) -> Result<Map<String, Value>> {
         }
         if let Some(options) = &settings.codex {
             values.extend(present(options)?);
+        }
+    } else if harness == Harness::Agy {
+        if !settings.enabled {
+            add(&mut values, "disabled", true)?;
         }
     } else if matches!(&settings.connection, Connection::Remote(remote) if remote.transport != RemoteTransport::Ws)
         && let Some(oauth) = &settings.claude_oauth

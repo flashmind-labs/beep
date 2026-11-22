@@ -210,3 +210,44 @@ fn a_stale_edit_keeps_newer_fields_and_returns_the_current_servers() -> Result<(
     assert_eq!(servers["neighbor"]["command"].as_str(), Some("neighbor-mcp"));
     Ok(())
 }
+
+#[test]
+fn antigravity_edits_its_own_fields_and_keeps_the_rest() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("mcp_config.json");
+    // As `agy mcp add` writes them.
+    let original = serde_json::json!({ "mcpServers": {
+        "api": { "disabled": true, "headers": { "Authorization": "Bearer token" },
+            "serverUrl": "https://tools.example.test/mcp", "extraSetting": true },
+        "files": { "args": ["-y", "files-mcp"], "command": "npx", "disabled": false, "env": { "KEY": "value" } },
+    } });
+    fs::write(&path, original.to_string())?;
+    let servers = Document::parse(Harness::Agy, &read(&path)?)?.servers(Harness::Agy)?;
+    let [api, files] = servers.try_into().ok().context("two servers")?;
+    let previous = editable(api)?;
+    let mut settings = previous.settings.clone();
+    assert!(!settings.enabled);
+    let Connection::Remote(remote) = &mut settings.connection else { panic!("expected a URL") };
+    assert_eq!(remote.transport, RemoteTransport::Http);
+    assert_eq!(remote.headers["Authorization"].expose(), "Bearer token");
+    remote.url = SecretText::new("https://tools.example.test/v2");
+    settings.enabled = true;
+    let files = editable(files)?;
+    assert!(files.settings.enabled);
+    assert!(matches!(&files.settings.connection, Connection::Stdio(stdio) if stdio.command == "npx" && stdio.args.len() == 2));
+
+    change(&path, Harness::Agy, save("api", settings.clone(), Some(previous)))?;
+    let mut sse = settings;
+    let Connection::Remote(remote) = &mut sse.connection else { panic!("expected a URL") };
+    remote.transport = RemoteTransport::Sse;
+    assert!(change(&path, Harness::Agy, save("other", sse, None)).is_err());
+    change(&path, Harness::Agy, save("local", stdio("local-mcp"), None))?;
+
+    let config: Value = serde_json::from_str(&read(&path)?)?;
+    assert_eq!(config["mcpServers"]["api"], serde_json::json!({
+        "headers": { "Authorization": "Bearer token" }, "serverUrl": "https://tools.example.test/v2", "extraSetting": true
+    }));
+    assert_eq!(config["mcpServers"]["files"], original["mcpServers"]["files"]);
+    assert_eq!(config["mcpServers"]["local"], serde_json::json!({ "command": "local-mcp" }));
+    Ok(())
+}
