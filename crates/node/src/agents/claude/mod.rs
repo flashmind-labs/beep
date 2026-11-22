@@ -523,7 +523,10 @@ pub(crate) fn refuse_takeover(found: &ExternalSession) -> Option<String> {
         ));
     }
 
-    if !Path::new(&found.cwd).is_dir() {
+    // A removed worktree is no reason: the session goes on in its project
+    // folder.
+    let cwd = Path::new(&found.cwd);
+    if !cwd.is_dir() && super::checkout::project_of(cwd).is_none() {
         return Some(format!(
             "session {} last ran in {}, which no longer exists. \
              Recreate that folder to resume it.",

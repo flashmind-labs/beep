@@ -25,6 +25,20 @@ fn only_a_stopped_session_in_a_folder_that_exists_is_taken_over() {
 }
 
 #[test]
+fn a_session_whose_worktree_was_removed_resumes_in_its_project() {
+    let project = tempfile::tempdir().expect("a temp folder");
+    std::fs::create_dir(project.path().join(".git")).expect("a .git folder");
+    let found = ExternalSession {
+        id: "0f3c2a9e-1111-4222-8333-944455556666".into(),
+        cwd: project.path().join(".worktrees/fix").to_string_lossy().into_owned(),
+        presence: Presence::Stopped,
+        ..ExternalSession::default()
+    };
+
+    assert_eq!(refuse_takeover(&found), None);
+}
+
+#[test]
 fn the_config_dir_follows_the_variable_then_home() {
     let home = Some(PathBuf::from("/home/user"));
     let usual = Some(PathBuf::from("/home/user/.claude"));
