@@ -118,7 +118,8 @@ impl ChildView {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StartArgs {
-    harness: String,
+    /// None for a thread, which runs on its chat's harness unless it names one.
+    harness: Option<String>,
     prompt: String,
     machine: Option<String>,
     project: Option<String>,
@@ -382,7 +383,7 @@ impl Reach<'_> {
             Err(e) => return fail(e),
         };
         let parts = StartParts {
-            harness: harness.trim().to_owned(),
+            harness: harness.map_or_else(|| parent.agent.clone(), |name| name.trim().to_owned()),
             prompt,
             cwd,
             model,

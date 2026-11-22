@@ -27,13 +27,31 @@ const ELSEWHERE: [&str; 5] = [
     "send_files",
 ];
 
+/// The home assistant's thread tools, each with the agent tool it calls:
+/// a thread is an agent of the chat's own.
+const THREADS: [(&str, &str); 5] = [
+    ("start_thread", "start_agent"),
+    ("thread_status", "agent_status"),
+    ("send_to_thread", "send_to_agent"),
+    ("stop_thread", "stop_agent"),
+    ("list_threads", "list_agents"),
+];
+
+/// Whether `name` is one of the home assistant's thread tools.
+pub(super) fn is_thread(name: &str) -> bool {
+    THREADS.iter().any(|(thread, _)| *thread == name)
+}
+
 /// The name `tools/1` knows a tool by, where it differs from the MCP name.
 pub(super) fn wire(name: &str) -> &str {
     match name {
         "remote_run_status" => "job_status",
         "remote_run_cancel" => "cancel",
         "beep_report" => "file_report",
-        _ => name,
+        _ => THREADS
+            .iter()
+            .find(|(thread, _)| *thread == name)
+            .map_or(name, |(_, agent)| agent),
     }
 }
 
@@ -208,6 +226,7 @@ pub(super) fn tools(reviewer: bool, alone: bool, assistant: bool) -> Value {
     tools.extend(beep(&machine));
     if assistant {
         tools.retain(|tool| tool["name"] != REVIEW);
+        tools.extend(threads());
         tools.extend(projects());
     }
 
@@ -295,6 +314,43 @@ fn devices() -> Vec<Value> {
         on("install", "Install an app: text is the APK or .app path on the device's machine.", json!({ "text": text }), &["text"], "Install an app"),
         on("launch", "Launch an app: text is a package, bundle id or URL.", json!({ "text": text }), &["text"], "Launch an app"),
         on("reset", "Stop an Android app and clear its data: text is its package.", json!({ "text": text }), &["text"], "Reset an app"),
+    ]
+}
+
+/// The home assistant's thread tools (`THREADS`): the agent tools, for an
+/// agent that is part of its chat, so nothing says where it runs.
+fn threads() -> Vec<Value> {
+    let text = |what: &str| json!({ "type": "string", "description": what });
+    let id = || json!({ "id": text("A thread's id") });
+    let read = |title: &str| json!({ "title": title, "readOnlyHint": true });
+    let acts = |title: &str| json!({ "title": title, "destructiveHint": false, "openWorldHint": false });
+
+    vec![
+        tool(
+            "start_thread",
+            "Start a thread of this chat: an agent on this machine, in a subfolder of the \
+             chat's folder, which the user sees under the chat and can open. prompt is its only \
+             context: begin it with what the chat established. Returns its id; its replies \
+             come to you.",
+            json!({
+                "title": { "type": "string", "pattern": "\\S", "description": "Its name, which the user sees" },
+                "prompt": { "type": "string" },
+                "harness": text("Default yours"),
+                "model": text("From harness_info")
+            }),
+            &["title", "prompt"],
+            acts("Start a thread"),
+        ),
+        tool("thread_status", "The state of a thread.", id(), &["id"], read("Check a thread")),
+        tool(
+            "send_to_thread",
+            "Message a thread. 5 at most until the user writes.",
+            json!({ "id": text("A thread's id"), "text": { "type": "string" } }),
+            &["id", "text"],
+            acts("Message a thread"),
+        ),
+        tool("stop_thread", "End a thread. It stays in the user's list.", id(), &["id"], acts("End a thread")),
+        tool("list_threads", "This chat's threads.", json!({}), &[], read("List threads")),
     ]
 }
 

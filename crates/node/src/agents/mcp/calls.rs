@@ -16,6 +16,8 @@ pub(crate) const PREFIX: &str = "Beep: ";
 /// - `Start <agent> on <machine>: <prompt>` (`an agent` when none is named)
 /// - `Start <harness> agent on <machine>: <prompt>`, `Check agent <id>`,
 ///   `Message agent <id>: <text>`, `Stop agent <id>`, `List agents`
+/// - `Start thread: <prompt>`, `Check thread <id>`, `Message thread <id>:
+///   <text>`, `Stop thread <id>`, `List threads`
 /// - `Sync <project>`, or `Sync <project> to <machine>`
 /// - `Send <n> files to <machine>`
 /// - `Check job <id>`, `Cancel job <id>`
@@ -54,6 +56,11 @@ pub(crate) enum Tool {
     SendToAgent,
     StopAgent,
     ListAgents,
+    StartThread,
+    ThreadStatus,
+    SendToThread,
+    StopThread,
+    ListThreads,
     AskUser,
     Review,
     SubmitReview,
@@ -268,6 +275,14 @@ impl Tool {
                 Some(project) => format!("{PREFIX}List agents in {project}"),
                 None => format!("{PREFIX}List agents"),
             },
+            Self::StartThread => with("Start thread".to_owned(), text("prompt")),
+            Self::ThreadStatus => format!("{PREFIX}Check thread {}", text("id").unwrap_or("")),
+            Self::SendToThread => with(
+                format!("Message thread {}", text("id").unwrap_or("")),
+                text("text"),
+            ),
+            Self::StopThread => format!("{PREFIX}Stop thread {}", text("id").unwrap_or("")),
+            Self::ListThreads => format!("{PREFIX}List threads"),
             Self::AskUser => with("Ask".to_owned(), text("question")),
             Self::Review => match (text("id"), text("base")) {
                 (Some(id), _) => format!("{PREFIX}Check review {id}"),

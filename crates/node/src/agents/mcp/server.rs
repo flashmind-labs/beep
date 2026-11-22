@@ -271,8 +271,8 @@ impl From<Reply> for Called {
 }
 
 async fn call<B: Backend>(backend: &B, session: &SessionId, name: &str, args: Value) -> Called {
-    // Only the home assistant creates and imports projects.
-    if name.starts_with(PROJECTS) && !backend.assistant(session) {
+    // Only the home assistant creates and imports projects, and has threads.
+    if (name.starts_with(PROJECTS) || catalog::is_thread(name)) && !backend.assistant(session) {
         return Called::failed(format!("There is no tool {name}."));
     }
 

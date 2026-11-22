@@ -376,6 +376,62 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let mut offers = Offers::local(&[], Provision::new(dir.path()));
+    offers.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")]));
+    let cwd = dir.path().to_string_lossy().into_owned();
+    let chat = offers
+        .agents
+        .start(
+            &offers.agents.kinds()[0],
+            Some(&cwd),
+            Begin {
+                prompt: Some("hello".to_owned()),
+                ..Begin::default()
+            },
+        )
+        .expect("the chat starts");
+    let mut live = chat.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        watched::wait_for(&mut live, |live| {
+            live.agent_session.is_some() && live.info.turns == 1
+        }),
+    )
+    .await
+    .expect("the chat settles")
+    .expect("the chat is kept");
+    let chat = Agents::name_of(&chat);
+
+    // `start_thread` calls `start_agent` with what it takes: no harness.
+    let (failed, text) = tool(
+        &offers,
+        &chat,
+        Tool::StartAgent,
+        json!({ "title": "Pricing", "prompt": "work" }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    let thread = view(&text);
+    assert_eq!(
+        (thread.harness.as_ref(), thread.title.as_deref()),
+        ("top", Some("Pricing"))
+    );
+    let (failed, text) = tool(
+        &offers,
+        &chat,
+        Tool::StartAgent,
+        json!({ "title": "Legal", "prompt": "work", "harness": "kid" }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    assert_eq!(view(&text).harness, "kid");
+    offers.agents.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let mut offers = Offers::local(&[], Provision::new(dir.path()));

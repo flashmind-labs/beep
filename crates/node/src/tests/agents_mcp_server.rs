@@ -480,6 +480,66 @@ const PROJECT_TOOLS: [&str; 5] = [
     "projects_import",
 ];
 
+/// The thread tools, which only the home assistant gets, each with the
+/// agent tool it calls.
+const THREAD_TOOLS: [(&str, Tool); 5] = [
+    ("start_thread", Tool::StartAgent),
+    ("thread_status", Tool::AgentStatus),
+    ("send_to_thread", Tool::SendToAgent),
+    ("stop_thread", Tool::StopAgent),
+    ("list_threads", Tool::ListAgents),
+];
+
+#[tokio::test]
+async fn thread_tools_call_the_agent_tools_for_the_assistant_alone() {
+    let session = SessionId::from("a3f9c1");
+    let args = |name: &str| match name {
+        "start_thread" => json!({ "title": "Pricing", "prompt": "work" }),
+        "send_to_thread" => json!({ "id": "b7e2d4", "text": "and the EU?" }),
+        "list_threads" => json!({}),
+        _ => json!({ "id": "b7e2d4" }),
+    };
+    let other = Fake::new("allow");
+
+    for (name, _) in THREAD_TOOLS {
+        let result = call(&other, &session, name, args(name)).await;
+        assert!(
+            result.failed && result.text == format!("There is no tool {name}."),
+            "{result:?}"
+        );
+    }
+
+    assert!(other.calls.lock().unwrap().is_empty(), "nothing is forwarded");
+    let assistant = Fake {
+        assistant: true,
+        ..Fake::new("allow")
+    };
+
+    for (name, _) in THREAD_TOOLS {
+        call(&assistant, &session, name, args(name)).await;
+    }
+
+    {
+        let calls = assistant.calls.lock().unwrap();
+        let called: Vec<Tool> = calls.iter().map(|call| call.tool).collect();
+        assert_eq!(called, THREAD_TOOLS.map(|(_, tool)| tool));
+        assert_eq!(calls[0].args, args("start_thread").to_string());
+    }
+
+    // A thread is the chat's: it has a name, and nothing says where it runs.
+    for refused in [
+        json!({ "prompt": "work" }),
+        json!({ "title": " ", "prompt": "work" }),
+        json!({ "title": "Pricing", "prompt": "work", "machine": "build-box" }),
+        json!({ "title": "Pricing", "prompt": "work", "cwd": "/srv/project" }),
+    ] {
+        let result = call(&assistant, &session, "start_thread", refused).await;
+        assert!(result.failed, "{result:?}");
+    }
+
+    assert_eq!(assistant.calls.lock().unwrap().len(), THREAD_TOOLS.len());
+}
+
 #[test]
 fn assistant_session_lists_the_project_tools_in_place_of_review() {
     let listed = catalog::tools(false, false, true);
@@ -487,6 +547,7 @@ fn assistant_session_lists_the_project_tools_in_place_of_review() {
     let expected: Vec<&str> = ALL
         .into_iter()
         .filter(|name| *name != "review")
+        .chain(THREAD_TOOLS.map(|(name, _)| name))
         .chain(PROJECT_TOOLS)
         .collect();
     assert_eq!(assistant, expected);
@@ -551,8 +612,9 @@ async fn project_tools_reach_the_desktop_as_projects_with_their_action() {
 #[test]
 fn the_tool_definitions_fit_the_budget() {
     const TOKENS: usize = 4_250;
-    // The home assistant's list has the project tools in place of review.
-    const ASSISTANT_TOKENS: usize = 4_500;
+    // The home assistant's list has the thread and project tools in place
+    // of review.
+    const ASSISTANT_TOKENS: usize = 4_900;
 
     for (assistant, budget) in [(false, TOKENS), (true, ASSISTANT_TOKENS)] {
         let listed = catalog::tools(false, false, assistant).to_string();
