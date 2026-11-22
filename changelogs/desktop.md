@@ -7,6 +7,52 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.13] - 2026-11-22
+
+### Added
+
+- Desktop: moving an Assistant chat shows its files as they copy, such as
+  "Files 120 MB of 551 MB · 22%". The speed appears once the copy has run
+  for over five seconds. The progress bar along the top of the message field
+  fills with the step that copies.
+- Desktop: assistant chats and their threads get an Agents tab in the
+  right pane. It lists the custom agents defined in the chat's folder,
+  such as .claude/agents, and appears once the folder has some. Click
+  an agent to see its prompt.
+- Desktop: an assistant chat can open in a window of its own, with its
+  threads listed beside it. Use ⇧⌘N in the chat, or "Open in New
+  Window" in a chat's right-click menu. In that window, ⌘N asks the
+  chat for a new thread.
+- Desktop: the Assistant's chats list shows when a thread in a chat
+  needs you and how many of its threads are working. A chat moves up
+  the list while one of its threads is active, and the Assistant link
+  in the sidebar counts the chats waiting on an answer.
+- Desktop: a thread's notification in the bell names the chat it
+  belongs to.
+
+### Changed
+
+- Desktop: ⇧⌘N in a chat opens it in its own window instead of starting
+  a new thread. ⌘N starts a new thread while a chat's threads are
+  listed beside it, and a new chat while the chats list shows.
+
+### Fixed
+
+- Desktop: a move's steps no longer stay on "Waiting for" the target while
+  the move goes on. The window asks the target how far it is every few
+  seconds while the move shows.
+- Desktop: a session or Assistant chat you renamed keeps its name after it
+  moves to another machine, instead of showing the agent's own title again.
+- Desktop: clicking an HTML or Markdown file in the Files tab, or
+  pressing Space on it, opens its preview instead of its source. The
+  Source button still shows the code.
+- Desktop: in an assistant chat on a laptop-width window, the right pane
+  (Files, and a file opened from it) opens beside the conversation
+  instead of covering it. The chats list steps aside while the pane
+  shows and comes back when the pane is hidden.
+- Desktop: notifications for a renamed coding agent session or assistant
+  chat now show the name you gave it, not the title it had before.
+
 ## [0.10.12] - 2026-11-22
 
 ### Added
