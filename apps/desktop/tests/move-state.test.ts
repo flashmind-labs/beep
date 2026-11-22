@@ -77,6 +77,14 @@ test("a chat with a thread on a third machine does not move", () => {
   assert.deepEqual(chatSessions([chat, away], chat), { refused: "a thread of this chat is on studio" });
 });
 
+test("a thread in a project folder blocks the move while it runs, and stays behind once it ended", () => {
+  const chat = row({ id: "c1", assistant: true });
+  const coding = row({ id: "t1", agent: "codex", cwd: "/srv/project", parent: under("c1"), status: "working" });
+
+  assert.deepEqual(chatSessions([chat, coding], chat), { refused: "a thread works outside the chat's folder until it ends" });
+  assert.deepEqual(chatSessions([chat, { ...coding, status: "ended" }], chat), { sessions: [chat], agents: ["flsh"] });
+});
+
 test("a move waits for the source's turn, or for the source itself", () => {
   assert.equal(moveRows(progress(), "laptop", "studio")[0].text, "Waiting for studio");
   assert.equal(moveRows(progress(), "laptop", "studio", false)[0].text, "studio is offline; the move goes on when it is back");

@@ -62,7 +62,8 @@ export function drawMove() {
   if (!s) return;
   const key = agentKey(s);
   if (menuSession !== key) { menuSession = key; menuRead.cancel(); UI.open = false; UI.loading = false; UI.targets = []; closeOutside(); }
-  const placed = isChat(s) ? !!AG.hosts?.find(h => h.machine_id === s.machine_id)?.moves_chats : !!windowHooks?.sessionProject?.(s)?.name;
+  // A chat on a node from before chat moves is refused when asked, in words.
+  const placed = isChat(s) || !!windowHooks?.sessionProject?.(s)?.name;
   const eligible = canMove(s) && !s.external && !isStarting(s.id) && placed;
   const mid = going(stateOf(s.id)) && here(s)?.from === s.machine_id;
   moveViews.setState({

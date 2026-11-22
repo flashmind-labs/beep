@@ -69,8 +69,9 @@ export function targetNote(t: MoveTarget, agents: readonly string[]): { note: st
 
 /// The sessions that move with `chat`, the chat first, then its threads and
 /// theirs, oldest first, and the harnesses they use. A reviewer works on a
-/// project, not in the chat's folder, and stays. Refused while a thread is
-/// on another machine.
+/// project, not in the chat's folder, and stays, as does an ended thread that
+/// worked in another folder. Refused while a thread is on another machine,
+/// or runs outside the chat's folder: the chat leaving would close it.
 export function chatSessions(rows: readonly AgentSession[], chat: AgentSession): { sessions: AgentSession[]; agents: string[] } | { refused: string } {
   const from = starters(rows), inChat = new Set<AgentSession>([chat]);
   const threads: AgentSession[] = [];
@@ -83,9 +84,12 @@ export function chatSessions(rows: readonly AgentSession[], chat: AgentSession):
     }
   }
 
-  const away = threads.find(row => row.machine_id !== chat.machine_id);
+  const inFolder = (row: AgentSession) => row.cwd.startsWith(`${chat.cwd}/`) || row.cwd.startsWith(`${chat.cwd}\\`);
+  const moving = threads.filter(row => inFolder(row) || row.status !== "ended");
+  const away = moving.find(row => row.machine_id !== chat.machine_id);
   if (away) return { refused: `a thread of this chat is on ${away.machine_name}` };
-  const sessions = [chat, ...threads.sort((a, b) => a.started_at - b.started_at)];
+  if (moving.some(row => !inFolder(row))) return { refused: "a thread works outside the chat's folder until it ends" };
+  const sessions = [chat, ...moving.sort((a, b) => a.started_at - b.started_at)];
 
   return { sessions, agents: [...new Set(sessions.map(row => row.agent))] };
 }
