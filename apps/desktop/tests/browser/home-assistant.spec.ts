@@ -103,6 +103,19 @@ test("Cmd+L opens the Assistant page from anywhere in the window", { tag: "@wind
   await expect(page.locator("#side").getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-current", "true");
 });
 
+test("a new chat keeps what was typed when the user leaves before sending", async ({ page }) => {
+  await openDesktop(page, false, { agent_hosts: [host], agent_sessions: [session], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null } });
+  const assistant = page.locator("#side").getByRole("button", { name: "Assistant", exact: true });
+  await assistant.click();
+  await page.locator("#agprompt").fill("Check the widget project");
+
+  await page.locator("#side").getByRole("button", { name: "Home", exact: true }).click();
+  await expect(page.locator("#agprompt")).toBeHidden();
+  await assistant.click();
+
+  await expect(page.locator("#agprompt")).toHaveValue("Check the widget project");
+});
+
 test.describe("on a phone", () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
 

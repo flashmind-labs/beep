@@ -103,11 +103,14 @@ function loadBranches(project: string) {
 }
 
 const formBranches = () => AG.form.project ? BRANCHES.get(AG.form.project) : null;
+/// What was typed for a new assistant chat and not sent: the form starts from it again.
+let assistantDraft = "";
 
 /// The start form with `prompt`; `from` is where Esc goes back to.
 /// `at` presets the machine and folder, as a project's "Start an agent here" does.
 /// `assistant` starts the Home assistant: no project, the machine's home folder.
 export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: AgentPlace | null = null, assistant = false) {
+  if (assistant) prompt ||= assistantDraft;
   S.view = "agentnew";
   AG.back = from;
   AG.form = assistant
@@ -157,7 +160,11 @@ function drawFrame() {
     ids: true,
     actions: {
       submit: () => void startAgent(), harness: () => { if (!AG.busy) togglePicker(); }, choice: toggleChoice, keyDown: switchMachine, files: files => attachments.take(files), images: files => attachments.add(files), removeLast: () => attachments.removeLast(),
-      input: value => { AG.form.prompt = value; if (AG.error === "prompt") { AG.error = ""; drawParts(); } },
+      input: value => {
+        AG.form.prompt = value;
+        if (AG.form.assistant) assistantDraft = value;
+        if (AG.error === "prompt") { AG.error = ""; drawParts(); }
+      },
     },
     place: () => {
       const f = AG.form;
@@ -637,6 +644,7 @@ export async function startAgent() {
       ? await startAssistant(prompt, { agent: f.agent, model, effort, fast: f.fast ?? null }, AG.hosts ?? [], f.machinePicked ? f.machine : null, images)
       : await start({ machine: f.machine, agent: f.agent, cwd: cwd || null, prompt, images, model, effort, fast: f.agent === "codex" ? f.fast ?? null : null, checkout, assistant: false, account: formAccount() });
     attachments.clear();
+    if (f.assistant) assistantDraft = "";
     AG.busy = false;
     composer?.update({ progress: "" });
     if (S.view !== "agentnew") return;
