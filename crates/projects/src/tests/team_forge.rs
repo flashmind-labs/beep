@@ -116,10 +116,6 @@ fn assigned_issues_ask_each_host_its_own_filter() {
     let who = login("alice");
 
     assert_eq!(
-        words(&open_issues_call(&github(), &repo()))[1],
-        "repos/acme/widget/issues?state=open&per_page=100"
-    );
-    assert_eq!(
         words(&assigned_issues_call(&github(), &repo(), &who))[1],
         "repos/acme/widget/issues?state=open&per_page=100&assignee=alice"
     );
@@ -134,6 +130,32 @@ fn assigned_issues_ask_each_host_its_own_filter() {
         words(&assigned_issues_call(&forgejo(), &repo(), &who))[4],
         "--paginate"
     );
+}
+
+#[test]
+fn open_issues_leave_out_pull_requests_and_read_past_the_first_page() {
+    let github = open_issues_call(&github(), &repo());
+    assert_eq!(github.program, "gh");
+    assert_eq!(
+        words(&github)[..8],
+        [
+            "issue",
+            "list",
+            "-R",
+            "acme/widget",
+            "--state",
+            "open",
+            "--limit",
+            "1000"
+        ]
+    );
+
+    let forgejo = open_issues_call(&forgejo(), &repo());
+    assert_eq!(
+        words(&forgejo)[1],
+        "repos/acme/widget/issues?state=open&type=issues&limit=50"
+    );
+    assert!(words(&forgejo).contains(&"--paginate"));
 }
 
 #[test]

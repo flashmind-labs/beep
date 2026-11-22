@@ -3,7 +3,7 @@
 //! a machine the project is on.
 
 use crate::{
-    commands::{gh_account, json, parse_login, text},
+    commands::{GH_ISSUES, GH_OPEN_LIMIT, gh_account, json, parse_login, text},
     issues::{IssueSource, SourceError, host_failed, issue_source, run_rendered},
     issues::{Machines, ProjectStore},
     model::{IssueHost, RepoName},
@@ -245,13 +245,30 @@ pub fn assign_call(host: &IssueHost, repo: &RepoName, number: u64, logins: &[Str
     }
 }
 
-/// The open issues, in the shape `parse_open_issues` reads. GitHub's list also holds pull
-/// requests, which that parser drops.
+/// The open issues, in the shape `parse_open_issues` reads: GitHub's as the desktop lists them,
+/// up to `GH_OPEN_LIMIT` without pull requests, and every page of Forgejo's.
 pub fn open_issues_call(host: &IssueHost, repo: &RepoName) -> ForgeCall {
-    ForgeCall::api(host, open_issues(host, repo), &[])
+    match host {
+        IssueHost::Github => {
+            let (repo, limit) = (repo.to_string(), GH_OPEN_LIMIT.to_string());
+            let words = [
+                "issue", "list", "-R", &repo, "--state", "open", "--limit", &limit,
+            ];
+            let args = words
+                .iter()
+                .chain(&GH_ISSUES)
+                .map(|word| (*word).to_owned());
+
+            ForgeCall {
+                program: "gh",
+                args: args.collect(),
+            }
+        }
+        IssueHost::Forgejo(_) => ForgeCall::api(host, open_issues(host, repo), &["--paginate"]),
+    }
 }
 
-/// The open issues assigned to `login`, as [`open_issues_call`] lists them, every page:
+/// The open issues assigned to `login`, every page:
 /// `parse_open_issues` reads the pages `gh` prints one after another.
 pub fn assigned_issues_call(host: &IssueHost, repo: &RepoName, login: &ForgeLogin) -> ForgeCall {
     let by = match host {
