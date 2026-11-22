@@ -183,6 +183,8 @@ body.cbody
             span.tt "Codex"
           button.cc-si.sub [data-sub="agent:gemini"]
             span.tt "Gemini CLI"
+          button.cc-si.sub [data-sub="agent:agy"]
+            span.tt "Antigravity"
           button.cc-si.sub [data-sub="agent:pi"]
             span.tt "pi"
           button.cc-si.sub [data-sub="agent:opencode"]
