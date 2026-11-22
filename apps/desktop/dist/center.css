@@ -430,6 +430,8 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 /* The Assistant page: its chats before the pane's bar (which the window appends first), New
    chat by their heading, the Ended fold in line. */
 #pane-box.pj-split { position: relative; grid-template-columns: var(--asst-w, 300px) minmax(0, 1fr) }
+/* A chat with threads lists them in place of the sidebar, and its pane takes the width. */
+#pane-box.pj-split:has(> .asst-list[hidden]) { grid-template-columns: minmax(0, 1fr) }
 #pane-box > .cc-grip { left: calc(var(--asst-w, 300px) - 3px) }
 .asst-list { order: -1 }
 /* An assistant chat has no files, changes or terminals beside it. */
@@ -1045,7 +1047,7 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .rail-card-li > small { font: 11px var(--mono); color: var(--dim) }
 .rail-card-li > svg { width: 14px; height: 14px; flex: none; color: var(--muted) }
 .rail-card-li > small.bad { color: var(--hot) }
-.cc-rail .rail-back { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; padding-inline: 0 }
+.cc-rail .rail-back { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; padding-inline: 0; margin-right: auto }
 .cc-rail > .rail-filter { margin: 10px 0 4px; width: auto; flex: none }
 .rail-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; scrollbar-width: thin }
 .rail-scroll > h4 { padding: 10px 6px 3px }

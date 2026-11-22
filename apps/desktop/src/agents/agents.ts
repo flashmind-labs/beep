@@ -13,6 +13,7 @@ import type { ProviderCredits } from "../ui/credits.ts";
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
 import { type Nested, nest, splitEnded } from "./nesting-state.ts";
+import { chatOf } from "./threads-state.ts";
 import { parentSession, ensureSessions, loadSessions, sessions, sessionsChanged } from "./sessions.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import { drawAgentNew, startAgent, togglePicker } from "./agentnew.tsx";
@@ -576,6 +577,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       if (k === "w" && e.shiftKey && !AG.draft && AG.open) { e.preventDefault(); if (!e.repeat) void closeOpenSession(); return true; }
       if (k === "t" && !e.shiftKey) { e.preventDefault(); newTerminal(undefined, !!AG.draft); return true; }
       if (k === "n" && !e.shiftKey && newTerminalLike()) { e.preventDefault(); return true; }
+      if (k === "n" && e.shiftKey && newThreadHere()) { e.preventDefault(); return true; }
       if (k === "u" && !e.shiftKey) { e.preventDefault(); toggleThoughts(); return true; }
       if (k === "m" && e.shiftKey) { e.preventDefault(); toggleModelPicker(); return true; }
       if (k === "y") { e.preventDefault(); (e.shiftKey ? toggleLastCommand : toggleCommands)(); return true; }
@@ -673,3 +675,12 @@ export function agentBack(closed = false) {
 
 /// Opens agent session `session` in the window.
 export const openAgentInWindow = (session: AgentRow) => toWindow(mainTarget({ view: "pane", arg: { agent: session } }));
+
+/// ⇧⌘N in an assistant chat or one of its threads: a new thread of the chat, asked for in the
+/// chat's field. False elsewhere, and for a chat that ended.
+function newThreadHere() {
+  const s = AG.draft ? null : AG.page?.session, chat = s ? chatOf(sessions, s) : null;
+  if (!chat?.assistant || chat.status === "ended") return false;
+  void import("./assistant-page.tsx").then(({ newThread }) => newThread(chat));
+  return true;
+}

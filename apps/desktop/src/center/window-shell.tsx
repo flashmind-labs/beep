@@ -21,9 +21,19 @@ interface Shell {
   side: Side;
 }
 
-/// The sidebar: folded to its icons by the user, and the project whose sessions take its place
-/// while one of them shows, unless the user unfolded the sidebar there.
-interface Side { collapsed: boolean; rail: string | null; railHidden: boolean }
+/// What takes the sidebar's place: a project's sessions while one of them shows, or an
+/// assistant chat's, by its running key, while it or one of its threads shows.
+export type Rail = { kind: "project"; project: string } | { kind: "chat"; chat: string };
+
+/// The sidebar: folded to its icons by the user, and the rail that takes its place, unless the
+/// user unfolded the sidebar there.
+interface Side { collapsed: boolean; rail: Rail | null; railHidden: boolean }
+
+const sameRail = (a: Rail | null, b: Rail | null) =>
+  a?.kind === "project" ? b?.kind === "project" && a.project === b.project : a?.kind === "chat" ? b?.kind === "chat" && a.chat === b.chat : !b;
+
+/// The project whose sessions the rail shows, if any.
+export const railProject = (rail: Rail | null) => rail?.kind === "project" ? rail.project : null;
 
 export const shell = createStore<Shell>(() => ({ view: null, assistant: null, parts: { title: "Home" }, side: { collapsed: false, rail: null, railHidden: false } }));
 
@@ -31,18 +41,18 @@ export const shell = createStore<Shell>(() => ({ view: null, assistant: null, pa
 /// sidebar and the project's sessions take turns in its full column, so the session stays put.
 export const sideCollapsed = ({ collapsed, rail }: Side) => !rail && collapsed;
 
-/// The sidebar's toggle: beside a project's sessions it swaps the two, elsewhere it folds the sidebar.
+/// The sidebar's toggle: beside a rail it swaps the two, elsewhere it folds the sidebar.
 export function toggleSide() {
   shell.setState(({ side }) => ({ side: side.rail ? { ...side, railHidden: !side.railHidden } : { ...side, collapsed: !side.collapsed } }));
 }
 
-/// Shows `project`'s sessions in place of the sidebar, or the sidebar again. Opening a project's
-/// session from elsewhere shows its sessions again.
-export function setRail(project: string | null) {
-  shell.setState(now => now.side.rail === project ? now : { side: { ...now.side, rail: project, railHidden: !!project && !!now.side.rail && now.side.railHidden } });
+/// Shows `rail` in place of the sidebar, or the sidebar again. Opening a session from elsewhere
+/// shows its rail again.
+export function setRail(rail: Rail | null) {
+  shell.setState(now => sameRail(now.side.rail, rail) ? now : { side: { ...now.side, rail, railHidden: !!rail && !!now.side.rail && now.side.railHidden } });
 }
 
-/// Shows the sidebar again in place of the project's sessions, until one of its sessions opens.
+/// Shows the sidebar again in place of the rail, until one of its sessions opens.
 export function hideRail() {
   shell.setState(({ side }) => ({ side: { ...side, railHidden: true } }));
 }
@@ -92,7 +102,7 @@ export function CenterWindow() {
   return <>
     <aside className="cc-side" id="side" ref={refs.side} inert={rail}><HazeArt />{parts.sidebar}</aside>
     <WidthGrip column={SIDEBAR} id="side-grip" />
-    <aside className="cc-rail pj-list" id="rail" aria-label="Project sessions" hidden={!side.rail} inert={!rail}>{side.rail && parts.rail}</aside>
+    <aside className="cc-rail pj-list" id="rail" aria-label={side.rail?.kind === "chat" ? "Chat threads" : "Project sessions"} hidden={!side.rail} inert={!rail}>{side.rail && parts.rail}</aside>
     <div className="cc-main" id="main" ref={refs.main}>
       <div className="cc-top" data-tauri-drag-region="" ref={refs.top}>
         {parts["mobile-back"]}{parts["project-back"]}

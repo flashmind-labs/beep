@@ -1,11 +1,11 @@
 body.cbody
-  div.cwin [aria-label="Beep" role="main"] style(--side-w)
-    aside#side.cc-side
+  div.cwin.rail-on [aria-label="Beep" role="main"] style(--side-w)
+    aside#side.cc-side [inert]
       canvas.haze.painted-art [aria-hidden="true" height="225" width="75"]
       div.cc-head
       div.cc-brand
         b "Beep"
-        button.cc-side-toggle [aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar" type="button"]
+        button.cc-side-toggle [aria-expanded="true" aria-label="Show the sidebar" title="Show the sidebar" type="button"]
           span
             svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
       div#side-content.cc-side-list
@@ -89,7 +89,66 @@ body.cbody
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="300" role="separator" tabindex="0"]
-    aside#rail.cc-rail.pj-list [aria-label="Project sessions" hidden inert]
+    aside#rail.cc-rail.pj-list [aria-label="Chat threads"]
+      div.cc-head
+      div.cc-brand
+        button.dbtn.quiet.rail-back [title="Back to the Assistant's chats" type="button"] "Assistant"
+        button.dbtn.quiet.small [type="button"] "New thread"
+        button.cc-side-toggle [aria-expanded="true" aria-label="Show the sidebar" title="Show the sidebar" type="button"]
+          span
+            svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
+      input.ip-field.rail-filter [aria-label="Filter threads" placeholder="Filter threads" spellcheck="false" type="search" value] value=""
+      div.rail-scroll
+        h4 "Running"
+          span.n "4"
+        div.rail-live
+          button.pj-li [aria-current="true" title="Battery chemistries after 2030" type="button"]
+            span.lead
+              span.cc-ag.flsh.mark
+                svg [aria-hidden="true" viewBox="0 0 28 28"]
+            span.t
+              b "Battery chemistries after 2030"
+              span "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
+            span.r
+              span.cc-running "now"
+                span.drun [aria-label="Working" role="img"]
+          button.pj-li [title="Sodium-ion cost curve" type="button"]
+            span.lead
+              span.cc-ag.flsh.mark
+                svg [aria-hidden="true" viewBox="0 0 28 28"]
+            span.t
+              b "Sodium-ion cost curve"
+              span "Reading the supply reports"
+            span.r
+              span.cc-running "now"
+                span.drun [aria-label="Working" role="img"]
+          button.pj-li [title="Solid-state timelines" type="button"]
+            span.lead
+              span.cc-ag.flsh.mark
+                svg [aria-hidden="true" viewBox="0 0 28 28"]
+            span.t
+              b "Solid-state timelines"
+              span "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
+            span.r "1m ago"
+          button.pj-li [title="Recycling regulation" type="button"]
+            span.lead
+              span.cc-ag.flsh.mark
+                svg [aria-hidden="true" viewBox="0 0 28 28"]
+            span.t
+              b "Recycling regulation"
+              span "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
+            span.r
+              span.chip.wait "needs you"
+        h4 "Past"
+          span.n "1"
+        button.pj-li [title="Cathode prices" type="button"]
+          span.lead
+            span.cc-ag.flsh.mark
+              svg [aria-hidden="true" viewBox="0 0 28 28"]
+          span.t
+            b "Cathode prices"
+            span
+          span.r "1 min"
     div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
@@ -184,7 +243,7 @@ body.cbody
               span#agstate
                 span.dstate.run "Working"
               span#agedit.agedit
-            div#agshell.agshell.narrow
+            div#agshell.agshell
               div#agmain.agmain
                 div#agconv.agconv
                   div.agbodyw
@@ -222,7 +281,7 @@ body.cbody
                     input [hidden multiple type="file"] value=""
                     div [data-agent-attachment-slot="true"] style(display)
                     div.cx-layer [aria-hidden="true" hidden]
-                    textarea#agmsg.cx-field [aria-busy="false" autocomplete="off" data-prompt-stash placeholder="Message flsh" rows="1" spellcheck="false"] style(height) value=""
+                    textarea#agmsg.cx-field [aria-busy="false" autocomplete="off" data-prompt-stash placeholder="Message flsh" rows="1" spellcheck="false"] style(height) value="" (focused)
                     span#agmode
                     span#agmodel
                       button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"]
@@ -334,8 +393,8 @@ body.cbody
                           svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                     div.agpviews
                 div#agpstrip-bottom.agpstrip.tabs [aria-orientation="horizontal" data-dock="bottom" hidden role="tablist"]
-              div#agdiv-right.agdiv [data-dock="right" hidden role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
-              aside#agpane-right.agpane [data-dock="right" hidden tabindex="-1"]
+              div#agdiv-right.agdiv [aria-orientation="vertical" data-dock="right" role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
+              aside#agpane-right.agpane [data-dock="right" tabindex="-1"] style(flex-basis)
                 div.agpane-content
                   div.agphead
                     div.agtabs [role="tablist"]
@@ -369,61 +428,9 @@ body.cbody
                         span [data-fstatus="true" role="status"]
                         span.sp
                         span.hint "Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting."
-              div#agpstrip-right.agpstrip.tabs [aria-orientation="vertical" data-dock="right" role="tablist"]
-                button.agtab.on [aria-selected="true" data-mtab="files" role="tab" title="Files" type="button"]
-                  i style(display)
-                    svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                  span "Files"
-                button.agtab [aria-selected="false" data-mtab="changes" role="tab" title="Changes" type="button"]
-                  i style(display)
-                    svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                  span "Changes"
+              div#agpstrip-right.agpstrip.tabs [aria-orientation="vertical" data-dock="right" hidden role="tablist"]
               div#agdropzone.agdropzone [hidden]
-        div.asst-list.pj-list
-          div.asst-head
-            h4 "Chats"
-              span.n "1"
-            button.dbtn.small [type="button"] "New chat"
-          button.pj-li [aria-current="true" title="Battery chemistries after 2030" type="button"]
-            span.lead
-              span.cc-ag.flsh.mark
-                svg [aria-hidden="true" viewBox="0 0 28 28"]
-            span.t
-              b "Battery chemistries after 2030"
-              span "build-box"
-            span.r
-              span.cc-running "now"
-                span.drun [aria-label="Working" role="img"]
-          div.asst-threads
-            button.pj-li [title="Sodium-ion cost curve" type="button"]
-              span.t
-                b "Sodium-ion cost curve"
-                span
-              span.r
-                span.cc-running "now"
-                  span.drun [aria-label="Working" role="img"]
-            button.pj-li [title="Solid-state timelines" type="button"]
-              span.t
-                b "Solid-state timelines"
-                span
-                  span.nt-md "Pilot lines in 2027, no volume before 2030"
-              span.r "1m ago"
-            button.pj-li [title="Recycling regulation" type="button"]
-              span.t
-                b "Recycling regulation"
-                span "EU only, or US too?"
-              span.r
-                span.chip.wait "needs you"
-            button.dbtn.quiet.small [type="button"] "New thread"
-            button.dagfold [aria-expanded="true" type="button"] (focused) "Ended"
-              span.chev [aria-hidden="true"] "▾"
-              span.n "1"
-            button.pj-li [title="Cathode prices" type="button"]
-              span.t
-                b "Cathode prices"
-                span
-              span.r "1 min ago"
-        div.cc-grip [aria-label="Resize the chats" aria-orientation="vertical" aria-valuemax="560" aria-valuemin="200" aria-valuenow="300" role="separator" tabindex="0"]
+        div.asst-list.pj-list [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

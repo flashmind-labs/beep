@@ -6,7 +6,7 @@ import { createStore, useStore } from "zustand";
 import { AG, type AgentRow, type AgentSession } from "./agents.ts";
 import { renderAgentNew } from "./agentnew.tsx";
 import { assistantRows } from "./assistant-state.ts";
-import { chatOf, type Thread, type ThreadDetail, threadsByChat } from "./threads-state.ts";
+import { chatOf, type chatRail, type Thread, type ThreadDetail, threadsByChat } from "./threads-state.ts";
 import { sessionMenu } from "./sessionmenu.ts";
 import { agentName, runningKey } from "./running-state.ts";
 import { ensureSessions, sessions, sessionsChanged, sessionsRead } from "./sessions.ts";
@@ -14,7 +14,8 @@ import { sessionVisible } from "./closing.ts";
 import { S } from "../bar/core.ts";
 import type { Location } from "../center/state.ts";
 import { shell } from "../center/window-shell.tsx";
-import { Row, RunningStatus } from "../project/split-view.tsx";
+import { RailList, Row, RunningStatus } from "../project/split-view.tsx";
+import { SideToggle } from "../center/sidebar-shell.tsx";
 import { Button, EndedFold } from "../ui/kit.tsx";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { formatAgo } from "../ui/format.ts";
@@ -92,7 +93,8 @@ sessionsRead.add(() => { read += 1; });
 /// what it asks or last said, those that ended under a fold of the chat's own; the chat in hand
 /// offers a new one.
 export function AssistantList() {
-  const on = useStore(shell, s => !!s.assistant), chat = useStore(openChat, s => s.key);
+  // A chat with threads lists them in place of the sidebar instead.
+  const on = useStore(shell, s => !!s.assistant && !(s.side.rail?.kind === "chat" && !s.side.railHidden)), chat = useStore(openChat, s => s.key);
   useSyncExternalStore(subscribeSessions, () => read);
   const [endedOpen, setEndedOpen] = useState(false);
   /// The chats whose ended threads show.
@@ -148,6 +150,24 @@ export function AssistantList() {
   </>;
 }
 
+/// A chat with threads, beside it or one of them in place of the sidebar, as a project's sessions
+/// are: Back to the Assistant's chats, New thread, then the chat and its running threads and the
+/// ended ones. `current` is the running key of the session on screen.
+export function ChatRail({ rail, current }: { rail: NonNullable<ReturnType<typeof chatRail>>; current: string | null }) {
+  const { chat, running, past } = rail;
+
+  return <>
+    <div className="cc-head" data-tauri-drag-region="" />
+    <div className="cc-brand"><Button look="quiet" className="rail-back" title="Back to the Assistant's chats" onClick={() => goChats()}>Assistant</Button>{chat.status !== "ended" && <Button look="quiet" small onClick={() => newThread(chat)}>New thread</Button>}<SideToggle /></div>
+    <RailList noun="threads" running={running.map(row => ({ kind: "agent", ...row }))} past={past} current={current} more={() => goChats()} />
+  </>;
+}
+
+/// The Assistant's chats, beside its start composer.
+function goChats() {
+  void import("../center/views.tsx").then(({ go }) => go("pane", { assistant: "chats" }));
+}
+
 function Detail({ detail }: { detail: ThreadDetail }) {
   if (!detail) return null;
   if (detail.kind === "question") return detail.text;
@@ -156,7 +176,7 @@ function Detail({ detail }: { detail: ThreadDetail }) {
 
 /// Starts the message that asks `chat`'s agent for a thread, and opens the chat for the user
 /// to say what the thread is for.
-function newThread(chat: AgentSession) {
+export function newThread(chat: AgentRow) {
   void import("./messages.ts").then(({ draftNewThread }) => {
     draftNewThread(chat);
     if (openChat.getState().key !== runningKey(chat)) goChat(chat);

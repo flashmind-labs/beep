@@ -37,7 +37,11 @@ import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
 import { type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { placeWindowParts } from "./window-root.tsx";
-import { setRail, shell } from "./window-shell.tsx";
+import { type Rail, railProject, setRail, shell } from "./window-shell.tsx";
+import { chatRail } from "../agents/threads-state.ts";
+import { sessions, sessionsRead } from "../agents/sessions.ts";
+import { sessionVisible } from "../agents/closing.ts";
+import { ChatRail } from "../agents/assistant-page.tsx";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 import { SidebarProjectRow } from "./sidebar-rows.tsx";
 import { single } from "../ui/active.ts";
@@ -99,13 +103,28 @@ shell.subscribe((now, was) => { if (!now.assistant !== !was.assistant) drawSide(
 /// them beside it. A project window, which has no sidebar, shows its project's sessions on every
 /// page. The phone layout has no column for them. Their reads redraw only this.
 export function drawRail() {
-  const view = currentLocation()?.view, side = shell.getState().side;
+  const view = currentLocation()?.view, side = shell.getState().side, shown = railProject(side.rail);
   const project = windowProject ?? (view === "pane" ? projectHere()?.project ?? null
-    : view === "projects" && side.rail && !side.railHidden && state.picked === side.rail ? side.rail : null);
-  const rail = onPhone() || isMobile() ? null : project;
+    : view === "projects" && shown && !side.railHidden && state.picked === shown ? shown : null);
+  const chat = !project && view === "pane" ? chatHere() : null;
+  const rail: Rail | null = onPhone() || isMobile() ? null
+    : project ? { kind: "project", project } : chat ? { kind: "chat", chat: runningKey(chat.chat) } : null;
   setRail(rail);
-  placeWindowParts({ rail: rail && projectRail(rail, openKey()) });
+  placeWindowParts({ rail: rail?.kind === "project" ? projectRail(rail.project, openKey()) : chat && rail ? <ChatRail rail={chat} current={openKey()} /> : null });
 }
+
+/// The rail of the assistant chat on screen, or of the chat whose thread is: null when it has
+/// no threads.
+function chatHere() {
+  const open = AG.open;
+  if (!open || AG.draft) return null;
+  const listed = sessions.filter(sessionVisible), session = listed.find(row => row.machine_id === open.machine_id && row.id === open.session) ?? AG.page?.session;
+
+  return session ? chatRail(listed, session) : null;
+}
+
+// A chat's threads come and go with the session lists.
+sessionsRead.add(() => { if (currentLocation()?.view === "pane") drawRail(); });
 
 /// The running key of the session on screen; null for a draft or none.
 const openKey = () => AG.open && !AG.draft ? runningKey({ machine_id: AG.open.machine_id, id: AG.open.session }) : null;
@@ -114,7 +133,7 @@ const openKey = () => AG.open && !AG.draft ? runningKey({ machine_id: AG.open.ma
 // round to the first; ⌃⇧Tab the one before. A side pane with focus takes it for its tabs first.
 document.addEventListener("keydown", e => {
   if (e.key !== "Tab" || !e.ctrlKey || e.altKey || e.metaKey || e.isComposing || currentLocation()?.view !== "pane") return;
-  const project = projectHere()?.project, running = project ? railSessions(project)?.running ?? [] : [];
+  const project = projectHere()?.project, running = project ? railSessions(project)?.running ?? [] : chatHere()?.running ?? [];
   if (!running.length) return;
   e.preventDefault();
   e.stopImmediatePropagation();

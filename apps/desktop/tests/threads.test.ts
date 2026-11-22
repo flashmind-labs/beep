@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chatOf, threadsByChat } from "../src/agents/threads-state.ts";
+import { chatOf, chatRail, threadsByChat } from "../src/agents/threads-state.ts";
 import type { AgentSession } from "../src/agents/agents.ts";
 
 let at = 0;
@@ -95,4 +95,25 @@ test("a thread listed without its parent link is placed by its folder", () => {
   assert.equal(chatOf(rows, thread), chat);
   assert.equal(chatOf(rows, rows[7]), null);
   assert.deepEqual(ids(rows, rows[6]), []);
+});
+
+test("a chat's rail lists the chat and its running threads, then the ended ones, newest first", () => {
+  const chat = row("chat", { assistant: true, status: "working" });
+  const runs = row("runs", { parent: under("chat"), status: "working" });
+  const old = row("old", { parent: under("chat"), status: "ended", last_activity: 5 });
+  const recent = row("recent", { parent: under("chat"), status: "ended", last_activity: 9 });
+  const rows = [old, chat, recent, runs, row("other", { assistant: true })];
+
+  const rail = chatRail(rows, runs);
+  assert.equal(rail?.chat, chat);
+  assert.deepEqual(rail?.running.map(one => one.id), ["chat", "runs"]);
+  assert.deepEqual(rail?.past.map(one => one.id), ["recent", "old"]);
+});
+
+test("a chat that ended heads the past, and one without threads has no rail", () => {
+  const chat = row("chat", { assistant: true, status: "ended" }), thread = row("thread", { parent: under("chat"), status: "ended" });
+
+  assert.deepEqual(chatRail([chat, thread], chat)?.past.map(one => one.id), ["chat", "thread"]);
+  assert.equal(chatRail([chat], chat), null);
+  assert.equal(chatRail([row("plain")], row("plain")), null);
 });

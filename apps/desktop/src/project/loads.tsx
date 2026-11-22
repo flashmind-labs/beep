@@ -15,7 +15,7 @@ import { parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { FoundSection, RepoSection } from "./outside-lists.tsx";
 import { ProjectRail, type RailCard, type RecentSessions } from "./split-view.tsx";
-import { hideRail, shell } from "../center/window-shell.tsx";
+import { hideRail, railProject, shell } from "../center/window-shell.tsx";
 import { foundFor, withSyncthing, projectName, projectRunning, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow, whereRows } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
@@ -399,7 +399,7 @@ async function readSessions(name: string) {
   const { list } = nextSessions(state.sessions.get(name), got);
   state.sessions.set(name, list);
   if (got) keep("sessions", name, list);
-  if (shell.getState().side.rail === name) drawRail();
+  if (railProject(shell.getState().side.rail) === name) drawRail();
   if (currentLocation()?.view !== "projects" || state.picked !== name) return;
   // The draw also drops the Updating note.
   drawProjects();
@@ -437,7 +437,7 @@ export function elsewhereSection(rows: Project[], enabled: boolean) {
 
 // Reopened sessions and moves change independently of project membership. The project's page
 // shows them, and the rail beside one of its sessions.
-const shownSessions = () => currentLocation()?.view === "projects" ? state.picked : shell.getState().side.rail;
+const shownSessions = () => currentLocation()?.view === "projects" ? state.picked : railProject(shell.getState().side.rail);
 const projectSessionsShown = () => !!shownSessions();
 async function refreshProjectSessions() {
   const name = shownSessions();

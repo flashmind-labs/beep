@@ -232,29 +232,28 @@ test("assistant chat with threads", async ({ page }) => {
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
   const list = page.locator(".asst-list");
   await list.getByRole("button", { name: /Battery chemistries/ }).click();
-  await expect(list.locator(".asst-threads")).toContainText("Solid-state timelines");
-  // The thread that ended waits under the chat's own fold.
-  await expect(list.locator(".asst-threads")).not.toContainText("Cathode prices");
-  await list.locator(".asst-threads").getByRole("button", { name: /Ended/ }).click();
-  await expect(list.locator(".asst-threads")).toContainText("Cathode prices");
+  // The chat's threads take the sidebar's place; the one that ended is under Past.
+  const rail = page.locator("#rail");
+  await expect(rail.locator(".rail-live")).toContainText("Solid-state timelines");
+  await expect(rail.locator(".rail-scroll > .pj-li")).toContainText("Cathode prices");
   await baseline(page, "assistant-threads");
 
   // New thread starts the message that asks the chat's agent for one.
-  await list.getByRole("button", { name: "New thread" }).click();
+  await rail.getByRole("button", { name: "New thread" }).click();
   await expect(page.locator("#agmsg")).toHaveValue("New thread: ");
   await expect(page.locator("#agmsg")).toBeFocused();
 
   // The chat's own menu offers it too, which is how a phone reaches it: its list hides while a chat shows.
   await page.locator("#agmsg").fill("");
-  await list.getByRole("button", { name: /Battery chemistries/ }).click({ button: "right" });
+  await rail.getByRole("button", { name: /Battery chemistries/ }).click({ button: "right" });
   await page.getByRole("menuitem", { name: "New thread" }).click();
   await expect(page.locator("#agmsg")).toHaveValue("New thread: ");
 
-  // A thread opens on the page, with no pane beside it, as the current item under its chat.
+  // A thread opens on the page, with no pane beside it, as the current item of its chat's rail.
   await page.evaluate(next => window.__navigation.respond("agent_view", next), view(threads[1], "Pilot lines in 2027, no volume before 2030."));
-  await list.getByRole("button", { name: /Solid-state timelines/ }).click();
+  await rail.getByRole("button", { name: /Solid-state timelines/ }).click();
   await expect(page.getByText("Pilot lines in 2027, no volume before 2030.")).toBeVisible();
-  await expect(list.locator('[aria-current="true"]')).toContainText("Solid-state timelines");
+  await expect(rail.locator('[aria-current="true"]')).toContainText("Solid-state timelines");
   await expect(page.locator("#agpane-right")).toBeHidden();
 });
 

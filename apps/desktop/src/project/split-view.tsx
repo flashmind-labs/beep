@@ -12,7 +12,7 @@ import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { ProjectArt } from "../ui/painted-art.tsx";
 import { SideToggle } from "../center/sidebar-shell.tsx";
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import type { AgentRow } from "../agents/agents.ts";
+import type { AgentRow, AgentSession } from "../agents/agents.ts";
 import { go } from "../center/views.tsx";
 import { FreshNote } from "./page-view.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
@@ -61,12 +61,24 @@ export function RunningStatus({ row, doing = false }: { row: RunningAgent; doing
 
 /// A project's sessions in place of the sidebar while one of them shows. Its head mirrors the
 /// sidebar's: the project's name, which goes back to its page, and the toggle back to the
-/// sidebar. Then a filter, the running sessions, roomier, with what each is doing, and the
-/// latest past ones, one line
-/// each. `current` is the running key of the session on screen. At the foot, over the project's
+/// sidebar. Then its `RailList`. `current` is the running key of the session on screen. At the foot, over the project's
 /// painting, a card with its branch, pull requests, issues and machines.
 export function ProjectRail({ project, label, running, past, current, card, back }: {
   project: string; label: string; running: RunningAgent[]; past: SessionRow[]; current: string | null; card: RailCard | null; back(): void;
+}) {
+  return <>
+    <ProjectArt project={project} />
+    <div className="cc-head" data-tauri-drag-region="" />
+    <div className="cc-brand"><Button look="quiet" className="rail-back" title={`Back to ${label}`} onClick={back}>{label}</Button><SideToggle /></div>
+    <RailList running={running} past={past} current={current} more={() => go("projects", { project, tile: "agents" })} />
+    {card && <ProjectCard project={project} card={card} />}
+  </>;
+}
+
+/// A rail's filter and its sessions: the running ones, roomier, with what each is doing, then
+/// the latest past ones, one line each, and `more` to see them all.
+export function RailList({ running, past, current, more, noun = "sessions" }: {
+  running: readonly RunningAgent[]; past: readonly (AgentRow & Pick<AgentSession, "last_activity">)[]; current: string | null; more: () => void; noun?: string;
 }) {
   const [filter, setFilter] = useState("");
   const needle = filter.trim().toLowerCase();
@@ -93,18 +105,14 @@ export function ProjectRail({ project, label, running, past, current, card, back
   }} />;
 
   return <>
-    <ProjectArt project={project} />
-    <div className="cc-head" data-tauri-drag-region="" />
-    <div className="cc-brand"><Button look="quiet" className="rail-back" title={`Back to ${label}`} onClick={back}>{label}</Button><SideToggle /></div>
-    <input className="ip-field rail-filter" type="search" placeholder="Filter sessions" aria-label="Filter sessions" spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
+    <input className="ip-field rail-filter" type="search" placeholder={`Filter ${noun}`} aria-label={`Filter ${noun}`} spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
     <div className="rail-scroll" ref={list} data-clear={clear || undefined}>
     {!!live.length && <h4>Running<span className="n">{live.length}</span></h4>}
     {!!live.length && <div className="rail-live">{live.map(session => row(session, <><RunningStatus row={session} /><LineCounts changes={session.changes} /></>, workLine(session)))}</div>}
     {!!ended.length && <h4>Past<span className="n">{ended.length}</span></h4>}
     {ended.slice(0, RAIL_PAST).map(session => row(session, formatAgo(session.last_activity, "short")))}
-    {ended.length > RAIL_PAST && <Button look="quiet" className="rail-all" onClick={() => go("projects", { project, tile: "agents" })}>All {ended.length} sessions</Button>}
+    {ended.length > RAIL_PAST && <Button look="quiet" className="rail-all" onClick={more}>All {ended.length} {noun}</Button>}
     </div>
-    {card && <ProjectCard project={project} card={card} />}
   </>;
 }
 

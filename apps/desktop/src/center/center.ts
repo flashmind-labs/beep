@@ -8,7 +8,7 @@ import "../chat/diagrams.tsx";
 import "../ui/window-defaults.ts";
 import "../ui/zoom.ts";
 import { initMobile } from "./mobile.tsx";
-import { toggleSide } from "./window-shell.tsx";
+import { shell, toggleSide } from "./window-shell.tsx";
 import { closeFocusedTab } from "../agentpane/media.ts";
 import { isCloseKey, isZoomKey } from "../agentpane/media-state.ts";
 import { isNewKey } from "../terminals/newkey-state.ts";
@@ -142,9 +142,10 @@ document.addEventListener("keydown", e => {
 
 /// ⌘N: in a project (its page, or one of its sessions) the agent
 /// view with an empty conversation and the project's start input, focused;
-/// on Home the assistant's start form; elsewhere Projects, to pick the
-/// project to start in.
+/// on Home and the Assistant page (a chat or a thread) the assistant's start form; elsewhere
+/// Projects, to pick the project to start in.
 function newAgentHere() {
+  if (shell.getState().assistant) return void go("pane", { assistant: "new" });
   const to = projectHere();
   if (to) return void go("pane", { draft: { project: to.project, machine: to.machine } });
   if (currentLocation()?.view === "home") return void go("pane", { assistant: "new" });

@@ -45,6 +45,24 @@ export function threadsByChat(rows: readonly AgentSession[]): Map<AgentSession, 
   return threads;
 }
 
+/// The list beside a chat that has threads, as for a project's sessions: `chat` and its running
+/// threads, then the ended ones, newest first, with the chat ahead of them once it ended. Null
+/// for `session` when it is part of no chat, or of one without threads.
+export function chatRail(rows: readonly AgentSession[], session: Partial<Pick<AgentSession, "assistant" | "reviewer" | "parent">> & Pick<AgentSession, "machine_id" | "id">): { chat: AgentSession; running: AgentSession[]; past: AgentSession[] } | null {
+  const found = chatOf(rows, session);
+  const chat = found && rows.find(row => row.machine_id === found.machine_id && row.id === found.id);
+  const threads = chat ? threadsByChat(rows).get(chat)?.map(thread => thread.row) ?? [] : [];
+  if (!chat || !threads.length) return null;
+  const ended = (row: AgentSession) => row.status === "ended";
+  const past = threads.filter(ended).sort((a, b) => b.last_activity - a.last_activity);
+
+  return {
+    chat,
+    running: [...(ended(chat) ? [] : [chat]), ...threads.filter(row => !ended(row))],
+    past: ended(chat) ? [chat, ...past] : past,
+  };
+}
+
 function threadDetail(row: AgentSession): ThreadDetail {
   if (row.status === "asking" && row.question) return { kind: "question", text: row.question.text };
   return row.reply_html ? { kind: "reply", html: row.reply_html } : null;
