@@ -601,7 +601,10 @@ async fn another_machine_lists_the_sessions_ended_since_only_when_asked() {
             panic!("not done");
         };
         let views: Vec<ChildView> = serde_json::from_str(&text).expect("a list");
-        views.into_iter().map(|view| view.state).collect::<Vec<_>>()
+        let mut states: Vec<String> = views.into_iter().map(|view| view.state).collect();
+        // Started in the same second, they list in either order.
+        states.sort();
+        states
     };
 
     assert_eq!(names("{}"), ["idle"]);
