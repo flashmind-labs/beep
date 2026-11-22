@@ -205,3 +205,39 @@ async fn a_device_that_does_not_serve_the_board_refuses() {
         "{answer:?}"
     );
 }
+
+/// Takes a team stream and never answers on it.
+#[derive(Debug)]
+struct Stalls;
+
+impl iroh::protocol::ProtocolHandler for Stalls {
+    async fn accept(
+        &self,
+        connection: iroh::endpoint::Connection,
+    ) -> Result<(), iroh::protocol::AcceptError> {
+        let _stream = connection.accept_bi().await;
+        std::future::pending().await
+    }
+}
+
+#[tokio::test]
+async fn a_device_that_stalls_gives_way_to_the_next() {
+    let pair = Pair::new().await;
+    pair.set(vec![card("s1@build-box", "alice", Lane::Working {})]);
+    let stalling = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let addr = stalling.addr();
+    let _stalls = Router::builder(stalling)
+        .accept(beep_proto::team::ALPN, Stalls)
+        .spawn();
+    let mut alice = pair.alice.clone();
+    alice.devices.insert(0, addr);
+    let (tx, mut heard) = mpsc::channel(8);
+    let _follow = AbortOnDropHandle::new(tokio::spawn(follow(
+        pair.bob_link.clone(),
+        repo(),
+        alice,
+        tx,
+    )));
+
+    assert!(matches!(next(&mut heard).await, Heard::Board(_)));
+}

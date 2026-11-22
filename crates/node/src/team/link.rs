@@ -38,7 +38,7 @@ use tokio::{
 /// How long a device gets to connect when dialed.
 const DIAL: Duration = Duration::from_secs(5);
 /// How long a peer gets to open its stream and send its first message.
-const READ: Duration = Duration::from_secs(10);
+pub(super) const READ: Duration = Duration::from_secs(10);
 /// The largest first message: a stranger's `Join` or `Invite` is small.
 const FIRST_FRAME: usize = 16 * 1024;
 /// How long the forge gets to say whether a login may push.

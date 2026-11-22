@@ -3,7 +3,7 @@
 
 use super::{
     cards::changes,
-    link::{TeamError, TeamLink, finish},
+    link::{READ, TeamError, TeamLink, finish},
 };
 use beep_proto::{
     node::{LinkRx, LinkTx},
@@ -17,11 +17,18 @@ use std::{
 use tokio::{
     select,
     sync::{broadcast, broadcast::error::RecvError, mpsc},
-    time::sleep,
+    time::{Instant, sleep, timeout_at},
 };
 
 /// How long after a teammate's board drops it is dialed again.
 const REDIAL: Duration = Duration::from_secs(60);
+/// How long a dialed device gets to send the board before the next is
+/// tried. Short in tests.
+const FIRST_BOARD: Duration = if cfg!(test) {
+    Duration::from_secs(1)
+} else {
+    READ
+};
 /// The largest message a teammate's gateway may send.
 const MAX_FRAME: usize = 1024 * 1024;
 /// Changes kept for a slow subscriber before it gets the whole board again.
@@ -186,7 +193,7 @@ async fn subscribe(
 }
 
 /// Follows `repo`'s board on one of `member`'s devices; an error when the
-/// device does not serve it.
+/// device does not serve it, or not within `FIRST_BOARD`.
 async fn listen(
     link: &TeamLink,
     repo: &TeamRepo,
@@ -198,9 +205,17 @@ async fn listen(
     rx.set_max_frame(MAX_FRAME);
     tx.send(&TeamMsg::Subscribe { repo: repo.clone() }).await?;
     let mut served = false;
+    let deadline = Instant::now() + FIRST_BOARD;
 
     loop {
-        let msg = match rx.recv::<TeamMsg>().await {
+        let next = rx.recv::<TeamMsg>();
+        let got = match served {
+            true => next.await,
+            false => timeout_at(deadline, next)
+                .await
+                .map_err(|_| TeamError::Refused("the board did not come".to_owned()))?,
+        };
+        let msg = match got {
             Ok(Some(msg)) => msg,
             _ if served => return Ok(()),
             Ok(None) => return Err(TeamError::Refused("the board was not served".to_owned())),
