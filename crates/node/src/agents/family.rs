@@ -299,9 +299,11 @@ impl Agents {
             .then(|| self.get(&link.session))
             .flatten();
         let root = (link.root_machine, link.root.clone());
+        let title = start.title.filter(|title| !title.trim().is_empty());
         let begin = Begin {
             prompt: Some(start.prompt),
-            title: start.title.filter(|title| !title.trim().is_empty()),
+            named: title.is_some(),
+            title,
             model: start.model,
             effort: start.review.as_ref().and_then(|review| review.effort),
             fast: start.review.as_ref().and_then(|review| review.fast),

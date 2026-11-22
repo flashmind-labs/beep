@@ -54,6 +54,9 @@ pub(crate) struct SavedSession {
     /// The named account it ran as; `None` for the default one.
     #[serde(default)]
     pub(crate) account: Option<AccountName>,
+    /// Its parent gave its title, which its agent's own names leave alone.
+    #[serde(default)]
+    pub(crate) named: bool,
 }
 
 /// Why a session is read to start again.
@@ -115,6 +118,9 @@ pub(crate) struct OpenSession {
     /// The named account it ran as; `None` for the default one.
     #[serde(default)]
     account: Option<AccountName>,
+    /// Its parent gave its title.
+    #[serde(default)]
+    named: bool,
 }
 
 impl From<&OpenSession> for SavedSession {
@@ -140,6 +146,7 @@ impl From<&OpenSession> for SavedSession {
             effort: open.effort,
             fast: open.fast,
             account: open.account.clone(),
+            named: open.named,
         }
     }
 }
@@ -262,6 +269,12 @@ impl Agents {
             .cloned()
     }
 
+    /// Drops what was kept of session `id`, by the agent's own id, once it
+    /// is deleted.
+    pub(super) fn forget_saved(&self, id: &SessionId) {
+        crate::lock(&self.saved).retain(|kept| kept.info.id != *id);
+    }
+
     /// The linked worktrees session `id` created, as `saved` gives them.
     pub(crate) fn created_worktrees(&self, id: &SessionId) -> Vec<String> {
         self.saved(id)
@@ -295,6 +308,7 @@ impl Agents {
                 effort: live.effort,
                 fast: live.fast,
                 account: info.account.clone(),
+                named: live.named,
             })
         })
     }
@@ -345,6 +359,7 @@ impl Agents {
                 effort: live.effort,
                 fast: live.fast,
                 account: session.account.clone(),
+                named: live.named,
             })
         })
     }
@@ -432,6 +447,7 @@ impl Agents {
                 earlier: open.transcript,
                 model: open.model,
                 title: open.title,
+                named: open.named,
                 mode: open.mode,
                 parent: open.parent,
                 follows,

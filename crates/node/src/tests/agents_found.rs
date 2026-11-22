@@ -182,3 +182,25 @@ fn an_assistant_conversation_s_folder_is_no_project() {
 
     assert!(folders(&all, Some(&home), 10, lookup).is_empty());
 }
+
+#[test]
+fn many_recent_chats_leave_an_older_checkout_its_lookup() {
+    let root = tempfile::tempdir().expect("a temp folder");
+    let home = root.path().to_owned();
+    let hidden = home.join(".beep").join("assistant");
+    let project = home.join("project");
+    std::fs::create_dir_all(&project).expect("folders");
+    let mut all: Vec<Seen> = (0..MAX_LOOKUPS)
+        .map(|at| seen(Agent::Claude, "a", &hidden.join(format!("{at:06x}")), 100))
+        .collect();
+    all.push(seen(Agent::Claude, "b", &project, 1));
+    let lookup = |dir: &Path| {
+        Some(Checkout {
+            root: dir.to_owned(),
+            origin: "git@example.com:org/project.git".into(),
+        })
+    };
+
+    let found = folders(&all, Some(&home), 10, lookup);
+    assert_eq!(found.len(), 1, "{found:?}");
+}

@@ -9,6 +9,7 @@
 
 use super::{Agents, Command, Live, Session, children};
 use crate::agents::{acp::Prompt, cut};
+use beep_proto::SessionId;
 use beep_proto::node::agent::{SessionInfo, Status, StopReason};
 use beep_proto::watched;
 use std::sync::{Arc, atomic::Ordering};
@@ -69,18 +70,46 @@ pub(super) fn is_thread(info: &SessionInfo) -> bool {
     !info.reviewer && info.parent.as_ref().is_some_and(|link| !link.background)
 }
 
+/// What a session's relatives came to, and how each stood when that was
+/// read: seen once the session took the message that says so.
+#[derive(Default)]
+pub(super) struct News {
+    text: Option<String>,
+    seen: Vec<(SessionId, Mark)>,
+}
+
 impl Agents {
-    /// What the user sent `session`: a message counts as the user's, and
-    /// takes what changed among the session's relatives ahead of it.
-    pub(in crate::agents) fn by_user(&self, session: &Arc<Session>, command: Command) -> Command {
-        match command {
-            Command::Prompt(prompt) => Command::Prompt(self.heard(session, prompt)),
-            Command::Steer(prompt) => Command::Steer(self.heard(session, prompt)),
-            other => other,
+    /// Orders what the user sent `session`: a message counts as the user's,
+    /// and takes what changed among the session's relatives ahead of it. A
+    /// message the session refuses leaves that for the next.
+    pub(in crate::agents) async fn order_by_user(
+        &self,
+        session: &Arc<Session>,
+        command: Command,
+    ) -> Result<(), String> {
+        let (command, news) = match command {
+            Command::Prompt(prompt) => {
+                let (prompt, news) = self.heard(session, prompt);
+                (Command::Prompt(prompt), news)
+            }
+            Command::Steer(prompt) => {
+                let (prompt, news) = self.heard(session, prompt);
+                (Command::Steer(prompt), news)
+            }
+            other => (other, News::default()),
+        };
+        session.order(command).await?;
+
+        for (id, mark) in news.seen {
+            session.see(&id, mark);
         }
+
+        Ok(())
     }
 
-    fn heard(&self, session: &Arc<Session>, mut prompt: Prompt) -> Prompt {
+    /// The user's `prompt` to `session` with what its relatives came to,
+    /// which it has not seen until it takes the prompt.
+    pub(super) fn heard(&self, session: &Arc<Session>, mut prompt: Prompt) -> (Prompt, News) {
         session.user_wrote();
         let status = watched::read(&session.live, Live::status);
 
@@ -91,16 +120,18 @@ impl Agents {
 
         // Words sent while it asks may be the answer, and a command is the
         // whole message: neither takes anything else, so the news waits.
-        if status != Status::Asking && !prompt.text.trim_start().starts_with('/') {
-            prompt.context = self.changes(session);
+        if status == Status::Asking || prompt.text.trim_start().starts_with('/') {
+            return (prompt, News::default());
         }
 
-        prompt
+        let news = self.changes(session);
+        prompt.context.clone_from(&news.text);
+        (prompt, news)
     }
 
     /// What changed among `session`'s relatives here since it last saw
-    /// them, which it has now seen.
-    fn changes(&self, session: &Arc<Session>) -> Option<String> {
+    /// them.
+    fn changes(&self, session: &Arc<Session>) -> News {
         let me = self.who_of(session);
         let main = session
             .info()
@@ -108,12 +139,14 @@ impl Agents {
             .filter(|link| link.machine == me.machine)
             .and_then(|link| self.get(&link.session));
         let mut lines = Vec::new();
+        let mut seen = Vec::new();
 
         if let Some(main) = &main {
             let (mark, said) = watched::read(&main.live, |live| {
                 (Into::<Mark>::into(live), one_line(&live.info.last_message))
             });
-            let before = session.see(&main.id, mark);
+            let before = session.saw(&main.id);
+            seen.push((main.id.clone(), mark));
 
             if before.is_none_or(|before| before.turns != mark.turns) && !said.is_empty() {
                 lines.push(format!("- parent session: {said}"));
@@ -134,18 +167,22 @@ impl Agents {
             }) else {
                 continue;
             };
-            let news = match session.see(&thread.id, mark) {
+            let news = match session.saw(&thread.id) {
                 Some(before) => before != mark,
                 // One never seen that has yet to do anything says nothing.
                 None => mark.turns > 0 || mark.stand != Stand::Working,
             };
+            seen.push((thread.id.clone(), mark));
 
             if news {
                 lines.push(line);
             }
         }
 
-        (!lines.is_empty()).then(|| format!("{HEAD}\n{}", lines.join("\n")))
+        News {
+            text: (!lines.is_empty()).then(|| format!("{HEAD}\n{}", lines.join("\n"))),
+            seen,
+        }
     }
 }
 

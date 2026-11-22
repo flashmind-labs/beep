@@ -19,15 +19,31 @@ export function parentRow(rows: readonly AgentSession[], s: Pick<AgentSession, "
   return startedBy(rows, rows.find(r => same(r, s)) ?? {});
 }
 
-/// The row of the session that started `s`: the one it names, else the assistant chat whose
-/// folder holds its own. A thread listed from its agent's files, once it ended and its node
-/// started again, names no parent, and its folder still says whose it is.
-export function startedBy(rows: readonly AgentSession[], s: Partial<Pick<AgentSession, "parent" | "machine_id" | "cwd">>): AgentSession | undefined {
-  const p = s.parent;
-  if (p) return rows.find(r => r.machine_id === p.machine_id && (r.id === p.id || (p.key !== "" && r.id === p.key)));
-  const chat = THREAD_FOLDER.exec(s.cwd ?? "")?.[1];
+/// What names who started a session: its parent link, else its folder.
+type Started = Partial<Pick<AgentSession, "parent" | "machine_id" | "cwd">>;
 
-  return chat ? rows.find(r => r.assistant && r.machine_id === s.machine_id && r.cwd === chat) : undefined;
+/// The row of the session that started `s`: the one it names, else the assistant chat whose
+/// folder holds its own. A thread found in its agent's files, such as one resumed outside
+/// Beep, names no parent, and its folder still says whose it is.
+export const startedBy = (rows: readonly AgentSession[], s: Started): AgentSession | undefined => starters(rows)(s);
+
+/// `startedBy` for many sessions of the same `rows`, which are read once.
+export function starters(rows: readonly AgentSession[]): (s: Started) => AgentSession | undefined {
+  const byId = new Map<string, AgentSession>(), chats = new Map<string, AgentSession>();
+  const keep = (map: Map<string, AgentSession>, machine: string, name: string, row: AgentSession) => { if (!map.has(`${machine}\n${name}`)) map.set(`${machine}\n${name}`, row); };
+
+  for (const row of rows) {
+    keep(byId, row.machine_id, row.id, row);
+    if (row.assistant) keep(chats, row.machine_id, row.cwd, row);
+  }
+
+  return s => {
+    const p = s.parent;
+    if (p) return byId.get(`${p.machine_id}\n${p.id}`) ?? (p.key !== "" ? byId.get(`${p.machine_id}\n${p.key}`) : undefined);
+    const chat = THREAD_FOLDER.exec(s.cwd ?? "")?.[1];
+
+    return chat ? chats.get(`${s.machine_id}\n${chat}`) : undefined;
+  };
 }
 
 /// A thread's folder, right under its conversation's (`.beep/assistant/<id>` in the home
@@ -41,8 +57,10 @@ export function nest(rows: AgentSession[]): Nested[] {
   const kids = new Map<AgentSession, AgentSession[]>();
   const nested = new Set<AgentSession>();
 
+  const from = starters(rows);
+
   for (const row of rows) {
-    const parent = parentRow(rows, row);
+    const parent = from(row);
     if (!parent || parent === row) continue;
     kids.set(parent, [...(kids.get(parent) ?? []), row]);
     nested.add(row);

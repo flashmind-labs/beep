@@ -92,8 +92,7 @@ impl Agents {
             Refused::Request(_) => "this request cannot order an existing session".to_owned(),
         })?;
 
-        let command = self.by_user(&session, command);
-        session.order(command).await?;
+        self.order_by_user(&session, command).await?;
 
         if cascade {
             self.cancel_family(&session).await;
@@ -263,8 +262,7 @@ pub async fn serve_session(
                         continue;
                     }
                 };
-                let command = agents.by_user(&session, command);
-                let error = session.order(command).await.err();
+                let error = agents.order_by_user(&session, command).await.err();
 
                 if cascade {
                     // The session keeps the task, so it ends with it; it is

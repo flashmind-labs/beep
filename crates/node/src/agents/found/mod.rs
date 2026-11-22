@@ -517,8 +517,12 @@ pub(crate) fn folders(
     };
     let mut roots: HashMap<PathBuf, (String, Tally)> = HashMap::new();
 
-    for (cwd, tally) in cwds.into_iter().take(MAX_LOOKUPS) {
-        if skipped(cwd) || !cwd.is_absolute() || !cwd.is_dir() {
+    // The skipped ones take none of the lookups: a run of chats in their
+    // own folders leaves the checkouts their turn.
+    let looked = cwds.into_iter().filter(|(cwd, _)| !skipped(cwd));
+
+    for (cwd, tally) in looked.take(MAX_LOOKUPS) {
+        if !cwd.is_absolute() || !cwd.is_dir() {
             continue;
         }
 

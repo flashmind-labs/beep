@@ -761,6 +761,7 @@ impl Agents {
             earlier: begin.earlier,
             timestamps: begin.timestamps,
             title: begin.title,
+            named: begin.named,
             model: begin.model,
             mode: begin.mode,
             effort: begin.effort,
@@ -885,6 +886,8 @@ pub(super) struct Begin {
     pub(super) earlier: Vec<agent::Entry>,
     pub(super) timestamps: Option<(u64, u64)>,
     pub(super) title: Option<String>,
+    /// Its parent gave `title`, which its agent's own names leave alone.
+    pub(super) named: bool,
     pub(super) model: Option<ModelId>,
     pub(super) effort: Option<agent::Effort>,
     pub(super) fast: Option<bool>,
@@ -965,23 +968,22 @@ fn own_folder(cwd: Option<&str>, begin: &Begin) -> Result<Option<String>> {
     }
 
     let home = dirs::home_dir().context("this machine has no home folder")?;
-    let made = super::conversation::own(&home, cwd, &new_id())
+    let made = super::conversation::own(&home, cwd, new_id)
         .context("making the conversation's folder")?;
     Ok(made.map(|folder| folder.to_string_lossy().into_owned()))
 }
 
 impl Agents {
-    /// The folder a child called `title` starts in when its parent names
-    /// none: a subfolder of its own when `parent` is in an assistant
-    /// conversation's folder, else the parent's folder.
-    pub(super) fn child_folder(&self, parent: &Session, title: Option<&str>) -> Result<String> {
-        let folder = parent.info().cwd;
+    /// The subfolder of its own, made now, that a child called `title`
+    /// starts in when its parent names none and `parent` is in an assistant
+    /// conversation's folder. `None` anywhere else: it starts in the parent's.
+    pub(super) fn child_folder(&self, parent: &Session, title: Option<&str>) -> Result<Option<PathBuf>> {
         let Some(home) = dirs::home_dir() else {
-            return Ok(folder);
+            return Ok(None);
         };
-        let made = super::conversation::thread_folder(&home, Path::new(&folder), title, &new_id())
-            .context("making the thread's folder")?;
-        Ok(made.map_or(folder, |made| made.to_string_lossy().into_owned()))
+
+        super::conversation::thread_folder(&home, Path::new(&parent.info().cwd), title, new_id)
+            .context("making the thread's folder")
     }
 }
 

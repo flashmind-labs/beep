@@ -238,6 +238,12 @@ test("assistant chat with threads", async ({ page }) => {
   await expect(page.locator("#agmsg")).toHaveValue("New thread: ");
   await expect(page.locator("#agmsg")).toBeFocused();
 
+  // The chat's own menu offers it too, which is how a phone reaches it: its list hides while a chat shows.
+  await page.locator("#agmsg").fill("");
+  await list.getByRole("button", { name: /Battery chemistries/ }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "New thread" }).click();
+  await expect(page.locator("#agmsg")).toHaveValue("New thread: ");
+
   // A thread opens on the page, with no pane beside it, as the current item under its chat.
   await page.evaluate(next => window.__navigation.respond("agent_view", next), view(threads[1], "Pilot lines in 2027, no volume before 2030."));
   await list.getByRole("button", { name: /Solid-state timelines/ }).click();

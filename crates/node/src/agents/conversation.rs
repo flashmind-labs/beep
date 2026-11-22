@@ -12,32 +12,37 @@ use std::{
 /// The hidden folder in the home folder that holds what Beep keeps there.
 pub(super) const HIDDEN: &str = ".beep";
 
-/// The folder of the conversation `id` under `home`.
-pub(super) fn folder(home: &Path, id: &SessionId) -> PathBuf {
-    root(home).join(id.as_ref())
-}
+/// How many ids are tried for a folder nobody has yet.
+const TRIES: usize = 8;
 
-/// The folder a new conversation `id` gets when it asks for none or for the
-/// home folder (`cwd` as `running::folder` reads it): its own, made now.
-/// `None` for one that names a folder.
-pub(super) fn own(home: &Path, cwd: Option<&str>, id: &SessionId) -> io::Result<Option<PathBuf>> {
+/// The folder a new conversation gets when it asks for none or for the home
+/// folder (`cwd` as `running::folder` reads it): its own, named by one of
+/// `id`'s and made now, never one that is there already. `None` for one that
+/// names a folder.
+pub(super) fn own(
+    home: &Path,
+    cwd: Option<&str>,
+    mut id: impl FnMut() -> SessionId,
+) -> io::Result<Option<PathBuf>> {
     if !matches!(cwd.map(str::trim), None | Some("" | "~")) {
         return Ok(None);
     }
 
-    let made = folder(home, id);
-    std::fs::create_dir_all(&made)?;
-    Ok(Some(made))
+    let root = root(home);
+    std::fs::create_dir_all(&root)?;
+    made_new((0..TRIES).map(|_| root.join(id().as_ref()))).map(Some)
 }
 
-/// The subfolder the thread `id`, called `title`, gets of its parent's
-/// folder `parent`, made now, when that is a conversation's or under one.
-/// `None` for a chat anywhere else, whose children start in its own folder.
+/// The subfolder a thread called `title` gets of its parent's folder
+/// `parent`, made now, when that is a conversation's or under one: named
+/// after it, with one of `id`'s when that name is taken or there is none.
+/// Two threads never get the same one, started together or not. `None` for a
+/// chat anywhere else, whose children start in its own folder.
 pub(super) fn thread_folder(
     home: &Path,
     parent: &Path,
     title: Option<&str>,
-    id: &SessionId,
+    mut id: impl FnMut() -> SessionId,
 ) -> io::Result<Option<PathBuf>> {
     let root = root(home);
 
@@ -45,14 +50,28 @@ pub(super) fn thread_folder(
         return Ok(None);
     }
 
+    std::fs::create_dir_all(parent)?;
     let name = title.map(slug).filter(|name| !name.is_empty());
-    let made = match name {
-        Some(name) if !parent.join(&name).exists() => parent.join(name),
-        Some(name) => parent.join(format!("{name}-{id}")),
-        None => parent.join(id.as_ref()),
-    };
-    std::fs::create_dir_all(&made)?;
-    Ok(Some(made))
+    let plain = name.as_ref().map(|name| parent.join(name));
+    let numbered = (0..TRIES).map(|_| match &name {
+        Some(name) => parent.join(format!("{name}-{}", id())),
+        None => parent.join(id().as_ref()),
+    });
+    made_new(plain.into_iter().chain(numbered)).map(Some)
+}
+
+/// Makes the first of `folders` that is not there yet, in a folder that is,
+/// and gives it: whoever makes a folder has it alone.
+fn made_new(folders: impl Iterator<Item = PathBuf>) -> io::Result<PathBuf> {
+    for folder in folders {
+        match std::fs::create_dir(&folder) {
+            Ok(()) => return Ok(folder),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+
+    Err(io::Error::new(io::ErrorKind::AlreadyExists, "every folder tried is taken"))
 }
 
 /// Whether `folder` is a conversation's: a named folder directly under the
@@ -61,6 +80,12 @@ pub(super) fn thread_folder(
 pub(super) fn holds(home: &Path, folder: &Path) -> bool {
     folder.parent() == Some(root(home).as_path())
         && matches!(folder.components().next_back(), Some(Component::Normal(_)))
+}
+
+/// What the assistant hears about its folder when it runs in `folder`:
+/// only in a conversation's own is it told to keep its notes there.
+pub(super) fn brief(home: &Path, folder: &Path) -> Option<&'static str> {
+    holds(home, folder).then_some(super::brief::OWN_FOLDER)
 }
 
 /// Removes a conversation's `folder` with what it holds. Any other folder

@@ -970,6 +970,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         earlier: Vec::new(),
         timestamps: None,
         title: None,
+        named: false,
         model: model.map(ModelId::new),
         effort: None,
         fast: None,

@@ -602,6 +602,7 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
         effort: None,
         fast: None,
         account: None,
+        named: false,
     }]);
     agents.settings_arrived();
     let resumed = agents
@@ -626,6 +627,7 @@ fn an_ended_assistant_kept_from_before_is_still_the_assistant() {
         effort: None,
         fast: None,
         account: None,
+        named: false,
     };
     agents.keep_saved(vec![
         kept("chat", true, false),
@@ -699,6 +701,7 @@ fn a_new_note_reads_as_an_old_node_keeps_it() {
         effort: None,
         fast: None,
         account: None,
+        named: false,
     };
     Reopen::new(Vec::new(), Vec::new(), vec![saved])
         .save(dir.path())
@@ -760,9 +763,10 @@ fn a_reviewer_taken_over_is_never_the_assistant() {
         effort: None,
         fast: None,
         account: None,
+        named: false,
     };
 
-    assert!(!agents.resumed_begin(None, &SessionId::from("held-1"), saved).assistant);
+    assert!(!agents.resumed_begin(&SessionId::from("held-1"), saved).assistant);
 }
 
 /// flsh sends a session's title again right after `session/load`. A session
@@ -812,6 +816,7 @@ async fn a_saved_assistant_chat_still_names_its_folder_to_delete() {
         effort: None,
         fast: None,
         account: None,
+        named: false,
     };
     let link = ParentLink {
         machine: None,
@@ -838,6 +843,19 @@ async fn a_saved_assistant_chat_still_names_its_folder_to_delete() {
     );
     assert_eq!(agents.conversation_of(&SessionId::from("thread-1")), None);
     assert_eq!(agents.conversation_of(&SessionId::from("plain-1")), None);
+
+    // A chat started in another's folder shares it: neither takes it while
+    // the other is there, and the last of them does.
+    let mut guest = kept("main-2", true, None);
+    guest.info.cwd = "/home/user/.beep/assistant/main-1".into();
+    agents.keep_saved(vec![kept("main-1", true, None), guest]);
+    assert_eq!(agents.conversation_of(&SessionId::from("main-1")), None);
+    assert_eq!(agents.conversation_of(&SessionId::from("main-2")), None);
+    agents.forget_saved(&SessionId::from("main-2"));
+    assert_eq!(
+        agents.conversation_of(&SessionId::from("main-1")),
+        Some(std::path::PathBuf::from("/home/user/.beep/assistant/main-1"))
+    );
     assert_eq!(agents.conversation_of(&SessionId::from("gone-1")), None);
     agents.shutdown().await;
 }

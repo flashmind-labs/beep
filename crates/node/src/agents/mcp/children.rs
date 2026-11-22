@@ -407,12 +407,17 @@ impl Reach<'_> {
         link: ParentLink,
         start: StartParts,
     ) -> Result<ChildView, String> {
-        let cwd = match start.cwd {
-            Some(cwd) => cwd,
+        let made = match start.cwd {
+            Some(_) => None,
             None => self
                 .agents
                 .child_folder(parent, start.title.as_deref())
                 .map_err(|e| format!("{e:#}"))?,
+        };
+        let cwd = match (start.cwd, &made) {
+            (Some(cwd), _) => cwd,
+            (None, Some(made)) => made.to_string_lossy().into_owned(),
+            (None, None) => parent.info().cwd,
         };
         let child = self
             .agents
@@ -428,7 +433,15 @@ impl Reach<'_> {
                     title: start.title,
                 },
             )
-            .await?;
+            .await;
+
+        // A start that was refused keeps no folder and no name: its folder,
+        // still empty, goes.
+        if let (Err(_), Some(made)) = (&child, &made) {
+            let _ = std::fs::remove_dir(made);
+        }
+
+        let child = child?;
         Ok(self.view_here(&child))
     }
 

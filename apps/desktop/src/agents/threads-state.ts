@@ -1,7 +1,7 @@
 // An assistant chat's threads: the sessions its agent started, which the user
 // sees as parts of the chat. No DOM here.
 import type { AgentSession } from "./agents.ts";
-import { parentRow, startedBy } from "./nesting-state.ts";
+import { startedBy, starters } from "./nesting-state.ts";
 
 /// What a thread's row says after its name: what it asks the user, else
 /// the first line of what it last said, as inline HTML.
@@ -28,17 +28,21 @@ export function chatOf<S extends Partial<Pick<AgentSession, "assistant" | "revie
   return at?.assistant ? at : null;
 }
 
-/// The threads of the chat `main`, oldest first: its direct children, but
-/// for the reviewers and background agents, which work for the agent alone.
-export function threadsOf(rows: readonly AgentSession[], main: Pick<AgentSession, "machine_id" | "id">): Thread[] {
-  const list = [...rows];
-  const parent = list.find(row => row.machine_id === main.machine_id && row.id === main.id);
-  if (!parent) return [];
+/// Each chat's threads, oldest first, by the chat's row in `rows`: its direct children, but for
+/// the reviewers and background agents, which work for the agent alone. The rows are read
+/// once for all the chats.
+export function threadsByChat(rows: readonly AgentSession[]): Map<AgentSession, Thread[]> {
+  const from = starters(rows), threads = new Map<AgentSession, Thread[]>();
 
-  return list
-    .filter(row => !row.reviewer && !row.background && row !== parent && parentRow(list, row) === parent)
-    .sort((a, b) => a.started_at - b.started_at)
-    .map(row => ({ row, name: row.title || row.agent, detail: threadDetail(row) }));
+  for (const row of [...rows].sort((a, b) => a.started_at - b.started_at)) {
+    const chat = row.reviewer || row.background ? undefined : from(row);
+    if (!chat || chat === row) continue;
+    const list = threads.get(chat) ?? [];
+    list.push({ row, name: row.title || row.agent, detail: threadDetail(row) });
+    threads.set(chat, list);
+  }
+
+  return threads;
 }
 
 function threadDetail(row: AgentSession): ThreadDetail {

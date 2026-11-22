@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chatOf, threadsOf } from "../src/agents/threads-state.ts";
+import { chatOf, threadsByChat } from "../src/agents/threads-state.ts";
 import type { AgentSession } from "../src/agents/agents.ts";
 
 let at = 0;
@@ -9,6 +9,10 @@ const row = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({
   status: "idle", doing: null, started_at: ++at, last_activity: at, external: false, question: null, parent: null, assistant: false, ...over,
 });
 const under = (id: string, key = "") => ({ machine_id: "m1", id, key });
+const threadsOf = (rows: AgentSession[], main: AgentSession) => {
+  const listed = rows.find(row => row.machine_id === main.machine_id && row.id === main.id);
+  return (listed && threadsByChat(rows).get(listed)) ?? [];
+};
 const ids = (rows: AgentSession[], main: AgentSession) => threadsOf(rows, main).map(thread => thread.row.id);
 
 test("a chat's threads are its direct children, oldest first", () => {

@@ -755,6 +755,7 @@ async fn the_source_sends_what_it_saved_of_the_session_with_its_checkout() {
         effort: None,
         fast: None,
         account: None,
+        named: false,
     }]);
     let folder = TempDir::new().expect("a temp folder");
     let server = Router::builder(endpoint().await)

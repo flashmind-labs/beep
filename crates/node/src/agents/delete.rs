@@ -3,7 +3,7 @@
 use beep_proto::SessionId;
 use super::{Agents, found::Agent};
 use anyhow::{Context, Result, bail, ensure};
-use beep_proto::node::agent::Status;
+use beep_proto::node::agent::{SessionInfo, Status};
 use beep_proto::watched;
 use std::{path::PathBuf, time::Duration};
 use tokio::{
@@ -86,6 +86,7 @@ impl Agents {
         let attachment_agent = agent.to_owned();
         let attachment_id = agent_id.unwrap_or_else(|| id.clone());
         let indexed = attachment_id.clone();
+        self.forget_saved(&indexed);
         spawn_blocking(move || super::uploads::remove(&attachment_agent, &attachment_id)).await??;
 
         {
@@ -119,11 +120,17 @@ impl Agents {
     /// when it is the main chat of an assistant conversation, as it is here
     /// or as it was kept from before the node restarted. `delete_session`
     /// removes it only if it is a conversation's folder.
+    ///
+    /// A chat started in another's folder shares it, so neither takes it
+    /// while the other is still known here: the last of them does.
     pub(super) fn conversation_of(&self, id: &SessionId) -> Option<PathBuf> {
-        self.saved(id)
-            .map(|saved| saved.info)
-            .filter(|info| info.assistant && info.parent.is_none())
-            .map(|info| PathBuf::from(info.cwd))
+        let main = |info: &SessionInfo| info.assistant && info.parent.is_none();
+        let mine = self.saved(id).map(|saved| saved.info).filter(main)?;
+        let shared = self.saved_sessions().iter().any(|other| {
+            other.info.id != mine.id && main(&other.info) && other.info.cwd == mine.cwd
+        });
+
+        (!shared).then(|| PathBuf::from(mine.cwd))
     }
 
     /// Checks that no process has `agent`'s files of its session `id` open.

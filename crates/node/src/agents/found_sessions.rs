@@ -598,14 +598,7 @@ impl Agents {
             && session.agent == kind.name
             && watched::read(&session.live, |live| live.status() != Status::Ended)
         {
-            if let Some(text) = prompt {
-                session
-                    .order(Command::Prompt(text.into()))
-                    .await
-                    .map_err(anyhow::Error::msg)?;
-            }
-
-            return Ok(session);
+            return self.said_on_resume(session, prompt).await;
         }
         // ACP can reload a session this node ran without a reader for the
         // harness's private store. Outside sessions still need that reader.
@@ -643,36 +636,55 @@ impl Agents {
         let cwd = super::restart::ready_to_resume(kind, id, Path::new(&cwd)).await;
         let cwd = cwd.to_string_lossy();
         // Never seen here, as one found outside Beep: never the assistant.
-        let mut begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
+        let mut begin = self.resumed_begin(id, before.unwrap_or_default());
         begin.model = model.or(begin.model);
         let session = self.start(kind, Some(&cwd), begin)?;
         self.watch_parent(&session);
+
+        // Its first turn here is the user's, whose words begin it.
+        if prompt.is_some() {
+            session.user_turn.store(true, Ordering::Relaxed);
+        }
+
+        self.said_on_resume(session, prompt).await
+    }
+
+    /// Gives `session`, resumed, the words the user resumed it with: they
+    /// are the user's like any other message, so a thread hears what its
+    /// relatives came to and its turn wakes no idle parent.
+    async fn said_on_resume(
+        &self,
+        session: Arc<Session>,
+        prompt: Option<String>,
+    ) -> Result<Arc<Session>> {
+        if let Some(text) = prompt {
+            self.order_by_user(&session, Command::Prompt(text.into()))
+                .await
+                .map_err(anyhow::Error::msg)?;
+        }
+
         Ok(session)
     }
 
     /// How a session of this node that ended begins again, as `before` it
     /// was: with the link to its parent and the mode it was in, and
     /// following the parent when that runs here.
-    pub(super) fn resumed_begin(
-        &self,
-        prompt: Option<String>,
-        id: &SessionId,
-        before: SavedSession,
-    ) -> Begin {
+    pub(super) fn resumed_begin(&self, id: &SessionId, before: SavedSession) -> Begin {
         let SavedSession {
             info,
             effort,
             fast,
             account,
+            named,
         } = before;
         let follows = info
             .parent
             .as_ref()
             .and_then(|link| self.parent_live_of(link));
         Begin {
-            prompt,
             resume: Some(id.clone()),
             title: info.title,
+            named,
             mode: info.mode,
             model: info.model,
             effort,

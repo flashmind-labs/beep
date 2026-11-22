@@ -6,7 +6,8 @@ import { createStore, useStore } from "zustand";
 import { AG, type AgentRow, type AgentSession } from "./agents.ts";
 import { renderAgentNew } from "./agentnew.tsx";
 import { assistantRows } from "./assistant-state.ts";
-import { chatOf, type ThreadDetail, threadsOf } from "./threads-state.ts";
+import { chatOf, type ThreadDetail, threadsByChat } from "./threads-state.ts";
+import { sessionMenu } from "./sessionmenu.ts";
 import { agentName, runningKey } from "./running-state.ts";
 import { ensureSessions, sessions, sessionsChanged, sessionsRead } from "./sessions.ts";
 import { sessionVisible } from "./closing.ts";
@@ -105,14 +106,16 @@ export function AssistantList() {
 
   if (!on) return <div className="pj-list asst-list" hidden />;
   const listed = sessions.filter(sessionVisible);
-  const { running, ended } = assistantRows(listed);
+  const { running, ended } = assistantRows(listed), threadsOf = threadsByChat(listed);
   const item = (session: AgentSession, title: string, lead: ReactNode, sub: ReactNode) => <Row key={runningKey(session)} picked={chat} nav={false} openTile={() => {}} item={{
     key: runningKey(session), lead, title, sub,
     right: session.status === "ended" ? formatAgo(session.last_activity, "since") : <RunningStatus row={{ kind: "agent", ...session }} />,
     open: () => goChat(session),
+    // Also how a phone, whose list hides while a chat shows, reaches New thread.
+    menu: event => void sessionMenu(event, session, goChat),
   }} />;
   const row = (session: AgentSession) => {
-    const threads = threadsOf(listed, session);
+    const threads = threadsOf.get(session) ?? [];
     const inHand = [session, ...threads.map(thread => thread.row)].some(one => runningKey(one) === chat);
 
     return <Fragment key={runningKey(session)}>

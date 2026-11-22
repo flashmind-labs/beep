@@ -223,6 +223,8 @@ pub(super) struct Start<'a> {
     pub(super) earlier: Vec<Entry>,
     pub(super) timestamps: Option<(u64, u64)>,
     pub(super) title: Option<String>,
+    /// Its parent gave `title`.
+    pub(super) named: bool,
     /// The model to run a new session on, rather than the agent's own.
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
@@ -295,6 +297,7 @@ impl Session {
             earlier,
             timestamps,
             title,
+            named,
             model,
             effort,
             fast,
@@ -411,7 +414,10 @@ impl Session {
         // bridge starts its CLI the same way, once the session starts.
         let agent = super::start(process, kind.bridge.as_ref())?;
         let processes = Processes::new(agent.running.pid());
-        let named = title.is_some() && parent.is_some() && resume.is_none();
+        let own_folder = (assistant && mcp.is_some())
+            .then(dirs::home_dir)
+            .flatten()
+            .and_then(|home| super::conversation::brief(&home, cwd));
         let info = SessionInfo {
             title,
             id: resume.clone().unwrap_or_default(),
@@ -474,8 +480,11 @@ impl Session {
             standing: actor::joined(
                 actor::joined(
                     actor::joined(
-                        actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
-                        (assistant && mcp.is_some()).then_some(super::mcp::ASSISTANT),
+                        actor::joined(
+                            actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
+                            (assistant && mcp.is_some()).then_some(super::mcp::ASSISTANT),
+                        ),
+                        own_folder,
                     ),
                     mcp.is_some().then_some(super::mcp::CHAT),
                 ),
@@ -550,6 +559,11 @@ impl Session {
     /// of it before.
     pub(super) fn see(&self, id: &SessionId, mark: Mark) -> Option<Mark> {
         crate::lock(&self.seen).insert(id.clone(), mark)
+    }
+
+    /// What it last saw of the relative `id`.
+    pub(super) fn saw(&self, id: &SessionId) -> Option<Mark> {
+        crate::lock(&self.seen).get(id).copied()
     }
 
     /// The user wrote: other agents may message the session again.

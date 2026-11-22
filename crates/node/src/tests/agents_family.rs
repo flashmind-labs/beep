@@ -503,6 +503,70 @@ async fn a_slash_command_takes_no_context() {
 }
 
 #[tokio::test]
+async fn news_for_a_message_a_session_did_not_take_comes_with_the_next() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
+    until(&parent, |live| live.info.turns == 2).await;
+    rig.agents
+        .send_session("kid", &child.id, said("say it"))
+        .await
+        .expect("the thread takes the user's message");
+    until(&child, |live| {
+        live.info.turns == 2 && live.status() == Status::Idle
+    })
+    .await;
+    // Worked out for a message the session then refuses: not seen yet.
+    let (refused, _) = rig.agents.heard(&parent, String::from("go").into());
+    assert!(refused.context.is_some());
+    rig.agents
+        .send_session("top", &parent.id, said("go"))
+        .await
+        .expect("the parent takes the user's message");
+    until(&parent, |live| live.info.turns == 3).await;
+    assert_eq!(rig.read("top.log").matches(CHANGES).count(), 1);
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn the_words_that_resume_an_ended_thread_are_the_users() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
+    until(&parent, |live| live.info.turns == 2).await;
+    rig.agents
+        .send_session("top", &parent.id, said("say it"))
+        .await
+        .expect("the parent takes the user's message");
+    until(&parent, |live| live.info.turns == 3).await;
+    child.close().await;
+
+    let resumed = rig
+        .agents
+        .resume(&rig.kid, &child.id, Some("say it".into()), None)
+        .await
+        .expect("the thread resumes");
+    until(&resumed, |live| {
+        live.info.last_message == "It is done." && live.status() == Status::Idle
+    })
+    .await;
+    // It heard what its parent last said, with the user's words.
+    let log = rig.read("kid.log");
+    assert_eq!(log.matches(CHANGES).count(), 1, "{log}");
+    assert!(log.contains("- parent session: It is done."), "{log}");
+
+    // And its turn woke no idle parent: the parent's next turn is the user's.
+    rig.agents
+        .send_session("top", &parent.id, said("and now"))
+        .await
+        .expect("the parent takes the user's message");
+    until(&parent, |live| live.info.turns == 4).await;
+    let log = rig.read("top.log");
+    assert_eq!(log.matches("<beep-child ").count(), 1, "{log}");
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_parents_message_makes_the_turn_its_own() {
     use std::sync::atomic::Ordering;
 
@@ -582,6 +646,16 @@ async fn a_thread_keeps_the_name_its_parent_gave_when_its_agent_names_it() {
     until(&unnamed, |live| live.info.turns == 1).await;
     assert_eq!(given.info().title.as_deref(), Some("Solid-state timelines"));
     assert_eq!(unnamed.info().title.as_deref(), Some("Named by the agent"));
+
+    // Resumed, the name its parent gave still holds.
+    given.close().await;
+    let again = rig
+        .agents
+        .resume(&rig.kid, &given.id, Some("name it".into()), None)
+        .await
+        .expect("the thread resumes");
+    until(&again, |live| live.info.turns >= 1 && live.status() == Status::Idle).await;
+    assert_eq!(again.info().title.as_deref(), Some("Solid-state timelines"));
     rig.agents.shutdown().await;
 }
 
@@ -902,8 +976,9 @@ async fn a_resumed_session_goes_on_under_its_parent_in_its_mode() {
         effort: None,
         fast: None,
         account: None,
+        named: false,
     };
-    let begin = rig.agents.resumed_begin(None, &SessionId::from("agent-id"), held);
+    let begin = rig.agents.resumed_begin(&SessionId::from("agent-id"), held);
     assert_eq!(begin.parent, before.parent);
     assert_eq!(begin.mode.as_deref(), Some("plan"));
     assert_eq!(begin.resume, Some(SessionId::from("agent-id")));
