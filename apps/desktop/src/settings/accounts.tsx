@@ -174,6 +174,10 @@ export async function loadAgentAccounts() {
       const login = m.env?.logins?.find(l => l.tool === "claude");
       return login ? [[m.id, login] as const] : [];
     }));
+    if (data) data.agy_machines = machines.flatMap(m => {
+      const login = m.env?.logins?.find(l => l.tool === "agy");
+      return login ? [{ id: m.id, name: m.name, online: m.online, signed_in: login.signed_in }] : [];
+    });
   } catch (e) {
     console.warn(e);
     ACC.data ??= null;
@@ -295,11 +299,10 @@ const agentActions: AgentAccountActions = {
     ACC.claudeFlow = false; await loadAgentAccounts();
   },
   claudeCancel() { invoke("cancel_claude_sign_in").catch(console.warn); },
-  claudeMachineSign(id) {
-    const machine = ACC.data?.machines.find(machine => machine.id === id);
-    if (!machine?.online) return;
+  machineSign(tool, machine) {
+    if (!machine.online) return;
 
-    openSignIn(machine, "claude", () => { void loadAgentAccounts(); });
+    openSignIn(machine, tool, () => { void loadAgentAccounts(); });
   },
   async codexSign(id) {
     if (ACC.codex[id]?.starting || ACC.codex[id]?.task !== undefined) return;

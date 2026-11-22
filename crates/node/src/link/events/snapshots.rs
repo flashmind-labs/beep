@@ -250,6 +250,7 @@ impl Snapshots {
                 beep_proto::node::sign_in::Tool::Claude,
                 beep_proto::node::sign_in::Tool::Codex,
                 beep_proto::node::sign_in::Tool::Opencode,
+                beep_proto::node::sign_in::Tool::Agy,
             ] {
                 let topic = Topic::keyed("sign-in", tool.to_string());
 

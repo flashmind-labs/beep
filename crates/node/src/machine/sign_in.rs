@@ -188,6 +188,13 @@ fn command(tool: Tool) -> (&'static str, &'static [&'static str]) {
                 "ChatGPT Pro/Plus (headless)",
             ],
         ),
+        // It has no sign-in command: print mode signs in first, offering
+        // its link only when it streams JSON, and `/usage` then answers
+        // without a model turn.
+        Tool::Agy => (
+            "agy",
+            &["-p", "/usage", "--output-format", "stream-json"],
+        ),
     }
 }
 

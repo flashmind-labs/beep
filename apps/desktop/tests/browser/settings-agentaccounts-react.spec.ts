@@ -100,6 +100,30 @@ test("Claude signs in on the selected machine and refreshes its account", async 
   expect(await page.evaluate(() => window.__navigation.calls().some(call => call.command === "claude_sign_in" || call.command === "save_agent_token"))).toBe(false);
 });
 
+test("Antigravity signs in on the machine that is signed out", async ({ page }) => {
+  const login = (id: string, online: boolean, signed_in: boolean) => ({ id, name: id, online, env: { logins: [{ tool: "agy", signed_in, account: null }] } });
+  await openDesktop(page, false, {
+    settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
+    agent_accounts: { claude: null, codex_key: null, machines: [], named: [] },
+    list_machines: [login("build-box", true, true), login("test-box", true, false), login("offline-box", false, false)],
+    list_credentials: [], list_github_accounts: [],
+    machine_sign_in: { state: "waiting", url: "https://accounts.google.com/o/oauth2/auth?state=xyz", code: null, asks_code: true, reason: null },
+  });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  const row = (name: string) => settings.locator(".dline.dsm.dpy").filter({ has: page.getByText(name, { exact: true }) });
+  await expect(row("build-box")).toContainText("signed in");
+  await expect(row("build-box").getByRole("button")).toHaveCount(0);
+  await expect(row("offline-box").getByRole("button")).toHaveCount(0);
+  await row("test-box").getByRole("button", { name: "Sign in", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Sign in to Antigravity on test-box", exact: true });
+  await expect(sheet).toContainText("accounts.google.com/o/oauth2/auth");
+  await sheet.getByRole("textbox", { name: "Code from the page" }).fill("4/0code");
+  await sheet.getByRole("button", { name: "Send", exact: true }).click();
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "machine_sign_in").map(call => call.args))).toContainEqual({ machineId: "test-box", tool: "agy", step: { step: "answer", text: "4/0code" } });
+});
+
 test("a named account is added beside the default one", async ({ page }) => {
   await openDesktop(page, false, {
     settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },

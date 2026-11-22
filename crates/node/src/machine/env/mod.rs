@@ -113,6 +113,10 @@ async fn probe_machine() -> EnvReport {
             .await,
         );
     }
+    // It has no status command: listing its models fails when signed out.
+    if let Some(program) = at("agy") {
+        logins.push(login("agy", &program, &["models"], |_| None, |_| None).await);
+    }
     // Signed in when their sign-in files are there; never read.
     if at("gemini").is_some() {
         let key = ["GEMINI_API_KEY", "GOOGLE_API_KEY"]

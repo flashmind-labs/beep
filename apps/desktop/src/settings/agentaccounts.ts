@@ -27,6 +27,15 @@ interface CliLogin {
   account?: string | null;
 }
 
+/// A machine with Antigravity and whether it is signed in there, as the
+/// machine last reported it.
+export interface AgyMachine {
+  id: string;
+  name: string;
+  online: boolean;
+  signed_in: boolean;
+}
+
 /// The coding agents that keep accounts.
 export type AccountAgent = "claude" | "codex";
 
@@ -47,6 +56,8 @@ export interface AgentAccounts {
   /// Each machine's own Claude Code sign-in by machine id, as it last
   /// reported it. Added here from `list_machines`.
   claude_logins?: Map<string, CliLogin>;
+  /// The machines with Antigravity. Added here from `list_machines`.
+  agy_machines?: AgyMachine[];
 }
 
 /// A Codex sign-in under way on a machine (CodexLoginView).

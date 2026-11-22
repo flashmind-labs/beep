@@ -5,6 +5,7 @@ fn hosts(tool: Tool) -> &'static [&'static str] {
     match tool {
         Tool::Claude => &["claude.com", "claude.ai", "anthropic.com"],
         Tool::Codex | Tool::Opencode => &["openai.com", "chatgpt.com"],
+        Tool::Agy => &["accounts.google.com"],
     }
 }
 
@@ -18,7 +19,7 @@ pub(super) fn prompt(tool: Tool, output: &str) -> Option<State> {
     let url = words().find_map(|word| link(word, hosts(tool)))?;
 
     match tool {
-        Tool::Claude => Some(State::Waiting {
+        Tool::Claude | Tool::Agy => Some(State::Waiting {
             url,
             code: None,
             asks_code: true,
@@ -67,7 +68,7 @@ pub(super) fn is_code(word: &str) -> bool {
 /// What Claude Code asks with, on the line its answer then goes on.
 const CLAUDE_ASKS: &str = "Paste code here if prompted >";
 
-/// Why the sign-in ended: the last line the agent printed.
+/// Why the sign-in ended: the last line the agent printed in words.
 pub(super) fn failure(name: &str, output: &str) -> String {
     let text = plain(output);
     let last = text
@@ -76,7 +77,8 @@ pub(super) fn failure(name: &str, output: &str) -> String {
             let line = line.trim();
             line.strip_prefix(CLAUDE_ASKS).map_or(line, str::trim)
         })
-        .rfind(|line| !line.is_empty() && !line.starts_with("WARNING"))
+        // Not Antigravity's JSON events either: its reason is the line before.
+        .rfind(|line| !line.is_empty() && !line.starts_with("WARNING") && !line.starts_with('{'))
         .unwrap_or_default();
     if last.is_empty() {
         return format!("{name} could not sign in.");

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { signInOffer, stillRunning, type SignInView } from "../src/machines/signin-state.ts";
 
 test("another machine offers Sign in for the agents it signs in itself", () => {
-  for (const tool of ["claude", "codex", "opencode"]) assert.deepEqual(signInOffer(tool, "build-box", true, false), { button: true });
+  for (const tool of ["claude", "codex", "opencode", "agy"]) assert.deepEqual(signInOffer(tool, "build-box", true, false), { button: true });
   // Not while it is offline, and never on this computer.
   assert.equal(signInOffer("claude", "build-box", false, false), null);
   assert.equal(signInOffer("claude", "this-mac", true, true), null);

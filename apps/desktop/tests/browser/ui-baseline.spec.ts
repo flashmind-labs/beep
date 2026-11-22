@@ -619,8 +619,8 @@ const agentAccountResponses = {
     { agent: "claude", name: "Work", env_var: "CLAUDE_CODE_OAUTH_TOKEN", token: { last4: "4a2f", created_at: 0, unreadable: false } },
   ] },
   list_machines: [
-    { ...machine("build-box", "build-box", true, 0), env: { logins: [{ tool: "claude", signed_in: true, account: "you@example.com" }] } },
-    { ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }] } },
+    { ...machine("build-box", "build-box", true, 0), env: { logins: [{ tool: "claude", signed_in: true, account: "you@example.com" }, { tool: "agy", signed_in: true, account: null }] } },
+    { ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }, { tool: "agy", signed_in: false, account: null }] } },
   ],
 };
 for (const section of [null, "Agent accounts", "Appearance"] as const) {

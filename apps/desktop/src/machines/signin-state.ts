@@ -11,7 +11,7 @@ export interface SignInView {
 }
 
 /// The agents a machine signs in for this Mac: it runs their own sign-in.
-const REMOTE = new Set(["claude", "codex", "opencode"]);
+const REMOTE = new Set(["claude", "codex", "opencode", "agy"]);
 
 /// What a Sign-ins row offers for `tool` when it is not signed in on
 /// `machine`: Sign in, or how to sign in there. Nothing for this Mac, where

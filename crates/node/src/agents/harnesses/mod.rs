@@ -504,6 +504,7 @@ async fn sign_in(agent: &str, cli: &std::path::Path, kind: &AgentKind) -> SignIn
         "claude" => &["auth", "status"],
         "codex" => &["login", "status"],
         "opencode" => &["auth", "list"],
+        "agy" => &["models"],
         _ => return SignIn::default(),
     };
     let mut command = crate::run::process::probe(cli);
@@ -540,6 +541,10 @@ fn read_sign_in(agent: &str, ok: bool, text: &str) -> SignIn {
         }
         "codex" => SignIn {
             signed_in: Some(ok && !text.contains("Not logged in")),
+            ..SignIn::default()
+        },
+        "agy" => SignIn {
+            signed_in: Some(ok),
             ..SignIn::default()
         },
         "opencode" => SignIn {
