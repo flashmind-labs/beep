@@ -93,6 +93,26 @@ test("work on held issue asks first", async ({ page }) => {
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
+test("a batch start before the team answers leaves out a held issue and takes a free one", async ({ page }) => {
+  const hosts = [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }];
+  await openDesktop(page, false, { team_record: record, team_cards: { needs_you: [], teammates: [], own_queued: [], online: [] }, center_project_lists: lists, agent_hosts: hosts,
+    agent_start: { session: { machine_id: "build-box", agent: "codex", id: "s53" }, why: "" } });
+  expect(await called(page, "team_record")).toEqual([]);
+  await page.evaluate(() => window.__navigation.hold("team_record"));
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "issues" } }), projectName);
+
+  const detail = page.locator(".pj-split > .pj-det");
+  await detail.getByRole("button", { name: "Select", exact: true }).click();
+  for (const title of ["Issue 52", "Issue 53"]) await detail.locator(".pj-prow").filter({ has: page.locator(`.pj-li[title="${title}"]`) }).getByRole("checkbox", { name: "Pick this issue" }).check();
+  await detail.getByRole("button", { name: "Start 2 agents" }).click();
+  await detail.locator(".pj-start.ask").getByRole("button", { name: "Start 2 agents" }).click();
+  await page.evaluate(() => window.__navigation.release("team_record"));
+
+  await expect(detail.locator(".pj-start").filter({ hasText: "Started" })).toContainText("Started example/widget #53. Left out: example/widget #52 (kim has #52).");
+  expect(await called(page, "issue_assign")).toEqual([{ projectId: expect.any(String), number: 53, logins: [] }]);
+  expect((await called(page, "agent_start")).map(args => args.prompt)).toEqual([expect.stringContaining("#53")]);
+});
+
 test("join sheet shows the import step when not imported", async ({ page }) => {
   const invite = { from: "mesh-b", login: "kim", repo: "example.test/org/api", ticket: "beepteam1xyz" };
   await openDesktop(page, false, { team_invites: [invite], team_ticket: { host: "example.test", repo: "org/api", project: null } });

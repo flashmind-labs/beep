@@ -36,6 +36,7 @@ import { ensureSessions, sessions } from "../agents/sessions.ts";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { issueBranch, issuePrompt, type DiscussionTopic, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
 import { planStarts, type StartEntry, type StartRow } from "./openlist-state.ts";
+import type { Outcome } from "./openlist.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.tsx";
 import { conflictPrompt, type Conflict } from "./filesync.ts";
 import { type Started, state } from "../center/state.ts";
@@ -420,10 +421,11 @@ export async function loadStartHosts() {
 }
 
 /// Starts one agent per row, one at a time in a new worktree each, waiting
-/// for each to be accepted; stops at the first that fails. `done` runs after
-/// each start with those started so far.
-export async function startIssues(rows: readonly StartRow[], done: (started: StartRow[]) => void) {
-  const started: StartRow[] = [];
+/// for each to be accepted; stops at the first that fails. A row found held
+/// by a teammate only now is left out too. `done` runs after each start with
+/// those started so far.
+export async function startIssues(rows: readonly StartRow[], done: (started: StartRow[]) => void): Promise<Outcome> {
+  const started: StartRow[] = [], left = rows.filter(row => row.skip !== null);
 
   for (const row of rows) {
     if (row.skip !== null) continue;
@@ -437,21 +439,25 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
     try {
       const effort = same ? pc.picked.effort : null;
       const fast = same && agent === "codex" ? pc.picked.fast : null;
-      if (entry.project) await takeFree(entry.project, entry.number);
+      const held = entry.project ? await takeFree(entry.project, entry.number) : null;
+      if (held !== null) {
+        left.push({ entry, skip: held });
+        continue;
+      }
       await loadAccountNames();
       const account = startAccount(accountsOf(agent), entry.project ?? null, agent);
       const session = await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), model, effort, fast, checkout, account });
       if (model || effort || fast !== null) sessionPicks.set(session.session.id, { model: model ?? "", effort, fast });
       nameSession(session.session, task);
     } catch (e) {
-      return { started, failed: row, error: reason(e) };
+      return { started, failed: row, error: reason(e), left };
     }
 
     started.push(row);
     done(started);
   }
 
-  return { started, failed: null, error: null };
+  return { started, failed: null, error: null, left };
 }
 
 /// Work on PR from the menu fills the bar to start on its branch.

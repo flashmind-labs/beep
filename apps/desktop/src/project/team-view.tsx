@@ -330,10 +330,17 @@ export function heldBy(project: string, number: number): string | null {
   return taken.kind === "held" ? heldText(taken.by, number) : null;
 }
 
-/// Before a batch start of issue `number` of `project`: the user takes it when it is free.
-export async function takeFree(project: string, number: number) {
+/// Before a batch start of issue `number` of `project`, with the team read
+/// first: why it is left out when someone else has it, else null, the user
+/// taking it when it is free.
+export async function takeFree(project: string, number: number): Promise<string | null> {
+  if (!teamOf(project)) await readTeam(project);
+  const held = heldBy(project, number);
+  if (held !== null) return held;
+
   const view = teamOf(project), issue = thr.issues(localProjectId(project))?.find(each => each.number === number);
   if (view?.kind === "team" && issue && claim(issue, view.me).kind === "free") await assign(project, number, []);
+  return null;
 }
 
 /// The held sheet: an agent asks a holder about the issue, or the user takes
