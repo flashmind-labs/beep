@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chatOf, chatRail, threadsByChat } from "../src/agents/threads-state.ts";
+import { chatOf, chatRail, threadFolders, threadsByChat } from "../src/agents/threads-state.ts";
 import type { AgentSession } from "../src/agents/agents.ts";
 
 let at = 0;
@@ -116,4 +116,16 @@ test("a chat that ended heads the past, and one without threads has no rail", ()
   assert.deepEqual(chatRail([chat, thread], chat)?.past.map(one => one.id), ["chat", "thread"]);
   assert.equal(chatRail([chat], chat), null);
   assert.equal(chatRail([row("plain")], row("plain")), null);
+});
+
+test("a chat's files leave out its threads' folders, and a thread's its own threads'", () => {
+  const chat = row("chat", { assistant: true, cwd: "/srv/.beep/assistant/c1" });
+  const one = row("one", { parent: under("chat"), cwd: "/srv/.beep/assistant/c1/pricing" });
+  const deep = row("deep", { parent: under("one"), cwd: "/srv/.beep/assistant/c1/pricing/tiers" });
+  const elsewhere = row("elsewhere", { parent: under("chat"), cwd: "/srv/project" });
+  const rows = [chat, one, deep, elsewhere];
+
+  assert.deepEqual([...threadFolders(rows, chat)], ["pricing"]);
+  assert.deepEqual([...threadFolders(rows, one)], ["tiers"]);
+  assert.deepEqual([...threadFolders(rows, deep)], []);
 });

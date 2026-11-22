@@ -14,6 +14,8 @@ import { relativeTo } from "./artifacts-state.ts";
 import { mediaKind, resolvePath } from "./media-state.ts";
 import { paneRoot, watchRoot, worktreesReady } from "./worktree.ts";
 import { mentioned } from "./worktree-state.ts";
+import { sessions } from "../agents/sessions.ts";
+import { threadFolders } from "../agents/threads-state.ts";
 import { openWorkFile, previewWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
 import { localFileItems } from "./localfile.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
@@ -419,7 +421,7 @@ async function readFolder(dir: string, deep: boolean, fresh: boolean) {
 function draw() {
   if (!paneSession()?.cwd) { showingRows = false; setModel({ tree: null }); return; }
   const top = F.listings.get("");
-  const rows = treeRows(F.listings, F.open, F.filter);
+  const rows = treeRows(F.listings, F.open, F.filter, threadsHere());
   const visible = new Set(rows.map(row => row.path));
   F.selected = new Set([...F.selected].filter(path => visible.has(path)));
   if (F.picked && !visible.has(F.picked)) F.picked = null;
@@ -619,7 +621,14 @@ function menu(path: string, folder: boolean, x: number, y: number) {
   }
 }
 
-const rowsNow = () => treeRows(F.listings, F.open, F.filter);
+const rowsNow = () => treeRows(F.listings, F.open, F.filter, threadsHere());
+
+/// The folders the session's threads work in, which show with each thread and not here. The
+/// tree shows the session's own folder: a worktree has none of them.
+function threadsHere() {
+  const s = paneSession();
+  return s && paneRoot() === s.cwd ? threadFolders(sessions, s) : new Set<string>();
+}
 const visiblePaths = () => rowsNow().map(r => r.path);
 const selectedPaths = () => selectionRoots(visiblePaths().filter(p => F.selected.has(p)));
 function destination() {

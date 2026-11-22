@@ -348,10 +348,6 @@ body.cbody
                         i style(display)
                           svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                         span "Files"
-                      button.agtab [aria-selected="false" data-mtab="changes" role="tab" title="Changes" type="button"]
-                        i style(display)
-                          svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                        span "Changes"
                     span.agwtw [hidden]
                     button.agaddterm.agpbtn [data-pact="term" title="New terminal in this folder (⌃`)"] "+ Terminal"
                     button.agpbtn [data-pact="dock" title="Dock these tabs at the bottom"]
@@ -379,10 +375,6 @@ body.cbody
                   i style(display)
                     svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                   span "Files"
-                button.agtab [aria-selected="false" data-mtab="changes" role="tab" title="Changes" type="button"]
-                  i style(display)
-                    svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                  span "Changes"
               div#agdropzone.agdropzone [hidden]
         div.asst-list.pj-list
           div.asst-head

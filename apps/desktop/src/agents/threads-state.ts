@@ -63,6 +63,19 @@ export function chatRail(rows: readonly AgentSession[], session: Partial<Pick<Ag
   };
 }
 
+/// The folders under `session`'s own that its threads work in, by their names there, which its
+/// files leave out: each thread shows its own.
+export function threadFolders(rows: readonly AgentSession[], session: Pick<AgentSession, "machine_id" | "id" | "cwd">): Set<string> {
+  const listed = rows.find(row => row.machine_id === session.machine_id && row.id === session.id);
+  const threads = listed ? threadsByChat(rows).get(listed) ?? [] : [];
+  const names = threads.flatMap(({ row }) => {
+    const name = row.cwd.startsWith(session.cwd) ? /^[\\/]([^\\/]+)/.exec(row.cwd.slice(session.cwd.length))?.[1] : null;
+    return name ? [name] : [];
+  });
+
+  return new Set(names);
+}
+
 function threadDetail(row: AgentSession): ThreadDetail {
   if (row.status === "asking" && row.question) return { kind: "question", text: row.question.text };
   return row.reply_html ? { kind: "reply", html: row.reply_html } : null;

@@ -249,12 +249,12 @@ test("assistant chat with threads", async ({ page }) => {
   await page.getByRole("menuitem", { name: "New thread" }).click();
   await expect(page.locator("#agmsg")).toHaveValue("New thread: ");
 
-  // A thread opens on the page, with no pane beside it, as the current item of its chat's rail.
+  // A thread opens on the page, with its own files and no Changes beside it, as the current item of its chat's rail.
   await page.evaluate(next => window.__navigation.respond("agent_view", next), view(threads[1], "Pilot lines in 2027, no volume before 2030."));
   await rail.getByRole("button", { name: /Solid-state timelines/ }).click();
   await expect(page.getByText("Pilot lines in 2027, no volume before 2030.")).toBeVisible();
   await expect(rail.locator('[aria-current="true"]')).toContainText("Solid-state timelines");
-  await expect(page.locator("#agpane-right")).toBeHidden();
+  await expect(page.getByRole("tab", { name: "Changes", exact: true })).toHaveCount(0);
 });
 
 test("assistant page empty", async ({ page }, info) => {

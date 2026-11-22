@@ -434,8 +434,6 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 #pane-box.pj-split:has(> .asst-list[hidden]) { grid-template-columns: minmax(0, 1fr) }
 #pane-box > .cc-grip { left: calc(var(--asst-w, 300px) - 3px) }
 .asst-list { order: -1 }
-/* An assistant chat has no files, changes or terminals beside it. */
-#pane-box.pj-split #agshell :is(.agdiv, .agpane, .agpstrip, .agdropzone) { display: none }
 .asst-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px 4px 0 }
 .asst-head > h4 { padding-block: 0 }
 /* A chat's threads, under its name. */

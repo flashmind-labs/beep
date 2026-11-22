@@ -57,3 +57,22 @@ test("⌘N in a chat starts a new chat and ⇧⌘N asks it for a new thread", as
   await page.keyboard.press(`${mod(info)}+n`);
   await expect(page.locator("#agprompt")).toHaveAttribute("placeholder", "Ask the assistant.");
 });
+
+test("a chat's pane has its files without its threads' folders, and no Changes or threads tab", async ({ page }) => {
+  const entry = (name: string, folder: boolean) => ({ name, folder, size: 1, ignored: false, change: null });
+  await openDesktop(page, false, {
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat, research, notes], agent_view: view(chat),
+    agent_tree: { folders: [{ path: "", entries: [entry("pricing", true), entry("notes", true), entry("drafts", true), entry("notes.md", false)], more: 0, git: false }], truncated: false },
+  });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  await page.locator(".asst-list").getByRole("button", { name: /Plan the launch/ }).click();
+
+  const strip = page.locator("#agpstrip-right, #agpane-right");
+  await page.getByRole("tab", { name: "Files", exact: true }).first().click();
+  await expect(page.locator('[data-fpath="notes.md"]')).toBeVisible();
+  await expect(page.locator('[data-fpath="drafts"]')).toBeVisible();
+  await expect(page.locator('[data-fpath="pricing"]')).toHaveCount(0);
+  await expect(page.locator('[data-fpath="notes"]')).toHaveCount(0);
+  await expect(strip.getByRole("tab", { name: "Changes", exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_tree").at(-1)?.args.root)).toBe(folder);
+});

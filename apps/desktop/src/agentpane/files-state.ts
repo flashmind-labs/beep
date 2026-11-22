@@ -126,8 +126,9 @@ export function parentPath(path: string) {
   return at < 0 ? "" : path.slice(0, at);
 }
 
-/// The rows the tree shows: open folders' entries under them, depth first.
-export function treeRows(listings: ReadonlyMap<string, Listing>, open: ReadonlySet<string>, filter = ""): TreeRow[] {
+/// The rows the tree shows: open folders' entries under them, depth first, but for the top
+/// folders in `left`, such as a chat's threads' own.
+export function treeRows(listings: ReadonlyMap<string, Listing>, open: ReadonlySet<string>, filter = "", left: ReadonlySet<string> = new Set()): TreeRow[] {
   const want = filter.trim().toLowerCase();
   const out: TreeRow[] = [];
   const walk = (dir: string, depth: number, hidden: boolean): boolean => {
@@ -136,6 +137,7 @@ export function treeRows(listings: ReadonlyMap<string, Listing>, open: ReadonlyS
 
     for (const e of listing?.entries ?? []) {
       const path = joinPath(dir, e.name);
+      if (!dir && e.folder && left.has(e.name)) continue;
       const isOpen = e.folder && (open.has(path) || (!!want && listings.has(path)));
       const sub = listings.get(path);
       const row: TreeRow = {

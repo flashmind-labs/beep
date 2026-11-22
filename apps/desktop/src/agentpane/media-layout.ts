@@ -13,6 +13,8 @@ import { artifactCount } from "./artifacts.ts";
 import { S } from "../bar/core.ts";
 import { runningCount } from "./running.ts";
 import { hasDeviceTab } from "./device.ts";
+import { sessions } from "../agents/sessions.ts";
+import { chatOf } from "../agents/threads-state.ts";
 import { P, rememberPane, saveLayout, showTab, FILES, CHANGES, ARTS, RUNNING, SUBS, DEVICE, type MediaTab } from "./media.ts";
 
 /// How far an arrow key moves a divider.
@@ -66,7 +68,15 @@ export const dockHolding = (node: Node | null) => DOCKS.find(d => !!node && !!pa
 
 /// Every tab's id, in the order the tab strips show them.
 export function tabIds() {
-  return [FILES, CHANGES, ...(runningCount() ? [RUNNING] : []), ...(artifactCount() ? [ARTS] : []), ...(P.subCount ? [SUBS] : []), ...(hasDeviceTab() ? [DEVICE] : []), ...P.tabs.map(t => t.id)];
+  const chat = chatPane();
+  return [FILES, ...(chat ? [] : [CHANGES]), ...(runningCount() ? [RUNNING] : []), ...(artifactCount() ? [ARTS] : []), ...(P.subCount && !chat ? [SUBS] : []), ...(hasDeviceTab() ? [DEVICE] : []), ...P.tabs.map(t => t.id)];
+}
+
+/// The pane of an assistant chat or one of its threads: their folders have no git, and the list
+/// beside them shows the threads.
+function chatPane() {
+  const s = P.session, row = s && sessions.find(r => r.machine_id === s.machine_id && r.id === s.id);
+  return !!row && !!chatOf(sessions, row);
 }
 
 /// The width the docks lay out in. A phone never gets a right dock: the phone layout shows one

@@ -32,10 +32,10 @@ test("the sidebar's Assistant lists the chats and opens one beside them", async 
   await expect(page.getByText("Two pull requests wait for review.")).toBeVisible();
   await expect(list).toBeVisible();
   await expect(list.locator('[aria-current="true"]')).toContainText("Check the open pull requests");
-  // One header for the page, and no files, changes or terminals beside an assistant chat.
+  // One header for the page, and the chat's files beside it, with no Changes: its folder has no git.
   await expect(page.locator("#title")).toContainText("Assistant");
-  await expect(page.locator("#agpane-right")).toBeHidden();
-  await expect(page.locator("#agpstrip-right")).toBeHidden();
+  await expect(page.getByRole("tab", { name: "Files", exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Changes", exact: true })).toHaveCount(0);
   await expect(page.locator("#side").getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-current", "true");
 });
 
