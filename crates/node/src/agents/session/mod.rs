@@ -418,6 +418,8 @@ impl Session {
             .then(dirs::home_dir)
             .flatten()
             .and_then(|home| super::conversation::brief(&home, cwd));
+        // The agent names a session that came back with a title only on load.
+        let kept_title = resume.is_some() && title.is_some();
         let info = SessionInfo {
             title,
             id: resume.clone().unwrap_or_default(),
@@ -470,6 +472,7 @@ impl Session {
             steers: VecDeque::new(),
             sent: 0,
             context_turn: false,
+            kept_title,
             turn: None,
             held_end: None,
             stopping: None,

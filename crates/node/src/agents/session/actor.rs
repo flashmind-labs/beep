@@ -250,6 +250,10 @@ pub(super) struct Actor {
     /// The prompts sent so far, which numbers each turn.
     pub(super) sent: u64,
     pub(super) context_turn: bool,
+    /// It came back with a title, which a title the agent writes from a
+    /// prompt sent here does not replace: flsh writes one from the first
+    /// prompt it gets, Beep's brief included.
+    pub(super) kept_title: bool,
     /// The turn running, by its number, while its prompt is unanswered.
     pub(super) turn: Option<u64>,
     /// The end of the last turn, held while its subagents run.
@@ -713,8 +717,7 @@ impl Actor {
             }
             Event::Update(update) => {
                 let update = *update;
-                // Automatic recovery context must not replace the user's title.
-                if self.context_turn && matches!(update, SessionUpdate::SessionInfoUpdate(_)) {
+                if self.drops_title() && matches!(update, SessionUpdate::SessionInfoUpdate(_)) {
                     return Ok(());
                 }
 
@@ -1142,6 +1145,13 @@ impl Actor {
             }
             .boxed(),
         );
+    }
+
+    /// Whether a title the agent writes now is dropped: one written from
+    /// the recovery context alone, or one written from a prompt sent here
+    /// to a session that came back with its title.
+    pub(super) fn drops_title(&self) -> bool {
+        self.context_turn || (self.kept_title && self.sent > 0)
     }
 
     /// Whether `text` is what the adapter says before the session's first

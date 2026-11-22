@@ -1,6 +1,7 @@
 import { flushSync } from "react-dom";
 import { keepProjectAccount, keepProjectPick, lastProjectPick, type ProjectPick, startAccount } from "../agents/agentmodels.ts";
 import { pickPopover } from "../agents/pick-popover.ts";
+import { reopened } from "../agents/closing.ts";
 import type { AgentButtonItem, AgentState, PickButton } from "../review/feedback-view.tsx";
 import { agentLabel, type SessionRow } from "./projects-state.ts";
 import { syncRepairPrompt } from "./gitsync-state.ts";
@@ -867,6 +868,8 @@ async function steer(earlier: TaskSession, prompt: string, images: Image[]) {
 
   if (!session || session.status === "ended") {
     session = (await invoke<Started>("agent_resume", { machineId: earlier.machine_id, agent: earlier.agent, session: earlier.id, prompt: "" })).session;
+    reopened(earlier);
+    reopened(session);
   }
 
   await invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer: { prompt: { text: prompt, images } } });

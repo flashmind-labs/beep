@@ -44,6 +44,7 @@ fn actor() -> Actor {
         steers: VecDeque::new(),
         sent: 0,
         context_turn: false,
+        kept_title: false,
         turn: None,
         held_end: None,
         stopping: None,

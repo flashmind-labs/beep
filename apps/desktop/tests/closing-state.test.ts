@@ -21,7 +21,7 @@ test("a closed session says closing at once and ended when its machine says so",
 test("a refused close leaves the row as it was", () => {
   const c = new Closings();
   c.start(s, 0);
-  c.refused(s);
+  c.clear(s);
   assert.equal(c.stateOf(s, 1), null);
 });
 
@@ -40,4 +40,12 @@ test("an ended event for a plain id leaves a colon id that ends with it alone", 
   assert.ok(!c.ended("x", 1));
   assert.equal(c.stateOf(sub, 2), "closing");
   assert.ok(c.ended(sub.id, 3));
+});
+
+test("a session resumed after its close shows again at once", () => {
+  const c = new Closings();
+  c.start(s, 0);
+  c.ended(s.id, 1);
+  c.clear(s);
+  assert.equal(c.stateOf(s, 2), null);
 });

@@ -825,6 +825,44 @@ async fn a_reopened_session_takes_the_title_the_agent_sends_after_loading() {
     after.shutdown().await;
 }
 
+/// flsh writes a title from the first prompt it gets, which carries Beep's
+/// brief: a session that came back with a title keeps it.
+#[tokio::test]
+async fn a_reopened_session_keeps_its_title_when_the_agent_titles_a_prompt() {
+    let dir = tempfile::tempdir().expect("temporary folder");
+    let mut kind = adapter(&dir.path().join("log"));
+    kind.args[1] = ADAPTER.replace(
+        r#"    *'"session/prompt"'*) reply '{"stopReason":"end_turn"}' ;;"#,
+        r#"    *'rename it'*)
+      echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"held-1","update":{"sessionUpdate":"session_info_update","title":"Titled from the brief"}}}'
+      reply '{"stopReason":"end_turn"}' ;;
+    *'"session/prompt"'*) reply '{"stopReason":"end_turn"}' ;;"#,
+    );
+    let before = Agents::new(vec![kind.clone()]);
+    let session = before
+        .start(&kind, Some(&dir.path().to_string_lossy()), begin("explain lifetimes"))
+        .expect("starts");
+    until(&mut session.live.clone(), |live| live.info.turns == 1).await;
+    before.shutdown().await;
+    let stopped = before.open_sessions();
+
+    let after = Agents::new(vec![kind]);
+    after.settings_arrived();
+    after.reopen(stopped).await;
+    let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
+    resumed
+        .order(Command::Prompt("rename it".to_owned().into()))
+        .await
+        .expect("the prompt is taken");
+    let mut live = resumed.live.clone();
+    until(&mut live, |live| live.info.turns >= 1 && live.status() == Status::Idle).await;
+    assert_eq!(
+        watched::read(&live, |live| live.info.title.clone()).as_deref(),
+        Some("explain lifetimes")
+    );
+    after.shutdown().await;
+}
+
 #[tokio::test]
 async fn a_saved_assistant_chat_still_names_its_folder_to_delete() {
     let dir = tempfile::tempdir().expect("a temporary folder");

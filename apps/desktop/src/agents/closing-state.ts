@@ -17,8 +17,9 @@ export class Closings {
   /// The close of `s` was sent.
   start(s: Ref, now: number) { this.marks.set(Closings.key(s), { state: "closing", at: now }); }
 
-  /// The machine refused the close: the row is as it was.
-  refused(s: Ref) { this.marks.delete(Closings.key(s)); }
+  /// The row is as its machine lists it again: the close was refused, or
+  /// the session was resumed.
+  clear(s: Ref) { this.marks.delete(Closings.key(s)); }
 
   /// The machine said session `id` ended; true when one was closing.
   ended(id: string, now: number) {

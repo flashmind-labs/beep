@@ -20,6 +20,7 @@ import { drawAgentAttached, fitAttachedImages, keepSentImages, keepAgentPics } f
 import { drawAgentBody } from "./logview.tsx";
 import { sameSession } from "./running-state.ts";
 import { conflicted, invoke, listen } from "../ui/tauri.ts";
+import { reopened } from "./closing.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 import { shownQuestionsIn } from "./mode-view.tsx";
 import { closeMove } from "./move.ts";
@@ -448,6 +449,8 @@ export async function resumeEndedSession(session: OpenAgent, prompt: string | nu
   const configure = pick && (pick.model || pick.effort || pick.fast !== null) ? { model: pick.model || null, effort: pick.effort, fast: pick.fast } : null;
   const model = session.agent === "codex" ? configure?.model ?? null : null;
   const started = await invoke<Started>("agent_resume", { ...where(session), prompt: configure ? null : prompt, model }, AGENT_SEND_WAIT_MS);
+  reopened({ machine_id: session.machine_id, id: session.session });
+  reopened(started.session);
   if (configure && pick) {
     const target = where(openOf(started.session));
     await invoke("agent_steer", { ...target, steer: { configure } }, AGENT_SEND_WAIT_MS);
