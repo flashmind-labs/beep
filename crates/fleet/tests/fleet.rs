@@ -2763,6 +2763,16 @@ async fn a_chat_is_asked_to_move_with_its_threads() {
         "a move that cannot go writes nothing"
     );
 
+    // The user named the chat on its machine: the name goes with it.
+    beep_fleet::session_titles::save(
+        &f.studio.mesh,
+        &f.build.id.to_string(),
+        "flsh",
+        &SessionId::from("c"),
+        "Uni2 research",
+    )
+    .await
+    .expect("the title is saved");
     let records = desk
         .move_chat(ask(vec![
             session("flsh", "c", chat, false),
@@ -2793,6 +2803,16 @@ async fn a_chat_is_asked_to_move_with_its_threads() {
             )
         })
         .collect();
+    assert_eq!(
+        beep_fleet::session_titles::get(
+            &f.studio.mesh,
+            &second.id.to_string(),
+            "flsh",
+            &SessionId::from("c")
+        )
+        .as_deref(),
+        Some("Uni2 research")
+    );
     let root = "/srv/home/.beep/assistant";
     assert_eq!(
         told,

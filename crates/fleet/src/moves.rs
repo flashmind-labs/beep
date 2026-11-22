@@ -6,6 +6,7 @@ use crate::{
     desk::Desk,
     error::{FleetError, Result},
     records::{Place, WRITES, now_ms, place_key, read, scan},
+    session_titles,
 };
 use beep_mesh::{
     Key,
@@ -122,6 +123,7 @@ impl Desk {
                 .await?;
         }
 
+        self.carry_titles(&records).await?;
         Ok(records)
     }
 
@@ -175,7 +177,26 @@ impl Desk {
                 Some(record.to_bytes().map_err(anyhow::Error::from)?),
             )
             .await?;
+        self.carry_titles(std::slice::from_ref(&record)).await?;
         Ok(record)
+    }
+
+    /// Gives each moving session the title the user gave it on its machine,
+    /// which is kept by machine, on the machine it moves to.
+    async fn carry_titles(&self, records: &[SessionMove]) -> Result<()> {
+        for record in records {
+            let (from, to, agent) = (
+                record.from.to_string(),
+                record.to.to_string(),
+                record.agent.to_string(),
+            );
+
+            if let Some(title) = session_titles::get(&self.mesh, &from, &agent, &record.id) {
+                session_titles::save(&self.mesh, &to, &agent, &record.id, &title).await?;
+            }
+        }
+
+        Ok(())
     }
 
     /// The folder `project` has on `machine`: from its `sync/<name>` record
