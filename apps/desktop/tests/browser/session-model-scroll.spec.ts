@@ -119,6 +119,54 @@ test("touch scrolling releases the log before the next animation frame", async (
   await expect.poll(() => body.evaluate((el: HTMLElement & { stuck?: boolean }) => el.stuck)).toBe(true);
 });
 
+test("returning from Home opens the same conversation at its latest message", async ({ page }) => {
+  const active = { ...session, status: "idle", external: false };
+  await openDesktop(page, false, { agent_view: view(active) });
+  const open = () => page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+  const body = page.locator("#agbody");
+  const gap = () => body.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop);
+  const jump = page.getByRole("button", { name: "Jump to latest" });
+
+  await open();
+  await expect(body).toContainText("Message 39");
+  await expect.poll(gap).toBeLessThan(2);
+  await page.keyboard.press("Home");
+  await expect.poll(() => body.evaluate((el: HTMLElement & { top?: number }) => el.top)).toBe(0);
+  await expect(jump).toBeVisible();
+
+  await page.evaluate(() => window.__navigation.open("home"));
+  await expect(body).toBeHidden();
+  await open();
+  await expect(body).toBeVisible();
+  await expect(body.getByText("Message 39", { exact: false })).toBeInViewport();
+  await expect.poll(gap).toBeLessThan(2);
+  await expect(jump).toBeHidden();
+});
+
+test("reopening the desktop window returns the conversation to the latest message", async ({ page }) => {
+  const active = { ...session, status: "idle", external: false };
+  await openDesktop(page, false, { agent_view: view(active) });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+  const body = page.locator("#agbody");
+  const jump = page.getByRole("button", { name: "Jump to latest" });
+  await expect(body).toContainText("Message 39");
+  await expect(body.getByText("Message 39", { exact: false })).toBeInViewport();
+  await page.keyboard.press("Home");
+  await expect.poll(() => body.evaluate((el: HTMLElement & { top?: number }) => el.top)).toBe(0);
+  await expect(jump).toBeVisible();
+
+  await page.evaluate(() => {
+    window.__navigation.emit("center-hidden", null);
+    window.__navigation.emit("center-shown", null);
+  });
+  await expect(jump).toBeVisible();
+
+  await page.evaluate(() => window.__navigation.emit("center-reopened", null));
+  await expect(body.getByText("Message 39", { exact: false })).toBeInViewport();
+  await expect.poll(() => body.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThan(2);
+  await expect(jump).toBeHidden();
+});
+
 for (const custom of [
   { id: "gpt-6.1-sol", label: "6.1 Sol", models: [{ id: "gpt-6.1-sol", name: "6.1 Sol", description: null }] },
   { id: "custom-model", label: "custom-model", models: [] },

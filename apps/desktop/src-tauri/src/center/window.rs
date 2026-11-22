@@ -34,6 +34,7 @@ const CASCADE: f64 = 28.0;
 /// and resumes what it draws.
 const HIDDEN_EVENT: &str = "center-hidden";
 const SHOWN_EVENT: &str = "center-shown";
+const REOPENED_EVENT: &str = "center-reopened";
 
 /// Where a window opens on the screen under the mouse: at `size`, or
 /// `SHARE` of the screen without one, at least the minimum where the
@@ -182,15 +183,18 @@ pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
         // WKWebView may still report a hidden window as visible, so the
         // page hears it from here.
         tell(app, LABEL, true, Tell::Always);
+        if let Err(e) = app.emit_to(LABEL, REOPENED_EVENT, ()) {
+            log::warn!("telling the command center it reopened: {e}");
+        }
         return Ok(());
     }
 
     bring_up(&window)
 }
 
-/// Closing the main window hides it instead, so it keeps its page, data
-/// and scroll and reopens at once; its data keeps syncing slowly while
-/// hidden. False for any other window, which closes as before.
+/// Closing the main window hides it instead, so it keeps its page and data
+/// and reopens at once. Its data keeps syncing slowly while hidden.
+/// False for any other window, which closes.
 pub(crate) fn hide_on_close<R: Runtime>(window: &Window<R>) -> bool {
     if window.label() != LABEL {
         return false;
