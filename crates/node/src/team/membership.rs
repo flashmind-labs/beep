@@ -1,9 +1,9 @@
 //! This mesh's place on the teams its gateway acts for: its roster entry
 //! names the mesh's machines with the project as they come and go, and once
-//! a day every member of another mesh is checked on the forge.
+//! a day the forge is asked whether this mesh and every member of another
+//! mesh may still push.
 
 use super::{
-    gateway::FORGE_LIMIT,
     home::Project,
     link::{TeamLink, Teams},
     roster::MAX_DEVICES,
@@ -15,7 +15,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     time::Duration,
 };
-use tokio::time::{Instant, timeout};
+use tokio::time::Instant;
 use tokio_util::task::AbortOnDropHandle;
 
 /// How often every member is checked on the forge.
@@ -219,9 +219,10 @@ impl Membership {
         }
     }
 
-    /// Once a day for each held team, asks the forge whether each member of
-    /// another mesh may still push; one who may not is removed, here and on
-    /// every other member's side. A failed check waits for the next day.
+    /// Once a day for each held team, asks the forge whether this mesh's
+    /// login and each member of another mesh may still push: this mesh
+    /// leaves when it may not, and another who may not is removed, here and
+    /// on every other member's side. A failed check waits for the next day.
     pub(super) async fn upkeep(&mut self, link: &TeamLink, teams: &[Team]) {
         for team in teams {
             if self
@@ -320,41 +321,48 @@ fn roster(repo: &TeamRepo, members: Vec<Member>) -> TeamMsg {
     }
 }
 
-/// Asks the forge whether each member of `team` from another mesh may still
-/// push, and removes those who may not.
+/// Asks the forge whether this mesh's own login on `team` may still push,
+/// and leaves the team when not: the forge tells anyone what they may do
+/// themselves, so this catches what a member who is not the repository's
+/// admin cannot see of others. Then asks it of each member of another mesh,
+/// and removes those who may not. Only a definite no takes anyone off.
 async fn check_members(link: &TeamLink, team: &Team) {
-    for member in &team.others {
-        let login = &member.login;
-        let asked = link.forge().collaborator(&team.repo, login);
+    if link.may_push(&team.repo, &team.mine.login).await == Some(false) {
+        remove(link, team, &team.mine.login);
+        return;
+    }
 
-        match timeout(FORGE_LIMIT, asked).await {
-            Ok(Ok(true)) => {}
-            Ok(Ok(false)) => remove(link, team, login),
-            Ok(Err(e)) => log::info!("could not check {login} on {}: {e}", team.repo),
-            Err(_) => log::info!("the forge took too long to check {login} on {}", team.repo),
+    for member in &team.others {
+        if link.may_push(&team.repo, &member.login).await == Some(false) {
+            remove(link, team, &member.login);
         }
     }
 }
 
-/// Removes `login` from `team`, as a member's `Remove` does, and tells every
-/// other member.
+/// Takes `login` off `team` here and tells every other member: a `Leave`
+/// for this mesh's own login, a `Remove` for another's.
 fn remove(link: &TeamLink, team: &Team, login: &ForgeLogin) {
-    log::info!(
-        "{login} may no longer push to {}: removing them from the team",
-        team.repo
-    );
-    let remove = TeamMsg::Remove {
-        repo: team.repo.clone(),
-        login: login.clone(),
-    };
-    link.tell(team.others.clone(), remove);
+    let (repo, login) = (team.repo.clone(), login.clone());
+    let leaving = login == team.mine.login;
+
+    if leaving {
+        log::info!("{login} may no longer push to {repo}: leaving the team");
+    } else {
+        log::info!("{login} may no longer push to {repo}: removing them from the team");
+    }
 
     if link
-        .with(|link| link.rosters.remove_member(&team.repo, login))
+        .with(|link| link.rosters.remove_member(&repo, &login))
         .is_some()
     {
         link.wake();
     }
+
+    let msg = match leaving {
+        true => TeamMsg::Leave { repo, login },
+        false => TeamMsg::Remove { repo, login },
+    };
+    link.tell(team.others.clone(), msg);
 }
 
 #[cfg(test)]

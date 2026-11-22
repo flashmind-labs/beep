@@ -2,7 +2,7 @@ use super::*;
 use crate::team::board::tests::{Pair, device, member, repo};
 use iroh::{SecretKey, protocol::Router};
 use beep_proto::team::TeamRecord;
-use tokio::time::Duration;
+use tokio::time::{Duration, timeout};
 
 #[test]
 fn the_entry_names_the_mesh_machines_with_the_project() {
@@ -282,6 +282,34 @@ async fn a_member_who_lost_access_is_removed() {
         .map(|member| &member.login)
         .collect();
     assert_eq!(logins, [&pair.alice.login, &pair.bob.login]);
+    assert_eq!(pending[0].removed[0].login, carol.login);
+}
+
+/// Carol's own forge account may only read now: her gateway takes her mesh
+/// off the team, for a desktop to write, and tells the others she left.
+#[tokio::test]
+async fn a_member_who_may_only_read_leaves() {
+    let pair = Pair::new().await;
+    let carol = member("carol", pair.gateway.endpoint().id());
+    pair.gateway.with(|teams| {
+        let record = TeamRecord::new(repo(), vec![pair.bob.clone(), carol.clone()]);
+        teams.rosters.refresh([(repo(), record)].into());
+        teams.home.mesh = Some(carol.mesh);
+    });
+    let team = Team {
+        repo: repo(),
+        project: "org/repo".to_owned(),
+        mine: carol.clone(),
+        others: vec![pair.bob.clone()],
+    };
+
+    check_members(&pair.gateway, &team).await;
+
+    timeout(Duration::from_secs(5), pair.gateway.waiting())
+        .await
+        .expect("the change waits for a desktop");
+    let pending = pair.gateway.with(|teams| teams.rosters.pending());
+    assert!(pending[0].members.iter().all(|member| member.mesh != carol.mesh));
     assert_eq!(pending[0].removed[0].login, carol.login);
 }
 
