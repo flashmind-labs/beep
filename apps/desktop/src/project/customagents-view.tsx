@@ -3,6 +3,15 @@ import { agentLabel } from "./projects-state.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { Button, EmptyPanel, SectionHead, onRowKey, SheetHead } from "../ui/kit.tsx";
 import { agentColor, agentMeta, type CustomAgentRow } from "./customagents-state.ts";
+import type { Persona } from "../agents/agents.ts";
+
+/// The custom agent a session runs as, in its row's detail line or its head: its colour's dot
+/// and its name. Nothing for a session that runs as none.
+export function PersonaTag({ persona }: { persona: Persona | null | undefined }) {
+  if (!persona) return null;
+  const color = agentColor(persona.color);
+  return <span className="th-persona" title={`Runs as the custom agent ${persona.name}`}>{color && <span className="ddot" style={{ background: color }} />}{persona.name}</span>;
+}
 
 export function CustomAgentsView({ rows, message, error, reload, open, start }: { rows: CustomAgentRow[] | null; message: string; error: boolean; reload: (() => void) | null; open: (row: CustomAgentRow) => void; start: ((row: CustomAgentRow) => void) | null }) {
   return <><SectionHead title="Custom agents" count={rows?.length ?? 0}>{reload && <Button look="quiet" small onClick={reload}>Reload</Button>}</SectionHead>

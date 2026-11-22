@@ -41,6 +41,24 @@ test("a chat with threads lists them in place of the sidebar, and ⌘E swaps the
   await expect(page.locator(".asst-list")).toBeVisible();
 });
 
+test("a thread started as a persona shows it on its row and in its header", async ({ page }, info) => {
+  const researcher = { ...research, persona: { name: "researcher", color: "blue" } };
+  await openChat(page, [chat, researcher, notes]);
+  const row = page.locator("#rail .rail-threads .pj-li");
+
+  await expect(row).toHaveText(/Pricing research.*researcher.*Reading the price list/);
+  await expect(row.locator(".th-persona")).toHaveText("researcher");
+  await expect(page.locator("#rail .rail-scroll > .pj-li .th-persona")).toHaveCount(0);
+
+  await page.evaluate(next => window.__navigation.respond("agent_view", next), view(researcher));
+  await row.click();
+  await expect(page.locator(".aglocation .th-persona")).toHaveText("researcher");
+
+  // The chats list beside it says so too.
+  await page.keyboard.press(`${mod(info)}+e`);
+  await expect(page.locator(".asst-list .asst-threads .pj-li").filter({ hasText: "Pricing research" }).locator(".th-persona")).toHaveText("researcher");
+});
+
 test("a chat without threads keeps the chats beside it", async ({ page }) => {
   await openChat(page, [chat]);
   await expect(page.locator(".asst-list")).toBeVisible();

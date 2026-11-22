@@ -6,7 +6,7 @@ import type { AgentSession } from "../src/agents/agents.ts";
 let at = 0;
 const row = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({
   machine_id: "m1", machine_name: "Build Box", id, agent: "claude", title: id, cwd: "/srv/project",
-  status: "idle", doing: null, started_at: ++at, last_activity: at, external: false, question: null, parent: null, assistant: false, ...over,
+  status: "idle", doing: null, started_at: ++at, last_activity: at, external: false, question: null, parent: null, assistant: false, persona: null, ...over,
 });
 const under = (id: string, key = "") => ({ machine_id: "m1", id, key });
 const threadsOf = (rows: AgentSession[], main: AgentSession) => {

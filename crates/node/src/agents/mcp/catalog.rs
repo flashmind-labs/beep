@@ -161,6 +161,7 @@ pub(super) fn tools(reviewer: bool, alone: bool, assistant: bool) -> Value {
                 "cwd": { "type": "string" },
                 "model": text("A model ID from harness_info"),
                 "title": text("A short name for it, which the user sees"),
+                "persona": text("A custom agent, here only"),
                 "wait": { "type": "boolean" },
                 "background": { "type": "boolean" }
             }),
@@ -330,13 +331,14 @@ fn threads() -> Vec<Value> {
             "start_thread",
             "Start a thread of this chat: an agent on this machine, in a subfolder of the \
              chat's folder, which the user sees under the chat and can open. prompt is its only \
-             context: begin it with what the chat established. Returns its id; its replies \
-             come to you.",
+             context: begin it with what the chat established. It may run as a persona \
+             from the chat's Agents tab. Returns its id; its replies come to you.",
             json!({
                 "title": { "type": "string", "pattern": "\\S", "description": "Its name, which the user sees" },
                 "prompt": { "type": "string" },
-                "harness": text("Default yours"),
-                "model": text("From harness_info")
+                "harness": text("Default the persona's or yours"),
+                "model": text("From harness_info"),
+                "persona": { "type": "string" }
             }),
             &["title", "prompt"],
             acts("Start a thread"),

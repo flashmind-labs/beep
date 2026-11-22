@@ -12,7 +12,7 @@ test("a session is the assistant only by its flag, never as a reviewer", () => {
 });
 
 const session = (id: string, cwd: string, status: string, last_activity: number, assistant = false): AgentSession => ({
-  machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: null, cwd, status, doing: null, started_at: 0, last_activity, external: false, question: null, assistant,
+  machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: null, cwd, status, doing: null, started_at: 0, last_activity, external: false, question: null, assistant, persona: null,
 });
 
 test("the assistant list splits running from ended, the latest first, and leaves out home folder sessions without the flag", () => {

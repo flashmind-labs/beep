@@ -22,7 +22,7 @@ use crate::{
 use beep_mesh::Key;
 use beep_node::agents::tags::own_words;
 use beep_proto::SessionId;
-use beep_proto::node::agent::LineChanges;
+use beep_proto::node::agent::{LineChanges, Persona};
 use beep_proto::{
     AccountName, AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels,
     AgentQuestion, AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask,
@@ -124,6 +124,8 @@ pub struct SessionRow {
     assistant: bool,
     /// The named account it runs as; `None` for the agent's default one.
     account: Option<AccountName>,
+    /// The custom agent it runs as.
+    persona: Option<Persona>,
 }
 
 impl From<MachineSession> for SessionRow {
@@ -150,6 +152,7 @@ impl From<MachineSession> for SessionRow {
             model: session.model,
             assistant: session.assistant,
             account: session.account,
+            persona: session.persona,
         }
     }
 }

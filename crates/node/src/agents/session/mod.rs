@@ -24,7 +24,7 @@ use anyhow::Result;
 use beep_proto::{AccountName, ModelId};
 use beep_proto::SessionId;
 use beep_proto::node::agent::{
-    AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, SessionDevice, SessionInfo,
+    AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, Persona, SessionDevice, SessionInfo,
     Status,
 };
 use beep_proto::watched;
@@ -259,6 +259,8 @@ pub(super) struct Start<'a> {
     pub(super) assistant: bool,
     /// The named account it runs signed in as; `None` for the default one.
     pub(super) account: Option<AccountName>,
+    /// The custom agent it runs as.
+    pub(super) persona: Option<Persona>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
     /// Where what its turns spend goes.
@@ -315,6 +317,7 @@ impl Session {
             mcp,
             assistant,
             account,
+            persona,
             images,
             usage,
             alerts,
@@ -437,6 +440,7 @@ impl Session {
             worktrees,
             assistant,
             account: account.clone(),
+            persona,
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);

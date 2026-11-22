@@ -1,6 +1,6 @@
 use super::*;
 use crate::agents::{AgentKind, OpenSession, SavedSession};
-use beep_proto::node::agent::Request;
+use beep_proto::node::agent::{Persona, Request};
 use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path};
 use tokio::time::timeout;
@@ -84,6 +84,7 @@ fn start(harness: &str, prompt: &str, dir: &Path) -> ChildStart {
         review: None,
         account: None,
         title: None,
+        persona: None,
     }
 }
 
@@ -859,6 +860,66 @@ async fn the_link_survives_a_restart_and_the_family_still_stops_together() {
     // The resumed parent stops its resumed child.
     resumed.close().await;
     until(&kids[0], |live| live.status() == Status::Ended).await;
+    after.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_thread_started_as_a_persona_hears_its_instructions_and_keeps_its_name() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let who = rig.agents.who_of(&parent);
+    let link = rig.agents.link_for(&parent, &who).expect("within limits");
+    let researcher = beep_proto::CustomAgent {
+        name: "researcher".into(),
+        harness: beep_proto::CustomAgentHarness::Claude {},
+        scope: beep_proto::CustomAgentScope::Project {},
+        description: "Digs".into(),
+        model: None,
+        tools: Vec::new(),
+        color: Some("blue".into()),
+        path: ".claude/agents/researcher.md".into(),
+        prompt: "Cite every source you read.".into(),
+        prompt_cut: false,
+        error: None,
+    };
+    let child = rig
+        .agents
+        .start_child(
+            link,
+            ChildStart {
+                persona: Some(researcher),
+                ..start("kid", "work", rig.dir.path())
+            },
+        )
+        .await
+        .expect("the child starts");
+    until(&child, |live| live.info.turns == 1).await;
+    let persona = Persona {
+        name: "researcher".into(),
+        color: Some("blue".into()),
+    };
+    assert_eq!(child.info().persona.as_ref(), Some(&persona));
+    // Its instructions go with Beep's word, not as the user's prompt.
+    let log = rig.read("kid.log");
+    let prompt = log
+        .lines()
+        .find(|line| line.contains("session/prompt"))
+        .expect("the child was prompted");
+    assert!(prompt.contains("Cite every source you read."), "{prompt}");
+    assert!(prompt.contains("beep-context"), "{prompt}");
+
+    // Kept over a restart.
+    let noted = serde_json::to_string(&rig.agents.open_sessions()).expect("the note writes");
+    let saved = rig.agents.saved_sessions();
+    assert!(saved.iter().any(|kept| kept.info.persona.as_ref() == Some(&persona)));
+    rig.agents.shutdown().await;
+    let noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
+    let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()]);
+    after.settings_arrived();
+    after.reopen(noted).await;
+    let id = Agents::name_of(&child);
+    let resumed = after.get(&id).expect("the thread is back");
+    assert_eq!(resumed.info().persona, Some(persona));
     after.shutdown().await;
 }
 

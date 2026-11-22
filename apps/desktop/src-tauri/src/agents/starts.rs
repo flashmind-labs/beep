@@ -181,6 +181,7 @@ impl Start {
             reply: None,
             changes: None,
             account: self.account.clone(),
+            persona: None,
         }
     }
 

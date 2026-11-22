@@ -16,7 +16,7 @@ use crate::agents::{
 };
 use crate::link::Offers;
 use beep_mesh::{Key, Mesh};
-use beep_proto::{AccountName, ModelId};
+use beep_proto::{AccountName, CustomAgent, ModelId};
 use beep_proto::node::{
     agent::{Entry, EntryKind, ParentLink, SessionInfo, Status},
     mesh_state::{StateValue, SyncSpec},
@@ -126,6 +126,8 @@ struct StartArgs {
     cwd: Option<String>,
     model: Option<String>,
     title: Option<String>,
+    /// A custom agent's name: it runs as that one, here only.
+    persona: Option<String>,
     #[serde(default)]
     wait: bool,
     #[serde(default)]
@@ -339,6 +341,7 @@ impl Reach<'_> {
             cwd,
             model,
             title,
+            persona,
             wait,
             background,
         } = args;
@@ -378,16 +381,45 @@ impl Reach<'_> {
             None => cwd,
         };
 
+        let harness = harness.map(|name| name.trim().to_owned());
+        let persona = match persona.as_deref().map(str::trim).filter(|name| !name.is_empty()) {
+            None => None,
+            Some(_) if target.is_some() => {
+                return fail("A persona runs on this machine only: start it without `machine`.");
+            }
+            Some(name) => {
+                let at = cwd.clone().unwrap_or_else(|| parent.info().cwd);
+                let wanted = harness.clone().unwrap_or_else(|| parent.agent.clone());
+
+                match find_persona(at, name.to_owned(), wanted).await {
+                    Ok(found) => Some(found),
+                    Err(e) => return fail(e),
+                }
+            }
+        };
+        // The persona's own harness when none is named and this machine has
+        // it. Its `model` is left out: the file names it as its harness does
+        // (`opus`, `inherit`), which need not be an id the thread's harness
+        // takes, so only an explicit `model` picks one.
+        let harness = match (harness, &persona) {
+            (Some(harness), _) => harness,
+            (None, Some(persona)) if self.agents.named(persona.harness.as_ref()).is_some() => {
+                persona.harness.as_ref().to_owned()
+            }
+            (None, _) => parent.agent.clone(),
+        };
+
         let link = match self.agents.link_for(parent, self.who) {
             Ok(link) => ParentLink { background, ..link },
             Err(e) => return fail(e),
         };
         let parts = StartParts {
-            harness: harness.map_or_else(|| parent.agent.clone(), |name| name.trim().to_owned()),
+            harness,
             prompt,
             cwd,
             model,
             title,
+            persona,
         };
         let started = match target {
             None => self.start_here(parent, link, parts).await,
@@ -432,6 +464,7 @@ impl Reach<'_> {
                     review: None,
                     account: parent.account.clone(),
                     title: start.title,
+                    persona: start.persona,
                 },
             )
             .await;
@@ -826,6 +859,20 @@ struct StartParts {
     cwd: Option<String>,
     model: Option<String>,
     title: Option<String>,
+    persona: Option<CustomAgent>,
+}
+
+/// The custom agent called `name` for the folder `at` and the user's own,
+/// the one for `harness` first (`custom_agents::persona`).
+async fn find_persona(at: String, name: String, harness: String) -> Result<CustomAgent, String> {
+    let home = dirs::home_dir();
+
+    tokio::task::spawn_blocking(move || {
+        let folder = crate::agents::running::folder(Some(&at)).map_err(|e| format!("{e:#}"))?;
+        crate::agents::custom_agents::persona(&folder, home.as_deref(), &name, &harness)
+    })
+    .await
+    .map_err(|e| format!("The custom agents were not read: {e}"))?
 }
 
 /// The call that started a child, as its parent's transcript shows it:
@@ -963,6 +1010,7 @@ async fn serve_peer(
                 review: None,
                 account: order.account,
                 title: order.title,
+                persona: None,
             };
             let child = agents.start_child(order.parent, start).await?;
 

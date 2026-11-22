@@ -3,6 +3,7 @@ import { plural } from "../ui/format.ts";
 import { syncedBySyncthing } from "./filesync.ts";
 import type { AgentQuestion, RunningAgent } from "../agents/running-state.ts";
 import type { HostRow } from "./runs.tsx";
+import type { Persona } from "../agents/agents.ts";
 // Projects as the window lists them, their sessions, machines and groups,
 // as pure functions so they can be tested without Tauri.
 
@@ -118,6 +119,8 @@ export interface SessionRow {
   question: AgentQuestion | null;
   /// The Home assistant.
   assistant: boolean;
+  /// The custom agent it runs as.
+  persona: Persona | null;
 }
 
 /// Whether `cwd` is `folder` or inside it.

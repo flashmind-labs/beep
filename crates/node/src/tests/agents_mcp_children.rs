@@ -432,6 +432,75 @@ async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let write = |rel: &str, text: &str| {
+        let path = dir.path().join(rel);
+        std::fs::create_dir_all(path.parent().expect("a folder")).expect("folder made");
+        std::fs::write(path, text).expect("file written");
+    };
+    write(
+        ".codex/agents/researcher.toml",
+        "name = \"researcher\"\ndeveloper_instructions = \"Cite sources.\"",
+    );
+    write(".claude/agents/writer.md", "---\nname: writer\n---\nWrite plainly.");
+    let mut offers = Offers::local(&[], Provision::new(dir.path()));
+    offers.agents = Arc::new(Agents::new(vec![kind("top"), kind("codex")]));
+    let cwd = dir.path().to_string_lossy().into_owned();
+    let chat = offers
+        .agents
+        .start(
+            &offers.agents.kinds()[0],
+            Some(&cwd),
+            Begin {
+                prompt: Some("hello".to_owned()),
+                ..Begin::default()
+            },
+        )
+        .expect("the chat starts");
+    let mut live = chat.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        watched::wait_for(&mut live, |live| {
+            live.agent_session.is_some() && live.info.turns == 1
+        }),
+    )
+    .await
+    .expect("the chat settles")
+    .expect("the chat is kept");
+    let chat = Agents::name_of(&chat);
+    let start = |persona: &str, harness: Option<&str>| {
+        let mut args = json!({ "title": persona, "prompt": "work", "persona": persona });
+        if let Some(harness) = harness {
+            args["harness"] = json!(harness);
+        }
+        tool(&offers, &chat, Tool::StartAgent, args)
+    };
+
+    // Its own harness, which this machine has.
+    let (failed, text) = start("researcher", None).await;
+    assert!(!failed, "{text}");
+    let researcher = view(&text);
+    assert_eq!(researcher.harness, "codex");
+    let session = offers.agents.get(&researcher.key).expect("the thread runs here");
+    assert_eq!(session.info().persona.map(|persona| persona.name).as_deref(), Some("researcher"));
+    // Claude's, which it has not: the chat's.
+    let (failed, text) = start("writer", None).await;
+    assert!(!failed, "{text}");
+    assert_eq!(view(&text).harness, "top");
+    // The one named.
+    let (failed, text) = start("Researcher", Some("top")).await;
+    assert!(!failed, "{text}");
+    assert_eq!(view(&text).harness, "top");
+
+    let (failed, text) = start("nobody", None).await;
+    assert!(failed);
+    assert!(text.starts_with("There is no custom agent called nobody. There are: writer, researcher"), "{text}");
+    offers.agents.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let mut offers = Offers::local(&[], Provision::new(dir.path()));

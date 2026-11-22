@@ -123,7 +123,7 @@ pub(super) fn kept_here(arrival: &Arrival<'_>, folder: &Path, me: EndpointId) ->
 
 impl Arrival<'_> {
     /// How the session begins here: as the source saved it, with its title,
-    /// model, thinking level and whether it is the assistant, and with the
+    /// model, thinking level, persona and whether it is the assistant, and with the
     /// move record's model and mode from a source from before saved sessions.
     pub(super) fn begin(&self, note: String, brief: String, me: EndpointId) -> Begin {
         let (info, effort, fast, named) =
@@ -142,6 +142,7 @@ impl Arrival<'_> {
             fast,
             worktrees: self.worktrees.clone(),
             assistant: info.assistant,
+            persona: info.persona,
             note: Some(note),
             brief: Some(Cow::Owned(brief)),
             ..Begin::default()

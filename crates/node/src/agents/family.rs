@@ -11,8 +11,8 @@
 use beep_proto::SessionId;
 use super::{Agents, Begin, Command, Session, known, live::Live, mcp::children};
 use crate::{AsyncMutex, link::Membership};
-use beep_proto::{AccountName, AgentAccount, ModelId};
-use beep_proto::node::agent::{Effort, ParentLink, SessionInfo, Status};
+use beep_proto::{AccountName, AgentAccount, CustomAgent, ModelId};
+use beep_proto::node::agent::{Effort, ParentLink, Persona, SessionInfo, Status};
 use beep_proto::watched;
 use iroh::EndpointId;
 use std::{
@@ -87,6 +87,8 @@ pub(crate) struct ChildStart {
     pub(crate) account: Option<AccountName>,
     /// The name its parent gives it, which its chat lists it under.
     pub(crate) title: Option<String>,
+    /// The custom agent it runs as, whose instructions it is told.
+    pub(crate) persona: Option<CustomAgent>,
 }
 
 /// What a reviewer child starts with besides `ChildStart`'s.
@@ -314,6 +316,8 @@ impl Agents {
             account: start
                 .account
                 .filter(|_| AgentAccount::from_str(&kind.name).is_ok()),
+            persona: start.persona.as_ref().map(Into::<Persona>::into),
+            instructions: start.persona.as_ref().map(super::custom_agents::persona_brief),
             ..Begin::default()
         };
         let session = {

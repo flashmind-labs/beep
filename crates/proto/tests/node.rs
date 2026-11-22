@@ -1688,6 +1688,36 @@ mod agent {
         }
 
         #[test]
+        fn a_sessions_persona_reads_compact_and_a_session_before_it_has_none() {
+            let newer = SessionInfo {
+                id: "t1".into(),
+                agent: "claude".into(),
+                persona: Some(Persona {
+                    name: "researcher".into(),
+                    color: Some("blue".into()),
+                }),
+                ..SessionInfo::default()
+            };
+            let compact = rmp_serde::to_vec(&newer).unwrap();
+            assert_eq!(
+                beep_proto::lenient::from_slice::<SessionInfo>(&compact).unwrap(),
+                newer
+            );
+            // A node from before the field sends the row without it.
+            let before = SessionInfo {
+                persona: None,
+                ..newer.clone()
+            };
+            let mut short = rmp_serde::to_vec(&before).unwrap();
+            short.truncate(short.len() - 1);
+            assert_eq!(short[0], 0xdc);
+            let count = u16::from_be_bytes([short[1], short[2]]) - 1;
+            short[1..3].copy_from_slice(&count.to_be_bytes());
+            let read: SessionInfo = beep_proto::lenient::from_slice(&short).unwrap();
+            assert_eq!(read, before);
+        }
+
+        #[test]
         fn events_round_trip() {
             let event = Event::Question {
                 question: Question {

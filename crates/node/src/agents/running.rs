@@ -15,7 +15,7 @@ use anyhow::{Context, Result};
 use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{
-        self, CheckoutPlan, ModelList, ParentLink, SESSIONS_PROTOCOL, SessionDevice, SessionInfo,
+        self, CheckoutPlan, ModelList, ParentLink, Persona, SESSIONS_PROTOCOL, SessionDevice, SessionInfo,
         Status,
     },
     harness::{AgentSettings, HarnessReport},
@@ -709,6 +709,10 @@ impl Agents {
         signs_in(&kind.name, begin.account.as_ref())?;
         let own = own_folder(cwd, &begin)?;
         let (cwd, brief) = in_project(own.as_deref().or(cwd), begin.resume.is_some(), begin.brief)?;
+        let brief = match begin.instructions {
+            Some(instructions) => super::session::standing(brief.map(Cow::into_owned), Some(&instructions)).map(Cow::Owned),
+            None => brief,
+        };
 
         if let Some(mesh) = self.mesh() {
             mcp::projects::may_run(&mesh, &cwd, &kind.name).map_err(anyhow::Error::msg)?;
@@ -813,6 +817,7 @@ impl Agents {
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
             assistant,
             account: begin.account,
+            persona: begin.persona,
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts,
@@ -943,6 +948,10 @@ pub(super) struct Begin {
     pub(super) assistant: bool,
     /// The named account to sign in as; `None` for the default one.
     pub(super) account: Option<AccountName>,
+    /// The custom agent it runs as.
+    pub(super) persona: Option<Persona>,
+    /// The custom agent's instructions, said once after Beep's brief.
+    pub(super) instructions: Option<String>,
 }
 
 /// Refuses a start as `account` that this node cannot sign `agent` in as,

@@ -98,12 +98,13 @@ export function drawAgentHeading() {
 }
 onPlaces(drawAgentHeading);
 
-/// The head's title, and the folder and worktree the session works in.
+/// The head's title, the folder and worktree the session works in, and the custom agent it runs as.
 export function headText(s: AgentRow) {
   const project = windowHooks?.sessionProject?.(s), place = placeOf(s), name = agentKind(s.agent).name;
   return {
     title: s.title || name,
     folder: project?.label || (place ? placeRepo(place) : shortCwd(s.cwd)) || name,
     branch: place?.linked ? placeName(place) : "",
+    persona: s.persona ?? null,
   };
 }

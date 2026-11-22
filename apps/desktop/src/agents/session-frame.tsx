@@ -22,7 +22,8 @@ import { syncJump } from "./logview.tsx";
 import { ComposerPresence, PluginSlot, SessionHeaderSlot } from "../plugins/slot-view.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import type { ProjectWindowProps } from "../project/projectwindow.ts";
-import type { SessionUsage } from "./agents.ts";
+import type { Persona, SessionUsage } from "./agents.ts";
+import { PersonaTag } from "../project/customagents-view.tsx";
 
 interface AgentHintsModel { value: HintViewModel; project: string | null }
 interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
@@ -96,6 +97,8 @@ export function DraftHead({ project, openProject, machine, windowProps = null }:
 
 interface SessionHeadProps {
   agent: string; title: string; folder: string; branch: string; cwd: string; machine: string; usage: SessionUsage | null;
+  /// The custom agent it runs as.
+  persona: Persona | null;
   /// The session's machine id and its id, for plugins.
   machineId: string; session: string;
   /// The session's machine, harness and id, which the move views follow.
@@ -107,8 +110,8 @@ interface SessionHeadProps {
   saveTitle: ((value: string) => Promise<void>) | null;
 }
 
-export function SessionHead({ agent, title, folder, branch, openProject, windowProps = null, cwd, machine, usage, moveKey, saveTitle, machineId, session }: SessionHeadProps) {
-  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={fixedTitle(title) ? null : saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <Button look="plain" className="agproj" id="agproj" {...windowProps?.clicks} {...windowProps?.menu} onClick={openProject}>{folder}</Button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /></small></span><SessionHeaderSlot machine={machineId} session={session} /><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage && <UsageBits usage={usage} />}</small><span id="agstate"><FieldControl slot="state" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
+export function SessionHead({ agent, title, folder, branch, persona, openProject, windowProps = null, cwd, machine, usage, moveKey, saveTitle, machineId, session }: SessionHeadProps) {
+  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={fixedTitle(title) ? null : saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <Button look="plain" className="agproj" id="agproj" {...windowProps?.clicks} {...windowProps?.menu} onClick={openProject}>{folder}</Button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /><PersonaTag persona={persona} /></small></span><SessionHeaderSlot machine={machineId} session={session} /><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage && <UsageBits usage={usage} />}</small><span id="agstate"><FieldControl slot="state" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
 }
 
 /// A session's usage in its header: a meter of the context, then the tokens and the spend.
@@ -119,11 +122,11 @@ function UsageBits({ usage }: { usage: SessionUsage }) {
 }
 
 /// Redraws the session head with `change`; false when the frame shows no session head.
-export function updateSessionHead(change: Partial<Pick<SessionHeadProps, "title" | "folder" | "branch" | "usage" | "machine">>) {
+export function updateSessionHead(change: Partial<Pick<SessionHeadProps, "title" | "folder" | "branch" | "usage" | "machine" | "persona">>) {
   const owner = current, head = owner?.frame.head;
   if (!owner || !isValidElement<SessionHeadProps>(head) || head.type !== SessionHead) return false;
-  const unchanged = Object.entries(change).every(([key, value]) => key === "usage"
-    ? JSON.stringify(head.props.usage) === JSON.stringify(value)
+  const unchanged = Object.entries(change).every(([key, value]) => key === "usage" || key === "persona"
+    ? JSON.stringify(head.props[key]) === JSON.stringify(value)
     : head.props[key as keyof typeof change] === value);
   if (unchanged) return true;
   owner.frame = { ...owner.frame, head: cloneElement(head, change) };

@@ -362,7 +362,8 @@ impl Agents {
 
     /// Gives those of `sessions` that ran here what this node kept of them:
     /// that one was the home assistant, so it stays with its chats once it
-    /// ended, and the name its parent gave it, which its agent's files lack.
+    /// ended, and the name its parent gave it and the custom agent it ran
+    /// as, which its agent's files lack.
     pub(super) fn mark_kept(&self, sessions: &mut [ExternalSession]) {
         let kept: HashMap<SessionId, SavedSession> = self
             .saved_sessions()
@@ -373,6 +374,7 @@ impl Agents {
         for session in sessions {
             let kept = kept.get(&session.id);
             session.assistant = kept.is_some_and(|kept| kept.info.assistant && !kept.info.reviewer);
+            session.persona = kept.and_then(|kept| kept.info.persona.clone());
 
             if let Some(kept) = kept.filter(|kept| kept.named) {
                 session.title.clone_from(&kept.info.title);
@@ -705,6 +707,7 @@ impl Agents {
             worktrees: info.worktrees,
             assistant: info.assistant && !info.reviewer,
             account,
+            persona: info.persona,
             ..Begin::default()
         }
     }

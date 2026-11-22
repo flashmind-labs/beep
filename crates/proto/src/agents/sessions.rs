@@ -3,7 +3,9 @@
 use crate::SessionId;
 use crate::{
     AccountName, ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
-    node::agent::{CheckoutPlan, Effort, LineChanges, SessionDevice, SessionInfo, StopReason},
+    node::agent::{
+        CheckoutPlan, Effort, LineChanges, Persona, SessionDevice, SessionInfo, StopReason,
+    },
 };
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -397,6 +399,10 @@ wire_structs! {
         /// one, an external session and from an older node.
         #[serde(default)]
         pub account: Option<AccountName>,
+        /// The custom agent it runs as; `None` for most and from an older
+        /// node.
+        #[serde(default)]
+        pub persona: Option<Persona>,
     }
 }
 

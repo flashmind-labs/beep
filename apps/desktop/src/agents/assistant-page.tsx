@@ -19,6 +19,7 @@ import { RailList, Row, RunningStatus } from "../project/split-view.tsx";
 import { SideToggle } from "../center/sidebar-shell.tsx";
 import { Button, EndedFold } from "../ui/kit.tsx";
 import { HarnessIcon } from "../ui/icons.tsx";
+import { PersonaTag } from "../project/customagents-view.tsx";
 import { formatAgo } from "../ui/format.ts";
 import { isMobile } from "../ui/platform.ts";
 import { CHATS, WidthGrip } from "../ui/width-grip.tsx";
@@ -123,7 +124,7 @@ export function AssistantList() {
     // Also how a phone, whose list hides while a chat shows, reaches New thread.
     menu: event => void sessionMenu(event, session, goChat),
   }} />;
-  const thread = ({ row, name, detail }: Thread) => item(row, name, null, <Detail detail={detail} />);
+  const thread = ({ row, name, detail }: Thread) => item(row, name, null, <><PersonaTag persona={row.persona} /><Detail detail={detail} /></>);
   const row = (session: AgentSession) => {
     const key = runningKey(session), threads = threadsOf.get(session) ?? [];
     const inHand = [session, ...threads.map(one => one.row)].some(one => runningKey(one) === chat);

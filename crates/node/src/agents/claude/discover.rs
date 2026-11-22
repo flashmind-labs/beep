@@ -509,6 +509,7 @@ fn describe(
             .unwrap_or_default(),
         taken_over: snapshot.owned.get(&transcript.id).cloned(),
         assistant: false,
+        persona: None,
     })
 }
 

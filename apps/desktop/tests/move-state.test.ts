@@ -72,7 +72,7 @@ test("the bar over the input fills with the step that copies", () => {
 const CHAT = "/home/u/.beep/assistant/c1";
 const row = (over: Partial<AgentSession>): AgentSession => ({
   machine_id: "laptop-id", machine_name: "laptop", id: "x", agent: "flsh", title: null, cwd: CHAT, status: "idle", doing: null,
-  started_at: 0, last_activity: 0, external: false, question: null, assistant: false, ...over,
+  started_at: 0, last_activity: 0, external: false, question: null, assistant: false, persona: null, ...over,
 });
 const under = (id: string) => ({ machine_id: "laptop-id", id, key: "" });
 

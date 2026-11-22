@@ -3350,6 +3350,7 @@ async fn session_title_overrides_replicate_and_clear_without_changing_generated_
         model: None,
         assistant: false,
         account: None,
+        persona: None,
     };
     let mut refreshed = generated.clone();
     session_titles::apply(&other.mesh, &mut refreshed);

@@ -43,6 +43,7 @@ fn agent_session(
         model: None,
         assistant: false,
         account: None,
+        persona: None,
     }
 }
 

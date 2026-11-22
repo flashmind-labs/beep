@@ -87,6 +87,14 @@ export interface AgentSession {
   reply_html?: string | null;
   /// Started in the background by its parent, which alone shows it.
   background?: boolean;
+  /// The custom agent it runs as, which its parent started it as.
+  persona: Persona | null;
+}
+
+/// A custom agent a session runs as: its name, and the colour its file gives.
+export interface Persona {
+  name: string;
+  color: string | null;
 }
 
 /// Where the session that started another runs and the ids it is listed

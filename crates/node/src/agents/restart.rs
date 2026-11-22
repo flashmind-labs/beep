@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 use beep_proto::watched;
 use beep_proto::{
     ModelId,
-    node::agent::{Effort, Entry, ParentLink, SessionDevice, SessionInfo, Status},
+    node::agent::{Effort, Entry, ParentLink, Persona, SessionDevice, SessionInfo, Status},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -120,6 +120,9 @@ pub(crate) struct OpenSession {
     /// Its parent gave its title.
     #[serde(default)]
     named: bool,
+    /// The custom agent it runs as.
+    #[serde(default)]
+    persona: Option<Persona>,
 }
 
 impl From<&OpenSession> for SavedSession {
@@ -140,6 +143,7 @@ impl From<&OpenSession> for SavedSession {
                 worktrees: open.worktrees.clone(),
                 account: open.account.clone(),
                 assistant: open.assistant,
+                persona: open.persona.clone(),
                 ..SessionInfo::default()
             },
             effort: open.effort,
@@ -286,6 +290,7 @@ impl Agents {
                     worktrees: info.worktrees.clone(),
                     assistant: session.assistant,
                     account: info.account.clone(),
+                    persona: info.persona.clone(),
                     ..SessionInfo::default()
                 },
                 effort: live.effort,
@@ -343,6 +348,7 @@ impl Agents {
                 fast: live.fast,
                 account: session.account.clone(),
                 named: live.named,
+                persona: live.info.persona.clone(),
             })
         })
     }
@@ -440,6 +446,7 @@ impl Agents {
                 effort: open.effort,
                 fast: open.fast,
                 account: open.account,
+                persona: open.persona,
                 ..Begin::default()
             },
         )?;

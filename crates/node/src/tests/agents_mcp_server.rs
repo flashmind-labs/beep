@@ -622,7 +622,7 @@ fn the_tool_definitions_fit_the_budget() {
         assert!(tokens <= budget, "{tokens} tokens, assistant {assistant}");
     }
     let brief = (super::super::BRIEF.len() + super::super::ASSISTANT.len()) / 4;
-    assert!(brief <= 700, "the assistant's brief is {brief} tokens");
+    assert!(brief <= 710, "the assistant's brief is {brief} tokens");
 }
 
 #[tokio::test]

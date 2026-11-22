@@ -139,6 +139,10 @@ pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms !
 .aglocation .agproj { color: inherit }
 body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .aglocation #aghere { flex: none; white-space: nowrap }
+/* The custom agent a thread runs as, ahead of its row's detail and after its head's machine. */
+.th-persona { display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; font: 11px var(--mono); color: var(--muted); white-space: nowrap }
+.th-persona .ddot { width: 6px; height: 6px }
+.aglocation .th-persona { margin: 0 0 0 6px }
 #agdraft > .cc-pjc { margin-inline: 16px }
 .dhead .aguse { flex: 0 1 auto; min-width: 0; max-width: 48%; margin: 0; font-size: 11px; line-height: 16px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; text-wrap: balance; overflow-wrap: anywhere }
 .dhead .aguse:empty { display: none }
