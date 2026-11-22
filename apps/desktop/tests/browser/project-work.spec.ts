@@ -75,11 +75,8 @@ test("Home's review walks the idle sessions by time, and keeps the order", async
   await page.getByRole("menuitemradio", { name: "example/gadget" }).click();
   await expect(rows).toHaveText([/^Sort the tables/]);
 
-  // Close closes the one in hand, and a click on the row in hand opens it.
-  await deck.getByRole("button", { name: "Close" }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").map(call => `${call.args.session} ${call.args.steer}`))).toContain("four close");
-  // The other session is in hand now, and all projects show again.
-  await expect(inHand).toHaveText("Update the changelog");
-  await rows.filter({ hasText: "Update the changelog" }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_view").map(call => call.args.session))).toContain("two");
+  // A click on the row in hand opens it.
+  await expect(inHand).toHaveText("Sort the tables");
+  await rows.filter({ hasText: "Sort the tables" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_view").map(call => call.args.session))).toContain("four");
 });

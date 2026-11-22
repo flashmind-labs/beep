@@ -206,11 +206,8 @@ function Review({ cards, rows }: { cards: readonly BoardCard[]; rows: ReadonlyMa
 /// The idle session in hand: what to do with it, how far down the list it is, and its last
 /// reply. The buttons come first, so they stay put from one session to the next.
 function Deck({ card, row, done, open, step }: { card: BoardCard; row: RunningAgent | null; done: number; open(): void; step(by: number): void }) {
-  // Closing moves on first: the list has lost the session by the time it has closed.
-  const close = row ? () => { step(1); closeSession(row).catch(error => console.warn("close:", error)); } : null;
-
   return <div className="bd-deck">
-    <div className="acts"><Button small onClick={open}>Open</Button>{close && <Button small onClick={close}>Close</Button>}<Button small className="back" onClick={() => step(-1)}>Back<kbd>←</kbd></Button><Button small onClick={() => step(1)}>Next<kbd>→</kbd></Button></div>
+    <div className="acts"><Button small onClick={open}>Open</Button><Button small className="back" onClick={() => step(-1)}>Back<kbd>←</kbd></Button><Button small onClick={() => step(1)}>Next<kbd>→</kbd></Button></div>
     <div className="bar" aria-hidden><i style={{ width: `${done * 100}%` }}/></div>
     <div className="meta"><ProjectTag card={card}/><span>{card.foot}</span></div>
     <b>{card.title}</b>

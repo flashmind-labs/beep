@@ -134,7 +134,6 @@ body.cbody
                   div.bd-deck
                     div.acts
                       button.dbtn.small [type="button"] "Open"
-                      button.dbtn.small [type="button"] "Close"
                       button.back.dbtn.small [type="button"] "Back"
                         kbd "←"
                       button.dbtn.small [type="button"] "Next"
