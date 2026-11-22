@@ -890,7 +890,7 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 /* With room, the project's sessions take the sidebar's column, under the traffic lights. */
 .pw .cwin:not(.rail-on) { grid-template-columns: minmax(0, 1fr) }
 .pw #side, .pw .cwin:not(.rail-on) > #side-grip, .pw .cc-rail .cc-side-toggle, .pw .cwin.rail-on #pw-back { display: none }
-.pw .cwin:not(.rail-on) .cc-top { padding-left: 84px }
+.pw .cwin:not(.rail-on) .cc-top, .cwin.side-away .cc-top { padding-left: 84px }
 .pw-back[hidden] { display: none }
 /* A failed action's banner: one line, the output under Details, a dismiss. */
 .fb-err { min-width: 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--err) 45%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--err) 8%, transparent); font-size: 12.5px }

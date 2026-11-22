@@ -56,6 +56,8 @@ test("Esc beside a chat's threads shows all the chats, then the sidebar beside t
   await expect(page.locator(".asst-list")).toBeVisible();
   await expect(page.locator("#side")).toBeHidden();
   await expect(page.getByText("On it.")).toBeVisible();
+  // With no sidebar under them, the title row keeps clear of the window's controls.
+  await expect(page.locator(".cc-top")).toHaveCSS("padding-left", "84px");
 
   await page.keyboard.press("Escape");
   await expect(page.locator("#side")).toBeVisible();
