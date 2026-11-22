@@ -1081,3 +1081,33 @@ fn the_removed_member_owes_their_removal() {
     teams.rosters.refresh([(repo(), team)].into());
     assert!(!owes(&teams, &carol, &remove));
 }
+
+/// A roster counts as sent only when the teammate took it: one whose newcomer
+/// the forge does not vouch for yet is sent again.
+#[tokio::test]
+async fn a_refused_roster_is_not_sent() {
+    for (forge, took) in [(Answer::No, false), (Answer::Yes, true)] {
+        let pair = Pair::with(SystemTime::now() + DAY, forge, "bob").await;
+        let carol = mesh_id();
+        with_carol(&pair, carol, pair.joiner.endpoint().id());
+        let roster = TeamMsg::Roster {
+            repo: repo(),
+            members: vec![Member {
+                admitted_by: Some(carol),
+                ..member("dave", mesh_id(), mesh_id())
+            }],
+        };
+        let alice = member("alice", pair.alice_mesh, pair.inviter_id);
+
+        let sent = pair.joiner.send(&alice, &roster).await;
+
+        match sent {
+            Ok(()) => assert!(took),
+            Err(TeamError::Refused(reason)) => {
+                assert!(!took);
+                assert!(reason.contains("not a collaborator"), "{reason}");
+            }
+            Err(e) => panic!("{e}"),
+        }
+    }
+}

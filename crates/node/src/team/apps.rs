@@ -227,7 +227,7 @@ fn tell(link: &TeamLink, repo: &TeamRepo, msg: TeamMsg) -> Outcome {
 async fn invite(link: &TeamLink, devices: &[EndpointAddr], msg: TeamMsg) -> Outcome {
     let tries = async {
         for device in devices {
-            match link.offer(device, &msg).await {
+            match link.offer(std::slice::from_ref(device), &msg).await {
                 Ok(None) => return Ok("Sent the invite.".to_owned()),
                 Ok(Some(reason)) => return Err(reason),
                 Err(e) => log::debug!("an invite did not reach {}: {e}", device.id.fmt_short()),

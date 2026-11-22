@@ -222,7 +222,7 @@ impl TeamLink {
             let mut said = TeamError::Unreachable.to_string();
 
             for device in &member.devices {
-                match self.offer(device, msg).await {
+                match self.offer(std::slice::from_ref(device), msg).await {
                     Ok(None) => return Ok(()),
                     Ok(Some(reason)) if passes(&reason) => said = reason,
                     Ok(Some(reason)) => return Err(reason),
@@ -238,15 +238,17 @@ impl TeamLink {
             .unwrap_or_else(|_| Err(format!("{} did not answer in time", member.login)))
     }
 
-    /// Sends `msg` to `device`: `None` when it took it, else its refusal.
+    /// Sends `msg` to the first of `devices` that answers: `None` when it
+    /// took it, else its refusal.
     pub(super) async fn offer(
         &self,
-        device: &EndpointAddr,
+        devices: &[EndpointAddr],
         msg: &TeamMsg,
     ) -> Result<Option<String>, TeamError> {
-        let (mut tx, mut rx) = self.dial(std::slice::from_ref(device)).await?;
+        let (mut tx, mut rx) = self.dial(devices).await?;
         tx.send(msg).await?;
-        // The device answers once it handed the ask on, which may take a while.
+        // The device answers once it handed an ask on or checked a roster's
+        // newcomers on the forge, which may take a while.
         let (_, answer) = tokio::join!(finish(tx), timeout(ANSWER, rx.recv::<TeamMsg>()));
         let answer = answer.map_err(|_| TeamError::Refused("no answer".to_owned()))??;
 

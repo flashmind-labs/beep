@@ -261,12 +261,13 @@ impl TeamLink {
         });
     }
 
-    /// Sends `msg` to the first of `member`'s devices that answers.
+    /// Sends `msg` to the first of `member`'s devices that answers; an error
+    /// unless it took it.
     pub(super) async fn send(&self, member: &Member, msg: &TeamMsg) -> Result<(), TeamError> {
-        let (mut tx, _rx) = self.dial(&member.devices).await?;
-        tx.send(msg).await?;
-
-        finish(tx).await
+        match self.offer(&member.devices, msg).await? {
+            None => Ok(()),
+            Some(reason) => Err(TeamError::Refused(reason)),
+        }
     }
 
     async fn serve(&self, connection: &Connection) -> Result<(), TeamError> {
