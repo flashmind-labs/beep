@@ -7,15 +7,15 @@ import { refreshTopicSubscriptions, subscribeChanges, topic } from "../ui/mesh-e
 
 import { type AgentHost, type AgentRow, AG } from "./agents.ts";
 import { agentKey } from "./conversation-state.ts";
-import { type MoveProgress, type MoveRecord, type MoveTarget, canMove, chatSessions, going, moveRows, targetNote } from "./move-state.ts";
+import { type MoveProgress, type MoveRecord, type MoveTarget, canMove, chatSessions, going, movePct, moveRows, targetNote } from "./move-state.ts";
 import { isAssistant } from "./assistant-state.ts";
 import { isStarting } from "./starting-state.ts";
-import { machineNames, moveStore, nameOf, onMoves, stateOf } from "./move-store.ts";
+import { machineNames, moveStore, nameOf, onMoves, refreshMoves, stateOf } from "./move-store.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { S, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
 import { invoke } from "../ui/tauri.ts";
-import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
+import { AMBIENT_MS, ambient, latest, onShownChange, paneShown, SLOW_MS, STALE } from "../ui/active.ts";
 import type { ProjectMachineRow } from "../project/projects-state.ts";
 
 /// `agents`: the harnesses the session uses, with a chat's threads.
@@ -51,9 +51,12 @@ function chatOf(s: AgentRow) {
   return row ? chatSessions(sessions, row) : { refused: "the chat is not listed yet" };
 }
 
+/// When the window first saw each session's files coming, for their speed.
+const filesSince = new Map<string, number>();
+
 /// A move's first answer, before the target says anything.
 const waiting = (sourceAway: boolean): MoveProgress => ({
-  answer: "known", phase: "waiting", copied: 0, total: 0, source_away: sourceAway, reason: null, worktree: null, worktree_at: 0, worktrees: 0, edits_left: false,
+  answer: "known", phase: "waiting", copied: 0, total: 0, source_away: sourceAway, reason: null, worktree: null, worktree_at: 0, worktrees: 0, edits_left: false, files_copied: 0, files_total: 0,
 });
 
 /// Draws the machine menu in the head and the move above the composer.
@@ -84,6 +87,8 @@ const following = () => {
   const s = AG.page?.session, phase = s ? stateOf(s.id)?.phase : null;
   return !!s && here(s)?.from === s.machine_id && phase !== "failed" && phase !== "cancelled";
 };
+// How far a move is, the target says, not the mesh: asked again while one shows.
+const readProgress = ambient(async () => { await refreshMoves(); drawMove(); }, SLOW_MS, () => viewing());
 // A move is rare and reads at once; the sessions' frequent changes matter only while one runs.
 subscribeChanges(topic("moves"), { deliver: "latest", receive: () => poll() }, { when: viewing });
 subscribeChanges(topic("agents"), { deliver: "latest", receive: () => poll() }, { when: () => viewing() && following(), wait: AMBIENT_MS });
@@ -229,9 +234,12 @@ function moveStatus(s: AgentRow): Parameters<typeof MoveStatus>[0] {
   else if (!r || r.from !== s.machine_id || !p || !going(p)) {
     if (p?.answer === "known" && p.phase === "failed" && r?.from === s.machine_id) view = { kind: "failed", text: `Move failed: ${p.reason ?? "the move did not finish"}. Still on ${s.machine_name}.` };
   } else {
-    const to = nameOf(r.to);
+    const to = nameOf(r.to), now = Date.now();
+    if (p.phase === "files") filesSince.set(s.id, filesSince.get(s.id) ?? now); else filesSince.delete(s.id);
+    const since = filesSince.get(s.id);
+    readProgress();
     if (p.phase === "waiting" && !p.source_away && (s.status === "working" || s.status === "asking")) view = { kind: "waiting", to };
-    else view = { kind: "progress", to, cancelable: p.phase !== "resuming", rows: moveRows(p, s.machine_name, to, UI.targets.find(t => t.id === r.to)?.online ?? true, isChat(s) ? "chat" : "session") };
+    else view = { kind: "progress", to, cancelable: p.phase !== "resuming", rows: moveRows(p, s.machine_name, to, UI.targets.find(t => t.id === r.to)?.online ?? true, isChat(s) ? "chat" : "session", since === undefined ? null : { since, now }), pct: movePct(p) };
   }
   return {
     view, cancel: () => { void cancel(s); },

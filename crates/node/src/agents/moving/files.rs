@@ -22,6 +22,28 @@ pub(super) fn pack(folder: &Path, apart: &[PathBuf], out: impl Write) -> Result<
     tar.finish().context("ending the archive")
 }
 
+/// How many bytes `pack` writes of `folder`, said before the files go so the
+/// target can show how far they are. Reads every file. Blocks.
+pub(super) fn packed_size(folder: &Path, apart: &[PathBuf]) -> Result<u64> {
+    let mut counted = Counted(0);
+    pack(folder, apart, &mut counted)?;
+    Ok(counted.0)
+}
+
+/// Counts what is written to it.
+struct Counted(u64);
+
+impl Write for Counted {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0 += buf.len() as u64;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 fn add(tar: &mut Builder<impl Write>, dir: &Path, name: &Path, apart: &[PathBuf]) -> Result<()> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,

@@ -114,6 +114,12 @@ export function Switch({ on, flip, label, disabled = false, id, contained = fals
     onClick={event => { if (contained) contain(event); flip(); }} onKeyDown={contained ? contain : undefined} />;
 }
 
+/// The thin bar along the top of a message field while something it waits on copies, such as an
+/// upload or a move, filled to `pct`.
+export function ProgressBar({ pct, label }: { pct: number; label: string }) {
+  return <div className="agupbar" role="progressbar" aria-label={label} aria-valuenow={pct} title={`${label}: ${pct}%`}><span style={{ width: `${pct}%` }} /></div>;
+}
+
 /// A spinner: the ring (`dspin`), or with `dot` the small one (`drun`) for
 /// work that goes on by itself. A `label` makes it an image screen readers
 /// announce. It starts at the page clock's point in the turn, so one drawn

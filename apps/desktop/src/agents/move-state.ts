@@ -3,6 +3,7 @@
 // machine's copy of a session they show.
 import type { AgentSession, OpenAgent } from "./agents.ts";
 import { starters } from "./nesting-state.ts";
+import { transferSpeed } from "../agentpane/files-state.ts";
 
 /// A move record (MoveView).
 export interface MoveRecord {
@@ -31,7 +32,13 @@ export interface MoveProgress {
   worktrees: number;
   /// The source's checkout has uncommitted edits, which stay there.
   edits_left: boolean;
+  /// Bytes of a chat's files copied, and what they take on the source.
+  files_copied: number;
+  files_total: number;
 }
+
+/// When the window first saw a move's files come, and now, in ms.
+export interface FilesTiming { since: number; now: number }
 
 /// A machine a session could move to, with what the desktop knows of it.
 export interface MoveTarget {
@@ -107,15 +114,15 @@ export interface MoveRow {
 /// The steps above the composer: the conversation, the checkouts and the
 /// session's worktrees, the resume, each done, running or still to come,
 /// and a note when uncommitted edits stay on the source.
-export function moveRows(p: MoveProgress, from: string, to: string, toOnline = true, what: "session" | "chat" = "session"): MoveRow[] {
-  const steps = moveSteps(p, from, to, toOnline, what);
+export function moveRows(p: MoveProgress, from: string, to: string, toOnline = true, what: "session" | "chat" = "session", timing: FilesTiming | null = null): MoveRow[] {
+  const steps = moveSteps(p, from, to, toOnline, what, timing);
   return p.edits_left ? [...steps, { state: "note", text: `Uncommitted edits in the project folder stay on ${from}` }] : steps;
 }
 
-function moveSteps(p: MoveProgress, from: string, to: string, toOnline: boolean, what: "session" | "chat"): MoveRow[] {
+function moveSteps(p: MoveProgress, from: string, to: string, toOnline: boolean, what: "session" | "chat", timing: FilesTiming | null): MoveRow[] {
   const resume = `Resuming on ${to}`;
   // A chat brings the files of its folder; a session the project's checkouts.
-  const [checkouts, copying] = what === "chat" ? ["Files", "Files"] : ["Checkouts and worktrees", "Checkouts"];
+  const [checkouts, copying] = what === "chat" ? ["Files", filesLine(p, timing)] : ["Checkouts and worktrees", "Checkouts"];
 
   switch (p.phase) {
     case "waiting":
@@ -148,6 +155,22 @@ function moveSteps(p: MoveProgress, from: string, to: string, toOnline: boolean,
         { state: "run", text: resume },
       ];
   }
+}
+
+/// How full the bar over the input is: the share of the conversation, or of a chat's files,
+/// copied, below 100 until the step is over. Null for a step with no size.
+export function movePct(p: MoveProgress): number | null {
+  const [done, size] = p.phase === "conversation" ? [p.copied, p.total] : p.phase === "files" ? [p.files_copied, p.files_total] : [0, 0];
+  return size > 0 ? Math.min(99, Math.round((done * 100) / size)) : null;
+}
+
+/// A chat's files as they come: how much of how much, and their speed once they are slow.
+function filesLine(p: MoveProgress, timing: FilesTiming | null) {
+  const pct = movePct(p);
+  if (pct === null) return "Files";
+  const speed = timing && transferSpeed({ started: timing.since, done: p.files_copied, size: p.files_total }, timing.now);
+
+  return `Files ${fmtBytes(p.files_copied)} of ${fmtBytes(p.files_total)} · ${pct}%${speed ? ` · ${speed}` : ""}`;
 }
 
 /// How long a target may take to see a record in the mesh before the

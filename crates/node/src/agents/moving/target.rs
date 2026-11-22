@@ -502,13 +502,15 @@ async fn chat_files(
     show(tracker, |progress| progress.phase = MovePhase::Files);
     let archive = env.state.copy(&record.id).with_file_name("files.tar");
     let saved = from_source(record, tracker, "its files", || async {
-        let saved = ask_checkout(env, record).await?.session;
+        let checkout = ask_checkout(env, record).await?;
+        show(tracker, |progress| (progress.files_copied, progress.files_total) = (0, checkout.files));
         let connection = dial(env, record.from).await?;
         let (send, recv) = connection.open_bi().await?;
         let (tx, rx) = link(send, recv);
-        let brought = read::files(tx, rx, &record.id, &archive).await;
+        let came = |held| show(tracker, |progress| progress.files_copied = held);
+        let brought = read::files(tx, rx, &record.id, &archive, came).await;
         connection.close(0u32.into(), b"done");
-        brought.map(|()| saved)
+        brought.map(|()| checkout.session)
     })
     .await?;
     let folder = folder.to_owned();
@@ -560,7 +562,7 @@ async fn from_source<T, F: Future<Output = Result<T>>>(
             }
             Err(e) if e.is::<Refused>() => return Err(e),
             Err(e) => {
-                log::debug!("session {}: {what} not read yet: {e:#}", record.id);
+                log::warn!("session {}: {what} not read yet, asking again in {wait:?}: {e:#}", record.id);
                 show(tracker, |progress| progress.source_away = true);
                 sleep(wait).await;
                 wait = (wait * 2).min(LAST_WAIT);

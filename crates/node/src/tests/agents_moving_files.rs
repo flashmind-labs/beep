@@ -1,4 +1,4 @@
-use super::{pack, unpack};
+use super::{pack, packed_size, unpack};
 use std::fs;
 use tempfile::TempDir;
 
@@ -53,4 +53,20 @@ fn a_file_that_names_a_place_outside_the_folder_is_refused() {
     let there = dir.path().join("there");
     assert!(unpack(bytes.as_slice(), &there).is_err());
     assert!(!dir.path().join("escape").exists());
+}
+
+#[test]
+fn the_size_said_up_front_is_what_the_archive_takes() {
+    let dir = TempDir::new().expect("a temp folder");
+    let chat = dir.path().join("ab12");
+    fs::create_dir_all(chat.join("research")).unwrap();
+    fs::write(chat.join("notes.md"), "open: pricing").unwrap();
+    fs::write(chat.join("big.bin"), vec![7u8; 70 * 1024]).unwrap();
+    fs::write(chat.join("research/found.md"), "theirs").unwrap();
+    let apart = [chat.join("research")];
+
+    let mut bytes = Vec::new();
+    pack(&chat, &apart, &mut bytes).expect("it packs");
+
+    assert_eq!(packed_size(&chat, &apart).expect("it measures"), bytes.len() as u64);
 }

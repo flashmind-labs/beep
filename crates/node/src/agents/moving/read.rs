@@ -170,6 +170,10 @@ pub(crate) enum Reply {
         /// target. Added after `edits`.
         #[serde(default)]
         session: Option<Box<SavedSession>>,
+        /// The bytes a chat's `Files` answer carries, for the move's
+        /// progress; 0 for a project's session. Added after `session`.
+        #[serde(default)]
+        files: u64,
     },
 }
 
@@ -191,6 +195,8 @@ pub(crate) struct Checkout {
     pub(crate) edits: bool,
     /// `None` from a source from before saved sessions.
     pub(crate) session: Option<SavedSession>,
+    /// The bytes a chat's files take; 0 for a project or an older source.
+    pub(crate) files: u64,
 }
 
 /// What a source keeps of a session that leaves, from its move record.
@@ -364,13 +370,15 @@ pub(super) async fn serve(
                         worktrees: worktree::moving(&folder, &worktrees),
                         edits: worktree::has_edits(&folder),
                         session,
+                        files: 0,
                     },
                     // A chat's folder is no checkout, whatever it is inside.
-                    Leaving::Chat { .. } => Reply::Checkout {
+                    Leaving::Chat { folder, apart } => Reply::Checkout {
                         head: None,
                         worktrees: Vec::new(),
                         edits: false,
                         session,
+                        files: files::packed_size(&folder, &apart)?,
                     },
                 })
             })
@@ -437,6 +445,7 @@ pub(super) async fn serve(
 
             // As for a worktree: the target asks again.
             if !agents.reopened() || agents.runs(&id) {
+                log::info!("session {id}: its files are asked for, but it still runs here or the sessions are not read yet; the target asks again");
                 return Ok(());
             }
 
@@ -738,11 +747,13 @@ pub(crate) async fn checkout(mut tx: LinkTx, mut rx: LinkRx, id: &SessionId) -> 
             worktrees,
             edits,
             session,
+            files,
         }) => Ok(Checkout {
             head,
             worktrees,
             edits,
             session: session.map(|session| *session),
+            files,
         }),
         Some(Reply::Refused { message }) => Err(Refused(message).into()),
         // A node from before worktrees moved again cannot read the request.
@@ -751,8 +762,9 @@ pub(crate) async fn checkout(mut tx: LinkTx, mut rx: LinkRx, id: &SessionId) -> 
 }
 
 /// Asks a source for what the folder of session `id` holds, and writes the
-/// archive to `into`, over what a try before left there.
-pub(crate) async fn files(mut tx: LinkTx, mut rx: LinkRx, id: &SessionId, into: &Path) -> Result<()> {
+/// archive to `into`, over what a try before left there, telling `came` the
+/// bytes that came so far.
+pub(crate) async fn files(mut tx: LinkTx, mut rx: LinkRx, id: &SessionId, into: &Path, mut came: impl FnMut(u64)) -> Result<()> {
     tx.send(&Request::Files { id: id.to_owned() }).await?;
     let mut out = File::create(into).await?;
     let mut held = 0u64;
@@ -767,6 +779,7 @@ pub(crate) async fn files(mut tx: LinkTx, mut rx: LinkRx, id: &SessionId, into: 
                 }
 
                 out.write_all(&data).await?;
+                came(held);
             }
             Some(Reply::End { size, .. }) if size == held => return Ok(out.sync_all().await?),
             Some(Reply::End { size, .. }) => bail!("{held} bytes came, the source said {size}"),

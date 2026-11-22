@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentSession } from "../src/agents/agents.ts";
-import { type MoveProgress, type MoveRecord, type MoveTarget, bySession, canMove, chatSessions, dedupe, effective, fmtBytes, going, listLabel, moveRows, movedTo, targetNote } from "../src/agents/move-state.ts";
+import { type MoveProgress, type MoveRecord, type MoveTarget, bySession, canMove, chatSessions, movePct, dedupe, effective, fmtBytes, going, listLabel, moveRows, movedTo, targetNote } from "../src/agents/move-state.ts";
 
-const progress = (over: Partial<MoveProgress> = {}): MoveProgress => ({ answer: "known", phase: "waiting", copied: 0, total: 0, source_away: false, reason: null, worktree: null, worktree_at: 0, worktrees: 0, edits_left: false, ...over });
+const progress = (over: Partial<MoveProgress> = {}): MoveProgress => ({ answer: "known", phase: "waiting", copied: 0, total: 0, source_away: false, reason: null, worktree: null, worktree_at: 0, worktrees: 0, edits_left: false, files_copied: 0, files_total: 0, ...over });
 const record: MoveRecord = { session: "s1", agent: "codex", from: "laptop-id", to: "studio-id", project: "acme/app", at: 10 };
 const names = (id: string) => id.replace("-id", "");
 const target = (over: Partial<MoveTarget> = {}): MoveTarget => ({ id: "studio-id", name: "studio", online: true, harnesses: ["codex", "claude"], checkout: true, ...over });
@@ -51,6 +51,22 @@ test("a chat's move needs every harness its threads use", () => {
 test("a chat's steps bring its files, not checkouts", () => {
   assert.equal(moveRows(progress(), "laptop", "studio", true, "chat")[2].text, "Files");
   assert.equal(moveRows(progress({ phase: "files", total: 1_000_000 }), "laptop", "studio", true, "chat")[1].text, "Files");
+});
+
+test("a chat's files count up, with their speed once they take over five seconds", () => {
+  const copying = progress({ phase: "files", total: 1_000_000, files_copied: 120_000_000, files_total: 551_000_000 });
+  assert.equal(moveRows(copying, "laptop", "studio", true, "chat")[1].text, "Files 120.0 MB of 551.0 MB · 22%");
+  const slow = moveRows(copying, "laptop", "studio", true, "chat", { since: 0, now: 10_000 })[1].text;
+  assert.match(slow, /^Files 120\.0 MB of 551\.0 MB · 22% · [\d.]+ MB\/s$/);
+  assert.equal(moveRows(progress({ phase: "files", files_total: 0 }), "laptop", "studio", true, "chat")[1].text, "Files");
+});
+
+test("the bar over the input fills with the step that copies", () => {
+  assert.equal(movePct(progress({ phase: "conversation", copied: 3, total: 4 })), 75);
+  assert.equal(movePct(progress({ phase: "files", files_copied: 1, files_total: 4 })), 25);
+  assert.equal(movePct(progress({ phase: "files" })), null, "a project's checkouts have no size");
+  assert.equal(movePct(progress({ phase: "waiting" })), null);
+  assert.equal(movePct(progress({ phase: "conversation", copied: 9, total: 4 })), 99, "full only once it is done");
 });
 
 const CHAT = "/home/u/.beep/assistant/c1";

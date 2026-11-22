@@ -1,7 +1,7 @@
 import { AttachmentBatch, ImagePreview, RemoveChip } from "./composer-ui.tsx";
 import { identity } from "../ui/parts.tsx";
 import { agentMessage } from "./session-frame.tsx";
-import { Button, Spinner } from "../ui/kit.tsx";
+import { Button, ProgressBar, Spinner } from "../ui/kit.tsx";
 import { useLayoutEffect, useRef } from "react";
 import { shortSize, transferSpeed, type Transfer } from "../agentpane/files-state.ts";
 import { paneSession } from "../agentpane/media.ts";
@@ -39,7 +39,7 @@ export function AgentAttachments() {
   const uploading = MN.pending.size ? [...MN.pending] : MN.uploads;
   const size = uploading.reduce((n, u) => n + u.size, 0), done = uploading.reduce((n, u) => n + u.done, 0);
   const uploaded = size ? Math.round(done / size * 100) : 0;
-  return <>{uploading.length > 0 && <div className="agupbar" role="progressbar" aria-label={`Uploading to ${machine}`} aria-valuenow={uploaded} title={`Uploading to ${machine}: ${uploaded}%`}><span style={{ width: `${uploaded}%` }} /></div>}
+  return <>{uploading.length > 0 && <ProgressBar pct={uploaded} label={`Uploading to ${machine}`} />}
     <AttachmentBatch count={AG.att.length + loose.length + MN.uploads.length}>{AG.att.map((image, i) => <span className="att" key={identity(image)}><ImagePreview images={previewsOf(AG.att)} index={i} listed /><RemoveChip name={image.name} data="data-agatt" index={i} remove={() => removeImage(i)} /></span>)}
     {MN.paths.map((path, i) => {
       if (AG.att.some(image => image.original === path)) return null;

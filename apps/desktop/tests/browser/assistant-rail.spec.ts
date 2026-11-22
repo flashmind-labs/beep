@@ -76,3 +76,20 @@ test("a chat's pane has its files without its threads' folders, and no Changes o
   await expect(strip.getByRole("tab", { name: "Changes", exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_tree").at(-1)?.args.root)).toBe(folder);
 });
+
+test("a chat's move counts its files as they come, with the bar over the input, without waiting for the mesh", async ({ page }) => {
+  const record = { session: "chat-one", agent: "flsh", from: "build-box", to: "other", project: "", at: Date.now() };
+  const progress = (over: object) => ({ answer: "known", phase: "waiting", copied: 0, total: 0, source_away: false, reason: null, worktree: null, worktree_at: 0, worktrees: 0, edits_left: false, files_copied: 0, files_total: 0, ...over });
+  await openDesktop(page, false, {
+    agent_hosts: [host, { ...host, machine_id: "other", machine_name: "Other box" }], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null },
+    agent_sessions: [chat], agent_view: view(chat), session_moves: [record], session_move_progress: progress({}),
+  });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  await page.locator(".asst-list").getByRole("button", { name: /Plan the launch/ }).click();
+  await expect(page.locator("#agmovebox")).toContainText("Waiting for Other box");
+
+  // Only the target knows how far it is: the window asks it again while the move shows.
+  await page.evaluate(next => window.__navigation.respond("session_move_progress", next), progress({ phase: "files", total: 1_000_000, files_copied: 120_000_000, files_total: 551_000_000 }));
+  await expect(page.locator("#agmovebox")).toContainText("Files 120.0 MB of 551.0 MB · 22%");
+  await expect(page.locator("#agfield").getByRole("progressbar", { name: "Moving to Other box" })).toHaveAttribute("aria-valuenow", "22");
+});

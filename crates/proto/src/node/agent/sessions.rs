@@ -967,6 +967,10 @@ pub struct MoveProgress {
     pub worktrees: u32,
     /// The source's checkout has uncommitted edits, which stay there.
     pub edits_left: bool,
+    /// Bytes of a chat's files copied, and what they take on the source.
+    /// Added after `edits_left`.
+    pub files_copied: u64,
+    pub files_total: u64,
 }
 
 /// A session of another machine that this node keeps a copy of

@@ -1756,6 +1756,8 @@ mod agent {
                     worktree_at: 1,
                     worktrees: 2,
                     edits_left: true,
+                    files_copied: 3,
+                    files_total: 9,
                 }),
             };
             let bytes = rmp_serde::to_vec(&reply).expect("encodes");

@@ -66,6 +66,9 @@ pub struct MoveProgressView {
     pub worktree_at: u32,
     pub worktrees: u32,
     pub edits_left: bool,
+    /// Bytes of a chat's files copied, and what they take on the source.
+    pub files_copied: u64,
+    pub files_total: u64,
 }
 
 impl From<MoveState> for MoveProgressView {
@@ -86,6 +89,8 @@ impl From<MoveState> for MoveProgressView {
             worktree_at: progress.worktree_at,
             worktrees: progress.worktrees,
             edits_left: progress.edits_left,
+            files_copied: progress.files_copied,
+            files_total: progress.files_total,
         }
     }
 }
