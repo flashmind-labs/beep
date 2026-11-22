@@ -54,6 +54,7 @@ fn actor() -> Actor {
         brief: None,
         standing: None,
         mcp_servers: Vec::new(),
+        subagents: true,
         asked: VecDeque::new(),
         next_question: 1,
         stderr: VecDeque::new(),

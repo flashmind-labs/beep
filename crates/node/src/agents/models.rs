@@ -181,7 +181,7 @@ async fn ask(stdin: AgentIn, stdout: AgentOut, cwd: &Path, protocol: acp::Protoc
                 let request = protocol.request(acp::initialize(false).to_untyped_message()?)?;
                 let answer = cx.send_request(request).block_task().await?;
                 let protocol = protocol.initialized(answer)?.protocol;
-                let request = protocol.request(acp::new_session(cwd, Vec::new(), None)?)?;
+                let request = protocol.request(acp::new_session(cwd, Vec::new(), None, true)?)?;
                 let answer = cx.send_request(request).block_task().await?;
                 Ok((protocol, answer))
             },

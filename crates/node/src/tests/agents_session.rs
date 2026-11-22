@@ -2942,3 +2942,24 @@ cat > /dev/null
     assert_eq!(sent[4]["method"], "session/prompt");
     session.close().await;
 }
+
+/// The home assistant's Codex and OpenCode get their subagents switched off
+/// on top of the settings already in their variables, which stay (#1127).
+#[test]
+fn switches_join_the_json_a_variable_holds() {
+    let mut process = tokio::process::Command::new("true");
+    process.env(OPENCODE_PERMISSION, r#"{"*":"allow"}"#);
+    let deny = serde_json::Map::from_iter([("task".to_owned(), serde_json::json!("deny"))]);
+    add_json_env(&mut process, OPENCODE_PERMISSION, deny).unwrap();
+    let value = |process: &tokio::process::Command, name: &str| {
+        process.as_std().get_envs().find(|(var, _)| *var == name).and_then(|(_, value)| value).map(|value| value.to_string_lossy().into_owned())
+    };
+
+    // `*` first, so OpenCode's last matching rule for `task` is the deny.
+    assert_eq!(value(&process, OPENCODE_PERMISSION).as_deref(), Some(r#"{"*":"allow","task":"deny"}"#));
+
+    process.env(CODEX_CONFIG, "not json");
+    assert!(add_json_env(&mut process, CODEX_CONFIG, serde_json::Map::from_iter([("model".to_owned(), serde_json::json!("m"))])).is_err());
+    add_json_env(&mut process, CODEX_CONFIG, serde_json::Map::new()).unwrap();
+    assert_eq!(value(&process, CODEX_CONFIG).as_deref(), Some("not json"), "nothing to add changes nothing");
+}

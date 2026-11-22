@@ -9,7 +9,7 @@ use super::{
     compaction::{Compactor, Policy, Route},
     family::Mark,
     images::Images,
-    kinds::{CODEX_CONFIG, known},
+    kinds::{CODEX_CONFIG, OPENCODE_PERMISSION, known},
     live::{Live, Sent},
     processes::Processes,
     route, unix_now,
@@ -365,30 +365,29 @@ impl Session {
             process.env_remove(name);
         }
 
-        if kind.name == "codex"
-            && resume.is_some()
-            && let Some(model) = &model
-        {
-            let current = process
-                .as_std()
-                .get_envs()
-                .find(|(name, _)| *name == CODEX_CONFIG)
-                .and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
-                .or_else(|| std::env::var_os(CODEX_CONFIG));
-            let mut config = match current.filter(|value| !value.is_empty()) {
-                Some(value) => serde_json::from_str::<
-                    Option<serde_json::Map<String, serde_json::Value>>,
-                >(&value.to_string_lossy())
-                .map_err(|_| anyhow::anyhow!("CODEX_CONFIG must be a JSON object"))?
-                .unwrap_or_default(),
-                None => serde_json::Map::new(),
-            };
+        if kind.name == "codex" {
+            let mut config = serde_json::Map::new();
+
             // Codex checks the model during resume, before ACP can switch it.
-            config.insert(
-                "model".to_owned(),
-                serde_json::Value::String(model.to_string()),
-            );
-            process.env(CODEX_CONFIG, serde_json::Value::Object(config).to_string());
+            if resume.is_some()
+                && let Some(model) = &model
+            {
+                config.insert("model".to_owned(), serde_json::json!(model.to_string()));
+            }
+
+            // The home assistant starts threads in place of Codex's own agents.
+            if assistant {
+                config.insert("features.multi_agent".to_owned(), serde_json::json!(false));
+                config.insert("features.multi_agent_v2".to_owned(), serde_json::json!(false));
+            }
+
+            add_json_env(&mut process, CODEX_CONFIG, config)?;
+        }
+
+        // And in place of OpenCode's subagents, whose tool's permission is `task`.
+        if kind.name == "opencode" && assistant {
+            let deny = serde_json::Map::from_iter([("task".to_owned(), serde_json::json!("deny"))]);
+            add_json_env(&mut process, OPENCODE_PERMISSION, deny)?;
         }
 
         if let Some(wrapper) = cargo::wrapper(cwd, &kind.env) {
@@ -497,6 +496,7 @@ impl Session {
                 skills.as_deref(),
             ),
             mcp_servers: mcp.into_iter().collect(),
+            subagents: !assistant,
             resume,
             earlier,
             model,
@@ -662,6 +662,38 @@ async fn named_info(live: &mut watch::Receiver<Live>) -> Result<SessionInfo, Str
                 .unwrap_or_else(|| "the agent stopped before giving a session id".to_owned()))
         }
     })
+}
+
+
+/// Adds `entries` to the JSON object in `process`'s variable `name`, or the
+/// one this node inherited, leaving the rest of it. Nothing to add changes
+/// nothing. A variable that is not a JSON object is an error.
+fn add_json_env(
+    process: &mut tokio::process::Command,
+    name: &str,
+    entries: serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let current = process
+        .as_std()
+        .get_envs()
+        .find(|(var, _)| *var == name)
+        .and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
+        .or_else(|| std::env::var_os(name));
+    let mut object = match current.filter(|value| !value.is_empty()) {
+        Some(value) => serde_json::from_str::<Option<serde_json::Map<String, serde_json::Value>>>(
+            &value.to_string_lossy(),
+        )
+        .map_err(|_| anyhow::anyhow!("{name} must be a JSON object"))?
+        .unwrap_or_default(),
+        None => serde_json::Map::new(),
+    };
+    object.extend(entries);
+    process.env(name, serde_json::Value::Object(object).to_string());
+    Ok(())
 }
 
 #[cfg(test)]

@@ -23,6 +23,10 @@ pub(super) struct Launch<'a> {
     pub(super) system: Option<String>,
     /// The client answers `AskUserQuestion`; without it the tool is off.
     pub(super) asks: bool,
+    /// Tools the client switched off, as `claudeCode.options.disallowedTools`
+    /// in a session's `_meta` names them, such as the home assistant's
+    /// subagent tools.
+    pub(super) disallowed: Vec<String>,
 }
 
 impl Launch<'_> {
@@ -70,13 +74,35 @@ impl Launch<'_> {
             ]);
         }
 
-        if !self.asks {
-            args.extend(["--disallowedTools".to_owned(), "AskUserQuestion".to_owned()]);
+        // One list: the flag takes the names after it up to the next flag.
+        if let Some(off) = off_tools(self.asks, &self.disallowed) {
+            args.extend(["--disallowedTools".to_owned(), off]);
         }
 
         args.extend(extra);
         Ok(args)
     }
+}
+
+/// What `--disallowedTools` names: `disallowed`, and `AskUserQuestion`
+/// when the client does not answer it. None when nothing is off.
+pub(super) fn off_tools(asks: bool, disallowed: &[String]) -> Option<String> {
+    let mut off: Vec<&str> = disallowed.iter().map(String::as_str).collect();
+
+    if !asks {
+        off.push("AskUserQuestion");
+    }
+
+    (!off.is_empty()).then(|| off.join(","))
+}
+
+/// The tools a session's `_meta` switches off, read leniently: anything but
+/// a list of names is none.
+pub(super) fn disallowed_tools(meta: Option<&serde_json::Map<String, Value>>) -> Vec<String> {
+    meta.and_then(|meta| meta.get("claudeCode"))
+        .and_then(|claude| claude["options"]["disallowedTools"].as_array())
+        .map(|tools| tools.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default()
 }
 
 /// The files a CLI reads its settings from, removed when it is dropped.

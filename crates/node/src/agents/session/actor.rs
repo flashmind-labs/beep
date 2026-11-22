@@ -275,6 +275,9 @@ pub(super) struct Actor {
     pub(super) standing: Option<String>,
     /// The MCP servers the agent's session gets.
     pub(super) mcp_servers: Vec<McpServer>,
+    /// Whether the agent may start subagents of its own harness; the home
+    /// assistant starts threads instead.
+    pub(super) subagents: bool,
     /// Questions waiting, the first one shown.
     pub(super) asked: VecDeque<Asked>,
     pub(super) next_question: u32,
@@ -1089,7 +1092,12 @@ impl Actor {
                 None
             };
 
-            match acp::new_session(&self.cwd, self.mcp_servers.clone(), system.as_deref()) {
+            match acp::new_session(
+                &self.cwd,
+                self.mcp_servers.clone(),
+                system.as_deref(),
+                self.subagents,
+            ) {
                 Ok(request) => self.send(cx, request, Reply::NewSession),
                 Err(e) => return Some(End::Failed(format!("the agent did not start: {e}"))),
             }
@@ -1120,6 +1128,7 @@ impl Actor {
             &self.cwd,
             self.mcp_servers.clone(),
             system.as_deref(),
+            self.subagents,
         ) {
             Ok(request) => self.send(cx, request, |result| Reply::Resumed(session, result)),
             Err(e) => {

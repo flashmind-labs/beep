@@ -11,6 +11,8 @@ use std::{
 };
 
 pub(super) const CODEX_CONFIG: &str = "CODEX_CONFIG";
+/// OpenCode's permission rules, as JSON.
+pub(super) const OPENCODE_PERMISSION: &str = "OPENCODE_PERMISSION";
 
 /// An agent this node can start: a program that speaks ACP on its stdio.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -319,7 +321,7 @@ pub(super) const KNOWN: &[Known] = &[
         title: "OpenCode",
         cli: "opencode",
         adapter: Adapter::Flags(&["acp"]),
-        env: &[("OPENCODE_PERMISSION", r#"{"*":"allow"}"#)],
+        env: &[(OPENCODE_PERMISSION, r#"{"*":"allow"}"#)],
         thinking_env: &[],
         bypass_mode: None,
         full_mode: None,

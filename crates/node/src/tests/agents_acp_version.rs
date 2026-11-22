@@ -109,6 +109,7 @@ fn v2_session_requests_tag_v1_stdio_mcp_servers() {
         std::path::Path::new("/srv/project"),
         vec![server.clone()],
         Some("brief"),
+        true,
     )
     .unwrap();
     let load = session::resume_session(
@@ -117,6 +118,7 @@ fn v2_session_requests_tag_v1_stdio_mcp_servers() {
         std::path::Path::new("/srv/project"),
         vec![server],
         Some("brief"),
+        true,
     )
     .unwrap();
 

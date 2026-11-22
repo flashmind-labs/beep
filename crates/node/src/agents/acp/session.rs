@@ -14,6 +14,7 @@ use agent_client_protocol::{
     },
 };
 use beep_proto::node::agent::{Effort, ModeOption, ModelOption};
+use crate::agents::subagent::CLAUDE_SPAWNS;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::path::Path;
@@ -154,13 +155,20 @@ fn system_prompt(text: &str) -> SystemPrompt {
 /// passes `claudeCode.options` on to Claude Code: `perTaskStopAffordance`
 /// says the client stops background tasks one by one (`stop_task`), so
 /// `session/cancel` ends the main turn and spares background subagents and
-/// workflows, which otherwise end with it. Other agents ignore it.
-fn session_meta() -> Meta {
+/// workflows, which otherwise end with it. Without `subagents`, as for the
+/// home assistant, whose threads stand in for them, Claude Code drops its
+/// tools that start one and flsh its own (`flsh.subagents`). Other agents
+/// ignore what is not theirs.
+fn session_meta(subagents: bool) -> Meta {
+    let mut options = json!({"perTaskStopAffordance": true});
     let mut meta = Meta::new();
-    meta.insert(
-        "claudeCode".to_owned(),
-        json!({"options": {"perTaskStopAffordance": true}}),
-    );
+
+    if !subagents {
+        options["disallowedTools"] = json!(CLAUDE_SPAWNS);
+        meta.insert("flsh".to_owned(), json!({"subagents": false}));
+    }
+
+    meta.insert("claudeCode".to_owned(), json!({"options": options}));
     meta
 }
 
@@ -171,13 +179,14 @@ pub(in crate::agents) fn new_session(
     cwd: &Path,
     mcp_servers: Vec<McpServer>,
     brief: Option<&str>,
+    subagents: bool,
 ) -> Result<UntypedMessage, agent_client_protocol::Error> {
     UntypedMessage::new(
         AGENT_METHOD_NAMES.session_new,
         NewSessionRequest::new(cwd)
             .mcp_servers(mcp_servers)
             .system_prompt(brief.map(system_prompt))
-            .meta(session_meta()),
+            .meta(session_meta(subagents)),
     )
 }
 
@@ -190,6 +199,7 @@ pub(in crate::agents) fn resume_session(
     cwd: &Path,
     mcp_servers: Vec<McpServer>,
     brief: Option<&str>,
+    subagents: bool,
 ) -> Result<UntypedMessage, agent_client_protocol::Error> {
     let brief = brief.map(system_prompt);
 
@@ -199,14 +209,14 @@ pub(in crate::agents) fn resume_session(
             LoadSessionRequest::new(session, cwd)
                 .mcp_servers(mcp_servers)
                 .system_prompt(brief)
-                .meta(session_meta()),
+                .meta(session_meta(subagents)),
         ),
         ResumeMethod::Resume => UntypedMessage::new(
             AGENT_METHOD_NAMES.session_resume,
             ResumeSessionRequest::new(session, cwd)
                 .mcp_servers(mcp_servers)
                 .system_prompt(brief)
-                .meta(session_meta()),
+                .meta(session_meta(subagents)),
         ),
     }
 }

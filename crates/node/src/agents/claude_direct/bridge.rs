@@ -3,7 +3,7 @@
 
 use super::{
     ask,
-    cli::{Cli, Launch},
+    cli::{Cli, Launch, disallowed_tools},
     updates,
 };
 use crate::agents::{acp, launch, pipe::Frame};
@@ -268,7 +268,7 @@ impl Bridge {
                 let request = NewSessionRequest::parse_message(&method, params)?;
                 let id = uuid::Uuid::new_v4().to_string();
                 let start = Start::New(responder.cast());
-                self.start(&id, false, &request.cwd, &request.mcp_servers, request.system_prompt.as_ref(), start)?;
+                self.start(&id, &request.cwd, &request.mcp_servers, request.system_prompt.as_ref(), request.meta.as_ref(), start)?;
             }
             "session/load" => {
                 let request = LoadSessionRequest::parse_message(&method, params)?;
@@ -277,12 +277,12 @@ impl Bridge {
                 let in_wsl = self.wsl.is_some();
                 let replay = spawn_blocking(move || replayed(transcript, &id, in_wsl)).await?;
                 let start = Start::Load(responder.cast(), replay);
-                self.start(&request.session_id.0, true, &request.cwd, &request.mcp_servers, request.system_prompt.as_ref(), start)?;
+                self.start(&request.session_id.0, &request.cwd, &request.mcp_servers, request.system_prompt.as_ref(), request.meta.as_ref(), start)?;
             }
             "session/resume" => {
                 let request = ResumeSessionRequest::parse_message(&method, params)?;
                 let start = Start::Resume(responder.cast());
-                self.start(&request.session_id.0, true, &request.cwd, &request.mcp_servers, request.system_prompt.as_ref(), start)?;
+                self.start(&request.session_id.0, &request.cwd, &request.mcp_servers, request.system_prompt.as_ref(), request.meta.as_ref(), start)?;
             }
             "session/prompt" => {
                 let request = PromptRequest::parse_message(&method, params)?;
@@ -375,15 +375,15 @@ impl Bridge {
         Some(wsl::windows_path(distro, &transcript))
     }
 
-    /// Starts the CLI on session `id` in `cwd`, resumed or new; `start` is
-    /// answered once it initialized.
+    /// Starts the CLI on session `id` in `cwd`, new or resumed as `start`
+    /// says; `start` is answered once it initialized.
     fn start(
         &mut self,
         id: &str,
-        resume: bool,
         cwd: &std::path::Path,
         mcp: &[McpServer],
         system: Option<&SystemPrompt>,
+        meta: Option<&Map<String, Value>>,
         start: Start,
     ) -> Result<()> {
         if self.session.is_some() {
@@ -400,11 +400,12 @@ impl Bridge {
         let launch = Launch {
             cwd,
             session: id,
-            resume,
+            resume: !matches!(start, Start::New(_)),
             wsl: self.wsl.as_ref(),
             mcp: mcp_config(mcp, self.wsl.is_some()),
             system: system.map(system_text).filter(|text| !text.is_empty()),
             asks: self.asks,
+            disallowed: disallowed_tools(meta),
         };
         let mut cli = Cli::start(&mut self.cli, &launch)?;
         let request = cli.control(json!({"subtype": "initialize"}));
