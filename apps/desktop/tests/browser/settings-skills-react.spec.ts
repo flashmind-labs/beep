@@ -3,8 +3,8 @@ import { openDesktop, projectName } from "./harness.ts";
 
 const skills = [{ name: "crawl", description: "Crawl a site" }, { name: "map", description: "List a site's URLs" }, { name: "scrape", description: "Scrape one page" }];
 const libraries = [
-  { name: "firecrawl", url: "https://git.example.com/tools/firecrawl-skills.git", revision: "a3f91c2d00", skills, global: "None", projects: { [projectName]: { Only: ["map"] } } },
-  { name: "writing", url: "https://git.example.com/team/writing-skills", revision: "77de0b4aa1", skills: [{ name: "release-notes", description: "Write release notes" }], global: "All", projects: {} },
+  { name: "firecrawl", url: "https://git.example.com/tools/firecrawl-skills.git", revision: "a3f91c2d00", skills, global: "None", projects: { [projectName]: { Only: ["map"] } }, chats: {} },
+  { name: "writing", url: "https://git.example.com/team/writing-skills", revision: "77de0b4aa1", skills: [{ name: "release-notes", description: "Write release notes" }], global: "All", projects: {}, chats: {} },
 ];
 const responses = {
   settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },

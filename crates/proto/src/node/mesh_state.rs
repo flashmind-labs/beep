@@ -65,6 +65,10 @@ pub struct SkillLibrary {
     pub global: Pick,
     /// The skills installed in each project's checkouts, by project (`org/repo`).
     pub projects: BTreeMap<String, Pick>,
+    /// The skills installed in each assistant chat's folder and its threads' folders, by the
+    /// name of the chat's folder.
+    #[serde(default)]
+    pub chats: BTreeMap<String, Pick>,
 }
 
 /// One skill of a library: its folder name and the description in its SKILL.md.

@@ -50,6 +50,12 @@ export function starters(rows: readonly AgentSession[]): (s: Started) => AgentSe
 /// folder, as the node makes them), which it captures.
 const THREAD_FOLDER = /^(.*[\\/]\.beep[\\/]assistant[\\/][^\\/]+)[\\/][^\\/]+$/;
 
+/// The name of the folder of its own that an assistant chat working in `cwd` has, which its skills
+/// are picked by; null for a chat elsewhere.
+export function chatFolder(cwd: string): string | null {
+  return /[\\/]\.beep[\\/]assistant[\\/]([^\\/]+)[\\/]*$/.exec(cwd)?.[1] ?? null;
+}
+
 /// `rows` with each child right under its parent, in the order the list had
 /// them: a child is not a top-level row. A child whose parent is not listed
 /// (another machine is off, the parent was deleted) stays top-level.

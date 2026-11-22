@@ -11,6 +11,7 @@ fn library(global: Pick, project: Pick) -> SkillLibrary {
         skills: Vec::new(),
         global,
         projects: [(PROJECT.to_owned(), project)].into_iter().collect(),
+        chats: Default::default(),
     }
 }
 
@@ -42,7 +43,7 @@ fn picked_skills_install_update_and_uninstall_without_losing_edits() {
     put(&home.join(".claude/skills"), "style", "Mine.", "v1");
     let global = disk::targets(&home);
     let checkouts = [Checkout {
-        project: PROJECT.into(),
+        place: Place::Project(PROJECT.into()),
         folder: checkout.clone(),
         keep_out_of_git: true,
     }];

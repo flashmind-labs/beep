@@ -476,6 +476,7 @@ pub fn run() {
             settings::skill_libraries::skill_library_uninstall_projects,
             settings::skill_libraries::project_skills_get,
             settings::skill_libraries::project_skills_set,
+            settings::skill_libraries::chat_skills_set,
             settings::skill_libraries::skill_libraries_find,
             settings::skill_libraries::skill_libraries_problems,
             settings::assistant::assistant_settings_get,

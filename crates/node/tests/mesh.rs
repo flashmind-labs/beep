@@ -4368,6 +4368,7 @@ async fn skill_libraries_install_where_picked_and_uninstall_when_removed() {
             skills: tools_skills,
             global: Pick::Only(["notes".to_owned()].into()),
             projects: [("acme/app".to_owned(), Pick::Only(["pdf".to_owned()].into()))].into(),
+            chats: Default::default(),
         }),
     )
     .await;
@@ -4379,6 +4380,7 @@ async fn skill_libraries_install_where_picked_and_uninstall_when_removed() {
             skills: team_skills,
             global: Pick::All,
             projects: Default::default(),
+            chats: Default::default(),
         }),
     )
     .await;
@@ -4438,11 +4440,12 @@ async fn skill_libraries_install_where_picked_and_uninstall_when_removed() {
     set(
         "tools",
         Some(SkillLibrary {
-            url: tools_url,
-            revision: tools_revision,
-            skills: tools_skills,
+            url: tools_url.clone(),
+            revision: tools_revision.clone(),
+            skills: tools_skills.clone(),
             global: Pick::Only(["notes".to_owned()].into()),
             projects: [("acme/app".to_owned(), Pick::Only(["pdf".to_owned()].into()))].into(),
+            chats: Default::default(),
         }),
     )
     .await;
@@ -4454,6 +4457,7 @@ async fn skill_libraries_install_where_picked_and_uninstall_when_removed() {
             skills: team_skills,
             global: Pick::All,
             projects: Default::default(),
+            chats: Default::default(),
         }),
     )
     .await;
@@ -4471,11 +4475,36 @@ async fn skill_libraries_install_where_picked_and_uninstall_when_removed() {
         );
     }
 
+    // A chat's pick: in its folder, and its own record of what went there.
+    let chat = home.join(".beep/assistant/chat-one");
+    fs::create_dir_all(&chat).expect("the chat's folder");
+    set(
+        "tools",
+        Some(SkillLibrary {
+            url: tools_url,
+            revision: tools_revision,
+            skills: tools_skills,
+            global: Pick::Only(["notes".to_owned()].into()),
+            projects: [("acme/app".to_owned(), Pick::Only(["pdf".to_owned()].into()))].into(),
+            chats: [("chat-one".to_owned(), Pick::Only(["pdf".to_owned()].into()))].into(),
+        }),
+    )
+    .await;
+    a.logged("skill libraries: 10 installed, 0 problems").await;
+
+    for rel in [".claude/skills", ".agents/skills"] {
+        assert_eq!(
+            tree(&chat.join(rel).join("pdf")),
+            tree(&tools.join("skills/pdf"))
+        );
+    }
+
     // Removed: its skills go, and so does the exclude block.
     set("tools", None).await;
     a.logged("skill libraries: 4 installed, 0 problems").await;
     assert!(!home.join(".claude/skills/notes").exists());
     assert!(!checkout.join(".claude/skills/pdf").exists());
+    assert!(!chat.join(".claude/skills/pdf").exists());
     assert!(home.join(".claude/skills/style").exists());
     let exclude = fs::read_to_string(checkout.join(".git/info/exclude")).expect("the exclude file");
     assert!(!exclude.contains("/.claude/skills/pdf/"), "{exclude}");

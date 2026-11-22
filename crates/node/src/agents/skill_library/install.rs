@@ -29,6 +29,8 @@ pub(super) enum Place {
     Global,
     /// A project's checkout, by project name.
     Project(String),
+    /// An assistant chat's folder and its threads' folders, by the name of the chat's folder.
+    Chat(String),
 }
 
 impl fmt::Display for Place {
@@ -36,6 +38,7 @@ impl fmt::Display for Place {
         match self {
             Place::Global => f.write_str("global"),
             Place::Project(project) => f.write_str(project),
+            Place::Chat(chat) => write!(f, "chat {chat}"),
         }
     }
 }
@@ -108,10 +111,11 @@ pub(super) struct Ready {
     pub store: Option<PathBuf>,
 }
 
-/// A checkout of a project on this machine.
+/// A folder on this machine that gets the skills picked for its place: a project's checkout, or
+/// an assistant chat's folder or one of its threads' folders.
 #[derive(Debug, Clone)]
 pub(super) struct Checkout {
-    pub project: String,
+    pub place: Place,
     pub folder: PathBuf,
     pub keep_out_of_git: bool,
 }
@@ -127,8 +131,8 @@ pub(super) struct Want {
     pub source: Option<PathBuf>,
 }
 
-/// The skill folders `ready` asks for: global picks in each of `global`, project picks in each
-/// checkout's skills folders.
+/// The skill folders `ready` asks for: global picks in each of `global`, project and chat picks
+/// in each checkout's skills folders.
 pub(super) fn wants(ready: &[Ready], global: &[PathBuf], checkouts: &[Checkout]) -> Vec<Want> {
     let mut out = Vec::new();
 
@@ -160,18 +164,15 @@ pub(super) fn wants(ready: &[Ready], global: &[PathBuf], checkouts: &[Checkout])
             }
 
             for checkout in checkouts {
-                let picked = lib
-                    .library
-                    .projects
-                    .get(&checkout.project)
-                    .is_some_and(|pick| pick.has(&skill));
+                let picks = match &checkout.place {
+                    Place::Project(project) => lib.library.projects.get(project),
+                    Place::Chat(chat) => lib.library.chats.get(chat),
+                    Place::Global => None,
+                };
 
-                if picked {
+                if picks.is_some_and(|pick| pick.has(&skill)) {
                     out.extend(PROJECT_FOLDERS.iter().map(|rel| {
-                        want(
-                            checkout.folder.join(rel).join(&skill),
-                            Place::Project(checkout.project.clone()),
-                        )
+                        want(checkout.folder.join(rel).join(&skill), checkout.place.clone())
                     }));
                 }
             }
@@ -261,8 +262,12 @@ pub(super) fn apply(record: &mut Record, mut wants: Vec<Want>, checkouts: &[Chec
     uninstall(record, &desired);
 
     for checkout in checkouts {
+        if !matches!(checkout.place, Place::Project(_)) {
+            continue;
+        }
+
         if let Err(e) = exclude(record, checkout) {
-            log::debug!("skill libraries: the Git exclude of {} not written: {e:#}", checkout.project);
+            log::debug!("skill libraries: the Git exclude of {} not written: {e:#}", checkout.place);
         }
     }
 
@@ -362,11 +367,10 @@ fn uninstall(record: &mut Record, desired: &BTreeSet<PathBuf>) {
 /// Lists the library skills installed in `checkout` in its Git exclude file, between Beep's
 /// lines, or takes the lines out when none is installed or the project keeps them in Git.
 fn exclude(record: &Record, checkout: &Checkout) -> Result<()> {
-    let place = Place::Project(checkout.project.clone());
     let names: BTreeSet<&str> = record
         .installs
         .values()
-        .filter(|install| install.place == place && install.path.starts_with(&checkout.folder))
+        .filter(|install| install.place == checkout.place && install.path.starts_with(&checkout.folder))
         .map(|install| install.skill.as_str())
         .collect();
     let lines: Vec<String> = if checkout.keep_out_of_git {

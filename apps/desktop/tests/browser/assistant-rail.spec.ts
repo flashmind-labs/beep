@@ -209,3 +209,22 @@ test("a thread the chat starts joins its rail while the chat is open", async ({ 
 
   await expect(rail.locator(".rail-threads .pj-li")).toHaveText([/Pricing research/, /Skill repo/]);
 });
+
+test("a chat picks library skills for its folder and its threads", async ({ page }) => {
+  const skills = [{ name: "pdf", description: "Reads PDFs." }, { name: "notes", description: "Keeps notes." }];
+  const tools = { name: "tools", url: "https://git.example.com/tools.git", revision: "a1", skills, global: "None", projects: {}, chats: {} };
+  await openDesktop(page, false, { agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat], agent_view: view(chat), skill_libraries_list: [tools], chat_skills_set: null });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+
+  await page.locator(".asst-list").getByRole("button", { name: /Plan the launch/ }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Skills" }).click();
+  const sheet = page.getByRole("dialog", { name: "Skills in Plan the launch" });
+  await expect(sheet).toContainText("in this chat's folder and each of its threads'");
+  await expect(sheet.getByText("Keep out of Git")).toHaveCount(0);
+  await sheet.getByRole("checkbox", { name: "tools" }).check();
+  await sheet.getByRole("button", { name: "Save" }).click();
+
+  await expect(sheet).toBeHidden();
+  const saved = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "chat_skills_set").map(call => call.args));
+  expect(saved).toEqual([{ chat: "chat-one", picks: { tools: "All" } }]);
+});

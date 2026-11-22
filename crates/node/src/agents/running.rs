@@ -76,6 +76,17 @@ impl Agents {
             .map(|session| PathBuf::from(session.info().cwd))
     }
 
+    /// The folders this node's sessions work in, the ended ones it keeps too.
+    pub(crate) fn folders(&self) -> std::collections::BTreeSet<PathBuf> {
+        // Read once the lock is released: `info` reads each session's state.
+        let sessions: Vec<Arc<Session>> = self.lock().values().cloned().collect();
+
+        sessions
+            .iter()
+            .map(|session| PathBuf::from(session.info().cwd))
+            .collect()
+    }
+
     /// Keeps `device` as the device `session` uses, or forgets it.
     pub(crate) async fn set_device(
         &self,

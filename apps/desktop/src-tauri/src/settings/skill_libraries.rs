@@ -91,6 +91,7 @@ pub async fn skill_library_add(
         skills,
         global: if global { Pick::All } else { Pick::None },
         projects: BTreeMap::new(),
+        chats: Default::default(),
     };
 
     desk.set_skill_library(&name, &library).await?;
@@ -138,7 +139,7 @@ pub async fn skill_library_set_global(
 }
 
 /// Installs `skill` in every agent's skills folder, or uninstalls it from there and from every
-/// project.
+/// project and chat.
 #[tauri::command]
 pub async fn skill_library_set_skill(
     session: FleetState<'_>,
@@ -156,10 +157,12 @@ pub async fn skill_library_set_skill(
 
             let all: Vec<&str> = library.skills.iter().map(|s| s.name.as_str()).collect();
             library.global = without_skill(&library.global, &skill, &all);
-            for pick in library.projects.values_mut() {
-                *pick = without_skill(pick, &skill, &all);
+            for picks in [&mut library.projects, &mut library.chats] {
+                for pick in picks.values_mut() {
+                    *pick = without_skill(pick, &skill, &all);
+                }
+                picks.retain(|_, pick| *pick != Pick::None);
             }
-            library.projects.retain(|_, pick| *pick != Pick::None);
         })
         .await?;
     Ok(())
@@ -195,31 +198,54 @@ pub async fn project_skills_set(
     keep_out_of_git: bool,
 ) -> Result<()> {
     let desk = desk(&session).await?;
-
-    for (name, pick) in picks {
-        let Some(library) = desk.skill_library(&name) else {
-            continue;
-        };
-
-        if library.projects.get(&project).unwrap_or(&Pick::None) == &pick {
-            continue;
-        }
-
-        desk.edit_skill_library(&name, |library| match pick {
-            Pick::None => {
-                library.projects.remove(&project);
-            }
-            pick => {
-                library.projects.insert(project.clone(), pick);
-            }
-        })
-        .await?;
-    }
+    set_picks(&desk, picks, &project, |library| &mut library.projects).await?;
 
     let settings = ProjectSkills { keep_out_of_git };
     if desk.project_skills(&project) != settings {
         desk.set_project_skills(&project, &settings).await?;
     }
+    Ok(())
+}
+
+/// Saves which skills of each library the assistant chat whose folder is named `chat` gets, in
+/// its folder and its threads'.
+#[tauri::command]
+pub async fn chat_skills_set(
+    session: FleetState<'_>,
+    chat: String,
+    picks: BTreeMap<String, Pick>,
+) -> Result<()> {
+    let desk = desk(&session).await?;
+    set_picks(&desk, picks, &chat, |library| &mut library.chats).await
+}
+
+/// Writes each library whose pick for `place`, in the map `of` gives, is not the one in `picks`.
+async fn set_picks(
+    desk: &Desk,
+    picks: BTreeMap<String, Pick>,
+    place: &str,
+    of: fn(&mut SkillLibrary) -> &mut BTreeMap<String, Pick>,
+) -> Result<()> {
+    for (name, pick) in picks {
+        let Some(mut library) = desk.skill_library(&name) else {
+            continue;
+        };
+
+        if of(&mut library).get(place).unwrap_or(&Pick::None) == &pick {
+            continue;
+        }
+
+        desk.edit_skill_library(&name, |library| match pick {
+            Pick::None => {
+                of(library).remove(place);
+            }
+            pick => {
+                of(library).insert(place.to_owned(), pick);
+            }
+        })
+        .await?;
+    }
+
     Ok(())
 }
 

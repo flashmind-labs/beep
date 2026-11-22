@@ -7,6 +7,7 @@ import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { openInEditor } from "../project/editors.ts";
+import { chatFolder } from "./nesting-state.ts";
 import type { AgentRow } from "./agents.ts";
 import { parentSession, loadSessions, sessions } from "./sessions.ts";
 import { type SideWork, sessionOffers, stopAllAsks } from "./sessionmenu-state.ts";
@@ -66,6 +67,8 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
     if (!s.external && s.assistant && !s.reviewer) {
       if (!onPhone()) items.push({ label: NEW_WINDOW, on: () => void import("../center/sidebar.tsx").then(({ openChatWindow }) => openChatWindow(s)) });
       items.push({ label: "New thread", on: () => { draftNewThread(s); open(s); } });
+      const folder = chatFolder(s.cwd);
+      if (folder) items.push({ label: "Skills", on: () => void import("../project/project-skills.tsx").then(({ openChatSkills }) => openChatSkills(folder, s.title || "this chat")) });
     }
     if (offers.stop) {
       items.push({ label: "Stop turn", on: () => void invoke("agent_steer", { ...at, steer: "cancel" }).catch(err => console.warn("stop turn:", err)) });

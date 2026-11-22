@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { coverage, foundWhere, placeText, problemLines, projectLines, projectPicks, skillPlace, toggleSkill, urlText, whereChip, type SkillLibrary } from "../src/settings/skills-state.ts";
+import { coverage, foundWhere, placeText, problemLines, placePicks, projectLines, skillPlace, toggleSkill, urlText, whereChip, type SkillLibrary } from "../src/settings/skills-state.ts";
 
 const skills = [{ name: "crawl", description: "Crawl a site" }, { name: "map", description: "List URLs" }, { name: "scrape", description: "Scrape a page" }];
-const library = (part: Partial<SkillLibrary> = {}): SkillLibrary => ({ name: "firecrawl", url: "https://git.example.com/tools/firecrawl.git", revision: "a3f91c2d00", skills, global: "None", projects: {}, ...part });
+const library = (part: Partial<SkillLibrary> = {}): SkillLibrary => ({ name: "firecrawl", url: "https://git.example.com/tools/firecrawl.git", revision: "a3f91c2d00", skills, global: "None", projects: {}, chats: {}, ...part });
 
 test("a pick covers all, some or none of a library", () => {
   assert.equal(coverage("All", skills), "all");
@@ -31,13 +31,16 @@ test("the library chips name where and what it holds", () => {
   assert.deepEqual(whereChip(library({ global: "All" })), { text: "Global on every machine", title: "In each agent's skills folder" });
   assert.deepEqual(whereChip(library({ projects: { "acme/widget": "All", "acme/docs": { Only: ["map"] } } })), { text: "In 2 projects", title: "acme/docs, acme/widget" });
   assert.deepEqual(whereChip(library()), { text: "Not installed", title: null });
+  assert.deepEqual(whereChip(library({ chats: { "chat-one": "All", "chat-two": "None" } })), { text: "In 1 chat", title: null });
+  assert.deepEqual(whereChip(library({ projects: { "acme/widget": "All" }, chats: { "chat-one": "All" } })), { text: "In 1 project and 1 chat", title: "acme/widget" });
+  assert.deepEqual(placePicks([library({ chats: { "chat-one": { Only: ["map"] } } })], { kind: "chat", chat: "chat-one" }), { firecrawl: { Only: ["map"] } });
   assert.equal(urlText(library().url), "git.example.com/tools/firecrawl");
 });
 
 test("the project sheet starts from the project's picks", () => {
   const writing = library({ name: "writing", global: "All" });
   const fc = library({ projects: { "acme/widget": { Only: ["map"] } } });
-  const picks = projectPicks([fc, writing], "acme/widget");
+  const picks = placePicks([fc, writing], { kind: "project", project: "acme/widget" });
   assert.deepEqual(picks, { firecrawl: { Only: ["map"] }, writing: "None" });
   const [first, second] = projectLines([fc, writing], picks);
   assert.equal(first?.kind === "pick" && first.coverage, "some");

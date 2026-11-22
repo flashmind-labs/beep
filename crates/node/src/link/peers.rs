@@ -607,6 +607,7 @@ impl Peers {
             active.mesh.clone(),
             self.inner.dir.clone(),
             offers.skills.clone(),
+            offers.agents.clone(),
         );
         let search = crate::agents::follow_search(
             active.mesh.clone(),
