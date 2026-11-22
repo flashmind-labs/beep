@@ -2,6 +2,24 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.12] - 2026-11-22
+
+### Added
+
+- Node: library skills picked for an assistant chat are installed in the
+  chat's folder and in each of its threads' folders, including threads started
+  later. They follow the chat when it moves to another machine.
+
+### Changed
+
+- Node: An assistant chat ends each thread once it has its answer, and reuses
+  a thread that is already working on the same thing instead of starting
+  another.
+
+### Fixed
+
+- Node: Claude conversations retain their scrollback after compaction and restart.
+
 ## [0.8.11] - 2026-11-22
 
 ### Changed

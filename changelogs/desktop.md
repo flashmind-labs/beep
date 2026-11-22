@@ -7,6 +7,23 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.15] - 2026-11-22
+
+### Added
+
+- Desktop: an assistant chat's menu has a Skills item that picks library skills
+  for the chat, the same way a project's Skills sheet does. Settings > Skills
+  shows how many chats each library is installed in.
+
+### Fixed
+
+- Desktop: Claude conversations retain their scrollback after compaction and restart. Expand a compaction summary to read it.
+- Desktop: a thread that an assistant chat starts shows in the chat's thread
+  list right away instead of minutes later.
+- Desktop: a file link in an assistant chat opens in the pane beside the
+  chat instead of covering the window. HTML pages and Markdown files open
+  in their preview.
+
 ## [0.10.14] - 2026-11-22
 
 ### Changed
