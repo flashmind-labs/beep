@@ -40,12 +40,12 @@ import { type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { placeWindowParts } from "./window-root.tsx";
 import { type Rail, railProject, setRail, shell } from "./window-shell.tsx";
 import { chatRail, chatsAsking } from "../agents/threads-state.ts";
-import { sessions, sessionsRead } from "../agents/sessions.ts";
+import { ensureSessions, sessions, sessionsChanged, sessionsRead } from "../agents/sessions.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { ChatRail } from "../agents/assistant-page.tsx";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 import { SidebarProjectRow } from "./sidebar-rows.tsx";
-import { single } from "../ui/active.ts";
+import { AMBIENT_MS, ambient, single } from "../ui/active.ts";
 import { AG } from "../agents/agents.ts";
 import { placeOf } from "../agents/place.ts";
 import { newChatTarget } from "../project/agent.ts";
@@ -125,7 +125,10 @@ function chatHere(always: boolean) {
   return session ? chatRail(listed, session, always) : null;
 }
 
-// A chat's threads come and go with the session lists.
+// A chat's threads come and go with the session lists. The rail stands in for the chats list,
+// which reads them again on a change, so while it shows it reads them itself.
+const rereadRail = ambient(() => ensureSessions(), AMBIENT_MS, () => shell.getState().side.rail?.kind === "chat");
+sessionsChanged.add(() => rereadRail());
 let chatsWaiting = 0;
 sessionsRead.add(() => {
   if (currentLocation()?.view === "pane") drawRail();

@@ -198,3 +198,14 @@ test("a chat's pane folded once opens beside the chat again", async ({ page }) =
   await expect(page.locator(".asst-list")).toBeHidden();
   await expect(page.locator(".agshell")).not.toHaveClass(/zoomed/);
 });
+
+test("a thread the chat starts joins its rail while the chat is open", async ({ page }) => {
+  await openChat(page, [chat, research]);
+  const rail = page.locator("#rail");
+  await expect(rail.locator(".rail-threads .pj-li")).toHaveText([/Pricing research/]);
+
+  const started = { ...research, id: "thread-three", title: "Skill repo", started_at: 6, last_activity: 6 };
+  await page.evaluate(list => { window.__navigation.respond("agent_sessions", list); window.__navigation.emit("sessions-changed", null); }, [chat, research, started]);
+
+  await expect(rail.locator(".rail-threads .pj-li")).toHaveText([/Pricing research/, /Skill repo/]);
+});
