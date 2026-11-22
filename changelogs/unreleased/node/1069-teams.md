@@ -8,3 +8,8 @@
 - Node: beep-node starts an agent on each issue newly assigned to you on
   GitHub or Forgejo, once per issue. An optional limit caps how many
   of these agents run at once.
+- Node: everyone on a team must be able to push to the repository, when
+  they join and after. A teammate is taken on only when GitHub or Forgejo
+  confirms they can push (on Forgejo, where only admins see others'
+  access, their push proof counts). Once a day beep-node checks you can
+  still push, and leaves the team for you when you can't.
