@@ -9,7 +9,7 @@ use super::{
     board::{self, Boards},
     cards::Teammates,
     home::{Home, Invites},
-    proof::ProofError,
+    proof::{PROOF_CONTEXTS, ProofError},
     roster::{Refusal, Rosters},
 };
 use beep_mesh::TeamTicket;
@@ -88,7 +88,8 @@ pub(crate) trait TeamForge: Send + Sync + 'static {
         context: &'a str,
     ) -> BoxFuture<'a, Result<(), String>>;
 
-    /// The logins that marked commit `sha` of `repo` with the status `context`.
+    /// The logins that marked commit `sha` of `repo` with a status whose
+    /// context starts with `context`.
     fn stampers<'a>(
         &'a self,
         repo: &'a TeamRepo,
@@ -390,7 +391,7 @@ impl TeamLink {
 
         if let TeamMsg::Roster { repo, .. } = msg {
             for newcomer in applied.newcomers {
-                if let Err(reason) = self.vouch(repo, &newcomer.login).await {
+                if let Err(reason) = self.vouch(repo, &newcomer).await {
                     return refused(reason);
                 }
 
@@ -411,22 +412,46 @@ impl TeamLink {
         }
     }
 
-    /// Whether the forge lets `login`, a member another mesh admitted, stay
-    /// on `repo`'s team; the reason to give when not, which says nothing of
-    /// this machine. Only a forge that says they may not push refuses them:
-    /// the mesh that admitted them saw their proof, and Forgejo shows what
-    /// others may do only to a repository's admins.
-    pub(super) async fn vouch(&self, repo: &TeamRepo, login: &ForgeLogin) -> Result<(), String> {
-        let answer = timeout(VOUCH_LIMIT, self.forge().collaborator(repo, login)).await;
+    /// Whether the forge lets `newcomer`, a member another mesh admitted, on
+    /// `repo`'s team: only a definite yes does. When the forge cannot tell,
+    /// as Forgejo for anyone but a repository's admins, the status they put
+    /// on their proof commit does: only those who may push mark a commit. The
+    /// reason to give when not, which says nothing of this machine; the
+    /// sender offers the roster again later.
+    pub(super) async fn vouch(&self, repo: &TeamRepo, newcomer: &Member) -> Result<(), String> {
+        let login = &newcomer.login;
+        let vouched = async {
+            match (self.may_push(repo, login).await, &newcomer.proof) {
+                (Some(pushes), _) => Some(pushes),
+                (None, Some(sha)) => {
+                    let marked = self.marked(repo, sha, PROOF_CONTEXTS, login).await;
+                    marked.filter(|marked| *marked)
+                }
+                (None, None) => None,
+            }
+        };
 
-        match answer {
-            Ok(Ok(true)) => {}
-            Ok(Ok(false)) => return Err(format!("{login} is not a collaborator on {repo}")),
-            Ok(Err(e)) => log::info!("could not check {login} on {repo}: {e}"),
-            Err(_) => log::info!("the forge took too long to check {login} on {repo}"),
+        match timeout(VOUCH_LIMIT, vouched).await {
+            Ok(Some(true)) => Ok(()),
+            Ok(Some(false)) => Err(format!("{login} is not a collaborator on {repo}")),
+            Ok(None) | Err(_) => Err(format!("Could not check {login} on {repo}'s forge")),
         }
+    }
 
-        Ok(())
+    /// Whether the forge says `login` may push to `repo`; `None`, logged,
+    /// when it cannot tell within `VOUCH_LIMIT`.
+    pub(super) async fn may_push(&self, repo: &TeamRepo, login: &ForgeLogin) -> Option<bool> {
+        match timeout(VOUCH_LIMIT, self.forge().collaborator(repo, login)).await {
+            Ok(Ok(pushes)) => Some(pushes),
+            Ok(Err(e)) => {
+                log::info!("could not check {login} on {repo}: {e}");
+                None
+            }
+            Err(_) => {
+                log::info!("the forge took too long to check {login} on {repo}");
+                None
+            }
+        }
     }
 
     /// Keeps a contact's invite for a desktop to show; refuses anyone else's,

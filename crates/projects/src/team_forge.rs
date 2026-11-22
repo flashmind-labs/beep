@@ -154,8 +154,8 @@ pub fn stamps_call(host: &IssueHost, repo: &RepoName, sha: &str) -> ForgeCall {
     ForgeCall::api(host, format!("repos/{repo}/commits/{sha}/statuses"), &[])
 }
 
-/// The logins that put a status named `context` on the commit, as [`stamps_call`] printed
-/// them. GitHub takes contexts in any case; teacli prints `null` for none.
+/// The logins that put a status whose context starts with `context` on the commit, as
+/// [`stamps_call`] printed them. GitHub takes contexts in any case; teacli prints `null` for none.
 pub fn parse_stampers(stdout: &str, context: &str) -> Result<Vec<String>, SourceError> {
     let statuses = json(stdout).map_err(|error| host_failed(&error))?;
     let statuses = match statuses {
@@ -165,7 +165,12 @@ pub fn parse_stampers(stdout: &str, context: &str) -> Result<Vec<String>, Source
     };
     let logins = statuses
         .iter()
-        .filter(|status| text(status, "context").eq_ignore_ascii_case(context))
+        .filter(|status| {
+            let named = text(status, "context");
+            named
+                .get(..context.len())
+                .is_some_and(|start| start.eq_ignore_ascii_case(context))
+        })
         .filter_map(|status| status.get("creator"))
         .map(|creator| text(creator, "login"))
         .filter(|login| !login.is_empty())

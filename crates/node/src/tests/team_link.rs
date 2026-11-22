@@ -30,6 +30,9 @@ enum Answer {
     No,
     /// Fails with local detail that must not reach the joiner.
     Fails,
+    /// Cannot tell, as Forgejo for one who is not the repository's admin,
+    /// but shows commit statuses.
+    Hidden,
     /// Never answers.
     Hangs,
 }
@@ -40,7 +43,7 @@ static STAMPS: Mutex<Vec<(String, String, String)>> = Mutex::new(Vec::new());
 /// A forge that answers without a network.
 struct Forge {
     login: &'static str,
-    collaborator: Answer,
+    collaborator: Mutex<Answer>,
     /// Whom its statuses on commits name; `None` when it refuses them, as
     /// the forge does for one who may not push.
     marks_as: Option<&'static str>,
@@ -50,9 +53,18 @@ impl Forge {
     fn signed_in(login: &'static str, collaborator: Answer) -> Self {
         Self {
             login,
-            collaborator,
+            collaborator: Mutex::new(collaborator),
             marks_as: Some(login),
         }
+    }
+
+    fn answer(&self) -> Answer {
+        *self.collaborator.lock().unwrap()
+    }
+
+    /// Says `answer` from now on.
+    fn say(&self, answer: Answer) {
+        *self.collaborator.lock().unwrap() = answer;
     }
 }
 
@@ -65,10 +77,10 @@ impl TeamForge for Forge {
         _login: &'a ForgeLogin,
     ) -> BoxFuture<'a, Result<bool, String>> {
         Box::pin(async move {
-            match self.collaborator {
+            match self.answer() {
                 Answer::Yes => Ok(true),
                 Answer::No => Ok(false),
-                Answer::Fails => Err(LOCAL_DETAIL.to_owned()),
+                Answer::Fails | Answer::Hidden => Err(LOCAL_DETAIL.to_owned()),
                 Answer::Hangs => std::future::pending().await,
             }
         })
@@ -122,14 +134,14 @@ impl TeamForge for Forge {
         context: &'a str,
     ) -> BoxFuture<'a, Result<Vec<String>, String>> {
         Box::pin(async move {
-            match self.collaborator {
+            match self.answer() {
                 Answer::Fails => Err(LOCAL_DETAIL.to_owned()),
                 Answer::Hangs => std::future::pending().await,
-                Answer::Yes | Answer::No => Ok(STAMPS
+                Answer::Yes | Answer::No | Answer::Hidden => Ok(STAMPS
                     .lock()
                     .unwrap()
                     .iter()
-                    .filter(|(on, of, _)| on == sha && of == context)
+                    .filter(|(on, of, _)| on == sha && of.starts_with(context))
                     .map(|(_, _, by)| by.clone())
                     .collect()),
             }
@@ -178,6 +190,7 @@ struct Pair {
     _root: tempfile::TempDir,
     remote: String,
     inviter: TeamLink,
+    inviter_forge: Arc<Forge>,
     inviter_id: EndpointId,
     inviter_addr: EndpointAddr,
     alice_mesh: EndpointId,
@@ -210,10 +223,8 @@ impl Pair {
         let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
         let inviter_id = endpoint.id();
         let inviter_addr = endpoint.addr();
-        let inviter = TeamLink::new(
-            endpoint.clone(),
-            Arc::new(Forge::signed_in("alice", collaborator)),
-        );
+        let inviter_forge = Arc::new(Forge::signed_in("alice", collaborator));
+        let inviter = TeamLink::new(endpoint.clone(), inviter_forge.clone());
         let router = Router::builder(endpoint)
             .accept(beep_proto::team::ALPN, inviter.handler())
             .spawn();
@@ -248,6 +259,7 @@ impl Pair {
             _root: root,
             remote,
             inviter,
+            inviter_forge,
             inviter_id,
             inviter_addr,
             alice_mesh,
@@ -1218,4 +1230,70 @@ async fn a_refused_roster_is_not_sent() {
             Err(e) => panic!("{e}"),
         }
     }
+}
+
+/// Dave, admitted by Carol's mesh, in a roster from Carol's `device`.
+fn dave_from(carol: EndpointId, proof: Option<String>) -> TeamMsg {
+    TeamMsg::Roster {
+        repo: repo(),
+        members: vec![Member {
+            admitted_by: Some(carol),
+            proof,
+            ..member("dave", mesh_id(), mesh_id())
+        }],
+    }
+}
+
+/// A newcomer the forge cannot tell of is refused, so the roster counts as
+/// not sent; the roster sent again once the forge says yes admits them.
+#[tokio::test]
+async fn a_newcomer_waits_for_the_forge_to_say_yes() {
+    let pair = Pair::with(SystemTime::now() + DAY, Answer::Fails, "bob").await;
+    let carol = mesh_id();
+    with_carol(&pair, carol, pair.joiner.endpoint().id());
+    let alice = member("alice", pair.alice_mesh, pair.inviter_id);
+    let roster = dave_from(carol, None);
+    let dave = |pair: &Pair| {
+        pair.inviter.with(|teams| {
+            let record = teams.rosters.get(&repo()).unwrap();
+            record.members.iter().any(|m| m.login == login("dave"))
+        })
+    };
+
+    let sent = pair.joiner.send(&alice, &roster).await;
+    match sent {
+        Err(TeamError::Refused(reason)) => {
+            assert_eq!(reason, "Could not check dave on github.com/org/repo's forge");
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    assert!(!dave(&pair));
+
+    pair.inviter_forge.say(Answer::Yes);
+    pair.joiner.send(&alice, &roster).await.unwrap();
+    assert!(dave(&pair));
+}
+
+/// Where the forge shows a member only what they may do themselves, a
+/// newcomer is taken when they marked the proof commit their entry names,
+/// and not on a commit they did not mark.
+#[tokio::test]
+async fn a_newcomer_is_taken_on_the_proof_they_marked() {
+    let pair = Pair::with(SystemTime::now() + DAY, Answer::Hidden, "bob").await;
+    let carol = mesh_id();
+    let device = mesh_id();
+    with_carol(&pair, carol, device);
+    let sha = format!("{:040x}", rand::random::<u128>());
+    let stamp = (sha.clone(), "beep/proof/0a1b".to_owned(), "Dave".to_owned());
+    STAMPS.lock().unwrap().push(stamp);
+
+    let unmarked = format!("{:040x}", rand::random::<u128>());
+    let answer = pair.tell(device, dave_from(carol, Some(unmarked))).await;
+    assert!(reason(answer).contains("Could not check dave"));
+    let answer = pair.tell(device, dave_from(carol, None)).await;
+    assert!(reason(answer).contains("Could not check dave"));
+
+    assert_eq!(pair.tell(device, dave_from(carol, Some(sha))).await, None);
+    let pending = pair.inviter_pending();
+    assert!(pending[0].members.iter().any(|m| m.login == login("dave")));
 }

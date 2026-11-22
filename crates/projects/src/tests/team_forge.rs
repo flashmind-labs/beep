@@ -310,6 +310,10 @@ fn a_proof_is_stamped_and_its_stampers_read() {
         parse_stampers(statuses, "beep/proof/n1").expect("read"),
         ["alice", "bob"]
     );
+    assert_eq!(
+        parse_stampers(statuses, "beep/proof/").expect("read"),
+        ["alice", "bob", "carol"]
+    );
     assert!(
         parse_stampers("null", "beep/proof/n1")
             .expect("none")

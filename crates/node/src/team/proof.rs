@@ -94,10 +94,13 @@ pub(crate) async fn proof_seen(
     Ok(seen.split_whitespace().next().map(str::to_owned))
 }
 
+/// What the context of every proof status starts with.
+pub(crate) const PROOF_CONTEXTS: &str = "beep/proof/";
+
 /// The status the joiner marks the proof commit of `nonce` with: one
 /// challenge's, so a status from an earlier proof proves nothing.
 pub(crate) fn proof_context(nonce: &Nonce) -> String {
-    format!("beep/proof/{nonce}")
+    format!("{PROOF_CONTEXTS}{nonce}")
 }
 
 /// Deletes the proof ref of `nonce` from the remote.

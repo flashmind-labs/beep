@@ -20,7 +20,7 @@ use beep_proto::{
     },
     team::{ForgeLogin, Member, TeamMsg, TeamRecord, TeamRepo},
 };
-use futures::future::try_join_all;
+use futures::future::join_all;
 use iroh::{EndpointAddr, EndpointId};
 use std::{
     collections::BTreeSet,
@@ -156,10 +156,12 @@ impl TeamLink {
         }
     }
 
-    /// Checks the roster the inviter answered with before taking it, as a
-    /// member checks a newcomer: the inviter and this mesh are on it, this
-    /// mesh's entry is the one `sent`, every entry keeps the rules, and the
-    /// forge says every member of another mesh may push.
+    /// Checks the roster the inviter answered with before taking it: the
+    /// inviter and this mesh are on it, this mesh's entry is the one `sent`,
+    /// every entry keeps the rules, and the forge says of no member of
+    /// another mesh that they may not push. A member it cannot tell of is
+    /// taken on the inviter's word: its mesh took them only on a definite
+    /// yes, and the founder has no proof to check.
     pub(super) async fn check_roster(
         &self,
         repo: &TeamRepo,
@@ -187,11 +189,19 @@ impl TeamLink {
 
         vet_roster(repo, members).map_err(|refusal| TeamError::Refused(refusal.to_string()))?;
         let others = members.iter().filter(|member| member.mesh != sent.mesh);
-        try_join_all(others.map(|member| self.vouch(repo, &member.login)))
-            .await
-            .map_err(TeamError::Refused)?;
+        let checks = others.map(|member| async move {
+            let pushes = self.may_push(repo, &member.login).await;
+            (member, pushes)
+        });
+        let answers = join_all(checks).await;
 
-        Ok(())
+        match answers.into_iter().find(|(_, pushes)| *pushes == Some(false)) {
+            Some((member, _)) => Err(TeamError::Refused(format!(
+                "{} is not a collaborator on {repo}",
+                member.login
+            ))),
+            None => Ok(()),
+        }
     }
 
     /// The inviter's side of a join from `peer`: the team's roster or why
@@ -308,7 +318,11 @@ impl TeamLink {
             })?;
         let sha = seen.ok_or_else(|| ProofError::Denied(repo.to_string()).to_string())?;
 
-        self.marked(repo, &sha, &nonce, &join.login).await?;
+        match self.marked(repo, &sha, &proof_context(&nonce), &join.login).await {
+            Some(true) => {}
+            Some(false) => return Err(format!("{} did not mark the proof on the forge", join.login)),
+            None => return Err("Could not check access on the forge".to_owned()),
+        }
         let entry = Member {
             proof: Some(sha),
             ..entry
@@ -317,33 +331,29 @@ impl TeamLink {
             .map_err(|refusal| refusal.to_string())
     }
 
-    /// Whether `login` marked the proof commit `sha` of `nonce`: the forge
-    /// lets only those who may push mark a commit, and names who did. The
-    /// reason to give when not, which says nothing of this machine.
-    async fn marked(
+    /// Whether `login` marked commit `sha` of `repo` with a status whose
+    /// context starts with `context`: the forge lets only those who may push
+    /// mark a commit, and names who did. `None`, logged, when the forge
+    /// cannot tell within `FORGE_LIMIT`.
+    pub(super) async fn marked(
         &self,
         repo: &TeamRepo,
         sha: &str,
-        nonce: &Nonce,
+        context: &str,
         login: &ForgeLogin,
-    ) -> Result<(), String> {
-        let context = proof_context(nonce);
-        let answer = timeout(FORGE_LIMIT, self.forge().stampers(repo, sha, &context)).await;
-        let by = |stampers: &[String]| {
-            let login = login.to_string();
-            stampers.iter().any(|by| by.eq_ignore_ascii_case(&login))
-        };
+    ) -> Option<bool> {
+        let answer = timeout(FORGE_LIMIT, self.forge().stampers(repo, sha, context)).await;
+        let wanted = login.to_string();
 
         match answer {
-            Ok(Ok(stampers)) if by(&stampers) => Ok(()),
-            Ok(Ok(_)) => Err(format!("{login} did not mark the proof on the forge")),
+            Ok(Ok(stampers)) => Some(stampers.iter().any(|by| by.eq_ignore_ascii_case(&wanted))),
             Ok(Err(e)) => {
                 log::warn!("could not read the proof of {login} on {repo}: {e}");
-                Err("Could not check access on the forge".to_owned())
+                None
             }
             Err(_) => {
                 log::warn!("the forge took too long to show the proof of {login} on {repo}");
-                Err("Could not check access on the forge".to_owned())
+                None
             }
         }
     }
