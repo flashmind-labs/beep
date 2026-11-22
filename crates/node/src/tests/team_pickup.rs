@@ -292,6 +292,12 @@ fn a_followed_session_is_found_by_the_id_its_card_has() {
     assert_eq!(live(&state, &cards), set(&[8]));
     assert!(off_the_board(&state, &cards).is_empty());
     assert_eq!(off_the_board(&state, &[]), [(8, full_id(acp, "laptop"))]);
+
+    // Ended today, its card stays on the board as Done today: it ended all
+    // the same.
+    let mut done = cards[0].clone();
+    done.lane = Lane::DoneToday {};
+    assert_eq!(off_the_board(&state, &[done]), [(8, full_id(acp, "laptop"))]);
 }
 
 #[test]

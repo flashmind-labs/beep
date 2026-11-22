@@ -235,15 +235,21 @@ impl Agents {
     }
 
     /// The live sessions here that other agents may list and message: every
-    /// one the user sees, oldest first.
-    pub(super) fn peers(&self) -> Vec<Arc<Session>> {
+    /// one the user sees, oldest first; with those that ended and were last
+    /// active at or after `ended_since`, Unix seconds, when given.
+    pub(super) fn peers(&self, ended_since: Option<u64>) -> Vec<Arc<Session>> {
         let mut peers: Vec<Arc<Session>> = self
             .lock()
             .values()
             .filter(|session| {
                 !session.reviewer
                     && watched::read(&session.live, |live| {
-                        live.agent_session.is_some() && live.status() != Status::Ended
+                        let shown = match live.status() {
+                            Status::Ended => ended_since
+                                .is_some_and(|since| live.info.last_activity >= since),
+                            _ => true,
+                        };
+                        live.agent_session.is_some() && shown
                     })
             })
             .cloned()
@@ -256,7 +262,7 @@ impl Agents {
     /// which counts it against `PEER_MESSAGES`.
     pub(super) async fn message(&self, from: &SessionId, id: &SessionId, text: String) -> Result<(), String> {
         let session = self
-            .peers()
+            .peers(None)
             .into_iter()
             .find(|session| session.id == *id || Self::name_of(session) == *id)
             .filter(|session| Self::name_of(session) != *from)

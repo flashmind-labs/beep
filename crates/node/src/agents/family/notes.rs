@@ -200,7 +200,7 @@ impl Agents {
 
     /// The live session here a team knows by `id`: its own id or its agent's.
     pub(in crate::agents) fn teammates_session(&self, id: &SessionId) -> Option<Arc<Session>> {
-        self.peers()
+        self.peers(None)
             .into_iter()
             .find(|session| session.id == *id || Self::name_of(session) == *id)
     }

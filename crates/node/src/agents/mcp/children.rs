@@ -612,7 +612,7 @@ impl Reach<'_> {
             }
         };
         let mut views: Vec<ChildView> =
-            in_the_mesh(self.agents, self.mesh.as_ref(), &self.who.session, None)
+            in_the_mesh(self.agents, self.mesh.as_ref(), &self.who.session, None, None)
                 .await
                 .into_iter()
                 .map(|listed| listed.view)
@@ -723,10 +723,20 @@ impl Reach<'_> {
     }
 }
 
-/// The agents this node runs that other machines may list, each with its
-/// project.
-pub(crate) fn listed(agents: &Agents) -> Reply {
-    let views: Vec<ChildView> = listed_here(agents)
+/// What another machine asks of this one's agents: `ended_since`, Unix
+/// seconds, lists the sessions that ended then or later too. An older node
+/// sends none.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct PeerList {
+    ended_since: Option<u64>,
+}
+
+/// The agents this node runs that other machines may list, as `args` asks,
+/// each with its project.
+pub(crate) fn listed(agents: &Agents, args: &str) -> Reply {
+    let PeerList { ended_since } = serde_json::from_str(args).unwrap_or_default();
+    let views: Vec<ChildView> = listed_here(agents, ended_since)
         .into_iter()
         .map(|listed| listed.view)
         .collect();
@@ -734,7 +744,7 @@ pub(crate) fn listed(agents: &Agents) -> Reply {
     json_of(&views)
 }
 
-/// A live agent, its machine's display name, and the folder it works in
+/// An agent, its machine's display name, and the folder it works in
 /// when it runs on this machine: the worktree Beep made for it, or its own.
 pub(crate) struct Listed {
     pub(crate) view: ChildView,
@@ -742,11 +752,11 @@ pub(crate) struct Listed {
     pub(crate) folder: Option<String>,
 }
 
-fn listed_here(agents: &Agents) -> Vec<Listed> {
+fn listed_here(agents: &Agents, ended_since: Option<u64>) -> Vec<Listed> {
     let mesh = agents.mesh();
 
     agents
-        .peers()
+        .peers(ended_since)
         .iter()
         .map(|session| {
             let info = session.info();
@@ -766,19 +776,21 @@ fn listed_here(agents: &Agents) -> Vec<Listed> {
 
 /// Every live agent but `caller`, the session asking: this machine's, then
 /// those of every other online machine of `mesh`, or of `only` those, that
-/// answers in time, each named by its machine.
+/// answers in time, each named by its machine. With `ended_since`, Unix
+/// seconds, the sessions that ended then or later too.
 pub(crate) async fn in_the_mesh(
     agents: &Agents,
     mesh: Option<&Mesh>,
     caller: &SessionId,
     only: Option<&BTreeSet<EndpointId>>,
+    ended_since: Option<u64>,
 ) -> Vec<Listed> {
     let here = machine_name(mesh);
     let display = mesh
         .and_then(|mesh| mesh.code_hosts().into_iter().find(|status| status.device.id == mesh.me()))
         .map(|status| status.device.name)
         .unwrap_or_default();
-    let mut listed: Vec<Listed> = listed_here(agents)
+    let mut listed: Vec<Listed> = listed_here(agents, ended_since)
         .into_iter()
         .filter(|listed| listed.view.id != *caller)
         .map(|listed| Listed {
@@ -801,10 +813,10 @@ pub(crate) async fn in_the_mesh(
             (Machine::from(status), display)
         })
         .collect();
-    let none = json!({});
+    let asked = json!(PeerList { ended_since });
     let lists = futures::future::join_all(others.iter().map(|(machine, _)| async {
         Call::to_machine(mesh, caller, machine)
-            .ask(Tool::ListAgents, &none, LIST_LIMIT)
+            .ask(Tool::ListAgents, &asked, LIST_LIMIT)
             .await
     }))
     .await;
@@ -1008,7 +1020,7 @@ async fn serve_peer(
                 .to_string()))
         }
         // Another machine's agent lists the agents here.
-        Tool::ListAgents => Ok(listed(agents)),
+        Tool::ListAgents => Ok(listed(agents, &request.args)),
         // To its own child, or to any agent here as a message from another.
         Tool::SendToAgent => {
             let call: PeerCall = parse(&request.args)?;

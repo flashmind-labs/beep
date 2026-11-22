@@ -137,6 +137,10 @@ fn settled_cards_keep_their_time_and_drop_old_done_ones() {
     let days_ago = now - Duration::from_secs(2 * 24 * 60 * 60);
     let done = card_of(&view("ended", PROJECT), &at(days_ago), None).unwrap();
     assert!(settle(std::slice::from_ref(&done), vec![done.clone()], now).is_empty());
+
+    // Sessions are listed as Done today from the start of this day here.
+    let since = SystemTime::UNIX_EPOCH + Duration::from_secs(midnight(now));
+    assert!(since <= now && now.duration_since(since).unwrap() < Duration::from_secs(25 * 60 * 60));
 }
 
 #[test]

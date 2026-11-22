@@ -4,7 +4,7 @@
 
 use crate::agents::mcp::children::ChildView;
 use beep_proto::team::{Card, ForgeLogin, Lane};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, NaiveTime};
 use iroh::EndpointId;
 use std::{collections::BTreeMap, time::SystemTime};
 
@@ -101,6 +101,15 @@ pub(crate) fn settle(old: &[Card], fresh: Vec<Card>, now: SystemTime) -> Vec<Car
                 || Into::<DateTime<Local>>::into(card.updated_at).date_naive() == today
         })
         .collect()
+}
+
+/// The start of the day of `now` here, in Unix seconds: sessions that ended
+/// since are Done today, as the desktop's board has them.
+pub(crate) fn midnight(now: SystemTime) -> u64 {
+    let day = Into::<DateTime<Local>>::into(now).date_naive();
+    let start = day.and_time(NaiveTime::MIN).and_local_timezone(Local).earliest();
+
+    start.map_or(0, |start| u64::try_from(start.timestamp()).unwrap_or(0))
 }
 
 /// What changed from `old` to `new`: each card added or changed, then each

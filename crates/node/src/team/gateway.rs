@@ -7,7 +7,7 @@
 
 use super::{
     board::{CHANGES, Followed, Heard, follow},
-    cards::{Facts, IssueTitles, card_of, settle},
+    cards::{Facts, IssueTitles, card_of, midnight, settle},
     home::Project,
     link::TeamLink,
     membership::{self, Membership, Team},
@@ -249,6 +249,7 @@ impl Gateway {
             Some(&self.mesh),
             &SessionId::default(),
             Some(&machines),
+            Some(midnight(SystemTime::now())),
         )
         .await;
         self.branches

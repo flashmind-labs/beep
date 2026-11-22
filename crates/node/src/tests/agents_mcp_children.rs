@@ -568,3 +568,44 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     assert!(!failed, "{text}");
     offers.agents.shutdown().await;
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn another_machine_lists_the_sessions_ended_since_only_when_asked() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let agents = Agents::new(vec![kind("top")]);
+    let cwd = dir.path().to_string_lossy().into_owned();
+    let start = || {
+        let begin = Begin {
+            prompt: Some("hello".to_owned()),
+            ..Begin::default()
+        };
+        agents.start(&agents.kinds()[0], Some(&cwd), begin).expect("a session starts")
+    };
+    let (ended, running) = (start(), start());
+
+    for session in [&ended, &running] {
+        let mut live = session.live.clone();
+        tokio::time::timeout(
+            Duration::from_secs(20),
+            watched::wait_for(&mut live, |live| live.info.turns == 1),
+        )
+        .await
+        .expect("the session settles")
+        .expect("the session is kept");
+    }
+    ended.close().await;
+    let ended_at = ended.info().last_activity;
+    let names = |args: &str| {
+        let Reply::Done { text, .. } = listed(&agents, args) else {
+            panic!("not done");
+        };
+        let views: Vec<ChildView> = serde_json::from_str(&text).expect("a list");
+        views.into_iter().map(|view| view.state).collect::<Vec<_>>()
+    };
+
+    assert_eq!(names("{}"), ["idle"]);
+    assert_eq!(names(&format!(r#"{{"ended_since":{ended_at}}}"#)), ["ended", "idle"]);
+    assert_eq!(names(&format!(r#"{{"ended_since":{}}}"#, ended_at + 1)), ["idle"]);
+    agents.shutdown().await;
+}

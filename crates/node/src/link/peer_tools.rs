@@ -204,7 +204,7 @@ async fn agent_call(request: Request, caller: &Caller) -> Reply {
     };
 
     if request.tool == Tool::ListAgents {
-        return children::listed(agents);
+        return children::listed(agents, &request.args);
     }
 
     let Table::Peer(peer) = caller.table else {

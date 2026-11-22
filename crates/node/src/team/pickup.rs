@@ -489,12 +489,17 @@ fn add_card(cards: &mut Vec<Card>, card: Card) -> bool {
 }
 
 /// The followed automatic sessions, by issue, whose card is not among
-/// `cards`, with that card's id.
+/// `cards` or is Done today, with that card's id.
 fn off_the_board(state: &Pickup, cards: &[Card]) -> Vec<(u64, String)> {
+    let live = |id: &str| {
+        let mut cards = cards.iter();
+        cards.any(|card| card.id == id && card.lane != Lane::DoneToday {})
+    };
+
     state
         .running
         .iter()
-        .filter(|(_, auto)| !cards.iter().any(|card| card.id == auto.card))
+        .filter(|(_, auto)| !live(&auto.card))
         .map(|(n, auto)| (*n, auto.card.clone()))
         .collect()
 }
