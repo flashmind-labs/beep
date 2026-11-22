@@ -156,6 +156,7 @@ fn member(name: &str, mesh: EndpointId, device: EndpointId) -> Member {
         devices: vec![EndpointAddr::new(device)],
         joined_at: SystemTime::now(),
         admitted_by: None,
+        proof: None,
     }
 }
 
@@ -400,7 +401,8 @@ async fn join_admits_with_proof() {
     assert_eq!(logins, ["alice", "bob"]);
     let pending = pair.inviter_pending();
     assert_eq!(pending.len(), 1);
-    assert!(pending[0].members.iter().any(|m| m.login == login("bob")));
+    let bob = pending[0].members.iter().find(|m| m.login == login("bob")).unwrap();
+    assert!(bob.proof.is_some(), "the entry keeps the proof commit");
     no_proof_refs(&pair.remote).await;
 }
 

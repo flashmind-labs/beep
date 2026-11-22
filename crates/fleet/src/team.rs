@@ -390,6 +390,7 @@ impl Desk {
             devices,
             joined_at: SystemTime::now(),
             admitted_by: None,
+            proof: None,
         })
     }
 

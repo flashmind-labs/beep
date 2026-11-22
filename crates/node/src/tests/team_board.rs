@@ -85,6 +85,7 @@ pub(crate) fn member(name: &str, device: EndpointId) -> Member {
         devices: vec![EndpointAddr::new(device)],
         joined_at: SystemTime::now(),
         admitted_by: None,
+        proof: None,
     }
 }
 

@@ -153,6 +153,11 @@ wire_structs! {
         /// others of them; `None` for the founder.
         #[serde(default)]
         pub admitted_by: Option<EndpointId>,
+        /// The commit of their push proof, which they marked with a
+        /// `beep/proof/*` status: a member who cannot see others'
+        /// permissions on the forge checks it instead. `None` for the founder.
+        #[serde(default)]
+        pub proof: Option<String>,
     }
 
     /// An invite anyone holding its secret can join with until it expires.

@@ -71,6 +71,7 @@ fn member(login: &str, mesh: EndpointId) -> Member {
         devices: vec![EndpointAddr::new(SecretKey::generate().public())],
         joined_at: SystemTime::UNIX_EPOCH,
         admitted_by: None,
+        proof: None,
     }
 }
 

@@ -688,6 +688,7 @@ async fn leaving_the_mesh_forgets_the_teams() {
         devices: vec![EndpointAddr::new(endpoint.id())],
         joined_at: std::time::SystemTime::now(),
         admitted_by: None,
+        proof: None,
     };
     peers.team().with(|teams| {
         teams

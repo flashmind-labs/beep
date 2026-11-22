@@ -260,6 +260,7 @@ impl TeamLink {
             devices: join.devices.clone(),
             joined_at: SystemTime::now(),
             admitted_by: own,
+            proof: None,
         };
         let team = team.ok_or_else(|| format!("This device has no team for {repo}"))?;
         let hash = secret_hash(&JoinSecret::from(join.secret));
@@ -308,6 +309,10 @@ impl TeamLink {
         let sha = seen.ok_or_else(|| ProofError::Denied(repo.to_string()).to_string())?;
 
         self.marked(repo, &sha, &nonce, &join.login).await?;
+        let entry = Member {
+            proof: Some(sha),
+            ..entry
+        };
         self.with(|teams| teams.rosters.admit(repo, peer, own, entry))
             .map_err(|refusal| refusal.to_string())
     }
