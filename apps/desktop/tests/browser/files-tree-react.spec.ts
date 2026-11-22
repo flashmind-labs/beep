@@ -136,21 +136,22 @@ test("file preview keeps its controls while the HTML loads", async ({ page }) =>
   });
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await page.getByRole("tab", { name: "Files", exact: true }).click();
+  // An HTML file opens in its preview.
+  await page.evaluate(() => window.__navigation.hold("agent_artifact"));
   await page.locator('[data-fpath="report.html"]').click();
   const preview = page.locator("[data-preview]");
-  await expect(preview).toBeVisible();
-  await page.evaluate(() => window.__navigation.hold("agent_artifact"));
-  await preview.click();
   await expect(page.getByText("Loading preview…")).toBeVisible();
   await expect(preview).toHaveText("Source");
-  await expect(preview).toBeFocused();
   await page.evaluate(() => window.__navigation.release("agent_artifact"));
   await expect(page.locator('iframe[title="Preview of report.html"]')).toBeVisible();
-  await expect(preview).toBeFocused();
   await expect(preview).toHaveText("Source");
   await preview.click();
   await expect(page.locator(".agcode")).toContainText("Hello world");
   await expect(preview).toBeFocused();
+  await preview.click();
+  await expect(page.locator('iframe[title="Preview of report.html"]')).toBeVisible();
+  await expect(preview).toBeFocused();
+  await expect(preview).toHaveText("Source");
 });
 
 test("invalid 3D files show an error inside the retained model stage", async ({ page }) => {

@@ -106,7 +106,7 @@ export function projectDetail(p: Project): PagePart[] {
 
 /// The project's custom agents: the named agents its folder defines for
 /// each harness on one machine, and the user's own there.
-const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWithAgent });
+const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWithAgent, own: false });
 
 /// "Custom agents", read on this Mac's checkout or else the first machine
 /// with one. Named apart from "Agents", the ones running now.

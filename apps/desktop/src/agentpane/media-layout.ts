@@ -15,7 +15,9 @@ import { runningCount } from "./running.ts";
 import { hasDeviceTab } from "./device.ts";
 import { sessions } from "../agents/sessions.ts";
 import { chatOf } from "../agents/threads-state.ts";
-import { P, rememberPane, saveLayout, showTab, FILES, CHANGES, ARTS, RUNNING, SUBS, DEVICE, type MediaTab } from "./media.ts";
+import { shell as windowShell } from "../center/window-shell.tsx";
+import { P, rememberPane, saveLayout, showTab, FILES, CHANGES, ARTS, RUNNING, SUBS, DEVICE, AGENTS, type MediaTab } from "./media.ts";
+import { chatAgentsCount } from "./chat-agents.tsx";
 
 /// How far an arrow key moves a divider.
 const ARROW_STEP = 24;
@@ -69,14 +71,14 @@ export const dockHolding = (node: Node | null) => DOCKS.find(d => !!node && !!pa
 /// Every tab's id, in the order the tab strips show them.
 export function tabIds() {
   const chat = chatPane();
-  return [FILES, ...(chat ? [] : [CHANGES]), ...(runningCount() ? [RUNNING] : []), ...(artifactCount() ? [ARTS] : []), ...(P.subCount && !chat ? [SUBS] : []), ...(hasDeviceTab() ? [DEVICE] : []), ...P.tabs.map(t => t.id)];
+  return [FILES, ...(chat ? [] : [CHANGES]), ...(runningCount() ? [RUNNING] : []), ...(artifactCount() ? [ARTS] : []), ...(P.subCount && !chat ? [SUBS] : []), ...(chat && chatAgentsCount(chat) ? [AGENTS] : []), ...(hasDeviceTab() ? [DEVICE] : []), ...P.tabs.map(t => t.id)];
 }
 
-/// The pane of an assistant chat or one of its threads: their folders have no git, and the list
-/// beside them shows the threads.
-function chatPane() {
+/// The chat of the pane of an assistant chat or one of its threads: their folders have no git,
+/// and the list beside them shows the threads. Null for any other session.
+export function chatPane() {
   const s = P.session, row = s && sessions.find(r => r.machine_id === s.machine_id && r.id === s.id);
-  return !!row && !!chatOf(sessions, row);
+  return row ? chatOf(sessions, row) : null;
 }
 
 /// The width the docks lay out in. A phone never gets a right dock: the phone layout shows one
@@ -84,6 +86,17 @@ function chatPane() {
 export function dockWidth(): number {
   if (!shell()) return SIDE_BY_SIDE_MIN;
   return onPhone() || document.body.classList.contains("mobile") ? 0 : shellSize().width;
+}
+
+/// Whether the chats list beside an assistant chat steps aside for the right pane: the pane
+/// shows, and the conversation and the pane fit beside each other only without the list.
+function chatsListCrowded(rightShown: boolean): boolean {
+  const { assistant, side } = windowShell.getState();
+  const box = document.getElementById("pane-box");
+  if (!rightShown || !assistant || (side.rail?.kind === "chat" && !side.railHidden) || !box) return false;
+
+  const list = parseFloat(getComputedStyle(box).getPropertyValue("--asst-w")) || 300;
+  return box.clientWidth >= SIDE_BY_SIDE_MIN && box.clientWidth - list < SIDE_BY_SIDE_MIN;
 }
 
 /// The tabs in each dock, as the shell's width lets them sit.
@@ -100,7 +113,7 @@ export function dockOf(id: string): Dock {
 
 /// One view in a dock: a fixed tab's, or an opened tab's at its revision.
 export type DockView =
-  | { kind: "files" | "changes" | "artifacts" | "running" | "subagents" | "device"; hidden: boolean }
+  | { kind: "files" | "changes" | "artifacts" | "running" | "subagents" | "agents" | "device"; hidden: boolean }
   | { kind: "tab"; tab: MediaTab; rev: number; hidden: boolean };
 
 export interface DockModel {
@@ -125,6 +138,8 @@ interface PaneModel {
   docks: Record<Dock, DockModel> | null;
   narrow: boolean;
   zoomed: boolean;
+  /// The chats list steps aside so the right pane fits beside the conversation.
+  crowded: boolean;
   /// The divider being dragged.
   resizing: Dock | null;
   drag: DragModel | null;
@@ -133,7 +148,7 @@ interface PaneModel {
   log: boolean;
 }
 
-export const paneModel = createStore<PaneModel>(() => ({ docks: null, narrow: false, zoomed: false, resizing: null, drag: null, phone: null, log: false }));
+export const paneModel = createStore<PaneModel>(() => ({ docks: null, narrow: false, zoomed: false, crowded: false, resizing: null, drag: null, phone: null, log: false }));
 
 /// Sets part of the model and renders it now: callers measure and focus what it draws.
 export function setPaneModel(change: Partial<PaneModel>) {
@@ -166,10 +181,12 @@ export function place(fresh?: Record<Dock, DockModel>, extra: Partial<PaneModel>
   const shown = DOCKS.some(d => next[d].shown);
   // A zoomed dock that folded, emptied or moved away ends the zoom.
   if (P.zoom && !next[P.zoom].shown) P.zoom = null;
-  // On a narrow window the right pane, when open, covers the conversation.
-  const zoom = over && next.right.shown ? "right" : P.zoom;
+  // On a narrow window the right pane, when open, covers the conversation. An assistant chat's
+  // list steps aside instead, when that gives the pane room beside it.
+  const crowded = chatsListCrowded(next.right.shown);
+  const zoom = over && next.right.shown && !crowded ? "right" : P.zoom;
   for (const d of DOCKS) next[d] = { ...next[d], zoomed: zoom === d };
-  setPaneModel({ ...extra, docks: next, narrow, zoomed: !!zoom });
+  setPaneModel({ ...extra, docks: next, narrow, zoomed: !!zoom, crowded });
   if (shown && !paneWasShown) queueMicrotask(() => window.dispatchEvent(new Event("agent-pane-shown")));
   paneWasShown = shown;
   refreshTopicSubscriptions();

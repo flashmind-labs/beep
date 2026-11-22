@@ -93,3 +93,40 @@ test("a chat's move counts its files as they come, with the bar over the input, 
   await expect(page.locator("#agmovebox")).toContainText("Files 120.0 MB of 551.0 MB · 22%");
   await expect(page.locator("#agfield").getByRole("progressbar", { name: "Moving to Other box" })).toHaveAttribute("aria-valuenow", "22");
 });
+
+test("a file opened from a chat's Files sits beside the chat, and Markdown opens in its preview", async ({ page }) => {
+  const entry = (name: string, folder: boolean) => ({ name, folder, size: 1, ignored: false, change: null });
+  await openDesktop(page, false, {
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat], agent_view: view(chat),
+    agent_tree: { folders: [{ path: "", entries: [entry("notes.md", false)], more: 0, git: false }], truncated: false },
+    agent_artifact: { kind: "html", html: "<h1>Notes</h1>" },
+  });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  await page.locator(".asst-list").getByRole("button", { name: /Plan the launch/ }).click();
+  await page.getByRole("tab", { name: "Files", exact: true }).first().click();
+  await page.locator('[data-fpath="notes.md"]').click();
+
+  await expect(page.locator("#agpane-right").getByRole("button", { name: "Source", exact: true })).toBeVisible();
+  await expect(page.locator(".agshell")).not.toHaveClass(/zoomed/);
+  await expect(page.locator(".asst-list")).toBeHidden();
+  await expect(page.getByText("On it.")).toBeVisible();
+});
+
+test("a chat's pane lists the agents its folder defines in an Agents tab", async ({ page }) => {
+  const agent = (name: string, scope: "project" | "user") => ({ name, harness: "claude", scope, description: `${name} does things`, model: null, tools: [], color: null, path: `.claude/agents/${name}.md`, prompt: "You check evidence.", prompt_cut: false, error: null });
+  await openDesktop(page, false, {
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat], agent_view: view(chat),
+    custom_agents: [agent("evidence-verifier", "project"), agent("mine-everywhere", "user")],
+  });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  await page.locator(".asst-list").getByRole("button", { name: /Plan the launch/ }).click();
+
+  const tab = page.getByRole("tab", { name: /Agents/ }).first();
+  await expect(tab).toContainText("1");
+  await tab.click();
+  const pane = page.locator(".agagents");
+  await expect(pane.getByText("evidence-verifier", { exact: true })).toBeVisible();
+  await expect(pane.getByText("mine-everywhere")).toHaveCount(0);
+  await expect(pane.getByRole("button", { name: "Start" })).toHaveCount(0);
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "custom_agents").at(-1)?.args.folder)).toBe(folder);
+});

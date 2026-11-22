@@ -2,6 +2,7 @@
 // controls and the view of each tab) for dock-view.tsx, and handles the
 // clicks and the menu on its tabs.
 import type { SubagentRow } from "./subagents-view.tsx";
+import { chatAgentsCount } from "./chat-agents.tsx";
 import type { PaneTabItem } from "./tabs-view.tsx";
 import { hasPreview } from "./html-preview-state.ts";
 import { baseName, type Dock, DOCKS, moveTab } from "./media-state.ts";
@@ -21,8 +22,8 @@ import { onShownChange } from "../ui/active.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
-import { type TabKind, ARTS, CHANGES, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
-import { type DockModel, type DockView, docked, foldNarrow, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
+import { type TabKind, AGENTS, ARTS, CHANGES, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
+import { type DockModel, type DockView, chatPane, docked, foldNarrow, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
 import { savedIn } from "../ui/platform.ts";
 
 // ----- Tabs -----
@@ -120,6 +121,7 @@ function dockModel(d: Dock, ids: string[]): DockModel {
     ...(has(ARTS) ? [{ kind: "artifacts" as const, hidden: on !== ARTS }] : []),
     ...(has(RUNNING) ? [{ kind: "running" as const, hidden: on !== RUNNING }] : []),
     ...(has(SUBS) ? [{ kind: "subagents" as const, hidden: on !== SUBS }] : []),
+    ...(has(AGENTS) ? [{ kind: "agents" as const, hidden: on !== AGENTS }] : []),
     // A folded dock hides the device too, which stops its stream.
     ...(has(DEVICE) ? [{ kind: "device" as const, hidden: on !== DEVICE || P.layout.hidden[d] }] : []),
     ...P.tabs.filter(t => has(t.id)).map(t => ({ kind: "tab" as const, tab: t, rev: t.rev, hidden: t.id !== on })),
@@ -163,9 +165,9 @@ function syncDock(d: Dock, ids: string[]) {
   }
 }
 
-type Fixed = "subagents" | "files" | "changes" | "artifacts" | "running" | "device";
+type Fixed = "subagents" | "agents" | "files" | "changes" | "artifacts" | "running" | "device";
 
-const FIXED_NAMES: Record<Fixed, string> = { device: "Device", running: "Running", subagents: "Subagents", artifacts: "Artifacts", changes: "Changes", files: "Files" };
+const FIXED_NAMES: Record<Fixed, string> = { device: "Device", running: "Running", subagents: "Subagents", agents: "Agents", artifacts: "Artifacts", changes: "Changes", files: "Files" };
 
 function isFixed(id: string): id is Fixed {
   return Object.hasOwn(FIXED_NAMES, id);
@@ -175,12 +177,13 @@ function fixedCount(id: Fixed) {
   if (id === SUBS) return P.subCount;
   if (id === RUNNING) return runningCount();
   if (id === ARTS) return artifactCount();
+  if (id === AGENTS) { const chat = chatPane(); return chat ? chatAgentsCount(chat) : null; }
   return null;
 }
 
 const TAB_ICONS: Record<TabKind | Fixed, IconName> = {
   files: "paneFiles", changes: "paneChanges", text: "paneText", term: "paneTerm", image: "paneImage", model: "paneModel",
-  video: "paneVideo", audio: "paneAudio", pdf: "panePdf", artifacts: "paneArtifacts", running: "paneRunning", subagents: "paneSubagents", device: "paneDevice",
+  video: "paneVideo", audio: "paneAudio", pdf: "panePdf", artifacts: "paneArtifacts", running: "paneRunning", subagents: "paneSubagents", agents: "paneSubagents", device: "paneDevice",
 };
 
 /// Pauses a tab's video or audio and its model's animation, whose frames would

@@ -9,6 +9,7 @@ import { createStore } from "zustand";
 import type { FilesMenuProps } from "./files-menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
 import { hasPreview } from "./html-preview-state.ts";
+import { reloadChatAgents } from "./chat-agents.tsx";
 import { type Listing, type TreeRow, isTree, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
 import { relativeTo } from "./artifacts-state.ts";
 import { mediaKind, resolvePath } from "./media-state.ts";
@@ -334,6 +335,9 @@ async function refresh() {
     if (entry) entry.dirty = true;
     throw new Error(error);
   }
+
+  // The chat's agent may have written agents of its own since.
+  reloadChatAgents();
 }
 
 /// Whether the tree can be seen: its tab is picked (a view behind another
@@ -503,7 +507,7 @@ export const treeActions = {
     if (e.metaKey || e.ctrlKey || e.shiftKey) { draw(); return; }
 
     if (row.dataset.ffolder) toggle(path);
-    else { draw(); openWorkFile(path); }
+    else { draw(); openFile(path); }
   },
   contextMenu(e: MouseEvent<HTMLElement>) {
     e.preventDefault();
@@ -644,7 +648,12 @@ function note(text: string) {
 function openPicked() {
   if (!F.picked || F.selected.size !== 1) return;
   const row = rowsNow().find(r => r.path === F.picked);
-  if (row?.folder) toggle(row.path); else openWorkFile(F.picked);
+  if (row?.folder) toggle(row.path); else openFile(F.picked);
+}
+
+/// A file the tree opens: an HTML or Markdown one in its preview, the rest as they are.
+function openFile(path: string) {
+  (hasPreview(path) ? previewWorkFile : openWorkFile)(path);
 }
 
 type FileAction = { CreateFile: { path: string } } | { CreateFolder: { path: string } }

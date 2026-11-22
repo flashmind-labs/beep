@@ -356,6 +356,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agpane-content > .agpviews { position: relative }
 .agpview:is(.files, .changes)[hidden] { display: flex !important; position: absolute; inset: 0; visibility: hidden; pointer-events: none; content-visibility: hidden }
 .agpview.subs { overflow: auto; padding: 6px; gap: 2px; display: grid; align-content: start }
+.agpview.agagents { overflow: auto; padding: 6px 8px }
 .agpview.subs .dsubrow { grid-template-columns: 16px minmax(0, 1fr) 16px }
 .dsubrow .x { display: grid; place-items: center; height: 20px; color: var(--muted); font-style: normal; visibility: hidden }
 .dsubrow:hover .x { visibility: visible }

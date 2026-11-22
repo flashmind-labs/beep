@@ -14,6 +14,7 @@ import { sessionVisible } from "./closing.ts";
 import { S } from "../bar/core.ts";
 import type { Location } from "../center/state.ts";
 import { shell } from "../center/window-shell.tsx";
+import { paneModel } from "../agentpane/media-layout.ts";
 import { RailList, Row, RunningStatus } from "../project/split-view.tsx";
 import { SideToggle } from "../center/sidebar-shell.tsx";
 import { Button, EndedFold } from "../ui/kit.tsx";
@@ -94,7 +95,8 @@ sessionsRead.add(() => { read += 1; });
 /// offers a new one.
 export function AssistantList() {
   // A chat with threads lists them in place of the sidebar instead.
-  const on = useStore(shell, s => !!s.assistant && !(s.side.rail?.kind === "chat" && !s.side.railHidden)), chat = useStore(openChat, s => s.key);
+  const crowded = useStore(paneModel, s => s.crowded);
+  const on = useStore(shell, s => !!s.assistant && !(s.side.rail?.kind === "chat" && !s.side.railHidden)) && !crowded, chat = useStore(openChat, s => s.key);
   useSyncExternalStore(subscribeSessions, () => read);
   const [endedOpen, setEndedOpen] = useState(false);
   /// The chats whose ended threads show.

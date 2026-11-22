@@ -688,6 +688,8 @@ test("agent file being edited", async ({ page }) => {
   await page.evaluate(() => window.__navigation.respond("agent_tree_text", { size: 10000, text: Array.from({ length: 500 }, (_, i) => `const value${i} = ${i};`).join("\n"), cut: false, binary: false, editable: true }));
   await page.getByRole("tab", { name: "Files", exact: true }).click();
   await page.locator('[data-fpath="README.md"]').click();
+  // Markdown opens in its preview; Source shows the text to edit.
+  await page.locator("[data-preview]").click();
   await page.locator("[data-tedit]").click();
   await expect(page.locator(".agcm .cm-content")).toBeFocused();
   await page.keyboard.type("// note");

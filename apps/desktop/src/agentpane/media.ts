@@ -151,6 +151,7 @@ export const CHANGES = "changes";
 export const ARTS = "artifacts";
 export const RUNNING = "running";
 export const DEVICE = "device";
+export const AGENTS = "agents";
 const KEY = `beep.mediaPane.${PANE ? "window" : "bar"}`;
 /// How far a tab moves under the pointer before it drags.
 export const DRAG_START = 5;
