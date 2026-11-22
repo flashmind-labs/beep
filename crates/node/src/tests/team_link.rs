@@ -104,6 +104,7 @@ fn member(name: &str, mesh: EndpointId, device: EndpointId) -> Member {
         mesh,
         devices: vec![EndpointAddr::new(device)],
         joined_at: SystemTime::now(),
+        admitted_by: None,
     }
 }
 

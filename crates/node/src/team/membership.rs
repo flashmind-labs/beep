@@ -74,16 +74,17 @@ pub(super) fn teams(teams: &Teams) -> Vec<Team> {
 /// What the gateway keeps of the membership of the teams it holds.
 pub(super) struct Membership {
     me: EndpointId,
-    /// The last time this mesh's entry was sent on each team.
+    /// The last time this mesh's entries were sent on each team.
     announced: BTreeMap<TeamRepo, Announced>,
     /// When each held team's members were last checked.
     checked: BTreeMap<TeamRepo, Instant>,
 }
 
-/// This mesh's entry as it was sent to the teammates, and whom it did not
-/// reach yet.
+/// This mesh's entry and the members it admitted, as they were sent to the
+/// teammates, and whom they did not reach yet.
 struct Announced {
     entry: Member,
+    admitted: Vec<Member>,
     /// The teammates it was sent to.
     to: Vec<Member>,
     /// When it was first sent, and last.
@@ -95,17 +96,33 @@ struct Announced {
 }
 
 impl Announced {
-    fn sent(link: &TeamLink, repo: &TeamRepo, entry: Member, to: Vec<Member>) -> Self {
+    fn sent(
+        link: &TeamLink,
+        repo: &TeamRepo,
+        entry: Member,
+        admitted: Vec<Member>,
+        to: Vec<Member>,
+    ) -> Self {
         let now = Instant::now();
-
-        Self {
-            sending: Some(send(link, repo, &entry, to.clone())),
+        let mut announced = Self {
+            sending: None,
             entry,
+            admitted,
             to,
             since: now,
             at: now,
             unsent: BTreeSet::new(),
-        }
+        };
+        announced.sending = Some(send(link, announced.roster(repo), announced.to.clone()));
+
+        announced
+    }
+
+    /// The roster it sends: this mesh's entry, then the members it admitted.
+    fn roster(&self, repo: &TeamRepo) -> TeamMsg {
+        let members = [std::slice::from_ref(&self.entry), &self.admitted].concat();
+
+        roster(repo, members)
     }
 
     /// Whether some teammate may still not have it.
@@ -132,10 +149,14 @@ impl Membership {
     /// entry as written when this machine starts holding one, and the
     /// entry naming the mesh's machines with the project while the written
     /// one does not (taken here too, for a desktop to write), once per change
-    /// and at most every `ANNOUNCE`. Every `RESEND`, a send goes again to
-    /// the teammates it did not reach, for a day, even once the team is held
-    /// elsewhere: a teammate only takes it from a device it knows. `online`
-    /// and `member` say which machines are online and in the mesh.
+    /// and at most every `ANNOUNCE`. The members this mesh admitted go with
+    /// it, from the record as it is, and again whenever they change: only
+    /// the mesh that admitted a member vouches for them, and a teammate
+    /// offline at the join takes them later. Every `RESEND`, a send goes
+    /// again to the teammates it did not reach, for a day, even once the
+    /// team is held elsewhere: a teammate only takes it from a device it
+    /// knows. `online` and `member` say which machines are online and in the
+    /// mesh.
     pub(super) fn announce(
         &mut self,
         link: &TeamLink,
@@ -157,6 +178,12 @@ impl Membership {
         for team in teams {
             let devices = &projects[&team.repo].devices;
             let fresh = with_devices(&team.mine, devices, online, &member);
+            let admitted: Vec<Member> = team
+                .others
+                .iter()
+                .filter(|member| member.admitted_by == Some(team.mine.mesh))
+                .cloned()
+                .collect();
             let last = self.announced.get(&team.repo);
             let new = match (&fresh, last) {
                 (_, None) => Some(fresh.clone().unwrap_or_else(|| team.mine.clone())),
@@ -166,14 +193,16 @@ impl Membership {
                 {
                     Some(entry.clone())
                 }
+                (_, Some(last)) if last.admitted != admitted => Some(last.entry.clone()),
                 _ => None,
             };
 
             if let Some(entry) = new {
-                if fresh.is_some() {
+                if fresh.as_ref() == Some(&entry) {
                     take(link, self.me, team, &entry);
                 }
-                let announced = Announced::sent(link, &team.repo, entry, team.others.clone());
+                let others = team.others.clone();
+                let announced = Announced::sent(link, &team.repo, entry, admitted, others);
                 self.announced.insert(team.repo.clone(), announced);
                 continue;
             }
@@ -192,7 +221,7 @@ impl Membership {
                 .to
                 .iter()
                 .filter(|member| last.unsent.contains(&member.mesh));
-            last.sending = Some(send(link, repo, &last.entry, to.cloned().collect()));
+            last.sending = Some(send(link, last.roster(repo), to.cloned().collect()));
             last.unsent.clear();
             last.at = Instant::now();
         }
@@ -255,7 +284,7 @@ pub(crate) fn with_devices(
 /// Takes `entry`, this mesh's entry on `team` with its devices now, as a
 /// teammate's roster is taken, for a desktop to write.
 fn take(link: &TeamLink, me: EndpointId, team: &Team, entry: &Member) {
-    let roster = roster(&team.repo, entry);
+    let roster = roster(&team.repo, vec![entry.clone()]);
     let own = Some(team.mine.mesh);
 
     match link.with(|link| link.rosters.apply(me, own, &roster)) {
@@ -268,15 +297,10 @@ fn take(link: &TeamLink, me: EndpointId, team: &Team, entry: &Member) {
     }
 }
 
-/// Sends `entry` to each of `to` in the background; the send ends with the
+/// Sends `roster` to each of `to` in the background; the send ends with the
 /// meshes of those it did not reach.
-fn send(
-    link: &TeamLink,
-    repo: &TeamRepo,
-    entry: &Member,
-    to: Vec<Member>,
-) -> AbortOnDropHandle<BTreeSet<EndpointId>> {
-    let (link, roster) = (link.clone(), roster(repo, entry));
+fn send(link: &TeamLink, roster: TeamMsg, to: Vec<Member>) -> AbortOnDropHandle<BTreeSet<EndpointId>> {
+    let link = link.clone();
 
     AbortOnDropHandle::new(tokio::spawn(async move {
         let mut unsent = BTreeSet::new();
@@ -292,10 +316,10 @@ fn send(
     }))
 }
 
-fn roster(repo: &TeamRepo, entry: &Member) -> TeamMsg {
+fn roster(repo: &TeamRepo, members: Vec<Member>) -> TeamMsg {
     TeamMsg::Roster {
         repo: repo.clone(),
-        members: vec![entry.clone()],
+        members,
     }
 }
 

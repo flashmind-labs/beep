@@ -222,16 +222,17 @@ impl TeamLink {
         proof: &mut Option<(Checkout, Nonce)>,
     ) -> Result<TeamRecord, String> {
         let repo = &join.repo;
+        let (team, checkout, own) = self.with(|teams| {
+            let team = teams.rosters.get(repo).cloned();
+            (team, teams.home.checkout(repo), teams.home.mesh)
+        });
         let entry = Member {
             login: join.login.clone(),
             mesh: join.mesh,
             devices: join.devices.clone(),
             joined_at: SystemTime::now(),
+            admitted_by: own,
         };
-        let (team, checkout, own) = self.with(|teams| {
-            let team = teams.rosters.get(repo).cloned();
-            (team, teams.home.checkout(repo), teams.home.mesh)
-        });
         let team = team.ok_or_else(|| format!("This device has no team for {repo}"))?;
         let hash = secret_hash(&JoinSecret::from(join.secret));
         let invite = team

@@ -294,6 +294,7 @@ async fn roster_from_node_is_written_once() {
         mesh: SecretKey::generate().public(),
         devices: vec![iroh::EndpointAddr::new(SecretKey::generate().public())],
         joined_at: SystemTime::UNIX_EPOCH,
+        admitted_by: None,
     };
     // This mesh's own entry: a record without it is a team that removed it.
     let mut dana = member("dana");

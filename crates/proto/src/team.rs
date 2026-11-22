@@ -149,6 +149,10 @@ wire_structs! {
         /// Their devices that take team links.
         pub devices: Vec<EndpointAddr>,
         pub joined_at: SystemTime,
+        /// The mesh whose member admitted them, which keeps telling the
+        /// others of them; `None` for the founder.
+        #[serde(default)]
+        pub admitted_by: Option<EndpointId>,
     }
 
     /// An invite anyone holding its secret can join with until it expires.

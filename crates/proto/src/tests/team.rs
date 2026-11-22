@@ -25,6 +25,7 @@ fn member() -> Member {
         mesh: id(1),
         devices: vec![EndpointAddr::new(id(2))],
         joined_at: at(10),
+        admitted_by: None,
     }
 }
 
@@ -252,6 +253,7 @@ fn a_merge_adds_and_updates_but_removes_only_through_removals() {
         mesh: id(3),
         devices: vec![EndpointAddr::new(id(4))],
         joined_at: at(20),
+        admitted_by: None,
     };
     let mut record = TeamRecord::new(repo(), vec![ana.clone(), ben.clone()]);
     let mut moved = ana.clone();
@@ -261,6 +263,7 @@ fn a_merge_adds_and_updates_but_removes_only_through_removals() {
         mesh: id(6),
         devices: vec![EndpointAddr::new(id(7))],
         joined_at: at(30),
+        admitted_by: None,
     };
     // Ben's login under another mesh: Ben keeps it.
     let ben_elsewhere = Member {

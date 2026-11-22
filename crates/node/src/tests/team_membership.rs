@@ -1,6 +1,7 @@
 use super::*;
 use crate::team::board::tests::{Pair, device, member, repo};
 use iroh::{SecretKey, protocol::Router};
+use beep_proto::team::TeamRecord;
 use tokio::time::Duration;
 
 #[test]
@@ -284,6 +285,55 @@ async fn a_member_who_lost_access_is_removed() {
         .collect();
     assert_eq!(logins, [&pair.alice.login, &pair.bob.login]);
     assert_eq!(pending[0].removed[0].login, carol.login);
+}
+
+/// Dana was removed, then let back in and admitted again by Alice's mesh
+/// while Bob was offline. Alice's gateway tells him of her with its own
+/// entry once he is back, and his old removal of her ends.
+#[tokio::test]
+async fn a_teammate_offline_at_a_rejoin_takes_the_member_later() {
+    let pair = Pair::new().await;
+    let dana = member("dana", SecretKey::generate().public());
+    let mut bobs = TeamRecord::new(repo(), vec![pair.alice.clone(), pair.bob.clone(), dana.clone()]);
+    bobs.remove(&dana.login);
+    pair.bob_link.with(|teams| {
+        teams.rosters.refresh([(repo(), bobs)].into());
+        teams.home.mesh = Some(pair.bob.mesh);
+    });
+    let again = Member {
+        joined_at: dana.joined_at + Duration::from_secs(60),
+        admitted_by: Some(pair.alice.mesh),
+        ..dana
+    };
+    pair.gateway.with(|teams| {
+        let mut team = teams.rosters.get(&repo()).unwrap().clone();
+        team.members.push(again.clone());
+        teams.rosters.refresh([(repo(), team)].into());
+    });
+    let team = Team {
+        repo: repo(),
+        project: "org/repo".to_owned(),
+        mine: pair.alice.clone(),
+        others: vec![reachable_bob(&pair), again.clone()],
+    };
+    let teams = std::slice::from_ref(&team);
+    let projects = projects(pair.alice.devices.clone());
+    let gateway = pair.gateway.endpoint().id();
+    let mut membership = Membership::new(gateway);
+    membership.announce(&pair.gateway, &BTreeSet::new(), |_| true, teams, &projects);
+    assert!(sent(&mut membership).await.contains(&pair.bob.mesh));
+
+    let _bob = online(&pair);
+    later(&mut membership);
+    membership.announce(&pair.gateway, &BTreeSet::new(), |_| true, teams, &projects);
+    assert!(!sent(&mut membership).await.contains(&pair.bob.mesh));
+
+    let (allowed, removed) = pair.bob_link.with(|teams| {
+        let record = teams.rosters.get(&repo()).unwrap();
+        (teams.rosters.allows(again.devices[0].id, &repo()), record.removed.clone())
+    });
+    assert!(allowed);
+    assert!(removed.is_empty());
 }
 
 /// Carol is removed while Bob is offline: once he is back, the removal

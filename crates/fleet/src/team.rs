@@ -389,6 +389,7 @@ impl Desk {
             mesh: self.mesh.id(),
             devices,
             joined_at: SystemTime::now(),
+            admitted_by: None,
         })
     }
 

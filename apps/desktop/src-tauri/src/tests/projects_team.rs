@@ -47,6 +47,7 @@ fn a_team_view_has_the_records_keys() {
         mesh: own,
         devices: vec![EndpointAddr::new(own)],
         joined_at: SystemTime::UNIX_EPOCH,
+        admitted_by: None,
     };
     let view = json(TeamView::of(TeamRecord::new(repo(), vec![member]), own));
 

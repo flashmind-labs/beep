@@ -687,6 +687,7 @@ async fn leaving_the_mesh_forgets_the_teams() {
         mesh: SecretKey::generate().public(),
         devices: vec![EndpointAddr::new(endpoint.id())],
         joined_at: std::time::SystemTime::now(),
+        admitted_by: None,
     };
     peers.team().with(|teams| {
         teams
