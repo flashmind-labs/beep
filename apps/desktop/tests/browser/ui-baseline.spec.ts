@@ -234,7 +234,7 @@ test("assistant chat with threads", async ({ page }) => {
   await list.getByRole("button", { name: /Battery chemistries/ }).click();
   // The chat's threads take the sidebar's place; the one that ended is under Past.
   const rail = page.locator("#rail");
-  await expect(rail.locator(".rail-live")).toContainText("Solid-state timelines");
+  await expect(rail.locator(".rail-threads")).toContainText("Solid-state timelines");
   await expect(rail.locator(".rail-scroll > .pj-li")).toContainText("Cathode prices");
   await baseline(page, "assistant-threads");
 

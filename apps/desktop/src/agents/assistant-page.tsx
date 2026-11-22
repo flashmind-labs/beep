@@ -159,7 +159,7 @@ export function ChatRail({ rail, current }: { rail: NonNullable<ReturnType<typeo
   return <>
     <div className="cc-head" data-tauri-drag-region="" />
     <div className="cc-brand"><Button look="quiet" className="rail-back" title="Back to the Assistant's chats" onClick={() => goChats()}>Assistant</Button>{chat.status !== "ended" && <Button look="quiet" small onClick={() => newThread(chat)}>New thread</Button>}<SideToggle /></div>
-    <RailList noun="threads" running={running.map(row => ({ kind: "agent", ...row }))} past={past} current={current} more={() => goChats()} />
+    <RailList noun="threads" head={running[0] === chat ? { kind: "agent", ...chat } : null} running={running.filter(row => row !== chat).map(row => ({ kind: "agent", ...row }))} past={past} current={current} more={() => goChats()} />
   </>;
 }
 

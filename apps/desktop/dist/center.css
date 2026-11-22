@@ -1058,6 +1058,8 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .cc-rail .pj-li .r { font-size: 11px }
 /* Running sessions read bigger, with what each is doing under its title. */
 .rail-live { display: grid }
+/* A chat's running threads, its subitems. */
+.rail-threads { padding-left: 18px }
 .rail-live > .pj-li { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; padding: 8px 6px }
 .rail-live > .pj-li .lead svg, .rail-live > .pj-li .lead > * { width: 18px; height: 18px }
 .rail-live > .pj-li .t b { font-weight: 500 }

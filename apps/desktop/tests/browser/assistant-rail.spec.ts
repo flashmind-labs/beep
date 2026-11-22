@@ -23,6 +23,9 @@ test("a chat with threads lists them in place of the sidebar, and ⌘E swaps the
 
   await expect(page.locator(".cwin")).toHaveClass(/rail-on/);
   await expect(rail.locator(".rail-live .pj-li")).toHaveText([/Plan the launch/, /Pricing research.*Reading the price list/]);
+  // The running threads are the chat's subitems, indented under it.
+  await expect(rail.locator(".rail-threads .pj-li")).toHaveText([/Pricing research/]);
+  expect(await rail.locator(".rail-threads .pj-li").evaluate(el => el.getBoundingClientRect().left)).toBeGreaterThan(await rail.locator(".rail-live > .pj-li").first().evaluate(el => el.getBoundingClientRect().left));
   await expect(rail.locator(".rail-scroll > .pj-li")).toHaveText([/Competitor notes/]);
   await expect(rail.locator('[aria-current="true"]')).toContainText("Plan the launch");
   await expect(page.locator(".asst-list")).toBeHidden();

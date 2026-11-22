@@ -112,33 +112,34 @@ body.cbody
             span.r
               span.cc-running "now"
                 span.drun [aria-label="Working" role="img"]
-          button.pj-li [title="Sodium-ion cost curve" type="button"]
-            span.lead
-              span.cc-ag.flsh.mark
-                svg [aria-hidden="true" viewBox="0 0 28 28"]
-            span.t
-              b "Sodium-ion cost curve"
-              span "Reading the supply reports"
-            span.r
-              span.cc-running "now"
-                span.drun [aria-label="Working" role="img"]
-          button.pj-li [title="Solid-state timelines" type="button"]
-            span.lead
-              span.cc-ag.flsh.mark
-                svg [aria-hidden="true" viewBox="0 0 28 28"]
-            span.t
-              b "Solid-state timelines"
-              span "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
-            span.r "1m ago"
-          button.pj-li [title="Recycling regulation" type="button"]
-            span.lead
-              span.cc-ag.flsh.mark
-                svg [aria-hidden="true" viewBox="0 0 28 28"]
-            span.t
-              b "Recycling regulation"
-              span "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
-            span.r
-              span.chip.wait "needs you"
+          div.rail-live.rail-threads
+            button.pj-li [title="Sodium-ion cost curve" type="button"]
+              span.lead
+                span.cc-ag.flsh.mark
+                  svg [aria-hidden="true" viewBox="0 0 28 28"]
+              span.t
+                b "Sodium-ion cost curve"
+                span "Reading the supply reports"
+              span.r
+                span.cc-running "now"
+                  span.drun [aria-label="Working" role="img"]
+            button.pj-li [title="Solid-state timelines" type="button"]
+              span.lead
+                span.cc-ag.flsh.mark
+                  svg [aria-hidden="true" viewBox="0 0 28 28"]
+              span.t
+                b "Solid-state timelines"
+                span "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
+              span.r "1m ago"
+            button.pj-li [title="Recycling regulation" type="button"]
+              span.lead
+                span.cc-ag.flsh.mark
+                  svg [aria-hidden="true" viewBox="0 0 28 28"]
+              span.t
+                b "Recycling regulation"
+                span "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
+              span.r
+                span.chip.wait "needs you"
         h4 "Past"
           span.n "1"
         button.pj-li [title="Cathode prices" type="button"]

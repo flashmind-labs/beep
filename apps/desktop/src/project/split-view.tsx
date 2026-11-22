@@ -76,9 +76,10 @@ export function ProjectRail({ project, label, running, past, current, card, back
 }
 
 /// A rail's filter and its sessions: the running ones, roomier, with what each is doing, then
-/// the latest past ones, one line each, and `more` to see them all.
-export function RailList({ running, past, current, more, noun = "sessions" }: {
-  running: readonly RunningAgent[]; past: readonly (AgentRow & Pick<AgentSession, "last_activity">)[]; current: string | null; more: () => void; noun?: string;
+/// the latest past ones, one line each, and `more` to see them all. A `head`, such as a chat,
+/// leads the running ones, which are its subitems.
+export function RailList({ head = null, running, past, current, more, noun = "sessions" }: {
+  head?: RunningAgent | null; running: readonly RunningAgent[]; past: readonly (AgentRow & Pick<AgentSession, "last_activity">)[]; current: string | null; more: () => void; noun?: string;
 }) {
   const [filter, setFilter] = useState("");
   const needle = filter.trim().toLowerCase();
@@ -104,11 +105,13 @@ export function RailList({ running, past, current, more, noun = "sessions" }: {
     menu: event => void sessionMenu(event, session, picked => go("pane", { agent: picked })),
   }} />;
 
+  const liveRow = (session: RunningAgent) => row(session, <><RunningStatus row={session} /><LineCounts changes={session.changes} /></>, workLine(session));
+
   return <>
     <input className="ip-field rail-filter" type="search" placeholder={`Filter ${noun}`} aria-label={`Filter ${noun}`} spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
     <div className="rail-scroll" ref={list} data-clear={clear || undefined}>
-    {!!live.length && <h4>Running<span className="n">{live.length}</span></h4>}
-    {!!live.length && <div className="rail-live">{live.map(session => row(session, <><RunningStatus row={session} /><LineCounts changes={session.changes} /></>, workLine(session)))}</div>}
+    {(!!head || !!live.length) && <h4>Running<span className="n">{live.length + (head ? 1 : 0)}</span></h4>}
+    {(!!head || !!live.length) && <div className="rail-live">{head && liveRow(head)}{head ? !!live.length && <div className="rail-live rail-threads">{live.map(liveRow)}</div> : live.map(liveRow)}</div>}
     {!!ended.length && <h4>Past<span className="n">{ended.length}</span></h4>}
     {ended.slice(0, RAIL_PAST).map(session => row(session, formatAgo(session.last_activity, "short")))}
     {ended.length > RAIL_PAST && <Button look="quiet" className="rail-all" onClick={more}>All {ended.length} {noun}</Button>}
