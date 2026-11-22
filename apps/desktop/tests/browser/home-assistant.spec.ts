@@ -39,12 +39,12 @@ test("the sidebar's Assistant lists the chats and opens one beside them", async 
   await expect(page.locator("#side").getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-current", "true");
 });
 
-test("a file an assistant chat links to opens beside it, a page in its preview", async ({ page }) => {
-  const reply = "See [notes.txt](notes.txt) and [the dashboard](19-dashboard/index.html).";
+test("a file an assistant chat links to opens beside it, a page or Markdown in its preview", async ({ page }) => {
+  const reply = "See [notes.txt](notes.txt), [the findings](findings.md) and [the dashboard](19-dashboard/index.html).";
   const done = { ...session, status: "idle" };
   await openDesktop(page, false, {
     agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null },
-    agent_sessions: [{ ...done, title: "Make the dashboard" }], agent_view: { ...view(done, reply), entries: [{ kind: "agent", text: reply, html: '<p>See <a href="notes.txt">notes.txt</a> and <a href="19-dashboard/index.html">the dashboard</a>.</p>' }] },
+    agent_sessions: [{ ...done, title: "Make the dashboard" }], agent_view: { ...view(done, reply), entries: [{ kind: "agent", text: reply, html: '<p>See <a href="notes.txt">notes.txt</a>, <a href="findings.md">the findings</a> and <a href="19-dashboard/index.html">the dashboard</a>.</p>' }] },
     agent_tree_text: { size: 6, text: "hello\n", cut: false, binary: false, editable: true },
     agent_artifact: { kind: "html", html: "<h1>Dashboard</h1>" },
   });
@@ -56,10 +56,14 @@ test("a file an assistant chat links to opens beside it, a page in its preview",
   await expect(pane.getByRole("tab", { name: /notes\.txt/ })).toBeVisible();
   await expect(page.getByRole("dialog", { name: "notes.txt" })).toHaveCount(0);
 
+  await page.locator("#agbody").getByRole("link", { name: "the findings" }).click();
+  await expect(pane.getByRole("tab", { name: /findings\.md/ })).toBeVisible();
+  await expect(pane.getByRole("button", { name: "Source", exact: true })).toBeVisible();
+
   await page.locator("#agbody").getByRole("link", { name: "the dashboard" }).click();
   await expect(pane.getByRole("button", { name: "Source", exact: true })).toBeVisible();
   await expect(page.locator(".agshell")).not.toHaveClass(/zoomed/);
-  await expect(page.getByText("See notes.txt")).toBeVisible();
+  await expect(page.getByText("See notes.txt, the findings")).toBeVisible();
 });
 
 test("Cmd+N on Home opens the Assistant page and starts the assistant with its harness in the home folder", { tag: "@windows" }, async ({ page }, info) => {
