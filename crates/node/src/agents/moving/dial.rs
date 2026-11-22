@@ -1,14 +1,14 @@
 //! Reaching the other machine of a move over `beep-sessions/1`: the target
 //! reads the transcript, the source asks the target how the move stands.
 
-use beep_proto::SessionId;
 use super::{
     Env,
     progress::Target,
     read::{ALPN, Reply, Request},
 };
 use anyhow::{Context, Result, bail};
-use beep_proto::node::{link, mesh_state::SessionMove};
+use beep_proto::SessionId;
+use beep_proto::node::{LinkRx, LinkTx, link, mesh_state::SessionMove};
 use iroh::{EndpointAddr, EndpointId, endpoint::Connection};
 use std::time::Duration;
 use tokio::{
@@ -39,20 +39,33 @@ pub(super) async fn dial(env: &Env, peer: EndpointId) -> Result<Connection> {
         .context("could not reach the other machine in time")??)
 }
 
+/// Runs `call` on a single `beep-sessions/1` stream to `peer`, then closes the connection.
+pub(super) async fn with_stream<T, F: Future<Output = Result<T>>>(
+    env: &Env,
+    peer: EndpointId,
+    call: impl FnOnce(LinkTx, LinkRx) -> F,
+) -> Result<T> {
+    let connection = dial(env, peer).await?;
+    let (send, recv) = connection.open_bi().await?;
+    let (tx, rx) = link(send, recv);
+    let out = call(tx, rx).await;
+    connection.close(0u32.into(), b"done");
+    out
+}
+
 /// What the target `to` says of the move of session `id` made at `at`.
 pub(super) async fn ask(env: &Env, to: EndpointId, id: &SessionId, at: u64) -> Result<Target> {
-    let connection = dial(env, to).await?;
-    let (send, recv) = connection.open_bi().await?;
-    let (mut tx, mut rx) = link(send, recv);
-    tx.send(&Request::State {
-        id: id.to_owned(),
-        at,
+    let answer = with_stream(env, to, |mut tx, mut rx| async move {
+        tx.send(&Request::State {
+            id: id.to_owned(),
+            at,
+        })
+        .await?;
+        timeout(ANSWER_WITHIN, rx.recv::<Reply>())
+            .await
+            .context("the target did not answer in time")?
     })
     .await?;
-    let answer = timeout(ANSWER_WITHIN, rx.recv::<Reply>())
-        .await
-        .context("the target did not answer in time")??;
-    connection.close(0u32.into(), b"done");
 
     match answer {
         Some(Reply::State {

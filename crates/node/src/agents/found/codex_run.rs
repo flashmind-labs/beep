@@ -2,9 +2,13 @@
 //! role and task from the header, its calls, done once their `*_output` comes,
 //! and `task_complete` with what it answered.
 
-use beep_proto::SessionId;
 use super::newest_files;
-use crate::agents::{RunStep, SubagentRun, cut, subagent::Conversation};
+use crate::agents::{
+    RunStep, SubagentRun, cut,
+    subagent::Conversation,
+    window::{content_text, titled_call},
+};
+use beep_proto::SessionId;
 use serde_json::Value;
 use std::{
     collections::HashMap,
@@ -162,15 +166,10 @@ impl Reader {
                 }
             }
             (Some("response_item"), Some("message")) if payload["role"] == "assistant" => {
-                let Value::Array(parts) = &payload["content"] else {
-                    return;
-                };
-                let text: Vec<&str> = parts
-                    .iter()
-                    .filter_map(|part| part["text"].as_str())
-                    .collect();
-                let text = text.join("\n");
-                if !text.trim().is_empty() {
+                if payload["content"].is_array()
+                    && let Some(text) = content_text(&payload["content"])
+                    && !text.trim().is_empty()
+                {
                     self.run.result = Some(cut(text.trim(), MAX_RESULT));
                 }
             }
@@ -223,11 +222,7 @@ pub(super) fn call_title(payload: &Value) -> Option<String> {
         _ => return None,
     };
     let name = payload["name"].as_str().unwrap_or("tool");
-    let title = match detail {
-        Some(detail) if !detail.is_empty() => format!("{name}: {detail}"),
-        _ => name.to_owned(),
-    };
-    Some(cut(&title, MAX_STEP))
+    Some(cut(&titled_call(name, detail.as_deref()), MAX_STEP))
 }
 
 /// The first line of the first argument a call's title names.

@@ -2,9 +2,12 @@
 //! `<agent dir>/sessions/--<folder>--/<time>_<id>.jsonl`, a `session` header on
 //! the first line and a `session_info` line naming it.
 
+use super::{Agent, Memos, Seen, header_sessions, is_jsonl, prompt_title};
+use crate::agents::{
+    claude::unix_seconds,
+    window::{MAX_HEAD, content_text, head_lines},
+};
 use beep_proto::SessionId;
-use super::{Agent, Memos, Seen, first_line, head_lines, newest_files, prompt_title};
-use crate::agents::claude::unix_seconds;
 use serde_json::Value;
 use std::{
     env,
@@ -40,17 +43,7 @@ pub(crate) fn agent_dir_in(env: &dyn Fn(&str) -> Option<OsString>) -> Option<Pat
 
 /// The newest sessions in the sessions folder `root`.
 pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
-    let jsonl = |path: &Path| path.extension().is_some_and(|ext| ext == "jsonl");
-    newest_files(root, 1, &jsonl)
-        .into_iter()
-        .filter_map(|(path, at)| {
-            let read = || first_line(&path).map(|line| line.as_deref().and_then(header));
-            let mut seen = memos.heads.read(&path, read).ok()??;
-            seen.last_activity = at;
-            seen.file = Some(path);
-            Some(seen)
-        })
-        .collect()
+    header_sessions(root, 1, &is_jsonl, &memos.heads, header).collect()
 }
 
 fn header(line: &str) -> Option<Seen> {
@@ -82,7 +75,7 @@ pub(super) fn title(path: &Path) -> Option<String> {
     let mut first = None;
     let mut name = None;
 
-    for line in head_lines(path).ok()? {
+    for line in head_lines(path, MAX_HEAD).ok()? {
         if !line.contains("\"session_info\"") && (first.is_some() || !line.contains("\"user\"")) {
             continue;
         }
@@ -98,28 +91,15 @@ pub(super) fn title(path: &Path) -> Option<String> {
                 }
             }
             Some("message") if first.is_none() && value["message"]["role"] == "user" => {
-                first = prompt(&value["message"]["content"]);
+                first = content_text(&value["message"]["content"])
+                    .as_deref()
+                    .and_then(prompt_title);
             }
             _ => {}
         }
     }
 
     name.or(first)
-}
-
-/// A message's text: a string, or its text blocks.
-fn prompt(content: &Value) -> Option<String> {
-    if let Some(text) = content.as_str() {
-        return prompt_title(text);
-    }
-
-    let text: Vec<&str> = content
-        .as_array()?
-        .iter()
-        .filter(|block| block["type"] == "text")
-        .filter_map(|block| block["text"].as_str())
-        .collect();
-    prompt_title(&text.join("\n"))
 }
 
 #[cfg(test)]

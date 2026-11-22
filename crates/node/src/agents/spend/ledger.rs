@@ -278,20 +278,22 @@ impl Ledger {
         Ok(())
     }
 
+    fn all_parts(&self) -> impl Iterator<Item = (Option<Agent>, &BTreeMap<SessionId, Part>)> {
+        let logs = self.logs.values().map(|log| (log.agent, &log.parts));
+        let databases = self
+            .databases
+            .values()
+            .map(|database| (database.agent, &database.parts));
+        logs.chain(databases)
+    }
+
     /// The session `key` as the caller should keep it from `since` on:
     /// every log's and database's part of it together.
     pub(super) fn report(&self, key: &SessionKey, since: u64) -> Option<SessionSpend> {
         let parts = self
-            .logs
-            .values()
-            .filter(|log| log.agent == Some(key.agent))
-            .filter_map(|log| log.parts.get(&key.session))
-            .chain(
-                self.databases
-                    .values()
-                    .filter(|database| database.agent == Some(key.agent))
-                    .filter_map(|database| database.parts.get(&key.session)),
-            );
+            .all_parts()
+            .filter(|(agent, _)| *agent == Some(key.agent))
+            .filter_map(|(_, parts)| parts.get(&key.session));
         let mut cwd = String::new();
         let mut buckets: BTreeMap<&BucketKey, Bucket> = BTreeMap::new();
         let mut any = false;
@@ -342,12 +344,7 @@ impl Ledger {
 
     /// Every session read so far.
     pub(super) fn sessions(&self) -> BTreeSet<SessionKey> {
-        let logs = self.logs.values().map(|log| (log.agent, &log.parts));
-        let databases = self
-            .databases
-            .values()
-            .map(|database| (database.agent, &database.parts));
-        logs.chain(databases)
+        self.all_parts()
             .filter_map(|(agent, parts)| Some((agent?, parts)))
             .flat_map(|(agent, parts)| {
                 parts.keys().map(move |session| SessionKey {
@@ -360,16 +357,8 @@ impl Ledger {
 
     /// The latest hour `key` spent in, to send the newest sessions first.
     pub(super) fn last_hour(&self, key: &SessionKey) -> u64 {
-        let parts = self
-            .logs
-            .values()
-            .filter_map(|log| log.parts.get(&key.session))
-            .chain(
-                self.databases
-                    .values()
-                    .filter_map(|database| database.parts.get(&key.session)),
-            );
-        parts
+        self.all_parts()
+            .filter_map(|(_, parts)| parts.get(&key.session))
             .filter_map(|part| part.buckets.keys().next_back())
             .map(|bucket| bucket.hour)
             .max()

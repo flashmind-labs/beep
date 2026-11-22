@@ -92,9 +92,8 @@ impl<V: Clone> Memo<V> {
         database: &Path,
         read: impl FnOnce() -> Result<V, E>,
     ) -> Result<V, E> {
-        let mut wal = database.as_os_str().to_owned();
-        wal.push("-wal");
-        self.read_files(&[database, Path::new(&wal)], |_| read())
+        let wal = super::wal_path(database);
+        self.read_files(&[database, &wal], |_| read())
     }
 
     /// A value made from `files`, kept while none of them changes, appears

@@ -414,11 +414,7 @@ pub(super) fn check(main: &Path, path: &Path, branch: &str) -> Result<Placed> {
     }
 
     let prior = text(path, &["rev-parse", "HEAD"])?;
-    let reference = format!("refs/heads/{branch}");
-    let held = text(main, &["rev-parse", "--verify", "-q", &reference])
-        .ok()
-        .is_some_and(|tip| contains(main, &tip, &prior));
-    if !held {
+    if tip(main, branch).is_none_or(|tip| !contains(main, &tip, &prior)) {
         bail!(
             "{} is at a commit {branch} does not contain: commit or discard it first",
             path.display()
@@ -479,12 +475,9 @@ pub(super) fn attach(main: &Path, path: &Path, branch: &str, work: &Work) -> Res
         bail!("the source sent no commit");
     }
 
-    run(
-        main,
-        &["cat-file", "-e", &format!("{head}^{{commit}}")],
-        None,
-    )
-    .context("the worktree's commit has not come here yet")?;
+    if !has_commit(main, head) {
+        bail!("the worktree's commit has not come here yet");
+    }
 
     if let Placed::Reused { prior } = &spot
         && !contains(main, head, prior)

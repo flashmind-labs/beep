@@ -1,9 +1,9 @@
 //! What a node keeps of a move across a restart: how it ended, and the
 //! copy of the conversation while it waits (`<state>/moves/`).
 
-use beep_proto::SessionId;
 use super::worktree::{Moved, Placed};
 use crate::agents::OpenSession;
+use beep_proto::SessionId;
 use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
@@ -90,14 +90,7 @@ pub(super) struct Folder {
     dir: PathBuf,
 }
 
-/// An id a file name can carry: ids come from the mesh's state.
-pub(super) fn valid_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 128
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
-}
+pub(super) use crate::agents::delete::valid_id;
 
 impl Folder {
     pub(super) fn new(state_dir: &Path) -> Self {

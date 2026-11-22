@@ -314,19 +314,32 @@ pub(super) async fn serve(
     let refuse = |message: &str| Reply::Refused {
         message: message.to_owned(),
     };
+    let Some(request) = rx.recv::<Request>().await? else {
+        return Ok(());
+    };
+    let auth = match &request {
+        Request::Read { id, .. }
+        | Request::Checkout { id }
+        | Request::Worktree { id, .. }
+        | Request::Files { id } => Some((Asked::Read, id, "no move of that session to you")),
+        Request::State { id, .. } => Some((Asked::State, id, "no move of that session from you")),
+        Request::WorktreeBundle { .. } | Request::List {} | Request::Copy { .. } => None,
+    };
 
-    match rx.recv::<Request>().await? {
-        Some(Request::Read {
+    if let Some((asked, id, message)) = auth
+        && !access.allows(asked, id).await
+    {
+        return tx.send(&refuse(message)).await;
+    }
+
+    match request {
+        Request::Read {
             agent,
             id,
             from,
             prefix_hash,
             worktree: _,
-        }) => {
-            if !access.allows(Asked::Read, &id).await {
-                return tx.send(&refuse("no move of that session to you")).await;
-            }
-
+        } => {
             if let Some(why) = agents.moves.refusal(&id) {
                 return tx.send(&refuse(&why)).await;
             }
@@ -350,15 +363,11 @@ pub(super) async fn serve(
                 }
             }
         }
-        Some(Request::WorktreeBundle { .. }) => {
+        Request::WorktreeBundle { .. } => {
             tx.send(&refuse("this machine no longer moves worktrees"))
                 .await
         }
-        Some(Request::Checkout { id }) => {
-            if !access.allows(Asked::Read, &id).await {
-                return tx.send(&refuse("no move of that session to you")).await;
-            }
-
+        Request::Checkout { id } => {
             let Some(leaving) = (access.leaving)(&id) else {
                 return tx.send(&refuse("this machine does not keep the project")).await;
             };
@@ -391,16 +400,12 @@ pub(super) async fn serve(
 
             tx.finish().await
         }
-        Some(Request::Worktree {
+        Request::Worktree {
             id,
             path,
             bundle,
             base,
-        }) => {
-            if !access.allows(Asked::Read, &id).await {
-                return tx.send(&refuse("no move of that session to you")).await;
-            }
-
+        } => {
             // While the sessions come back from a restart, or the source
             // ends this one again, the target asks again: no refusal, which
             // would end the move.
@@ -438,11 +443,7 @@ pub(super) async fn serve(
                 Err(e) => tx.send(&refuse(&format!("{e:#}"))).await,
             }
         }
-        Some(Request::Files { id }) => {
-            if !access.allows(Asked::Read, &id).await {
-                return tx.send(&refuse("no move of that session to you")).await;
-            }
-
+        Request::Files { id } => {
             // As for a worktree: the target asks again.
             if !agents.reopened() || agents.runs(&id) {
                 log::info!("session {id}: its files are asked for, but it still runs here or the sessions are not read yet; the target asks again");
@@ -469,15 +470,11 @@ pub(super) async fn serve(
                 Err(e) => tx.send(&refuse(&format!("{e:#}"))).await,
             }
         }
-        Some(Request::List {} | Request::Copy { .. }) => {
+        Request::List {} | Request::Copy { .. } => {
             tx.send(&refuse("this machine no longer makes background copies"))
                 .await
         }
-        Some(Request::State { id, at }) => {
-            if !access.allows(Asked::State, &id).await {
-                return tx.send(&refuse("no move of that session from you")).await;
-            }
-
+        Request::State { id, at } => {
             let (taken, failed, landed, starting) = match agents.moves.target(&id, at) {
                 Target::Unknown => (false, None, false, false),
                 Target::Taken => (true, None, false, false),
@@ -494,7 +491,6 @@ pub(super) async fn serve(
             .await?;
             tx.finish().await
         }
-        None => Ok(()),
     }
 }
 
@@ -686,10 +682,8 @@ pub(super) async fn pull_within(
         worktree: false,
     };
     tx.send(&request).await?;
-    let (start, file_name) = match next(&mut rx, quiet).await? {
-        Some(Reply::Head { from, file_name }) => (from, file_name),
-        Some(Reply::Refused { message }) => return Err(Refused(message).into()),
-        _ => bail!("the source ended without answering"),
+    let Some(Reply::Head { from: start, file_name }) = next(&mut rx, quiet).await? else {
+        bail!("the source ended without answering");
     };
 
     if !valid_file_name(&file_name) {
@@ -730,7 +724,6 @@ pub(super) async fn pull_within(
                     restarted,
                 });
             }
-            Some(Reply::Refused { message }) => return Err(Refused(message).into()),
             _ => bail!("the source stopped before the end"),
         }
     }
@@ -755,7 +748,6 @@ pub(crate) async fn checkout(mut tx: LinkTx, mut rx: LinkRx, id: &SessionId) -> 
             session: session.map(|session| *session),
             files,
         }),
-        Some(Reply::Refused { message }) => Err(Refused(message).into()),
         // A node from before worktrees moved again cannot read the request.
         _ => Err(Refused("its beep-node is too old to move this session: update it".into()).into()),
     }
@@ -783,7 +775,6 @@ pub(crate) async fn files(mut tx: LinkTx, mut rx: LinkRx, id: &SessionId, into: 
             }
             Some(Reply::End { size, .. }) if size == held => return Ok(out.sync_all().await?),
             Some(Reply::End { size, .. }) => bail!("{held} bytes came, the source said {size}"),
-            Some(Reply::Refused { message }) => return Err(Refused(message).into()),
             // A source that still ends the session answers nothing: asked again.
             _ => bail!("the source stopped before the end of the files"),
         }
@@ -811,10 +802,8 @@ pub(crate) async fn worktree(mut tx: LinkTx, mut rx: LinkRx, ask: &WorktreeAsk<'
         base: ask.base.to_owned(),
     })
     .await?;
-    let head = match next(&mut rx, QUIET_FOR).await? {
-        Some(Reply::Work { head }) => head,
-        Some(Reply::Refused { message }) => return Err(Refused(message).into()),
-        _ => bail!("the source ended without sending the worktree"),
+    let Some(Reply::Work { head }) = next(&mut rx, QUIET_FOR).await? else {
+        bail!("the source ended without sending the worktree");
     };
     let mut bytes = Vec::new();
     let mut patch = Vec::new();
@@ -824,7 +813,6 @@ pub(crate) async fn worktree(mut tx: LinkTx, mut rx: LinkRx, ask: &WorktreeAsk<'
             Some(Reply::Bundle { data }) => grow(&mut bytes, &data, worktree::MAX_BUNDLE)?,
             Some(Reply::Patch { data }) => grow(&mut patch, &data, worktree::MAX_PATCH)?,
             Some(Reply::BundleEnd {}) => break,
-            Some(Reply::Refused { message }) => return Err(Refused(message).into()),
             _ => bail!("the source stopped before the end of the worktree"),
         }
     }
@@ -845,11 +833,15 @@ fn grow(into: &mut Vec<u8>, data: &[u8], cap: usize) -> Result<()> {
     Ok(())
 }
 
-/// The source's next message, if it sends one within `quiet`.
+/// The source's next message within `quiet`, turning `Refused` into `Err`.
 async fn next(rx: &mut LinkRx, quiet: Duration) -> Result<Option<Reply>> {
-    timeout(quiet, rx.recv::<Reply>())
+    match timeout(quiet, rx.recv::<Reply>())
         .await
-        .with_context(|| format!("the source sent nothing for {}s", quiet.as_secs()))?
+        .with_context(|| format!("the source sent nothing for {}s", quiet.as_secs()))??
+    {
+        Some(Reply::Refused { message }) => Err(Refused(message).into()),
+        other => Ok(other),
+    }
 }
 
 /// The size of `copy` and the hash of what it holds; empty when it does

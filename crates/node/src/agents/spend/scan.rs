@@ -9,7 +9,7 @@ use super::{
     ledger::{Database, Ledger, LogFile, Part, SessionKey, Stamp},
     pi,
 };
-use crate::agents::found::{self, Agent, LogRoots};
+use crate::agents::found::{self, Agent, LogRoots, is_jsonl, is_rollout, wal_path, walk_files};
 use beep_proto::SessionId;
 use std::{
     cmp::Reverse,
@@ -81,16 +81,18 @@ struct Listed {
     stamp: Stamp,
 }
 
+fn retain_paths<V>(map: &mut BTreeMap<PathBuf, V>, keep: &HashSet<&Path>, changed: &mut bool) {
+    let before = map.len();
+    map.retain(|path, _| keep.contains(path.as_path()));
+    *changed |= map.len() != before;
+}
+
 /// Reads what changed, logs written since `since` (Unix seconds) only.
 pub(super) fn pass(ledger: &mut Ledger, roots: &Roots, since: u64) {
     let accounts = &mut Accounts::read(&roots.accounts);
     let mut listed = list_logs(roots, since);
     let paths: HashSet<&Path> = listed.iter().map(|log| log.path.as_path()).collect();
-    let before = ledger.logs.len();
-    ledger.logs.retain(|path, _| paths.contains(path.as_path()));
-    if ledger.logs.len() != before {
-        ledger.changed = true;
-    }
+    retain_paths(&mut ledger.logs, &paths, &mut ledger.changed);
     listed.retain(|log| ledger.logs.get(&log.path).map(|read| read.stamp) != Some(log.stamp));
     listed.sort_by_key(|log| Reverse(log.stamp.modified_ns));
     let mut budget = MAX_BYTES;
@@ -124,20 +126,19 @@ pub(super) fn pass(ledger: &mut Ledger, roots: &Roots, since: u64) {
 /// Every log of every agent written since `since`.
 fn list_logs(roots: &Roots, since: u64) -> Vec<Listed> {
     let mut out = Vec::new();
-    let jsonl = |path: &Path| path.extension().is_some_and(|ext| ext == "jsonl");
 
     if let Some(root) = &roots.claude {
         // `<project>/<session>.jsonl`, and a subagent's in
         // `<project>/<session>/subagents/`.
         for project in subfolders(root) {
-            collect(Agent::Claude, &project, 0, &jsonl, since, &mut out);
+            collect(Agent::Claude, &project, 0, &is_jsonl, since, &mut out);
 
             for session in subfolders(&project) {
                 collect(
                     Agent::Claude,
                     &session.join("subagents"),
                     0,
-                    &jsonl,
+                    &is_jsonl,
                     since,
                     &mut out,
                 );
@@ -146,16 +147,11 @@ fn list_logs(roots: &Roots, since: u64) -> Vec<Listed> {
     }
 
     if let Some(root) = &roots.codex {
-        let rollout = |path: &Path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("rollout-") && name.ends_with(".jsonl"))
-        };
-        collect(Agent::Codex, root, 3, &rollout, since, &mut out);
+        collect(Agent::Codex, root, 3, &is_rollout, since, &mut out);
     }
 
     if let Some(root) = &roots.pi {
-        collect(Agent::Pi, root, 1, &jsonl, since, &mut out);
+        collect(Agent::Pi, root, 1, &is_jsonl, since, &mut out);
     }
 
     out
@@ -182,30 +178,17 @@ fn collect(
     since: u64,
     out: &mut Vec<Listed>,
 ) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
+    walk_files(dir, depth, wanted, &mut |_, path| {
         if out.len() >= MAX_LISTED {
-            return;
+            return false;
         }
-
-        let path = entry.path();
-        let Ok(kind) = entry.file_type() else {
-            continue;
-        };
-        if depth > 0 && kind.is_dir() {
-            collect(agent, &path, depth - 1, wanted, since, out);
-        } else if depth == 0 && kind.is_file() && wanted(&path) {
-            let Ok(stamp) = Stamp::of(&path) else {
-                continue;
-            };
-            if stamp.modified_ns / 1_000_000_000 >= u128::from(since) {
-                out.push(Listed { agent, path, stamp });
-            }
+        if let Ok(stamp) = Stamp::of(&path)
+            && stamp.modified_ns / 1_000_000_000 >= u128::from(since)
+        {
+            out.push(Listed { agent, path, stamp });
         }
-    }
+        out.len() < MAX_LISTED
+    });
 }
 
 /// Reads what `log` gained since `entry` last read it, at most `budget`
@@ -345,17 +328,12 @@ fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
 
     if let Some(root) = &roots.flsh {
         out.extend(
-            subfolders(root)
-                .into_iter()
-                .filter(|dir| !dir.join(".sqlite-imported").exists())
-                .map(|dir| dir.join("sessions.db"))
-                .filter(|path| path.is_file())
+            found::flsh_databases(root)
                 .take(MAX_DATABASES)
                 .map(|path| (Agent::Flsh, path)),
         );
-        let jsonl = |path: &Path| path.extension().is_some_and(|ext| ext == "jsonl");
         let mut files = Vec::new();
-        collect(Agent::Flsh, root, 1, &jsonl, since, &mut files);
+        collect(Agent::Flsh, root, 1, &is_jsonl, since, &mut files);
         out.extend(files.into_iter().map(|file| (Agent::Flsh, file.path)));
     }
 
@@ -366,9 +344,7 @@ fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
 /// first.
 fn database_stamp(path: &Path) -> io::Result<Stamp> {
     let main = Stamp::of(path)?;
-    let mut wal = path.as_os_str().to_owned();
-    wal.push("-wal");
-    Ok(match Stamp::of(Path::new(&wal)) {
+    Ok(match Stamp::of(&wal_path(path)) {
         Ok(wal) => Stamp {
             len: main.len.saturating_add(wal.len),
             modified_ns: main.modified_ns.max(wal.modified_ns),
@@ -381,19 +357,13 @@ fn database_stamp(path: &Path) -> io::Result<Stamp> {
 fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut Accounts) {
     let listed = list_databases(roots, since);
     let paths: HashSet<&Path> = listed.iter().map(|(_, path)| path.as_path()).collect();
-    let before = ledger.databases.len();
-    ledger
-        .databases
-        .retain(|path, _| paths.contains(path.as_path()));
-    if ledger.databases.len() != before {
-        ledger.changed = true;
-    }
+    retain_paths(&mut ledger.databases, &paths, &mut ledger.changed);
     for (agent, path) in &listed {
         let Ok(stamp) = database_stamp(path) else {
             continue;
         };
 
-        let flsh_file = *agent == Agent::Flsh && path.extension().is_some_and(|ext| ext == "jsonl");
+        let flsh_file = *agent == Agent::Flsh && is_jsonl(path);
         let billed = path.with_extension("openrouter.json");
         let billed_stamp = if flsh_file {
             match Stamp::of(&billed) {

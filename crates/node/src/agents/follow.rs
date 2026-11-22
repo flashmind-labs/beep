@@ -1,6 +1,5 @@
 //! Pushes an initial snapshot and subsequent changes to an open session view.
 
-use beep_proto::SessionId;
 use super::{
     Agents, MAX_TRANSCRIPT,
     claude::Followed,
@@ -9,6 +8,7 @@ use super::{
 };
 use crate::link::HEARTBEAT;
 use anyhow::{Context, Result, bail};
+use beep_proto::SessionId;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
@@ -65,8 +65,6 @@ struct Summary {
     pid: Option<u32>,
 }
 
-const STORED_AGENTS: [Agent; 4] = [Agent::Codex, Agent::Pi, Agent::Flsh, Agent::OpenCode];
-
 /// Directory listings belong to the notification lease. Other harnesses' writes
 /// do not invalidate them; descriptions still apply current presence and folders.
 #[derive(Default)]
@@ -82,14 +80,14 @@ impl SummaryCache {
         let changed = changed.clone();
         let refresh_claude = self.claude.is_none() || changed.contains(&Agent::Claude);
         let described = spawn_blocking(move || {
-            for agent in STORED_AGENTS {
+            for agent in Agent::STORED {
                 if changed.contains(&agent) || !listings.contains_key(&agent) {
                     listings.insert(agent, stores.sessions(Some(agent)));
                 }
             }
 
             // Preserve the stores' order when activity times tie.
-            let mut seen: Vec<_> = STORED_AGENTS
+            let mut seen: Vec<_> = Agent::STORED
                 .into_iter()
                 .flat_map(|agent| listings[&agent].iter().cloned())
                 .collect();
@@ -777,22 +775,20 @@ async fn snapshot(
             SessionSource::Owned(Box::new(info))
         }
         None => {
-            let found = if let Some(followed) = followed.as_deref_mut() {
-                vec![
+            let found = match followed.as_deref_mut() {
+                Some(followed) => {
+                    vec![
+                        agents
+                            .external
+                            .followed(followed, stale, agents.owned())
+                            .await?,
+                    ]
+                }
+                None => {
                     agents
-                        .external
-                        .followed(followed, stale, agents.owned())
-                        .await?,
-                ]
-            } else if request.agent == "claude" {
-                agents
-                    .external
-                    .list(1, Some(request.session.clone()), agents.owned())
-                    .await?
-            } else {
-                agents
-                    .stores_external(request.agent.as_ref(), 1, Some(request.session.clone()))
-                    .await?
+                        .raw_external_of(request.agent.as_ref(), 1, Some(request.session.clone()))
+                        .await?
+                }
             };
             let mut found = found
                 .into_iter()
@@ -806,39 +802,16 @@ async fn snapshot(
     let started = Instant::now();
     // Source readers already bound their retained transcript and memoize disk parsing.
     // Read enough to validate the cached window, including mutable tools before its tail.
-    let (entries, earlier) = if let Some(session) = agents.get(&request.session) {
-        agents.live_transcript(&session, retained, None).await
-    } else {
-        let read = match followed {
-            Some(followed) => Some(
-                agents
-                    .external
-                    .followed_transcript(followed, retained, from)
-                    .await?,
-            ),
-            None => {
-                agents
-                    .external
-                    .transcript(&request.session, retained, None)
-                    .await?
-            }
-        };
-        let read = match read {
-            Some(read) => read,
-            None => {
-                let stores = agents.stores.clone();
-                let session = request.session.clone();
-                spawn_blocking(move || stores.transcript(&session, retained, None))
-                    .await??
-                    .context("session transcript is no longer on the machine")?
-            }
-        };
-
-        for picture in read.pictures {
-            agents.images.keep(&request.session, picture);
-        }
-        (read.entries, read.earlier)
-    };
+    let (entries, earlier) = agents
+        .transcript_window(
+            &request.session,
+            retained,
+            None,
+            followed.map(|followed| (&*followed, from)),
+            true,
+        )
+        .await?
+        .context("session transcript is no longer on the machine")?;
     transcript_stage("transcript", started.into_std());
     let next = earlier
         .checked_add(u64::try_from(entries.len())?)
@@ -863,7 +836,7 @@ async fn paths(
 ) -> Result<Vec<PathBuf>> {
     if agents.get(&request.session).is_some() {
         return Ok(if request.agent == "codex" {
-            agents.stores.follow_paths(Some(Agent::Codex))
+            agents.follow_roots(Agent::Codex)
         } else {
             Vec::new()
         });
@@ -881,9 +854,7 @@ async fn paths(
             paths.push(file.with_extension("meta.json"));
         }
         if matches!(request.agent.as_ref(), "flsh" | "opencode") {
-            let mut wal = file.as_os_str().to_owned();
-            wal.push("-wal");
-            paths.push(PathBuf::from(wal));
+            paths.push(super::found::wal_path(&file));
         }
 
         paths.push(file);
@@ -892,7 +863,7 @@ async fn paths(
     if request.agent == "claude" {
         paths.extend(agents.external.presence_path());
     } else if request.agent == "codex" {
-        paths.extend(agents.stores.follow_paths(Some(Agent::Codex)));
+        paths.extend(agents.follow_roots(Agent::Codex));
     }
 
     Ok(paths)

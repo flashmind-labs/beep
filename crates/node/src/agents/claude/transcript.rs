@@ -11,7 +11,10 @@ use crate::agents::{
 use crate::{
     agents::mcp::calls::Tool as BeepTool,
     agents::tags::{self, Part},
-    agents::{Picture, block_picture, cut, window::window},
+    agents::{
+        Picture, block_picture, cut,
+        window::{content_text, finish_tool_call, window},
+    },
     files::fsat::{self, FileId},
 };
 use beep_proto::{
@@ -203,7 +206,7 @@ impl Digest {
 
     fn user(&mut self, value: &Value) {
         if value["isCompactSummary"] == true {
-            if let Some(summary) = text_of(&value["message"]["content"]) {
+            if let Some(summary) = content_text(&value["message"]["content"]) {
                 if !self.entries.last().is_some_and(|entry| {
                     entry.kind == EntryKind::Compacted && entry.text == COMPACTED_ENTRY
                 }) {
@@ -460,18 +463,8 @@ impl Digest {
         let Some(entry) = self.tool_entry(id) else {
             return;
         };
-        let title = entry
-            .text
-            .strip_suffix(" [in_progress]")
-            .unwrap_or(&entry.text);
-        let output = text_of(&block["content"]).unwrap_or_default();
-        entry.text = cut(
-            &format!(
-                "{title} [{}]\n{output}",
-                if failed { "failed" } else { "completed" }
-            ),
-            MAX_ENTRY,
-        );
+        let output = content_text(&block["content"]).unwrap_or_default();
+        finish_tool_call(&mut entry.text, failed, &output, MAX_ENTRY);
     }
 
     /// Retitles the `Skill` call `id` whose result says its skill forked:
@@ -512,7 +505,7 @@ impl Digest {
     /// as a live session writes a finished call: `Artifact: <path>
     /// [completed]`, then the link.
     fn artifact_published(&mut self, id: &str, content: &Value) {
-        let Some(text) = text_of(content) else {
+        let Some(text) = content_text(content) else {
             return;
         };
         let Some(link) = artifact_link(&text) else {
@@ -646,41 +639,11 @@ pub(crate) fn unix_seconds(text: &str) -> Option<u64> {
     unix_millis(text).map(|ms| ms / 1000)
 }
 
-/// Unix milliseconds of an RFC 3339 UTC time such as
-/// `2026-10-29T12:34:56.789Z`.
+/// Unix milliseconds of an RFC 3339 time such as `2026-10-29T12:34:56.789Z`.
 fn unix_millis(text: &str) -> Option<u64> {
-    let (date, time) = text.split_once('T')?;
-    let mut date = date.split('-');
-    let year: i64 = date.next()?.parse().ok()?;
-    let month: i64 = date.next()?.parse().ok()?;
-    let day: i64 = date.next()?.parse().ok()?;
-    let time = time.trim_end_matches('Z');
-    let mut time = time.split(':');
-    let hour: i64 = time.next()?.parse().ok()?;
-    let minute: i64 = time.next()?.parse().ok()?;
-    let seconds = time.next()?;
-    let (second, fraction) = seconds.split_once('.').unwrap_or((seconds, ""));
-    let second: i64 = second.parse().ok()?;
-    // Milliseconds from the first three digits of the fraction.
-    let mut millis: i64 = 0;
-
-    for (i, digit) in fraction.chars().take(3).enumerate() {
-        let digit = i64::from(digit.to_digit(10)?);
-        millis += digit * [100, 10, 1][i];
-    }
-
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-    // Days since 1970-01-01, from Howard Hinnant's days_from_civil.
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = (month + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    u64::try_from((days * 86_400 + hour * 3600 + minute * 60 + second) * 1000 + millis).ok()
+    chrono::DateTime::parse_from_rfc3339(text)
+        .ok()
+        .and_then(|at| u64::try_from(at.timestamp_millis()).ok())
 }
 
 /// The complete lines at the end of a file.
@@ -814,27 +777,6 @@ impl Gist {
             check,
         }
     }
-}
-
-/// A tool result's content as text: a string as it is, a list of blocks as
-/// their texts on lines. `None` for any other content.
-fn text_of(content: &Value) -> Option<String> {
-    match content {
-        Value::String(text) => Some(text.clone()),
-        Value::Array(blocks) => Some(
-            blocks
-                .iter()
-                .filter_map(|block| block["text"].as_str())
-                .collect::<Vec<_>>()
-                .join("\n"),
-        ),
-        _ => None,
-    }
-}
-
-/// When the session started, from the first timestamp in the file's head.
-pub(super) fn started_at(path: &Path) -> io::Result<Option<u64>> {
-    Ok(head(path)?.first_at)
 }
 
 /// What the file's head says: where the session started, and when.

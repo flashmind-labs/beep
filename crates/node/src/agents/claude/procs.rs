@@ -2,8 +2,8 @@
 //! in and the sessions their arguments name, read from the node's shared
 //! process table, then `lsof` on macOS or `/proc` on Linux.
 
-use beep_proto::SessionId;
 use super::discover::is_session_id;
+use beep_proto::SessionId;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -70,54 +70,38 @@ pub(super) async fn claude_processes() -> Vec<Process> {
 /// a process not seen before and kept while it runs: a session's folder
 /// does not change.
 async fn kept_folders(running: &[(u32, u64)]) -> HashMap<u32, PathBuf> {
-    let mut out = HashMap::new();
-    let mut unknown = Vec::new();
-
-    {
+    let unknown: Vec<u32> = {
         let mut kept = crate::lock(&FOLDERS);
         kept.retain(|pid, folder| running.contains(&(*pid, folder.birth)));
-
-        for (pid, _) in running {
-            match kept.get(pid) {
-                Some(folder) => {
-                    if let Some(cwd) = &folder.cwd {
-                        out.insert(*pid, cwd.clone());
-                    }
-                }
-                None => unknown.push(*pid),
-            }
-        }
-    }
-
-    if unknown.is_empty() {
-        return out;
-    }
+        running
+            .iter()
+            .filter(|(pid, _)| !kept.contains_key(pid))
+            .map(|(pid, _)| *pid)
+            .collect()
+    };
 
     // A failed read keeps nothing, so the next one asks again.
-    let Some(read) = folders(&unknown).await else {
-        return out;
-    };
-    let mut kept = crate::lock(&FOLDERS);
+    if !unknown.is_empty()
+        && let Some(read) = folders(&unknown).await
+    {
+        let found: HashMap<u32, PathBuf> = read.into_iter().collect();
+        let mut kept = crate::lock(&FOLDERS);
 
-    for (pid, birth) in running.iter().filter(|(pid, _)| unknown.contains(pid)) {
-        let cwd = read
-            .iter()
-            .find(|(of, _)| of == pid)
-            .map(|(_, cwd)| cwd.clone());
-        kept.insert(
-            *pid,
-            Folder {
-                birth: *birth,
-                cwd: cwd.clone(),
-            },
-        );
-
-        if let Some(cwd) = cwd {
-            out.insert(*pid, cwd);
+        for (pid, birth) in running.iter().filter(|(pid, _)| unknown.contains(pid)) {
+            kept.insert(
+                *pid,
+                Folder {
+                    birth: *birth,
+                    cwd: found.get(pid).cloned(),
+                },
+            );
         }
     }
 
-    out
+    crate::lock(&FOLDERS)
+        .iter()
+        .filter_map(|(pid, folder)| Some((*pid, folder.cwd.clone()?)))
+        .collect()
 }
 
 /// The folders of the Claude Code processes seen, by pid.

@@ -2,8 +2,8 @@
 //! keeps on this machine (`Stores`), for suggesting projects to import and
 //! listing an imported project's sessions.
 
+use crate::agents::{place::of_folder, tags::title as prompt_title};
 use beep_proto::SessionId;
-use crate::agents::place::of_folder;
 use beep_proto::{
     AgentSlug,
     node::agent::{AgentSessions, ExternalSession, HistoryCursor, Presence, SessionFolder},
@@ -30,6 +30,8 @@ pub(crate) mod memo;
 mod opencode;
 
 pub(crate) use codex::configured as codex_home;
+pub(in crate::agents) use codex::is_rollout;
+pub(in crate::agents) use flsh::databases as flsh_databases;
 pub(crate) use flsh::sessions_dir as flsh_sessions_dir;
 pub(crate) use opencode::databases_at as opencode_databases;
 mod pi;
@@ -49,8 +51,6 @@ const MAX_FILES: usize = 2_000;
 const MAX_LOOKUPS: usize = 400;
 /// The longest first line read from a session file.
 const MAX_FIRST_LINE: u64 = 512 * 1024;
-/// How much of a session file is read for its first prompt or its name.
-const MAX_HEAD: u64 = 1024 * 1024;
 /// A session written this recently may still run.
 const RECENT: Duration = Duration::from_secs(3 * 60);
 
@@ -79,6 +79,18 @@ pub(crate) enum Agent {
     Pi,
     Flsh,
     OpenCode,
+}
+
+impl Agent {
+    pub(in crate::agents) const ALL: [Self; 5] = [
+        Self::Claude,
+        Self::Codex,
+        Self::Pi,
+        Self::Flsh,
+        Self::OpenCode,
+    ];
+    pub(in crate::agents) const STORED: [Self; 4] =
+        [Self::Codex, Self::Pi, Self::Flsh, Self::OpenCode];
 }
 
 impl From<Agent> for AgentSlug {
@@ -122,23 +134,32 @@ pub(crate) struct Stores {
     in_wsl: bool,
 }
 
+/// Resolves per-WSL-distribution state keyed by each distribution's Windows-mapped home.
+pub(in crate::agents) fn in_wsl_homes<T: Clone>(
+    kept: &std::sync::Mutex<HashMap<PathBuf, T>>,
+    init: impl Fn(&Path) -> Option<T>,
+) -> Vec<(crate::machine::wsl::DistroName, T)> {
+    crate::machine::wsl::found()
+        .into_iter()
+        .filter_map(|(distro, found)| {
+            let home = crate::machine::wsl::windows_path(&distro, &found.home?);
+            if let Some(value) = crate::lock(kept).get(&home).cloned() {
+                return Some((distro, value));
+            }
+            let value = init(&home)?;
+            crate::lock(kept).insert(home, value.clone());
+            Some((distro, value))
+        })
+        .collect()
+}
+
 /// The stores of the agents in each WSL distribution, kept by its home so
 /// their memos last.
 fn wsl_stores() -> Vec<(crate::machine::wsl::DistroName, Stores)> {
     static KEPT: std::sync::LazyLock<std::sync::Mutex<HashMap<PathBuf, Stores>>> =
         std::sync::LazyLock::new(Default::default);
 
-    crate::machine::wsl::found()
-        .into_iter()
-        .filter_map(|(distro, found)| {
-            let home = crate::machine::wsl::windows_path(&distro, &found.home?);
-            let stores = crate::lock(&KEPT)
-                .entry(home.clone())
-                .or_insert_with(|| Stores::in_wsl_home(&home))
-                .clone();
-            Some((distro, stores))
-        })
-        .collect()
+    in_wsl_homes(&KEPT, |home| Some(Stores::in_wsl_home(home)))
 }
 
 /// What the stores' files said, kept while they are unchanged.
@@ -256,32 +277,27 @@ impl Stores {
             seen.extend(opencode::sessions(root, memos));
         }
 
-        if !self.in_wsl {
-            for (distro, stores) in wsl_stores() {
-                let mut found = stores.sessions(agent);
-                for one in &mut found {
-                    one.cwd = crate::machine::wsl::windows_folder(&distro, &one.cwd.to_string_lossy());
-                }
-                seen.extend(found);
-            }
-        }
-
-        seen
+        self.with_wsl(seen, |stores| stores.sessions(agent))
     }
 
     /// Archived Codex conversations are searchable and can be opened by id.
     pub(crate) fn archived_codex(&self) -> Vec<Seen> {
-        let mut seen = self.codex.as_deref()
+        let seen = self
+            .codex
+            .as_deref()
             .map(|root| codex::archived(root, &self.memos))
             .unwrap_or_default();
+        self.with_wsl(seen, Self::archived_codex)
+    }
 
+    fn with_wsl(&self, mut seen: Vec<Seen>, read: impl Fn(&Self) -> Vec<Seen>) -> Vec<Seen> {
         if !self.in_wsl {
             for (distro, stores) in wsl_stores() {
-                let mut found = stores.archived_codex();
-                for one in &mut found {
-                    one.cwd = crate::machine::wsl::windows_folder(&distro, &one.cwd.to_string_lossy());
+                for mut one in read(&stores) {
+                    one.cwd =
+                        crate::machine::wsl::windows_folder(&distro, &one.cwd.to_string_lossy());
+                    seen.push(one);
                 }
-                seen.extend(found);
             }
         }
 
@@ -678,9 +694,7 @@ fn title(agent: Agent, file: &Path) -> Option<String> {
 /// (`Stores::describe` reads one from the file), and whether it may still
 /// run.
 fn describe(seen: Seen, now: SystemTime) -> ExternalSession {
-    let quiet = now
-        .duration_since(UNIX_EPOCH + Duration::from_secs(seen.last_activity))
-        .unwrap_or_default();
+    let modified = UNIX_EPOCH + Duration::from_secs(seen.last_activity);
     ExternalSession {
         id: seen.id,
         agent: seen.agent.to_string(),
@@ -688,13 +702,42 @@ fn describe(seen: Seen, now: SystemTime) -> ExternalSession {
         title: seen.title,
         started_at: seen.started_at,
         last_activity: seen.last_activity,
-        presence: if quiet < RECENT {
-            Presence::Recent
-        } else {
-            Presence::Stopped
-        },
+        presence: quiet_presence(modified, now),
         ..ExternalSession::default()
     }
+}
+
+pub(in crate::agents) fn quiet_presence(modified: SystemTime, now: SystemTime) -> Presence {
+    if now.duration_since(modified).unwrap_or_default() < RECENT {
+        Presence::Recent
+    } else {
+        Presence::Stopped
+    }
+}
+
+fn xdg_data_dir(home: Option<PathBuf>) -> Option<PathBuf> {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| home.map(|home| home.join(".local/share")))
+}
+
+fn read_databases(
+    memos: &Memos,
+    databases: impl IntoIterator<Item = PathBuf>,
+    read: fn(&Path) -> rusqlite::Result<Vec<Seen>>,
+    name: &str,
+) -> Vec<Seen> {
+    let mut seen = Vec::new();
+
+    for db in databases {
+        match memos.databases.read_database(&db, || read(&db).map(Arc::new)) {
+            Ok(found) => seen.extend(found.iter().cloned()),
+            Err(e) => log::debug!("{name} sessions not read; database={} error={e}", db.display()),
+        }
+    }
+
+    seen
 }
 
 /// The first line of `path`, when it is not too long to be a header.
@@ -709,41 +752,68 @@ fn first_line(path: &Path) -> io::Result<Option<String>> {
     Ok(Some(String::from_utf8_lossy(&line).into_owned()))
 }
 
-/// The complete lines in the first `MAX_HEAD` bytes of `path`.
-fn head_lines(path: &Path) -> io::Result<impl Iterator<Item = String>> {
-    let reader = BufReader::new(File::open(path)?.take(MAX_HEAD));
-    Ok(reader.lines().map_while(Result::ok))
-}
-
-/// A prompt as a title: trimmed, cut short, and none for text an agent
-/// wraps in tags, such as its own context.
-fn prompt_title(text: &str) -> Option<String> {
-    crate::agents::tags::title(text)
-}
-
-fn unix(at: SystemTime) -> u64 {
+pub(in crate::agents) fn unix_secs(at: SystemTime) -> u64 {
     at.duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs())
+}
+
+pub(in crate::agents) fn is_jsonl(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "jsonl")
+}
+
+pub(in crate::agents) fn wal_path(path: &Path) -> PathBuf {
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    PathBuf::from(wal)
+}
+
+fn header_sessions(
+    dir: &Path,
+    depth: usize,
+    wanted: &dyn Fn(&Path) -> bool,
+    heads: &Memo<Option<Seen>>,
+    header: fn(&str) -> Option<Seen>,
+) -> impl Iterator<Item = Seen> {
+    newest_files(dir, depth, wanted)
+        .into_iter()
+        .filter_map(move |(path, at)| {
+            let mut seen = heads
+                .read(&path, || {
+                    first_line(&path).map(|line| line.as_deref().and_then(header))
+                })
+                .ok()??;
+            seen.last_activity = at;
+            seen.file = Some(path);
+            Some(seen)
+        })
 }
 
 /// The files under `dir` for which `wanted` holds,
 /// `depth` folders down, newest first.
 fn newest_files(dir: &Path, depth: usize, wanted: &dyn Fn(&Path) -> bool) -> Vec<(PathBuf, u64)> {
     let mut found = Vec::new();
-    collect(dir, depth, wanted, &mut found);
+    walk_files(dir, depth, wanted, &mut |entry, path| {
+        let at = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .map_or(0, unix_secs);
+        found.push((path, at));
+        true
+    });
     found.sort_by_key(|(_, at)| Reverse(*at));
     found
 }
 
-/// Gathers file metadata, without following directory symlinks.
-fn collect(
+/// Visits regular files `depth` folders down under `dir` matching `wanted`,
+/// without following directory symlinks. Stops early when `visit` returns `false`.
+pub(in crate::agents) fn walk_files(
     dir: &Path,
     depth: usize,
     wanted: &dyn Fn(&Path) -> bool,
-    out: &mut Vec<(PathBuf, u64)>,
-) {
+    visit: &mut dyn FnMut(&std::fs::DirEntry, PathBuf) -> bool,
+) -> bool {
     let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
+        return true;
     };
 
     for entry in entries.flatten() {
@@ -752,15 +822,15 @@ fn collect(
             continue;
         };
         if depth > 0 && kind.is_dir() {
-            collect(&path, depth - 1, wanted, out);
-        } else if depth == 0 && kind.is_file() && wanted(&path) {
-            let at = entry
-                .metadata()
-                .and_then(|meta| meta.modified())
-                .map_or(0, unix);
-            out.push((path, at));
+            if !walk_files(&path, depth - 1, wanted, visit) {
+                return false;
+            }
+        } else if depth == 0 && kind.is_file() && wanted(&path) && !visit(&entry, path) {
+            return false;
         }
     }
+
+    true
 }
 
 #[cfg(test)]

@@ -5,15 +5,17 @@
 //! `sessions.db`, read here (read-only) until flsh has imported it, which
 //! it marks with `.sqlite-imported`.
 
+use super::{Agent, Memos, Seen, is_jsonl, newest_files, prompt_title, read_databases, xdg_data_dir};
+use crate::agents::{
+    claude::unix_seconds,
+    window::{MAX_HEAD, head_lines},
+};
 use beep_proto::SessionId;
-use super::{Agent, Memos, Seen, head_lines, newest_files, prompt_title};
-use crate::agents::claude::unix_seconds;
 use serde_json::Value;
 use std::{
     collections::HashSet,
     env, fs,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 const QUERY: &str = "SELECT m.chat_key, m.title, m.working_dir, m.created_at,
@@ -35,28 +37,36 @@ pub(super) fn locate() -> Option<PathBuf> {
 /// folder (`%LOCALAPPDATA%` on Windows, else `$XDG_DATA_HOME` or
 /// `~/.local/share`, macOS too). It may not exist yet.
 pub(crate) fn sessions_dir() -> Option<PathBuf> {
-    let var = |name: &str| env::var_os(name).filter(|value| !value.is_empty());
     let home = dirs::home_dir();
-    let data = match var("FLASHMIND_HOME") {
+    let data = match env::var_os("FLASHMIND_HOME").filter(|value| !value.is_empty()) {
         Some(dir) => Some(PathBuf::from(dir)).filter(|dir| dir.is_absolute())?,
         None => match home.as_ref().map(|home| home.join(".flashmind")) {
             Some(legacy) if legacy.is_dir() => legacy,
             _ if cfg!(windows) => dirs::data_local_dir()?.join("flashmind"),
-            _ => var("XDG_DATA_HOME")
-                .map(PathBuf::from)
-                .filter(|dir| dir.is_absolute())
-                .or_else(|| home.map(|home| home.join(".local/share")))?
-                .join("flashmind"),
+            _ => xdg_data_dir(home)?.join("flashmind"),
         },
     };
     Some(data.join("sessions"))
 }
 
+/// Unimported `sessions.db` databases in subfolders of `root`.
+pub(in crate::agents) fn databases(root: &Path) -> impl Iterator<Item = PathBuf> {
+    fs::read_dir(root)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path())
+        .filter(|dir| !dir.join(".sqlite-imported").exists())
+        .map(|dir| dir.join("sessions.db"))
+        .filter(|path| path.is_file())
+}
+
 /// The sessions under the sessions folder `root`: its JSONL files, then
 /// those of the databases flsh has not imported.
 pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
-    let jsonl = |path: &Path| path.extension().is_some_and(|ext| ext == "jsonl");
-    let mut seen: Vec<Seen> = newest_files(root, 1, &jsonl)
+    let mut seen: Vec<Seen> = newest_files(root, 1, &is_jsonl)
         .into_iter()
         .filter_map(|(path, at)| {
             let read = || Ok::<_, std::convert::Infallible>(head(&path));
@@ -67,42 +77,19 @@ pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
             Some(seen)
         })
         .collect();
-    let Ok(entries) = fs::read_dir(root) else {
-        return seen;
-    };
     let mut ids: HashSet<SessionId> = seen.iter().map(|one| one.id.clone()).collect();
-
-    for entry in entries.flatten() {
-        let database = entry.path().join("sessions.db");
-
-        if !database.is_file() || entry.path().join(".sqlite-imported").exists() {
-            continue;
-        }
-
-        match memos
-            .databases
-            .read_database(&database, || read(&database).map(Arc::new))
-        {
-            Ok(found) => seen.extend(
-                found
-                    .iter()
-                    .filter(|one| ids.insert(one.id.clone()))
-                    .cloned(),
-            ),
-            Err(e) => log::debug!(
-                "flsh sessions not read; database={} error={e}",
-                database.display()
-            ),
-        }
-    }
-
+    seen.extend(
+        read_databases(memos, databases(root), read, "flsh")
+            .into_iter()
+            .filter(|one| ids.insert(one.id.clone())),
+    );
     seen
 }
 
 /// A session file's header and first prompt; `None` for one with no
 /// folder or no message (a session flsh deleted keeps its header).
 fn head(path: &Path) -> Option<Seen> {
-    let mut lines = head_lines(path).ok()?;
+    let mut lines = head_lines(path, MAX_HEAD).ok()?;
     let header: Value = serde_json::from_str(&lines.next()?).ok()?;
 
     if header["subtype"] != "session_metadata" {

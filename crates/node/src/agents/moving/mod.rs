@@ -32,16 +32,16 @@ mod read_tests;
 mod tests;
 
 pub use alpn::SessionsAlpn;
-pub(crate) use follow::follow;
 pub(crate) use folder::project_folder;
+pub(crate) use follow::follow;
 pub(crate) use progress::Moves;
 pub use read::ALPN as SESSIONS_ALPN;
 
-use beep_proto::SessionId;
 use super::{Agents, found::Agent};
+use anyhow::{Context, Result};
+use beep_proto::SessionId;
 use iroh::{Endpoint, EndpointId};
 use saved::Folder;
-use anyhow::{Context, Result};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -65,15 +65,18 @@ struct Env {
 impl Env {
     /// What the mesh calls `device`, for a line in a session.
     fn name_of(&self, device: &EndpointId) -> String {
-        self.mesh
-            .devices()
-            .into_iter()
-            .find(|status| status.device.id == *device)
-            .map_or_else(
-                || device.fmt_short().to_string(),
-                |status| status.device.name,
-            )
+        device_name(&self.mesh, device)
     }
+}
+
+pub(super) fn device_name(mesh: &beep_mesh::Mesh, device: &EndpointId) -> String {
+    mesh.devices()
+        .into_iter()
+        .find(|status| status.device.id == *device)
+        .map_or_else(
+            || device.fmt_short().to_string(),
+            |status| status.device.name,
+        )
 }
 
 /// The harnesses a session can move between.
@@ -83,6 +86,17 @@ pub(crate) enum Harness {
     Codex,
     Pi,
     Flsh,
+}
+
+impl From<Harness> for Agent {
+    fn from(harness: Harness) -> Self {
+        match harness {
+            Harness::Claude => Self::Claude,
+            Harness::Codex => Self::Codex,
+            Harness::Pi => Self::Pi,
+            Harness::Flsh => Self::Flsh,
+        }
+    }
 }
 
 impl TryFrom<Agent> for Harness {

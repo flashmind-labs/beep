@@ -7,7 +7,7 @@
 use beep_proto::SessionId;
 use super::{
     Env, Harness,
-    dial::dial,
+    dial::with_stream,
     files, flsh,
     folder::{Folders, project_folder},
     progress::{Tracker, show},
@@ -18,7 +18,7 @@ use super::{
 };
 use crate::agents::{SavedSession, conversation, found::Agent};
 use anyhow::{Context, Result, bail};
-use beep_proto::node::{agent::MovePhase, link, mesh_state::SessionMove};
+use beep_proto::node::{agent::MovePhase, mesh_state::SessionMove};
 use std::{
     path::{Component, Path, PathBuf},
     time::{Duration, Instant},
@@ -286,21 +286,18 @@ async fn conversation(
 }
 
 async fn pull_once(env: &Env, record: &SessionMove, copy: &Path) -> Result<read::Pulled> {
-    let connection = dial(env, record.from).await?;
-    let (send, recv) = connection.open_bi().await?;
-    let (tx, rx) = link(send, recv);
-    let pulled = read::pull(
-        tx,
-        rx,
-        read::Ask {
-            agent: record.agent.clone(),
-            id: &record.id,
-            copy,
-        },
-    )
-    .await;
-    connection.close(0u32.into(), b"done");
-    pulled
+    with_stream(env, record.from, |tx, rx| {
+        read::pull(
+            tx,
+            rx,
+            read::Ask {
+                agent: record.agent.clone(),
+                id: &record.id,
+                copy,
+            },
+        )
+    })
+    .await
 }
 
 /// Waits until this machine's checkout of the project is at the source's
@@ -362,12 +359,7 @@ fn short(head: Option<&str>) -> String {
 }
 
 async fn ask_checkout(env: &Env, record: &SessionMove) -> Result<Checkout> {
-    let connection = dial(env, record.from).await?;
-    let (send, recv) = connection.open_bi().await?;
-    let (tx, rx) = link(send, recv);
-    let checkout = read::checkout(tx, rx, &record.id).await;
-    connection.close(0u32.into(), b"done");
-    checkout
+    with_stream(env, record.from, |tx, rx| read::checkout(tx, rx, &record.id)).await
 }
 
 /// Brings each of the session's worktrees from the source and makes it
@@ -506,20 +498,17 @@ async fn chat_files(
     let saved = from_source(record, tracker, "its files", || async {
         let checkout = ask_checkout(env, record).await?;
         show(tracker, |progress| (progress.files_copied, progress.files_total) = (0, checkout.files));
-        let connection = dial(env, record.from).await?;
-        let (send, recv) = connection.open_bi().await?;
-        let (tx, rx) = link(send, recv);
         // Chunks come hundreds a second: each percent, or a quarter second, is told.
         let (step, mut told) = ((checkout.files / 100).max(1), (Instant::now(), 0));
-        let came = |held: u64| {
+        let came = move |held: u64| {
             if held.saturating_sub(told.1) >= step || told.0.elapsed() >= TELL_EVERY {
                 told = (Instant::now(), held);
                 show(tracker, |progress| progress.files_copied = held);
             }
         };
-        let brought = read::files(tx, rx, &record.id, &archive, came).await;
-        connection.close(0u32.into(), b"done");
-        brought.map(|()| checkout.session)
+        with_stream(env, record.from, |tx, rx| read::files(tx, rx, &record.id, &archive, came))
+            .await
+            .map(|()| checkout.session)
     })
     .await?;
     let folder = folder.to_owned();
@@ -542,13 +531,8 @@ async fn fetch_worktree(
     tracker: &Tracker,
     ask: read::WorktreeAsk<'_>,
 ) -> Result<read::Fetched> {
-    from_source(record, tracker, "a worktree", || async {
-        let connection = dial(env, record.from).await?;
-        let (send, recv) = connection.open_bi().await?;
-        let (tx, rx) = link(send, recv);
-        let fetched = read::worktree(tx, rx, &ask).await;
-        connection.close(0u32.into(), b"done");
-        fetched
+    from_source(record, tracker, "a worktree", || {
+        with_stream(env, record.from, |tx, rx| read::worktree(tx, rx, &ask))
     })
     .await
 }

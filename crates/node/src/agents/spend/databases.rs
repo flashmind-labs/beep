@@ -7,10 +7,10 @@ use super::{
     ledger::{Bucket, BucketKey, Part, UNKNOWN_MODEL},
 };
 use crate::agents::claude::unix_seconds;
-use crate::agents::found::{Agent, open_database};
+use crate::agents::found::{Agent, open_database, unix_secs};
 use crate::agents::prices::Tokens;
-use beep_proto::SessionId;
-use beep_proto::{ModelId, node::usage::Billing};
+use crate::agents::window::head_lines;
+use beep_proto::{ModelId, SessionId, node::usage::Billing};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path};
 
@@ -241,27 +241,19 @@ pub(super) fn flsh_counted(path: &Path) -> std::io::Result<Option<Counted>> {
 }
 
 fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
-    use std::io::{BufRead, BufReader, Read};
-    let file = std::fs::File::open(path)?;
-    let modified = file.metadata()?.modified()?;
-    let mut reader = BufReader::new(file.take(MAX_HEADER));
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
-    let Ok(header) = serde_json::from_str::<FlshHeader>(&line) else {
+    let modified = std::fs::metadata(path)?.modified()?;
+    let mut lines = head_lines(path, MAX_HEADER)?;
+    let Some(Ok(header)) = lines.next().map(|l| serde_json::from_str::<FlshHeader>(&l)) else {
         return Ok(None);
     };
     // The first message tells when the session started.
-    line.clear();
-    reader.read_line(&mut line)?;
-    let started = serde_json::from_str::<FlshMessage>(&line)
-        .ok()
+    let started = lines
+        .next()
+        .and_then(|line| serde_json::from_str::<FlshMessage>(&line).ok())
         .and_then(|message| unix_seconds(&message.timestamp));
     let Some(cwd) = header.metadata.working_dir else {
         return Ok(None);
     };
-    let last = modified
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs());
     Ok(Some(FlshSession {
         id: header.session_id,
         cwd,
@@ -269,7 +261,7 @@ fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
         totals: header.metadata.total_usage.unwrap_or_default(),
         turns: header.metadata.usage_log,
         started,
-        last,
+        last: unix_secs(modified),
     }))
 }
 
@@ -336,19 +328,13 @@ pub(super) struct Counted {
 impl Counted {
     /// What `self` has beyond `before`, and what is left of `before` after it.
     fn beyond(self, before: Self) -> (Self, Self) {
-        let kept = Self {
-            input: self.input.saturating_sub(before.input),
-            cached: self.cached.saturating_sub(before.cached),
-            output: self.output.saturating_sub(before.output),
-            cost: (self.cost - before.cost).max(0.0),
+        let sub = |a: Self, b: Self| Self {
+            input: a.input.saturating_sub(b.input),
+            cached: a.cached.saturating_sub(b.cached),
+            output: a.output.saturating_sub(b.output),
+            cost: (a.cost - b.cost).max(0.0),
         };
-        let left = Self {
-            input: before.input.saturating_sub(self.input),
-            cached: before.cached.saturating_sub(self.cached),
-            output: before.output.saturating_sub(self.output),
-            cost: (before.cost - self.cost).max(0.0),
-        };
-        (kept, left)
+        (sub(self, before), sub(before, self))
     }
 
     fn add(&mut self, other: Self) {

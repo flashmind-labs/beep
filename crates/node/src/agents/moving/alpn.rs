@@ -1,8 +1,7 @@
 //! Serves `beep-sessions/1` to the mesh's devices.
 
-use beep_proto::SessionId;
-use tracing::Instrument;
 use super::{
+    device_name,
     folder::project_folder,
     read::{Access, Asked, Leaving, serve},
 };
@@ -11,6 +10,7 @@ use crate::{
     link::Membership,
 };
 use beep_mesh::{Key, Mesh};
+use beep_proto::SessionId;
 use beep_proto::node::mesh_state::{SessionMove, StateValue};
 use iroh::{
     EndpointId,
@@ -19,6 +19,7 @@ use iroh::{
 };
 use std::{fmt, path::PathBuf, sync::Arc};
 use tokio::task::JoinSet;
+use tracing::Instrument;
 
 /// The most reads one peer has open at once.
 const MAX_STREAMS: usize = 4;
@@ -100,15 +101,6 @@ fn record_of(mesh: &Mesh, id: &SessionId) -> Option<SessionMove> {
     SessionMove::from_bytes(&bytes).ok()
 }
 
-/// What `mesh` calls this device, for a refusal a person reads.
-fn name_of_me(mesh: &Mesh) -> String {
-    let me = mesh.me();
-    mesh.devices()
-        .into_iter()
-        .find(|status| status.device.id == me)
-        .map_or_else(|| me.fmt_short().to_string(), |status| status.device.name)
-}
-
 impl fmt::Debug for SessionsAlpn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("SessionsAlpn")
@@ -151,7 +143,7 @@ impl ProtocolHandler for SessionsAlpn {
                                 && permits(record_of(&mesh, id).as_ref(), mesh.me(), peer, ask, id)
                         };
                         let leaving = |id: &SessionId| leaving(&mesh, &record_of(&mesh, id)?);
-                        let me = name_of_me(&mesh);
+                        let me = device_name(&mesh, &mesh.me());
                         let access = Access { check: &allow, updates, leaving: &leaving };
                         serve(tx, rx, &agents, &me, access).await
                     }.in_current_span());
