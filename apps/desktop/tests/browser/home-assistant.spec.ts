@@ -39,29 +39,27 @@ test("the sidebar's Assistant lists the chats and opens one beside them", async 
   await expect(page.locator("#side").getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-current", "true");
 });
 
-test("a file an assistant chat links to opens over the window, read from its machine", async ({ page }) => {
-  const reply = "Read [notes.txt](notes.txt), then play [a.wav](tts-samples/a.wav).";
+test("a file an assistant chat links to opens beside it, a page in its preview", async ({ page }) => {
+  const reply = "See [notes.txt](notes.txt) and [the dashboard](19-dashboard/index.html).";
   const done = { ...session, status: "idle" };
   await openDesktop(page, false, {
     agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null },
-    agent_sessions: [{ ...done, title: "Make voice samples" }], agent_view: { ...view(done, reply), entries: [{ kind: "agent", text: reply, html: '<p>Read <a href="notes.txt">notes.txt</a>, then play <a href="tts-samples/a.wav">a.wav</a>.</p>' }] },
+    agent_sessions: [{ ...done, title: "Make the dashboard" }], agent_view: { ...view(done, reply), entries: [{ kind: "agent", text: reply, html: '<p>See <a href="notes.txt">notes.txt</a> and <a href="19-dashboard/index.html">the dashboard</a>.</p>' }] },
     agent_tree_text: { size: 6, text: "hello\n", cut: false, binary: false, editable: true },
+    agent_artifact: { kind: "html", html: "<h1>Dashboard</h1>" },
   });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
-  await page.locator(".asst-list").getByRole("button", { name: /Make voice samples/ }).click();
-  const reads = (command: string) => page.evaluate(name => window.__navigation.calls().filter(call => call.command === name).map(call => call.args), command);
+  await page.locator(".asst-list").getByRole("button", { name: /Make the dashboard/ }).click();
+  const pane = page.locator("#agpane-right");
 
   await page.locator("#agbody").getByRole("link", { name: "notes.txt" }).click();
-  const viewer = page.getByRole("dialog", { name: "notes.txt" });
-  await expect(viewer.locator("pre")).toHaveText("hello\n");
-  expect(await reads("agent_tree_text")).toEqual([{ machineId: "build-box", root: "/srv", path: "notes.txt" }]);
-  await page.keyboard.press("Escape");
-  await expect(viewer).toBeHidden();
+  await expect(pane.getByRole("tab", { name: /notes\.txt/ })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "notes.txt" })).toHaveCount(0);
 
-  await page.evaluate(() => window.__navigation.respond("agent_file", { size: 1, mime: "audio/wav", data: "AA==" }));
-  await page.locator("#agbody").getByRole("link", { name: "a.wav" }).click();
-  await expect(page.getByRole("dialog", { name: "a.wav" }).locator("audio")).toHaveCount(1);
-  expect(await reads("agent_file")).toEqual([{ machineId: "build-box", path: "/srv/tts-samples/a.wav", offset: 0, session: "assistant-one" }]);
+  await page.locator("#agbody").getByRole("link", { name: "the dashboard" }).click();
+  await expect(pane.getByRole("button", { name: "Source", exact: true })).toBeVisible();
+  await expect(page.locator(".agshell")).not.toHaveClass(/zoomed/);
+  await expect(page.getByText("See notes.txt")).toBeVisible();
 });
 
 test("Cmd+N on Home opens the Assistant page and starts the assistant with its harness in the home folder", { tag: "@windows" }, async ({ page }, info) => {

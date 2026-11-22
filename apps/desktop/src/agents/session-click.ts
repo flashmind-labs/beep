@@ -3,7 +3,7 @@ import { S } from "../bar/core.ts";
 import { shell } from "../center/window-shell.tsx";
 import { openFileViewer, openViewer } from "../chat/media.tsx";
 import { linkedPath, resolvePath } from "../agentpane/media-state.ts";
-import { openLinked, openPath, openPicture, showArtifact, showRunning, showSubagents } from "../agentpane/media.ts";
+import { openLinked, openPath, openPicture, paneSession, showArtifact, showRunning, showSubagents } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
 import { copyCode } from "./turnrows.ts";
 import { AG, openOf, where } from "./agents.ts";
@@ -21,11 +21,11 @@ import { nativeSession } from "./native-session-state.ts";
 import { isOpen, openAgent, resumeAgent } from "./session.tsx";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 
-/// A chat on the Assistant page has no pane beside it: its files open over
-/// the window, read from its machine. False elsewhere.
+/// A chat on the Assistant page without a pane beside it opens its files over
+/// the window, read from its machine. False elsewhere: the pane shows them.
 function openOver(path: string) {
   const s = AG.page?.session;
-  if (!s || !shell.getState().assistant) return false;
+  if (!s || !shell.getState().assistant || paneSession()?.id === s.id) return false;
   openFileViewer(s.machine_id, s.id, s.cwd, resolvePath(s.cwd, path));
   return true;
 }
