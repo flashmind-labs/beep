@@ -2,12 +2,12 @@
 //! read, what each session spent by hour and model, and which changed. Kept
 //! in one JSON file so a restart reads only what was written since.
 
-use beep_proto::SessionId;
 use super::{Line, billing::Accounts};
 use crate::{
     agents::found::Agent,
     agents::prices::{self, Tokens},
 };
+use beep_proto::SessionId;
 use beep_proto::{
     AgentSlug, ModelId,
     node::usage::{Billing, HourSpend, MAX_SESSION_HOURS, SessionSpend},
@@ -210,6 +210,8 @@ impl LogFile {
 pub(super) struct Database {
     pub(super) agent: Option<Agent>,
     pub(super) stamp: Stamp,
+    #[serde(default)]
+    pub(super) billed_stamp: Option<Stamp>,
     pub(super) parts: BTreeMap<SessionId, Part>,
     /// For a flsh session file that moved here: what it had spent on the
     /// machine it came from.

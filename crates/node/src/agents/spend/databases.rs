@@ -2,14 +2,14 @@
 //! from their SQLite databases and flsh's session files, read whole again
 //! whenever one changes.
 
-use beep_proto::SessionId;
 use super::{
     billing::{Accounts, flsh_provider},
-    ledger::{BucketKey, Part, UNKNOWN_MODEL},
+    ledger::{Bucket, BucketKey, Part, UNKNOWN_MODEL},
 };
 use crate::agents::claude::unix_seconds;
 use crate::agents::found::{Agent, open_database};
 use crate::agents::prices::Tokens;
+use beep_proto::SessionId;
 use beep_proto::{ModelId, node::usage::Billing};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path};
@@ -51,7 +51,6 @@ struct FlshTotals {
     cached_input_tokens: Option<u64>,
     output_tokens: u64,
     total_cost: String,
-    tokens_unknown: bool,
     cost_unknown: bool,
 }
 
@@ -165,10 +164,74 @@ pub(super) fn flsh_file(
     let mut parts = BTreeMap::new();
 
     if let Some(session) = flsh_header(path)? {
+        let id = session.id.clone();
+        let cwd = session.cwd.clone();
         add_flsh(&mut parts, session, counted, accounts);
+        let billed = path.with_extension("openrouter.json");
+        match std::fs::File::open(billed) {
+            Ok(file) => {
+                let hours: BTreeMap<u64, BTreeMap<String, BilledUsage>> =
+                    serde_json::from_reader(std::io::BufReader::new(file))?;
+                let part = parts.entry(id).or_default();
+                part.cwd = cwd;
+                replace_billed_hours(part, hours)?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
     }
 
     Ok(parts)
+}
+
+/// Finalized OpenRouter hours on this machine. Each model's input includes cache reads.
+#[derive(Deserialize)]
+struct BilledUsage {
+    input: u64,
+    cached: u64,
+    output: u64,
+    usd: f64,
+}
+
+fn replace_billed_hours(
+    part: &mut Part,
+    hours: BTreeMap<u64, BTreeMap<String, BilledUsage>>,
+) -> std::io::Result<()> {
+    for (hour, models) in hours {
+        if !hour.is_multiple_of(3600) || models.is_empty() {
+            return Err(std::io::Error::other("invalid OpenRouter billing hour"));
+        }
+        part.buckets.retain(|key, _| {
+            key.hour != hour || flsh_provider(key.model.as_ref()) != Some("openrouter")
+        });
+        for (model, usage) in models {
+            if model.is_empty()
+                || usage.cached > usage.input
+                || !usage.usd.is_finite()
+                || usage.usd < 0.0
+            {
+                return Err(std::io::Error::other("invalid OpenRouter billing totals"));
+            }
+            part.buckets.insert(
+                BucketKey {
+                    hour,
+                    model: ModelId::new(format!("openrouter:{model}").as_str()),
+                    billing: Billing::Metered,
+                },
+                Bucket {
+                    tokens: Tokens {
+                        input: usage.input - usage.cached,
+                        output: usage.output,
+                        cache_read: usage.cached,
+                        ..Tokens::default()
+                    },
+                    cost_usd: usage.usd,
+                    unpriced: 0,
+                },
+            );
+        }
+    }
+    Ok(())
 }
 
 /// The totals in the header of the flsh session file at `path`, when it
@@ -193,8 +256,7 @@ fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
     let started = serde_json::from_str::<FlshMessage>(&line)
         .ok()
         .and_then(|message| unix_seconds(&message.timestamp));
-    let (Some(totals), Some(cwd)) = (header.metadata.total_usage, header.metadata.working_dir)
-    else {
+    let Some(cwd) = header.metadata.working_dir else {
         return Ok(None);
     };
     let last = modified
@@ -204,7 +266,7 @@ fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
         id: header.session_id,
         cwd,
         model: header.metadata.model.unwrap_or_default(),
-        totals,
+        totals: header.metadata.total_usage.unwrap_or_default(),
         turns: header.metadata.usage_log,
         started,
         last,
@@ -247,6 +309,7 @@ struct FlshTurn {
     output_tokens: u64,
     /// USD as a decimal string.
     cost: String,
+    cost_known: Option<bool>,
 }
 
 impl From<&FlshTurn> for Counted {
@@ -340,10 +403,6 @@ fn add_flsh(
         last,
     } = session;
 
-    if totals.tokens_unknown {
-        return;
-    }
-
     let mut logged = Counted::default();
 
     for turn in &turns {
@@ -354,15 +413,16 @@ fn add_flsh(
     let first = turns
         .first()
         .map_or(last, |turn| started.unwrap_or(turn.at).min(turn.at));
-    let spends = std::iter::once((first, model.clone(), earlier)).chain(turns.iter().map(|turn| {
-        let model = turn.model.clone().unwrap_or_else(|| model.clone());
-        (turn.at, model, Counted::from(turn))
-    }));
+    let spends =
+        std::iter::once((first, model.clone(), earlier, None)).chain(turns.iter().map(|turn| {
+            let model = turn.model.clone().unwrap_or_else(|| model.clone());
+            (turn.at, model, Counted::from(turn), turn.cost_known)
+        }));
     let mut before = counted.copied().unwrap_or_default();
     let part = parts.entry(id.clone()).or_default();
     part.cwd.clone_from(&cwd);
 
-    for (at, model, spend) in spends {
+    for (at, model, spend, cost_known) in spends {
         let (spend, left) = spend.beyond(before);
         before = left;
         let cached = spend.cached.min(spend.input);
@@ -401,7 +461,8 @@ fn add_flsh(
         match cost {
             Some(cost) => bucket.add(&model, &tokens, Some(cost)),
             // flsh found no price; neither would the table, mostly.
-            None if totals.cost_unknown => {
+            None if cost_known == Some(true) => bucket.tokens.add(&tokens),
+            None if cost_known == Some(false) || totals.cost_unknown => {
                 bucket.tokens.add(&tokens);
                 bucket.unpriced = bucket.unpriced.saturating_add(tokens.total());
             }
@@ -475,7 +536,11 @@ pub(super) mod tests {
         };
         // 0.10 spent before turns were logged, from its start two days ago, then
         // a turn a day ago and one now.
-        let log = [turn(1_793_520_000, 300, "0.20"), turn(1_793_606_400, 500, "0.30")].join(",");
+        let log = [
+            turn(1_793_520_000, 300, "0.20"),
+            turn(1_793_606_400, 500, "0.30"),
+        ]
+        .join(",");
         fs::write(
             &path,
             format!(

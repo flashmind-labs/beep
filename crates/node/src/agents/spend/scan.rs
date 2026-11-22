@@ -2,7 +2,6 @@
 //! since the last pass, and reads a database again when it changed. Every
 //! pass is bounded in files and bytes; what is left waits for the next.
 
-use beep_proto::SessionId;
 use super::{
     Line,
     billing::{AccountFiles, Accounts},
@@ -11,6 +10,7 @@ use super::{
     pi,
 };
 use crate::agents::found::{self, Agent, LogRoots};
+use beep_proto::SessionId;
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, HashSet},
@@ -393,7 +393,19 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
             continue;
         };
 
-        if ledger.databases.get(path).map(|read| read.stamp) == Some(stamp) {
+        let flsh_file = *agent == Agent::Flsh && path.extension().is_some_and(|ext| ext == "jsonl");
+        let billed = path.with_extension("openrouter.json");
+        let billed_stamp = if flsh_file {
+            match Stamp::of(&billed) {
+                Ok(stamp) => Some(stamp),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+                Err(_) => continue,
+            }
+        } else {
+            None
+        };
+        let previous = ledger.databases.get(path);
+        if previous.is_some_and(|read| read.stamp == stamp && read.billed_stamp == billed_stamp) {
             continue;
         }
 
@@ -401,9 +413,9 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
             Agent::OpenCode => {
                 databases::opencode(path, since, accounts).map_err(|e| e.to_string())
             }
-            _ if path.extension().is_some_and(|ext| ext == "jsonl") => {
-                let counted = ledger.databases.get(path).and_then(|read| read.counted);
-                databases::flsh_file(path, counted.as_ref(), accounts).map_err(|e| e.to_string())
+            _ if flsh_file => {
+                let counted = previous.and_then(|entry| entry.counted.as_ref());
+                databases::flsh_file(path, counted, accounts).map_err(|e| e.to_string())
             }
             _ => databases::flsh(path, since, accounts).map_err(|e| e.to_string()),
         };
@@ -412,6 +424,7 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
             ..Database::default()
         });
         entry.stamp = stamp;
+        entry.billed_stamp = billed_stamp;
         ledger.changed = true;
 
         match read {

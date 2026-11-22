@@ -347,6 +347,64 @@ fn a_pi_sessions_cost_is_read_from_its_log() {
     let sessions = fixture.roots.pi.as_deref().expect("pi's folder");
     let cost = super::pi_session_cost(sessions, &SessionId::from(&"p1".to_owned()));
 
-    assert!(cost.is_some_and(|cost| (cost - 0.5).abs() < 1e-9), "{cost:?}");
-    assert_eq!(super::pi_session_cost(sessions, &SessionId::from(&"p2".to_owned())), None);
+    assert!(
+        cost.is_some_and(|cost| (cost - 0.5).abs() < 1e-9),
+        "{cost:?}"
+    );
+    assert_eq!(
+        super::pi_session_cost(sessions, &SessionId::from(&"p2".to_owned())),
+        None
+    );
+}
+
+#[test]
+fn imported_openrouter_hours_replace_estimates_after_the_session_was_scanned() {
+    let mut fixture = fixture();
+    let root = fixture._dir.path().join("flsh");
+    let path = root.join("folder/session.jsonl");
+    let hour = NOW - 3600;
+    let header = serde_json::json!({
+        "sessionId": "chat",
+        "metadata": {
+            "model": "openrouter:example",
+            "working_dir": "/srv/project",
+            "total_usage": {"input_tokens": 30, "total_cost": "1.00"},
+            "usage_log": [
+                {"at": hour, "input_tokens": 20, "cached_input_tokens": 0, "output_tokens": 0, "cost": "1.00"},
+                {"at": NOW, "input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 0, "cost": "0", "cost_known": true}
+            ]
+        }
+    });
+    append(&path, &format!("{header}\n"));
+    fixture.roots.flsh = Some(root);
+    let spend = Spend::at(fixture.roots, fixture.ledger);
+    for report in spend.pass(NOW) {
+        spend.sent(&report);
+    }
+
+    let filled = serde_json::json!({hour.to_string(): {
+        "example": {"input": 20, "cached": 5, "output": 2, "usd": 2.0},
+        "another": {"input": 4, "cached": 0, "output": 3, "usd": 1.25}
+    }});
+    let billed = path.with_extension("openrouter.json");
+    fs::write(&billed, filled.to_string()).unwrap();
+    let reports = spend.pass(NOW);
+    assert_eq!(reports.len(), 1);
+    let chat = &reports[0];
+    assert_eq!(chat.session.as_ref(), "chat");
+    assert_eq!(chat.hours.len(), 3);
+    assert_eq!(cost(chat), 3.25);
+    assert_eq!(chat.hours.iter().map(|h| h.tokens()).sum::<u64>(), 39);
+    spend.sent(chat);
+    assert!(spend.pass(NOW).is_empty());
+    assert_eq!(cost(by_session(&spend.pass_all(NOW))["chat"]), 3.25);
+
+    let mut empty = header;
+    empty["metadata"]["total_usage"] = serde_json::Value::Null;
+    empty["metadata"]["usage_log"] = serde_json::json!([]);
+    fs::write(&path, format!("{empty}\n")).unwrap();
+    assert_eq!(cost(&spend.pass(NOW)[0]), 3.25);
+
+    fs::remove_file(billed).unwrap();
+    assert!(!by_session(&spend.pass_all(NOW)).contains_key("chat"));
 }
