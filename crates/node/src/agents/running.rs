@@ -22,7 +22,7 @@ use beep_proto::node::{
     usage::PlanUsage,
 };
 use beep_proto::watched;
-use beep_proto::{AccountName, AgentAccount, ModelId, Upload};
+use beep_proto::{AccountName, AgentAccount, AgentSlug, ModelId, Upload};
 use std::time::Duration;
 use std::{
     borrow::Cow,
@@ -320,16 +320,15 @@ impl Agents {
         Some(list)
     }
 
-    /// The CLI of `agent`, with `args`, as a plan read starts it: signed
+    /// The CLI of agent `name`, with `args`, as a plan read starts it: signed
     /// in as the agent's sessions on `account` are, with the user's settings
     /// for it. `None` when this node does not run it or the user turned it off.
     fn cli(
         &self,
-        agent: AgentAccount,
+        name: &str,
         account: Option<&AccountName>,
         args: &[&str],
     ) -> Option<tokio::process::Command> {
-        let name = agent.as_ref();
         let kind = self.named(name)?;
         let kind = self.settings.configured(&kind).ok()?;
         let program = harnesses::find(name)?;
@@ -384,7 +383,17 @@ impl Agents {
             })
             .map(|(agent, account)| self.read_plan(agent, account))
             .collect::<FuturesUnordered<_>>();
-        reads.collect::<Vec<()>>().await;
+        tokio::join!(reads.collect::<Vec<()>>(), self.read_agy_plan());
+    }
+
+    /// Reads Antigravity's plan into `usage`; it has no named accounts.
+    async fn read_agy_plan(&self) {
+        let name = AgentSlug::AGY;
+        let Some(command) = self.cli(name.as_ref(), None, plans::AGY_ARGS) else {
+            return;
+        };
+
+        self.keep_plan(name.as_ref(), None, plans::read_agy(command).await);
     }
 
     /// Reads `agent`'s plan on `account` into `usage`.
@@ -393,7 +402,7 @@ impl Agents {
             AgentAccount::Claude => plans::CLAUDE_ARGS,
             AgentAccount::Codex => plans::CODEX_ARGS,
         };
-        let Some(command) = self.cli(agent, account.as_ref(), args) else {
+        let Some(command) = self.cli(agent.as_ref(), account.as_ref(), args) else {
             return;
         };
         let read = match agent {
@@ -401,10 +410,15 @@ impl Agents {
             AgentAccount::Codex => plans::read_codex(command).await,
         };
 
+        self.keep_plan(agent.as_ref(), account, read);
+    }
+
+    /// Keeps `name`'s plan read on `account` in `usage`.
+    fn keep_plan(&self, name: &str, account: Option<AccountName>, read: Result<Option<PlanUsage>>) {
         match read {
             Ok(Some(plan)) => self.usage.set_plan(PlanUsage { account, ..plan }),
             Ok(None) => {}
-            Err(e) => log::info!("{} plan usage not read: {e:#}", agent.as_ref()),
+            Err(e) => log::info!("{name} plan usage not read: {e:#}"),
         }
     }
 
