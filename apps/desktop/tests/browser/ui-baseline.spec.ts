@@ -765,7 +765,7 @@ test("agent message of several lines stays inside its field", async ({ page }) =
 
 test("agent running", async ({ page }) => {
   await openAgent(page);
-  const process = (pid: number, command: string, parent = 0) => ({ pid, command, started_at: NOW - 600_000, ports: pid === 41 ? [5173] : [], left_group: false, parent });
+  const process = (pid: number, command: string, parent = 0) => ({ pid, command, started_at: NOW - 600_000, ports: pid === 41 ? [5173] : [], left_group: false, parent, pages: pid === 41 ? [5173] : [] });
   const wrapped = "/usr/bin/zsh -c source /srv/home/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval 'npm run test:browser' < /dev/null";
   await page.evaluate(rows => window.__navigation.processes(rows), [process(41, "npm run dev"), process(42, "cargo watch -x check"), process(43, wrapped), process(44, "npm run test:browser", 43), process(45, "node /srv/project/node_modules/.bin/playwright test", 44), process(46, "/srv/cache/ms-playwright/chromium_headless_shell/chrome-headless-shell --headless", 45)]);
   await page.getByRole("tab", { name: /Running/ }).click();
@@ -773,6 +773,7 @@ test("agent running", async ({ page }) => {
   await expect(page.locator(".agrunningrow")).toHaveCount(3);
   await page.locator(".agrunningrow").filter({ hasText: "npm run test:browser" }).locator(".t").click();
   await expect(page.locator(".agrunningrow .child")).toHaveCount(3);
+  await expect(page.locator(".ag-page").getByRole("button", { name: "Open :5173" })).toBeVisible();
   await baseline(page, "agent-running");
 });
 

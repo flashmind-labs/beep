@@ -1868,6 +1868,7 @@ mod agent {
                     ports: vec![3000],
                     left_group: true,
                     parent: 7,
+                    pages: vec![3000],
                 }],
             };
             let bytes = rmp_serde::to_vec(&reply).unwrap();
@@ -1905,13 +1906,23 @@ mod agent {
             assert!(process.ports.is_empty());
             assert!(!process.left_group);
             assert_eq!(process.parent, 0);
-            let bytes =
-                rmp_serde::to_vec(&(42, "watch", 1_700_000_000_u64, vec![3000], true, 7, "extra"))
-                    .unwrap();
+            assert!(process.pages.is_empty());
+            let bytes = rmp_serde::to_vec(&(
+                42,
+                "watch",
+                1_700_000_000_u64,
+                vec![3000],
+                true,
+                7,
+                vec![3000],
+                "extra",
+            ))
+            .unwrap();
             let process: RunningProcess = beep_proto::lenient::from_slice(&bytes).unwrap();
             assert_eq!(process.ports, [3000]);
             assert!(process.left_group);
             assert_eq!(process.parent, 7);
+            assert_eq!(process.pages, [3000]);
         }
 
         #[test]

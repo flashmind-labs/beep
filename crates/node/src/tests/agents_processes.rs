@@ -139,7 +139,8 @@ async fn a_port_opened_or_closed_after_the_last_list_is_a_change() {
     let listed = |port| {
         crate::lock(&processes.known)
             .ports
-            .contains(&(std::process::id(), port))
+            .iter()
+            .any(|(pid, open, _)| (*pid, *open) == (std::process::id(), port))
     };
     processes.list().await.unwrap();
 
@@ -152,4 +153,64 @@ async fn a_port_opened_or_closed_after_the_last_list_is_a_change() {
     drop(listener);
     assert!(processes.ports_changed().await.unwrap());
     assert!(!listed(port));
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_port_that_answers_with_a_page_is_one_of_its_pages_once_it_is_ready() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let processes = Processes::new(Some(std::os::unix::process::parent_id()));
+    // One port answers like a web server that is still starting at first,
+    // the other closes without a word.
+    let web = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let silent = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let (web_port, silent_port) = (
+        web.local_addr().unwrap().port(),
+        silent.local_addr().unwrap().port(),
+    );
+    // Other tests list this process's ports too, so readiness is a flag
+    // rather than a count of requests.
+    let ready = Arc::new(AtomicBool::new(false));
+    let serving = ready.clone();
+    let _web = AbortOnDropHandle::new(tokio::spawn(async move {
+        loop {
+            let (mut stream, _) = web.accept().await.unwrap();
+            let status = if serving.load(Ordering::Relaxed) {
+                "200 OK"
+            } else {
+                "503 Service Unavailable"
+            };
+            let mut request = [0; 1024];
+            let _ = stream.read(&mut request).await;
+            let reply = format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\n\r\n");
+            let _ = stream.write_all(reply.as_bytes()).await;
+        }
+    }));
+    let _silent = AbortOnDropHandle::new(tokio::spawn(async move {
+        loop {
+            drop(silent.accept().await.unwrap());
+        }
+    }));
+
+    let me = || async {
+        let rows = processes.list().await.unwrap();
+        rows.into_iter()
+            .find(|row| row.pid == std::process::id())
+            .unwrap()
+    };
+
+    let starting = me().await;
+    assert!(starting.ports.contains(&web_port) && starting.ports.contains(&silent_port));
+    assert!(!starting.pages.contains(&web_port));
+    ready.store(true, Ordering::Relaxed);
+    assert!(processes.ports_changed().await.unwrap());
+
+    let serving = me().await;
+    assert!(serving.pages.contains(&web_port));
+    assert!(!serving.pages.contains(&silent_port));
 }

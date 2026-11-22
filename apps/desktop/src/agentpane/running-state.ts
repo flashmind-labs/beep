@@ -7,6 +7,8 @@ export interface RunningProcess {
   left_group: boolean;
   /// The process that started it; 0 from nodes that do not say.
   parent: number;
+  /// The ports that answer with a page or a redirect; empty from nodes that do not say.
+  pages: number[];
 }
 
 /// A row: a command the session started and the processes under it.
@@ -34,12 +36,27 @@ export function runningRow(tree: RunningTree) {
   const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
   const more = children.length ? ` · ${children.length} more process${children.length === 1 ? "" : "es"}` : "";
   const ports = [...new Set([root, ...children].flatMap(p => p.ports))].filter(p => Number.isInteger(p) && p > 0 && p <= 65535);
+  const page = pagePort([root, ...children], ports);
 
   return {
     command: shownCommand(root.command),
     detail: `since ${time}${more}${root.left_group ? " · left the group" : ""}`,
-    ports: ports.map(port => ({ label: `:${port}`, port })),
+    page: page === null ? null : { label: `:${page}`, port: page },
+    /// With a page, the other ports, which show only with the whole command.
+    ports: ports.filter(port => port !== page).map(port => ({ label: `:${port}`, port })),
   };
+}
+
+/// A port a command names: `--port 8788`, `-p 8788`, `PORT=8788` or `localhost:8788`.
+const NAMED = /(?:--port[= ]|-p ?|\bPORT=|:)(\d{2,5})\b/g;
+
+/// The port a row's server shows its page on: among those that answered with a page, the one
+/// its command names, else the first.
+function pagePort(processes: readonly RunningProcess[], ports: readonly number[]) {
+  const pages = processes.flatMap(p => p.pages).filter(port => ports.includes(port));
+  const named = processes.flatMap(p => [...p.command.matchAll(NAMED)].map(match => Number(match[1])));
+
+  return pages.find(port => named.includes(port)) ?? pages[0] ?? null;
 }
 
 /// Claude Code runs a command as `zsh -c source <snapshot> && … && eval '<command>' …`.

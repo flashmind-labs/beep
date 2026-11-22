@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-const child = { pid: 123, command: "sleep 300", started_at: 1, ports: [], left_group: false, parent: 0 };
+const child = { pid: 123, command: "sleep 300", started_at: 1, ports: [], left_group: false, parent: 0, pages: [] };
 
 test("a live session reads existing children and follows starts and exits", async ({ page }) => {
   const errors: string[] = [];

@@ -1005,6 +1005,9 @@ pub struct RunningProcess {
     /// The process that started it; 0 from nodes that predate it.
     #[serde(default)]
     pub parent: u32,
+    /// The `ports` that answer `GET /` on loopback with a page or a redirect.
+    #[serde(default)]
+    pub pages: Vec<u16>,
 }
 
 #[cfg(test)]

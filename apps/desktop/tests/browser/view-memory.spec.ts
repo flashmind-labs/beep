@@ -158,7 +158,7 @@ test("pane refresh preserves composer focus and terminal selection focuses its s
   await composer.focus();
   const dockIcon = page.locator('#agpane-right [data-pact="dock"] svg');
   await dockIcon.evaluate(element => { (element as SVGElement).dataset.identity = "kept"; });
-  const processes = [{ pid: 41, command: "example process", started_at: 1, ports: [], left_group: false, parent: 0 }];
+  const processes = [{ pid: 41, command: "example process", started_at: 1, ports: [], left_group: false, parent: 0, pages: [] }];
   await page.evaluate(rows => window.__navigation.processes(rows), processes);
   await expect(page.getByRole("tab", { name: /Running/ })).toBeVisible();
   await expect(composer).toBeFocused();

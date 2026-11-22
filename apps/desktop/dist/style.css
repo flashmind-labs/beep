@@ -1075,6 +1075,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 /* Background commands are one line; their rows and Stop buttons are in the Running tab. */
 .ag-tasks, .ag-plan { display: inline-flex; align-items: center; gap: 8px; margin: 6px 16px 0; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font: inherit; font-size: 12px; color: var(--muted); cursor: default }
 .ag-tasks:hover, .ag-plan:hover, .ag-steps button.it:hover { color: var(--fg) }
+/* A page a running server shows, above the field and first among its row's ports. */
+.ag-page button, .agrunningrow .t .ports a.page { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); cursor: pointer; text-decoration: none }
+.ag-page button:hover, .ag-page button:focus-visible { text-decoration: underline }
 /* The plan is one line above the field, which opens to its steps; a step opens to its subagents. */
 .ag-plan > span:not(.ddot, .drun, .dspin) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left }
 .ag-plan b { margin-left: 8px; font-weight: 400; color: var(--fg) }

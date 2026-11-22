@@ -17,6 +17,7 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
+mod pages;
 mod snapshot;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -69,6 +70,10 @@ const UNWATCHED: Duration = Duration::from_secs(60);
 /// How often a standalone node checks the ports its sessions' processes
 /// listen on, so a server that binds after it started still shows up.
 const PORTS: Duration = Duration::from_secs(60);
+/// How long after a session's processes change its ports are checked on
+/// every read while a client follows `processes`: a server binds a moment
+/// after it starts, after the list that showed it was sent.
+const STARTING: Duration = Duration::from_secs(30);
 /// Set by a standalone node: an embedded one leaves the desktop's battery be.
 static WATCH_PORTS: AtomicBool = AtomicBool::new(false);
 
@@ -209,12 +214,34 @@ pub(super) struct Processes {
     reading: AsyncMutex<()>,
 }
 
+/// How many times a port that has not answered is tested for a page.
+const TRIES: u8 = 30;
+
+/// What testing a listening port for a page found.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Page {
+    Yes,
+    No,
+    /// It has not answered yet, after this many tries.
+    Unsettled(u8),
+}
+
+impl Page {
+    fn unsettled(&self) -> bool {
+        matches!(self, Self::Unsettled(_))
+    }
+}
+
 #[derive(Default)]
 struct Observed {
     root_birth: Option<u64>,
     processes: HashMap<u32, Process>,
-    /// The ports of the last list, by pid.
-    ports: BTreeSet<(u32, u16)>,
+    /// The ports of the last list, by pid, and whether each serves a page.
+    ports: BTreeSet<(u32, u16, bool)>,
+    /// When `processes` last changed.
+    changed_at: Option<Instant>,
+    /// What testing each listening (pid, port) for a page found.
+    pages: HashMap<(u32, u16), Page>,
 }
 
 impl Processes {
@@ -236,8 +263,9 @@ impl Processes {
     /// Observe ancestry even while the desktop is closed. Remembering a child's
     /// birth time keeps it ours after its parent exits, without claiming a reused pid.
     /// The table is read every second only while the session works or a
-    /// client follows `processes`. On a standalone node the ports are
-    /// checked each `PORTS` too. The session's actor drops the handle
+    /// client follows `processes`. The ports are checked on each read for
+    /// `STARTING` after the processes change while a client follows, and
+    /// on a standalone node each `PORTS` too. The session's actor drops the handle
     /// when the session ends, so an ended session reads nothing.
     pub(super) fn watch(
         self: &Arc<Self>,
@@ -254,7 +282,13 @@ impl Processes {
                     log::debug!("could not read session processes: {e:#}");
                 }
 
-                if WATCH_PORTS.load(Ordering::Relaxed) && Instant::now() >= ports_due {
+                let starting = crate::lock(&processes.known)
+                    .changed_at
+                    .is_some_and(|at| at.elapsed() < STARTING);
+                let followed = watched::read_sent(&DEMAND, |demand| *demand > 0);
+                let due = WATCH_PORTS.load(Ordering::Relaxed) && Instant::now() >= ports_due;
+
+                if due || (starting && followed) {
                     ports_due = Instant::now() + PORTS;
                     match processes.ports_changed().await {
                         Ok(true) => changed(),
@@ -322,15 +356,18 @@ impl Processes {
             }
         }
 
-        if *known != before {
-            changed();
-        }
-
-        Ok(known
+        let ours = known
             .values()
             .filter(|p| p.pid != root_pid)
             .cloned()
-            .collect())
+            .collect();
+
+        if observed.processes != before {
+            observed.changed_at = Some(Instant::now());
+            changed();
+        }
+
+        Ok(ours)
     }
 
     pub(super) async fn list(self: &Arc<Self>) -> anyhow::Result<Vec<RunningProcess>> {
@@ -342,24 +379,81 @@ impl Processes {
             .collect();
         let root = self.root.load(Ordering::Relaxed);
         let mut ports = os::ports(&processes).await;
+        let pages = self.pages(&ports).await;
         let mut rows: Vec<_> = processes
             .into_iter()
-            .map(|p| RunningProcess {
-                pid: p.pid,
-                // Long enough to reach the command inside an agent's shell wrapper.
-                command: p.command.chars().take(2000).collect(),
-                started_at: p.started_at,
-                ports: ports.remove(&p.pid).unwrap_or_default(),
-                left_group: cfg!(unix) && p.group != root,
-                parent: p.parent,
+            .map(|p| {
+                let ports = ports.remove(&p.pid).unwrap_or_default();
+                RunningProcess {
+                    pid: p.pid,
+                    // Long enough to reach the command inside an agent's shell wrapper.
+                    command: p.command.chars().take(2000).collect(),
+                    started_at: p.started_at,
+                    pages: ports
+                        .iter()
+                        .copied()
+                        .filter(|port| pages.contains(&(p.pid, *port)))
+                        .collect(),
+                    ports,
+                    left_group: cfg!(unix) && p.group != root,
+                    parent: p.parent,
+                }
             })
             .collect();
         rows.sort_by_key(|p| (p.started_at, p.pid));
         crate::lock(&self.known).ports = rows
             .iter()
-            .flat_map(|row| row.ports.iter().map(|port| (row.pid, *port)))
+            .flat_map(|row| {
+                row.ports
+                    .iter()
+                    .map(|port| (row.pid, *port, row.pages.contains(port)))
+            })
             .collect();
         Ok(rows)
+    }
+
+    /// The (pid, port) pairs of `ports` that serve a page. A pair is tested
+    /// until it answers, as a request to a port that is not a web server may
+    /// end up in its log. One that only times out, such as a server whose
+    /// first page compiles, is tried again on each list up to `TRIES` times.
+    async fn pages(&self, ports: &HashMap<u32, Vec<u16>>) -> BTreeSet<(u32, u16)> {
+        let listening: BTreeSet<_> = ports
+            .iter()
+            .flat_map(|(pid, ports)| ports.iter().map(|port| (*pid, *port)))
+            .collect();
+        let untested: BTreeSet<_> = {
+            let mut known = crate::lock(&self.known);
+            known.pages.retain(|pair, _| listening.contains(pair));
+            listening
+                .iter()
+                .filter(|pair| known.pages.get(pair).is_none_or(Page::unsettled))
+                .map(|(_, port)| *port)
+                .collect()
+        };
+
+        let tested: HashMap<_, _> = pages::test(untested).await.into_iter().collect();
+        let mut known = crate::lock(&self.known);
+
+        for pair in &listening {
+            if let Some(answer) = tested.get(&pair.1) {
+                let tries = match known.pages.get(pair) {
+                    Some(Page::Unsettled(tries)) => *tries,
+                    _ => 0,
+                };
+                let page = match answer {
+                    Some(true) => Page::Yes,
+                    Some(false) => Page::No,
+                    None if tries + 1 >= TRIES => Page::No,
+                    None => Page::Unsettled(tries + 1),
+                };
+                known.pages.insert(*pair, page);
+            }
+        }
+
+        listening
+            .into_iter()
+            .filter(|pair| known.pages.get(pair) == Some(&Page::Yes))
+            .collect()
     }
 
     /// Whether a port opened or closed since the last list.

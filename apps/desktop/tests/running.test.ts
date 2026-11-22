@@ -4,13 +4,13 @@ import { runningRow, runningTrees, shownCommand, type RunningProcess } from "../
 
 const process: RunningProcess = {
   pid: 42, command: "npm run dev", started_at: new Date(2026, 0, 2, 9, 4).getTime() / 1000,
-  ports: [3000, 8080], left_group: true, parent: 0,
+  ports: [3000, 8080], left_group: true, parent: 0, pages: [],
 };
 const alone = (p: RunningProcess) => ({ root: p, children: [] });
 
 test("running rows show a padded local time and escaped group label", () => {
   assert.deepEqual(runningRow(alone(process)), {
-    command: "npm run dev", detail: "since 09:04 · left the group",
+    command: "npm run dev", detail: "since 09:04 · left the group", page: null,
     ports: [{ label: ":3000", port: 3000 }, { label: ":8080", port: 8080 }],
   });
 });
@@ -33,6 +33,15 @@ test("children group under the furthest listed ancestor and lend it their ports"
   const row = runningRow(trees[0] ?? alone(process));
   assert.equal(row.detail, "since 09:04 · 2 more processes · left the group");
   assert.deepEqual(row.ports, [{ label: ":5173", port: 5173 }]);
+});
+
+test("the page is the port the command names among those that answered with one", () => {
+  const server = { ...process, command: "npx wrangler dev --port 8788 --ip 127.0.0.1", ports: [9229, 8788, 41243], pages: [41243, 8788] };
+  assert.deepEqual(runningRow(alone(server)).page, { label: ":8788", port: 8788 });
+  assert.deepEqual(runningRow(alone(server)).ports.map(p => p.port), [9229, 41243]);
+  assert.deepEqual(runningRow(alone({ ...server, command: "npm run dev" })).page?.port, 41243);
+  // A named port that does not answer with a page is not offered.
+  assert.equal(runningRow(alone({ ...server, pages: [] })).page, null);
 });
 
 test("a parent cycle still ends", () => {

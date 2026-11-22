@@ -266,6 +266,8 @@ body.cbody
                   div.ag-work
                     div.ag-worklist
                       div#agtasks
+                      div.ag-page.ag-tasks
+                        button [title="Open in the browser" type="button"] "Open :5173"
                       div [data-agent-queue-slot="true"] style(display)
                     div [data-agent-work-line="true"] style(display)
                   div#agfield.dinput.small style(--field-h)
@@ -454,7 +456,7 @@ body.cbody
                             b "npm run dev"
                             small "since 01:20"
                             span.ports
-                              a [data-port="true" href="http://localhost:5173" title="Open in the browser"] ":5173"
+                              a.page [data-port="true" href="http://localhost:5173" title="Open in the browser"] ":5173"
                           span.r
                             button.dbtn [data-pid="41" type="button"] "Stop"
                         div.agart.agrunningrow
