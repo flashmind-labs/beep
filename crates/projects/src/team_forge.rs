@@ -313,7 +313,10 @@ fn escaped(login: &ForgeLogin) -> String {
     byte_serialize(login.to_string().as_bytes()).collect()
 }
 
-/// Assigns `logins` to issue `number` through a machine the project is on.
+/// Assigns `logins` to issue `number` through a machine the project is on. Forgejo has no call
+/// that adds an assignee: its PATCH replaces the list, so an assignment made between the read
+/// and the PATCH is lost. The list is read again after, and the logins that went missing are
+/// added once more.
 pub async fn assign(
     store: &dyn ProjectStore,
     machines: &dyn Machines,
@@ -322,24 +325,35 @@ pub async fn assign(
 ) -> Result<(), SourceError> {
     let source = source(store, machines).await?;
     let repo = store.name();
-    let names = match source.host {
-        IssueHost::Github => merged_assignees(&[], logins),
-        IssueHost::Forgejo(_) => {
-            let current = issue_call(&source.host, repo, number);
-            let out = run(machines, &source, repo, &current).await?;
+    let host = &source.host;
 
-            merged_assignees(&parse_assignees(&out)?, logins)
+    if matches!(host, IssueHost::Github) {
+        let call = assign_call(host, repo, number, &merged_assignees(&[], logins));
+        run(machines, &source, repo, &call).await?;
+        return Ok(());
+    }
+
+    let read = issue_call(host, repo, number);
+    let mut current = parse_assignees(&run(machines, &source, repo, &read).await?)?;
+
+    for _ in 0..2 {
+        let call = assign_call(host, repo, number, &merged_assignees(&current, logins));
+        run(machines, &source, repo, &call).await?;
+        current = parse_assignees(&run(machines, &source, repo, &read).await?)?;
+
+        if kept(&current, logins) {
+            return Ok(());
         }
-    };
-    run(
-        machines,
-        &source,
-        repo,
-        &assign_call(&source.host, repo, number, &names),
-    )
-    .await?;
+    }
 
-    Ok(())
+    Err(SourceError::Refused(format!(
+        "Another assignment of #{number} replaced this one; assign it again."
+    )))
+}
+
+/// Whether every one of `logins` is among `assignees`.
+fn kept(assignees: &[String], logins: &[ForgeLogin]) -> bool {
+    merged_assignees(assignees, logins).len() == assignees.len()
 }
 
 /// The login the project's host machine is signed in as.

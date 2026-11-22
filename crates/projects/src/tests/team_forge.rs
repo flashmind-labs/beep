@@ -361,9 +361,12 @@ impl ProjectStore for Store {
     }
 }
 
-/// Answers by the first rule whose text the command holds, and records the commands.
+type Rule = (&'static str, i32, &'static str);
+
+/// Answers by the first rule whose text the command holds, used up when a later rule holds the
+/// same text, and records the commands.
 struct Rules {
-    rules: Vec<(&'static str, i32, &'static str)>,
+    rules: Mutex<Vec<Rule>>,
     ran: Mutex<Vec<String>>,
 }
 
@@ -374,12 +377,14 @@ impl Shell for Rules {
             .lock()
             .expect("not poisoned")
             .push(script.to_owned());
-        let (_, code, out) = self
-            .rules
-            .iter()
-            .find(|(holds, ..)| script.contains(holds))
-            .copied()
-            .unwrap_or(("", 1, "no rule"));
+        let mut rules = self.rules.lock().expect("not poisoned");
+        let first = rules.iter().position(|(holds, ..)| script.contains(holds));
+        let (holds, code, out) = first.map_or(("", 1, "no rule"), |at| rules[at]);
+        let again = rules.iter().filter(|(other, ..)| *other == holds).count() > 1;
+
+        if let Some(at) = first.filter(|_| again) {
+            rules.remove(at);
+        }
 
         Ok(ShellOutput::exited(code, out))
     }
@@ -398,9 +403,9 @@ impl Machines for Fleet {
     }
 }
 
-fn setup(url: &str, rules: Vec<(&'static str, i32, &'static str)>) -> (Store, Fleet, Arc<Rules>) {
+fn setup(url: &str, rules: Vec<Rule>) -> (Store, Fleet, Arc<Rules>) {
     let shell = Arc::new(Rules {
-        rules,
+        rules: Mutex::new(rules),
         ran: Mutex::new(Vec::new()),
     });
     let store = Store(vec![ImportedPlace {
@@ -418,6 +423,11 @@ async fn forgejo_assign_reads_current_then_patches_the_union() {
         vec![
             ("PATCH", 0, "{}"),
             ("issues/7", 0, r#"{"assignees":[{"login":"sam"}]}"#),
+            (
+                "issues/7",
+                0,
+                r#"{"assignees":[{"login":"sam"},{"login":"kim"}]}"#,
+            ),
         ],
     );
     assign(&store, &fleet, 7, &[login("kim")])
@@ -425,12 +435,58 @@ async fn forgejo_assign_reads_current_then_patches_the_union() {
         .expect("assigned");
 
     let ran = shell.ran.lock().expect("not poisoned");
-    assert_eq!(ran.len(), 2);
+    assert_eq!(ran.len(), 3);
     assert!(
         ran[1].contains(r#"'assignees=["sam","kim"]'"#),
         "{}",
         ran[1]
     );
+}
+
+#[tokio::test]
+async fn forgejo_assign_lost_to_another_at_once_is_made_again() {
+    // Bob's PATCH, read before Kim's went in, replaced it.
+    let (store, fleet, shell) = setup(
+        "https://forge.example/acme/widget",
+        vec![
+            ("PATCH", 0, "{}"),
+            ("issues/7", 0, r#"{"assignees":[{"login":"sam"}]}"#),
+            (
+                "issues/7",
+                0,
+                r#"{"assignees":[{"login":"sam"},{"login":"bob"}]}"#,
+            ),
+            (
+                "issues/7",
+                0,
+                r#"{"assignees":[{"login":"sam"},{"login":"bob"},{"login":"kim"}]}"#,
+            ),
+        ],
+    );
+    assign(&store, &fleet, 7, &[login("kim")])
+        .await
+        .expect("assigned");
+
+    let ran = shell.ran.lock().expect("not poisoned");
+    assert_eq!(ran.len(), 5);
+    assert!(
+        ran[3].contains(r#"'assignees=["sam","bob","kim"]'"#),
+        "{}",
+        ran[3]
+    );
+}
+
+#[tokio::test]
+async fn forgejo_assign_lost_twice_says_so() {
+    let (store, fleet, _) = setup(
+        "https://forge.example/acme/widget",
+        vec![
+            ("PATCH", 0, "{}"),
+            ("issues/7", 0, r#"{"assignees":[{"login":"sam"}]}"#),
+        ],
+    );
+
+    assert!(assign(&store, &fleet, 7, &[login("kim")]).await.is_err());
 }
 
 #[tokio::test]
