@@ -213,6 +213,39 @@ test("assistant page", async ({ page }) => {
   await baseline(page, "assistant-page");
 });
 
+test("assistant chat with threads", async ({ page }) => {
+  const chat = { ...assistantSessions[0], title: "Battery chemistries after 2030" };
+  const thread = (id: string, title: string, over: object) => ({ ...chat, id, title, status: "idle", assistant: false, parent: { machine_id: machineId, id: chat.id, key: "" }, ...over });
+  const threads = [
+    thread("thread-one", "Sodium-ion cost curve", { status: "working", doing: "Reading the supply reports" }),
+    thread("thread-two", "Solid-state timelines", { reply_html: "Pilot lines in 2027, no volume before 2030" }),
+    thread("thread-three", "Recycling regulation", { status: "asking", question: { id: 1, text: "EU only, or US too?", detail: null, options: [] } }),
+  ];
+  const view = (row: object, text: string) => ({ ...agentView, session: { ...row, question: null }, entries: [{ kind: "agent", text }] });
+  await openDesktop(page, false, {
+    center_home: assistantHome, agent_sessions: [chat, ...threads, session], agent_hosts: [assistantHost],
+    assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null },
+    agent_view: view(chat, "Three threads are on it. I will merge what they find."),
+  });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  const list = page.locator(".asst-list");
+  await list.getByRole("button", { name: /Battery chemistries/ }).click();
+  await expect(list.locator(".asst-threads")).toContainText("Solid-state timelines");
+  await baseline(page, "assistant-threads");
+
+  // New thread starts the message that asks the chat's agent for one.
+  await list.getByRole("button", { name: "New thread" }).click();
+  await expect(page.locator("#agmsg")).toHaveValue("New thread: ");
+  await expect(page.locator("#agmsg")).toBeFocused();
+
+  // A thread opens on the page, with no pane beside it, as the current item under its chat.
+  await page.evaluate(next => window.__navigation.respond("agent_view", next), view(threads[1], "Pilot lines in 2027, no volume before 2030."));
+  await list.getByRole("button", { name: /Solid-state timelines/ }).click();
+  await expect(page.getByText("Pilot lines in 2027, no volume before 2030.")).toBeVisible();
+  await expect(list.locator('[aria-current="true"]')).toContainText("Solid-state timelines");
+  await expect(page.locator("#agpane-right")).toBeHidden();
+});
+
 test("assistant page empty", async ({ page }, info) => {
   await openDesktop(page, false, { center_home: home, agent_sessions: [], agent_hosts: [assistantHost], assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null } });
   await expect(page.locator("#sec-running")).toBeVisible();
@@ -624,23 +657,6 @@ test("narrow window folds the right pane to its tabs, which open it over the con
 test("agent session transcript", async ({ page }) => {
   await openAgent(page);
   await baseline(page, "agent-transcript");
-});
-
-test("agent session with threads", async ({ page }) => {
-  const row = { ...session, question: null, parent: null, reviewer: false, assistant: false };
-  const thread = (id: string, title: string, over: object) => ({ ...row, id, title, status: "idle", parent: { machine_id: machineId, id: session.id, key: "" }, ...over });
-  await openAgent(page, { agent_sessions: [
-    row,
-    thread("thread-one", "Sodium-ion cost curve", { status: "working", doing: "Reading the supply reports" }),
-    thread("thread-two", "Solid-state timelines", { reply_html: "Pilot lines in 2027, no volume before 2030" }),
-    thread("thread-three", "Recycling regulation", { status: "asking", question: { id: 1, text: "EU only, or US too?", detail: null, options: [] } }),
-  ] });
-  await expect(page.locator(".ag-threads")).toContainText("Solid-state timelines");
-  await baseline(page, "session-threads");
-  // New thread starts the message that asks the chat's agent for one.
-  await page.getByRole("button", { name: "New thread" }).click();
-  await expect(page.locator("#agmsg")).toHaveValue("New thread: ");
-  await expect(page.locator("#agmsg")).toBeFocused();
 });
 
 test("agent composer with a draft", async ({ page }) => {

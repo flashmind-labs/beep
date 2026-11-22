@@ -25,8 +25,7 @@ import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import type { SessionUsage } from "./agents.ts";
 
 interface AgentHintsModel { value: HintViewModel; project: string | null }
-/// `threads` is the chat's thread list, above its messages; `null` for a chat with none.
-interface Frame { head: ReactNode; threads: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
+interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
 /// What the session page draws: the frame, and the views put in it.
 interface FrameState { frame: Frame; revision: number; slots: readonly Slot[] }
 interface Owner { page: BarPageSlot; store: StoreApi<FrameState>; revision: number; frame: Frame; portals: Map<HTMLElement, Slot>; children: Map<string, Slot>; next: number; release(): void }
@@ -328,12 +327,6 @@ function ConversationRail({ body }: { body: ChatBody }) {
 const sameHints = (a: AgentHintsModel, b: AgentHintsModel) => a.project === b.project && a.value.window === b.value.window
   && a.value.items.length === b.value.items.length && a.value.items.every((item, i) => item.join("\n") === b.value.items[i].join("\n"));
 
-export function updateSessionThreads(threads: ReactNode) {
-  if (!current) return;
-  current.frame = { ...current.frame, threads };
-  draw(current);
-}
-
 export function updateSessionHints(hints: AgentHintsModel) {
   if (!current || sameHints(current.frame.hints, hints)) return;
   current.frame = { ...current.frame, hints };
@@ -346,5 +339,5 @@ const AgentHints = memo(function AgentHints({ value }: { value: AgentHintsModel 
 });
 
 const FrameView = memo(function FrameView({ frame, revision }: { frame: Frame; revision: number }) {
-  return <><div className="dhead ag-head" data-tauri-drag-region="" key={`head:${revision}`}>{frame.head}</div><PaneShell><PaneMain><div className="agconv" id="agconv" key={`conversation:${revision}`}>{frame.threads}<BodySlot body={frame.body} />{frame.field}<AgentHints value={frame.hints} /></div><PaneDock dock="bottom" /></PaneMain><PaneDock dock="right" /><PaneDropZone /></PaneShell></>;
+  return <><div className="dhead ag-head" data-tauri-drag-region="" key={`head:${revision}`}>{frame.head}</div><PaneShell><PaneMain><div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={frame.body} />{frame.field}<AgentHints value={frame.hints} /></div><PaneDock dock="bottom" /></PaneMain><PaneDock dock="right" /><PaneDropZone /></PaneShell></>;
 });

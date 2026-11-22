@@ -116,7 +116,7 @@ impl Agents {
             let before = session.see(&main.id, mark);
 
             if before.is_none_or(|before| before.turns != mark.turns) && !said.is_empty() {
-                lines.push(format!("- main chat: {said}"));
+                lines.push(format!("- parent session: {said}"));
             }
         }
 
@@ -163,9 +163,9 @@ fn line(live: &Live, here: &str) -> String {
     let stand = stand.as_ref();
 
     if text.is_empty() {
-        format!("- thread \"{name}\" {id}, {stand}")
+        format!("- agent \"{name}\" {id}, {stand}")
     } else {
-        format!("- thread \"{name}\" {id}, {stand}: {text}")
+        format!("- agent \"{name}\" {id}, {stand}: {text}")
     }
 }
 

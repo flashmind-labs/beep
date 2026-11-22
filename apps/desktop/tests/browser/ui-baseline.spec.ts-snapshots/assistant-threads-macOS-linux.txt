@@ -1,11 +1,11 @@
 body.cbody
-  div.cwin.rail-on [aria-label="Beep" role="main"] style(--side-w)
-    aside#side.cc-side [inert]
+  div.cwin [aria-label="Beep" role="main"] style(--side-w)
+    aside#side.cc-side
       canvas.haze.painted-art [aria-hidden="true" height="225" width="75"]
       div.cc-head
       div.cc-brand
         b "Beep"
-        button.cc-side-toggle [aria-expanded="true" aria-label="Show the sidebar" title="Show the sidebar" type="button"]
+        button.cc-side-toggle [aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar" type="button"]
           span
             svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
       div#side-content.cc-side-list
@@ -19,7 +19,7 @@ body.cbody
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Home"
-          button.cc-si [aria-label="Assistant" title="Assistant" type="button"]
+          button.cc-si [aria-current="true" aria-label="Assistant" title="Assistant" type="button"]
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Assistant"
@@ -38,11 +38,28 @@ body.cbody
                 svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               span.tt "example/"
             div.cc-chat.cc-si.pj-repo
-              button.open [aria-label="example/widget 2" title="example/widget build-box: /srv/project" type="button"]
+              button.open [aria-label="example/gadget 1" title="example/gadget build-box: /srv/example/gadget" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "gadget"
+                span.n "1"
+              button.pa [aria-label="Pin to top" data-id="example/gadget" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="example/widget 1" title="example/widget build-box: /srv/example/widget" type="button"]
                 span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                 span.tt "widget"
-                span.n "2"
+                span.n "1"
               button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            button.cc-org [aria-expanded="true" aria-label="tools/" title="tools/" type="button"]
+              span.open.twist
+                svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+              span.tt "tools/"
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="tools/delta" title="tools/delta build-box: /srv/tools/delta" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "delta"
+              button.pa [aria-label="Pin to top" data-id="tools/delta" type="button"]
                 svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
         div.cc-grp.machines
           h3
@@ -50,10 +67,13 @@ body.cbody
             button [aria-label="Add a machine" title="Add a machine" type="button"]
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
           div style(display)
-            button.cc-si [aria-label="This computer Connecting" title="This computer: Joining your machines" type="button"]
-              span.ddot.off
-              span.tt "This computer"
-              span.mac-state.n "Connecting"
+            button.cc-si [aria-label="build-box 2" title="build-box: 2 agents running" type="button"]
+              span.busy.ddot [title="Online · 2 agents running"]
+              span.tt "build-box"
+              span.n "2"
+            button.cc-si [aria-label="test-box" title="test-box: offline" type="button"]
+              span.ddot.off [title="Offline"]
+              span.tt "test-box"
         div.cc-grp.cc-nav.views
           h3 "Beep"
           div style(display)
@@ -63,68 +83,22 @@ body.cbody
               span.tt "Settings"
               kbd [data-key="⌘,"]
         div.cc-foot
-          span "No machines linked"
+          span "of 2 machines online"
+            span.ddot
+            b "1"
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="300" role="separator" tabindex="0"]
-    aside#rail.cc-rail.pj-list [aria-label="Project sessions"]
-      canvas.lilies.painted-art [aria-hidden="true" height="113" width="75"]
-      div.cc-head
-      div.cc-brand
-        button.dbtn.quiet.rail-back [title="Back to example/widget" type="button"] "example/widget"
-        button.cc-side-toggle [aria-expanded="true" aria-label="Show the sidebar" title="Show the sidebar" type="button"]
-          span
-            svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
-      input.ip-field.rail-filter [aria-label="Filter sessions" placeholder="Filter sessions" spellcheck="false" type="search" value] value=""
-      div.rail-scroll [data-clear="true"]
-        h4 "Running"
-          span.n "2"
-        div.rail-live
-          button.pj-li [aria-current="true" title="First notification" type="button"]
-            span.lead
-              span.cc-ag.codex.mark
-                svg [aria-hidden="true" viewBox="0 0 24 24"]
-            span.t
-              b "First notification"
-              span
-            span.r
-              span.cc-running "now"
-                span.drun [aria-label="Working" role="img"]
-          button.pj-li [title="Second notification" type="button"]
-            span.lead
-              span.cc-ag.codex.mark
-                svg [aria-hidden="true" viewBox="0 0 24 24"]
-            span.t
-              b "Second notification"
-              span
-            span.r
-              span.cc-running "now"
-                span.drun [aria-label="Working" role="img"]
-      div.rail-card
-        button.dbtn.quiet.rail-card-li [type="button"]
-          svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-          span "Pull requests"
-          small
-        button.dbtn.quiet.rail-card-li [type="button"]
-          svg [fill="none" height="13" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-          span "Issues"
-          small "0 open"
-        button.dbtn.quiet.rail-card-li [type="button"]
-          svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-          span "Actions"
-          small
-        button.dbtn.quiet.rail-card-li [type="button"]
-          svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-          span "Machines"
-          small "1/1"
+    aside#rail.cc-rail.pj-list [aria-label="Project sessions" hidden inert]
     div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
-        h2#title "Coding agents"
+        h2#title "Assistant"
         span#scope
-        small#date "Follow it and answer it here"
+        small#date "It works across your machines and projects"
         span#tools.tools
+          button.dbtn.small [type="button"] "All sessions"
         span#usage.us [hidden]
         span#bell.nt
           button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
@@ -136,10 +110,14 @@ body.cbody
         div#view.cc-view
           canvas.haze.painted-art [aria-hidden="true" height="15" width="243"]
           div.cc-mstrip
-            div.m.off [title="This computer: Joining your machines"]
-              span.ddot.off
-              b "This computer"
-              span "Connecting"
+            button.m [type="button"]
+              span.busy.ddot [title="Online · 2 agents running"]
+              b "build-box"
+              span "2 agents"
+            button.m.off [type="button"]
+              span.ddot.off [title="Offline"]
+              b "test-box"
+              span "offline"
           div.cc-tabbar
             div.cc-tabs [role="tablist"]
               button [aria-selected="true" role="tab" type="button"] "Board"
@@ -153,95 +131,60 @@ body.cbody
               div.bd-lane style(flex-grow)
                 h4
                   button [type="button"] "Working"
-                  span "2"
+                  span "1"
                 div.bd-lane.cell style(grid-template-columns)
                   div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
-                    b "First notification"
+                    b "Fix the login redirect"
                     span.sub
                       span.cc-ag.codex.mark
                         svg [aria-hidden="true" viewBox="0 0 24 24"]
                       span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                       span "example/widget · build-box"
                     span.ft
-                      span.cc-running "now"
+                      span.cc-running
                         span.drun [aria-label="Working" role="img"]
+                        span.doing "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
                       span.sp
-                  div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
-                    b "Second notification"
-                    span.sub
-                      span.cc-ag.codex.mark
-                        svg [aria-hidden="true" viewBox="0 0 24 24"]
-                      span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
-                      span "example/widget · build-box"
-                    span.ft
-                      span.cc-running "now"
-                        span.drun [aria-label="Working" role="img"]
-                      span.sp
-              div.bd-lane.empty style(flex-grow)
+              div.bd-lane style(flex-grow)
                 h4 "Ready to review"
-                  span
-                div.bd-lane.cell
+                  span "1"
+                div.bd-lane.cell style(grid-template-columns)
+                  div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
+                    b "Update the changelog"
+                    span.sub
+                      span.cc-ag.codex.mark
+                        svg [aria-hidden="true" viewBox="0 0 24 24"]
+                      span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                      span "example/gadget · build-box"
+                    span.ft "10m ago"
+                      span.sp
+                      button.bd-close.dbtn.quiet.small [type="button"] "Close"
               div.bd-lane.empty.log style(flex-grow)
                 h4
                   button [type="button"] "Done today"
                   span
                 div.bd-log
-      div#pane-box.cc-box
+      div#pane-box.cc-box.picked.pj-split style(--asst-w)
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="agent"]
           div [data-bar-page] style(display)
             div.ag-head.dhead
-              span.codex.dapp.dcoderav.mark
-                svg [aria-hidden="true" viewBox="0 0 24 24"]
+              span.dapp.dcoderav.flsh.mark
+                svg [aria-hidden="true" viewBox="0 0 28 28"]
               span.tt
-                b#agtitle [aria-label="Rename session: Fix the login redirect" role="button" tabindex="0" title="Fix the login redirect Double-click to rename (Enter)"] "Fix the login redirect"
-                small.aglocation [title="/srv/project"]
+                b#agtitle [aria-label="Rename session: Battery chemistries after 2030" role="button" tabindex="0" title="Battery chemistries after 2030 Double-click to rename (Enter)"] "Battery chemistries after 2030"
+                small.aglocation [title="/srv"]
                   span.agfolder
-                    button#agproj.agproj [type="button"] "example/widget"
+                    span#agproj "srv"
                     span#agbranch
                   span "@"
-                  span#aghere
-                    button#agmoveb.mvb [aria-expanded="false" aria-haspopup="menu" title="Move this session to another machine"] "build-box"
-                      svg [fill="none" height="10" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                  span#aghere "build-box"
               small#aguse.aguse [title="Context used / capacity · session tokens · session spend / remaining credits"]
-                span.ctx
-                  i style(--pct)
-                  b "25 %"
-                  em "of 1M"
-                span
-                  b "54.2M"
-                  em "tokens"
-                span
-                  b "$34.90"
               span#agstate
                 span.dstate.run "Working"
               span#agedit.agedit
-            div#agshell.agshell
+            div#agshell.agshell.narrow
               div#agmain.agmain
                 div#agconv.agconv
-                  div.ag-threads
-                    div.cc-sec
-                      h4 "Threads"
-                        span.n "3"
-                      button.dbtn.quiet.small [type="button"] "New thread"
-                    div.bare.cc-line.cc-row [data-key="build-box thread-one"]
-                      button.t [title="Sodium-ion cost curve" type="button"]
-                        b "Sodium-ion cost curve"
-                        span
-                      span.r
-                        span.drun [aria-label="Working" role="img" title="Reading the supply reports"] style(animation-delay)
-                    div.bare.cc-line.cc-row [data-key="build-box thread-two"]
-                      button.t [title="Solid-state timelines" type="button"]
-                        b "Solid-state timelines"
-                        span
-                          span.nt-md "Pilot lines in 2027, no volume before 2030"
-                      span.r
-                        span.dstate "Done"
-                    div.bare.cc-line.cc-row [data-key="build-box thread-three"]
-                      button.t [title="Recycling regulation" type="button"]
-                        b "Recycling regulation"
-                        span "EU only, or US too?"
-                      span.r
-                        span.ask.dstate "Needs you"
                   div.agbodyw
                     div#agbody.dbody
                       div.dagmain
@@ -251,36 +194,14 @@ body.cbody
                           div.agturn [data-find-key="older" hidden]
                           div.agturn [data-find-key="t0"]
                             div style(display)
-                              div.dcoderen.md.user [data-at="0"]
-                                b "You"
-                                div.said
-                                  p "The login page redirects to a blank page after sign in. Find out why and fix it."
-                            div style(display)
-                              div.dcoderturn
-                                button.hd [aria-expanded="false" data-turn="1" title="Show the steps"]
-                                  span "Ran 1 command, read 1 file"
-                                  svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                            div style(display)
-                              div.agent.dcoderen [data-row="3"]
+                              div.agent.dcoderen [data-row="0"]
                                 button.dbtn.quiet.reply-copy.small [aria-label="Copy" title="Copy" type="button"]
                                   svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-                                div.reply-body "The redirect reads `next` before the session cookie is set. - Moved the read after the cookie write - Added a test for the empty `next` case All tests pass."
-                            div style(display)
-                              div.dcoderen.other [data-row="4"] "Switched to thinking medium from the next turn"
-                          div.agturn [data-find-key="t5"]
-                            div style(display)
-                              div.dcoderen.md.user [data-at="5"]
-                                b "You"
-                                div.said
-                                  p "Also keep the query string."
-                            div style(display)
-                              div.agent.dcoderen [data-row="6"]
-                                button.dbtn.quiet.reply-copy.small [aria-label="Copy" title="Copy" type="button"]
-                                  svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-                                div.reply-body "Done. The query string now survives the redirect."
+                                div.reply-body "Three threads are on it. I will merge what they find."
                             div style(display)
                               div.dlive.dthink.live
-                                span.lb [title="Working"] "Working"
+                                span.lb [title="cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"] "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
+                                span.since [data-since="1768471200000"] "2h 0m"
                           div.agspace [hidden] style(height)
                       button#agjump.dagjump [hidden] "Jump to latest"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
@@ -299,12 +220,12 @@ body.cbody
                     input [hidden multiple type="file"] value=""
                     div [data-agent-attachment-slot="true"] style(display)
                     div.cx-layer [aria-hidden="true" hidden]
-                    textarea#agmsg.cx-field [aria-busy="false" autocomplete="off" data-prompt-stash placeholder="Message Codex" rows="1" spellcheck="false"] style(height) value="" (focused)
+                    textarea#agmsg.cx-field [aria-busy="false" autocomplete="off" data-prompt-stash placeholder="Message flsh" rows="1" spellcheck="false"] style(height) value="" (focused)
                     span#agmode
                     span#agmodel
                       button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"]
-                        span.cc-ag.codex.mark
-                          svg [aria-hidden="true" viewBox="0 0 24 24"]
+                        span.cc-ag.flsh.mark
+                          svg [aria-hidden="true" viewBox="0 0 28 28"]
                         span.txt "Model unknown"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                     button#agstop.dbtn [aria-label="Stop the turn" title="Stop main turn (subagents keep running)" type="button"]
@@ -319,7 +240,6 @@ body.cbody
                         kbd "⌘."
                       span "back"
                         kbd "esc"
-                    span.prompt-stash-slot [data-stash-project="example/widget"]
                     details#agshortcuts
                       summary "Show more"
                       div.agkeys-list
@@ -412,8 +332,8 @@ body.cbody
                           svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                     div.agpviews
                 div#agpstrip-bottom.agpstrip.tabs [aria-orientation="horizontal" data-dock="bottom" hidden role="tablist"]
-              div#agdiv-right.agdiv [aria-orientation="vertical" data-dock="right" role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
-              aside#agpane-right.agpane [data-dock="right" tabindex="-1"] style(flex-basis)
+              div#agdiv-right.agdiv [data-dock="right" hidden role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
+              aside#agpane-right.agpane [data-dock="right" hidden tabindex="-1"]
                 div.agpane-content
                   div.agphead
                     div.agtabs [role="tablist"]
@@ -441,34 +361,59 @@ body.cbody
                           input.dcheck [type="checkbox"] value="on" unchecked
                         button.agpbtn [data-frefresh="1" title="Read the folders again"] "↻"
                       div.agtree [aria-busy="false" aria-label="Working files" aria-multiselectable="true" role="tree" tabindex="0"]
-                        div.agtrows style(height)
-                          div#agfile-src.agtr [aria-expanded="false" aria-selected="false" data-ffolder="1" data-fpath="src" data-index="0" draggable="true" role="treeitem" title="src"] style(--d,transform)
-                            span.tw
-                              svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
-                            svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                            span.nm "src"
-                          div#agfile-README.md.agtr [aria-selected="false" data-fpath="README.md" data-index="1" draggable="true" role="treeitem" title="README.md"] style(--d,transform)
-                            span.tw
-                            svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                            span.nm "README.md"
-                          div#agfile-package.json.agtr [aria-selected="false" data-fpath="package.json" data-index="2" draggable="true" role="treeitem" title="package.json"] style(--d,transform)
-                            span.tw
-                            svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                            span.nm "package.json"
-                            span.gm.modified [title="Changed"] "M"
-                          div#agfile-sample.ts.agtr [aria-selected="false" data-fpath="sample.ts" data-index="3" draggable="true" role="treeitem" title="sample.ts"] style(--d,transform)
-                            span.tw
-                            svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                            span.nm "sample.ts"
-                            span.gm.modified [title="Changed"] "M"
+                        div.agpmsg.derr "The machine sent no file listing."
                       div.agpacts
-                        span.meta.mono [title="/srv/project"] "/srv/project"
+                        span.meta.mono [title="/srv"] "/srv"
                         span [data-fstatus="true" role="status"]
                         span.sp
                         span.hint "Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting."
-              div#agpstrip-right.agpstrip.tabs [aria-orientation="vertical" data-dock="right" hidden role="tablist"]
+              div#agpstrip-right.agpstrip.tabs [aria-orientation="vertical" data-dock="right" role="tablist"]
+                button.agtab.on [aria-selected="true" data-mtab="files" role="tab" title="Files" type="button"]
+                  i style(display)
+                    svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                  span "Files"
+                button.agtab [aria-selected="false" data-mtab="changes" role="tab" title="Changes" type="button"]
+                  i style(display)
+                    svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                  span "Changes"
               div#agdropzone.agdropzone [hidden]
-        div.asst-list.pj-list [hidden]
+        div.asst-list.pj-list
+          div.asst-head
+            h4 "Chats"
+              span.n "1"
+            button.dbtn.small [type="button"] "New chat"
+          button.pj-li [aria-current="true" title="Battery chemistries after 2030" type="button"]
+            span.lead
+              span.cc-ag.flsh.mark
+                svg [aria-hidden="true" viewBox="0 0 28 28"]
+            span.t
+              b "Battery chemistries after 2030"
+              span "build-box"
+            span.r
+              span.cc-running "now"
+                span.drun [aria-label="Working" role="img"]
+          div.asst-threads
+            button.pj-li [title="Sodium-ion cost curve" type="button"]
+              span.t
+                b "Sodium-ion cost curve"
+                span
+              span.r
+                span.cc-running "now"
+                  span.drun [aria-label="Working" role="img"]
+            button.pj-li [title="Solid-state timelines" type="button"]
+              span.t
+                b "Solid-state timelines"
+                span
+                  span.nt-md "Pilot lines in 2027, no volume before 2030"
+              span.r "1m ago"
+            button.pj-li [title="Recycling regulation" type="button"]
+              span.t
+                b "Recycling regulation"
+                span "EU only, or US too?"
+              span.r
+                span.chip.wait "needs you"
+            button.dbtn.quiet.small [type="button"] "New thread"
+        div.cc-grip [aria-label="Resize the chats" aria-orientation="vertical" aria-valuemax="560" aria-valuemin="200" aria-valuenow="300" role="separator" tabindex="0"]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

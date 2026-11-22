@@ -426,7 +426,7 @@ async fn a_users_message_to_the_main_chat_says_what_its_threads_came_to() {
     let log = rig.read("top.log");
     assert_eq!(log.matches("<beep-child ").count(), 1, "{log}");
     assert_eq!(log.matches(CHANGES).count(), 1, "{log}");
-    assert!(log.contains("- thread \\\""), "{log}");
+    assert!(log.contains("- agent \\\""), "{log}");
     assert!(log.contains(&format!("{id}, idle: It is done.")), "{log}");
     // The user's words stay as typed: the context goes beside them.
     let (entries, _) = watched::read(&parent.live, |live| live.transcript(usize::MAX));
@@ -466,7 +466,7 @@ async fn a_users_message_to_a_thread_says_what_its_siblings_and_main_came_to() {
     let (own, other) = (Agents::name_of(&first), Agents::name_of(&second));
     let log = rig.read("kid.log");
     assert_eq!(log.matches(CHANGES).count(), 1, "{log}");
-    assert!(log.contains("- main chat: It is done."), "{log}");
+    assert!(log.contains("- parent session: It is done."), "{log}");
     assert!(log.contains(&format!("{other}, idle: It is done.")), "{log}");
     assert!(!log.contains(&format!("{own}, idle")), "{log}");
     rig.agents.shutdown().await;

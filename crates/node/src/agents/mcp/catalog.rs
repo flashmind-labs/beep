@@ -142,7 +142,7 @@ pub(super) fn tools(reviewer: bool, alone: bool, assistant: bool) -> Value {
                 "project": text("A project name; mutually exclusive with cwd"),
                 "cwd": { "type": "string" },
                 "model": text("A model ID from harness_info"),
-                "title": text("A short name, shown as the thread's name"),
+                "title": text("A short name for it, which the user sees"),
                 "wait": { "type": "boolean" },
                 "background": { "type": "boolean" }
             }),

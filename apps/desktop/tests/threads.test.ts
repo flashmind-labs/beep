@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { threadsOf } from "../src/agents/threads-state.ts";
+import { chatOf, threadsOf } from "../src/agents/threads-state.ts";
 import type { AgentSession } from "../src/agents/agents.ts";
 
 let at = 0;
@@ -39,7 +39,7 @@ test("a thread is found by the id its parent's node first listed it under", () =
   assert.deepEqual(ids([row("short1"), row("kid", { parent: under("agent-uuid", "short1") })], row("short1")), ["kid"]);
 });
 
-test("a thread shows its name, how it stands and what it came to", () => {
+test("a thread shows its name and what it asks or came to", () => {
   const main = row("main");
   const question = { id: 1, text: "EU only, or US too?", detail: null, options: [] };
   const rows = [
@@ -51,11 +51,24 @@ test("a thread shows its name, how it stands and what it came to", () => {
     row("e", { parent: under("main"), status: "starting" }),
   ];
 
-  assert.deepEqual(threadsOf(rows, main).map(({ name, state, detail }) => ({ name, state, detail })), [
-    { name: "Sodium-ion cost curve", state: "working", detail: null },
-    { name: "claude", state: "done", detail: { kind: "reply", html: "Pilot lines <b>2027</b>" } },
-    { name: "c", state: "asking", detail: { kind: "question", text: "EU only, or US too?" } },
-    { name: "d", state: "ended", detail: null },
-    { name: "e", state: "working", detail: null },
+  assert.deepEqual(threadsOf(rows, main).map(({ name, detail }) => ({ name, detail })), [
+    { name: "Sodium-ion cost curve", detail: null },
+    { name: "claude", detail: { kind: "reply", html: "Pilot lines <b>2027</b>" } },
+    { name: "c", detail: { kind: "question", text: "EU only, or US too?" } },
+    { name: "d", detail: null },
+    { name: "e", detail: null },
   ]);
+});
+
+test("only an assistant chat and its threads are part of a chat", () => {
+  const chat = row("chat", { assistant: true }), thread = row("thread", { parent: under("chat") });
+  const coder = row("coder"), kid = row("kid", { parent: under("coder") });
+  const rows = [chat, thread, row("deep", { parent: under("thread") }), row("reviewer", { parent: under("chat"), reviewer: true }), coder, kid];
+
+  assert.equal(chatOf(rows, chat), chat);
+  assert.equal(chatOf(rows, thread), chat);
+  assert.equal(chatOf(rows, rows[2]), chat);
+  assert.equal(chatOf(rows, rows[3]), null);
+  assert.equal(chatOf(rows, coder), null);
+  assert.equal(chatOf(rows, kid), null);
 });

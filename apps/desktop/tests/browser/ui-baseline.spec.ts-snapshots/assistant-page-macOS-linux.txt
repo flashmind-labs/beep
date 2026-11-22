@@ -397,6 +397,8 @@ body.cbody
             span.r
               span.cc-running "now"
                 span.drun [aria-label="Working" role="img"]
+          div.asst-threads
+            button.dbtn.quiet.small [type="button"] "New thread"
           button.pj-li [title="Check the open pull requests" type="button"]
             span.lead
               span.cc-ag.claude.mark

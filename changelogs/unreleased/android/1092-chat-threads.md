@@ -1,4 +1,4 @@
 ### Added
 
-- Android: a chat lists its threads above its messages, and a session's menu
-  has "New thread" to start one.
+- Android: the Assistant's list shows each chat's threads under it, and an
+  assistant chat's menu has "New thread" to start one.

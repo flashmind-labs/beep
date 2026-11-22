@@ -1,10 +1,12 @@
-// The Assistant page: the assistant's chats beside the pane, which shows the
-// open chat or the assistant's start composer.
-import { useEffect, useState, useSyncExternalStore } from "react";
+// The Assistant page: the assistant's chats, each with its threads under it,
+// beside the pane, which shows the open chat or thread or the assistant's
+// start composer.
+import { Fragment, type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
 import { createStore, useStore } from "zustand";
-import { AG, type AgentRow } from "./agents.ts";
+import { AG, type AgentRow, type AgentSession } from "./agents.ts";
 import { renderAgentNew } from "./agentnew.tsx";
 import { assistantRows } from "./assistant-state.ts";
+import { chatOf, type ThreadDetail, threadsOf } from "./threads-state.ts";
 import { agentName, runningKey } from "./running-state.ts";
 import { ensureSessions, sessions, sessionsChanged, sessionsRead } from "./sessions.ts";
 import { sessionVisible } from "./closing.ts";
@@ -49,7 +51,7 @@ export function openedChat(row: AgentRow) {
 /// Works out the page from what the pane shows. A chat started from the assistant's composer is
 /// on the page before the session list has it, and the list may hold it a second time as found
 /// outside Beep, which does not say it is the assistant: any row that says so wins, the one the
-/// chat opened with too.
+/// chat opened with too. A chat's thread is on the page as well.
 export function syncAssistantPage() {
   const open = S.view === "agent" ? AG.open : null;
 
@@ -59,7 +61,8 @@ export function syncAssistantPage() {
   const id = { machine_id: open.machine_id, id: open.session };
   const same = (row: AgentRow) => row.machine_id === id.machine_id && row.id === id.id;
   const rows = [...sessions, lastRow, AG.page?.session ?? null].filter((row): row is AgentRow => !!row && same(row));
-  const on = rows.length ? rows.some(row => row.assistant === true && row.reviewer !== true) : !!shell.getState().assistant;
+  const chat = rows.map(row => chatOf(sessions, row)).find(found => !!found);
+  const on = rows.length ? !!chat : !!shell.getState().assistant;
   show(on, true, runningKey(id));
 }
 
@@ -84,7 +87,8 @@ let read = 0;
 sessionsRead.add(() => { read += 1; });
 
 /// The assistant's chats: New chat, then the running ones, then the ended ones under their fold,
-/// with a grip on their right edge.
+/// with a grip on their right edge. A chat's threads are its subitems, oldest first, each with
+/// what it asks or last said; the chat in hand offers a new one.
 export function AssistantList() {
   const on = useStore(shell, s => !!s.assistant), chat = useStore(openChat, s => s.key);
   useSyncExternalStore(subscribeSessions, () => read);
@@ -100,15 +104,25 @@ export function AssistantList() {
   }, [on]);
 
   if (!on) return <div className="pj-list asst-list" hidden />;
-  const { running, ended } = assistantRows(sessions.filter(sessionVisible));
-  const row = (session: typeof running[number]) => <Row key={runningKey(session)} picked={chat} nav={false} openTile={() => {}} item={{
-    key: runningKey(session),
-    lead: <HarnessIcon agent={session.agent} />,
-    title: session.title || agentName(session.agent),
-    sub: session.machine_name,
+  const listed = sessions.filter(sessionVisible);
+  const { running, ended } = assistantRows(listed);
+  const item = (session: AgentSession, title: string, lead: ReactNode, sub: ReactNode) => <Row key={runningKey(session)} picked={chat} nav={false} openTile={() => {}} item={{
+    key: runningKey(session), lead, title, sub,
     right: session.status === "ended" ? formatAgo(session.last_activity, "since") : <RunningStatus row={{ kind: "agent", ...session }} />,
     open: () => goChat(session),
   }} />;
+  const row = (session: AgentSession) => {
+    const threads = threadsOf(listed, session);
+    const inHand = [session, ...threads.map(thread => thread.row)].some(one => runningKey(one) === chat);
+
+    return <Fragment key={runningKey(session)}>
+      {item(session, session.title || agentName(session.agent), <HarnessIcon agent={session.agent} />, session.machine_name)}
+      {(!!threads.length || inHand) && <div className="asst-threads">
+        {threads.map(thread => item(thread.row, thread.name, null, <Detail detail={thread.detail} />))}
+        {inHand && session.status !== "ended" && <Button look="quiet" small onClick={() => newThread(session)}>New thread</Button>}
+      </div>}
+    </Fragment>;
+  };
 
   return <>
     <div className="pj-list asst-list">
@@ -119,6 +133,21 @@ export function AssistantList() {
     </div>
     <WidthGrip column={CHATS} />
   </>;
+}
+
+function Detail({ detail }: { detail: ThreadDetail }) {
+  if (!detail) return null;
+  if (detail.kind === "question") return detail.text;
+  return <span className="nt-md" dangerouslySetInnerHTML={{ __html: detail.html }} />;
+}
+
+/// Starts the message that asks `chat`'s agent for a thread, and opens the chat for the user
+/// to say what the thread is for.
+function newThread(chat: AgentSession) {
+  void import("./messages.ts").then(({ draftNewThread }) => {
+    draftNewThread(chat);
+    if (openChat.getState().key !== runningKey(chat)) goChat(chat);
+  });
 }
 
 /// Opens `session`'s chat on the page, or a new chat.

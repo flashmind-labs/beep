@@ -15,8 +15,13 @@ const same = (a: Pick<AgentSession, "machine_id" | "id">, b: Pick<AgentSession, 
 
 /// The row of the session that started `s`, when the list has it. A parent is
 /// listed under the agent's own id, or the id its node gave it before that.
-export function parentRow(rows: AgentSession[], s: Pick<AgentSession, "machine_id" | "id">): AgentSession | undefined {
-  const p = rows.find(r => same(r, s))?.parent;
+export function parentRow(rows: readonly AgentSession[], s: Pick<AgentSession, "machine_id" | "id">): AgentSession | undefined {
+  return startedBy(rows, rows.find(r => same(r, s)) ?? {});
+}
+
+/// The row of the session `s` names as the one that started it.
+export function startedBy(rows: readonly AgentSession[], s: Partial<Pick<AgentSession, "parent">>): AgentSession | undefined {
+  const p = s.parent;
   if (!p) return undefined;
   return rows.find(r => r.machine_id === p.machine_id && (r.id === p.id || (p.key !== "" && r.id === p.key)));
 }

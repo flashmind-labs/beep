@@ -4,9 +4,7 @@
 import { showUploadPending } from "./composer-ui.tsx";
 import { SessionPicks } from "./agentmodels.ts";
 import { sentText } from "./agentlog.ts";
-import { agentMessage, SessionField, SessionHead, sessionBody, showSessionFrame, updateSessionThreads } from "./session-frame.tsx";
-import { ThreadList } from "./threads-view.tsx";
-import { threadsOf } from "./threads-state.ts";
+import { agentMessage, SessionField, SessionHead, sessionBody, showSessionFrame } from "./session-frame.tsx";
 import { disposeLogShell } from "./log-shell.tsx";
 import { bindSessionStash } from "./stash.ts";
 import { transcriptKey } from "./transcript-cache-state.ts";
@@ -24,14 +22,14 @@ import { MN, activateMentions, currentMentions, rememberMentionImages } from "./
 import { type AgentRow, type AgentPage, type OpenAgent, AG, drawAgents, sessionUsage, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
 import { agentAttachError, drawAgentAttached } from "./images.tsx";
 import { removeLastAttachment } from "./attachments-view.tsx";
-import { keepNativeSession, ensureSessions, loadSessions, sessions, sessionsChanged, sessionsRead } from "./sessions.ts";
+import { keepNativeSession, ensureSessions, loadSessions, sessions, sessionsRead } from "./sessions.ts";
 import { closeSession, shownStatus } from "./closing.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
 import { thinking, drawAgentBody, syncJump, scrolledLog } from "./logview.tsx";
 import { drawModelPill } from "./modelpill.tsx";
 import { readModes } from "./modepill.tsx";
 import { readTasks } from "./tasks.tsx";
-import { disposeQueue, draftNewThread, interruptAgent, readOutbox, sendAgentMessage, steerMessage } from "./messages.ts";
+import { disposeQueue, interruptAgent, readOutbox, sendAgentMessage, steerMessage } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
 import { perfFresh } from "../ui/perf.ts";
@@ -208,8 +206,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   };
   const head = <SessionHead agent={s.agent} {...headText(s)} openProject={project?.open ?? null} windowProps={project ? windowHooks?.projectWindowProps?.(project.name) ?? null : null} cwd={s.cwd} machine={s.machine_name} machineId={s.machine_id} session={s.id} usage={page.usage ? sessionUsage(page.usage) : null} moveKey={agentKey(s)} saveTitle={starting ? null : saveTitle} />;
   const field = <SessionField mode={mode} name={k.name} banner={banner} moveKey={agentKey(s)} machine={s.machine_id} session={s.id} continueHere={continueHere} attach={agentDrop} draft={conversationKey(s)} removeLast={removeLastAttachment} send={submitAgentMessage} stop={() => void interruptAgent()} openParent={openParent} retry={starting && s.status !== "starting" ? () => void retryStart() : null} cancel={() => void closeOpenSession()} />;
-  showSessionFrame({ head, threads: threadList(s), field, body: b, hints: agentHints() }, inPlace, disposeQueue);
-  threadsChanged();
+  showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
   activateMentions(s);
   drawAgentHeading();
   MN.redraw = drawAgentAttached;
@@ -394,19 +391,6 @@ function watchRead(o: OpenAgent) {
     logError(`session view: nothing read for session ${o.session} after ${READ_WATCH_MS / 1000} s ${JSON.stringify({ reading: AG.inflight === o, pending: reading?.open === o ? [...reading.pending] : [], view: S.view, body: !!sessionBody(), ...visibilitySnapshot() })}`);
   }, READ_WATCH_MS);
 }
-
-/// The threads of the open chat `s`, as the sessions last read have them.
-function threadList(s: AgentRow) {
-  return <ThreadList threads={threadsOf(sessions, s)} onOpen={row => openAgent(row, { back: AG.back })} onNew={() => draftNewThread(s)} />;
-}
-
-// The open chat's threads follow the sessions: read again once they may have changed, at most
-// once per `AMBIENT_MS` and only while the chat shows.
-const threadsChanged = ambient(() => ensureSessions().catch(() => undefined), AMBIENT_MS, () => S.view === "agent" && !!AG.open);
-sessionsChanged.add(() => threadsChanged());
-sessionsRead.add(() => {
-  if (S.view === "agent" && AG.open && AG.page) updateSessionThreads(threadList(AG.page.session));
-});
 
 // The open session moved and its new machine lists it: the page follows it there.
 sessionsRead.add(() => {

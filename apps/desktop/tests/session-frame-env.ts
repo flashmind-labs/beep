@@ -12,6 +12,6 @@ export function showSessionBody(field = false) {
   body.id = "agbody";
   Object.defineProperty(body, "clientHeight", { configurable: true, value: 800 });
   const fieldView = field ? createElement(SessionField, { mode: "writable", name: "Claude Code", banner: "", moveKey: "", machine: "build-box", session: "s1", continueHere: null, attach: () => {}, draft: "test", removeLast: () => {}, send: () => {}, stop: () => {}, openParent: () => {}, retry: null, cancel: () => {} }) : null;
-  showSessionFrame({ head: null, threads: null, field: fieldView, body, hints: agentHints() }, false, () => {});
+  showSessionFrame({ head: null, field: fieldView, body, hints: agentHints() }, false, () => {});
   return body;
 }
