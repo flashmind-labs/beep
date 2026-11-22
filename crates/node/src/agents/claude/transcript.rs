@@ -4,6 +4,7 @@
 
 use super::subagents;
 use crate::agents::{
+    compaction::{COMPACTED_ENTRY, summary_note},
     live::{ARTIFACT_TOOL, SKILL_TOOL},
     tool_details,
 };
@@ -21,7 +22,7 @@ use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
-    io::{self, Read, Seek, SeekFrom},
+    io::{self, BufRead, BufReader, Read, Seek, SeekFrom},
     ops::Range,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -189,9 +190,7 @@ impl Digest {
             "assistant" => self.assistant(&value),
             "system" => match value["subtype"].as_str() {
                 Some("turn_duration") => self.turns_ended += 1,
-                Some("compact_boundary") => {
-                    self.push(EntryKind::Compacted, "[conversation compacted]")
-                }
+                Some("compact_boundary") => self.push(EntryKind::Compacted, COMPACTED_ENTRY),
                 _ => {}
             },
             "ai-title" => self.said.title = text_field(&value, "aiTitle"),
@@ -203,9 +202,20 @@ impl Digest {
     }
 
     fn user(&mut self, value: &Value) {
-        if value["isMeta"].as_bool() == Some(true)
-            || value["isCompactSummary"].as_bool() == Some(true)
-        {
+        if value["isCompactSummary"] == true {
+            if let Some(summary) = text_of(&value["message"]["content"]) {
+                if !self.entries.last().is_some_and(|entry| {
+                    entry.kind == EntryKind::Compacted && entry.text == COMPACTED_ENTRY
+                }) {
+                    self.push(EntryKind::Compacted, COMPACTED_ENTRY);
+                }
+                if let Some(entry) = self.entries.last_mut() {
+                    entry.text = summary_note(&summary);
+                }
+            }
+            return;
+        }
+        if value["isMeta"] == true {
             return;
         }
         // Prompts other than the user's own, such as a finished task's notice.
@@ -845,38 +855,32 @@ pub(crate) struct Excerpt {
     pub(crate) pictures: Vec<Picture>,
 }
 
-impl Excerpt {
-    /// Recover history omitted by ACP without duplicating the replay. Prefer
-    /// the longest match, then the newest one when conversations repeat.
-    pub(crate) fn before_replay(mut self, replay: &[Entry]) -> Self {
-        let anchors: Vec<_> = replay.iter().filter_map(anchor).collect();
-        let native: Vec<_> = self
-            .entries
+/// Recover history omitted by ACP without duplicating the replay. Prefer
+/// the longest match, then the newest one when conversations repeat.
+pub(super) fn prefix_len(entries: &[Entry], replay: &[Entry]) -> usize {
+    let anchors: Vec<_> = replay.iter().filter_map(anchor).collect();
+    let native: Vec<_> = entries
+        .iter()
+        .enumerate()
+        .filter_map(|(at, entry)| Some((at, anchor(entry)?)))
+        .collect();
+    if anchors.is_empty() && replay.iter().all(|entry| entry.kind == EntryKind::Other) {
+        entries.len()
+    } else {
+        native
             .iter()
             .enumerate()
-            .filter_map(|(at, entry)| Some((at, anchor(entry)?)))
-            .collect();
-        let keep =
-            if anchors.is_empty() && replay.iter().all(|entry| entry.kind == EntryKind::Other) {
-                self.entries.len()
-            } else {
-                native
+            .filter_map(|(at, (index, _))| {
+                let matched = native[at..]
                     .iter()
-                    .enumerate()
-                    .filter_map(|(at, (index, _))| {
-                        let matched = native[at..]
-                            .iter()
-                            .map(|(_, anchor)| anchor)
-                            .zip(&anchors)
-                            .take_while(|(native, replay)| native.matches(replay))
-                            .count();
-                        (matched > 0).then_some((matched, *index))
-                    })
-                    .max_by_key(|(matched, _)| *matched)
-                    .map_or(0, |(_, at)| at)
-            };
-        self.entries.truncate(keep);
-        self
+                    .map(|(_, anchor)| anchor)
+                    .zip(&anchors)
+                    .take_while(|(native, replay)| native.matches(replay))
+                    .count();
+                (matched > 0).then_some((matched, *index))
+            })
+            .max_by_key(|(matched, _)| *matched)
+            .map_or(0, |(_, at)| at)
     }
 }
 
@@ -888,7 +892,7 @@ enum Anchor {
         truncated: bool,
     },
     Tool(Option<String>, Option<String>),
-    Compacted,
+    Compacted(String),
 }
 
 impl Anchor {
@@ -906,6 +910,12 @@ impl Anchor {
                     ..
                 },
             ) => kind == other_kind && (text == other || (*truncated && other.starts_with(text))),
+            (Self::Compacted(left), Self::Compacted(right)) => {
+                left.is_empty()
+                    || right.is_empty()
+                    || left.starts_with(right)
+                    || right.starts_with(left)
+            }
             _ => self == replay,
         }
     }
@@ -913,6 +923,8 @@ impl Anchor {
 
 fn anchor(entry: &Entry) -> Option<Anchor> {
     match entry.kind {
+        EntryKind::User if entry.text.starts_with("<beep-context>")
+            && tags::parts(&entry.text).iter().all(|part| matches!(part, Part::Context(_))) => None,
         EntryKind::User | EntryKind::Agent | EntryKind::Thought => {
             // ACP streams blocks together; the native reader separates them.
             let text = cut(entry.text.trim(), MAX_ENTRY)
@@ -928,14 +940,20 @@ fn anchor(entry: &Entry) -> Option<Anchor> {
             .tool
             .as_ref()
             .map(|tool| Anchor::Tool(tool.name.clone(), tool.input.clone())),
-        EntryKind::Compacted => Some(Anchor::Compacted),
+        EntryKind::Compacted => Some(Anchor::Compacted(
+            entry
+                .text
+                .split_once('\n')
+                .map_or("", |(_, summary)| summary)
+                .to_owned(),
+        )),
         _ => None,
     }
 }
 
 /// The `last` entries before entry `before` (the end when `None`) of the
 /// transcript at `path`, with the pictures their image lines show. The
-/// file is read as far back as `MAX_WINDOW` once and kept in `kept`, which
+/// file is indexed from its first line and kept in `kept`, which
 /// parses only the lines appended since, so every page counts entries from
 /// the same first one.
 pub(super) fn entries(
@@ -992,9 +1010,7 @@ const CHECKED: u64 = 256;
 /// Parsed transcripts by path, at most `cap`. Each is kept while its file
 /// only grows: an append parses just the new lines, carrying the tool,
 /// subagent and picture state of the lines before, so it reads as a whole
-/// parse of the same text would. A file that shrinks or changes before the
-/// parsed end, or grows past twice `MAX_WINDOW`, is parsed again from its
-/// last `MAX_WINDOW`.
+/// parse of the same text would. A replacement or rewrite rebuilds the index.
 #[derive(Debug)]
 pub(crate) struct Transcripts {
     cap: usize,
@@ -1015,8 +1031,7 @@ type Slot = Arc<Mutex<Option<Parsed>>>;
 #[derive(Debug)]
 struct Parsed {
     digest: Digest,
-    /// Where the parse started and ended: after the last whole line.
-    start: u64,
+    /// Offset after the last complete line.
     end: u64,
     /// The file's length and time when last read, to skip an unchanged one.
     len: u64,
@@ -1091,36 +1106,52 @@ fn refresh(path: &Path, parsed: &mut Option<Parsed>) -> io::Result<()> {
             return Ok(());
         }
 
-        let grows = len >= kept.end && len - kept.start <= 2 * MAX_WINDOW;
-
-        if grows && bytes_before(&mut file, kept.end)? == kept.check {
-            let tail = read_from(&mut file, kept.end, len)?;
-            crate::agents::transcript_stage("read", started);
-            let parsing = Instant::now();
-            kept.digest.lines(&tail.text);
-            crate::agents::transcript_stage("parse", parsing);
-            kept.check = bytes_before(&mut file, tail.end)?;
-            (kept.end, kept.len, kept.modified) = (tail.end, len, modified);
+        if len >= kept.end && bytes_before(&mut file, kept.end)? == kept.check {
+            kept.end = read_lines(&mut file, kept.end, len, &mut kept.digest)?;
+            kept.check = bytes_before(&mut file, kept.end)?;
+            (kept.len, kept.modified) = (len, modified);
             return Ok(());
         }
     }
 
-    let start = len.saturating_sub(MAX_WINDOW);
-    let tail = read_from(&mut file, start, len)?;
-    crate::agents::transcript_stage("read", started);
-    let parsing = Instant::now();
-    let digest = Digest::for_file(path, &tail.text, true);
-    crate::agents::transcript_stage("parse", parsing);
+    let mut digest = Digest::for_file(path, "", true);
+    let end = read_lines(&mut file, 0, len, &mut digest)?;
+    crate::agents::transcript_stage("parse", started);
     *parsed = Some(Parsed {
         digest,
-        start,
-        end: tail.end,
+        end,
         len,
         modified,
         id,
-        check: bytes_before(&mut file, tail.end)?,
+        check: bytes_before(&mut file, end)?,
     });
     Ok(())
+}
+
+/// Index complete JSONL records without buffering the entire file. An unfinished
+/// final record is retried from its first byte on the next refresh.
+fn read_lines(file: &mut File, start: u64, len: u64, digest: &mut Digest) -> io::Result<u64> {
+    file.seek(SeekFrom::Start(start))?;
+    let mut reader = BufReader::new(file.take(len - start));
+    let mut line = Vec::new();
+    let mut end = start;
+    loop {
+        line.clear();
+        let count = reader.read_until(b'\n', &mut line)?;
+        if line.last() != Some(&b'\n') {
+            break;
+        }
+        if let Ok(record) = std::str::from_utf8(&line) {
+            digest.line(record);
+            // Keep image keys in the scrollback. Images::find_in_file reads the
+            // bytes on demand, including pictures near the start of long chats.
+            if let Some(pictures) = &mut digest.pictures {
+                pictures.clear();
+            }
+        }
+        end += count as u64;
+    }
+    Ok(end)
 }
 
 /// The up to `CHECKED` bytes before `end`.
@@ -1311,7 +1342,10 @@ pub(super) mod tests {
                 (EntryKind::Tool, "Bash: cargo test net (failed)"),
                 (EntryKind::Agent, "The test raced the server. Fixed it."),
                 (EntryKind::User, "/compact keep the test names"),
-                (EntryKind::Compacted, "[conversation compacted]"),
+                (
+                    EntryKind::Compacted,
+                    "[conversation compacted]\nThis session is being continued from a previous conversation."
+                ),
                 (EntryKind::User, "now run the whole suite"),
                 (EntryKind::Tool, "Bash: cargo test"),
                 (EntryKind::Agent, "All 42 tests pass now."),

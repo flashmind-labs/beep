@@ -1193,7 +1193,10 @@ impl Actor {
         offered: Offered,
     ) -> Option<End> {
         let earlier = std::mem::take(&mut self.earlier);
-        self.live.send_modify(|live| live.restore_times(&earlier));
+        self.live.send_modify(|live| {
+            live.finish_replay();
+            live.restore_times(&earlier);
+        });
         self.acp_session = Some(session.clone());
         if let Some(state) = self.initial_v2_state.take() {
             self.v2_state(cx, state);

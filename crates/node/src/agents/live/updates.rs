@@ -6,7 +6,11 @@ use super::{
     content::{cut, image_picture, push_cut, replayed, thought_line},
     tools::ToolCall,
 };
-use crate::agents::{compaction::COMPACTED_ENTRY, image_files, images::Picture};
+use crate::agents::{
+    compaction::{CLAUDE_CONTINUATION, COMPACTED_ENTRY, MAX_SUMMARY, summary_note},
+    image_files,
+    images::Picture,
+};
 use agent_client_protocol::{
     schema::MaybeUndefined,
     v1::schema::{
@@ -61,6 +65,13 @@ impl Live {
             {
                 match &chunk.content {
                     ContentBlock::Text(text) => {
+                        if chunk.meta.as_ref().is_some_and(|meta| {
+                            meta.get("isCompactSummary") == Some(&Value::Bool(true))
+                        }) {
+                            self.push_entry(EntryKind::Compacted, summary_note(&text.text));
+                            self.in_message = false;
+                            return self.info.state != before;
+                        }
                         let mut found = Vec::new();
                         let shown = replayed(&text.text, &mut found);
 
@@ -243,9 +254,20 @@ impl Live {
             && let Some(last) = self.transcript.back_mut()
             && last.kind == EntryKind::User
         {
-            push_cut(&mut last.text, text, MAX_ENTRY);
+            if self.info.agent == "claude"
+                && (last.text.contains(CLAUDE_CONTINUATION) || text.contains(CLAUDE_CONTINUATION))
+            {
+                push_cut(&mut last.text, text, MAX_SUMMARY);
+            } else {
+                push_cut(&mut last.text, text, MAX_ENTRY);
+            }
         } else {
-            self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
+            let shown = if self.info.agent == "claude" && text.contains(CLAUDE_CONTINUATION) {
+                cut(text, MAX_SUMMARY)
+            } else {
+                cut(text, MAX_ENTRY)
+            };
+            self.push_entry(EntryKind::User, shown);
             self.in_message = true;
             // A replayed prompt starts a turn.
             self.turn_images.clear();
@@ -258,10 +280,8 @@ impl Live {
         {
             // Claude replays compaction summaries as user messages on restore.
             // Also defer partial prefixes while the message is streaming.
-            const CONTINUATION: &str =
-                "This session is being continued from a previous conversation";
             self.info.title = crate::agents::tags::title(&prompt.text).filter(|title| {
-                !CONTINUATION.starts_with(title) && !title.starts_with(CONTINUATION)
+                !CLAUDE_CONTINUATION.starts_with(title) && !title.starts_with(CLAUDE_CONTINUATION)
             });
         }
     }

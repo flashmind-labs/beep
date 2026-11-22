@@ -115,6 +115,18 @@ fn a_transcript_replays_what_was_said_and_done() {
 }
 
 
+#[test]
+fn replay_marks_a_compaction_summary_from_its_record() {
+    let record = json!({"type": "user", "isCompactSummary": true, "isMeta": true,
+        "message": {"content": "Saved context in another language"}});
+    let replay = updates::message(&record, true);
+    let [SessionUpdate::UserMessageChunk(chunk)] = replay.as_slice() else {
+        panic!("expected the summary");
+    };
+    assert_eq!(chunk.meta.as_ref().unwrap()["isCompactSummary"], true);
+    assert!(updates::message(&record, false).is_empty());
+}
+
 /// The home assistant's session switches off Claude Code's subagent tools
 /// in its `_meta`, which the direct bridge passes as one flag (#1127).
 #[test]

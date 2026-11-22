@@ -14,7 +14,7 @@ const view = (row = session) => ({
 
 test("opening a short transcript page reads all earlier messages without scrolling", async ({ page }) => {
   const active = { ...session, status: "idle", external: false };
-  const entries = [{ kind: "user", text: "Latest prompt" }, { kind: "agent", text: "Latest reply" }];
+  const entries = [{ kind: "other", text: "[conversation compacted]\nEarlier context." }, { kind: "agent", text: "Latest reply" }];
   await openDesktop(page, false, { agent_view: { ...view(active), entries, earlier: 202 } });
   await page.evaluate(() => {
     window.__navigation.holdNext("agent_older");
@@ -39,6 +39,8 @@ test("opening a short transcript page reads all earlier messages without scrolli
   await page.evaluate(() => window.__navigation.release("agent_older"));
   await expect.poll(reads).toEqual([202, 2]);
   await expect(body).toContainText("First prompt");
+  await body.getByText("Context summarized", { exact: true }).click();
+  await expect(body.getByText("Earlier context.", { exact: true })).toBeVisible();
   await expect(body).toContainText("Latest reply");
 });
 

@@ -39,6 +39,13 @@ use tokio::{
     task::spawn_blocking,
 };
 
+#[derive(Clone)]
+pub(super) struct History {
+    path: PathBuf,
+    native: u64,
+    dropped: u64,
+}
+
 impl Agents {
     /// Gives the sessions started from now on the Beep MCP server, as
     /// `launch` starts it. Only the first call counts.
@@ -125,16 +132,10 @@ impl Agents {
         last: usize,
         before: Option<u64>,
     ) -> (Vec<agent::Entry>, u64) {
-        let history = self.claude_history(session).await;
-        let offset = history.len() as u64;
-
-        if offset != 0 && before.is_some_and(|before| before <= offset) {
-            let range = super::window::window(0, history.len(), last, before);
-            return (history[range.clone()].to_vec(), range.start as u64);
-        }
-
-        let before = before.map(|before| before.saturating_sub(offset));
-        let (mut entries, earlier) = self.codex_transcript(session, last, before).await;
+        let history = self.claude_history(session, last, before).await;
+        let (native, dropped) = history.as_ref().map_or((0, 0), |h| (h.native, h.dropped));
+        let live_before = before.map(|end| end.saturating_sub(native).saturating_add(dropped));
+        let (mut entries, earlier) = self.codex_transcript(session, last, live_before).await;
 
         if session.agent == "claude" {
             let (id, calls) = {
@@ -159,65 +160,87 @@ impl Agents {
         }
 
         mcp::children::show_children(self, session, &mut entries);
-        let retained = if earlier == 0 {
-            last.saturating_sub(entries.len()).min(history.len())
-        } else {
-            0
-        };
-        if retained == 0 {
-            return (entries, offset + earlier);
+        let start = native + earlier.saturating_sub(dropped);
+        if let Some(history) = history
+            && earlier == dropped
+            && entries.len() < last
+        {
+            let end = before.unwrap_or(native).min(native);
+            if end > 0 {
+                match self
+                    .external
+                    .page(history.path, last - entries.len(), Some(end))
+                    .await
+                {
+                    Ok(mut page) => {
+                        page.entries.extend(entries);
+                        return (page.entries, page.earlier);
+                    }
+                    Err(error) => log::warn!("native history page not recovered: {error:#}"),
+                }
+            } else if entries.is_empty() {
+                return (entries, 0);
+            }
         }
 
-        let mut joined = history[history.len() - retained..].to_vec();
-        joined.extend(entries);
-
-        (joined, offset + earlier - retained as u64)
+        (entries, start)
     }
 
-    /// ACP replays can start after a compaction or a missing parent record.
-    /// Keep the available native prefix without changing live tool positions.
-    async fn claude_history<'a>(&self, session: &'a Session) -> &'a [agent::Entry] {
-        let Some(history) = &session.history else {
-            return &[];
-        };
-        let id = watched::read(&session.live, |live| {
-            (live.status() != Status::Starting)
-                .then(|| live.agent_session.clone())
-                .flatten()
+    async fn claude_history(
+        &self,
+        session: &Session,
+        last: usize,
+        before: Option<u64>,
+    ) -> Option<History> {
+        let mut cached = session.history.as_ref()?.lock().await;
+        let (id, (dropped, retained)) = watched::read(&session.live, |live| {
+            (
+                live.agent_session
+                    .clone()
+                    .filter(|_| live.status() != Status::Starting),
+                live.retained_range(),
+            )
         });
-        let Some(id) = id else {
-            return &[];
-        };
-
-        match history
-            .get_or_try_init(|| async {
-                let Some(read) = self
-                    .external
-                    .transcript(&id, super::live::MAX_ENTRIES, None)
-                    .await?
-                else {
-                    anyhow::bail!("native transcript not found");
-                };
-                let (replay, earlier) = watched::read(&session.live, |live| {
-                    live.transcript_before(usize::MAX, None)
-                });
-                let mut read = read.before_replay(&replay);
-                if earlier != 0 {
-                    read.entries.clear();
-                }
-
-                for picture in read.pictures {
-                    self.images.keep(&id, picture);
-                }
-
-                Ok::<_, anyhow::Error>(read.entries)
-            })
-            .await
+        let id = id?;
+        // Fresh sessions have a private handle until the agent assigns an id.
+        // Their entire conversation is already live until the first eviction.
+        if session.id != id && dropped == 0 {
+            return None;
+        }
+        if let Some(history) = cached
+            .as_ref()
+            .filter(|h| h.dropped == dropped || (before.is_none() && last <= retained))
         {
-            Ok(history) => history,
+            return Some(history.clone());
+        }
+
+        // Realign after live entries were evicted only when a page needs disk
+        // history. Newest-page polls can keep their existing position.
+        let result: Result<History> = async {
+            let path = self
+                .external
+                .file(&id)
+                .await?
+                .context("native transcript not found")?;
+            let (replay, dropped) = watched::read(&session.live, |live| {
+                live.transcript_before(usize::MAX, None)
+            });
+            let native = self.external.prefix_len(path.clone(), replay).await?;
+            Ok(History {
+                path,
+                native,
+                dropped,
+            })
+        }
+        .await;
+        match result {
+            Ok(history) => {
+                *cached = Some(history.clone());
+                Some(history)
+            }
             Err(error) => {
                 log::warn!("native history not recovered: {error:#}");
-                &[]
+                None
             }
         }
     }

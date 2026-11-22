@@ -22,6 +22,20 @@ use std::collections::BTreeMap;
 pub(super) const COMPACT_PROMPT: &str = "/compact";
 /// What the transcript shows for a compaction, as Claude Code's reader does.
 pub(super) const COMPACTED_ENTRY: &str = "[conversation compacted]";
+/// Upper bound for a summary carried in one chat entry.
+pub(super) const MAX_SUMMARY: usize = 128 * 1024;
+pub(super) const CLAUDE_CONTINUATION: &str =
+    "This session is being continued from a previous conversation";
+
+pub(super) fn summary_note(text: &str) -> String {
+    let summary = text
+        .split_once("\nSummary:\n")
+        .map_or(text, |(_, summary)| summary);
+    format!(
+        "{COMPACTED_ENTRY}\n{}",
+        super::text::cut_str(summary.trim(), MAX_SUMMARY)
+    )
+}
 
 /// Whether and when the node compacts a harness's sessions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

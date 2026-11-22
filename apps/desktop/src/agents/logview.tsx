@@ -454,7 +454,10 @@ function entryRows(en: AgentEntry, at: number): TranscriptRow[] {
   if (en.kind === "user") return userRows(en, at);
   if (en.kind === "agent") return agentReply(en, at);
   if (en.kind === "tool") return toolRows(en, at);
-  if (en.kind === "other" && en.text.trim() === "[conversation compacted]") return [{ kind: "note", id: `compacted:${at}`, at, value: { kind: "compacted" } }];
+  const marker = "[conversation compacted]";
+  if (en.kind === "other" && (en.text.trim() === marker || en.text.startsWith(marker + "\n"))) {
+    return [{ kind: "note", id: `compacted:${at}`, at, value: { kind: "compacted", summary: en.text.slice(marker.length).trim() || null } }];
+  }
   // The files a turn's commands made: one file as "Made x.md", several as a
   // folded "Made 11 files" that opens to their names by kind.
   const files = AG.page ? madeFiles(en.text, AG.page.session.cwd) : null;

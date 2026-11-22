@@ -666,8 +666,15 @@ test("narrow window folds the right pane to its tabs, which open it over the con
 });
 
 test("agent session transcript", async ({ page }) => {
-  await openAgent(page);
+  const summary = "The redirect now preserves the query string.";
+  const entries = [{ kind: "other", text: `[conversation compacted]\n${summary}` }, ...transcript];
+  await openAgent(page, { agent_view: { ...agentView, usage: sessionUsage, entries } });
+  const marker = page.getByText("Context summarized", { exact: true });
+  await expect(marker).toBeVisible();
+  await expect(page.getByText(summary, { exact: true })).toBeHidden();
   await baseline(page, "agent-transcript");
+  await marker.click();
+  await expect(page.getByText(summary, { exact: true })).toBeVisible();
 });
 
 test("agent composer with a draft", async ({ page }) => {

@@ -66,10 +66,20 @@ pub(super) fn message(line: &Value, replay: bool) -> Vec<SessionUpdate> {
                 .filter(|block| block["type"] == "tool_result")
                 .filter_map(tool_result)
                 .collect();
-            let said = replay && main && updates.is_empty() && line["isMeta"] != true;
+            let said = replay
+                && main
+                && updates.is_empty()
+                && (line["isMeta"] != true || line["isCompactSummary"] == true);
 
             if said && let Some(text) = text(&user_text(content)) {
-                updates.push(SessionUpdate::UserMessageChunk(chunk(text)));
+                let mut replayed = chunk(text);
+                if line["isCompactSummary"] == true {
+                    replayed = replayed.meta(Meta::from_iter([(
+                        "isCompactSummary".to_owned(),
+                        json!(true),
+                    )]));
+                }
+                updates.push(SessionUpdate::UserMessageChunk(replayed));
             }
 
             updates

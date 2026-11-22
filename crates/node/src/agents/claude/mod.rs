@@ -306,10 +306,32 @@ impl External {
         let Some(path) = self.file(id).await? else {
             return Ok(None);
         };
+        Ok(Some(self.page(path, last, before).await?))
+    }
+
+    /// Number of native entries before the first retained replay entry.
+    pub(super) async fn prefix_len(
+        &self,
+        path: PathBuf,
+        replay: Vec<beep_proto::node::agent::Entry>,
+    ) -> Result<u64> {
         let kept = self.transcripts.clone();
-        let read =
-            spawn_blocking(move || transcript::entries(&path, last, before, &kept)).await??;
-        Ok(Some(read))
+        Ok(spawn_blocking(move || {
+            kept.with(&path, |digest| {
+                transcript::prefix_len(&digest.entries, &replay) as u64
+            })
+        })
+        .await??)
+    }
+
+    pub(super) async fn page(
+        &self,
+        path: PathBuf,
+        last: usize,
+        before: Option<u64>,
+    ) -> Result<Excerpt> {
+        let kept = self.transcripts.clone();
+        Ok(spawn_blocking(move || transcript::entries(&path, last, before, &kept)).await??)
     }
 
     /// Session `id`'s transcript file, when there is one.

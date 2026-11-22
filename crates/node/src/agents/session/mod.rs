@@ -39,7 +39,7 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::{OnceCell, mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::task::AbortOnDropHandle;
 
 mod actor;
@@ -175,8 +175,8 @@ pub(super) struct Session {
     pub(super) agent: String,
     orders: mpsc::Sender<Order>,
     pub(super) live: watch::Receiver<Live>,
-    /// Native history before the adapter's replay, read once for a resumed Claude session.
-    pub(super) history: Option<OnceCell<Vec<Entry>>>,
+    /// Where the retained live replay begins in Claude's saved transcript.
+    pub(super) history: Option<crate::AsyncMutex<Option<super::running::History>>>,
     moved_cwd: Mutex<Option<String>>,
     /// A temporary reviewer (`agents::reviews`): never listed, never kept
     /// over a restart, offered `submit_review`.
@@ -448,7 +448,7 @@ impl Session {
         first.agent_session = resume.clone();
         let (live_tx, live) = watch::channel(first);
         let (orders, orders_rx) = mpsc::channel(ORDERS);
-        let history = (resume.is_some() && kind.name == "claude").then(OnceCell::new);
+        let history = (kind.name == "claude").then(Default::default);
         let actor = Actor {
             live: live_tx,
             alerts,
