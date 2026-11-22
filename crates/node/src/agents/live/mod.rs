@@ -3,7 +3,7 @@
 //! transcript, which stays here.
 
 use super::{acp::Prompt, images::Images, usage::UsageHub};
-use agent_client_protocol::v1::schema::{CompactionId, ToolCallId, ToolKind};
+use agent_client_protocol::v1::schema::{CompactionId, MessageId, ToolCallId, ToolKind};
 use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{AgentCommand, Effort, Entry, SessionInfo},
@@ -105,6 +105,9 @@ pub(crate) struct Live {
     pub(crate) orphaned_subagents: bool,
     /// The last agent message is still arriving in chunks.
     in_message: bool,
+    /// The agent's id for the last message, when it gives one: a new id
+    /// starts a new message, such as a turn the agent started on its own.
+    message_id: Option<MessageId>,
     /// The first replayed prompt is still arriving in chunks and names a
     /// session the agent has not named.
     naming: bool,

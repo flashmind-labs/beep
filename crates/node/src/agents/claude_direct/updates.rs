@@ -4,7 +4,7 @@
 //! replays its transcript through the same mapping.
 
 use agent_client_protocol::v1::schema::{
-    ContentBlock, ContentChunk, Cost, Diff, Meta, SessionUpdate, StopReason, TextContent, ToolCall,
+    ContentBlock, ContentChunk, Cost, Diff, Meta, MessageId, SessionUpdate, StopReason, TextContent, ToolCall,
     ToolCallContent, ToolCallId, ToolCallLocation, ToolCallStatus, ToolCallUpdate,
     ToolCallUpdateFields, ToolKind, Usage, UsageUpdate,
 };
@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 /// The text or thinking a `stream_event` frame streams of the main agent's
-/// message; a subagent's stays in its own tool call.
-pub(super) fn delta(frame: &Value) -> Option<SessionUpdate> {
+/// message `message`; a subagent's stays in its own tool call.
+pub(super) fn delta(frame: &Value, message: Option<&str>) -> Option<SessionUpdate> {
     if !frame["parent_tool_use_id"].is_null() {
         return None;
     }
@@ -22,7 +22,9 @@ pub(super) fn delta(frame: &Value) -> Option<SessionUpdate> {
     let streamed = |key: &str| delta[key].as_str().filter(|text| !text.is_empty());
     match (frame["event"]["type"].as_str(), delta["type"].as_str()) {
         (Some("content_block_delta"), Some("text_delta")) => {
-            Some(SessionUpdate::AgentMessageChunk(chunk(streamed("text")?)))
+            Some(SessionUpdate::AgentMessageChunk(
+                chunk(streamed("text")?).message_id(message.map(MessageId::new)),
+            ))
         }
         (Some("content_block_delta"), Some("thinking_delta")) => Some(
             SessionUpdate::AgentThoughtChunk(chunk(streamed("thinking")?)),
@@ -39,13 +41,14 @@ pub(super) fn message(line: &Value, replay: bool) -> Vec<SessionUpdate> {
     let content = &line["message"]["content"];
     let blocks = content.as_array().map(Vec::as_slice).unwrap_or_default();
     let main = parent.is_none() && line["isSidechain"] != true;
+    let id = line["message"]["id"].as_str().map(MessageId::new);
 
     match line["type"].as_str() {
         Some("assistant") => blocks
             .iter()
             .filter_map(|block| match block["type"].as_str()? {
                 "text" if replay && main => text(block["text"].as_str()?)
-                    .map(|text| SessionUpdate::AgentMessageChunk(chunk(text))),
+                    .map(|text| SessionUpdate::AgentMessageChunk(chunk(text).message_id(id.clone()))),
                 "thinking" if replay && main => text(block["thinking"].as_str()?)
                     .map(|text| SessionUpdate::AgentThoughtChunk(chunk(text))),
                 "tool_use" => Some(SessionUpdate::ToolCall(tool_call(

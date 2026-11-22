@@ -194,6 +194,8 @@ struct Session {
     context: u64,
     /// The messages of this turn whose text came as stream deltas.
     streamed: HashSet<String>,
+    /// The main agent's message streaming now.
+    message: Option<String>,
 }
 
 impl Session {
@@ -418,6 +420,7 @@ impl Bridge {
             cancelled: false,
             context: 0,
             streamed: HashSet::new(),
+            message: None,
         });
         session.controls.insert(request, Control::Initialize(start));
         log::info!("Claude Code started on session {id} in {}", cwd.display());
@@ -446,9 +449,12 @@ impl Bridge {
             Some("stream_event") => {
                 if let Some(id) = frame["event"]["message"]["id"].as_str() {
                     session.streamed.insert(id.to_owned());
+                    if frame["parent_tool_use_id"].is_null() {
+                        session.message = Some(id.to_owned());
+                    }
                 }
 
-                if let Some(update) = updates::delta(&frame) {
+                if let Some(update) = updates::delta(&frame, session.message.as_deref()) {
                     notify(cx, &session.id, update)?;
                 }
             }

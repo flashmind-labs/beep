@@ -10,7 +10,7 @@ use crate::agents::{compaction::COMPACTED_ENTRY, image_files, images::Picture};
 use agent_client_protocol::{
     schema::MaybeUndefined,
     v1::schema::{
-        AvailableCommandInput, CompactionStatus, CompactionUpdate, ContentBlock, PlanEntryStatus,
+        AvailableCommandInput, CompactionStatus, CompactionUpdate, ContentBlock, MessageId, PlanEntryStatus,
         SessionUpdate, ToolCallStatus, ToolKind,
     },
 };
@@ -45,7 +45,7 @@ impl Live {
         }
         match update {
             SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
-                ContentBlock::Text(text) => self.message_chunk(&text.text),
+                ContentBlock::Text(text) => self.message_chunk(&text.text, chunk.message_id.as_ref()),
                 ContentBlock::Image(image) => {
                     if let Some(picture) = image_picture(image) {
                         self.agent_image(picture);
@@ -579,8 +579,14 @@ impl Live {
         }
     }
 
-    fn message_chunk(&mut self, text: &str) {
+    fn message_chunk(&mut self, text: &str, id: Option<&MessageId>) {
+        let same_message = id.is_none_or(|id| self.message_id.as_ref() == Some(id));
+        if let Some(id) = id {
+            self.message_id = Some(id.clone());
+        }
+
         if self.in_message
+            && same_message
             && let Some(last) = self.transcript.back_mut()
             && last.kind == EntryKind::Agent
         {

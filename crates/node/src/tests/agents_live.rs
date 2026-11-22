@@ -313,6 +313,24 @@ fn a_tool_result_image_shows_on_its_tool_and_goes_to_the_server() {
 }
 
 #[test]
+fn a_turn_the_agent_starts_on_its_own_is_a_new_message() {
+    let mut live = live();
+    let chunk = |id: &str, text: &str| {
+        update(json!({"sessionUpdate": "agent_message_chunk", "messageId": id,
+            "content": {"type": "text", "text": text}}))
+    };
+    live.prompted("watch it");
+    live.apply(&chunk("msg_1", "Still "));
+    live.apply(&chunk("msg_1", "running."));
+    // A background task woke the agent: no prompt, a new message.
+    live.apply(&chunk("msg_2", "Done."));
+
+    let (entries, _) = live.transcript(10);
+    let said: Vec<&str> = entries.iter().map(|entry| entry.text.as_str()).collect();
+    assert_eq!(said, ["watch it", "Still running.", "Done."]);
+}
+
+#[test]
 fn a_turn_names_the_image_files_it_mentioned_and_wrote() {
     let mut live = live();
     live.apply(&update(json!({"sessionUpdate": "agent_message_chunk",
