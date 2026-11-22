@@ -72,3 +72,23 @@ test("only an assistant chat and its threads are part of a chat", () => {
   assert.equal(chatOf(rows, coder), null);
   assert.equal(chatOf(rows, kid), null);
 });
+
+test("a thread listed without its parent link is placed by its folder", () => {
+  const chat = row("chat", { assistant: true, cwd: "/srv/.beep/assistant/k3f9" });
+  const thread = row("thread", { cwd: "/srv/.beep/assistant/k3f9/custody", status: "ended" });
+  const windows = row("win", { assistant: true, machine_id: "m2", cwd: "C:\\Users\\user\\.beep\\assistant\\p7m1" });
+  const theirs = row("theirs", { machine_id: "m2", cwd: "C:\\Users\\user\\.beep\\assistant\\p7m1\\prices" });
+  const rows = [
+    chat, thread, windows, theirs,
+    row("elsewhere", { machine_id: "m2", cwd: "/srv/.beep/assistant/k3f9/custody" }),
+    row("deeper", { cwd: "/srv/.beep/assistant/k3f9/custody/data" }),
+    row("project", { assistant: true, cwd: "/srv/project" }),
+    row("coder", { cwd: "/srv/project/app" }),
+  ];
+
+  assert.deepEqual(ids(rows, chat), ["thread"]);
+  assert.deepEqual(ids(rows, windows), ["theirs"]);
+  assert.equal(chatOf(rows, thread), chat);
+  assert.equal(chatOf(rows, rows[7]), null);
+  assert.deepEqual(ids(rows, rows[6]), []);
+});

@@ -19,12 +19,20 @@ export function parentRow(rows: readonly AgentSession[], s: Pick<AgentSession, "
   return startedBy(rows, rows.find(r => same(r, s)) ?? {});
 }
 
-/// The row of the session `s` names as the one that started it.
-export function startedBy(rows: readonly AgentSession[], s: Partial<Pick<AgentSession, "parent">>): AgentSession | undefined {
+/// The row of the session that started `s`: the one it names, else the assistant chat whose
+/// folder holds its own. A thread listed from its agent's files, once it ended and its node
+/// started again, names no parent, and its folder still says whose it is.
+export function startedBy(rows: readonly AgentSession[], s: Partial<Pick<AgentSession, "parent" | "machine_id" | "cwd">>): AgentSession | undefined {
   const p = s.parent;
-  if (!p) return undefined;
-  return rows.find(r => r.machine_id === p.machine_id && (r.id === p.id || (p.key !== "" && r.id === p.key)));
+  if (p) return rows.find(r => r.machine_id === p.machine_id && (r.id === p.id || (p.key !== "" && r.id === p.key)));
+  const chat = THREAD_FOLDER.exec(s.cwd ?? "")?.[1];
+
+  return chat ? rows.find(r => r.assistant && r.machine_id === s.machine_id && r.cwd === chat) : undefined;
 }
+
+/// A thread's folder, right under its conversation's (`.beep/assistant/<id>` in the home
+/// folder, as the node makes them), which it captures.
+const THREAD_FOLDER = /^(.*[\\/]\.beep[\\/]assistant[\\/][^\\/]+)[\\/][^\\/]+$/;
 
 /// `rows` with each child right under its parent, in the order the list had
 /// them: a child is not a top-level row. A child whose parent is not listed
