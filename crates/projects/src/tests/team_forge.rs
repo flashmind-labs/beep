@@ -65,6 +65,10 @@ fn calls_use_the_gh_and_teacli_api_shapes() {
 
     assert_eq!(words(&user_call(&github())), ["api", "user"]);
     assert_eq!(
+        words(&repo_call(&github(), &repo())),
+        ["api", "repos/acme/widget"]
+    );
+    assert_eq!(
         words(&issue_call(&forgejo(), &repo(), 7)),
         [
             "api",

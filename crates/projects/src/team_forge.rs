@@ -127,6 +127,11 @@ fn status_of(stderr: &str) -> Option<&'static str> {
     tokens.find_map(|token| ["403", "404"].into_iter().find(|status| *status == token))
 }
 
+/// `GET repos/{repo}`: whether the signed-in account sees the repository.
+pub fn repo_call(host: &IssueHost, repo: &RepoName) -> ForgeCall {
+    ForgeCall::api(host, format!("repos/{repo}"), &[])
+}
+
 /// `GET user`, the signed-in account.
 pub fn user_call(host: &IssueHost) -> ForgeCall {
     ForgeCall::api(host, "user".to_owned(), &[])

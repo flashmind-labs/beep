@@ -17,7 +17,7 @@ use beep_projects::{
     model::{IssueHost, RepoName},
     team_forge::{
         ForgeCall, assigned_issues_call, collaborator_answer, collaborator_call, open_issues_call,
-        branch_pulls_call, parse_user_login, permission_answer, permission_call, user_call,
+        branch_pulls_call, parse_user_login, permission_answer, permission_call, repo_call, user_call,
     },
 };
 use beep_proto::{
@@ -383,15 +383,28 @@ impl TeamForge for ForgeCli {
                 String::from_utf8_lossy(&out.stderr),
             );
             let answer = permission_answer(out.status.success(), &stdout, &stderr);
+            let pushes = match answer.map_err(|e| e.to_string())? {
+                Some(pushes) => pushes,
+                None => {
+                    let out = run(&collaborator_call(&host, &name, login), &name).await?;
+                    let stderr = String::from_utf8_lossy(&out.stderr);
 
-            if let Some(pushes) = answer.map_err(|e| e.to_string())? {
-                return Ok(pushes);
+                    collaborator_answer(out.status.success(), &stderr).map_err(|e| e.to_string())?
+                }
+            };
+
+            // A 404 is also what a repository this account cannot see gives, as
+            // after its own access changed: it judges no one then.
+            if !pushes {
+                let out = run(&repo_call(&host, &name), &name).await?;
+
+                if !out.status.success() {
+                    let said = String::from_utf8_lossy(&out.stderr);
+                    return Err(format!("This account cannot see {repo}: {}", tail(&said)));
+                }
             }
 
-            let out = run(&collaborator_call(&host, &name, login), &name).await?;
-            let stderr = String::from_utf8_lossy(&out.stderr);
-
-            collaborator_answer(out.status.success(), &stderr).map_err(|e| e.to_string())
+            Ok(pushes)
         })
     }
 
