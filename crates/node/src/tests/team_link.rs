@@ -589,6 +589,35 @@ async fn join_cannot_claim_a_member() {
     assert!(pair.inviter_pending().is_empty());
 }
 
+/// A joiner takes a roster only when its own entry is the one it sent.
+#[tokio::test]
+async fn a_joiner_refuses_a_roster_that_changes_its_own_entry() {
+    let pair = Pair::new(SystemTime::now() + DAY).await;
+    let mesh = pair.joiner.with(|teams| teams.home.mesh).unwrap();
+    let device = pair.joiner.with(|teams| teams.home.devices(&repo()))[0].id;
+    let sent = crate::team::join::Sent {
+        login: login("bob"),
+        mesh,
+        devices: vec![EndpointAddr::new(device)],
+    };
+    let alice = member("alice", pair.alice_mesh, pair.inviter_id);
+    let check = |bob: Member| {
+        let members = vec![alice.clone(), bob];
+        let joiner = pair.joiner.clone();
+        let sent = &sent;
+        let inviter = pair.inviter_id;
+        async move {
+            joiner
+                .check_roster(&repo(), &members, inviter, sent)
+                .await
+        }
+    };
+
+    assert!(check(member("bob", mesh, device)).await.is_ok());
+    assert!(check(member("carol", mesh, device)).await.is_err());
+    assert!(check(member("bob", mesh, mesh_id())).await.is_err());
+}
+
 #[tokio::test]
 async fn join_from_own_mesh_or_for_other_devices_is_refused() {
     let pair = Pair::new(SystemTime::now() + DAY).await;

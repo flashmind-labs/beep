@@ -21,6 +21,7 @@ use beep_proto::{
 use futures::future::try_join_all;
 use iroh::{EndpointAddr, EndpointId};
 use std::{
+    collections::BTreeSet,
     future::Future,
     path::Path,
     time::{Duration, SystemTime},
@@ -42,6 +43,13 @@ const GIT_LIMIT: Duration = Duration::from_secs(20);
 pub(super) struct Join {
     pub(super) secret: [u8; 32],
     pub(super) repo: TeamRepo,
+    pub(super) login: ForgeLogin,
+    pub(super) mesh: EndpointId,
+    pub(super) devices: Vec<EndpointAddr>,
+}
+
+/// What the joiner sent in its `Join`: the entry it takes on the team.
+pub(super) struct Sent {
     pub(super) login: ForgeLogin,
     pub(super) mesh: EndpointId,
     pub(super) devices: Vec<EndpointAddr>,
@@ -91,15 +99,13 @@ impl TeamLink {
             .map_err(TeamError::Forge)?;
         let (mesh, devices) =
             self.with(|teams| (teams.home.mesh, teams.home.devices(&ticket.repo)));
-        let join = TeamMsg::Join {
-            secret: *ticket.secret.as_bytes(),
-            repo: ticket.repo.clone(),
+        let sent = Sent {
             login,
             mesh: mesh.ok_or(TeamError::NoMesh)?,
             devices,
         };
 
-        timeout(JOIN_LIMIT, self.joining(ticket, join, checkout, remote))
+        timeout(JOIN_LIMIT, self.joining(ticket, &sent, checkout, remote))
             .await
             .map_err(|_| TeamError::TimedOut)?
     }
@@ -107,11 +113,18 @@ impl TeamLink {
     async fn joining(
         &self,
         ticket: TeamTicket,
-        join: TeamMsg,
+        sent: &Sent,
         checkout: &Path,
         remote: &str,
     ) -> Result<TeamRecord, TeamError> {
         let repo = ticket.repo;
+        let join = TeamMsg::Join {
+            secret: *ticket.secret.as_bytes(),
+            repo: repo.clone(),
+            login: sent.login.clone(),
+            mesh: sent.mesh,
+            devices: sent.devices.clone(),
+        };
         let (mut tx, mut rx) = self.dial(&[EndpointAddr::new(ticket.inviter)]).await?;
         tx.send(&join).await?;
 
@@ -129,7 +142,8 @@ impl TeamLink {
 
         match rx.recv().await? {
             Some(TeamMsg::Roster { repo: of, members }) if of == repo => {
-                self.check_roster(&repo, &members, ticket.inviter).await?;
+                self.check_roster(&repo, &members, ticket.inviter, sent)
+                    .await?;
                 Ok(TeamRecord::new(repo, members))
             }
             other => Err(unexpected(other)),
@@ -137,28 +151,36 @@ impl TeamLink {
     }
 
     /// Checks the roster the inviter answered with before taking it, as a
-    /// member checks a newcomer: the inviter and this mesh are on it, every
-    /// entry keeps the rules, and the forge says every member of another
-    /// mesh may push.
-    async fn check_roster(
+    /// member checks a newcomer: the inviter and this mesh are on it, this
+    /// mesh's entry is the one `sent`, every entry keeps the rules, and the
+    /// forge says every member of another mesh may push.
+    pub(super) async fn check_roster(
         &self,
         repo: &TeamRepo,
         members: &[Member],
         inviter: EndpointId,
+        sent: &Sent,
     ) -> Result<(), TeamError> {
-        let own = self.with(|teams| teams.home.mesh);
         let names_inviter = members
             .iter()
             .any(|member| member.devices.iter().any(|device| device.id == inviter));
+        let mut own = members.iter().filter(|member| member.mesh == sent.mesh);
+        let ids = |devices: &[EndpointAddr]| -> BTreeSet<EndpointId> {
+            devices.iter().map(|device| device.id).collect()
+        };
+        let own_as_sent = own.next().is_some_and(|entry| {
+            entry.login == sent.login && ids(&entry.devices) == ids(&sent.devices)
+        }) && own.next().is_none();
 
-        if !names_inviter || !members.iter().any(|member| Some(member.mesh) == own) {
+        if !names_inviter || !own_as_sent {
             return Err(TeamError::Refused(
-                "The inviter's roster does not name the inviter and this mesh".to_owned(),
+                "The inviter's roster does not name the inviter and this mesh as it joined"
+                    .to_owned(),
             ));
         }
 
         vet_roster(repo, members).map_err(|refusal| TeamError::Refused(refusal.to_string()))?;
-        let others = members.iter().filter(|member| Some(member.mesh) != own);
+        let others = members.iter().filter(|member| member.mesh != sent.mesh);
         try_join_all(others.map(|member| self.vouch(repo, &member.login)))
             .await
             .map_err(TeamError::Refused)?;
