@@ -177,7 +177,9 @@ body.cbody
                     span#agproj "ab12cd"
                     span#agbranch
                   span "@"
-                  span#aghere "build-box"
+                  span#aghere
+                    button#agmoveb.mvb [aria-expanded="false" aria-haspopup="menu" title="Move this session to another machine"] "build-box"
+                      svg [fill="none" height="10" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               small#aguse.aguse [title="Context used / capacity · session tokens · session spend / remaining credits"]
               span#agstate
                 span.dstate.run "Working"
