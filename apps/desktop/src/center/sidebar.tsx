@@ -24,12 +24,13 @@ import { ALL } from "../terminals/terminals.tsx";
 import { state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
 import { stuck, draw } from "./home.tsx";
 import { allTerms } from "../terminals/view.tsx";
-import { currentLocation, go, drawTop, windowProject } from "./views.tsx";
+import { currentLocation, go, drawTop, aloneProject, windowAlone } from "./views.tsx";
 import { groupMenu } from "../project/groups.tsx";
 import { fsync, redrawProjects, redrawProjectsPage } from "../project/sections.ts";
 import { conflictList } from "../project/filesync.ts";
 import { prefetchOnHover, projectRail, railSessions, sessionsDue } from "../project/loads.tsx";
-import type { ProjectWindowProps } from "../project/projectwindow.ts";
+import type { Alone, ProjectWindowProps } from "../project/projectwindow.ts";
+import type { AgentRow } from "../agents/agents.ts";
 import { drawProjects } from "../project/page.tsx";
 import { refresh } from "./refresh.ts";
 import { IC, Icon } from "../ui/icons.tsx";
@@ -104,9 +105,10 @@ shell.subscribe((now, was) => { if (!now.assistant !== !was.assistant) drawSide(
 /// page. The phone layout has no column for them. Their reads redraw only this.
 export function drawRail() {
   const view = currentLocation()?.view, side = shell.getState().side, shown = railProject(side.rail);
-  const project = windowProject ?? (view === "pane" ? projectHere()?.project ?? null
+  const project = aloneProject() ?? (windowAlone ? null : view === "pane" ? projectHere()?.project ?? null
     : view === "projects" && shown && !side.railHidden && state.picked === shown ? shown : null);
-  const chat = !project && view === "pane" ? chatHere() : null;
+  // A chat's window lists its threads even before it has any.
+  const chat = !project && view === "pane" ? chatHere(windowAlone?.kind === "chat") : null;
   const rail: Rail | null = onPhone() || isMobile() ? null
     : project ? { kind: "project", project } : chat ? { kind: "chat", chat: runningKey(chat.chat) } : null;
   setRail(rail);
@@ -114,13 +116,13 @@ export function drawRail() {
 }
 
 /// The rail of the assistant chat on screen, or of the chat whose thread is: null when it has
-/// no threads.
-function chatHere() {
+/// no threads, unless `always`.
+function chatHere(always: boolean) {
   const open = AG.open;
   if (!open || AG.draft) return null;
   const listed = sessions.filter(sessionVisible), session = listed.find(row => row.machine_id === open.machine_id && row.id === open.session) ?? AG.page?.session;
 
-  return session ? chatRail(listed, session) : null;
+  return session ? chatRail(listed, session, always) : null;
 }
 
 // A chat's threads come and go with the session lists.
@@ -133,7 +135,7 @@ const openKey = () => AG.open && !AG.draft ? runningKey({ machine_id: AG.open.ma
 // round to the first; ⌃⇧Tab the one before. A side pane with focus takes it for its tabs first.
 document.addEventListener("keydown", e => {
   if (e.key !== "Tab" || !e.ctrlKey || e.altKey || e.metaKey || e.isComposing || currentLocation()?.view !== "pane") return;
-  const project = projectHere()?.project, running = project ? railSessions(project)?.running ?? [] : chatHere()?.running ?? [];
+  const project = projectHere()?.project, running = project ? railSessions(project)?.running ?? [] : chatHere(false)?.running ?? [];
   if (!running.length) return;
   e.preventDefault();
   e.stopImmediatePropagation();
@@ -204,7 +206,17 @@ function redrawProjectPins() {
 /// Opens project `name` in a window of its own, or brings up the one it
 /// already has.
 export function openProjectWindow(name: string) {
-  invoke("center_open_project_window", { project: name }).catch(e => console.warn("opening a project window:", e));
+  openWindow({ kind: "project", project: name });
+}
+
+/// Opens assistant chat `chat` with its threads in a window of its own, or brings up the one it
+/// already has.
+export function openChatWindow(chat: Pick<AgentRow, "machine_id" | "id">) {
+  openWindow({ kind: "chat", machine_id: chat.machine_id, session: chat.id });
+}
+
+function openWindow(alone: Alone) {
+  invoke("center_open_window", { alone }).catch(e => console.warn("opening a window:", e));
 }
 
 /// What lets project `name` open in a window of its own: ⌘-click or middle-click on the

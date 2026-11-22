@@ -9,7 +9,9 @@ import { shownChanged } from "../ui/active.ts";
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import { perfOpened, perfView, perfViewOf } from "../ui/perf.ts";
 import type { PaneTarget } from "../bar/pane.ts";
-import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
+import { mainTarget, route, type Alone, type CenterTarget, type WindowScope } from "../project/projectwindow.ts";
+import { sessions } from "../agents/sessions.ts";
+import { threadsByChat } from "../agents/threads-state.ts";
 import { shortName } from "../project/agent.ts";
 import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName } from "./state.ts";
 import { drawSide, openProjects, projectRows, projectWindowProps } from "./sidebar.tsx";
@@ -97,16 +99,25 @@ function opensAgent(arg: PaneTarget): arg is Extract<PaneTarget, { agent: unknow
   return !!arg && typeof arg === "object" && ("agent" in arg || "agentnew" in arg);
 }
 
-/// The project a project window shows alone; null in the main window.
-export let windowProject: string | null = null;
-export function setWindowProject(name: string | null) { windowProject = name; }
+/// The project or chat a window shows alone; null in the main window.
+export let windowAlone: Alone | null = null;
+export function setWindowAlone(alone: Alone | null) { windowAlone = alone; }
 
-/// What a project window keeps for itself; null in the main window.
-function windowScope(): ProjectScope | null {
-  const project = windowProject;
-  if (!project) return null;
-  const p = (projectRows() || []).find(r => r.name === project);
-  return { project, folders: p?.machines ?? [] };
+/// The project a project's window shows; null in any other.
+export const aloneProject = () => windowAlone?.kind === "project" ? windowAlone.project : null;
+
+/// What a project's or chat's window keeps for itself; null in the main window.
+function windowScope(): WindowScope | null {
+  const alone = windowAlone;
+  if (!alone) return null;
+  if (alone.kind === "chat") {
+    const chat = sessions.find(row => row.machine_id === alone.machine_id && row.id === alone.session);
+    const threads = chat ? threadsByChat(sessions).get(chat)?.map(thread => thread.row) ?? [] : [];
+    return { kind: "chat", sessions: [{ machine_id: alone.machine_id, id: alone.session }, ...threads] };
+  }
+
+  const p = (projectRows() || []).find(r => r.name === alone.project);
+  return { kind: "project", project: alone.project, folders: p?.machines ?? [] };
 }
 
 /// Shows `target` in the main window, bringing it up.
@@ -270,10 +281,11 @@ function withReturnTarget(page: Location, current: Location | null): Location {
 export function drawTop() {
   const view = currentPage ? viewOf(currentPage.view) : null;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
-  const project = windowProject;
+  const project = aloneProject(), alone = windowAlone;
   const row = projectRows()?.find(row => row.name === project);
   const label = row ? projectName(row) : project;
   if (project) document.title = label ?? project;
+  if (alone?.kind === "chat") document.title = sessions.find(row => row.machine_id === alone.machine_id && row.id === alone.session)?.title || "Assistant";
   const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? S.view : null]);
   placeWindowParts({
     "project-back": project ? <Button {...projectWindowProps(project).clicks} {...projectWindowProps(project).menu} small className="pw-back" id="pw-back" title={`Back to ${label} (esc)`} hidden={currentPage?.view === "projects"} onClick={() => void openProjects(project)}>{shortName(label ?? project)}</Button> : null,

@@ -1,51 +1,68 @@
 use super::*;
 use beep_proto::watched;
 
+fn project(name: &str) -> Alone {
+    Alone::Project {
+        project: name.to_owned(),
+    }
+}
+
 #[test]
-fn a_project_label_reads_back_as_its_name() {
-    for name in ["site", "org/repo", "my project", "café.rs", "a-b_c:d"] {
-        let label = project_label(name);
-        let hex = label
-            .strip_prefix(PROJECT_PREFIX)
-            .expect("it has the prefix");
-        assert!(hex.bytes().all(|b| b.is_ascii_hexdigit()), "{label}");
-        assert_eq!(label_project(&label).as_deref(), Some(name));
+fn a_window_label_reads_back_as_what_it_shows() {
+    let chat = Alone::Chat {
+        machine_id: "build-box".into(),
+        session: "chat-one".into(),
+    };
+
+    for alone in [project("site"), project("docs/API ü"), chat] {
+        let label = alone.label();
+        assert!(
+            label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        );
+        assert_eq!(Alone::of(&label), Some(alone));
     }
 
-    assert_eq!(label_project(LABEL), None);
-    assert_eq!(label_project("research-1"), None);
-    assert_eq!(label_project("project-"), None);
-    assert_eq!(label_project("project-abc"), None);
-    assert_eq!(label_project("project-zz"), None);
+    assert_eq!(Alone::of(LABEL), None);
+    assert_eq!(Alone::of("research-1"), None);
+    assert_eq!(Alone::of("project-"), None);
+    assert_eq!(Alone::of("project-abc"), None);
+    assert_eq!(Alone::of("project-zz"), None);
+    assert_eq!(Alone::of(&format!("chat-{}", hex("no-session"))), None);
 }
 
 #[test]
 fn a_project_open_in_a_window_is_focused() {
-    let site = project_label("site");
+    let site = project("site").label();
     let open = [LABEL, "bar", site.as_str(), "research-1"];
-    assert_eq!(pick("site", open), Pick::Focus(site));
+    assert_eq!(pick(&project("site"), open), Pick::Focus(site));
 }
 
 #[test]
 fn a_project_without_a_window_gets_a_new_one() {
     assert_eq!(
-        pick("site", [LABEL, "bar"]),
+        pick(&project("site"), [LABEL, "bar"]),
         Pick::Open {
-            label: project_label("site"),
+            label: project("site").label(),
             cascade: 0,
         }
     );
 }
 
 #[test]
-fn a_new_window_steps_past_the_other_project_windows() {
-    let docs = project_label("docs");
-    let api = project_label("api");
-    let open = [LABEL, docs.as_str(), "research-1", api.as_str()];
+fn a_new_window_steps_past_the_other_project_and_chat_windows() {
+    let docs = project("docs").label();
+    let chat = Alone::Chat {
+        machine_id: "build-box".into(),
+        session: "chat-one".into(),
+    }
+    .label();
+    let open = [LABEL, docs.as_str(), "research-1", chat.as_str()];
     assert_eq!(
-        pick("site", open),
+        pick(&project("site"), open),
         Pick::Open {
-            label: project_label("site"),
+            label: project("site").label(),
             cascade: 2,
         }
     );
@@ -53,9 +70,15 @@ fn a_new_window_steps_past_the_other_project_windows() {
 
 #[test]
 fn similar_names_get_their_own_windows() {
-    let site = project_label("site");
-    assert!(matches!(pick("site2", [site.as_str()]), Pick::Open { .. }));
-    assert!(matches!(pick("sit", [site.as_str()]), Pick::Open { .. }));
+    let site = project("site").label();
+    assert!(matches!(
+        pick(&project("site2"), [site.as_str()]),
+        Pick::Open { .. }
+    ));
+    assert!(matches!(
+        pick(&project("sit"), [site.as_str()]),
+        Pick::Open { .. }
+    ));
 }
 
 #[test]

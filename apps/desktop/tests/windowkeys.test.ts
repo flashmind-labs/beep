@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { windowCommand, windowTakes, type WindowKeyContext } from "../src/ui/windowkeys.ts";
 
-const at: WindowKeyContext = { page: "home", project: null, projectWindow: false };
+const at: WindowKeyContext = { page: "home", project: null, alone: false };
 const key = (key: string, extra: Partial<KeyboardEvent> = {}) => ({ key, ctrlKey: false, metaKey: true, shiftKey: false, altKey: false, defaultPrevented: false, ...extra });
 
 test("the window owns search, Settings, the shortcuts sheet, the sidebar and the Assistant", () => {
@@ -16,7 +16,7 @@ test("window shortcuts resolve to domain commands", () => {
   assert.deepEqual(windowCommand(key("/"), at, false), { kind: "shortcuts" });
   assert.deepEqual(windowCommand(key("e"), at, false), { kind: "sidebar" });
   assert.deepEqual(windowCommand(key("l"), at, false), { kind: "assistant" });
-  assert.equal(windowCommand(key("l"), { ...at, projectWindow: true }, false), null);
+  assert.equal(windowCommand(key("l"), { ...at, alone: true }, false), null);
   assert.deepEqual(windowCommand(key("n"), at, false), { kind: "new-agent" });
   assert.equal(windowCommand(key("q"), at, false), null);
 });
@@ -37,7 +37,7 @@ test("pane-specific commands stay with the pane", () => {
 test("project window command requires the main window's selected project", () => {
   const project: WindowKeyContext = { ...at, page: "projects", project: "acme/widget" };
   assert.deepEqual(windowCommand(key("n", { shiftKey: true }), project, false), { kind: "project-window", project: "acme/widget" });
-  assert.deepEqual(windowCommand(key("n", { shiftKey: true }), { ...project, projectWindow: true }, false), { kind: "new-agent" });
+  assert.deepEqual(windowCommand(key("n", { shiftKey: true }), { ...project, alone: true }, false), { kind: "new-agent" });
   assert.deepEqual(windowCommand(key("n", { shiftKey: true }), { ...project, project: null }, false), { kind: "new-agent" });
 });
 

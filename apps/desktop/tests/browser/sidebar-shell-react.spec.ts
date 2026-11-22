@@ -78,7 +78,7 @@ test("sidebar project headings fold and middle-click opens a project window", as
   await heading.click();
   await expect(row).toBeVisible();
   await row.click({ button: "middle" });
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "center_open_project_window" && call.args.project === "team/widget"))).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "center_open_window" && JSON.stringify(call.args.alone) === JSON.stringify({ kind: "project", project: "team/widget" })))).toBe(true);
 });
 
 test("project counts line up with the counts of the links above", async ({ page }) => {

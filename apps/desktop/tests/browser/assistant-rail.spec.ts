@@ -47,12 +47,20 @@ test("a chat without threads keeps the chats beside it", async ({ page }) => {
   await expect(page.locator(".cwin")).not.toHaveClass(/rail-on/);
 });
 
-test("⌘N in a chat starts a new chat and ⇧⌘N asks it for a new thread", async ({ page }, info) => {
+test("⌘N beside a chat's threads asks it for a new thread, and ⇧⌘N opens the chat in a window", async ({ page }, info) => {
   await openChat(page, [chat, research]);
   await expect(page.locator("#agmsg")).toBeVisible();
 
-  await page.keyboard.press(`${mod(info)}+Shift+n`);
+  await page.keyboard.press(`${mod(info)}+n`);
   await expect(page.locator("#agmsg")).toHaveValue(/^New thread: /);
+
+  await page.keyboard.press(`${mod(info)}+Shift+n`);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_open_window").at(-1)?.args.alone)).toEqual({ kind: "chat", machine_id: "build-box", session: "chat-one" });
+});
+
+test("⌘N beside the chats starts a new chat", async ({ page }, info) => {
+  await openChat(page, [chat]);
+  await expect(page.locator(".asst-list")).toBeVisible();
 
   await page.keyboard.press(`${mod(info)}+n`);
   await expect(page.locator("#agprompt")).toHaveAttribute("placeholder", "Ask the assistant.");
@@ -129,4 +137,22 @@ test("a chat's pane lists the agents its folder defines in an Agents tab", async
   await expect(pane.getByText("mine-everywhere")).toHaveCount(0);
   await expect(pane.getByRole("button", { name: "Start" })).toHaveCount(0);
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "custom_agents").at(-1)?.args.folder)).toBe(folder);
+});
+
+test("a chat's window shows the chat beside its threads, and ⌘N there asks for a new thread", async ({ page }, info) => {
+  await openDesktop(page, false, {
+    center_window_alone: { kind: "chat", machine_id: "build-box", session: "chat-one" },
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat], agent_view: view(chat),
+  });
+  const rail = page.locator("#rail");
+
+  await expect(page.locator("body")).toHaveClass(/\bpw\b/);
+  await expect(page.locator("#agmsg")).toBeVisible();
+  // No threads yet, and still the rail: a chat's window has no sidebar.
+  await expect(rail.locator('[aria-current="true"]')).toContainText("Plan the launch");
+  await expect(page.locator("#side")).toBeHidden();
+  await expect(page.locator(".asst-list")).toBeHidden();
+
+  await page.keyboard.press(`${mod(info)}+n`);
+  await expect(page.locator("#agmsg")).toHaveValue(/^New thread: /);
 });

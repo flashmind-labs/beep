@@ -17,7 +17,7 @@ import { NEW_WINDOW } from "./projectwindow.ts";
 import { localProjectId } from "./localid.ts";
 import { type CenterView, state, warm } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
-import { boxOf, drawPage, go, windowProject } from "../center/views.tsx";
+import { boxOf, drawPage, go, windowAlone } from "../center/views.tsx";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, addProject } from "../center/sidebar.tsx";
 import { editGroup } from "./groups.tsx";
 import { disposeOverview, overviewSection, projectDetail } from "./projects.tsx";
@@ -159,7 +159,7 @@ export const projectsView: CenterView<"projects"> = {
         const on = state.top.includes(project.name);
         const items: MenuAction[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(project.name, !on) }];
         if (isMobile()) items.push(...forges.map(f => ({ label: `Open on ${f.label}`, on: () => openUrl(f.url) })));
-        if (!windowProject && !onPhone()) items.push({ label: NEW_WINDOW, on: () => openProjectWindow(project.name) });
+        if (!windowAlone && !onPhone()) items.push({ label: NEW_WINDOW, on: () => openProjectWindow(project.name) });
         if (project.imported) items.push({ label: "Rename", on: () => renameProject(project) });
         items.push({ label: "Skills", on: () => openProjectSkills(project.name) }, { label: "Harnesses", on: () => openProjectHarnesses(project.name) });
         if (project.imported) openProjectMenu(event.nativeEvent, project, items, { label: REMOVE_PROJECT, warn: true, on: () => removeProject(project.name) }, () => { whereDue.add(project.name); revalidate(project.name); });

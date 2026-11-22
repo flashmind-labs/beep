@@ -13,7 +13,7 @@ import { connectSettingsSheet, settingsClosed, showSettingsMachine, showSettings
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import type { CenterView, ViewArg, ViewName } from "../center/state.ts";
-import { boxOf, currentLocation, windowProject, toMain, drawTop } from "../center/views.tsx";
+import { boxOf, currentLocation, windowAlone, toMain, drawTop } from "../center/views.tsx";
 
 /// Settings as a sheet over the window: a dimmed backdrop and a centered sheet
 /// with its sections on the left.
@@ -22,7 +22,7 @@ const settingsTiming = new PageTiming(() => performance.now(), callback => { req
 
 export function openSettings(section?: string) {
   // A project window has no Settings of its own: the main window opens them.
-  if (windowProject) return toMain("settings");
+  if (windowAlone) return toMain("settings");
   // Already open: show page `section`, such as "machines".
   if (settingsOpen) return section && showSettingsPage(section);
   const afterMount = settingsTiming.start("settings");

@@ -278,7 +278,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       const event: MeshEvent = { machine_id: data.project.machine_id, topic, revision: at ?? ++revision, initial: false };
       for (const reader of readers.values()) if (reader.topics.some(interest => interest.topic === topic)) reader.channel.onmessage(event);
     },
-    ready: () => (pendingReads > 0 || typeof answers.center_window_project === "string") && handlers.has("center-open"),
+    ready: () => (pendingReads > 0 || (typeof answers.center_window_alone === "object" && answers.center_window_alone !== null)) && handlers.has("center-open"),
   };
   Object.defineProperty(window, "__navigation", { value: harness });
 }

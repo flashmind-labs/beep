@@ -143,7 +143,7 @@ test("the project's sessions end on its painting and a card of its pull requests
 test("a project window shows its sessions in the sidebar's place, and its Back clears the traffic lights without room for them", async ({ page }, info) => {
   const modifier = info.project.name === "Windows" ? "Control" : "Meta";
   await page.setViewportSize({ width: 1400, height: 800 });
-  await openDesktop(page, false, { center_window_project: projectName });
+  await openDesktop(page, false, { center_window_alone: { kind: "project", project: projectName } });
   const rail = page.locator("#rail");
   await expect(rail).toBeVisible();
   await expect(rail.locator(".cc-side-toggle")).toBeHidden();

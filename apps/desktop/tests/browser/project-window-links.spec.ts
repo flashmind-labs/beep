@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
-const opened = (page: Page) => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_open_project_window").map(call => call.args));
+const opened = (page: Page) => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_open_window").map(call => call.args.alone));
 
 async function gestures(page: Page, link: Locator) {
   const before = (await opened(page)).length;
@@ -11,7 +11,7 @@ async function gestures(page: Page, link: Locator) {
   await link.click({ button: "middle" });
   await expect.poll(() => opened(page)).toHaveLength(before + 2);
   await expect(link).toBeVisible();
-  expect((await opened(page)).slice(before)).toEqual([{ project: projectName }, { project: projectName }]);
+  expect((await opened(page)).slice(before)).toEqual([{ kind: "project", project: projectName }, { kind: "project", project: projectName }]);
 }
 
 for (const active of [false, true]) {
@@ -54,7 +54,7 @@ test("palette project results open a separate window and close search", async ({
     await page.getByRole("option", { name: /Widget/ }).click(middle ? { button: "middle" } : { modifiers: ["Meta"] });
     await expect(page.getByRole("dialog", { name: "Search" })).toHaveCount(0);
   }
-  expect(await opened(page)).toEqual([{ project: projectName }, { project: projectName }]);
+  expect(await opened(page)).toEqual([{ kind: "project", project: projectName }, { kind: "project", project: projectName }]);
   await expect(page.getByRole("tab", { name: "Board", exact: true })).toBeVisible();
 });
 
@@ -76,7 +76,7 @@ test("Git Open project buttons keep the repository list in place", async ({ page
 });
 
 test("project notifications open windows without dismissing the row", async ({ page }) => {
-  const note = { id: "build:1", at: 1, kind: "run", title: "Build passed", text: "", source: "build-box", read: false, done: false, target: { projects: { project: projectName } } };
+  const note = { id: "build:1", at: 1, kind: "run", title: "Build passed", text: "", source: "build-box", read: false, done: false, target: { projects: { kind: "project", project: projectName } } };
   await openDesktop(page, false, { notes_list: [note] });
   await page.getByRole("button", { name: /Notifications/ }).click();
   await gestures(page, page.locator('.nt-row[data-id="build:1"]'));
@@ -88,7 +88,7 @@ test("project notifications open windows without dismissing the row", async ({ p
 test("the project window back button reuses the project window", async ({ page }) => {
   // Too narrow for the project's sessions, which go back to the project with its name.
   await page.setViewportSize({ width: 640, height: 800 });
-  await openDesktop(page, false, { center_window_project: projectName });
+  await openDesktop(page, false, { center_window_alone: { kind: "project", project: projectName } });
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await gestures(page, page.locator("#pw-back"));
 });

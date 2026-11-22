@@ -1,6 +1,7 @@
 import { windowHooks } from "../bar/core.ts";
 import { forgetView } from "../agentpane/view-memory.ts";
 import { onPhone } from "../ui/platform.ts";
+import { NEW_WINDOW } from "../project/projectwindow.ts";
 // The right-click menu of a coding agent session, shared by every row that shows one.
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
@@ -62,7 +63,10 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
     const items: MenuItem[] = [{ label: "Open", on: () => open(s) }];
     const parent = parentSession(s);
     if (parent) items.push({ label: "Open parent", on: () => open(parent) });
-    if (!s.external && s.assistant && !s.reviewer) items.push({ label: "New thread", on: () => { draftNewThread(s); open(s); } });
+    if (!s.external && s.assistant && !s.reviewer) {
+      if (!onPhone()) items.push({ label: NEW_WINDOW, on: () => void import("../center/sidebar.tsx").then(({ openChatWindow }) => openChatWindow(s)) });
+      items.push({ label: "New thread", on: () => { draftNewThread(s); open(s); } });
+    }
     if (offers.stop) {
       items.push({ label: "Stop turn", on: () => void invoke("agent_steer", { ...at, steer: "cancel" }).catch(err => console.warn("stop turn:", err)) });
       items.push({ label: "Stop all", on: () => stopAll(s) });

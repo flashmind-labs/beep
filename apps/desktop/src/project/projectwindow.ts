@@ -1,6 +1,7 @@
 // A project in a window of its own.
 import type { MouseEventHandler } from "react";
 import type { PaneTarget } from "../bar/pane.ts";
+import type { AgentRow } from "../agents/agents.ts";
 import type { Location } from "../center/state.ts";
 
 /// What a click needs to say, as a `MouseEvent` has it.
@@ -24,23 +25,29 @@ export function opensNewWindow(e: ClickLike): boolean {
   return e.button === 1 || (e.button === 0 && e.metaKey);
 }
 
-/// The view a window starts on: its project when it was opened on one,
-/// else what the bar or tray left waiting (null).
-export function startView(project: string | null): { view: "projects"; arg: { project: string } } | null {
-  return project ? { view: "projects", arg: { project } } : null;
+/// What a window apart from the main one shows alone (`Alone` in window.rs).
+export type Alone = { kind: "project"; project: string } | { kind: "chat"; machine_id: string; session: string };
+
+/// The view a window starts on: its project or chat (`chat`, its row as far as it is known)
+/// when it was opened on one, else what the bar or tray left waiting (null).
+export function startView(alone: Alone | null, chat: AgentRow | null): Location | null {
+  if (!alone) return null;
+  if (alone.kind === "project") return { view: "projects", arg: { project: alone.project } };
+  const row = chat ?? { machine_id: alone.machine_id, machine_name: "", id: alone.session, agent: "", cwd: "", status: "idle", external: false };
+  return { view: "pane", arg: { agent: row } };
 }
 
-/// The window's title: its project's name, Beep for the main window.
-export function windowTitle(project: string | null): string {
-  return project || "Beep";
+/// The window's title: its project's name, the Assistant for a chat's, Beep for the main window.
+export function windowTitle(alone: Alone | null): string {
+  return !alone ? "Beep" : alone.kind === "project" ? alone.project : "Assistant";
 }
 
-/// What a project window knows to tell its own targets from the rest.
-export interface ProjectScope {
-  project: string;
+/// What a project or chat window knows to tell its own targets from the rest.
+export type WindowScope =
   /// The project's folder on each machine; empty until they are known.
-  folders: readonly { id: string; folder: string }[];
-}
+  | { kind: "project"; project: string; folders: readonly { id: string; folder: string }[] }
+  /// The chat and its threads.
+  | { kind: "chat"; sessions: readonly { machine_id: string; id: string }[] };
 
 /// Where a target opens: in this window, or in the main one.
 type Route = "here" | "main";
@@ -53,7 +60,7 @@ interface AgentLike {
 
 /// Whether `agent` runs in one of the project's folders, a worktree under it
 /// included.
-function agentInProject(agent: AgentLike, folders: ProjectScope["folders"]): boolean {
+function agentInProject(agent: AgentLike, folders: Extract<WindowScope, { kind: "project" }>["folders"]): boolean {
   if (!folders.length) return true;
   const cwd = agent.cwd || "";
   if (!cwd) return false;
@@ -61,8 +68,9 @@ function agentInProject(agent: AgentLike, folders: ProjectScope["folders"]): boo
 }
 
 /// Where `go(view, arg)` opens.
-export function route(scope: ProjectScope | null, page: Location): Route {
+export function route(scope: WindowScope | null, page: Location): Route {
   if (!scope) return "here";
+  if (scope.kind === "chat") return chatRoute(scope.sessions, page);
   if (page.view === "projects") return page.arg?.project === scope.project ? "here" : "main";
   if (page.view !== "pane") return "main";
   const target = page.arg;
@@ -71,6 +79,17 @@ export function route(scope: ProjectScope | null, page: Location): Route {
   if ("assistant" in target) return "main";
   if ("draft" in target) return target.draft.project === scope.project ? "here" : "main";
   return agentInProject(target.agent, scope.folders) ? "here" : "main";
+}
+
+/// A chat's window keeps the chat and its threads, and the start of a thread; the rest goes to
+/// the main window.
+function chatRoute(sessions: readonly { machine_id: string; id: string }[], page: Location): Route {
+  const target = page.view === "pane" ? page.arg : null;
+  if (!target || typeof target !== "object") return "main";
+  if ("agentnew" in target) return "here";
+  if (!("agent" in target)) return "main";
+  const agent = target.agent;
+  return sessions.some(row => row.machine_id === agent.machine_id && row.id === agent.id) ? "here" : "main";
 }
 
 /// What the main window is asked to show (`CenterTarget` in center.rs).
