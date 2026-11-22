@@ -14,6 +14,8 @@ import { openSettings } from "../settings/sheet.ts";
 import { commandKey, WINDOWS } from "../ui/platform.ts";
 import { type Held, type Note, conflictProject, find, fromNote, markRead, opens, skillName, unreadIds, without } from "./notices-state.ts";
 import { go } from "./views.tsx";
+import { sessions } from "../agents/sessions.ts";
+import { chatOf } from "../agents/threads-state.ts";
 
 /// Opens the pane. Set by `mountNotices`.
 let show: () => void = () => {};
@@ -81,7 +83,7 @@ export function mountNotices() {
     const action = focused ? [...focused.querySelectorAll("button")].indexOf(active as HTMLButtonElement) : -1;
     const shown = opened ? find(notes, opened) : null;
     placeWindowParts({ notices: <NoticesView
-      windowProps={projectWindowProps} items={notes} open={open} shown={shown} answering={answering} failed={failed} keeping={keeping} toggle={() => toggle(!open)} back={backToList}
+      windowProps={projectWindowProps} chatOf={threadChat} items={notes} open={open} shown={shown} answering={answering} failed={failed} keeping={keeping} toggle={() => toggle(!open)} back={backToList}
       dismiss={dismiss} openItem={openItem} answer={answer} keep={keepCopy}
     /> });
     if (focused && !focused.isConnected && open) {
@@ -189,4 +191,12 @@ export function mountNotices() {
   listen<Note[]>("notes", e => setNotes(e.payload));
   draw();
   void loadNotes();
+}
+
+/// The title of the chat whose thread `note` is about, null for a chat's own note or any other.
+function threadChat(note: Note): string | null {
+  const target = note.target && typeof note.target === "object" && "agent" in note.target ? note.target.agent : null;
+  const row = target && sessions.find(one => one.machine_id === target.machine_id && one.id === target.id);
+  const chat = row ? chatOf(sessions, row) : null;
+  return chat && chat !== row ? chat.title || "Assistant" : null;
 }

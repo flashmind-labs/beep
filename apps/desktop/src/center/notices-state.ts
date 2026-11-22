@@ -153,8 +153,10 @@ export function opens(i: Note): "skill" | "session" | "project" | "conflict" | "
 }
 
 /// The sub line of a row: where it came from and when. A coding agent's
-/// note says only when: its title names the project.
-export function subLine(i: Note, ago: string): string {
+/// note says only when, as its title names the project, but for a thread's,
+/// which names its `chat`.
+export function subLine(i: Note, ago: string, chat: string | null = null): string {
+  if (chat) return `${chat} · ${ago}`;
   return noteAgent(i) ? ago : `${i.source} · ${ago}`;
 }
 

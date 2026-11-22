@@ -39,7 +39,7 @@ import type { HomeView } from "./home-state.ts";
 import { type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { placeWindowParts } from "./window-root.tsx";
 import { type Rail, railProject, setRail, shell } from "./window-shell.tsx";
-import { chatRail } from "../agents/threads-state.ts";
+import { chatRail, chatsAsking } from "../agents/threads-state.ts";
 import { sessions, sessionsRead } from "../agents/sessions.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { ChatRail } from "../agents/assistant-page.tsx";
@@ -126,7 +126,13 @@ function chatHere(always: boolean) {
 }
 
 // A chat's threads come and go with the session lists.
-sessionsRead.add(() => { if (currentLocation()?.view === "pane") drawRail(); });
+let chatsWaiting = 0;
+sessionsRead.add(() => {
+  if (currentLocation()?.view === "pane") drawRail();
+  // The Assistant link counts the chats waiting on an answer.
+  const asking = chatsAsking(sessions.filter(sessionVisible));
+  if (asking !== chatsWaiting) { chatsWaiting = asking; drawSide(); }
+});
 
 /// The running key of the session on screen; null for a draft or none.
 const openKey = () => AG.open && !AG.draft ? runningKey({ machine_id: AG.open.machine_id, id: AG.open.session }) : null;
@@ -149,7 +155,7 @@ export function drawSide() {
   const links: SideLink[] = [
     { svg: IC.find, label: "Search", count: 0, className: "cc-search", open: openPalette, shortcut: shortcut("Ctrl+K", "⌘K") },
     { svg: IC.home, label: "Home", count: home?.needs_you.length ?? 0, current: location === "home", hot: true, open: () => go("home") },
-    { svg: IC.chat, label: "Assistant", count: 0, current: !!shell.getState().assistant, open: () => go("pane", { assistant: "chats" }) },
+    { svg: IC.chat, label: "Assistant", count: chatsWaiting, hot: true, current: !!shell.getState().assistant, open: () => go("pane", { assistant: "chats" }) },
   ];
   const terms = allTerms.list(ALL);
   if (home?.machines && terms) links.push({ svg: IC.term, label: "Terminals", count: terms.length, current: location === "terminals", open: () => go("terminals") });

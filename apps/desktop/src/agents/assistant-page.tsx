@@ -6,7 +6,7 @@ import { createStore, useStore } from "zustand";
 import { AG, type AgentRow, type AgentSession } from "./agents.ts";
 import { renderAgentNew } from "./agentnew.tsx";
 import { assistantRows } from "./assistant-state.ts";
-import { chatOf, type chatRail, type Thread, type ThreadDetail, threadsByChat } from "./threads-state.ts";
+import { chatActivity, chatOf, type chatRail, type Thread, type ThreadDetail, threadsByChat } from "./threads-state.ts";
 import { sessionMenu } from "./sessionmenu.ts";
 import { agentName, runningKey } from "./running-state.ts";
 import { ensureSessions, sessions, sessionsChanged, sessionsRead } from "./sessions.ts";
@@ -113,10 +113,12 @@ export function AssistantList() {
 
   if (!on) return <div className="pj-list asst-list" hidden />;
   const listed = sessions.filter(sessionVisible);
-  const { running, ended } = assistantRows(listed), threadsOf = threadsByChat(listed);
-  const item = (session: AgentSession, title: string, lead: ReactNode, sub: ReactNode) => <Row key={runningKey(session)} picked={chat} nav={false} openTile={() => {}} item={{
+  // A chat rises with its newest thread.
+  const threadsOf = threadsByChat(listed), activity = (session: AgentSession) => chatActivity(session, threadsOf.get(session) ?? []);
+  const { running, ended } = assistantRows(listed, session => activity(session).last);
+  const item = (session: AgentSession, title: string, lead: ReactNode, sub: ReactNode, right: ReactNode = null) => <Row key={runningKey(session)} picked={chat} nav={false} openTile={() => {}} item={{
     key: runningKey(session), lead, title, sub,
-    right: session.status === "ended" ? formatAgo(session.last_activity, "since") : <RunningStatus row={{ kind: "agent", ...session }} />,
+    right: right ?? (session.status === "ended" ? formatAgo(session.last_activity, "since") : <RunningStatus row={{ kind: "agent", ...session }} />),
     open: () => goChat(session),
     // Also how a phone, whose list hides while a chat shows, reaches New thread.
     menu: event => void sessionMenu(event, session, goChat),
@@ -130,8 +132,13 @@ export function AssistantList() {
     const overOpen = unfolded.has(key) || over.some(one => runningKey(one.row) === chat);
     const fold = () => setUnfolded(open => new Set(open.has(key) ? [...open].filter(one => one !== key) : [...open, key]));
 
+    // What its threads do shows on the chat: one asking, and how many work.
+    const { asking, working } = activity(session);
+    const sub = working ? `${session.machine_name} · ${working} ${working === 1 ? "thread" : "threads"} working` : session.machine_name;
+    const right = asking && session.status !== "asking" ? <span className="chip wait">{asking === 1 ? "thread needs you" : `${asking} threads need you`}</span> : null;
+
     return <Fragment key={key}>
-      {item(session, session.title || agentName(session.agent), <HarnessIcon agent={session.agent} />, session.machine_name)}
+      {item(session, session.title || agentName(session.agent), <HarnessIcon agent={session.agent} />, sub, right)}
       {(!!threads.length || inHand) && <div className="asst-threads">
         {threads.filter(one => one.row.status !== "ended").map(thread)}
         {inHand && session.status !== "ended" && <Button look="quiet" small onClick={() => newThread(session)}>New thread</Button>}

@@ -205,7 +205,7 @@ test("assistant page", async ({ page }) => {
     assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null },
     agent_view: { ...agentView, session: { ...chat, question: null }, entries: transcript },
   });
-  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  await page.locator("#side").getByRole("button", { name: /^Assistant/ }).click();
   const list = page.locator(".asst-list");
   await list.getByRole("button", { name: /Set up the widget project/ }).click();
   await expect(page.getByText("Cloned example/widget")).toBeVisible();
@@ -229,7 +229,7 @@ test("assistant chat with threads", async ({ page }) => {
     assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null },
     agent_view: view(chat, "Three threads are on it. I will merge what they find."),
   });
-  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  await page.locator("#side").getByRole("button", { name: /^Assistant/ }).click();
   const list = page.locator(".asst-list");
   await list.getByRole("button", { name: /Battery chemistries/ }).click();
   // The chat's threads take the sidebar's place; the one that ended is under Past.
@@ -560,7 +560,7 @@ test("settings assistant", async ({ page }) => {
   await openDesktop(page, false, { ...settingsResponses, assistant_settings_get: { agent: null, model: null, effort: null, fast: null }, mac_control: { id: "build-box" }, agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["claude", "codex"], workspace: null, home: "/srv", capabilities: [], assistant: true }], agent_models: { pick: "listed", current: null, models: [{ id: "model-a", name: "Example Model A", description: null, provider: null }, { id: "model-b", name: "Example Model B", description: null, provider: null }] } });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Settings" });
-  await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
+  await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: /^Assistant/ }).click();
   await dialog.locator("#assistantSetting").getByRole("button").click();
   await expect(page.getByRole("dialog", { name: "Harness, model and thinking" }).getByText("Example Model B")).toBeVisible();
   await baseline(page, "settings-assistant");
@@ -1097,7 +1097,7 @@ test("settings codex fast thinking", async ({ page }) => {
   });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
-  await settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
+  await settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: /^Assistant/ }).click();
   await settings.locator("#assistantSetting").getByRole("button").click();
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker.getByRole("button", { name: "Ultra", exact: true })).toBeVisible();

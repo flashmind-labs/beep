@@ -18,9 +18,10 @@ export function isAssistant(session: Pick<AgentSession, "assistant" | "reviewer"
   return session.assistant && !session.reviewer;
 }
 
-/// The assistant sessions Home lists, the latest first: those that run, and those that ended.
-export function assistantRows(sessions: readonly AgentSession[]): { running: AgentSession[]; ended: AgentSession[] } {
-  const listed = sessions.filter(isAssistant).sort((a, b) => b.last_activity - a.last_activity);
+/// The assistant sessions Home lists, the latest first by `last`: those that run, and those that
+/// ended.
+export function assistantRows(sessions: readonly AgentSession[], last: (session: AgentSession) => number = session => session.last_activity): { running: AgentSession[]; ended: AgentSession[] } {
+  const listed = sessions.filter(isAssistant).sort((a, b) => last(b) - last(a));
 
   return { running: listed.filter(s => s.status !== "ended"), ended: listed.filter(s => s.status === "ended") };
 }

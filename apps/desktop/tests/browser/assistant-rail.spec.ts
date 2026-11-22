@@ -44,6 +44,7 @@ test("a chat with threads lists them in place of the sidebar, and ⌘E swaps the
 test("a chat without threads keeps the chats beside it", async ({ page }) => {
   await openChat(page, [chat]);
   await expect(page.locator(".asst-list")).toBeVisible();
+  await expect(page.locator("#agmsg")).toBeVisible();
   await expect(page.locator(".cwin")).not.toHaveClass(/rail-on/);
 });
 
@@ -61,6 +62,7 @@ test("⌘N beside a chat's threads asks it for a new thread, and ⇧⌘N opens t
 test("⌘N beside the chats starts a new chat", async ({ page }, info) => {
   await openChat(page, [chat]);
   await expect(page.locator(".asst-list")).toBeVisible();
+  await expect(page.locator("#agmsg")).toBeVisible();
 
   await page.keyboard.press(`${mod(info)}+n`);
   await expect(page.locator("#agprompt")).toHaveAttribute("placeholder", "Ask the assistant.");
@@ -155,4 +157,20 @@ test("a chat's window shows the chat beside its threads, and ⌘N there asks for
 
   await page.keyboard.press(`${mod(info)}+n`);
   await expect(page.locator("#agmsg")).toHaveValue(/^New thread: /);
+});
+
+test("a chat shows what its threads do, and the Assistant link counts the chats waiting on an answer", async ({ page }) => {
+  const asks = { ...research, id: "thread-asks", title: "Budget check", status: "asking", last_activity: 50 };
+  const other = { ...chat, id: "chat-two", title: "Write the post", last_activity: 9 };
+  await openDesktop(page, false, { agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat, other, research, asks], agent_view: view(chat) });
+  const link = page.locator("#side").getByRole("button", { name: /^Assistant/ });
+  await expect(link).toContainText("1");
+  await link.click();
+
+  const list = page.locator(".asst-list");
+  // The chat whose thread asked last comes first, though the other one spoke after it did.
+  await expect(list.getByRole("button", { name: /Plan the launch|Write the post/ }).first()).toContainText("Plan the launch");
+  const first = list.getByRole("button", { name: /Plan the launch/ });
+  await expect(first).toContainText("thread needs you");
+  await expect(first).toContainText("1 thread working");
 });

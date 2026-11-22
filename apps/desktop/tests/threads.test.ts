@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chatOf, chatRail, threadFolders, threadsByChat } from "../src/agents/threads-state.ts";
+import { chatActivity, chatOf, chatRail, chatsAsking, threadFolders, threadsByChat } from "../src/agents/threads-state.ts";
 import type { AgentSession } from "../src/agents/agents.ts";
 
 let at = 0;
@@ -128,4 +128,20 @@ test("a chat's files leave out its threads' folders, and a thread's its own thre
   assert.deepEqual([...threadFolders(rows, chat)], ["pricing"]);
   assert.deepEqual([...threadFolders(rows, one)], ["tiers"]);
   assert.deepEqual([...threadFolders(rows, deep)], []);
+});
+
+test("a chat sums up what its running threads do and sorts by its newest one", () => {
+  const quiet = row("quiet", { assistant: true, last_activity: 1 }), busy = row("busy", { assistant: true, last_activity: 2 });
+  const rows = [
+    quiet, busy,
+    row("asks", { parent: under("quiet"), status: "asking", last_activity: 50 }),
+    row("works", { parent: under("quiet"), status: "working" }),
+    row("done", { parent: under("quiet"), status: "ended", last_activity: 99 }),
+  ];
+  const threads = threadsByChat(rows);
+
+  assert.deepEqual(chatActivity(quiet, threads.get(quiet) ?? []), { asking: 1, working: 1, last: 99 });
+  assert.deepEqual(chatActivity(busy, []), { asking: 0, working: 0, last: 2 });
+  assert.equal(chatsAsking(rows), 1);
+  assert.equal(chatsAsking([row("solo", { assistant: true, status: "asking" })]), 1);
 });

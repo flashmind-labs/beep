@@ -45,6 +45,28 @@ export function threadsByChat(rows: readonly AgentSession[]): Map<AgentSession, 
   return threads;
 }
 
+/// What a chat's running threads do, for its row: how many ask the user, how many work, and
+/// the latest activity of the chat or any thread, which orders the chats.
+export interface ChatActivity { asking: number; working: number; last: number }
+
+export function chatActivity(chat: AgentSession, threads: readonly Thread[]): ChatActivity {
+  const running = threads.map(thread => thread.row).filter(row => row.status !== "ended");
+
+  return {
+    asking: running.filter(row => row.status === "asking").length,
+    working: running.filter(row => WORKING.has(row.status)).length,
+    last: Math.max(chat.last_activity, ...threads.map(thread => thread.row.last_activity)),
+  };
+}
+
+/// How many chats wait on the user: the chat asks, or one of its threads does.
+export function chatsAsking(rows: readonly AgentSession[]): number {
+  const threads = threadsByChat(rows);
+  return rows.filter(row => row.assistant && !row.reviewer && (row.status === "asking" || chatActivity(row, threads.get(row) ?? []).asking > 0)).length;
+}
+
+const WORKING = new Set(["working", "running", "starting"]);
+
 /// The list beside a chat that has threads, as for a project's sessions: `chat` and its running
 /// threads, then the ended ones, newest first, with the chat ahead of them once it ended. Null
 /// for `session` when it is part of no chat, or of one without threads.
