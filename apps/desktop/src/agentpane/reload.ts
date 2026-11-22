@@ -12,6 +12,7 @@ import { isTree, type Tree } from "./files-state.ts";
 import { isHtmlFile } from "./html-preview-state.ts";
 import { type MediaTab, type TreeText, P } from "./media.ts";
 import { touchTab } from "./media-draw.ts";
+import { resolvePath } from "./media-state.ts";
 import { dockOf } from "./media-layout.ts";
 import { load } from "./read.ts";
 import { type Followed, type Stamp, followedAt, folderStamp, hashedStamp, listedSize, nextStamp, splitPath, textStamp } from "./reload-state.ts";
@@ -133,8 +134,7 @@ async function reloadText(t: MediaTab, at: { machine: string; root: string; path
     touchTab(t);
   }
 
-  void refreshPreview(t);
-  return true;
+  return refreshPreview(t);
 }
 
 /// A media tab reads its file again once its first read is done.
@@ -144,8 +144,18 @@ function reloadMedia(t: MediaTab) {
   return true;
 }
 
+/// A page can live inside a worktree or build folder skipped by the project
+/// watch. Keep the project watch for assets the page loads from elsewhere.
+function watchedRoots(f: Follow): string[] {
+  const dir = f.fallback === "page" ? splitPath(f.path).dir : "";
+  return dir ? [f.root, resolvePath(f.root, dir)] : [f.root];
+}
+
 function watchFolders(follows: Follow[]) {
-  const wanted = new Map(follows.map(f => [`${f.machine}\n${f.root}`, f]));
+  const wanted = new Map<string, { machine: string; root: string }>();
+  for (const f of follows) {
+    for (const root of watchedRoots(f)) wanted.set(`${f.machine}\n${root}`, { machine: f.machine, root });
+  }
 
   for (const [key, stop] of watches) {
     if (wanted.has(key)) continue;
@@ -162,7 +172,7 @@ function watchFolders(follows: Follow[]) {
 function heard(machine: string, root: string) {
   for (const f of followed()) {
     const h = held.get(f.key);
-    if (h && f.machine === machine && f.root === root) h.stale = true;
+    if (h && f.machine === machine && watchedRoots(f).includes(root)) h.stale = true;
   }
 
   check();

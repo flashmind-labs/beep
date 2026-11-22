@@ -538,10 +538,18 @@ impl Snapshots {
             Ok((value, bytes)) => {
                 if entry.previous.as_ref() == Some(&value) {
                     entry.idle = entry.idle.saturating_add(1);
-                    return Ok(None);
-                }
+                    // Folder listeners use the revision to recheck open files. An
+                    // edit can leave every entry in the listing unchanged.
+                    let folder_event = entry.query.is_none()
+                        && matches!(&entry.source, Source::Read(Read::Sessions(request))
+                            if matches!(request.as_ref(), SessionsRequest::Folder { .. }));
 
-                entry.idle = 0;
+                    if !folder_event {
+                        return Ok(None);
+                    }
+                } else {
+                    entry.idle = 0;
+                }
 
                 if retained.saturating_sub(entry.bytes).saturating_add(bytes) > MAX_RETAINED_BYTES {
                     entry.previous = None;

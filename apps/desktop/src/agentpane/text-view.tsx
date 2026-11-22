@@ -36,18 +36,20 @@ export async function togglePreview(tab: MediaTab) {
 /// when it next shows.
 export async function refreshPreview(tab: MediaTab) {
   const session = P.session, preview = tab.preview;
-  if (!session || !tab.rel || !preview) return;
+  if (!session || !tab.rel || !preview) return true;
 
   if (!preview.active) {
     Object.assign(preview, { src: "", html: "" });
-    return;
+    return true;
   }
 
   try {
     Object.assign(preview, await readPreview(session, tab.root ?? session.cwd, tab.rel), { error: "" });
     touchTab(tab);
+    return true;
   } catch {
-    // The preview shown stays.
+    // Keep the old stamp so the next check retries the preview.
+    return false;
   }
 }
 

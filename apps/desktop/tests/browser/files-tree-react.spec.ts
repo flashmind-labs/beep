@@ -154,6 +154,42 @@ test("file preview keeps its controls while the HTML loads", async ({ page }) =>
   await expect(preview).toHaveText("Source");
 });
 
+test("a folder event refreshes the open HTML preview after a same-size agent edit", async ({ page }) => {
+  const text = (word: string) => ({ size: word.length, text: word, cut: false, binary: false, editable: true });
+  const artifact = (word: string) => ({ kind: "html", src: `data:text/html,${word}` });
+  const session = { kind: "agent" as const, machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false, question: null };
+  await page.clock.install();
+  const path = ".worktrees/site/index.html";
+  const entries = [{ kind: "agent", text: `[Preview](${path})`, html: `<p><a href="${path}">Preview</a></p>` }];
+  await openDesktop(page, false, {
+    agent_view: { session, entries, earlier: 0, plan: [], files: [], last_message: "", error: null, turns: 1, queued: 0, queued_messages: [] },
+    agent_tree_text: text("first"),
+    agent_file_hashes: ["first"],
+    agent_page_files: [],
+    agent_artifact: artifact("first"),
+  });
+  await page.evaluate(agent => window.__navigation.open({ agent }), session);
+  await page.getByRole("link", { name: "Preview", exact: true }).click();
+  const body = page.frameLocator('iframe[title="Preview of index.html"]').locator("body");
+  await expect(body).toHaveText("first");
+
+  await page.evaluate(({ nextText, nextArtifact }) => {
+    window.__navigation.respond("agent_file_hashes", ["later"]);
+    window.__navigation.respond("agent_tree_text", nextText);
+    window.__navigation.respond("agent_artifact", nextArtifact);
+  }, { nextText: text("later"), nextArtifact: artifact("later") });
+
+  const hashReads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_file_hashes").length);
+  const before = await hashReads();
+  await page.clock.fastForward(15_000);
+  await page.clock.fastForward(1_000);
+  expect(await hashReads()).toBe(before);
+  await expect(body).toHaveText("first");
+
+  await page.evaluate(() => window.__navigation.publish("files.%2Fsrv%2Fproject%2F%2Eworktrees%2Fsite", 1000));
+  await expect(body).toHaveText("later");
+});
+
 test("invalid 3D files show an error inside the retained model stage", async ({ page }) => {
   await openDesktop(page, true, { agent_tree: listing(["model.glb"]), agent_file: { size: 1, mime: "model/gltf-binary", data: "AA==" } });
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));

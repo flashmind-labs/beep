@@ -1,3 +1,4 @@
+import { followFiles } from "./reload.ts";
 import { togglePreview } from "./text-view.tsx";
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
@@ -166,6 +167,7 @@ function lookElsewhere(t: MediaTab) {
     t.path = resolvePath(there.root, there.rel);
   }
 
+  followFiles();
   return true;
 }
 

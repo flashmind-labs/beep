@@ -4069,6 +4069,34 @@ mod topic_streams {
     }
 
     #[tokio::test]
+    async fn a_same_size_edit_notifies_folder_listeners() {
+        let root = TempDir::new().unwrap();
+        let site = root.path().join("site");
+        fs::create_dir(&site).unwrap();
+        let page = site.join("index.html");
+        fs::write(&page, "first").unwrap();
+        let desktop = desktop().await;
+        let node = Node::start(Config {
+            files: vec![root.path().to_owned()],
+            ..Config::default()
+        })
+        .await;
+        node.join(&desktop.ticket(DeviceKind::Node).await).await;
+        let conn = desktop.reach(node.id).await;
+        let client = PeerClient::over(conn.mesh, conn.id);
+        let folder = Topic::keyed("files", root.path().to_str().unwrap());
+        let mut stream = subscribe(&client, vec![folder.clone()]).await;
+        let initial = snapshot(&mut stream.rx, &folder).await;
+
+        fs::write(page, "later").unwrap();
+        let updated = timeout(Duration::from_secs(10), snapshot(&mut stream.rx, &folder))
+            .await
+            .expect("the edit should notify the folder subscriber");
+        assert_eq!(updated.value, initial.value);
+        assert!(updated.revision > initial.revision);
+    }
+
+    #[tokio::test]
     async fn pending_project_topics_rebind_and_publish_removal_without_resubscribing() {
         let root = TempDir::new().unwrap();
         let first = root.path().join("first");
