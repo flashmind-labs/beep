@@ -7,6 +7,67 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.12] - 2026-11-22
+
+### Added
+
+- Desktop: on the Assistant page, a chat's threads are listed under it. Each
+  shows its name, whether it is working or needs you, and what it last said
+  or asks. Click a thread to open it and write to it there.
+- Desktop: "New thread" under the open chat, and in an assistant chat's menu,
+  asks the chat's agent to start a thread for whatever you type.
+- Desktop: the Assistant's list keeps a chat and its threads after they
+  ended, also once their machine's Beep restarted. A chat's ended threads
+  sit under an "Ended" fold of its own.
+- Desktop: the machine name in an Assistant chat's header opens the "Move to"
+  menu, as it does for a project session. Picking a machine moves the whole
+  chat: its threads and its folder's files go with it.
+- Desktop: the "Move to" menu lists only machines whose beep-node is new
+  enough and that have every harness the chat and its threads use. A machine
+  missing one says which.
+- Desktop: a chat with a thread on a third machine cannot move, and says so.
+- Desktop: an assistant chat's move steps above the composer say "Files"
+  instead of "checkouts".
+- Desktop: Cancel on a move takes back the chat's move, along with its
+  threads' moves.
+- Desktop: flsh sessions can be moved too.
+- Desktop: an assistant chat with threads replaces the sidebar with its own
+  list, like a project's sessions. It has a way back to the chats, "New
+  thread", a filter, Running (the chat, then its running threads with what
+  each is doing or last said) and Past (its ended threads). Press ⌘E to
+  swap it with the sidebar. A chat without threads keeps the chats list.
+- Desktop: ⌘N on the Assistant page starts a new chat, also from a chat or
+  a thread.
+- Desktop: ⇧⌘N starts a new thread in the open chat.
+- Desktop: ⌃Tab and ⌃⇧Tab move to the next or previous running session of
+  the open chat.
+- Desktop: assistant chats and their threads get the same right pane that
+  project sessions have: Files, file and HTML previews, Artifacts and
+  terminals. There is no Changes tab, since a chat's folder is not a Git
+  checkout, and no threads tab, since the list beside the chat shows them.
+- Desktop: a chat's Files shows the chat's folder without the folders of its
+  threads. A thread's Files shows the thread's own folder.
+- Desktop: Settings > Agent accounts lists Antigravity under Coding agents,
+  with its version, updates, on or off switch, binary path, launch arguments
+  and env vars on each machine.
+
+### Changed
+
+- Desktop: repository owner and visibility now appear in separate labeled groups when creating a project.
+- Desktop: Review cards on Home's Board tab have no Open button, so a click
+  anywhere on the card, or Enter or Space when it is focused, opens the
+  session.
+- Desktop: Antigravity shows its own logo instead of the "AG" letters in
+  the agent picker and wherever coding agents are listed.
+
+### Fixed
+
+- Desktop: a chat or session you ended and then resumed shows in the lists
+  again at once, instead of staying hidden for up to a minute.
+- Desktop: a new assistant chat keeps what you typed when you leave
+  it before sending, and shows it again when you come back.
+- Desktop: reopening a conversation now shows the latest message.
+
 ## [0.10.11] - 2026-11-22
 
 ### Added

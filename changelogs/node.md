@@ -2,6 +2,49 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.9] - 2026-11-22
+
+### Added
+
+- Node: agents can name the agents they start. The assistant starts each
+  thread of a chat with a summary of the conversation so far.
+- Node: when you write to a session, its agent first hears what the agents
+  it started came to since its last turn. An agent started by another hears
+  what that one last said.
+- Node: each new assistant conversation gets its own folder under
+  `~/.beep/assistant/`, and each of its threads a subfolder named after it,
+  for notes and findings. Deleting the conversation removes its folder.
+- Node: a moved chat arrives with its threads and its folder's files.
+- Node: running threads resume on the new machine, still linked to their
+  chat.
+- Node: ended threads arrive ended and are listed under their chat. They are
+  not started again.
+- Node: a chat that moves away does not stop the threads that move with it.
+- Node: the assistant has its own tools for a chat's threads:
+  `start_thread`, `thread_status`, `send_to_thread`, `stop_thread` and
+  `list_threads`. A thread starts on the chat's machine, in a subfolder of
+  the chat's folder, on the chat's harness unless another is named.
+
+### Changed
+
+- Node: an agent that another agent started no longer makes its idle parent
+  run a turn when you wrote to it or stopped it. The parent hears of it at
+  its next turn instead.
+
+### Fixed
+
+- Node: the assistant no longer uses its harness's hidden subagents in place
+  of threads, so the threads it says it started show under the chat.
+- Node: flsh is installed and updated in `~/.local/bin`, where flsh's own
+  installer puts it, instead of beep-node's own folder. A copy left in
+  beep-node's folder moves there, or is removed when `~/.local/bin` already
+  has flsh. Before, sessions kept running the node's older copy after flsh
+  was updated with its own installer, so assistant chats on flsh could not
+  reach Beep's tools and started no threads.
+- Node: a resumed session keeps its title. Before, flsh could rename it
+  after the resume from Beep's context text, such as the user's standing
+  rules.
+
 ## [0.8.8] - 2026-11-22
 
 ### Added
