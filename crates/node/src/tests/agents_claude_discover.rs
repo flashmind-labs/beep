@@ -209,6 +209,8 @@ fn a_session_that_moved_into_a_linked_worktree_says_so() {
     assert!(place.linked);
     assert_eq!(place.branch.as_deref(), Some("fix"));
     assert_eq!(place.main, repo.to_string_lossy());
+    // It resumes where it was started, which outlives the worktree.
+    assert_eq!(sessions[0].cwd, repo.to_string_lossy());
 }
 
 #[test]

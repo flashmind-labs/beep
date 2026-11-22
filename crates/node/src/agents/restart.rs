@@ -417,8 +417,8 @@ impl Agents {
             .named(&open.agent)
             .with_context(|| format!("this node no longer runs {}", open.agent))?;
         self.prepare(&kind).await?;
-        to_project(&kind, &open.session, &open.cwd).await;
-        let cwd = open.cwd.to_string_lossy();
+        let cwd = ready_to_resume(&kind, &open.session, &open.cwd).await;
+        let cwd = cwd.to_string_lossy();
         let follows = open
             .parent
             .as_ref()
@@ -472,26 +472,32 @@ impl Agents {
     }
 }
 
-/// Readies resumed session `id` of `kind`, kept for `cwd`, to run in its
-/// project folder when `cwd` is in a worktree (`Agents::start`): Claude
-/// Code's transcript goes along. A failure only costs the history.
-pub(super) async fn to_project(kind: &AgentKind, id: &SessionId, cwd: &Path) {
-    if kind.name.parse::<Agent>() != Ok(Agent::Claude) {
-        return;
-    }
+/// The folder resumed session `id` of `kind`, kept for `cwd`, starts in, so
+/// that a session can always go on: `cwd`, which `Agents::start` turns into
+/// the project folder when it is a worktree, even a removed one, or the home
+/// folder when `cwd` is gone and was no worktree. Claude Code's transcript
+/// goes along; a failure there only costs the history.
+pub(super) async fn ready_to_resume(kind: &AgentKind, id: &SessionId, cwd: &Path) -> PathBuf {
+    let claude = kind.name.parse::<Agent>() == Ok(Agent::Claude);
+    let (id, kept) = (id.to_owned(), cwd.to_owned());
+    let ready = spawn_blocking(move || {
+        let project = checkout::project_of(&kept);
+        let home = (project.is_none() && !kept.is_dir())
+            .then(dirs::home_dir)
+            .flatten();
 
-    let (id, cwd) = (id.to_owned(), cwd.to_owned());
-    let moved = spawn_blocking(move || {
-        let Some(project) = checkout::project_of(&cwd) else {
-            return Ok(());
-        };
-        moving::rehome_claude(&id, &cwd, &project)
+        if claude
+            && let Some(to) = project.as_ref().or(home.as_ref())
+            && let Err(e) = moving::rehome_claude(&id, &kept, to)
+        {
+            log::warn!("could not carry a Claude transcript to {}: {e:#}", to.display());
+        }
+
+        home.unwrap_or(kept)
     })
     .await;
 
-    if let Ok(Err(e)) | Err(e) = moved.map_err(anyhow::Error::from) {
-        log::warn!("could not carry a Claude transcript to its project folder: {e:#}");
-    }
+    ready.unwrap_or_else(|_| cwd.to_owned())
 }
 
 #[cfg(all(test, unix))]

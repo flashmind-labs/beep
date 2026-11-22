@@ -44,7 +44,11 @@ const MAX_TOOL: usize = 160;
 /// What a transcript says about a session as a whole.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Said {
+    /// Where it works now: the folder of its newest tool line.
     pub(super) cwd: Option<String>,
+    /// The folder it was started in, which Claude Code files it under and
+    /// resumes it in, wherever it worked since.
+    pub(super) launched: Option<String>,
     pub(super) title: Option<String>,
     /// A title the user set, which wins over the generated one.
     custom_title: Option<String>,
@@ -174,10 +178,11 @@ impl Digest {
         // A resumed Claude starts in the session's launch folder, so only a
         // tool line moves the folder: a restart alone must not leave the
         // worktree the session works in.
-        if let Some(cwd) = value["cwd"].as_str()
-            && (self.said.cwd.is_none() || runs_tool(&value))
-        {
-            self.said.cwd = Some(cwd.to_owned());
+        if let Some(cwd) = value["cwd"].as_str() {
+            self.said.launched.get_or_insert_with(|| cwd.to_owned());
+            if self.said.cwd.is_none() || runs_tool(&value) {
+                self.said.cwd = Some(cwd.to_owned());
+            }
         }
         match value["type"].as_str().unwrap_or("") {
             "user" => self.user(&value),
@@ -1274,6 +1279,7 @@ pub(super) mod tests {
         ];
         let digest = Digest::read(&lines.join("\n"));
         assert_eq!(digest.said.cwd.as_deref(), Some("/srv/project/.worktrees/fix"));
+        assert_eq!(digest.said.launched.as_deref(), Some("/srv/project"));
 
         let back = [lines.join("\n"), line("/srv/project", tool)].join("\n");
         assert_eq!(Digest::read(&back).said.cwd.as_deref(), Some("/srv/project"));

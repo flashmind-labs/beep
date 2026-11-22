@@ -640,7 +640,8 @@ impl Agents {
         };
 
         self.prepare(kind).await?;
-        super::restart::to_project(kind, id, Path::new(&cwd)).await;
+        let cwd = super::restart::ready_to_resume(kind, id, Path::new(&cwd)).await;
+        let cwd = cwd.to_string_lossy();
         // Never seen here, as one found outside Beep: never the assistant.
         let mut begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
         begin.model = model.or(begin.model);

@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn only_a_stopped_session_in_a_folder_that_exists_is_taken_over() {
+fn only_a_stopped_session_is_taken_over() {
     let mut found = ExternalSession {
         id: "0f3c2a9e-1111-4222-8333-944455556666".into(),
         cwd: "/".into(),
@@ -19,23 +19,7 @@ fn only_a_stopped_session_in_a_folder_that_exists_is_taken_over() {
     found.presence = Presence::Stopped;
     assert_eq!(refuse_takeover(&found), None);
     found.cwd = "/no/such/folder/here".into();
-    let refused = refuse_takeover(&found).unwrap();
-    assert!(refused.contains("/no/such/folder/here"), "{refused}");
-    assert!(refused.contains("Recreate that folder"), "{refused}");
-}
-
-#[test]
-fn a_session_whose_worktree_was_removed_resumes_in_its_project() {
-    let project = tempfile::tempdir().expect("a temp folder");
-    std::fs::create_dir(project.path().join(".git")).expect("a .git folder");
-    let found = ExternalSession {
-        id: "0f3c2a9e-1111-4222-8333-944455556666".into(),
-        cwd: project.path().join(".worktrees/fix").to_string_lossy().into_owned(),
-        presence: Presence::Stopped,
-        ..ExternalSession::default()
-    };
-
-    assert_eq!(refuse_takeover(&found), None);
+    assert_eq!(refuse_takeover(&found), None, "a gone folder is no reason");
 }
 
 #[test]

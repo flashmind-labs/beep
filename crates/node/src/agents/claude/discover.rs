@@ -42,7 +42,7 @@ pub(crate) struct Store {
 /// What transcripts said, kept while they are unchanged.
 #[derive(Debug)]
 struct Memos {
-    /// The folder each transcript's head names.
+    /// The folder each transcript was started in, as its head says.
     cwds: Memo<Option<String>>,
     summaries: Memo<Summary>,
     /// The newest transcript of each project folder, by its id and time,
@@ -395,8 +395,7 @@ pub(super) fn sightings(store: &Store) -> io::Result<Vec<Sighting>> {
 
     for transcripts in folders {
         let Some(cwd) = transcripts.iter().take(HEADS_PER_FOLDER).find_map(|t| {
-            let read = || transcript::head(&t.path).map(|head| head.said.cwd);
-            store.memos.cwds.read(&t.path, read).ok()?
+            launched(store, &t.path).ok()?
         }) else {
             continue;
         };
@@ -460,6 +459,12 @@ fn summary(transcript: &Transcript, before: Option<Summary>) -> io::Result<Summa
     Ok(Summary { gist, started_at })
 }
 
+/// The folder the transcript at `path` was started in.
+fn launched(store: &Store, path: &Path) -> io::Result<Option<String>> {
+    let read = || transcript::head(path).map(|head| head.said.launched);
+    store.memos.cwds.read(path, read)
+}
+
 fn describe(
     store: &Store,
     transcript: &Transcript,
@@ -499,7 +504,9 @@ fn describe(
         pid: found.pid,
         last_prompt: gist.said.prompt().unwrap_or("").to_owned(),
         last_message: gist.said.last_message.unwrap_or_default(),
-        cwd: gist.said.cwd.unwrap_or_default(),
+        cwd: launched(store, &transcript.path)?
+            .or(gist.said.cwd)
+            .unwrap_or_default(),
         taken_over: snapshot.owned.get(&transcript.id).cloned(),
         assistant: false,
     })
