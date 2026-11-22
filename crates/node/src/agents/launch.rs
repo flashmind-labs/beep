@@ -158,7 +158,9 @@ pub struct Running {
 impl Running {
     /// The pid of the process started with the session.
     pub fn pid(&self) -> Option<u32> {
-        self.process.as_ref().and_then(|process| process.leader.id())
+        self.process
+            .as_ref()
+            .and_then(|process| process.leader.id())
     }
 
     /// The pid of the CLI a bridge starts, when it starts it; never for a
@@ -230,7 +232,11 @@ fn spawn(
     name: &str,
     lines: mpsc::Sender<String>,
 ) -> Result<(Process, ChildStdin, ChildStdout)> {
-    let program = process.as_std().get_program().to_string_lossy().into_owned();
+    let program = process
+        .as_std()
+        .get_program()
+        .to_string_lossy()
+        .into_owned();
     own_group(&mut process)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -242,9 +248,18 @@ fn spawn(
     let mut leader = GroupLeader::new(child);
     let held = leader.hold_output();
     let child = leader.child_mut();
-    let stdin = child.stdin.take().with_context(|| format!("{name} has no stdin"))?;
-    let stdout = child.stdout.take().with_context(|| format!("{name} has no stdout"))?;
-    let stderr = child.stderr.take().with_context(|| format!("{name} has no stderr"))?;
+    let stdin = child
+        .stdin
+        .take()
+        .with_context(|| format!("{name} has no stdin"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .with_context(|| format!("{name} has no stdout"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .with_context(|| format!("{name} has no stderr"))?;
     let forward = async move {
         let mut stderr = LineReader::new(BufReader::new(stderr), MAX_STDERR_LINE);
 
@@ -277,12 +292,24 @@ pub(super) struct Cli {
 }
 
 impl Cli {
-    fn new(template: Command, lines: mpsc::Sender<String>, pid: Option<oneshot::Sender<u32>>) -> Self {
-        Self { template, lines, pid }
+    fn new(
+        template: Command,
+        lines: mpsc::Sender<String>,
+        pid: Option<oneshot::Sender<u32>>,
+    ) -> Self {
+        Self {
+            template,
+            lines,
+            pid,
+        }
     }
 
     pub(super) fn program(&self) -> String {
-        self.template.as_std().get_program().to_string_lossy().into_owned()
+        self.template
+            .as_std()
+            .get_program()
+            .to_string_lossy()
+            .into_owned()
     }
 
     /// The user's arguments.
@@ -320,12 +347,16 @@ impl Cli {
     /// The CLI with `args` in `cwd`, inside `wsl` when given, with its
     /// environment. In WSL it reads the variables both the session's and
     /// the node's `WSLENV` name.
-    pub(super) fn command(&self, wsl: Option<&DistroName>, cwd: &Path, args: &[String]) -> Result<Command> {
+    pub(super) fn command(
+        &self,
+        wsl: Option<&DistroName>,
+        cwd: &Path,
+        args: &[String],
+    ) -> Result<Command> {
         let mut process = match wsl {
             Some(distro) => {
                 let program: LinuxPath = self.program().parse()?;
-                let inside = wsl::linux_path(cwd)
-                    .with_context(|| format!("WSL does not reach {}, which is on no drive", cwd.display()))?;
+                let inside = wsl_path(cwd)?;
                 wsl::agent_command(distro, Some(&inside), &program, args)
             }
             None => {
@@ -355,7 +386,11 @@ impl Cli {
 
     /// Starts `process`, the agent `name`, in its own group; the session
     /// hears its pid.
-    pub(super) fn spawn(&mut self, process: Command, name: &str) -> Result<(Process, ChildStdin, ChildStdout)> {
+    pub(super) fn spawn(
+        &mut self,
+        process: Command,
+        name: &str,
+    ) -> Result<(Process, ChildStdin, ChildStdout)> {
         let spawned = spawn(process, name, self.lines.clone())?;
 
         if let (Some(pid), Some(id)) = (self.pid.take(), spawned.0.id()) {
@@ -364,6 +399,16 @@ impl Cli {
 
         Ok(spawned)
     }
+}
+
+/// `path` on Windows as WSL sees it.
+pub(in crate::agents) fn wsl_path(path: &Path) -> Result<LinuxPath> {
+    wsl::linux_path(path).with_context(|| {
+        format!(
+            "WSL does not reach {}, which is on no drive",
+            path.display()
+        )
+    })
 }
 
 /// The variable `name` set on `process`.

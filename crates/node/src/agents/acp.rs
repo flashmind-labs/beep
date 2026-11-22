@@ -1,5 +1,6 @@
 //! ACP requests and bounded adapter transport.
 
+pub(in crate::agents) mod bridge;
 mod elicitation;
 mod permissions;
 mod prompt;
@@ -15,9 +16,9 @@ pub(super) use permissions::{allow_option, cancelled, plan_of, selected};
 pub(super) use prompt::{Prompt, SteeringOutcome, prompt, steering, takes_images, takes_steering};
 pub(super) use session::{
     MAX_MODELS, ModelSwitch, Offered, PLAN_MODE, ResumeMethod, initialize, new_session, offers,
-    resume_method, resume_session, session_created, startup_banner, set_effort, set_fast, switch_model,
-    takes_system_prompt, wire_name,
+    resume_method, resume_session, session_created, set_effort, set_fast, startup_banner,
+    switch_model, takes_system_prompt, wire_name,
 };
 pub(super) use tasks::{AsyncTask, async_task, stop_task};
-pub(crate) use transport::{Line, LineReader, MAX_MESSAGE};
 pub(super) use transport::transport;
+pub(crate) use transport::{Line, LineReader, MAX_MESSAGE};

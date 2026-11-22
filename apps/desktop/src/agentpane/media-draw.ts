@@ -5,26 +5,23 @@ import type { SubagentRow } from "./subagents-view.tsx";
 import { chatAgentsCount } from "./chat-agents.tsx";
 import type { PaneTabItem } from "./tabs-view.tsx";
 import { hasPreview } from "./html-preview-state.ts";
-import { baseName, type Dock, DOCKS } from "./media-state.ts";
+import { type Dock, DOCKS } from "./media-state.ts";
 import type { Artifact } from "./artifacts-state.ts";
 import { artifactCount, artifactsTab, setArtifacts } from "./artifacts.ts";
 import { changesTab } from "./changes.ts";
 import { filesTab } from "./files.ts";
 import { worktreeMenu } from "./worktree.ts";
 import { drag } from "./drag.ts";
-import { readError } from "./read.ts";
 import { togglePreview } from "./text-view.tsx";
 import type { IconName } from "../ui/icons.tsx";
-import { invoke } from "../ui/tauri.ts";
 import { runningCount } from "./running.ts";
 import { followFiles } from "./reload.ts";
 import { onShownChange } from "../ui/active.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
-import { type TabKind, AGENTS, ARTS, CHANGES, setFolded, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
+import { type TabKind, AGENTS, ARTS, CHANGES, setFolded, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveFile, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
 import { type DockModel, type DockView, chatPane, docked, foldNarrow, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
-import { savedIn } from "../ui/platform.ts";
 
 // ----- Tabs -----
 
@@ -235,9 +232,7 @@ export function tabMenu(e: MouseEvent, id: string) {
     items.push({ label: "Save", on: () => saveWorkFile(rel, note, t.root) });
   } else if (t.path && P.session) {
     const { machine_id, id: session } = P.session, file = t.path;
-    items.push({ label: "Save", on: () => void invoke<string>("agent_file_save", { machineId: machine_id, path: file, session })
-      .then(to => { note(`Saved to ${savedIn(to)} as ${baseName(to)}`); return invoke("reveal_file", { path: to }); })
-      .catch(err => note(readError(err))) });
+    items.push({ label: "Save", on: () => saveFile("agent_file_save", { machineId: machine_id, path: file, session }, note) });
   }
 
   items.push({ label: "Close", on: () => closeTab(t.id) });

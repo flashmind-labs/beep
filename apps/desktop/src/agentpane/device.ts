@@ -39,7 +39,9 @@ interface DeviceModel {
   media: DeviceMedia;
 }
 
-export const deviceModel = createStore<DeviceModel>(() => ({ machines: [], listed: false, error: "", pick: null, platforms: [], busy: false, screen: { kind: "off" }, media: { kind: "jpeg" } }));
+export const deviceModel = createStore<DeviceModel>(() => ({
+  machines: [], listed: false, error: "", pick: null, platforms: [], busy: false, screen: { kind: "off" }, media: { kind: "jpeg" },
+}));
 
 const set = (change: Partial<DeviceModel>) => deviceModel.setState(change);
 
@@ -50,7 +52,8 @@ let hosts: DeviceHost[] = [];
 /// Whether the pane has a Device tab: a machine that is on serves
 /// `device/1`, and the session's checkout builds for a mobile platform or
 /// its agent used a device.
-export const hasDeviceTab = () => hosts.length > 0 && ((agentUsed !== null && agentUsed === sessionKey(paneSession())) || showsDeviceTab(sessionPlatforms(), hosts));
+export const hasDeviceTab = () =>
+  hosts.length > 0 && ((agentUsed !== null && agentUsed === sessionKey(paneSession())) || showsDeviceTab(sessionPlatforms(), hosts));
 
 async function readDeviceHosts() {
   const had = hasDeviceTab();
@@ -75,12 +78,11 @@ if (typeof window !== "undefined") {
 /// A session's checkout: its machine and folder.
 interface Checkout { machine: string; root: string; key: string }
 
+type PlatformState = { kind: "asking" } | { kind: "known"; platforms: DevicePlatform[] } | { kind: "retry"; after: number };
+
 /// The platforms of each checkout asked about, by `Checkout.key`; asked
 /// once, as a project rarely gains or loses one.
-const platformsOf = new Map<string, DevicePlatform[]>();
-const askingPlatforms = new Set<string>();
-/// When a check that could not reach its machine may go again, by key.
-const platformsRetry = new Map<string, number>();
+const platformsOf = new Map<string, PlatformState>();
 
 function paneCheckout(): Checkout | null {
   const session = paneSession(), root = paneRoot();
@@ -93,24 +95,22 @@ function paneCheckout(): Checkout | null {
 function sessionPlatforms(): DevicePlatform[] {
   const at = paneCheckout();
   if (!at) return [];
-  const known = platformsOf.get(at.key);
-  if (known) return known;
-  void askPlatforms(at);
+  const state = platformsOf.get(at.key);
+  if (state?.kind === "known") return state.platforms;
+  void askPlatforms(at, state);
   return [];
 }
 
-async function askPlatforms(at: Checkout) {
-  if (askingPlatforms.has(at.key) || Date.now() < (platformsRetry.get(at.key) ?? 0)) return;
-  askingPlatforms.add(at.key);
+async function askPlatforms(at: Checkout, state = platformsOf.get(at.key)) {
+  if (state?.kind === "asking" || (state?.kind === "retry" && Date.now() < state.after)) return;
+  platformsOf.set(at.key, { kind: "asking" });
 
   try {
     const platforms = readPlatforms(await invoke("device_platforms", { machineId: at.machine, root: at.root }));
-    platformsOf.set(at.key, platforms);
+    platformsOf.set(at.key, { kind: "known", platforms });
     if (platforms.length > 0) draw();
   } catch {
-    platformsRetry.set(at.key, Date.now() + PLATFORMS_RETRY_MS);
-  } finally {
-    askingPlatforms.delete(at.key);
+    platformsOf.set(at.key, { kind: "retry", after: Date.now() + PLATFORMS_RETRY_MS });
   }
 }
 
@@ -221,6 +221,7 @@ function keep(pick: DevicePick | null) {
     .finally(() => { keeping = false; });
 }
 
+const samePick = (a: DevicePick, b: DevicePick) => a.machine === b.machine && a.device === b.device;
 const samePickOrNull = (a: DevicePick | null, b: DevicePick | null) => a === b || (a !== null && b !== null && samePick(a, b));
 
 /// The view of the device ended: it is tried again.
@@ -303,9 +304,8 @@ export function setPainter(paint: Painter | null, side: () => number) {
 }
 
 /// The attached device and the name of its view.
-let live: { view: string; pick: DevicePick; video: boolean } | null = null;
-
-const samePick = (a: DevicePick, b: DevicePick) => a.machine === b.machine && a.device === b.device;
+interface LiveStream { view: string; pick: DevicePick; video: boolean }
+let live: LiveStream | null = null;
 
 /// Attaches to the device shown when it is on and the view shows; detaches
 /// from one that no longer is.
@@ -320,7 +320,7 @@ function follow() {
 
 function attach(pick: DevicePick, id: string, preferVideo = true) {
   const view = crypto.randomUUID();
-  const mine = { view, pick, video: preferVideo && videoSupported() };
+  const mine: LiveStream = { view, pick, video: preferVideo && videoSupported() };
   live = mine;
   queue = [];
   set({ screen: { kind: "attaching" } });
@@ -344,7 +344,7 @@ function detach() {
   invoke("device_detach", { view }).catch(() => {});
 }
 
-function ended(mine: NonNullable<typeof live>, reason: string) {
+function ended(mine: LiveStream, reason: string) {
   if (live !== mine) return;
   live = null;
   stopVideo();
@@ -353,7 +353,7 @@ function ended(mine: NonNullable<typeof live>, reason: string) {
   void readDevices();
 }
 
-function heard(mine: NonNullable<typeof live>, message: unknown) {
+function heard(mine: LiveStream, message: unknown) {
   if (live !== mine) return;
   const read = readScreenMessage(message);
   if (!read) return;
@@ -378,8 +378,12 @@ function heard(mine: NonNullable<typeof live>, message: unknown) {
   }
 }
 
+function acknowledge(mine: LiveStream) {
+  if (live === mine) invoke("device_drawn", { view: mine.view }).catch(() => {});
+}
+
 /// Decodes a frame and hands it to the painter, then asks for the next.
-async function paint(mine: NonNullable<typeof live>, jpeg: Uint8Array<ArrayBuffer>) {
+async function paint(mine: LiveStream, jpeg: Uint8Array<ArrayBuffer>) {
   try {
     const bitmap = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
     if (live === mine && painter) painter(bitmap);
@@ -387,16 +391,14 @@ async function paint(mine: NonNullable<typeof live>, jpeg: Uint8Array<ArrayBuffe
   } catch {
     // A frame that does not decode is skipped.
   } finally {
-    if (live === mine) invoke("device_drawn", { view: mine.view }).catch(() => {});
+    acknowledge(mine);
   }
 }
 
 // H.264 stays encoded across the mesh. JMuxer packages it for the browser's
 // native video decoder without encoding or decoding pixels itself.
 let videoElement: HTMLVideoElement | null = null;
-let muxer: JMuxer | null = null;
-let videoOwner: object | null = null;
-let videoWait: ReturnType<typeof setTimeout> | null = null;
+let video: { token: object; muxer: JMuxer | null; wait: ReturnType<typeof setTimeout> | null } | null = null;
 
 export function setVideoElement(element: HTMLVideoElement | null) {
   if (!element) stopVideo();
@@ -413,48 +415,48 @@ function videoSupported(): boolean {
     && ["avc1.42E01E", "avc1.4D402A", "avc1.64002A"].some(codec => source.isTypeSupported(`video/mp4; codecs="${codec}"`));
 }
 
-async function startVideo(mine: NonNullable<typeof live>, fps: number) {
+function clearVideoWait() {
+  if (video?.wait != null) { clearTimeout(video.wait); video.wait = null; }
+}
+
+async function startVideo(mine: LiveStream, fps: number) {
   try {
     const { default: Muxer } = await import("jmuxer");
     if (live !== mine || !videoElement) return;
     stopVideo();
-    const owner = {};
-    videoOwner = owner;
-    const failed = () => { if (videoOwner === owner) fallbackVideo(mine); };
+    const token = {};
+    video = { token, muxer: null, wait: null };
+    const failed = () => { if (video?.token === token) fallbackVideo(mine); };
     const options: JMuxer.Options & { onUnsupportedCodec: () => void } = {
       node: videoElement, mode: "video", fps, readFpsFromTrack: true,
       flushingTime: Math.max(1, Math.floor(1000 / fps)), maxDelay: 100, clearBuffer: true,
       onReady: () => {
-        if (videoOwner !== owner) return;
+        if (video?.token !== token) return;
         acknowledge(mine);
         videoElement?.play().catch(failed);
       },
       onError: failed, onUnsupportedCodec: failed,
     };
     const instance = new Muxer(options);
-    if (live !== mine || videoOwner !== owner) { instance.destroy(); return; }
-    muxer = instance;
+    if (live !== mine || video?.token !== token) { instance.destroy(); return; }
+    video.muxer = instance;
+    video.wait = setTimeout(failed, 5000);
     set({ media: { kind: "h264", width: 0, height: 0, rotation: 0 } });
-    videoWait = setTimeout(failed, 5000);
   } catch {
     fallbackVideo(mine);
   }
 }
 
-function feedVideo(mine: NonNullable<typeof live>, data: Uint8Array<ArrayBuffer>, rotation: VideoRotation) {
-  if (!muxer || live !== mine) return;
+function feedVideo(mine: LiveStream, data: Uint8Array<ArrayBuffer>, rotation: VideoRotation) {
+  if (!video?.muxer || live !== mine) return;
   try {
     const media = deviceModel.getState().media;
     if (media.kind === "h264" && media.rotation !== rotation) set({ media: { ...media, rotation } });
-    muxer.feed({ video: data });
+    video.muxer.feed({ video: data });
     acknowledge(mine);
   } catch {
     fallbackVideo(mine);
   }
-}
-
-function acknowledge(mine: NonNullable<typeof live>) {
-  if (live === mine) invoke("device_drawn", { view: mine.view }).catch(() => {});
 }
 
 export function videoSizeChanged() {
@@ -464,8 +466,7 @@ export function videoSizeChanged() {
 }
 
 export function videoPlaying() {
-  if (videoWait !== null) clearTimeout(videoWait);
-  videoWait = null;
+  clearVideoWait();
   videoSizeChanged();
 }
 
@@ -474,16 +475,14 @@ export function videoFailed() {
 }
 
 function stopVideo() {
-  if (videoWait !== null) clearTimeout(videoWait);
-  videoWait = null;
-  const old = muxer;
-  muxer = null;
-  videoOwner = null;
+  clearVideoWait();
+  const old = video?.muxer ?? null;
+  video = null;
   if (deviceModel.getState().media.kind !== "jpeg") set({ media: { kind: "jpeg" } });
   old?.destroy();
 }
 
-function fallbackVideo(mine: NonNullable<typeof live>) {
+function fallbackVideo(mine: LiveStream) {
   if (live !== mine || !mine.video) return;
   detach();
   if (visible()) attach(mine.pick, mine.pick.device, false);

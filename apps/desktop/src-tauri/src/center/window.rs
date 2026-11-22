@@ -7,7 +7,7 @@ use beep_proto::watched;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{Mutex, MutexGuard},
 };
 #[cfg(target_os = "macos")]
 use tauri::window::{Effect, EffectState, EffectsBuilder};
@@ -389,7 +389,7 @@ pub(crate) struct OnScreen(Mutex<HashMap<String, watch::Sender<Option<bool>>>>);
 
 impl OnScreen {
     fn told(&self) -> MutexGuard<'_, HashMap<String, watch::Sender<Option<bool>>>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        super::lock(&self.0)
     }
 
     /// Records that `label` shows or not, true if that changed.

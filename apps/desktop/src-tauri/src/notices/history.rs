@@ -6,13 +6,12 @@
 use super::notify;
 use crate::{
     beep::epoch_ms,
-    center::{AgentTarget, CenterTarget, RunAt},
+    center::{AgentTarget, CenterTarget, RunAt, lock, write_part},
     chat::markdown::inline_html,
     error::{DesktopError, Result},
     fleet::Fleet,
     tray::waiting,
 };
-use anyhow::Context;
 use beep_fleet::{Read, digest};
 use beep_proto::SessionId;
 use beep_proto::{
@@ -29,7 +28,7 @@ use std::{
     collections::HashSet,
     fs,
     path::{Component, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard},
     time::SystemTime,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -182,11 +181,11 @@ impl Notes {
     }
 
     fn lock(&self) -> MutexGuard<'_, Vec<Note>> {
-        self.list.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.list)
     }
 
     fn lock_marks(&self) -> MutexGuard<'_, HashSet<Read>> {
-        self.marks.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.marks)
     }
 
     /// Every note, newest first.
@@ -354,19 +353,9 @@ impl Notes {
     /// Writes the newest list, through a partial file so a reader never sees
     /// half of it. It blocks.
     fn save(&self) -> anyhow::Result<()> {
-        let _one = self.saving.lock().unwrap_or_else(PoisonError::into_inner);
+        let _one = lock(&self.saving);
         let bytes = serde_json::to_vec(&*self.lock())?;
-
-        if let Some(dir) = self.path.parent() {
-            fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
-        }
-
-        let mut partial = self.path.as_os_str().to_owned();
-        partial.push(".part");
-        fs::write(&partial, &bytes).with_context(|| format!("writing {}", self.path.display()))?;
-        fs::rename(&partial, &self.path)
-            .with_context(|| format!("replacing {}", self.path.display()))?;
-        Ok(())
+        write_part(&self.path, &bytes)
     }
 }
 

@@ -2,7 +2,7 @@
 //! its stdin and the frames read from its stdout.
 
 use crate::agents::{launch, pipe::Pipe};
-use crate::machine::wsl::{self, DistroName, LinuxPath};
+use crate::machine::wsl::DistroName;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::{io::Write, path::Path};
@@ -35,7 +35,12 @@ impl Launch<'_> {
     /// can be longer than a Windows command line takes.
     /// `place` names a file as the CLI sees it.
     /// The user's arguments, `extra`, come last.
-    fn args(&self, extra: Vec<String>, files: &Files, place: impl Fn(&Path) -> Result<String>) -> Result<Vec<String>> {
+    fn args(
+        &self,
+        extra: Vec<String>,
+        files: &Files,
+        place: impl Fn(&Path) -> Result<String>,
+    ) -> Result<Vec<String>> {
         let mut args: Vec<String> = [
             "--print",
             "--input-format",
@@ -101,7 +106,13 @@ pub(super) fn off_tools(asks: bool, disallowed: &[String]) -> Option<String> {
 pub(super) fn disallowed_tools(meta: Option<&serde_json::Map<String, Value>>) -> Vec<String> {
     meta.and_then(|meta| meta.get("claudeCode"))
         .and_then(|claude| claude["options"]["disallowedTools"].as_array())
-        .map(|tools| tools.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -119,12 +130,6 @@ fn file(text: &str) -> Result<NamedTempFile> {
     Ok(file)
 }
 
-/// `path` on Windows as WSL sees it.
-fn wsl_path(path: &Path) -> Result<LinuxPath> {
-    wsl::linux_path(path)
-        .with_context(|| format!("WSL does not reach {}, which is on no drive", path.display()))
-}
-
 /// A running CLI. Dropping it kills it.
 pub(super) struct Cli {
     pub(super) pipe: Pipe,
@@ -139,7 +144,9 @@ impl Cli {
             system: launch.system.as_deref().map(file).transpose()?,
         };
         let args = match launch.wsl {
-            Some(_) => launch.args(cli.args(), &files, |path| Ok(wsl_path(path)?.to_string()))?,
+            Some(_) => launch.args(cli.args(), &files, |path| {
+                Ok(launch::wsl_path(path)?.to_string())
+            })?,
             None => launch.args(cli.args(), &files, |path| Ok(path.display().to_string()))?,
         };
         let process = cli.command(launch.wsl, launch.cwd, &args)?;
@@ -165,7 +172,8 @@ impl Cli {
     pub(super) fn control(&mut self, request: Value) -> String {
         self.next += 1;
         let id = format!("beep-{}", self.next);
-        self.pipe.write(&json!({"type": "control_request", "request_id": id, "request": request}));
+        self.pipe
+            .write(&json!({"type": "control_request", "request_id": id, "request": request}));
         id
     }
 

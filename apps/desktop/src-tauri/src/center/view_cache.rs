@@ -12,7 +12,7 @@ use std::{
     io::ErrorKind,
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex, MutexGuard, PoisonError,
+        Arc, Mutex, MutexGuard,
         atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
@@ -91,7 +91,7 @@ impl ViewCache {
     }
 
     fn lock(&self) -> MutexGuard<'_, BTreeMap<View, Value>> {
-        self.views.lock().unwrap_or_else(PoisonError::into_inner)
+        super::lock(&self.views)
     }
 
     /// Every view held.
@@ -149,7 +149,7 @@ impl ViewCache {
     /// Writes what is held now, through a partial file so a reader never
     /// sees half of it.
     fn save(&self) -> anyhow::Result<()> {
-        let _saving = self.saving.lock().unwrap_or_else(PoisonError::into_inner);
+        let _saving = super::lock(&self.saving);
         let bytes = {
             let views = self.lock();
             serde_json::to_vec(&CacheFileRef {
@@ -159,15 +159,7 @@ impl ViewCache {
             })?
         };
 
-        if let Some(dir) = self.path.parent() {
-            fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
-        }
-
-        let mut partial = self.path.as_os_str().to_owned();
-        partial.push(".part");
-        fs::write(&partial, &bytes).with_context(|| format!("writing {}", self.path.display()))?;
-        fs::rename(&partial, &self.path)
-            .with_context(|| format!("replacing {}", self.path.display()))?;
+        super::write_part(&self.path, &bytes)?;
         metrics::counter!("beep_persist_writes_total", "file" => "view_cache").increment(1);
         Ok(())
     }

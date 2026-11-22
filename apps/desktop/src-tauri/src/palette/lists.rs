@@ -11,7 +11,7 @@ use crate::{
     center::{
         home::mesh_imports,
         home_sessions::{AgentSessions, HOME_CHANGED},
-        section,
+        lock, section,
         view_cache::{View, ViewCache, cache_view},
     },
     fleet::{AsyncMutex, Fleet},
@@ -22,7 +22,7 @@ use beep_proto::{ImportedProject, Machine, MachineSession};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard},
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Listener, Manager, State, ipc::Response};
@@ -162,7 +162,7 @@ impl PaletteCache {
     }
 
     fn held(&self) -> MutexGuard<'_, Held> {
-        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.held)
     }
 
     pub(crate) fn projects(&self) -> Vec<ImportedProject> {

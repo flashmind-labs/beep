@@ -33,7 +33,7 @@ use serde::Serialize;
 use std::{
     cmp::Reverse,
     collections::HashMap,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard},
 };
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tokio::join;
@@ -241,7 +241,7 @@ struct Flight {
 
 impl HomeReads {
     fn flight(&self) -> MutexGuard<'_, Flight> {
-        self.flight.lock().unwrap_or_else(PoisonError::into_inner)
+        super::lock(&self.flight)
     }
 
     /// Home, from the read under way or a new one.

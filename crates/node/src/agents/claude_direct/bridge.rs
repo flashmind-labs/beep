@@ -6,28 +6,29 @@ use super::{
     cli::{Cli, Launch, disallowed_tools},
     updates,
 };
-use crate::agents::{acp, launch, pipe::Frame};
+use crate::agents::{
+    acp::{
+        self,
+        bridge::{ClientReply, ClientRequest, Event, Start, notify, parse_start, unknown_session},
+    },
+    launch,
+    pipe::Frame,
+};
+use crate::machine::wsl::{self, DistroName, LinuxPath};
 use agent_client_protocol::{
-    Agent, Builder, Client, ConnectionTo, Dispatch, Handled, JsonRpcMessage,
-    Responder, UntypedMessage, on_receive_dispatch,
-    schema::ProtocolVersion,
+    Client, ConnectionTo, JsonRpcMessage, Responder, UntypedMessage,
     v1::schema::{
-        AgentCapabilities, AvailableCommand, AvailableCommandInput, AvailableCommandsUpdate,
-        CancelNotification, ContentBlock, CurrentModeUpdate, Implementation, InitializeRequest,
-        InitializeResponse, LoadSessionRequest, LoadSessionResponse, McpCapabilities, McpServer,
-        NewSessionRequest, NewSessionResponse, PromptCapabilities, PromptRequest, PromptResponse,
-        RequestPermissionRequest, ResumeSessionRequest, ResumeSessionResponse, SessionCapabilities,
-        SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption, SessionId,
-        SessionMode, SessionModeState, SessionNotification, SessionResumeCapabilities,
-        SessionSystemPromptCapabilities, SessionUpdate, SetSessionConfigOptionRequest,
-        SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse,
-        SystemPrompt, SystemPromptMode, UnstructuredCommandInput,
+        AvailableCommand, AvailableCommandInput, AvailableCommandsUpdate, ContentBlock,
+        CurrentModeUpdate, InitializeRequest, McpServer, PromptRequest, PromptResponse,
+        RequestPermissionRequest, SessionConfigOption, SessionConfigOptionCategory,
+        SessionConfigSelectOption, SessionId, SessionMode, SessionModeState, SessionUpdate,
+        SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
+        SetSessionModeResponse, SystemPrompt, UnstructuredCommandInput,
     },
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use serde_json::{Map, Value, json};
-use crate::machine::wsl::{self, DistroName, LinuxPath};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -38,8 +39,7 @@ use tokio::{
     task::spawn_blocking,
 };
 
-/// How many messages from the client wait to be handled.
-const EVENTS: usize = 64;
+const NAME: &str = "beep-node claude-acp";
 
 /// The session modes, as Claude Code names its permission modes.
 const MODES: &[(&str, &str)] = &[
@@ -63,83 +63,25 @@ pub(in crate::agents) async fn serve(
     wsl: Option<DistroName>,
     home: Option<LinuxPath>,
 ) -> Result<()> {
-    let (events_tx, mut events) = mpsc::channel(EVENTS);
-    // Its reports go unread: a dropped message is logged where it is read.
-    let (oversized, _) = mpsc::channel(1);
+    acp::bridge::serve(NAME, input, output, async move |cx, mut events| {
+        let mut bridge = Bridge {
+            cx,
+            cli,
+            wsl,
+            home,
+            asks: false,
+            session: None,
+            answers: FuturesUnordered::new(),
+        };
+        let ran = bridge.run(&mut events).await;
 
-    Builder::new(Agent)
-        .name("beep-node claude-acp")
-        .on_receive_dispatch(
-            async move |dispatch: Dispatch, _cx| {
-                let event = match dispatch {
-                    Dispatch::Request(message, responder) => {
-                        Event::Request(message, Box::new(responder))
-                    }
-                    Dispatch::Notification(message) => Event::Notification(message),
-                    dispatch => {
-                        return Ok(Handled::No {
-                            message: dispatch,
-                            retry: false,
-                        });
-                    }
-                };
-                let _ = events_tx.send(event).await;
-                Ok(Handled::Yes)
-            },
-            on_receive_dispatch!(),
-        )
-        .connect_with(
-            acp::transport(output, input, oversized),
-            async |cx: ConnectionTo<Client>| {
-                let mut bridge = Bridge {
-                    cx,
-                    cli,
-                    wsl,
-                    home,
-                    asks: false,
-                    session: None,
-                    answers: FuturesUnordered::new(),
-                };
-                let ran = bridge.run(&mut events).await;
-
-                if let Some(session) = bridge.session.take() {
-                    session.cli.pipe.stop().await;
-                }
-
-                ran.map_err(|e| {
-                    log::error!("{e:#}");
-                    agent_client_protocol::Error::internal_error().data(format!("{e:#}"))
-                })
-            },
-        )
-        .await
-        .context("the ACP connection failed")
-}
-
-/// What the client sent.
-enum Event {
-    Request(UntypedMessage, Box<Responder>),
-    Notification(UntypedMessage),
-}
-
-/// How a session starts: new, or resumed with its history replayed
-/// (`session/load`) or not (`session/resume`).
-enum Start {
-    New(Responder<NewSessionResponse>),
-    /// With the updates that replay its transcript.
-    Load(Responder<LoadSessionResponse>, Vec<SessionUpdate>),
-    Resume(Responder<ResumeSessionResponse>),
-}
-
-impl Start {
-    fn refuse(self, error: agent_client_protocol::Error) -> Result<()> {
-        match self {
-            Start::New(responder) => responder.respond_with_error(error)?,
-            Start::Load(responder, _) => responder.respond_with_error(error)?,
-            Start::Resume(responder) => responder.respond_with_error(error)?,
+        if let Some(session) = bridge.session.take() {
+            session.cli.pipe.stop().await;
         }
-        Ok(())
-    }
+
+        ran
+    })
+    .await
 }
 
 /// A control request of ours the CLI has yet to answer, and what waits on it.
@@ -205,6 +147,7 @@ impl Session {
         if mode == "plan" && self.mode != "plan" {
             self.before_plan = std::mem::take(&mut self.mode);
         }
+
         self.mode = mode.to_owned();
     }
 }
@@ -251,77 +194,84 @@ impl Bridge {
     }
 
     async fn request(&mut self, message: UntypedMessage, responder: Responder) -> Result<()> {
-        let method = message.method().to_owned();
-        let params = message.params();
+        let (method, params) = (message.method(), message.params());
 
-        match method.as_str() {
+        match method {
             "initialize" => {
-                let request = InitializeRequest::parse_message(&method, params)?;
-                self.asks = request
-                    .client_capabilities
-                    .elicitation
-                    .as_ref()
-                    .is_some_and(|elicitation| elicitation.form.is_some());
-                responder.cast().respond(initialized())?;
+                let request = InitializeRequest::parse_message(method, params)?;
+                self.asks = acp::bridge::accepts_forms(&request);
+                responder
+                    .cast()
+                    .respond(acp::bridge::initialized(NAME, true, false))?;
             }
-            "session/new" => {
-                let request = NewSessionRequest::parse_message(&method, params)?;
-                let id = uuid::Uuid::new_v4().to_string();
-                let start = Start::New(responder.cast());
-                self.start(&id, &request.cwd, &request.mcp_servers, request.system_prompt.as_ref(), request.meta.as_ref(), start)?;
-            }
-            "session/load" => {
-                let request = LoadSessionRequest::parse_message(&method, params)?;
-                let id = request.session_id.0.to_string();
-                let transcript = self.transcript(&request.cwd, &id);
-                let in_wsl = self.wsl.is_some();
-                let replay = spawn_blocking(move || replayed(transcript, &id, in_wsl)).await?;
-                let start = Start::Load(responder.cast(), replay);
-                self.start(&request.session_id.0, &request.cwd, &request.mcp_servers, request.system_prompt.as_ref(), request.meta.as_ref(), start)?;
-            }
-            "session/resume" => {
-                let request = ResumeSessionRequest::parse_message(&method, params)?;
-                let start = Start::Resume(responder.cast());
-                self.start(&request.session_id.0, &request.cwd, &request.mcp_servers, request.system_prompt.as_ref(), request.meta.as_ref(), start)?;
+            "session/new" | "session/load" | "session/resume" => {
+                let mut req = parse_start(&message, responder)?;
+                let id = req
+                    .session_id
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+                if let Start::Load(_, replay) = &mut req.start {
+                    let transcript = self.transcript(&req.cwd, &id);
+                    let (session, in_wsl) = (id.clone(), self.wsl.is_some());
+                    *replay =
+                        spawn_blocking(move || replayed(transcript, &session, in_wsl)).await?;
+                }
+
+                self.start(
+                    &id,
+                    &req.cwd,
+                    &req.mcp_servers,
+                    req.system_prompt.as_ref(),
+                    req.meta.as_ref(),
+                    req.start,
+                )?;
             }
             "session/prompt" => {
-                let request = PromptRequest::parse_message(&method, params)?;
+                let request = PromptRequest::parse_message(method, params)?;
                 let responder = responder.cast();
-                let Some(session) = self.session.as_mut().filter(|session| session.id == request.session_id) else {
+                let Some(session) = self.session.as_mut().filter(|s| s.id == request.session_id)
+                else {
                     return Ok(responder.respond_with_error(unknown_session())?);
                 };
 
                 if session.prompt.is_some() {
-                    return Ok(responder.respond_with_error(
-                        agent_client_protocol::Error::invalid_request().data("a prompt is running"),
-                    )?);
+                    return Ok(responder.respond_with_error(acp::bridge::prompt_running())?);
                 }
 
-                session.cli.user(request.prompt.iter().filter_map(content).collect());
+                session
+                    .cli
+                    .user(request.prompt.iter().filter_map(content).collect());
                 session.prompt = Some(responder);
                 session.cancelled = false;
             }
             "session/set_mode" => {
-                let request = SetSessionModeRequest::parse_message(&method, params)?;
+                let request = SetSessionModeRequest::parse_message(method, params)?;
                 let responder = responder.cast();
                 let mode = request.mode_id.to_string();
-                let Some(session) = self.session.as_mut().filter(|session| session.id == request.session_id) else {
+                let Some(session) = self.session.as_mut().filter(|s| s.id == request.session_id)
+                else {
                     return Ok(responder.respond_with_error(unknown_session())?);
                 };
 
                 if !MODES.iter().any(|(id, _)| *id == mode) {
                     return Ok(responder.respond_with_error(
-                        agent_client_protocol::Error::invalid_params().data(format!("no mode {mode}")),
+                        agent_client_protocol::Error::invalid_params()
+                            .data(format!("no mode {mode}")),
                     )?);
                 }
 
-                let id = session.cli.control(json!({"subtype": "set_permission_mode", "mode": mode}));
-                session.controls.insert(id, Control::Mode { mode, responder });
+                let id = session
+                    .cli
+                    .control(json!({"subtype": "set_permission_mode", "mode": mode}));
+                session
+                    .controls
+                    .insert(id, Control::Mode { mode, responder });
             }
             "session/set_config_option" => {
-                let request = SetSessionConfigOptionRequest::parse_message(&method, params)?;
+                let request = SetSessionConfigOptionRequest::parse_message(method, params)?;
                 let responder = responder.cast();
-                let Some(session) = self.session.as_mut().filter(|session| session.id == request.session_id) else {
+                let Some(session) = self.session.as_mut().filter(|s| s.id == request.session_id)
+                else {
                     return Ok(responder.respond_with_error(unknown_session())?);
                 };
                 let model = request
@@ -331,12 +281,17 @@ impl Bridge {
                     .filter(|_| request.config_id.0.as_ref() == MODEL);
                 let Some(model) = model else {
                     return Ok(responder.respond_with_error(
-                        agent_client_protocol::Error::invalid_params().data("only the model can be set"),
+                        agent_client_protocol::Error::invalid_params()
+                            .data("only the model can be set"),
                     )?);
                 };
 
-                let id = session.cli.control(json!({"subtype": "set_model", "model": model}));
-                session.controls.insert(id, Control::Model { model, responder });
+                let id = session
+                    .cli
+                    .control(json!({"subtype": "set_model", "model": model}));
+                session
+                    .controls
+                    .insert(id, Control::Model { model, responder });
             }
             _ => responder.respond_with_error(agent_client_protocol::Error::method_not_found())?,
         }
@@ -345,14 +300,14 @@ impl Bridge {
     }
 
     fn notification(&mut self, message: &UntypedMessage) {
-        if message.method() != "session/cancel" {
-            return;
-        }
-
-        let Ok(cancel) = CancelNotification::parse_message(message.method(), message.params()) else {
+        let Some(cancel_id) = acp::bridge::cancel_session_id(message) else {
             return;
         };
-        let Some(session) = self.session.as_mut().filter(|session| session.id == cancel.session_id) else {
+        let Some(session) = self
+            .session
+            .as_mut()
+            .filter(|session| session.id == cancel_id)
+        else {
             return;
         };
 
@@ -371,7 +326,10 @@ impl Bridge {
         };
         let cwd = wsl::linux_path(cwd)?;
         let folder = crate::agents::claude::slug(Path::new(cwd.as_ref()));
-        let transcript = self.home.as_ref()?.join(&format!(".claude/projects/{folder}/{id}.jsonl"));
+        let transcript = self
+            .home
+            .as_ref()?
+            .join(&format!(".claude/projects/{folder}/{id}.jsonl"));
         Some(wsl::windows_path(distro, &transcript))
     }
 
@@ -380,30 +338,23 @@ impl Bridge {
     fn start(
         &mut self,
         id: &str,
-        cwd: &std::path::Path,
+        cwd: &Path,
         mcp: &[McpServer],
         system: Option<&SystemPrompt>,
         meta: Option<&Map<String, Value>>,
         start: Start,
     ) -> Result<()> {
-        if self.session.is_some() {
-            let refused = agent_client_protocol::Error::invalid_request().data("this process runs one session");
-            return start.refuse(refused);
-        }
-
-        if system.is_some_and(|system| system.mode != SystemPromptMode::Append) {
-            let refused = agent_client_protocol::Error::invalid_params()
-                .data("only an appended system prompt is supported");
-            return start.refuse(refused);
-        }
+        let Some(start) = start.check(self.session.is_some(), system)? else {
+            return Ok(());
+        };
 
         let launch = Launch {
             cwd,
             session: id,
-            resume: !matches!(start, Start::New(_)),
+            resume: !start.is_new(),
             wsl: self.wsl.as_ref(),
             mcp: mcp_config(mcp, self.wsl.is_some()),
-            system: system.map(system_text).filter(|text| !text.is_empty()),
+            system: acp::bridge::system_text(system),
             asks: self.asks,
             disallowed: disallowed_tools(meta),
         };
@@ -438,10 +389,14 @@ impl Bridge {
             Some("control_response") => {
                 let response = &frame["response"];
                 let id = response["request_id"].as_str().unwrap_or_default();
+
                 if let Some(control) = session.controls.remove(id) {
                     let answer = match response["subtype"].as_str() {
                         Some("success") => Ok(&response["response"]),
-                        _ => Err(response["error"].as_str().unwrap_or("Claude Code refused").to_owned()),
+                        _ => Err(response["error"]
+                            .as_str()
+                            .unwrap_or("Claude Code refused")
+                            .to_owned()),
                     };
                     controlled(cx, session, control, answer)?;
                 }
@@ -450,6 +405,7 @@ impl Bridge {
             Some("stream_event") => {
                 if let Some(id) = frame["event"]["message"]["id"].as_str() {
                     session.streamed.insert(id.to_owned());
+
                     if frame["parent_tool_use_id"].is_null() {
                         session.message = Some(id.to_owned());
                     }
@@ -472,6 +428,7 @@ impl Bridge {
                     && frame["message"]["id"]
                         .as_str()
                         .is_none_or(|id| !session.streamed.contains(id));
+
                 for update in updates::message(&frame, unstreamed) {
                     notify(cx, &session.id, update)?;
                 }
@@ -484,7 +441,11 @@ impl Bridge {
                     && MODES.iter().any(|(id, _)| *id == mode)
                 {
                     session.moved_to(mode);
-                    notify(cx, &session.id, SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(mode.to_owned())))?;
+                    notify(
+                        cx,
+                        &session.id,
+                        SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(mode.to_owned())),
+                    )?;
                 }
             }
             Some("result") if session.prompt.is_some() && updates::ends_prompt(&frame) => {
@@ -494,6 +455,7 @@ impl Bridge {
 
                 session.streamed.clear();
                 let cancelled = std::mem::take(&mut session.cancelled);
+
                 if let Some(responder) = session.prompt.take() {
                     match updates::stop(&frame, cancelled) {
                         Ok(stop) => responder.respond(
@@ -522,7 +484,9 @@ impl Bridge {
 
         if asked["subtype"] != "can_use_tool" {
             let subtype = asked["subtype"].as_str().unwrap_or_default();
-            session.cli.refuse(&request, &format!("unsupported control request: {subtype}"));
+            session
+                .cli
+                .refuse(&request, &format!("unsupported control request: {subtype}"));
             return Ok(());
         }
 
@@ -534,23 +498,38 @@ impl Bridge {
             "AskUserQuestion" => {
                 let form = ask::form(&session.id, &call, &input).filter(|_| self.asks);
                 let Some((form, questions)) = form else {
-                    session.cli.respond(&request, ask::deny("There are no questions the user can answer here."));
+                    session.cli.respond(
+                        &request,
+                        ask::deny("There are no questions the user can answer here."),
+                    );
                     return Ok(());
                 };
-                let sent = self.cx.send_request(form).block_task();
+                let reply = acp::bridge::ask_client(&self.cx, ClientRequest::Form(form));
                 self.answers.push(
                     async move {
                         let asked = Asked::Questions { input, questions };
-                        answer(request, asked, Reply::Form(sent.await))
+                        answer(request, asked, reply.await)
                     }
                     .boxed(),
                 );
                 return Ok(());
             }
-            "ExitPlanMode" => (ask::plan_options(&session.before_plan), Asked::Plan { input: input.clone() }),
+            "ExitPlanMode" => (
+                ask::plan_options(&session.before_plan),
+                Asked::Plan {
+                    input: input.clone(),
+                },
+            ),
             _ => {
-                let suggested = Some(asked["permission_suggestions"].clone()).filter(|rules| !rules.is_null());
-                (ask::tool_options(suggested.is_some()), Asked::Tool { input: input.clone(), suggested })
+                let suggested =
+                    Some(asked["permission_suggestions"].clone()).filter(|rules| !rules.is_null());
+                (
+                    ask::tool_options(suggested.is_some()),
+                    Asked::Tool {
+                        input: input.clone(),
+                        suggested,
+                    },
+                )
             }
         };
         let permission = RequestPermissionRequest::new(
@@ -558,30 +537,26 @@ impl Bridge {
             updates::asked(&call, tool, &input),
             options,
         );
-        let sent = self.cx.send_request(permission).block_task();
-        self.answers.push(async move { answer(request, what, Reply::Permission(sent.await)) }.boxed());
+        let reply = acp::bridge::ask_client(&self.cx, ClientRequest::Permission(permission));
+        self.answers
+            .push(async move { answer(request, what, reply.await) }.boxed());
         Ok(())
     }
 }
 
-/// The client's answer to a request of ours.
-enum Reply {
-    Permission(Result<agent_client_protocol::v1::schema::RequestPermissionResponse, agent_client_protocol::Error>),
-    Form(Result<agent_client_protocol::v1::schema::CreateElicitationResponse, agent_client_protocol::Error>),
-}
-
 /// What the CLI is told of the client's `reply` to what it `asked`.
-fn answer(request: String, asked: Asked, reply: Reply) -> Answer {
+fn answer(request: String, asked: Asked, reply: ClientReply) -> Answer {
     let (decision, mode) = match (asked, reply) {
-        (Asked::Tool { input, suggested }, Reply::Permission(reply)) => {
+        (Asked::Tool { input, suggested }, ClientReply::Permission(reply)) => {
             (ask::tool_decision(reply, input, suggested), None)
         }
-        (Asked::Plan { input }, Reply::Permission(reply)) => ask::plan_decision(reply, input),
-        (Asked::Questions { input, questions }, Reply::Form(reply)) => {
+        (Asked::Plan { input }, ClientReply::Permission(reply)) => ask::plan_decision(reply, input),
+        (Asked::Questions { input, questions }, ClientReply::Form(reply)) => {
             (ask::answered(reply, input, &questions), None)
         }
         _ => (ask::deny("unexpected answer"), None),
     };
+
     Answer {
         request,
         decision,
@@ -615,29 +590,22 @@ fn controlled(
                 .find(|model| model == "default")
                 .or_else(|| session.models.first().map(|model| model.value.to_string()))
                 .unwrap_or_default();
-            let modes = modes(&session.mode);
-            let options = config_options(session);
-
-            match start {
-                Start::New(responder) => responder.respond(
-                    NewSessionResponse::new(session.id.clone())
-                        .modes(modes)
-                        .config_options(options),
-                )?,
-                Start::Load(responder, replay) => {
-                    for update in replay {
-                        notify(cx, &session.id, update)?;
-                    }
-                    responder.respond(LoadSessionResponse::new().modes(modes).config_options(options))?;
-                }
-                Start::Resume(responder) => responder.respond(
-                    ResumeSessionResponse::new().modes(modes).config_options(options),
-                )?,
-            }
+            start.respond(
+                cx,
+                &session.id,
+                modes(&session.mode),
+                config_options(session),
+                [],
+            )?;
 
             let commands = commands(initialized);
+
             if !commands.is_empty() {
-                notify(cx, &session.id, SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(commands)))?;
+                notify(
+                    cx,
+                    &session.id,
+                    SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(commands)),
+                )?;
             }
         }
         Control::Mode { mode, responder } => match answer {
@@ -664,22 +632,6 @@ fn controlled(
     Ok(())
 }
 
-/// What this agent can do. It replays a loaded session's transcript.
-fn initialized() -> InitializeResponse {
-    let session = SessionCapabilities::new()
-        .resume(SessionResumeCapabilities::new())
-        .system_prompt(SessionSystemPromptCapabilities::new());
-    InitializeResponse::new(ProtocolVersion::V1)
-        .agent_capabilities(
-            AgentCapabilities::new()
-                .load_session(true)
-                .prompt_capabilities(PromptCapabilities::new().image(true).embedded_context(true))
-                .mcp_capabilities(McpCapabilities::new().http(true).sse(true))
-                .session_capabilities(session),
-        )
-        .agent_info(Implementation::new("beep-node claude-acp", env!("CARGO_PKG_VERSION")))
-}
-
 fn modes(current: &str) -> SessionModeState {
     SessionModeState::new(
         current.to_owned(),
@@ -696,8 +648,13 @@ fn config_options(session: &Session) -> Vec<SessionConfigOption> {
     }
 
     vec![
-        SessionConfigOption::select(MODEL, "Model", session.model.clone(), session.models.clone())
-            .category(SessionConfigOptionCategory::Model),
+        SessionConfigOption::select(
+            MODEL,
+            "Model",
+            session.model.clone(),
+            session.models.clone(),
+        )
+        .category(SessionConfigOptionCategory::Model),
     ]
 }
 
@@ -728,10 +685,14 @@ fn commands(initialized: &Value) -> Vec<AvailableCommand> {
         .filter_map(|command| {
             let name = command["name"].as_str()?;
             let description = command["description"].as_str().unwrap_or_default();
-            let hint = command["argumentHint"].as_str().filter(|hint| !hint.is_empty());
-            Some(AvailableCommand::new(name, description).input(
-                hint.map(|hint| AvailableCommandInput::Unstructured(UnstructuredCommandInput::new(hint))),
-            ))
+            let hint = command["argumentHint"]
+                .as_str()
+                .filter(|hint| !hint.is_empty());
+            Some(
+                AvailableCommand::new(name, description).input(hint.map(|hint| {
+                    AvailableCommandInput::Unstructured(UnstructuredCommandInput::new(hint))
+                })),
+            )
         })
         .collect()
 }
@@ -742,6 +703,7 @@ fn replayed(path: Option<PathBuf>, id: &str, in_wsl: bool) -> Vec<SessionUpdate>
     let Some(path) = path else {
         return Vec::new();
     };
+
     updates::replay(&path, in_wsl).unwrap_or_else(|e| {
         log::warn!("the transcript of {id} was not replayed: {e}");
         Vec::new()
@@ -762,15 +724,6 @@ async fn next_frame(session: &mut Option<Session>) -> Option<Value> {
     }
 }
 
-fn notify(cx: &ConnectionTo<Client>, session: &SessionId, update: SessionUpdate) -> Result<()> {
-    cx.send_notification(SessionNotification::new(session.clone(), update))?;
-    Ok(())
-}
-
-fn unknown_session() -> agent_client_protocol::Error {
-    agent_client_protocol::Error::invalid_params().data("no such session")
-}
-
 /// A prompt block as the CLI takes it.
 fn content(block: &ContentBlock) -> Option<Value> {
     match block {
@@ -784,49 +737,21 @@ fn content(block: &ContentBlock) -> Option<Value> {
     }
 }
 
-/// The text of a system prompt's blocks.
-fn system_text(prompt: &SystemPrompt) -> String {
-    prompt
-        .content
-        .iter()
-        .filter_map(|block| match block {
-            ContentBlock::Text(text) => Some(text.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n")
-}
-
 /// The MCP servers as `--mcp-config` takes them. In WSL a server on stdio
 /// is a Windows program: it is named by its path inside the distribution,
 /// and its variables cross over in `WSLENV`.
 fn mcp_config(servers: &[McpServer], in_wsl: bool) -> Option<String> {
-    let pairs = |pairs: Vec<(String, String)>| -> Map<String, Value> {
-        pairs.into_iter().map(|(name, value)| (name, Value::String(value))).collect()
-    };
     let mut config = Map::new();
 
     for server in servers {
         let (name, entry) = match server {
-            McpServer::Stdio(stdio) => {
-                let mut env: Vec<(String, String)> =
-                    stdio.env.iter().map(|var| (var.name.clone(), var.value.clone())).collect();
-                let command = match in_wsl.then(|| wsl::linux_path(&stdio.command)).flatten() {
-                    Some(command) => {
-                        let names: Vec<&str> = env.iter().map(|(name, _)| name.as_str()).collect();
-                        env.push(("WSLENV".to_owned(), names.join(":")));
-                        command.to_string()
-                    }
-                    None => stdio.command.display().to_string(),
-                };
-                (&stdio.name, json!({"command": command, "args": stdio.args, "env": pairs(env)}))
-            }
+            McpServer::Stdio(stdio) => (&stdio.name, acp::bridge::mcp_stdio(stdio, in_wsl)),
             McpServer::Http(http) => (
                 &http.name,
                 json!({
                     "type": "http",
                     "url": http.url,
-                    "headers": pairs(http.headers.iter().map(|h| (h.name.clone(), h.value.clone())).collect()),
+                    "headers": acp::bridge::mcp_headers(&http.headers),
                 }),
             ),
             McpServer::Sse(sse) => (
@@ -834,7 +759,7 @@ fn mcp_config(servers: &[McpServer], in_wsl: bool) -> Option<String> {
                 json!({
                     "type": "sse",
                     "url": sse.url,
-                    "headers": pairs(sse.headers.iter().map(|h| (h.name.clone(), h.value.clone())).collect()),
+                    "headers": acp::bridge::mcp_headers(&sse.headers),
                 }),
             ),
             _ => continue,
@@ -844,4 +769,3 @@ fn mcp_config(servers: &[McpServer], in_wsl: bool) -> Option<String> {
 
     (!config.is_empty()).then(|| json!({"mcpServers": config}).to_string())
 }
-

@@ -3,7 +3,7 @@
 //! copies, so it answers at once and finds sessions of offline machines too.
 
 use super::search::Found;
-use crate::fleet::Fleet;
+use crate::{center::lock, fleet::Fleet};
 use anyhow::{Context, bail};
 use beep_fleet::alerts::each_machine;
 use beep_mesh::RETRY;
@@ -15,7 +15,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard},
 };
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::{task::spawn_blocking, time::sleep};
@@ -105,10 +105,6 @@ impl Copies {
     fn held(&self) -> MutexGuard<'_, HashMap<EndpointId, Arc<Mutex<IndexCopy>>>> {
         lock(&self.held)
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn machine_of(path: &Path) -> Option<EndpointId> {
