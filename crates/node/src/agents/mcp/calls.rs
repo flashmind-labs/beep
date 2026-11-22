@@ -8,30 +8,7 @@ use serde_json::{Map, Value};
 /// What every title of a `beep` call starts with.
 pub(crate) const PREFIX: &str = "Beep: ";
 
-/// One of the `beep` server's tools. The words its calls take, after
-/// `PREFIX`:
-///
-/// - `List machines`
-/// - `Run on <machine>: <command>`
-/// - `Start <agent> on <machine>: <prompt>` (`an agent` when none is named)
-/// - `Start <harness> agent on <machine>: <prompt>`, `Check agent <id>`,
-///   `Message agent <id>: <text>`, `Stop agent <id>`, `List agents`
-/// - `Start thread: <prompt>`, `Check thread <id>`, `Message thread <id>:
-///   <text>`, `Stop thread <id>`, `List threads`
-/// - `Sync <project>`, or `Sync <project> to <machine>`
-/// - `Send <n> files to <machine>`
-/// - `Check job <id>`, `Cancel job <id>`
-/// - `Ask: <question>`
-/// - `Review changes`, `Review changes against <base>`, `Check review <id>`
-/// - `Submit review`
-/// - `List devices`, `Boot <device> on <machine>`, `Shut down …`, `Show …`,
-///   `Capture …`, `Tap … on <machine>: <x>, <y>`, `Swipe …: <x>, <y> to
-///   <x2>, <y2>`, `Type into …: <text>`, `Press <key> on <device> on
-///   <machine>`
-/// - `Read status`, `Read logs on <machine>`, `Read metrics`, `File a
-///   report: <description>`
-/// - `List Git hosts`, `Create project: <name>`, `Clone project: <url>`,
-///   `Find projects`, `Import projects`
+/// One of the `beep` server's tools.
 ///
 /// A grouped tool of older sessions (`machines`, `run`, `files`, `agent`,
 /// `beep`, `device`) takes the words of the tool its action calls.
@@ -146,6 +123,7 @@ impl Tool {
     pub(crate) fn of_name(name: &str) -> Option<Self> {
         let rest = name.strip_prefix("mcp__")?;
         let tool = rest.strip_prefix(SERVER_NAME)?.strip_prefix("__")?;
+
         tool.parse().ok()
     }
 
@@ -161,6 +139,7 @@ impl Tool {
         let named = meta
             .and_then(|meta| meta.get("claudeCode")?.get("toolName")?.as_str())
             .and_then(Self::of_name);
+
         named
             .or_else(|| Self::of_title(title))
             .or_else(|| Self::try_from(input?).ok())
@@ -183,6 +162,7 @@ impl Tool {
 
         let (tool, server) = title.split_once(" (")?;
         let server = server.strip_suffix(" MCP Server)")?;
+
         (server == SERVER_NAME).then(|| tool.parse().ok()).flatten()
     }
 
@@ -217,34 +197,31 @@ impl Tool {
                 .filter(|text| !text.is_empty())
         };
         let machine = text("machine");
-        let on = |verb: &str| match machine {
-            Some(machine) => format!("{verb} on {machine}"),
-            None => format!("{verb} on a machine"),
+        let id = text("id").unwrap_or("");
+        let on = |verb: &str| format!("{verb} on {}", machine.unwrap_or("a machine"));
+        let on_opt = |what: &str| match machine {
+            Some(machine) => format!("{what} on {machine}"),
+            None => what.to_owned(),
         };
-        let with = |head: String, detail: Option<&str>| match detail {
-            Some(detail) => format!("{PREFIX}{head}: {detail}"),
-            None => format!("{PREFIX}{head}"),
+        let with = |head: &str, detail: Option<&str>| match detail {
+            Some(detail) => format!("{head}: {detail}"),
+            None => head.to_owned(),
         };
 
-        match self {
-            Self::ListProjects => with("List projects".to_owned(), text("project")),
-            Self::ListMachines => format!("{PREFIX}List machines"),
+        let body = match self {
+            Self::ListProjects => with("List projects", text("project")),
+            Self::ListMachines => "List machines".to_owned(),
             Self::HarnessInfo => {
-                let harness = text("harness").unwrap_or("a harness");
-
-                match machine {
-                    Some(machine) => format!("{PREFIX}Query {harness} on {machine}"),
-                    None => format!("{PREFIX}Query {harness}"),
-                }
+                on_opt(&format!("Query {}", text("harness").unwrap_or("a harness")))
             }
-            Self::ReadTranscript => with(on("Read transcript"), text("session")),
-            Self::RunOn => with(on("Run"), text("command")),
+            Self::ReadTranscript => with(&on("Read transcript"), text("session")),
+            Self::RunOn => with(&on("Run"), text("command")),
             Self::SyncProject => {
                 let project = text("project").unwrap_or("a project");
 
                 match machine {
-                    Some(machine) => format!("{PREFIX}Sync {project} to {machine}"),
-                    None => format!("{PREFIX}Sync {project}"),
+                    Some(machine) => format!("Sync {project} to {machine}"),
+                    None => format!("Sync {project}"),
                 }
             }
             Self::SendFiles => {
@@ -252,70 +229,51 @@ impl Tool {
                     .and_then(|args| args.get("paths")?.as_array())
                     .map_or(0, Vec::len);
                 let files = if count == 1 { "file" } else { "files" };
-                let to = machine.unwrap_or("a machine");
-                format!("{PREFIX}Send {count} {files} to {to}")
+
+                format!("Send {count} {files} to {}", machine.unwrap_or("a machine"))
             }
-            Self::JobStatus => format!("{PREFIX}Check job {}", text("id").unwrap_or("")),
-            Self::Cancel => format!("{PREFIX}Cancel job {}", text("id").unwrap_or("")),
-            Self::StartAgent => {
-                let harness = text("harness").unwrap_or("an");
-                let on = match machine {
-                    Some(machine) => format!("{harness} agent on {machine}"),
-                    None => format!("{harness} agent"),
-                };
-                with(format!("Start {on}"), text("prompt"))
-            }
-            Self::AgentStatus => format!("{PREFIX}Check agent {}", text("id").unwrap_or("")),
-            Self::SendToAgent => with(
-                format!("Message agent {}", text("id").unwrap_or("")),
-                text("text"),
+            Self::JobStatus => format!("Check job {id}"),
+            Self::Cancel => format!("Cancel job {id}"),
+            Self::StartAgent => with(
+                &on_opt(&format!("Start {} agent", text("harness").unwrap_or("an"))),
+                text("prompt"),
             ),
-            Self::StopAgent => format!("{PREFIX}Stop agent {}", text("id").unwrap_or("")),
+            Self::AgentStatus => format!("Check agent {id}"),
+            Self::SendToAgent => with(&format!("Message agent {id}"), text("text")),
+            Self::StopAgent => format!("Stop agent {id}"),
             Self::ListAgents => match text("project") {
-                Some(project) => format!("{PREFIX}List agents in {project}"),
-                None => format!("{PREFIX}List agents"),
+                Some(project) => format!("List agents in {project}"),
+                None => "List agents".to_owned(),
             },
-            Self::StartThread => with("Start thread".to_owned(), text("prompt")),
-            Self::ThreadStatus => format!("{PREFIX}Check thread {}", text("id").unwrap_or("")),
-            Self::SendToThread => with(
-                format!("Message thread {}", text("id").unwrap_or("")),
-                text("text"),
-            ),
-            Self::StopThread => format!("{PREFIX}Stop thread {}", text("id").unwrap_or("")),
-            Self::ListThreads => format!("{PREFIX}List threads"),
-            Self::AskUser => with("Ask".to_owned(), text("question")),
+            Self::StartThread => with("Start thread", text("prompt")),
+            Self::ThreadStatus => format!("Check thread {id}"),
+            Self::SendToThread => with(&format!("Message thread {id}"), text("text")),
+            Self::StopThread => format!("Stop thread {id}"),
+            Self::ListThreads => "List threads".to_owned(),
+            Self::AskUser => with("Ask", text("question")),
             Self::Review => match (text("id"), text("base")) {
-                (Some(id), _) => format!("{PREFIX}Check review {id}"),
-                (None, Some(base)) => format!("{PREFIX}Review changes against {base}"),
-                (None, None) => format!("{PREFIX}Review changes"),
+                (Some(id), _) => format!("Check review {id}"),
+                (None, Some(base)) => format!("Review changes against {base}"),
+                (None, None) => "Review changes".to_owned(),
             },
-            Self::SubmitReview => format!("{PREFIX}Submit review"),
-            Self::BeepStatus => format!("{PREFIX}Read status"),
-            Self::BeepLogs => match machine {
-                Some(machine) => format!("{PREFIX}Read logs on {machine}"),
-                None => format!("{PREFIX}Read logs"),
-            },
-            Self::BeepMetrics => match machine {
-                Some(machine) => format!("{PREFIX}Read metrics on {machine}"),
-                None => format!("{PREFIX}Read metrics"),
-            },
-            Self::FileReport => with("File a report".to_owned(), text("description")),
-            Self::ProjectsHosts => format!("{PREFIX}List Git hosts"),
-            Self::ProjectsCreate => with("Create project".to_owned(), text("name")),
-            Self::ProjectsClone => with("Clone project".to_owned(), text("url")),
-            Self::ProjectsFound => format!("{PREFIX}Find projects"),
-            Self::ProjectsImport => format!("{PREFIX}Import projects"),
-            Self::Machines
-            | Self::Run
-            | Self::Files
-            | Self::Agent
-            | Self::Beep
-            | Self::Device => match self.resolved(input) {
-                tool if tool != self => return tool.title(input),
-                _ => format!("{PREFIX}Use {}", Into::<&'static str>::into(self)),
-            },
-            Self::Plugins => format!("{PREFIX}Use plugins"),
-            Self::DeviceList => format!("{PREFIX}List devices"),
+            Self::SubmitReview => "Submit review".to_owned(),
+            Self::BeepStatus => "Read status".to_owned(),
+            Self::BeepLogs => on_opt("Read logs"),
+            Self::BeepMetrics => on_opt("Read metrics"),
+            Self::FileReport => with("File a report", text("description")),
+            Self::ProjectsHosts => "List Git hosts".to_owned(),
+            Self::ProjectsCreate => with("Create project", text("name")),
+            Self::ProjectsClone => with("Clone project", text("url")),
+            Self::ProjectsFound => "Find projects".to_owned(),
+            Self::ProjectsImport => "Import projects".to_owned(),
+            Self::Machines | Self::Run | Self::Files | Self::Agent | Self::Beep | Self::Device => {
+                match self.resolved(input) {
+                    tool if tool != self => return tool.title(input),
+                    _ => format!("Use {}", Into::<&'static str>::into(self)),
+                }
+            }
+            Self::Plugins => "Use plugins".to_owned(),
+            Self::DeviceList => "List devices".to_owned(),
             device @ (Self::DeviceBoot
             | Self::DeviceShutdown
             | Self::DeviceShow
@@ -329,39 +287,36 @@ impl Tool {
             | Self::DeviceInstall
             | Self::DeviceLaunch
             | Self::DeviceReset) => {
-                let number = |key: &str| {
+                let num = |key: &str| {
                     args.and_then(|args| args.get(key)?.as_number())
                         .map_or_else(|| "?".to_owned(), ToString::to_string)
                 };
-                let name = text("device").unwrap_or("a device");
                 let machine = machine.map_or_else(|| "a machine".to_owned(), command_name);
-                let at = format!("{name} on {machine}");
+                let at = format!("{} on {machine}", text("device").unwrap_or("a device"));
 
                 match device {
-                    Self::DeviceBoot => format!("{PREFIX}Boot {at}"),
-                    Self::DeviceShutdown => format!("{PREFIX}Shut down {at}"),
-                    Self::DeviceShow => format!("{PREFIX}Show {at}"),
-                    Self::DeviceScreenshot => format!("{PREFIX}Capture {at}"),
-                    Self::DeviceTap => {
-                        format!("{PREFIX}Tap {at}: {}, {}", number("x"), number("y"))
-                    }
+                    Self::DeviceBoot => format!("Boot {at}"),
+                    Self::DeviceShutdown => format!("Shut down {at}"),
+                    Self::DeviceShow => format!("Show {at}"),
+                    Self::DeviceScreenshot => format!("Capture {at}"),
+                    Self::DeviceTap => format!("Tap {at}: {}, {}", num("x"), num("y")),
                     Self::DeviceSwipe => format!(
-                        "{PREFIX}Swipe {at}: {}, {} to {}, {}",
-                        number("x"),
-                        number("y"),
-                        number("x2"),
-                        number("y2")
+                        "Swipe {at}: {}, {} to {}, {}",
+                        num("x"),
+                        num("y"),
+                        num("x2"),
+                        num("y2")
                     ),
-                    Self::DeviceType => with(format!("Type into {at}"), text("text")),
+                    Self::DeviceType => with(&format!("Type into {at}"), text("text")),
                     Self::DevicePress => {
-                        format!("{PREFIX}Press {} on {at}", text("key").unwrap_or("a key"))
+                        format!("Press {} on {at}", text("key").unwrap_or("a key"))
                     }
-                    _ => format!("{PREFIX}Use {at}"),
+                    _ => format!("Use {at}"),
                 }
             }
-        }
-        .trim_end()
-        .to_owned()
+        };
+
+        format!("{PREFIX}{}", body.trim_end())
     }
 }
 

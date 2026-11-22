@@ -3,14 +3,14 @@
 //! problem report reads (`report/1`), with secrets redacted the same way:
 //! every machine of the mesh.
 
-use beep_proto::SessionId;
 use super::machines::command_name;
-use super::reply::{fail, parse};
+use super::reply::{done, fail, parse};
 use super::server::ASK_LIMIT;
 use crate::{
     agents::{Answered, Asking},
     link::{Offers, peers::Peers},
 };
+use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{AnswerOption, OptionKind},
     logs::Query as LogQuery,
@@ -39,32 +39,35 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
     let Some(peers) = offers.reach.peers() else {
         return fail("This node is still starting; try again in a moment.");
     };
-    let answered = match request.tool {
-        Tool::BeepStatus => Ok(status(&peers).await),
-        Tool::BeepLogs => match parse(&request.args) {
-            Ok(args) => logs(&peers, args).await,
-            Err(e) => return fail(e),
-        },
-        Tool::BeepMetrics => match parse(&request.args) {
-            Ok(args) => metrics(&peers, args).await,
-            Err(e) => return fail(e),
-        },
-        Tool::FileReport => match parse(&request.args) {
-            Ok(args) => file(offers, &peers, &request.session, args).await,
-            Err(e) => return fail(e),
-        },
-        other => Err(format!("{other} is not a Beep debugging tool.")),
+    let answered = match dispatch(offers, &peers, request).await {
+        Ok(answered) => answered,
+        Err(bad_args) => return fail(bad_args),
     };
     let (text, failed) = match answered {
         Ok(text) => (text, false),
         Err(text) => (text, true),
     };
+
     // Redaction runs regexes over whole logs: off the async workers.
     match spawn_blocking(move || redact(&text)).await {
-        Ok(Ok(text)) => Reply::Done { text, failed },
+        Ok(Ok(text)) => done(text, failed),
         Ok(Err(e)) => fail(format!("The answer was not sent: redacting it failed: {e}")),
         Err(e) => fail(format!("The answer was not sent: redacting it failed: {e}")),
     }
+}
+
+async fn dispatch(
+    offers: &Offers,
+    peers: &Peers,
+    request: &Request,
+) -> Result<Result<String, String>, String> {
+    Ok(match request.tool {
+        Tool::BeepStatus => Ok(status(peers).await),
+        Tool::BeepLogs => logs(peers, parse(&request.args)?).await,
+        Tool::BeepMetrics => metrics(peers, parse(&request.args)?).await,
+        Tool::FileReport => file(offers, peers, &request.session, parse(&request.args)?).await,
+        other => Err(format!("{other} is not a Beep debugging tool.")),
+    })
 }
 
 fn now() -> i64 {
@@ -81,12 +84,15 @@ fn heading(share: &Share) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     let mut about = vec![share.kind.to_string()];
+
     if !os.is_empty() {
         about.push(os);
     }
+
     if !share.version.is_empty() {
         about.push(format!("Beep {}", share.version));
     }
+
     format!(
         "## {} ({}): {}",
         share.name,
@@ -108,6 +114,41 @@ async fn status(peers: &Peers) -> String {
     }
 
     text
+}
+
+/// Whether `target` is the machine the agent named, by name or id.
+fn named(target: &Target, name: &str) -> bool {
+    command_name(&target.name) == command_name(name) || target.id.to_string() == name.trim()
+}
+
+fn find_target(peers: &Peers, machine: Option<&str>) -> Result<Target, String> {
+    let me = peers.key().public();
+    let name = machine.map(str::trim).unwrap_or_default();
+
+    if let Some(target) = peers.report_targets().into_iter().find(|target| {
+        if name.is_empty() {
+            target.id == me
+        } else {
+            named(target, name)
+        }
+    }) {
+        return Ok(target);
+    }
+
+    let names: Vec<String> = peers
+        .devices()
+        .iter()
+        .map(|status| command_name(&status.device.name))
+        .collect();
+
+    Err(if names.is_empty() {
+        format!("There is no machine {name}.")
+    } else {
+        format!(
+            "There is no machine {name}. The machines: {}.",
+            names.join(", ")
+        )
+    })
 }
 
 #[derive(Deserialize)]
@@ -160,6 +201,13 @@ impl QueryWindow {
 
         Ok(Self { start, end })
     }
+
+    fn rfc3339(&self) -> (String, String) {
+        (
+            self.start.to_rfc3339_opts(SecondsFormat::Nanos, true),
+            self.end.to_rfc3339_opts(SecondsFormat::Nanos, true),
+        )
+    }
 }
 
 fn validate_search(search: Option<&str>, regex: bool) -> Result<(), String> {
@@ -208,13 +256,11 @@ impl LogsArgs {
             return Err("Use start or minutes, not both.".to_owned());
         }
 
-        let minutes = self.minutes();
-        let QueryWindow { start, end } = QueryWindow::new(
+        let window = QueryWindow::new(
             self.start.as_deref(),
             self.end.as_deref(),
-            ChronoDuration::minutes(i64::from(minutes)),
+            ChronoDuration::minutes(i64::from(self.minutes())),
         )?;
-
         let offset = self.offset.unwrap_or(0);
 
         if offset > 100_000 {
@@ -222,10 +268,11 @@ impl LogsArgs {
         }
 
         validate_search(self.search.as_deref(), self.regex.unwrap_or(false))?;
+        let (start, end) = window.rfc3339();
 
         Ok(Some(LogQuery {
-            start: start.to_rfc3339_opts(SecondsFormat::Nanos, true),
-            end: end.to_rfc3339_opts(SecondsFormat::Nanos, true),
+            start,
+            end,
             search: self.search.clone(),
             regex: self.regex.unwrap_or(false),
             lines: self.lines() as u32,
@@ -235,48 +282,15 @@ impl LogsArgs {
     }
 }
 
-/// Whether `target` is the machine the agent named, by name or id.
-fn named(target: &Target, name: &str) -> bool {
-    command_name(&target.name) == command_name(name) || target.id.to_string() == name.trim()
-}
-
 /// One machine's log for the last `minutes`, its newest `lines` lines.
 async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
     let query = args.query()?;
     let minutes = args.minutes();
     let lines = args.lines();
-    let me = peers.key().public();
-    let name = args.machine.as_deref().map(str::trim).unwrap_or_default();
-    let targets: Vec<Target> = peers
-        .report_targets()
-        .into_iter()
-        .filter(|target| match name {
-            "" => target.id == me,
-            name => named(target, name),
-        })
-        .take(1)
-        .collect();
-    if targets.is_empty() {
-        let names: Vec<String> = peers
-            .devices()
-            .iter()
-            .map(|status| command_name(&status.device.name))
-            .collect();
-        return Err(match names.is_empty() {
-            true => format!("There is no machine {name}."),
-            false => format!(
-                "There is no machine {name}. The machines: {}.",
-                names.join(", ")
-            ),
-        });
-    }
+    let target = find_target(peers, args.machine.as_deref())?;
 
     if let Some(query) = query {
         use beep_proto::node::logs::{QUERY_PROTOCOL, Reply};
-        let target = targets
-            .into_iter()
-            .next()
-            .ok_or("The machine gave nothing.")?;
         let client = target
             .client
             .map_err(|reason| format!("{}: {reason}", target.name))?;
@@ -289,6 +303,7 @@ async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
         .map_err(|e| {
             format!("Log query failed: {e:#}. This requires a machine supporting log-query/1.")
         })?;
+
         return match reply {
             Reply::Log { text } => Ok(format!(
                 "{}'s Beep log, {} matching lines, offset {}, UTC [{}, {}):\n{text}",
@@ -304,7 +319,7 @@ async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
     }
 
     let since = now() - i64::from(minutes) * 60;
-    let Some(share) = collect(targets, since).await.pop() else {
+    let Some(share) = collect(vec![target], since).await.pop() else {
         return Err("The machine gave nothing.".to_owned());
     };
     let note = match &share.answer {
@@ -359,13 +374,13 @@ impl MetricsArgs {
             return Err("Use start or period, not both.".to_owned());
         }
 
-        let QueryWindow { start, end } = QueryWindow::new(
+        let window = QueryWindow::new(
             self.start.as_deref(),
             self.end.as_deref(),
             ChronoDuration::from_std(duration).map_err(|e| e.to_string())?,
         )?;
 
-        if start.timestamp() < 0 {
+        if window.start.timestamp() < 0 {
             return Err("start must be on or after 1970.".to_owned());
         }
 
@@ -377,9 +392,11 @@ impl MetricsArgs {
             return Err("limit must be between 1 and 2048, and offset at most 2048.".to_owned());
         }
 
+        let (start, end) = window.rfc3339();
+
         Ok(Some(MetricsQuery {
-            start: start.to_rfc3339_opts(SecondsFormat::Nanos, true),
-            end: end.to_rfc3339_opts(SecondsFormat::Nanos, true),
+            start,
+            end,
             search: self.search.clone(),
             regex: self.regex.unwrap_or(false),
             limit,
@@ -393,6 +410,7 @@ async fn metrics(peers: &Peers, args: MetricsArgs) -> Result<String, String> {
     let period = args.period.as_deref().unwrap_or("1h");
     let duration =
         humantime::parse_duration(period).map_err(|e| format!("Invalid metrics period: {e}"))?;
+
     if duration < Duration::from_secs(1)
         || duration > Duration::from_secs(beep_proto::node::metrics::MAX_PERIOD)
     {
@@ -400,18 +418,13 @@ async fn metrics(peers: &Peers, args: MetricsArgs) -> Result<String, String> {
     }
 
     let query = args.query(duration)?;
-    let seconds = duration.as_secs();
-    let name = args.machine.as_deref().map(str::trim).unwrap_or_default();
-    let me = peers.key().public();
-    let target = peers.report_targets().into_iter().find(|target| {
-        if name.is_empty() { target.id == me } else { named(target, name) }
-    }).ok_or_else(|| format!("There is no machine {name}."))?;
+    let target = find_target(peers, args.machine.as_deref())?;
     let client = target
         .client
         .map_err(|reason| format!("{}: {reason}", target.name))?;
     let until = u64::try_from(now()).map_err(|e| e.to_string())?;
     let request = Request {
-        since: until.saturating_sub(seconds),
+        since: until.saturating_sub(duration.as_secs()),
         until,
     };
     let protocol = if query.is_some() {
@@ -483,18 +496,18 @@ async fn file(
         Period::Today => "today",
         Period::Day => "the past day",
     };
-    let machines = "every machine";
     let option = |id: &str, name: &str, kind| AnswerOption {
-        id: id.into(),
-        name: name.into(),
+        id: id.to_owned(),
+        name: name.to_owned(),
         kind,
     };
     let gh = match find_gh() {
         Some(gh) if gh_signed_in(&gh).await => Some(gh),
         _ => None,
     };
-    let mut detail =
-        format!("{description}\n\nWith Beep's logs from {covers}, of {machines}, secrets removed.");
+    let mut detail = format!(
+        "{description}\n\nWith Beep's logs from {covers}, of every machine, secrets removed."
+    );
     let mut options = vec![option(SEND, "Send", OptionKind::AllowOnce)];
 
     if gh.is_some() {
@@ -566,6 +579,7 @@ async fn file(
             Ok(issue) => open_issue(&gh, &issue).await.map_err(|e| e.to_string()),
             Err(e) => Err(e.to_string()),
         };
+
         match opened {
             Ok(url) => text.push_str(&format!("\nIssue: {url}")),
             Err(e) => text.push_str(&format!("\nThe GitHub issue did not open: {e}")),

@@ -2,7 +2,6 @@
 //! transport speaks it. Calls run side by side, a few at a time, so a long
 //! `remote_run` does not hold up the next call.
 
-use beep_proto::SessionId;
 use super::{
     catalog::{self, ASK_USER, DEVICE, PROJECTS, READ_TRANSCRIPT, REMOTE_RUN},
     media::Media,
@@ -13,6 +12,7 @@ use crate::{
 };
 use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};
+use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{AnswerOption, OptionKind},
     device::Frame,
@@ -54,8 +54,11 @@ pub(crate) trait Backend: Sync {
         async { Called::failed("Devices are unavailable on this backend.") }
     }
     /// Puts `question` to the user in `session` and waits for the answer.
-    fn ask(&self, session: &SessionId, question: Asking)
-    -> impl Future<Output = Result<Answered>> + Send;
+    fn ask(
+        &self,
+        session: &SessionId,
+        question: Asking,
+    ) -> impl Future<Output = Result<Answered>> + Send;
     /// Whether `session` is a temporary reviewer, which is offered
     /// `submit_review`.
     fn reviewer(&self, session: &SessionId) -> bool;
@@ -154,10 +157,12 @@ async fn answer<B: Backend>(
     let method = message.get("method")?.as_str()?.to_owned();
     let id = message.get("id")?.clone();
     let params = message.get("params").cloned().unwrap_or(Value::Null);
+
     Some(match method.as_str() {
         "initialize" => {
-            let asked = params.get("protocolVersion").and_then(Value::as_str);
-            let version = asked
+            let version = params
+                .get("protocolVersion")
+                .and_then(Value::as_str)
                 .filter(|asked| VERSIONS.contains(asked))
                 .unwrap_or(VERSIONS[0]);
             let assistant = if backend.assistant(session) {
@@ -270,9 +275,21 @@ impl From<Reply> for Called {
     }
 }
 
+enum Route {
+    AskUser(Value),
+    ReadTranscript(Value),
+    Device(Value),
+    Node(Tool, Value),
+}
+
 async fn call<B: Backend>(backend: &B, session: &SessionId, name: &str, args: Value) -> Called {
-    // Only the home assistant creates and imports projects, and has threads.
-    if (name.starts_with(PROJECTS) || catalog::is_thread(name)) && !backend.assistant(session) {
+    // Only the home assistant creates and imports projects and has threads,
+    // and only a reviewer hands a review in.
+    let hidden = ((name.starts_with(PROJECTS) || catalog::is_thread(name))
+        && !backend.assistant(session))
+        || (name == "submit_review" && !backend.reviewer(session));
+
+    if hidden {
         return Called::failed(format!("There is no tool {name}."));
     }
 
@@ -281,82 +298,67 @@ async fn call<B: Backend>(backend: &B, session: &SessionId, name: &str, args: Va
     }
 
     let name = catalog::wire(name);
-    let operation = match name {
-        ASK_USER | READ_TRANSCRIPT | REMOTE_RUN => name,
-        _ if name.starts_with(DEVICE) || name.starts_with(PROJECTS) => name,
-        _ => name
-            .parse::<Tool>()
-            .map(<&'static str>::from)
-            .unwrap_or("unknown tool"),
+    let Some((operation, routed)) = route(name, args) else {
+        return Called::failed(format!("There is no tool {name}."));
     };
     let mut trace = beep_proto::logging::RequestTrace::new(operation);
-    let result = call_tool(backend, session, name, args).await;
+    let result = dispatch(backend, session, routed).await;
     trace.finish(!result.failed);
+
     result
 }
 
-async fn call_tool<B: Backend>(backend: &B, session: &SessionId, name: &str, args: Value) -> Called {
-    match name {
-        ASK_USER => return ask_user(backend, session, args).await,
-        READ_TRANSCRIPT => {
-            return match backend.read_transcript(args).await {
-                Ok(reply) => reply.into(),
-                Err(e) => Called::failed(format!("Could not read the transcript: {e:#}")),
-            };
-        }
-        _ => {}
-    }
-
+fn route(name: &str, args: Value) -> Option<(&str, Route)> {
     if let Some(action) = name.strip_prefix(DEVICE) {
-        let mut args = args;
-        if let Some(args) = args.as_object_mut() {
-            args.insert("action".to_owned(), action.into());
-        }
-
-        return backend.device(session, args).await;
+        return Some((name, Route::Device(with_action(args, action))));
     }
 
     // The desktop takes the project tools as one, by their action.
-    let mut args = args;
-    let parsed = match name.strip_prefix(PROJECTS) {
-        Some(action) => {
-            if let Some(args) = args.as_object_mut() {
-                args.insert("action".to_owned(), action.into());
-            }
+    if let Some(action) = name.strip_prefix(PROJECTS) {
+        return Some((name, Route::Node(Tool::Projects, with_action(args, action))));
+    }
 
-            Ok(Tool::Projects)
-        }
+    match name {
+        ASK_USER => Some((name, Route::AskUser(args))),
+        READ_TRANSCRIPT => Some((name, Route::ReadTranscript(args))),
         // `remote_run` goes as `run_on`, its name in `tools/1`.
-        None if name == REMOTE_RUN => Ok(Tool::RunOn),
-        None => name.parse::<Tool>().map_err(drop),
-    };
-
-    let tool = match parsed {
-        // Only a reviewer hands a review in.
-        Ok(Tool::SubmitReview) if !backend.reviewer(session) => {
-            return Called::failed(format!("There is no tool {name}."));
+        REMOTE_RUN => Some((name, Route::Node(Tool::RunOn, args))),
+        _ => {
+            let tool = name.parse::<Tool>().ok()?;
+            Some((<&'static str>::from(tool), Route::Node(tool, args)))
         }
-        Ok(tool) => tool,
-        Err(()) => return Called::failed(format!("There is no tool {name}.")),
-    };
-    let request = Request {
-        session: session.clone(),
-        tool,
-        args: args.to_string(),
-        approved: Approved::No,
-    };
-
-    match backend.call(&request).await {
-        Ok(reply) => reply.into(),
-        Err(e) => Called::failed(format!("{e:#}")),
     }
 }
 
-async fn asked<B: Backend>(backend: &B, session: &SessionId, question: Asking) -> Result<Answered> {
-    match timeout(ASK_LIMIT, backend.ask(session, question)).await {
-        Ok(answered) => answered,
-        Err(_) => anyhow::bail!("the user did not answer within an hour"),
+async fn dispatch<B: Backend>(backend: &B, session: &SessionId, route: Route) -> Called {
+    match route {
+        Route::AskUser(args) => ask_user(backend, session, args).await,
+        Route::ReadTranscript(args) => backend.read_transcript(args).await.map_or_else(
+            |e| Called::failed(format!("Could not read the transcript: {e:#}")),
+            Called::from,
+        ),
+        Route::Device(args) => backend.device(session, args).await,
+        Route::Node(tool, args) => {
+            let request = Request {
+                session: session.clone(),
+                tool,
+                args: args.to_string(),
+                approved: Approved::No,
+            };
+            backend
+                .call(&request)
+                .await
+                .map_or_else(|e| Called::failed(format!("{e:#}")), Called::from)
+        }
     }
+}
+
+fn with_action(mut args: Value, action: &str) -> Value {
+    if let Some(map) = args.as_object_mut() {
+        map.insert("action".to_owned(), Value::from(action));
+    }
+
+    args
 }
 
 #[derive(Deserialize)]
@@ -393,8 +395,11 @@ async fn ask_user<B: Backend>(backend: &B, session: &SessionId, args: Value) -> 
         detail: None,
         options,
     };
+    let answered = timeout(ASK_LIMIT, backend.ask(session, question))
+        .await
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("the user did not answer within an hour")));
 
-    match asked(backend, session, question).await {
+    match answered {
         Ok(Answered::Picked(option)) => Called::ok(format!("The user picked: {}", option.name)),
         Ok(Answered::Said(text)) => Called::ok(format!("The user answered: {text}")),
         Err(e) => Called::failed(format!("No answer: {e:#}")),

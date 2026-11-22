@@ -239,7 +239,8 @@ fn view(text: &str) -> ChildView {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_project_child_uses_its_checkout_and_accepts_followups() {
-    use beep_proto::node::mesh_state::{Place, ProjectRecord};
+    use beep_mesh::Key;
+    use beep_proto::node::mesh_state::{Place, ProjectRecord, StateValue};
     use iroh::{Endpoint, endpoint::presets};
 
     let dir = tempfile::tempdir().unwrap();

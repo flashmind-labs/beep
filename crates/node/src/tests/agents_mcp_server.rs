@@ -625,6 +625,71 @@ fn the_tool_definitions_fit_the_budget() {
     assert!(brief <= 700, "the assistant's brief is {brief} tokens");
 }
 
+#[test]
+fn catalog_schemas_preserve_exact_serialized_json_for_every_mode() {
+    use sha2::{Digest, Sha256};
+
+    let preserved = serde_json::to_vec(&json!({ "b": 1, "a": 2 })).unwrap() == br#"{"b":1,"a":2}"#;
+    let cases = [
+        (
+            (false, false, false),
+            16_563,
+            "56b17db42fe15f92d5fa539c5fa006288e4b033330298573d6f4355847c7c1a2",
+            "a1626056177be4c5f46c70d1ceba5c99bfdf898875dd026ff092aa1b89a6d09a",
+        ),
+        (
+            (false, false, true),
+            19_593,
+            "cbb8a6fad3f1d9e1b8d2fdf53ce8c1b2410d134428b0fa4d7ac14c5f47b2a696",
+            "93d69865b976c2b7e0e28986f5d1eb9dccc0030f6182ebd050125cec77aa8513",
+        ),
+        (
+            (false, true, false),
+            14_097,
+            "b579b45b447ca84c83417043872641665abc63208b5710079909bddb811e4a8f",
+            "9e4788abf5578e4d744f60c651cb12d1833328e052ceed46e968baa545df0060",
+        ),
+        (
+            (false, true, true),
+            17_127,
+            "2215e19a87a72991aa3160f7772ac5c29cf6ba9e14c8d1b5257871bb307fde40",
+            "23a796b0e327588ef1147ca97f7769962fde956cf1d562f0bc61da19f5751672",
+        ),
+        (
+            (true, false, false),
+            16_533,
+            "a74344de7a994ea009bf92a25c27e4622fad21e892972ac2ff4fe14cf20949f0",
+            "23efb53bba55ce208a0a620c6fd3d5a4ce29f6900f4d97e6f4938a110b82d5f0",
+        ),
+        (
+            (true, false, true),
+            20_633,
+            "0efa2cd76ea2caa68b8086c83cde2896159bf7426e8f855cc1a53584c71d237f",
+            "f5876a3c4ad81ebee57da4ee7c8e65aa6e5fe5c759b695e16e5ff212a3e98bbf",
+        ),
+        (
+            (true, true, false),
+            14_067,
+            "f4434a0b3a4a3f9a5b89ae7e827393dd31b950b899d4f49b44af7cdfe871cf9b",
+            "31c8d999f6461639c87b40fa12c89e4e0acd0a18f0b9c37ff50b4e26101be514",
+        ),
+        (
+            (true, true, true),
+            18_167,
+            "59be54d08de8fedab836f4e8f998734872703cfa1febe3b769885627b4e42967",
+            "06004ffa7781fd7d6b006cc15d44e0180435b115c8ff43c9aba3165fe25b7015",
+        ),
+    ];
+
+    for ((reviewer, alone, assistant), len, ordered_sha, sorted_sha) in cases {
+        let rendered = catalog::tools(reviewer, alone, assistant).to_string();
+        let digest = hex::encode(Sha256::digest(rendered.as_bytes()));
+        let expected = if preserved { ordered_sha } else { sorted_sha };
+        assert_eq!(rendered.len(), len, "mode ({reviewer}, {alone}, {assistant})");
+        assert_eq!(digest, expected, "mode ({reviewer}, {alone}, {assistant})");
+    }
+}
+
 #[tokio::test]
 async fn a_meshy_key_offers_the_3d_tools_and_their_models() {
     use crate::machine::provision::spawn_env::{self, TEST_LOCK};
