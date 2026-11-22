@@ -2,10 +2,6 @@
 !Cargo.toml
 !Cargo.lock
 !crates/
-!tools/
-tools/*
-!tools/device-proto/
-tools/device-proto/target/
 crates/*/target/
 # A workspace member: cargo reads its manifest and sources, never builds it here.
 !apps/

@@ -671,14 +671,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "beep-device-proto"
-version = "0.1.0"
-dependencies = [
- "protox",
- "tonic-prost-build",
-]
-
-[[package]]
 name = "beep-fleet"
 version = "0.1.0"
 dependencies = [
@@ -781,6 +773,7 @@ dependencies = [
  "notify",
  "portable-pty",
  "prost",
+ "protox",
  "rand 0.10.4",
  "regex",
  "reqwest",
@@ -809,6 +802,7 @@ dependencies = [
  "toml_edit 0.25.20+spec-1.1.0",
  "tonic",
  "tonic-prost",
+ "tonic-prost-build",
  "tower",
  "tracing",
  "uuid",

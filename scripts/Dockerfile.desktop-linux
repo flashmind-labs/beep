@@ -14,7 +14,6 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
-COPY tools tools
 COPY apps/desktop apps/desktop
 COPY apps/diagrams/assets apps/diagrams/assets
 COPY plugins plugins

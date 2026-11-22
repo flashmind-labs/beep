@@ -10,7 +10,6 @@ members = [
     "crates/proto",
     "crates/report",
     "crates/server",
-    "tools/device-proto",
 ]
 # A bare `cargo build`, `clippy` or `test` leaves the Tauri app out: it needs
 # the platform's web view libraries. Name it with `-p beep-desktop`.
