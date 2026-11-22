@@ -978,6 +978,22 @@ for (const [day, scene] of [[1, "haystacks"], [2, "lilies"], [3, "parliament"]] 
   });
 }
 
+test("new project repository settings", async ({ page }) => {
+  const forge = { host: "github", github: true, owners: ["example"], error: null };
+  await openDesktop(page, false, { center_home: home, project_forges: [forge] });
+  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "New project", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "New project" });
+  const owner = sheet.getByRole("group", { name: "Account or organization" });
+  const visibility = sheet.getByRole("group", { name: "Visibility" });
+  await expect(owner.getByRole("button", { name: "example" })).toBeVisible();
+  await expect(visibility.getByRole("button", { name: "Private" })).toHaveAttribute("aria-pressed", "true");
+  const left = await owner.boundingBox();
+  const right = await visibility.boundingBox();
+  expect(left && right && left.x + left.width < right.x && left.y === right.y).toBe(true);
+  await baseline(page, "new-project", ".np-sheet");
+});
+
 test("add a project", async ({ page }) => {
   const place = (folder: string) => ({ machine_id: machineId, machine_name: machineId, folder });
   const found = [
