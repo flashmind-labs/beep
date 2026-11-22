@@ -43,7 +43,7 @@ import { COMPACTING, waitLine, type BackgroundWork } from "./waiting-state.ts";
 import { drawQueue, questionKey } from "./messages.ts";
 import { olderNote } from "./older-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
-import { showAgentControl, showAgentControlFor, showAgentStop } from "./composer-ui.tsx";
+import { batchComposerUi, showAgentControl, showAgentControlFor, showAgentStop } from "./composer-ui.tsx";
 import { AgentStatus } from "./mode-view.tsx";
 import type { BlockedRow, ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
 import { sessionBody } from "./session-frame.tsx";
@@ -99,17 +99,19 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   followDeviceCalls(p.entries, p.earlier);
   const arts = { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) };
   drawPane(subs, arts);
-  drawModelPill();
-  drawModes();
-  drawPlan(p);
-  drawTasks();
-  drawQueue();
-  showAgentControl("state", <AgentStatus status={s.status} stopping={stopping} />);
+  batchComposerUi(() => {
+    drawModelPill();
+    drawModes();
+    drawPlan(p);
+    drawTasks();
+    drawQueue();
+    showAgentControl("state", <AgentStatus status={s.status} stopping={stopping} />);
+    // Only a turn that runs can be stopped; stopped, it says so at once,
+    // while the agent winds the turn down.
+    showAgentStop({ shown: AGENT_ACTIVE.has(s.status), stopping });
+  });
   tickClocks();
   redrawAgentHints();
-  // Only a turn that runs can be stopped; stopped, it says so at once,
-  // while the agent winds the turn down.
-  showAgentStop({ shown: AGENT_ACTIVE.has(s.status), stopping });
 
   // A log goes to its end as `fillLog` draws it, with one layout.
   if (scroll === "bottom" && !units) pinEnd(b);

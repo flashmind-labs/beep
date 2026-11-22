@@ -2,7 +2,6 @@
 import "./window-root.tsx";
 import { onPhone, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.tsx";
-import "../chat/diagrams.tsx";
 // center/: the command center window: sidebar, Home, palette, usage pill and
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
 import "../ui/window-defaults.ts";
@@ -15,7 +14,6 @@ import { isNewKey } from "../terminals/newkey-state.ts";
 import { allTerms } from "../terminals/view.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.tsx";
-import { pane } from "../bar/pane.ts";
 import type { BackTo } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
 import { startView, windowTitle, type Alone, type CenterTarget } from "../project/projectwindow.ts";
@@ -23,25 +21,22 @@ import { ensureSessions } from "../agents/sessions.ts";
 import type { AgentRow } from "../agents/agents.ts";
 import { mountUsage, type UsageView } from "./usage.tsx";
 import { mountNotices } from "./notices.tsx";
-import { firstRun } from "./firstrun.tsx";
 import { pairing } from "./pairing.tsx";
 import { windowCommand } from "../ui/windowkeys.ts";
 import { state, pagesAccount, keepPagesFile } from "./state.ts";
 import { draw, homeTab, jump } from "./home.tsx";
 import { currentLocation, windowAlone, aloneProject, go, goHistory, hasHistory, setWindowAlone, goTo } from "./views.tsx";
-import { reloadGroup, paneOn, projectHere, openProjects, projectWindowProps, openProjectWindow, addProject } from "./sidebar.tsx";
+import { reloadGroup, paneOn, projectHere, openProjects, projectWindowProps, openProjectWindow, addProject, openAddMachine } from "./sidebar.tsx";
 import { escUp } from "./escup-state.ts";
 import { nextRunning } from "../project/loads.tsx";
 import { itemScroll, setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
-import { openTile } from "../project/split.tsx";
 import { pa } from "../project/sections.ts";
 import { AG, newThreadHere } from "../agents/agents.ts";
-import { debugWithAgent, readPending, showPending } from "./pane.tsx";
+import { pane } from "../bar/pane.ts";
+import { debugWithAgent, initPaneView, readPending, showPending } from "./pane.tsx";
 import { homeCached, refresh } from "./refresh.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
-import { openReport } from "../report/report.tsx";
-import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
 import { guardClicks } from "../ui/clickguard.ts";
 import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
 import { projectOf, repoOf, runningKey } from "../agents/running-state.ts";
@@ -50,7 +45,20 @@ import { dialogOpen } from "../ui/parts.tsx";
 import { startupDrawn, startupStage } from "../ui/perf.ts";
 import { dropKeptFrame, followHomeFrame } from "./home-frame.ts";
 
+const showShortcuts = () => void import("../ui/shortcutsheet.tsx").then(m => m.toggleShortcuts());
+const showReport = () => void import("../report/report.tsx").then(m => m.openReport(document.body, debugWithAgent));
+
+let diagramsLoaded = false;
+const ensureDiagrams = () => {
+  if (diagramsLoaded) return;
+  diagramsLoaded = true;
+  void import("../chat/diagrams.tsx");
+};
+document.addEventListener("animationstart", e => { if (e.animationName === "diagram-found") ensureDiagrams(); });
+if (document.getElementsByClassName("language-mermaid").length) ensureDiagrams();
+
 startupStage("scripts run");
+initPaneView();
 followSkin();
 followHomeFrame();
 guardClicks();
@@ -76,7 +84,12 @@ for (const type of ["mousedown", "mouseup"] as const) document.addEventListener(
 mountUsage(refresh => invoke<UsageView | null>("usage_get", { refresh }));
 mountNotices();
 
-initPalette({ go, jump, scope: aloneProject, settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { if (openProjects(name)) openTile("branches"); } });
+initPalette({
+  go, jump, scope: aloneProject, settings: openSettings, providers: () => go("providers"),
+  project: openProjects, projects: () => void openProjects(null), terminals: () => void go("terminals"),
+  newSession: newAgentHere, addProject, addMachine: openAddMachine, shortcuts: showShortcuts, report: showReport,
+  branches: name => { if (openProjects(name)) void import("../project/split.tsx").then(m => m.openTile("branches")); },
+});
 
 // Capture before the terminal handles the key, so Shift+Esc never reaches the shell.
 // A development build reloads the window on Cmd+R, as a browser does.
@@ -103,7 +116,7 @@ document.addEventListener("keydown", e => {
     if (up) {
       e.preventDefault();
       if (up.to === "overview") return jump();
-      if (up.to === "tile") return openTile(null);
+      if (up.to === "tile") return void import("../project/split.tsx").then(m => m.openTile(null));
       return up.to === "home" ? go("home") : void openProjects();
     }
   }
@@ -132,7 +145,7 @@ document.addEventListener("keydown", e => {
     case "project-window": return openProjectWindow(command.project);
     case "palette": return openPalette();
     case "settings": return openSettings();
-    case "shortcuts": return toggleShortcuts();
+    case "shortcuts": return showShortcuts();
     // A project's or chat's window has its sessions for a sidebar: there is nothing to swap them for.
     case "sidebar": return windowAlone ? undefined : toggleSide();
     case "assistant": return void go("pane", { assistant: "new" });
@@ -159,11 +172,11 @@ pane.connect({
   openSettings,
   openShortcuts() {
     closeSettings();
-    toggleShortcuts();
+    showShortcuts();
   },
   openReport() {
     closeSettings();
-    openReport(document.body, debugWithAgent);
+    showReport();
   },
   embedView,
   newAgent: newAgentHere,
@@ -256,7 +269,7 @@ const opening = readOpening();
 void pairing().then(async () => {
   void refresh();
   const [, open] = await Promise.all([showCached(), opening]);
-  if (!onPhone()) void firstRun();
+  if (!onPhone()) void import("./firstrun.tsx").then(m => m.firstRun());
   start(open);
   startupDrawn();
 }).catch(e => {

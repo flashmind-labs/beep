@@ -4,7 +4,6 @@
 import { Fragment, type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
 import { createStore, useStore } from "zustand";
 import { AG, type AgentRow, type AgentSession } from "./agents.ts";
-import { renderAgentNew } from "./agentnew.tsx";
 import { assistantRows } from "./assistant-state.ts";
 import { chatActivity, chatOf, type chatRail, type Thread, type ThreadDetail, threadsByChat } from "./threads-state.ts";
 import { sessionMenu } from "./sessionmenu.ts";
@@ -42,8 +41,10 @@ let lastRow: AgentRow | null = null;
 /// on the phone, where the composer covers it, and Home on the desktop, which shows both.
 export function openAssistantPage(open: AssistantOpen) {
   listing = open === "chats";
-  renderAgentNew("", isMobile() ? ASSISTANT_CHATS : { view: "home", arg: null }, null, true);
-  syncAssistantPage();
+  return import("./agentnew.tsx").then(({ renderAgentNew }) => {
+    renderAgentNew("", isMobile() ? ASSISTANT_CHATS : { view: "home", arg: null }, null, true);
+    syncAssistantPage();
+  });
 }
 
 /// The pane opened `row`'s chat, from the page or anywhere else.

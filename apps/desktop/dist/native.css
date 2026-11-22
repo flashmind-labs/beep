@@ -107,25 +107,27 @@ body:not(.mobile) .dcoder .q .dups .dbtn.pri { box-shadow: none }
 body:not(.mobile) .dcoder .q .dups .dbtn.warn { color: var(--err) }
 body:not(.mobile) .dcoder .q .dups kbd { border: 0; background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--muted) }
 
-/* ----- Session screen: one slim title row. A session's parts stay in the page while another
-   screen shows, so the rules ask for the open pane in its agent view, not for the parts.
-   The window's top bar gives up its title here and
-   lays its tools over the row's end; the session's own head is the row, and drags the window. ----- */
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top { position: absolute; top: 0; right: 0; z-index: 3; height: 40px; min-height: 0; padding: 0 10px; border: 0; pointer-events: none }
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > * { pointer-events: auto }
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > :not(#tools, #usage, #bell, #pw-back) { display: none }
+/* ----- Session screen: one slim title row laid out in CSS subgrid.
+   `.ag-head` and `.cc-top` share row 1 without overlapping or measuring widths in JS,
+   while `.agshell` spans the full width in row 2. ----- */
+body:not(.mobile) .cc-main:has(> #pw-back:not([hidden])):not(:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"])) { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); align-items: center }
+body:not(.mobile) .cc-main:has(> #pw-back:not([hidden])):not(:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"])) > #pw-back { grid-area: 1 / 1; margin-right: 4px }
+body:not(.mobile).pw .cwin:not(.rail-on) .cc-main:has(> #pw-back:not([hidden])):not(:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"])) > #pw-back { margin-left: 84px }
+body:not(.mobile).pw .cwin:not(.rail-on) .cc-main:has(> #pw-back:not([hidden])):not(:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"])) > .cc-top { padding-left: 4px }
+body:not(.mobile) .cc-main:has(> #pw-back:not([hidden])):not(:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"])) > .cc-box:not([hidden]) { grid-area: 2 / 1 / 3 / 3 }
+
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: 42px minmax(0, 1fr); align-items: center; border-color: transparent; background: transparent; overflow: visible }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > #pw-back:not([hidden]) { grid-area: 1 / 1; margin-right: 4px }
+body:not(.mobile) .cwin:not(.rail-on) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > #pw-back:not([hidden]) { margin-left: 84px }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > #pane-box { grid-area: 1 / 1 / 3 / 4; display: grid; grid-template-columns: subgrid; grid-template-rows: subgrid; align-items: center }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > #pane-box > .dbar[data-view="agent"] { grid-area: 1 / 1 / 3 / 4; display: grid; grid-template-columns: subgrid; grid-template-rows: subgrid; align-items: center }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top { grid-area: 1 / 3; z-index: 3; height: 42px; min-height: 0; padding: 0 4px 0 2px; border: 0 }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > :not(#tools, #usage, #bell) { display: none }
 /* The plan usage pill is wide: in a narrow session it would leave the title no room. Home keeps it. */
 @container (max-width: 1100px) { body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > #usage { display: none } }
-/* A project window's Back stays, at the row's start: the bar ends at the window's edge, so its
-   start is the bar's own width short of the window's (cqw is of .cc-main). */
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > #pw-back:not([hidden]) { position: absolute; top: 6px; left: calc(var(--top-w, 0px) - 100cqw + 84px) }
-body:not(.mobile) .cwin:not(.rail-on) .cc-main:has(#pw-back:not([hidden])) .dhead.ag-head { padding-left: 148px }
 body:not(.mobile) .nt-bell { border: 0 }
-/* The row keeps clear of the tools laid over its end, whatever their width (--top-w is kept by src/center/window-shell.tsx). */
-body:not(.mobile) .dhead.ag-head { height: 42px; padding: 0 calc(var(--top-w, 104px) + 8px) 0 6px; gap: 8px; border-bottom: 0 }
-/* The quick window and the Assistant page (its header sits above) have no tools over the row,
-   only a round corner to clear. */
-.dbar:not([data-mode="window"]), #pane-box.pj-split > .dbar { --top-w: 4px }
+body:not(.mobile) .dhead.ag-head { grid-area: 1 / 2; min-width: 0; height: 42px; padding: 0 6px; gap: 8px; border-bottom: 0 }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) .agshell { grid-area: 2 / 1 / 3 / 4; align-self: stretch; min-height: 0 }
 body:not(.mobile) :is(.ag-head, .dchat) .dcoderav { width: 18px; height: 18px; border: 0; background: none }
 /* The title, with where the session runs on a line of its own under it, so neither is cut short. */
 body:not(.mobile) .ag-head .tt { display: grid; min-width: 10em; line-height: 16px }
@@ -145,8 +147,6 @@ body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
 
 /* ----- Session screen: the title row lies on the window, and the conversation and the side pane
    are two cards set into it with the divider in the gap between them ----- */
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) { border-color: transparent; background: transparent; overflow: visible }
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top { height: 34px; padding-right: 4px }
 body:not(.mobile) .agshell > :is(.agmain, .agpane) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
 body:not(.mobile) .agshell > .agdiv { width: 6px; margin: 0 }
 body:not(.mobile) .agshell > .agdiv::after { inset: 20% 2px; border-radius: 1px; background: transparent }
@@ -221,7 +221,7 @@ html[data-material="vibrant"] body:not(.mobile) .cc-si { color: var(--fg) }
    corners are nearly square; glass is kept for layers that float; one soft glow of the accent
    marks what matters now. ===== */
 body:not(.mobile) { --radius: 4px; --radius-sm: 3px; --label-size: 10.5px; --label-track: .08em; --label-case: uppercase;
-  --lit: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 16%, transparent) 30%, color-mix(in srgb, var(--accent) 60%, var(--fg)) 50%, color-mix(in srgb, var(--fg) 16%, transparent) 70%, transparent) top / 100% 1px no-repeat }
+  --lit: linear-gradient(90deg, transparent, var(--lit-edge) 30%, var(--lit-peak) 50%, var(--lit-edge) 70%, transparent) top / 100% 1px no-repeat }
 
 /* A glow behind the title row, the one light in the window. */
 body:not(.mobile) .cwin::after { content: ""; position: absolute; z-index: -1; left: 32%; top: -300px; width: 760px; height: 440px; border-radius: 50%; pointer-events: none;
@@ -355,8 +355,8 @@ body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .
 body:not(.mobile) .cc-mstrip > button.m:hover { background: var(--ctl-fill-hi) }
 body:not(.mobile) .bd-lane > h4 { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) :is(.bd-card, .pj-card) { border-color: transparent }
-body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine, .mcard), body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-review .cc-panel) { background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
-body:not(.mobile) :is(.bd-card, .pj-card, .bd-deck):hover, body:not(.mobile) :is(.bd-card, .bd-deck):focus-visible { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 7%, transparent) }
+body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine, .mcard), body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-review .cc-panel) { background: var(--lit), var(--card-fill) }
+body:not(.mobile) :is(.bd-card, .pj-card, .bd-deck):hover, body:not(.mobile) :is(.bd-card, .bd-deck):focus-visible { border-color: transparent; background: var(--lit), var(--card-fill-hi) }
 body:not(.mobile) :is(.pj-list, .tl-list) { border-right-color: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) .pj-list hr { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) :is(.pj-li[aria-current="true"], .tl-it[aria-current="true"]) { border-color: transparent; background: var(--ctl-fill-hi) }
@@ -389,12 +389,14 @@ body:not(.mobile) .bd-tag { max-width: none; justify-self: start }
 /* The review's two columns: the side stays while the list scrolls, and scrolls in itself when it is taller than the window. */
 body:not(.mobile) .bd-review { grid-template-columns: 400px minmax(0, 1fr); gap: 22px; align-items: start }
 body:not(.mobile) .bd-side { position: sticky; top: 38px; max-height: calc(100vh - 120px); overflow-y: auto; scrollbar-width: none }
-body:not(.mobile) .bd-deck { border: 0; background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) .bd-deck { border: 0; background: var(--lit), var(--card-fill) }
 @media (max-width: 1040px) {
   body:not(.mobile) .bd-review { grid-template-columns: minmax(0, 1fr) }
   body:not(.mobile) .bd-side { position: static; max-height: none }
 }
-body:not(.mobile) .pl { border: 0; border-radius: var(--radius); background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) .pl { border: 0; border-radius: var(--radius); background: var(--lit), var(--card-fill) }
+:root:is([data-skin="paper"], [data-skin="solarized"], [data-skin="macos"], [data-skin="warm"]) body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine:has(> .pm-body), .mcard, .bd-deck, .pl, .cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-review .cc-panel, .cc-set .dset-box) { box-shadow: 0 1px 2px color-mix(in srgb, var(--fg) 5%, transparent), inset 0 0 0 1px var(--border) }
+:root:is([data-skin="paper"], [data-skin="solarized"], [data-skin="macos"], [data-skin="warm"]) body:not(.mobile) .cwin::after { opacity: .45 }
 body:not(.mobile) .pl-row.it .t .pj-tag { flex: none }
 body:not(.mobile) .pl-row.it .t { overflow: hidden }
 body:not(.mobile) :is(.fs-row + .fs-row, .fs-conflict + .fs-conflict, .fs-wait + .fs-wait) { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }

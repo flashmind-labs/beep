@@ -144,7 +144,7 @@ export function workLine(session: RunningAgent) {
 }
 
 /// The lines its checkout changed, green and red, as its last turn left them.
-function LineCounts({ changes }: { changes: RunningAgent["changes"] }) {
+export function LineCounts({ changes }: { changes: RunningAgent["changes"] }) {
   if (!changes?.additions && !changes?.deletions) return null;
   return <span className="rail-diff" title="Lines added and removed in its checkout">
     {!!changes.additions && <i className="dv-plus">+{changes.additions}</i>}

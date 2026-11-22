@@ -1,8 +1,8 @@
-import { Fragment, useEffect, useState, type CSSProperties, type MouseEvent } from "react";
+import { Fragment, useEffect, useState, type CSSProperties, type FormEvent, type MouseEvent } from "react";
 import { closeSession, sessionVisible, visibleRunning } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
-import { byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
+import { agentName, byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
 import { Board, Card, CardRow, type BoardCard } from "./lanes-view.tsx";
 import { LANES, STRETCHES, byLane, endedToday, laneOf, stretchOf } from "./lanes-state.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
@@ -17,8 +17,10 @@ import { continueButton, openUrl, reviewButton } from "./openitems.ts";
 import { loadFound, projectRows, projectWindowProps } from "./sidebar.tsx";
 import { HomeAssistant } from "./home-assistant.tsx";
 import { state } from "./state.ts";
+import { refresh } from "./refresh.ts";
 import { go } from "./views.tsx";
-import { formatAgo } from "../ui/format.ts";
+import { formatAgo, reason } from "../ui/format.ts";
+import { conflicted, invoke } from "../ui/tauri.ts";
 import { machinesReach } from "../machines/machine-state.ts";
 import { Button, LineRow, Section, SectionHead, EmptyPanel, onRowKey } from "../ui/kit.tsx";
 import { Segmented } from "../ui/aria-kit.tsx";
@@ -26,7 +28,7 @@ import { Dropdown } from "../ui/dropdown.tsx";
 import { setHeroCard, withMove } from "../ui/motion.ts";
 import { dialogOpen } from "../ui/parts.tsx";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
-import { RunningStatus, workLine } from "../project/split-view.tsx";
+import { LineCounts, RunningStatus, workLine } from "../project/split-view.tsx";
 import { sessions } from "../agents/sessions.ts";
 import { isAssistant } from "../agents/assistant-state.ts";
 
@@ -186,7 +188,7 @@ function Review({ cards, rows }: { cards: readonly BoardCard[]; rows: ReadonlyMa
 
   return <div className="bd-review">
     <div className="bd-side">
-      <div><SectionHead title={`${at + 1} of ${idle.length}`}/><Deck card={inHand} row={rows.get(inHand.key) ?? null} done={(at + 1) / idle.length} open={() => open(inHand)} step={step}/></div>
+      <div><SectionHead title={`${at + 1} of ${idle.length}`}/><Deck key={inHand.key} card={inHand} row={rows.get(inHand.key) ?? null} done={(at + 1) / idle.length} open={() => open(inHand)} step={step}/></div>
       {running}
     </div>
     <div>
@@ -203,18 +205,46 @@ function Review({ cards, rows }: { cards: readonly BoardCard[]; rows: ReadonlyMa
   </div>;
 }
 
-/// The idle session in hand, which a click opens: how far down the list it is, and its last
-/// reply. The buttons come first, so they stay put from one session to the next.
+/// The idle session in hand, which a click opens: how far down the list it is, its line
+/// changes and last reply, Close, and an inline quick-reply field.
 function Deck({ card, row, done, open, step }: { card: BoardCard; row: RunningAgent | null; done: number; open(): void; step(by: number): void }) {
+  const [reply, setReply] = useState("");
+  const [sending, setSending] = useState(false);
+  const [replyError, setReplyError] = useState("");
   // A step stays off the card, which would open the session.
   const stepBy = (by: number) => (event: MouseEvent) => { event.stopPropagation(); step(by); };
+  const canManage = !!row && !row.external && row.status !== "ended";
+
+  const close = (event: MouseEvent) => {
+    event.stopPropagation();
+    if (row) closeSession(row).catch(error => console.warn("close:", error));
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const text = reply.trim();
+    if (!row || !text || sending) return;
+    setSending(true);
+    setReplyError("");
+    invoke("agent_steer", { machineId: row.machine_id, agent: row.agent, session: row.id, steer: { prompt: { text } }, seen: null })
+      .then(() => { setReply(""); refresh(); })
+      .catch(error => { if (!conflicted(error)) setReplyError(reason(error)); else { setReply(""); refresh(); } })
+      .finally(() => setSending(false));
+  };
 
   return <div className="bd-deck" role="button" tabIndex={0} onClick={open} onKeyDown={onRowKey(open)}>
-    <div className="acts"><Button small onClick={stepBy(-1)}>Back<kbd>←</kbd></Button><Button small onClick={stepBy(1)}>Next<kbd>→</kbd></Button></div>
+    <div className="acts">{canManage && <Button look="quiet" small className="bd-deck-close" onClick={close}>Close</Button>}<Button small onClick={stepBy(-1)}>Back<kbd>←</kbd></Button><Button small onClick={stepBy(1)}>Next<kbd>→</kbd></Button></div>
     <div className="bar" aria-hidden><i style={{ width: `${done * 100}%` }}/></div>
-    <div className="meta"><ProjectTag card={card}/><span>{card.foot}</span></div>
+    <div className="meta"><ProjectTag card={card}/><span className="bd-deck-end">{row && <LineCounts changes={row.changes}/>}<span>{card.foot}</span></span></div>
     <b>{card.title}</b>
     {row && <div className="reply">{workLine(row)}</div>}
+    {canManage && <form className="bd-reply" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()} onSubmit={submit}>
+      <input className="ip-field" type="text" placeholder={`Reply to ${agentName(row.agent)}…`} aria-label="Quick reply" value={reply} disabled={sending}
+        onChange={event => { setReply(event.currentTarget.value); if (replyError) setReplyError(""); }} />
+      <Button look="primary" small type="submit" disabled={sending || !reply.trim()}>Send</Button>
+      {replyError && <span className="cc-err">{replyError}</span>}
+    </form>}
   </div>;
 }
 

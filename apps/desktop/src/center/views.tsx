@@ -18,7 +18,6 @@ import { drawSide, openProjects, projectRows, projectWindowProps } from "./sideb
 import { instructionsView, openSettings, providersView } from "../settings/sheet.ts";
 import { paneView } from "./pane.tsx";
 import { homeView } from "./home.tsx";
-import { ProjectsPage, projectsView } from "../project/page.tsx";
 import { TerminalsPage, terminalsView } from "../terminals/view.tsx";
 import { windowHistory } from "./window-router.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
@@ -30,6 +29,18 @@ import { closeSideOver, shell, windowHost } from "./window-shell.tsx";
 import { movePlaying, swipePlaying, type Swipe } from "../ui/motion.ts";
 
 let currentPage: Location | null = null;
+
+let loadedProjects: typeof import("../project/page.tsx") | null = null;
+const projectsView: CenterView<"projects"> = {
+  currentArg: () => loadedProjects?.projectsView.currentArg?.() ?? { project: null, tile: null },
+  title: () => loadedProjects ? (typeof loadedProjects.projectsView.title === "function" ? loadedProjects.projectsView.title() : { title: loadedProjects.projectsView.title ?? "Projects" }) : { title: "Projects" },
+  async mount(el, arg) {
+    loadedProjects ??= await import("../project/page.tsx");
+    await loadedProjects.projectsView.mount(el, arg);
+    if (currentPage?.view === "projects") drawTop();
+  },
+  unmount: () => loadedProjects?.projectsView.unmount?.(),
+};
 
 /// The view `name` is.
 function viewOf(name: ViewName): CenterView {
@@ -73,7 +84,7 @@ const PageBox = memo(function PageBox({ name, hidden, drawn }: { name: Page; hid
 /// Instructions and Coding agents, so those draw into whichever host mounted them.
 const PageContent = memo(function PageContent({ name }: { name: Page; drawn: number }) {
   switch (name) {
-    case "projects": return <ProjectsPage />;
+    case "projects": return loadedProjects ? <loadedProjects.ProjectsPage /> : null;
     case "terminals": return <TerminalsPage />;
     case "instructions": case "providers": return null;
   }
@@ -104,7 +115,9 @@ export let windowAlone: Alone | null = null;
 export function setWindowAlone(alone: Alone | null) { windowAlone = alone; }
 
 /// The project a project's window shows; null in any other.
-export const aloneProject = () => windowAlone?.kind === "project" ? windowAlone.project : null;
+export function aloneProject() {
+  return windowAlone?.kind === "project" ? windowAlone.project : null;
+}
 
 /// What a project's or chat's window keeps for itself; null in the main window.
 function windowScope(): WindowScope | null {
@@ -157,7 +170,9 @@ export function currentLocation(): Location | null {
 }
 
 /// Whether there is a page to go back or forward to.
-export const hasHistory = (forward: boolean) => pages.has(forward);
+export function hasHistory(forward: boolean) {
+  return pages.has(forward);
+}
 
 /// Goes one page back (⌘[) or forward (⌘]), if there is one; false when there is none.
 export function goHistory(forward: boolean): boolean {

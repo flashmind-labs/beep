@@ -1,7 +1,7 @@
 // The bar's page as a pane in the window: its header, and handoffs from
 // other windows.
 import { invoke, listen } from "../ui/tauri.ts";
-import type { View } from "../bar/core.ts";
+import { changeListeners, type View } from "../bar/core.ts";
 import { pane } from "../bar/pane.ts";
 import type { CenterTarget } from "../project/projectwindow.ts";
 import { type CenterView, type ViewHead, state } from "./state.ts";
@@ -10,7 +10,6 @@ import { shell } from "./window-shell.tsx";
 import { drawSide, paneOn } from "./sidebar.tsx";
 import { ensureHome } from "./refresh.ts";
 import { showNotices } from "./notices.tsx";
-import { openReport } from "../report/report.tsx";
 import { openSettings } from "../settings/sheet.ts";
 import { debugPrompt } from "../report/report-state.ts";
 import type { MacControl } from "../machines/machine-state.ts";
@@ -40,9 +39,17 @@ function paneTitle(): ViewHead {
   return { title, sub };
 }
 
+let panePlaced = false;
+export function initPaneView() {
+  if (panePlaced) return;
+  panePlaced = true;
+  placeWindowParts({ assistant: <AssistantList /> });
+}
+
 export const paneView: CenterView<"pane"> = {
   title: paneTitle,
   mount(_el, arg) {
+    initPaneView();
     pane.mounted(true);
     return Promise.resolve(pane.open(arg)).then(() => { syncAssistantPage(); drawTop(); });
   },
@@ -53,12 +60,11 @@ export const paneView: CenterView<"pane"> = {
   },
 };
 
-pane.onChange(() => {
+changeListeners.push(() => {
   syncAssistantPage();
   drawTop();
   drawSide();
 });
-placeWindowParts({ assistant: <AssistantList /> });
 
 // ---------- Handoffs ----------
 
@@ -85,7 +91,7 @@ export function showPending(target: CenterTarget | null, fallback: "home" | null
   // The report target: the Report a problem sheet over the page on screen.
   if (target === "report") {
     if (!currentLocation()) go("home");
-    return openReport(document.body, debugWithAgent);
+    return void import("../report/report.tsx").then(m => m.openReport(document.body, debugWithAgent));
   }
 
   // A beep-node update's notification: Machines in Settings.

@@ -179,7 +179,7 @@ function fixedCount(id: Fixed) {
 }
 
 const TAB_ICONS: Record<TabKind | Fixed, IconName> = {
-  files: "paneFiles", changes: "paneChanges", text: "paneText", term: "paneTerm", image: "paneImage", model: "paneModel",
+  files: "paneFiles", changes: "paneChanges", text: "paneText", term: "paneTerm", session: "paneSubagents", image: "paneImage", model: "paneModel",
   video: "paneVideo", audio: "paneAudio", pdf: "panePdf", artifacts: "paneArtifacts", running: "paneRunning", subagents: "paneSubagents", agents: "paneSubagents", device: "paneDevice",
 };
 
@@ -223,6 +223,15 @@ export function tabMenu(e: MouseEvent, id: string) {
   e.preventDefault();
   const items: MenuItem[] = [];
   const note = (text: string) => noteTab(t, text);
+  if (t.kind === "session" && t.splitSession) {
+    const split = t.splitSession;
+    items.push({ label: "Open in main pane", on: () => {
+      closeTab(t.id);
+      void import("../agents/session.tsx").then(({ openAgent }) => openAgent({
+        ...split, doing: null, started_at: 0, last_activity: 0, question: null, assistant: false, persona: null,
+      }));
+    } });
+  }
   const path = t.kind === "text" ? t.rel : t.path;
   if (t.kind === "text" && t.rel && hasPreview(t.rel) && !t.text?.binary) items.push({ label: t.preview?.active ? "Source" : "Preview", on: () => { focusTab(t.id); if (t.preview?.active) void togglePreview(t); else previewTab(t); } });
   if (path) items.push({ label: "Copy path", on: () => void writeClipboard(path) });

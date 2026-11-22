@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { HazeArt } from "../ui/painted-art.tsx";
-import { Input, SearchField } from "react-aria-components";
+import { Input } from "react-aria-components/Input";
+import { SearchField } from "react-aria-components/SearchField";
 import { commandKey } from "../ui/platform.ts";
 import { plural } from "../ui/format.ts";
 import { Dropdown } from "../ui/dropdown.tsx";

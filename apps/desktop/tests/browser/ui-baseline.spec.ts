@@ -1115,3 +1115,25 @@ test("settings codex fast thinking", async ({ page }) => {
   await fast.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "assistant_settings_save").at(-1)?.args.settings)).toMatchObject({ agent: "codex", effort: "ultra", fast: false });
 });
+
+test("agent split session", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const widgetFolder = `/srv/${projectName}`;
+  const first = { ...session, cwd: widgetFolder };
+  const other = { ...agentRow("notice-two", "Update the changelog", "idle", 600_000, widgetFolder), agent: "claude", assistant: false, persona: null };
+  const firstView = { ...agentView, session: { ...first, question: null }, usage: sessionUsage };
+  const otherView = { ...agentView, session: { ...other, question: null }, entries: [{ kind: "agent", text: "Changelog updated for 0.9.0." }] };
+  await openDesktop(page, false, {
+    center_home: { ...home, running: [first, other] },
+    agent_sessions: [first, other],
+    project_sessions: [first, other],
+    agent_views: { "notice-one": firstView, "notice-two": otherView },
+    agent_tree: listing,
+  });
+  await page.evaluate(target => window.__navigation.open({ agent: target }), first);
+  await expect(page.getByText("The query string now survives the redirect.")).toBeVisible();
+  await page.locator("#rail").getByRole("button", { name: /Update the changelog/ }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Open beside" }).click();
+  await expect(page.locator("#agpane-right .agsplit")).toContainText("Changelog updated for 0.9.0.");
+  await baseline(page, "agent-split-session");
+});

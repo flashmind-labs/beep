@@ -90,7 +90,7 @@ body.cbody
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="300" role="separator" tabindex="0"]
     aside#rail.cc-rail.pj-list [aria-label="Project sessions" hidden inert]
-    div#main.cc-main style(--top-w)
+    div#main.cc-main
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
@@ -133,6 +133,7 @@ body.cbody
                     h4 "1 of 2"
                   div.bd-deck [role="button" tabindex="0"]
                     div.acts
+                      button.bd-deck-close.dbtn.quiet.small [type="button"] "Close"
                       button.dbtn.small [type="button"] "Back"
                         kbd "←"
                       button.dbtn.small [type="button"] "Next"
@@ -142,11 +143,15 @@ body.cbody
                     div.meta
                       span.bd-tag "example/gadget"
                         span.pj-swatch style(--c)
-                      span "10m ago"
+                      span.bd-deck-end
+                        span "10m ago"
                     b "Update the changelog"
                     div.reply
                       i.nt-md.rail-reply "Done. The changelog lists ."
                         code "0.9.0"
+                    form.bd-reply
+                      input.ip-field [aria-label="Quick reply" placeholder="Reply to Codex…" type="text" value] value=""
+                      button.dbtn.pri.small [disabled type="submit"] "Send"
                 div
                   div.cc-sec
                     h4 "Running"

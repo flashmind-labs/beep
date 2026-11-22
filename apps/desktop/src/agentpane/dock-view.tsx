@@ -24,6 +24,7 @@ import { TextView } from "./text-view.tsx";
 import { ImageView } from "./image-view.tsx";
 import { ModelView, PdfView, PendingView, PlayerView } from "./media-view.tsx";
 import { TermView } from "./term-footer.tsx";
+import { SessionTabView } from "./session-tab-view.tsx";
 
 /// The session's shell: the conversation with the bottom dock under it, and the right dock.
 export function PaneShell({ children }: { children: ReactNode }) {
@@ -121,6 +122,7 @@ const ChangesView = memo(function ChangesView({ hidden }: { hidden: boolean }) {
 const TabView = memo(function TabView({ tab, hidden }: { tab: MediaTab; rev: number; hidden: boolean }) {
   const machine = P.session?.machine_id ?? null;
   if (tab.kind === "term" && tab.term && !tab.error) return <TermView tab={tab} term={tab.term} hidden={hidden} />;
+  if (tab.kind === "session" && tab.splitSession) return <div className="agpview agsplit-view" hidden={hidden}><SessionTabView session={tab.splitSession} hidden={hidden} close={() => closeTab(tab.id)} /></div>;
   const ready = !tab.error && (tab.kind === "text" ? !!tab.text : tab.kind === "term" ? false : tab.kind === "model" ? !!tab.bytes : !!tab.url);
   return <div className="agpview" hidden={hidden}>{!ready ? <PendingView tab={tab} />
     : tab.kind === "text" && tab.text ? <TextView tab={tab} text={tab.text} />

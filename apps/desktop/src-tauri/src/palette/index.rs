@@ -10,21 +10,50 @@ use crate::agents::sessions::SessionRow;
 use serde::Serialize;
 use strum::IntoEnumIterator;
 
-/// A view the palette can go to without a search.
+/// A view or window command the palette can run without a search.
 #[derive(Clone, Copy, strum::EnumIter, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub(crate) enum PaletteAction {
+    NewSession,
     Home,
+    Projects,
+    Terminals,
+    AddProject,
+    AddMachine,
     Settings,
     CodingAgents,
+    Shortcuts,
+    ReportProblem,
 }
 
 impl PaletteAction {
     fn title(self) -> &'static str {
         match self {
+            Self::NewSession => "New session",
             Self::Home => "Home",
+            Self::Projects => "Projects",
+            Self::Terminals => "Terminals",
+            Self::AddProject => "Add project",
+            Self::AddMachine => "Add machine",
             Self::Settings => "Settings",
             Self::CodingAgents => "Coding agents",
+            Self::Shortcuts => "Keyboard shortcuts",
+            Self::ReportProblem => "Report a problem",
+        }
+    }
+
+    fn keys(self) -> &'static [&'static str] {
+        match self {
+            Self::NewSession => &["New session", "Start an agent", "New agent"],
+            Self::Home => &["Home", "Board", "Review"],
+            Self::Projects => &["Projects", "Repositories"],
+            Self::Terminals => &["Terminals", "Shell"],
+            Self::AddProject => &["Add project", "Import project", "Clone repository"],
+            Self::AddMachine => &["Add machine", "Pair machine", "Link machine"],
+            Self::Settings => &["Settings", "Preferences"],
+            Self::CodingAgents => &["Coding agents", "Harnesses", "Providers"],
+            Self::Shortcuts => &["Keyboard shortcuts", "Keys", "Hotkeys"],
+            Self::ReportProblem => &["Report a problem", "Bug report", "Logs"],
         }
     }
 }
@@ -53,6 +82,9 @@ enum SettingsSection {
     Machines,
     Creds,
     General,
+    Appearance,
+    Instr,
+    Plugins,
 }
 
 impl SettingsSection {
@@ -61,6 +93,9 @@ impl SettingsSection {
             Self::Machines => "Machines",
             Self::Creds => "Credentials",
             Self::General => "General",
+            Self::Appearance => "Appearance",
+            Self::Instr => "Instructions",
+            Self::Plugins => "Plugins",
         }
     }
 }
@@ -71,6 +106,9 @@ fn settings() -> impl Iterator<Item = (String, SettingsSection)> {
     use SettingsSection::*;
     let fixed = [
         ("Machines", Machines),
+        ("Appearance and skin", Appearance),
+        ("Instructions", Instr),
+        ("Plugins", Plugins),
         ("GitHub token", Creds),
         ("Forgejo or Gitea token", Creds),
         ("Launch at login", General),
@@ -151,7 +189,7 @@ fn action_entry(action: PaletteAction) -> Entry {
         id.into(),
         title.into(),
         String::new(),
-        &[title],
+        action.keys(),
     )
 }
 

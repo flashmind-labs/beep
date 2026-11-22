@@ -60,6 +60,23 @@ export interface LastImport {
   machine: string;
 }
 
+const LAST_KEY = "beep.lastImport.v1";
+
+export function lastImport(): LastImport | null {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(LAST_KEY) || "null");
+    return v && typeof v === "object" && "machine" in v && typeof v.machine === "string" ? { machine: v.machine } : null;
+  } catch {
+    return null;
+  }
+}
+
+/// Notes the machine `project` landed on, for the next import.
+export function keepLastImport(project: ProjectRow) {
+  const last: LastImport = { machine: project.machine_id };
+  try { localStorage.setItem(LAST_KEY, JSON.stringify(last)); } catch { /* kept for this launch only */ }
+}
+
 /// What importing into the folder `listing` does, as the line under it says.
 export function folderNote(listing: MachineFolder | null | undefined, repo: string) {
   if (!listing) return null;

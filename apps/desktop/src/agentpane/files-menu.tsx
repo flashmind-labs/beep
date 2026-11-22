@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState, type CSSProperties, type RefObject } from "react";
-import { Menu, MenuItem, Separator } from "react-aria-components";
+import { Menu, MenuItem } from "react-aria-components/Menu";
+import { Separator } from "react-aria-components/Separator";
 import type { MenuAction } from "../ui/menu.tsx";
 
 export interface FilesMenuProps {

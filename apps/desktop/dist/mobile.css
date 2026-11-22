@@ -279,13 +279,14 @@ body.mobile .agrail { display: none }
 /* ----- The desktop's look on the phone: chrome in the mono face, cards without outlines but with
    the lit top edge, small mono section labels, and the dawn band over Home and Projects ----- */
 body.mobile { --radius: 6px; --radius-sm: 4px;
-  --lit: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 16%, transparent) 30%, color-mix(in srgb, var(--accent) 60%, var(--fg)) 50%, color-mix(in srgb, var(--fg) 16%, transparent) 70%, transparent) top / 100% 1px no-repeat }
+  --lit: linear-gradient(90deg, transparent, var(--lit-edge) 30%, var(--lit-peak) 50%, var(--lit-edge) 70%, transparent) top / 100% 1px no-repeat }
 body.mobile :is(.cc-tabs button, .mb-tabs button, #agmnav button, .cc-set .dset-pages .cc-si, .dbtn, .dchip, .agc-pill, .bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3, .cc-mstrip > .m > span, .cc-tabbar > .hv-seg, .ag-head .tt small, .bd-tag) { font-family: var(--mono); letter-spacing: 0 }
 body.mobile :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .cc-mstrip > .m > span, .bd-projects .cc-line .t > span) { font-size: 12px }
 body.mobile .mb-tabs button { font-size: 10.5px }
 body.mobile :is(.bd-lane > h4, .cc-set .dset-h, .cc-set .dsec) { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
 body.mobile .pj-org h3 { font-size: 12.5px; font-weight: 500; color: var(--muted) }
-body.mobile :is(.bd-card, .pj-card, .mcard, .cc-mstrip > .m, .cc-tabs, .cc-set .dbox, .cc-set .dset-box) { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body.mobile :is(.bd-card, .pj-card, .mcard, .cc-mstrip > .m, .cc-tabs, .cc-set .dbox, .cc-set .dset-box) { border-color: transparent; background: var(--lit), var(--card-fill) }
+:root:is([data-skin="paper"], [data-skin="solarized"], [data-skin="macos"], [data-skin="warm"]) body.mobile :is(.bd-card, .pj-card, .mcard, .cc-mstrip > .m, .cc-set .dbox, .cc-set .dset-box) { box-shadow: inset 0 0 0 1px var(--border) }
 body.mobile .cc-tabs { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 body.mobile .cc-tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 9%, transparent) }
 body.mobile .pj-org ~ .pj-add { display: none }

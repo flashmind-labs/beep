@@ -69,9 +69,21 @@ export interface FileEdit {
 /// A place in a text by its 0-based line and column.
 export interface TextPlace { line: number; column: number }
 
-/// What a tab shows: a media file, a file of the Files tab as text, or a
-/// terminal.
-export type TabKind = MediaKind | "text" | "term";
+/// What a tab shows: a media file, a file of the Files tab as text, a
+/// terminal, or another coding agent session beside this one.
+export type TabKind = MediaKind | "text" | "term" | "session";
+
+/// A coding agent session opened beside the primary conversation in a dock tab.
+export interface SplitSession {
+  machine_id: string;
+  machine_name: string;
+  agent: string;
+  id: string;
+  title: string | null;
+  cwd: string;
+  status: string;
+  external: boolean;
+}
 
 /// One tab: a file of the session's machine, a picture already here, or a
 /// terminal on the machine.
@@ -131,6 +143,8 @@ export interface MediaTab {
   /// Its tab was closed: the terminal is being stopped, or is stopped once
   /// it started.
   closed?: boolean;
+  /// Another coding agent session shown live in this tab.
+  splitSession?: SplitSession | null;
 }
 
 /// The session the pane belongs to.
@@ -547,6 +561,36 @@ export function closeFocusedTab() {
   closeTab(tab.id);
   paneOf(d)?.focus({ preventScroll: true });
   return true;
+}
+
+/// Opens coding agent session `s` as a live split tab in the right dock beside
+/// the open conversation.
+export function openSessionBeside(s: SplitSession, dock: Dock = "right") {
+  if (!shell()) return;
+  const id = `session:${s.machine_id}:${s.agent}:${s.id}`;
+  const found = P.tabs.find(t => t.id === id);
+  if (found) {
+    found.splitSession = s;
+    found.name = s.title || s.agent || "Session";
+    const d = dockOf(id);
+    setFolded(d, false);
+    saveLayout();
+    showTab(d, id);
+    return;
+  }
+
+  const tab: MediaTab = {
+    id, kind: "session", name: s.title || s.agent || "Session", path: null, url: null,
+    size: 0, started: Date.now(), done: 0, error: "", rev: 0, viewHidden: false, note: null,
+    player: null, playerAt: 0, splitSession: s,
+  };
+  P.tabs.push(tab);
+  if (dock === "bottom") { P.layout = moveTab(P.layout, id, "bottom"); P.moved.set(id, "bottom"); }
+  const d = dockOf(id);
+  setFolded(d, false);
+  P.on[d] = id;
+  saveLayout();
+  draw();
 }
 
 /// Shows the Files tab, unfolding its dock.

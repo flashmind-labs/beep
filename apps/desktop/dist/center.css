@@ -1101,13 +1101,36 @@ html[data-phone] .side-collapsed .cc-side { padding-inline: 0 }
 .bd-review .cc-panel { padding: 4px }
 .bd-deck { display: grid; align-content: start; gap: 12px; min-height: 232px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent) }
 .bd-deck > .acts { display: flex; justify-content: flex-end; align-items: center; gap: 8px }
+.bd-deck > .acts > .bd-deck-close { margin-right: auto }
 .bd-deck kbd { margin-left: 7px }
 .bd-deck > .bar { height: 2px; border-radius: 1px; background: color-mix(in srgb, var(--fg) 9%, transparent) }
 .bd-deck > .bar > i { display: block; height: 100%; border-radius: 1px; background: var(--accent) }
-.bd-deck > .meta { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; color: var(--muted) }
+.bd-deck > .meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 11.5px; color: var(--muted) }
+.bd-deck-end { display: inline-flex; align-items: center; gap: 8px }
+.bd-deck .rail-diff { display: inline-flex; gap: 5px; font: 11px var(--mono) }
 .bd-deck > b { font-size: 16px; line-height: 22px; font-weight: 600; overflow-wrap: anywhere }
 .bd-deck > .reply { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; font-size: 13.5px; line-height: 20px; color: var(--muted); overflow-wrap: anywhere }
 .bd-deck .rail-reply { font: inherit; color: inherit }
+.bd-reply { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px }
+.bd-reply > input { flex: 1 1 160px; min-width: 0; min-height: var(--ctl-h); padding: 0 8px; font-size: 12.5px }
+.bd-reply > .cc-err { flex: 1 0 100% }
+
+/* Split session tab inside PaneDock. */
+.agsplit-view { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden }
+.agsplit { flex: 1; min-height: 0; display: flex; flex-direction: column }
+.agsplit-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); min-width: 0 }
+.agsplit-head > .tt { flex: 1; min-width: 0; display: grid; line-height: 15px }
+.agsplit-head > .tt b, .agsplit-head > .tt small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.agsplit-head > .tt b { font-size: 12.5px; font-weight: 600 }
+.agsplit-head > .tt small { font: 11px var(--mono); color: var(--dim) }
+.agsplit-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px }
+.agsplit-tool { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font: 11.5px/18px var(--mono); color: var(--muted) }
+.agsplit-tool > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.agsplit-tool > small { flex: none; color: var(--dim) }
+.agsplit-tool.bad { color: var(--err) }
+.agsplit-err { flex: none; padding: 4px 12px 0 }
+.agsplit-field { flex: none; display: flex; align-items: center; gap: 6px; margin: 6px 10px 8px; padding: 4px 6px 4px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface) }
+.agsplit-field > textarea { flex: 1; min-width: 0; border: 0; outline: 0; resize: none; background: transparent; color: var(--fg); font: inherit; font-size: 13px; line-height: 1.35 }
 .bd-log > h5 { margin: 0; padding: 10px 8px 3px }
 .bd-log > h5:first-child { padding-top: 5px }
 .bd-log > h5 .n { margin-left: 6px; color: var(--muted); letter-spacing: 0 }

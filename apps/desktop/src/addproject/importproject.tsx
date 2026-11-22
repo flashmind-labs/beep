@@ -8,7 +8,8 @@ import { syncthingImportChoice } from "../project/syncthing.ts";
 // under as <parent>/<org>/<repo> (the machine's Projects in folder), then Import.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.tsx";
-import { START, next, looksLikeRepo, folderNote, folderUnder, type LastImport } from "./importproject-state.ts";
+import { START, next, looksLikeRepo, folderNote, folderUnder, keepLastImport, lastImport } from "./importproject-state.ts";
+export { keepLastImport, lastImport };
 import type { ImportEvent } from "./importproject-state.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 import { defaultPlaces, worktreesToAsk } from "../review/branchwork.ts";
@@ -33,23 +34,6 @@ interface ImportProjectOptions {
   machine?: string | null;
   /// Fills in the folder it goes in.
   folder?: string | null;
-}
-
-const LAST_KEY = "beep.lastImport.v1";
-
-export function lastImport(): LastImport | null {
-  try {
-    const v = JSON.parse(localStorage.getItem(LAST_KEY) || "null");
-    return v && typeof v.machine === "string" ? { machine: v.machine } : null;
-  } catch {
-    return null;
-  }
-}
-
-/// Notes the machine `project` landed on, for the next import.
-export function keepLastImport(project: ProjectRow) {
-  const last: LastImport = { machine: project.machine_id };
-  try { localStorage.setItem(LAST_KEY, JSON.stringify(last)); } catch { /* kept for this launch only */ }
 }
 
 let syncthing = syncthingImportChoice();

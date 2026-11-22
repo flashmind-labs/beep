@@ -104,8 +104,9 @@ export async function sessionSettled(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => {
     const main = document.querySelector<HTMLElement>(".cc-main");
     const top = main?.querySelector<HTMLElement>(":scope > .cc-top");
+    const head = main?.querySelector<HTMLElement>(".ag-head");
     const agent = main?.querySelector(':scope > #pane-box:not([hidden]) > .dbar[data-view="agent"]');
-    const toolsKept = main && top && main.style.getPropertyValue("--top-w") === `${top.offsetWidth}px`;
+    const toolsKept = Boolean(head && top && head.getBoundingClientRect().right <= top.getBoundingClientRect().left + 0.5);
 
     const pane = document.querySelector<HTMLElement>("#agpane-right");
     const shell = document.querySelector<HTMLElement>(".agshell");
@@ -233,7 +234,9 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
         }
 
         if (command === "agent_view") {
-          return structuredClone(answers.agent_view ?? agentPage(args.session));
+          const bySession = answers.agent_views && typeof answers.agent_views === "object" && typeof args.session === "string"
+            ? Reflect.get(answers.agent_views, args.session) : undefined;
+          return structuredClone(bySession ?? answers.agent_view ?? agentPage(args.session));
         }
 
         return structuredClone(answers[command] ?? null);

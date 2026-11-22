@@ -111,15 +111,6 @@ export function CenterWindow() {
   const { view, assistant, parts, side } = useStore(shell);
   const collapsed = sideCollapsed(side), rail = !!side.rail && !side.railHidden;
   const away = !!side.rail && side.railHidden && side.away, over = rail && side.over;
-  // The top bar's own width, which a session's title row keeps clear of (native.css).
-  useLayoutEffect(() => {
-    const top = hosts.get("top"), main = hosts.get("main");
-    if (!top || !main) return;
-
-    const measured = new ResizeObserver(() => main.style.setProperty("--top-w", `${top.offsetWidth}px`));
-    measured.observe(top);
-    return () => measured.disconnect();
-  }, []);
 
   useLayoutEffect(() => {
     const win = hosts.get("side")?.parentElement;
@@ -144,8 +135,9 @@ export function CenterWindow() {
     <WidthGrip column={SIDEBAR} id="side-grip" />
     <aside className="cc-rail pj-list" id="rail" aria-label={side.rail?.kind === "chat" ? "Chat threads" : "Project sessions"} hidden={!side.rail} inert={!rail || over}>{side.rail && parts.rail}</aside>
     <div className="cc-main" id="main" ref={refs.main}>
+      {parts["project-back"]}
       <div className="cc-top" data-tauri-drag-region="" ref={refs.top}>
-        {parts["mobile-back"]}{parts["project-back"]}
+        {parts["mobile-back"]}
         <h2 data-tauri-drag-region="" id="title">{parts.title}</h2>
         <span id="scope">{parts.scope}</span>
         <small id="date" data-tauri-drag-region="">{parts.date}</small>

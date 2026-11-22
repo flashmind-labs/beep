@@ -1,4 +1,4 @@
-import { windowHooks } from "../bar/core.ts";
+import { S, windowHooks } from "../bar/core.ts";
 import { forgetView } from "../agentpane/view-memory.ts";
 import { onPhone } from "../ui/platform.ts";
 import { NEW_WINDOW } from "../project/projectwindow.ts";
@@ -62,6 +62,12 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
   const build = (folder: string | null, reachable: boolean) => {
     const offers = sessionOffers(s, reachable);
     const items: MenuItem[] = [{ label: "Open", on: () => open(s) }];
+    if (!onPhone() && S.view === "agent" && AG.open && !sameSession(AG.open, s)) {
+      items.push({ label: "Open beside", on: () => void import("../agentpane/media.ts").then(m => m.openSessionBeside({
+        machine_id: s.machine_id, machine_name: s.machine_name, agent: s.agent, id: s.id,
+        title: s.title ?? null, cwd: s.cwd, status: s.status, external: s.external,
+      })) });
+    }
     const parent = parentSession(s);
     if (parent) items.push({ label: "Open parent", on: () => open(parent) });
     if (!s.external && s.assistant && !s.reviewer) {

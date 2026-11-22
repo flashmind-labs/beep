@@ -1,5 +1,4 @@
 import { projectName } from "../project/projects-state.ts";
-import { renameProject } from "../project/rename.tsx";
 import { WINDOWS, isMobile, onPhone } from "../ui/platform.ts";
 // The sidebar: its groups (pinned, views, projects, machines) and the
 // sheets that add a machine or a project.
@@ -9,11 +8,6 @@ import { invoke } from "../ui/tauri.ts";
 import { openPalette } from "./palette.tsx";
 import { pane } from "../bar/pane.ts";
 import type { PaneNow } from "../bar/core.ts";
-import { openAddMachine as openAddMachineSheet } from "../machines/addmachine.tsx";
-import { openImportProject } from "../addproject/importproject.tsx";
-import { openAddProject, importFound, rescanAll } from "../addproject/addproject.tsx";
-import { openAddFolder } from "../addproject/addfolder.tsx";
-import { openNewProject } from "../addproject/newproject.tsx";
 import { foldKey, mergeProjects, parseFolded, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type GroupHeading, type OrgHeading, type Placed, type Project } from "../project/projects-state.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { openInEditor } from "../project/editors.ts";
@@ -25,13 +19,11 @@ import { state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
 import { stuck, draw } from "./home.tsx";
 import { allTerms } from "../terminals/view.tsx";
 import { currentLocation, go, drawTop, aloneProject, windowAlone } from "./views.tsx";
-import { groupMenu } from "../project/groups.tsx";
 import { fsync, redrawProjects, redrawProjectsPage } from "../project/sections.ts";
 import { conflictList } from "../project/filesync.ts";
 import { prefetchOnHover, projectRail, railSessions, sessionsDue } from "../project/loads.tsx";
 import type { Alone, ProjectWindowProps } from "../project/projectwindow.ts";
 import type { AgentRow } from "../agents/agents.ts";
-import { drawProjects } from "../project/page.tsx";
 import { refresh } from "./refresh.ts";
 import { IC, Icon } from "../ui/icons.tsx";
 import type { MachineCard } from "../machines/machine-state.ts";
@@ -255,7 +247,7 @@ function openProjectMenu(e: MouseEvent, name: string) {
   if (folder && !onPhone()) items.push({ label: "Open in editor", on: () => void openInEditor(folder) });
   const label = p?.url ? openOnLabel(p.url) : null;
   if (p?.url && label) items.push({ label, on: () => openUrl(p.url!) });
-  if (p?.imported) items.push({ label: "Rename", on: () => renameProject(p) });
+  if (p?.imported) items.push({ label: "Rename", on: () => void import("../project/rename.tsx").then(m => m.renameProject(p)) });
   if (p?.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(name) });
   openMenu(e, name, items);
 }
@@ -336,7 +328,7 @@ function foldItem(p: OrgHeading | GroupHeading): MenuItem {
 
 /// Opens the Add a machine sheet; Home refreshes once it closes.
 export function openAddMachine() {
-  openAddMachineSheet({ onClose: refresh });
+  void import("../machines/addmachine.tsx").then(m => m.openAddMachine({ onClose: refresh }));
 }
 
 /// Opens the Projects page, filtered to `name` when given.
@@ -356,34 +348,34 @@ function landed(p: { name: string }) {
 
 /// Opens the Import a project sheet; the project is selected once it is in.
 export function importSheet(repo: string | null = null, machine: string | null = null) {
-  openImportProject({
+  void import("../addproject/importproject.tsx").then(m => m.openImportProject({
     machines: state.home?.machines || [],
     macId: state.mac?.id || null,
     repo,
     machine,
     onDone: landed,
-  });
+  }));
 }
 
 /// Opens the Add a project sheet: found folders, a folder, a clone, or a new project.
 export function addProject() {
-  openAddProject({
-    machines: (state.home?.machines || []).filter(m => m.can_host !== false),
+  void import("../addproject/addproject.tsx").then(m => m.openAddProject({
+    machines: (state.home?.machines || []).filter(mac => mac.can_host !== false),
     onImported: landed,
-    onChoose: () => openAddFolder({
+    onChoose: () => void import("../addproject/addfolder.tsx").then(f => f.openAddFolder({
       machines: state.home?.machines || [],
       macId: state.mac?.id || null,
       onDone: landed,
       onBack: addProject,
-    }),
+    })),
     onClone: repo => importSheet(repo ?? null),
-    onNew: () => openNewProject({
+    onNew: () => void import("../addproject/newproject.tsx").then(n => n.openNewProject({
       machines: state.home?.machines || [],
       onDone: landed,
       onBack: addProject,
       onClone: repo => importSheet(repo),
-    }),
-  });
+    })),
+  }));
 }
 
 /// The checkouts the machines named last, for the Projects page, then each
@@ -397,6 +389,7 @@ export const loadFound = single(async () => {
   }
 
   drawFound();
+  const { rescanAll } = await import("../addproject/addproject.tsx");
   await rescanAll(() => {}, (_, after) => {
     if (!after.rows) return;
     state.found = after.rows;
@@ -415,10 +408,11 @@ export async function importFromPage(row: FoundRow) {
   if (state.importing) return;
   state.importing = row.name;
   state.foundError = null;
-  drawProjects();
+  redrawProjects();
   draw();
 
   try {
+    const { importFound } = await import("../addproject/addproject.tsx");
     const project = await importFound(row);
     state.importing = null;
     landed(project);
@@ -450,7 +444,11 @@ registerSidebarGroup("projects", {
     return <button type="button" className={`cc-org${p.group ? " gp" : ""}`}
       title={p.group ? `${title}\n${p.group.paths.join(", ")} on every machine` : title} aria-label={title}
       aria-expanded={!p.folded} aria-current={currentLocation()?.view === "projects" && state.picked && p.folded?.includes(state.picked) ? "true" : undefined}
-      onClick={() => toggleFold(p)} onContextMenu={(event: React.MouseEvent) => p.group ? groupMenu(event.nativeEvent, p.group, [foldItem(p)]) : openMenu(event.nativeEvent, p.org ?? "", [foldItem(p)])}>
+      onClick={() => toggleFold(p)} onContextMenu={(event: React.MouseEvent) => {
+        const native = event.nativeEvent;
+        if (p.group) { const grp = p.group; void import("../project/groups.tsx").then(m => m.groupMenu(native, grp, [foldItem(p)])); }
+        else openMenu(native, p.org ?? "", [foldItem(p)]);
+      }}>
       <span className={`twist${p.folded ? "" : " open"}`}><Icon name="twist" /></span>{label}<span className="tt">{title}</span>
     </button>;
   },

@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
-import { Header, Menu, MenuItem, MenuSection, Separator } from "react-aria-components";
+import { Header } from "react-aria-components/Header";
+import { Menu, MenuItem, MenuSection } from "react-aria-components/Menu";
+import { Separator } from "react-aria-components/Separator";
 import type { MenuItem as Item, MenuLine } from "./menu.tsx";
 
 /// The menu of `items`; lines are numbered in order, as `menuLines` counts them.

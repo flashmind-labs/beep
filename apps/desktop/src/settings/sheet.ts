@@ -7,13 +7,23 @@ import { invoke, recordTiming } from "../ui/tauri.ts";
 import { PageTiming } from "../center/page-timing.ts";
 import { perfLayer, perfOpened } from "../ui/perf.ts";
 import { pane } from "../bar/pane.ts";
-import { instructionsPage } from "./instructions.tsx";
-import { providersPage } from "./providers.tsx";
-import { connectSettingsSheet, settingsClosed, showSettingsMachine, showSettingsPage } from "./settings.tsx";
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import type { CenterView, ViewArg, ViewName } from "../center/state.ts";
 import { boxOf, currentLocation, windowAlone, toMain, drawTop } from "../center/views.tsx";
+
+let settingsMod: typeof import("./settings.tsx") | null = null;
+async function ensureSettingsMod() {
+  if (!settingsMod) {
+    const loaded = await import("./settings.tsx");
+    loaded.connectSettingsSheet({
+      show: (_sheet, content) => { const open = settingsOpen; if (open) flushSync(() => open.render(content)); },
+      close: closeSettings,
+    });
+    settingsMod = loaded;
+  }
+  return settingsMod;
+}
 
 /// Settings as a sheet over the window: a dimmed backdrop and a centered sheet
 /// with its sections on the left.
@@ -24,7 +34,10 @@ export function openSettings(section?: string) {
   // A project window has no Settings of its own: the main window opens them.
   if (windowAlone) return toMain("settings");
   // Already open: show page `section`, such as "machines".
-  if (settingsOpen) return section && showSettingsPage(section);
+  if (settingsOpen) {
+    if (section) void ensureSettingsMod().then(m => m.showSettingsPage(section));
+    return;
+  }
   const afterMount = settingsTiming.start("settings");
   perfLayer("settings", true);
   const { root: scrim, sheet, render, dispose } = mountSheetFrame("Settings", "cc-set", {
@@ -47,13 +60,18 @@ export function openSettings(section?: string) {
   window.addEventListener("keydown", keys, true);
   settingsOpen = { scrim, keys, back, render, dispose };
   sheet.focus();
-  pane.settings(sheet, section).then(() => { refreshTopicSubscriptions(); afterMount(); }).catch(e => console.warn("settings:", e));
+  void ensureSettingsMod()
+    .then(() => pane.settings(sheet, section))
+    .then(() => { refreshTopicSubscriptions(); afterMount(); })
+    .catch(e => console.warn("settings:", e));
 }
 
 /// Opens Settings on machine `id`'s page.
 export function openMachineSettings(id: string) {
-  showSettingsMachine(id);
-  openSettings();
+  void ensureSettingsMod().then(m => {
+    m.showSettingsMachine(id);
+    openSettings();
+  });
 }
 
 /// A window view temporarily mounted in the Settings sheet. Unmounting the
@@ -106,7 +124,7 @@ export function closeSettings() {
   const { keys, back, dispose } = settingsOpen;
   settingsOpen = null;
   perfLayer("settings", false);
-  settingsClosed();
+  settingsMod?.settingsClosed();
   unembed();
   window.removeEventListener("keydown", keys, true);
   dispose();
@@ -126,11 +144,30 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }
 
-connectSettingsSheet({
-  show: (_sheet, content) => { const open = settingsOpen; if (open) flushSync(() => open.render(content)); },
-  close: closeSettings,
-});
-export const instructionsView = instructionsPage({ invoke, ago: ms => formatAgo(ms, "short"), openSettings });
-export const providersView = providersPage({ invoke, openSettings, redrawTop: () => {
-  if (currentLocation()?.view === "providers") drawTop();
-}, follow: changed => { subscribeEach([topic("machines"), topic("accounts")], changed); } });
+let loadedInstructions: CenterView<"instructions"> | null = null;
+export const instructionsView: CenterView<"instructions"> = {
+  title: () => loadedInstructions
+    ? (typeof loadedInstructions.title === "function" ? loadedInstructions.title() : { title: loadedInstructions.title ?? "Instructions" })
+    : { title: "Instructions", sub: "Your rules for every agent Beep runs" },
+  async mount(el, arg) {
+    loadedInstructions ??= (await import("./instructions.tsx")).instructionsPage({ invoke, ago: ms => formatAgo(ms, "short"), openSettings });
+    await loadedInstructions.mount(el, arg);
+    if (currentLocation()?.view === "instructions") drawTop();
+  },
+  unmount: () => loadedInstructions?.unmount?.(),
+};
+
+let loadedProviders: CenterView<"providers"> | null = null;
+export const providersView: CenterView<"providers"> = {
+  title: () => loadedProviders
+    ? (typeof loadedProviders.title === "function" ? loadedProviders.title() : { title: loadedProviders.title ?? "Coding agents" })
+    : { title: "Coding agents" },
+  async mount(el, arg) {
+    loadedProviders ??= (await import("./providers.tsx")).providersPage({ invoke, openSettings, redrawTop: () => {
+      if (currentLocation()?.view === "providers") drawTop();
+    }, follow: changed => { subscribeEach([topic("machines"), topic("accounts")], changed); } });
+    await loadedProviders.mount(el, arg);
+    if (currentLocation()?.view === "providers") drawTop();
+  },
+  unmount: () => loadedProviders?.unmount?.(),
+};

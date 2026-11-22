@@ -36,6 +36,8 @@ interface LogView { turns: readonly DrawnTurn[]; top: number | null; bottom: num
 export interface LogWindow {
   units: readonly Unit[];
   drawn: Map<string, DrawnTurn>;
+  /// Turns whose rows changed or were mounted since their height was last read.
+  dirty: Set<string>;
   /// The drawn turns' elements, by key, while they are in the page.
   elements: Map<string, HTMLElement>;
   /// How much room each turn took, its gap included, by key.
@@ -69,7 +71,7 @@ const FALLBACK = 120;
 /// A log window for session body `body`; `attach` is the ref of its `.dcoderlog`.
 export function createLog(body: ChatBody): LogWindow {
   const w: LogWindow = {
-    units: [], drawn: new Map(), elements: new Map(), sizes: new Map(), width: 0, gap: 0, top: null, bottom: null, el: null, body,
+    units: [], drawn: new Map(), dirty: new Set(), elements: new Map(), sizes: new Map(), width: 0, gap: 0, top: null, bottom: null, el: null, body,
     watch: frameResize(() => resized(w)), view: { turns: [], top: null, bottom: null }, listeners: new Set(), search: null, searchChanged: null,
     attach: el => {
       if (w.el) windows.delete(w.el);
@@ -90,6 +92,7 @@ export function createLog(body: ChatBody): LogWindow {
 export function resetLog(w: LogWindow) {
   w.units = [];
   w.drawn = new Map();
+  w.dirty.clear();
   w.sizes.clear();
   w.top = w.bottom = null;
   dropSearch(w);
@@ -125,7 +128,9 @@ export function setUnits(w: LogWindow, units: readonly Unit[], held: readonly No
     if (!prior) continue;
     const turn = drawnTurn(u, prior), el = w.elements.get(u.key);
     next.set(u.key, turn);
-    if (turn === prior || !el) continue;
+    if (turn === prior) continue;
+    w.dirty.add(u.key);
+    if (!el) continue;
 
     const kept = new Set(turn.rows);
     prior.rows.forEach((row, i) => {
@@ -141,6 +146,7 @@ export function setUnits(w: LogWindow, units: readonly Unit[], held: readonly No
 
   // Leave the whole update pending when it would replace a selection or focus.
   if (going.some(el => held.some(n => el.contains(n)))) return false;
+  for (const key of [...w.dirty]) if (!keys.has(key)) w.dirty.delete(key);
   w.units = units;
   dropSearch(w);
   w.searchChanged?.();
@@ -169,22 +175,31 @@ export function fillLog(b: ChatBody, follow: boolean) {
   // read before they are in, and goes to its end once they are.
   const pin = follow && mayPin(b);
   // Turns measured at another width are guessed again.
-  if (log.clientWidth !== w.width) { w.width = log.clientWidth; w.sizes.clear(); }
+  if (log.clientWidth !== w.width) { w.width = log.clientWidth; w.sizes.clear(); w.dirty.clear(); }
   let changed = false;
 
-  // Measuring what was guessed moves the window; it settles in a few rounds.
-  for (let round = 0; round < 4; round++) {
+  // Measuring what was guessed can shift the window; one correction pass settles it.
+  for (let round = 0; round < 2; round++) {
     const bTop = pin ? 0 : b.getBoundingClientRect().top;
     const { from, to } = pin ? endOf(sizesOf(w), b.clientHeight) : viewOf(w, b, log, bTop);
     const shown = w.units.slice(from, to);
     const same = w.drawn.size === shown.length && shown.every(u => w.drawn.has(u.key));
+    const needsMeasure = shown.some(u => !w.sizes.has(u.key) || w.dirty.has(u.key));
+
+    if (same && !needsMeasure) {
+      if (pin) b.scrollTop = b.scrollHeight;
+      break;
+    }
+
     // The first turn in view that stays, and where it is on screen.
     const anchor = pin ? undefined : shown.map(u => w.elements.get(u.key)).find(el => el && el.getBoundingClientRect().bottom > bTop);
     const before = anchor?.getBoundingClientRect().top;
 
     if (!same) {
       changed = true;
+      for (const u of shown) if (!w.drawn.has(u.key)) w.dirty.add(u.key);
       w.drawn = new Map(shown.map(u => [u.key, w.drawn.get(u.key) ?? drawnTurn(u, null)]));
+      space(w, from, to);
       publish(w);
     }
 
@@ -261,7 +276,9 @@ export function revealLogUnit(b: ChatBody, key: string) {
   if (at < 0) return null;
   b.stuck = false;
   // Measure the target before filling its surrounding turns.
+  w.dirty.add(key);
   w.drawn = new Map([[key, w.drawn.get(key) ?? drawnTurn(w.units[at], null)]]);
+  space(w, at, at + 1);
   publish(w);
   measure(w);
   space(w, at, at + 1);
@@ -388,8 +405,12 @@ export function onLogDrawn(b: ChatBody, changed: () => void) {
 
 function measure(w: LogWindow) {
   for (const key of w.drawn.keys()) {
+    if (w.sizes.has(key) && !w.dirty.has(key)) continue;
     const el = w.elements.get(key);
-    if (el) w.sizes.set(key, sizeOf(w, el));
+    if (el) {
+      w.sizes.set(key, sizeOf(w, el));
+      w.dirty.delete(key);
+    }
   }
 }
 
