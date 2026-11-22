@@ -75,8 +75,12 @@ test("Home's review walks the idle sessions by time, and keeps the order", async
   await page.getByRole("menuitemradio", { name: "example/gadget" }).click();
   await expect(rows).toHaveText([/^Sort the tables/]);
 
-  // A click on the row in hand opens it.
+  // A click on the card in hand opens its session, and so does one on its row.
+  await expect(inHand).toHaveText("Sort the tables");
+  await inHand.click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_view").map(call => call.args.session))).toContain("four");
+  await page.evaluate(() => window.__navigation.open("home"));
   await expect(inHand).toHaveText("Sort the tables");
   await rows.filter({ hasText: "Sort the tables" }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_view").map(call => call.args.session))).toContain("four");
+  await expect(deck).toBeHidden();
 });

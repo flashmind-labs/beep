@@ -131,10 +131,9 @@ body.cbody
                 div
                   div.cc-sec
                     h4 "1 of 2"
-                  div.bd-deck
+                  div.bd-deck [role="button" tabindex="0"]
                     div.acts
-                      button.dbtn.small [type="button"] "Open"
-                      button.back.dbtn.small [type="button"] "Back"
+                      button.dbtn.small [type="button"] "Back"
                         kbd "←"
                       button.dbtn.small [type="button"] "Next"
                         kbd "→"

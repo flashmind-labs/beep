@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useState, type CSSProperties, type MouseEvent } from "react";
 import { closeSession, sessionVisible, visibleRunning } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
@@ -20,7 +20,7 @@ import { state } from "./state.ts";
 import { go } from "./views.tsx";
 import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
-import { Button, LineRow, Section, SectionHead, EmptyPanel } from "../ui/kit.tsx";
+import { Button, LineRow, Section, SectionHead, EmptyPanel, onRowKey } from "../ui/kit.tsx";
 import { Segmented } from "../ui/aria-kit.tsx";
 import { Dropdown } from "../ui/dropdown.tsx";
 import { setHeroCard, withMove } from "../ui/motion.ts";
@@ -203,11 +203,14 @@ function Review({ cards, rows }: { cards: readonly BoardCard[]; rows: ReadonlyMa
   </div>;
 }
 
-/// The idle session in hand: what to do with it, how far down the list it is, and its last
+/// The idle session in hand, which a click opens: how far down the list it is, and its last
 /// reply. The buttons come first, so they stay put from one session to the next.
 function Deck({ card, row, done, open, step }: { card: BoardCard; row: RunningAgent | null; done: number; open(): void; step(by: number): void }) {
-  return <div className="bd-deck">
-    <div className="acts"><Button small onClick={open}>Open</Button><Button small className="back" onClick={() => step(-1)}>Back<kbd>←</kbd></Button><Button small onClick={() => step(1)}>Next<kbd>→</kbd></Button></div>
+  // A step stays off the card, which would open the session.
+  const stepBy = (by: number) => (event: MouseEvent) => { event.stopPropagation(); step(by); };
+
+  return <div className="bd-deck" role="button" tabIndex={0} onClick={open} onKeyDown={onRowKey(open)}>
+    <div className="acts"><Button small onClick={stepBy(-1)}>Back<kbd>←</kbd></Button><Button small onClick={stepBy(1)}>Next<kbd>→</kbd></Button></div>
     <div className="bar" aria-hidden><i style={{ width: `${done * 100}%` }}/></div>
     <div className="meta"><ProjectTag card={card}/><span>{card.foot}</span></div>
     <b>{card.title}</b>
