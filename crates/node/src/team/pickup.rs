@@ -221,8 +221,8 @@ pub(super) struct Round<'a> {
     pub(super) project: &'a Project,
     /// This mesh's cards of the team now.
     pub(super) cards: &'a [Card],
-    /// The machines that start sessions when this one runs no agent, best
-    /// first.
+    /// The machines that start sessions when this one runs no agent or
+    /// refuses, best first.
     pub(super) elsewhere: Vec<EndpointId>,
 }
 
@@ -507,8 +507,8 @@ fn off_the_board(state: &Pickup, cards: &[Card]) -> Vec<(u64, String)> {
 }
 
 /// Starts a session on `issue` here, when this machine runs an agent, or
-/// on the first of the machines the round names that does not refuse it,
-/// as one with no agent does.
+/// else, or when it refuses, on the first of the machines the round names
+/// that does not refuse it.
 async fn start(round: &Round<'_>, issue: &OpenIssue) -> Result<Auto, Unstarted> {
     let order = PickupStart {
         repo: round.team.repo.clone(),
@@ -516,14 +516,17 @@ async fn start(round: &Round<'_>, issue: &OpenIssue) -> Result<Auto, Unstarted> 
         title: issue.title.clone(),
         url: issue.url.clone(),
     };
+    let mut refused = "no machine of the mesh with the project runs an agent".to_owned();
 
     if round.project.checkout.is_some() && round.agents.auto_harness().is_some() {
-        return match timeout(START_LIMIT, start_issue(round.agents, round.mesh, &order)).await {
-            Ok(started) => started.map_err(Unstarted::Refused),
-            Err(_) => Err(Unstarted::Unknown(
-                "the agent did not start in time".to_owned(),
-            )),
-        };
+        match timeout(START_LIMIT, start_issue(round.agents, round.mesh, &order)).await {
+            Ok(Ok(auto)) => return Ok(auto),
+            Ok(Err(e)) => refused = e,
+            Err(_) => {
+                let late = "the agent did not start in time".to_owned();
+                return Err(Unstarted::Unknown(late));
+            }
+        }
     }
 
     let args = serde_json::to_string(&order).map_err(|e| Unstarted::Refused(e.to_string()))?;
@@ -533,7 +536,6 @@ async fn start(round: &Round<'_>, issue: &OpenIssue) -> Result<Auto, Unstarted> 
         args,
         approved: Approved::No,
     };
-    let mut refused = "no machine of the mesh with the project runs an agent".to_owned();
 
     for machine in &round.elsewhere {
         let answer = timeout(START_LIMIT, over_the_mesh(round.mesh, *machine, &request)).await;

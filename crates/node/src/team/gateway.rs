@@ -301,8 +301,8 @@ impl Gateway {
     }
 
     /// The machines of `project` that start its issues' sessions when this
-    /// one runs no agent: the other online ones with its checkout, desktops
-    /// and nodes, ranked as the gateway is elected.
+    /// one runs no agent or refuses: the other online ones with its
+    /// checkout, desktops and nodes, ranked as the gateway is elected.
     fn elsewhere(&self, project: &Project, repo: &TeamRepo) -> Vec<EndpointId> {
         let reach = self.offers.agents.ci.reach_of(&repo.host);
         let machines = starters(project, &online(&self.mesh));
