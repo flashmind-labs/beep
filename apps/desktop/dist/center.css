@@ -769,7 +769,7 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .us-pill { display: inline-flex; align-items: center; gap: 10px; height: 28px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: default }
 .us-pill:hover, .us-pill[aria-expanded="true"] { background: var(--elev) }
 .us-pill b { color: var(--fg); font-weight: 500 }
-.us-plan { display: inline-flex; align-items: center; gap: 5px }
+.us-plan, .us-x { display: inline-flex; align-items: center; gap: 5px }
 .us-mk { display: inline-grid; place-items: center; flex: none; width: 14px; height: 14px; color: var(--fg) }
 .us-mk svg { width: 14px; height: 14px }
 .us-pill b.warn { color: var(--warn) }

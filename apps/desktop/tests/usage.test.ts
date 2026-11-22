@@ -70,6 +70,13 @@ test("the pill shows a model's weekly limit past 1% beside its plan", () => {
   ]);
 });
 
+test("a plan with only grouped windows shows its most-used group under the harness mark", () => {
+  const windows = [{ minutes: 10_080, used_percent: 4, resets_at: null, scope: "Gemini Models" }, { minutes: 10_080, used_percent: 12, resets_at: null, scope: "Claude and GPT models" }];
+  assert.deepEqual(pillPlans([{ agent: "agy", account: null, plan: null, machine_name: "build-box", as_of: 0, windows }]), [
+    { agent: "agy", account: null, model: null, used: 12, window: "This week, Claude and GPT models" },
+  ]);
+});
+
 test("the note on dollars shows only when a row shows dollars", () => {
   const total = { project: "", cost_usd: 0, unpriced: [] };
   const covered = { agent: "claude", subscription: true, cost_usd: null, tokens: 5_000, models: [] };

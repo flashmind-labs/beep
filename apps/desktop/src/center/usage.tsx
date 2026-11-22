@@ -101,13 +101,21 @@ export interface PillPlan {
 }
 
 /// Each plan with windows, as the pill shows it: the plan's binding window,
-/// then each model limit used past 1%.
+/// then each model limit used past 1%. A plan whose windows are all model
+/// groups, such as Antigravity's, shows its most-used group under the
+/// harness's own mark.
 export function pillPlans(limits: PlanLimits[]): PillPlan[] {
+  const mostUsed = (windows: UsageWindow[]) =>
+    windows.reduce<UsageWindow | null>((most, w) => !most || windowUsed(w) > windowUsed(most) ? w : most, null);
+
   return limits.flatMap(plan => {
-    const binding = plan.windows.filter(w => !w.scope)
-      .reduce<UsageWindow | null>((most, w) => !most || windowUsed(w) > windowUsed(most) ? w : most, null);
-    const models = plan.windows.filter(w => w.scope && windowUsed(w) > 1)
-      .map(w => ({ agent: plan.agent, account: plan.account, model: w.scope, used: windowUsed(w), window: windowName(w) }));
+    const unscoped = plan.windows.filter(w => !w.scope);
+    const binding = mostUsed(unscoped.length ? unscoped : plan.windows);
+    const models = unscoped.length
+      ? plan.windows.filter(w => w.scope && windowUsed(w) > 1)
+        .map(w => ({ agent: plan.agent, account: plan.account, model: w.scope, used: windowUsed(w), window: windowName(w) }))
+      : [];
+
     return binding ? [{ agent: plan.agent, account: plan.account, model: null, used: windowUsed(binding), window: windowName(binding) }, ...models] : models;
   });
 }

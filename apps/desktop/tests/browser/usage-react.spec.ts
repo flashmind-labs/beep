@@ -34,6 +34,7 @@ const subscribed = (() => {
     limits: [
       { agent: "claude", account: null, plan: "max", machine_name: "build-box", as_of: Date.now(), windows: [window(300, 38), window(10_080, 76)], credits: [] },
       { agent: "codex", account: null, plan: "pro", machine_name: "build-box", as_of: Date.now(), windows: [window(10_080, 20)], credits: [] },
+      { agent: "agy", account: null, plan: null, machine_name: "build-box", as_of: Date.now(), windows: [{ minutes: 10_080, used_percent: 4, resets_at: null, scope: "Gemini Models" }, { minutes: 10_080, used_percent: 0, resets_at: null, scope: "Claude and GPT models" }], credits: [] },
     ],
     today: period, week: period, month: period,
   };
@@ -43,10 +44,13 @@ for (const [name, size] of [["desktop", { width: 1280, height: 900 }], ["phone",
   test(`the ${name} pill shows each harness's binding share and the popover its values`, async ({ page }) => {
     await page.setViewportSize(size);
     await openDesktop(page, false, { usage_get: subscribed });
-    const pill = page.getByRole("button", { name: "Plan usage: Claude Code 76%, Codex 20%" });
+    const pill = page.getByRole("button", { name: "Plan usage: Claude Code 76%, Codex 20%, Antigravity 4%" });
     await expect(pill).toBeVisible();
-    await expect(pill.locator(".us-plan")).toHaveCount(2);
-    await expect(pill.locator(".us-plan svg")).toHaveCount(2);
+    await expect(pill.locator(".us-plan")).toHaveCount(3);
+    await expect(pill.locator(".us-plan svg")).toHaveCount(3);
+    await expect(pill).not.toContainText("Gemini Models");
+    await expect(pill.locator(".us-plan").nth(2)).toHaveAttribute("title", "Antigravity: 4% of This week, Gemini Models used");
+    await expect(pill.locator(".us-plan").nth(2).locator("image")).toHaveAttribute("href", "antigravity.svg");
     await expect(pill.locator(".bar")).toHaveCount(0);
     await expect(pill.locator("b.warn")).toHaveText("76%");
     await expect(pill.locator(".us-plan").nth(1).locator("b")).not.toHaveClass(/warn/);
@@ -81,7 +85,10 @@ test("a provider balance shows whole dollars in the pill and cents in the popove
   const usage = (credits: object[]) => ({ limits: [{ agent: "flsh", account: null, plan: null, machine_name: "build-box", as_of: Date.now(), windows: [], credits }], today: period, week: period, month: period });
   await openDesktop(page, false, { usage_get: usage([written]) });
   const pill = page.locator(".us-pill");
-  await expect(pill).toContainText("OpenRouter $622 left");
+  await expect(pill.locator(".us-x svg")).toHaveCount(1);
+  await expect(pill).not.toContainText("OpenRouter");
+  await expect(pill).toContainText("$622 left");
+  await expect(pill.locator(".us-x").first()).toHaveAttribute("title", "OpenRouter: $622.32 remaining");
   await pill.click();
   const pop = page.getByRole("dialog", { name: "Plan usage and cost" });
   await expect(pop).toContainText("$622.32 remaining");
@@ -90,5 +97,5 @@ test("a provider balance shows whole dollars in the pill and cents in the popove
   // A desktop without the written amounts shows the provider's own.
   await page.evaluate(value => { window.__navigation.respond("usage_get", value); window.__navigation.notify("usage"); }, usage([{ ...credit, remaining_short: null, remaining_full: null, used_full: null, total_full: null }]));
   await expect(pop).toContainText("$622.3218671 remaining");
-  await expect(pill).toContainText("OpenRouter $622.3218671 left");
+  await expect(pill).toContainText("$622.3218671 left");
 });
