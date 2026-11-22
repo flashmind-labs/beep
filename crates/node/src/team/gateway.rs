@@ -269,7 +269,10 @@ impl Gateway {
                 .filter_map(|listed| {
                     let mut view = listed.view.clone();
                     view.machine = listed.machine.clone();
-                    let branch = self.branches.get(&view.id).cloned().flatten();
+                    // Read here only of this machine's sessions; another
+                    // machine lists its sessions' branches.
+                    let read = self.branches.get(&view.id).cloned().flatten();
+                    let branch = read.or_else(|| view.branch.clone());
                     card_of(&view, &facts, branch.as_deref())
                 })
                 .collect();

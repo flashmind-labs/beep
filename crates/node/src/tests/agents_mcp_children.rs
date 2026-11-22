@@ -4,7 +4,7 @@ use crate::{
     machine::provision::Provision,
 };
 use beep_proto::AgentSlug;
-use beep_proto::node::agent::{Question, State};
+use beep_proto::node::agent::{Question, State, WorkPlace};
 use beep_proto::node::harness::{AgentSettings, HarnessConfig};
 use serde_json::Value;
 use beep_proto::watched;
@@ -105,6 +105,25 @@ fn what_an_agent_reads_of_a_child_says_when_it_waits_on_the_user() {
 }
 
 #[test]
+fn another_machine_reads_the_branch_a_session_works_on_from_its_listing() {
+    let info = SessionInfo {
+        id: "c1".into(),
+        place: Some(WorkPlace {
+            branch: Some("issue-52-fix".into()),
+            ..WorkPlace::default()
+        }),
+        ..SessionInfo::default()
+    };
+    let listed = serde_json::to_string(&[ChildView::of(&info, &SessionId::from("c1"))]).unwrap();
+    let read: Vec<ChildView> = serde_json::from_str(&listed).unwrap();
+    assert_eq!(read[0].branch.as_deref(), Some("issue-52-fix"));
+
+    // An older machine lists no branch.
+    let older: Vec<ChildView> = serde_json::from_str(r#"[{"id":"c1","harness":"codex","machine":"","state":"idle","title":null,"last_message":"","files_changed":0,"question":null,"turns":0,"tokens":0,"cost_usd":null,"error":null}]"#).unwrap();
+    assert_eq!(older[0].branch, None);
+}
+
+#[test]
 fn a_childs_id_names_its_machine() {
     let id = ChildId::from(" a3f9c1@build-box ");
     assert_eq!((id.session, id.machine), (SessionId::from("a3f9c1"), Some("build-box")));
@@ -130,6 +149,7 @@ fn a_start_call_reads_back_as_a_subagent_card_with_a_link_to_the_child() {
         error: None,
         note: None,
         project: None,
+        branch: None,
     };
     let call = format!(
         "Beep: Start codex agent on mac-box: Build the iOS app [completed]\n{}",

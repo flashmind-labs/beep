@@ -70,6 +70,9 @@ pub(crate) struct ChildView {
     /// The project whose checkout holds its folder, in a list of every agent.
     #[serde(default)]
     pub(crate) project: Option<String>,
+    /// The branch of the checkout it works in, as its node last read it.
+    #[serde(default)]
+    pub(crate) branch: Option<String>,
 }
 
 impl ChildView {
@@ -101,6 +104,7 @@ impl ChildView {
             error: info.state.error.clone(),
             note: None,
             project: None,
+            branch: info.place.as_ref().and_then(|place| place.branch.clone()),
         }
     }
 
