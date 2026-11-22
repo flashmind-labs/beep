@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
-test("a project's session swaps the sidebar for the project's sessions in the same column", async ({ page }, info) => {
+test("a project's session shows the project's sessions in the sidebar's column, with the sidebar over them on ⌘E", async ({ page }, info) => {
   const modifier = info.project.name === "Windows" ? "Control" : "Meta";
   const sessions = Array.from({ length: 4 }, (_, i) => ({ machine_id: "build-box", machine_name: "build-box", id: `past-${i}`, agent: "codex", title: `Past session ${i}`, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100 - i, external: false, question: null, assistant: false }));
   const busy = { ...sessions[0], id: "busy", title: "Busy session", status: "working", doing: "Running the tests", started_at: 5, last_activity: 1 };
@@ -48,19 +48,19 @@ test("a project's session swaps the sidebar for the project's sessions in the sa
   await rail.getByPlaceholder("Filter sessions").fill("session 3");
   await expect(past).toHaveText([/Past session 3/]);
 
+  // The toggle and ⌘E lay the sidebar over the sessions, in their column, and take it away.
   await rail.locator(".cc-side-toggle").click();
-  await expect(rail).toBeHidden();
+  await expect(win).toHaveClass(/side-over/);
   await expect(side).toBeVisible();
   expect(await main.boundingBox()).toEqual(at);
   await side.locator(".cc-side-toggle").click();
-  await expect(rail).toBeVisible();
+  await expect(win).not.toHaveClass(/side-over/);
   await expect(side).toBeHidden();
 
-  // ⌘E swaps them too.
   await page.keyboard.press(`${modifier}+e`);
   await expect(side).toBeVisible();
-  await expect(rail).toBeHidden();
   await page.keyboard.press(`${modifier}+e`);
+  await expect(side).toBeHidden();
   await expect(rail).toBeVisible();
 
   await rail.locator(".rail-back").click();

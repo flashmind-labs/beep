@@ -28,7 +28,7 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "⌥⇧Tab", does: "Previous active conversation" },
     { keys: "⌃Tab", does: "Next running session in this project or chat" },
     { keys: "⌃⇧Tab", does: "Previous running session in this project or chat" },
-    { keys: "⌘E", does: "Fold the sidebar; in a project's session or a chat with threads, swap it with their list" },
+    { keys: "⌘E", does: "Fold the sidebar; beside a project's sessions or a chat's threads, show it over them" },
     { keys: "⌘,", does: "Settings" },
     { keys: "⌘/", does: "Keyboard shortcuts" },
     { keys: "⌘N", does: "New agent session; on the Assistant page, a new chat; beside a chat's threads, a new thread" },
@@ -37,7 +37,7 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "⌘[", does: "Back" },
     { keys: "⌘]", does: "Forward" },
     { keys: "⌘W", does: "Close tab, else hide" },
-    { keys: "esc", does: "Up one page" },
+    { keys: "esc", does: "Up one page; in a chat with threads, all chats first, then the sidebar" },
   ] },
   { title: "Projects", rows: [
     { keys: "⇧⌘N", does: "Open project in a window" },

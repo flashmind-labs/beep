@@ -26,7 +26,7 @@ import { S } from "../bar/core.ts";
 import { isStarting } from "../agents/starting-state.ts";
 import { canGoBack, syncMobile } from "./mobile.tsx";
 import { placeWindowParts } from "./window-root.tsx";
-import { shell, windowHost } from "./window-shell.tsx";
+import { closeSideOver, shell, windowHost } from "./window-shell.tsx";
 import { movePlaying, swipePlaying, type Swipe } from "../ui/motion.ts";
 
 let currentPage: Location | null = null;
@@ -189,6 +189,7 @@ export function go(...[name, arg]: NavigationArgs): boolean {
 }
 
 export function goTo(target: Location): boolean {
+  closeSideOver();
   const page = withReturnTarget(target, currentLocation());
   const { view: name, arg } = page;
 

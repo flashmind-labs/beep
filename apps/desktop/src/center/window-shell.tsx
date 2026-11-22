@@ -1,7 +1,7 @@
 // The command center window as one React tree: the sidebar, the header, Home,
 // the pane and the pages. Modules draw into named places of it and reach its
 // elements through `windowHost`.
-import { useLayoutEffect, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, type ReactNode } from "react";
 import { createStore, useStore } from "zustand";
 import { SIDEBAR, WidthGrip } from "../ui/width-grip.tsx";
 import { HazeArt } from "../ui/painted-art.tsx";
@@ -26,8 +26,9 @@ interface Shell {
 export type Rail = { kind: "project"; project: string } | { kind: "chat"; chat: string };
 
 /// The sidebar: folded to its icons by the user, and the rail that takes its place, unless the
-/// user unfolded the sidebar there.
-interface Side { collapsed: boolean; rail: Rail | null; railHidden: boolean }
+/// user unfolded the sidebar there. Beside a chat whose rail stands aside, `away` leaves the
+/// column to its chats alone; `over` lays the sidebar on top of the rail.
+interface Side { collapsed: boolean; rail: Rail | null; railHidden: boolean; away: boolean; over: boolean }
 
 const sameRail = (a: Rail | null, b: Rail | null) =>
   a?.kind === "project" ? b?.kind === "project" && a.project === b.project : a?.kind === "chat" ? b?.kind === "chat" && a.chat === b.chat : !b;
@@ -35,21 +36,47 @@ const sameRail = (a: Rail | null, b: Rail | null) =>
 /// The project whose sessions the rail shows, if any.
 export const railProject = (rail: Rail | null) => rail?.kind === "project" ? rail.project : null;
 
-export const shell = createStore<Shell>(() => ({ view: null, assistant: null, parts: { title: "Home" }, side: { collapsed: false, rail: null, railHidden: false } }));
+export const shell = createStore<Shell>(() => ({ view: null, assistant: null, parts: { title: "Home" }, side: { collapsed: false, rail: null, railHidden: false, away: false, over: false } }));
 
 /// Whether the sidebar shows only its icons, as the user left it. Beside a project's session the
 /// sidebar and the project's sessions take turns in its full column, so the session stays put.
 export const sideCollapsed = ({ collapsed, rail }: Side) => !rail && collapsed;
 
-/// The sidebar's toggle: beside a rail it swaps the two, elsewhere it folds the sidebar.
+/// The sidebar's toggle: beside a rail it lays the sidebar over it or takes it away, beside one
+/// standing aside it shows the rail again, elsewhere it folds the sidebar.
 export function toggleSide() {
-  shell.setState(({ side }) => ({ side: side.rail ? { ...side, railHidden: !side.railHidden } : { ...side, collapsed: !side.collapsed } }));
+  shell.setState(({ side }) => ({
+    side: !side.rail ? { ...side, collapsed: !side.collapsed }
+      : side.railHidden ? { ...side, railHidden: false, away: false, over: false }
+      : { ...side, over: !side.over },
+  }));
+}
+
+/// Esc beside a chat's threads: the sidebar laid over them goes, then the chats take their
+/// place, then the sidebar comes back beside the chats. False when there is no such step left.
+export function stepOutOfRail(): boolean {
+  const { side } = shell.getState();
+  const next: Side | null = side.over ? { ...side, over: false }
+    : side.rail?.kind !== "chat" ? null
+    : !side.railHidden ? { ...side, railHidden: true, away: true }
+    : side.away ? { ...side, away: false }
+    : null;
+  if (next) shell.setState({ side: next });
+
+  return next !== null;
+}
+
+/// Takes the sidebar laid over a rail away, as going to another page or clicking beside it does.
+export function closeSideOver() {
+  if (shell.getState().side.over) shell.setState(({ side }) => ({ side: { ...side, over: false } }));
 }
 
 /// Shows `rail` in place of the sidebar, or the sidebar again. Opening a session from elsewhere
 /// shows its rail again.
 export function setRail(rail: Rail | null) {
-  shell.setState(now => sameRail(now.side.rail, rail) ? now : { side: { ...now.side, rail, railHidden: !!rail && !!now.side.rail && now.side.railHidden } });
+  shell.setState(now => sameRail(now.side.rail, rail) ? now : {
+    side: { ...now.side, rail, railHidden: !!rail && !!now.side.rail && now.side.railHidden, away: !!rail && now.side.away, over: false },
+  });
 }
 
 /// Shows the sidebar again in place of the rail, until one of its sessions opens.
@@ -83,6 +110,7 @@ export function windowHost(name: Host): HTMLElement {
 export function CenterWindow() {
   const { view, assistant, parts, side } = useStore(shell);
   const collapsed = sideCollapsed(side), rail = !!side.rail && !side.railHidden;
+  const away = !!side.rail && side.railHidden && side.away, over = rail && side.over;
   // The top bar's own width, which a session's title row keeps clear of (native.css).
   useLayoutEffect(() => {
     const top = hosts.get("top"), main = hosts.get("main");
@@ -97,12 +125,24 @@ export function CenterWindow() {
     const win = hosts.get("side")?.parentElement;
     win?.classList.toggle("side-collapsed", collapsed);
     win?.classList.toggle("rail-on", rail);
-  }, [collapsed, rail]);
+    win?.classList.toggle("side-away", away);
+    win?.classList.toggle("side-over", over);
+  }, [collapsed, rail, away, over]);
+
+  // A click beside the sidebar laid over the rail takes it away. The session's bar is the page's
+  // own element moved in (`adoptBar`), outside React's tree, so the listener is the DOM's.
+  useEffect(() => {
+    const main = hosts.get("main");
+    if (!over || !main) return;
+
+    main.addEventListener("pointerdown", closeSideOver);
+    return () => main.removeEventListener("pointerdown", closeSideOver);
+  }, [over]);
 
   return <>
-    <aside className="cc-side" id="side" ref={refs.side} inert={rail}><HazeArt />{parts.sidebar}</aside>
+    <aside className="cc-side" id="side" ref={refs.side} inert={rail && !over}><HazeArt />{parts.sidebar}</aside>
     <WidthGrip column={SIDEBAR} id="side-grip" />
-    <aside className="cc-rail pj-list" id="rail" aria-label={side.rail?.kind === "chat" ? "Chat threads" : "Project sessions"} hidden={!side.rail} inert={!rail}>{side.rail && parts.rail}</aside>
+    <aside className="cc-rail pj-list" id="rail" aria-label={side.rail?.kind === "chat" ? "Chat threads" : "Project sessions"} hidden={!side.rail} inert={!rail || over}>{side.rail && parts.rail}</aside>
     <div className="cc-main" id="main" ref={refs.main}>
       <div className="cc-top" data-tauri-drag-region="" ref={refs.top}>
         {parts["mobile-back"]}{parts["project-back"]}

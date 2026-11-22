@@ -17,7 +17,7 @@ async function openChat(page: Page, sessions: (typeof chat)[]) {
 
 const mod = (info: TestInfo) => info.project.name === "Windows" ? "Control" : "Meta";
 
-test("a chat with threads lists them in place of the sidebar, and ⌘E swaps them", async ({ page }, info) => {
+test("a chat with threads lists them in place of the sidebar, and ⌘E lays the sidebar over them", async ({ page }, info) => {
   await openChat(page, [chat, research, notes]);
   const rail = page.locator("#rail");
 
@@ -35,13 +35,56 @@ test("a chat with threads lists them in place of the sidebar, and ⌘E swaps the
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_view").at(-1)?.args.session)).toBe("thread-one");
   await expect(rail).toBeVisible();
 
+  // ⌘E lays the sidebar over the threads, and takes it away again.
   await page.keyboard.press(`${mod(info)}+e`);
-  await expect(page.locator(".cwin")).not.toHaveClass(/rail-on/);
-  await expect(page.locator("#side")).toBeVisible();
-  await expect(page.locator(".asst-list")).toBeVisible();
+  await expect(page.locator(".cwin")).toHaveClass(/rail-on/);
+  await expect(page.locator(".cwin")).toHaveClass(/side-over/);
+  await expect(page.locator("#side").getByRole("button", { name: "Home", exact: true })).toBeVisible();
+  await page.keyboard.press(`${mod(info)}+e`);
+  await expect(page.locator(".cwin")).not.toHaveClass(/side-over/);
+  await expect(page.locator(".asst-list")).toBeHidden();
 });
 
-test("a thread started as a persona shows it on its row and in its header", async ({ page }, info) => {
+test("Esc beside a chat's threads shows all the chats, then the sidebar beside them", async ({ page }) => {
+  await openChat(page, [chat, research, notes]);
+  const win = page.locator(".cwin");
+  await expect(win).toHaveClass(/rail-on/);
+  await page.locator("#agmsg").focus();
+
+  await page.keyboard.press("Escape");
+  await expect(win).not.toHaveClass(/rail-on/);
+  await expect(page.locator(".asst-list")).toBeVisible();
+  await expect(page.locator("#side")).toBeHidden();
+  await expect(page.getByText("On it.")).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#side")).toBeVisible();
+  await expect(page.locator(".asst-list")).toBeVisible();
+  await expect(page.getByText("On it.")).toBeVisible();
+});
+
+test("the sidebar over a chat's threads goes with Esc, a click beside it or another page", async ({ page }, info) => {
+  await openChat(page, [chat, research, notes]);
+  const win = page.locator(".cwin");
+  await page.locator("#agmsg").focus();
+
+  await page.keyboard.press(`${mod(info)}+e`);
+  await expect(win).toHaveClass(/side-over/);
+  await page.keyboard.press("Escape");
+  await expect(win).not.toHaveClass(/side-over/);
+  await expect(win).toHaveClass(/rail-on/);
+
+  await page.keyboard.press(`${mod(info)}+e`);
+  await page.getByText("On it.").click();
+  await expect(win).not.toHaveClass(/side-over/);
+
+  await page.keyboard.press(`${mod(info)}+e`);
+  await page.locator("#side").getByRole("button", { name: "Home", exact: true }).click();
+  await expect(win).not.toHaveClass(/side-over/);
+  await expect(page.locator("#side")).toBeVisible();
+});
+
+test("a thread started as a persona shows it on its row and in its header", async ({ page }) => {
   const researcher = { ...research, persona: { name: "researcher", color: "blue" } };
   await openChat(page, [chat, researcher, notes]);
   const row = page.locator("#rail .rail-threads .pj-li");
@@ -54,8 +97,12 @@ test("a thread started as a persona shows it on its row and in its header", asyn
   await row.click();
   await expect(page.locator(".aglocation .th-persona")).toHaveText("researcher");
 
-  // The chats list beside it says so too.
-  await page.keyboard.press(`${mod(info)}+e`);
+  // The chats list Esc shows says so too.
+  await page.evaluate(next => window.__navigation.respond("agent_view", next), view(chat));
+  await page.locator("#agmsg").focus();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".aglocation .th-persona")).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await expect(page.locator(".asst-list .asst-threads .pj-li").filter({ hasText: "Pricing research" }).locator(".th-persona")).toHaveText("researcher");
 });
 

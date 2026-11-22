@@ -1036,6 +1036,11 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .cwin.rail-on > .cc-side { translate: -12px 0 }
 .cwin:not(.rail-on) > .cc-rail { translate: 12px 0 }
 @starting-style { .cwin.rail-on > .cc-rail { opacity: 0; translate: 12px 0 } }
+/* Beside a chat, Esc leaves the column to its chats alone (window-shell.tsx). */
+.cwin.side-away { grid-template-columns: minmax(0, 1fr) }
+.cwin.side-away > :is(.cc-side, #side-grip, .cc-rail) { display: none }
+/* ⌘E lays the sidebar over the rail, in its column, until a page opens or a click lands beside it. */
+.cwin.rail-on.side-over > .cc-side { z-index: 3; opacity: 1; visibility: visible; translate: none; transition-delay: 0s; background: color-mix(in srgb, var(--ink) max(92%, var(--glass-solid)), transparent); box-shadow: 0 24px 70px -12px color-mix(in srgb, var(--shade) 60%, transparent) }
 .cc-rail:not([hidden]) { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; padding: 10px 8px 10px; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--ink) 55%, transparent) }
 .cc-rail > .cc-brand { justify-content: space-between }
 .cc-rail { position: relative; isolation: isolate }

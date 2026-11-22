@@ -8,7 +8,7 @@ import "../chat/diagrams.tsx";
 import "../ui/window-defaults.ts";
 import "../ui/zoom.ts";
 import { initMobile } from "./mobile.tsx";
-import { shell, toggleSide } from "./window-shell.tsx";
+import { shell, stepOutOfRail, toggleSide } from "./window-shell.tsx";
 import { closeFocusedTab } from "../agentpane/media.ts";
 import { isCloseKey, isZoomKey } from "../agentpane/media-state.ts";
 import { isNewKey } from "../terminals/newkey-state.ts";
@@ -167,6 +167,7 @@ pane.connect({
   },
   embedView,
   newAgent: newAgentHere,
+  stepOut: stepOutOfRail,
   // The session shrinks back into its card on the board.
   goBack(from: BackTo, move: boolean) {
     if (!move) return void goTo(from);
