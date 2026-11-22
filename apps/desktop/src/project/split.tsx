@@ -35,7 +35,7 @@ import { runningLineAt } from "../agents/place.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { Button, Chip, EmptyPanel } from "../ui/kit.tsx";
 import { WandererArt } from "../ui/painted-art.tsx";
-import { IssueOwners, IssueOwnersCell, myIssues, TeamFilter, TeamFollow, TeamPage, teamIssues, teamNote, teamOf } from "./team-view.tsx";
+import { boardFiltered, IssueOwners, IssueOwnersCell, myIssues, TeamFilter, TeamFollow, TeamPage, teamIssues, teamNote, teamOf } from "./team-view.tsx";
 
 /// The project's navigation and Overview stay mounted in their own elements while
 /// other tiles show, so their rows, focus and scroll survive a visit to Git or Running.
@@ -262,8 +262,8 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   if (board && (!pa.tile || pa.tile === "overview")) {
     const cards = projectCards({ project: p.name, url: p.url, running, past, openTile });
     const view = teamOf(p.name);
-    // A phone has no bar to give the page to.
-    pa.blank = !cards.length && !isMobile();
+    // A phone has no bar to give the page to; a filter that hides every card keeps its chips.
+    pa.blank = !cards.length && !boardFiltered(p.name) && !isMobile();
     if (pa.blank) return [viewPart("strip", strip)];
     return [viewPart("strip", strip), viewPart("board", <Parts className="pj-board" parts={[
       ...view?.kind === "team" ? [viewPart("team-filter", <TeamFilter project={p.name} view={view}/>)] : [],

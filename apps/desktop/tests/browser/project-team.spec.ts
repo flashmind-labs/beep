@@ -60,6 +60,19 @@ test("teammate card opens the issue", async ({ page }) => {
   expect(await called(page, "agent_start")).toEqual([]);
 });
 
+test("a teammate with no cards keeps the filter on the board", async ({ page }) => {
+  await openProject(page, null, { team_cards: { needs_you: [], teammates: [], own_queued: [queued], online: ["kim"] } });
+
+  const filter = page.locator(".tm-filter");
+  await expect(page.locator(".bd-card").filter({ hasText: "Issue 53" })).toBeVisible();
+  await filter.getByRole("button", { name: "kim" }).click();
+  await expect(page.locator(".pj-board .bd-card")).toHaveCount(0);
+  await expect(filter).toBeVisible();
+
+  await filter.getByRole("button", { name: "Everyone" }).click();
+  await expect(page.locator(".bd-card").filter({ hasText: "Issue 53" })).toBeVisible();
+});
+
 test("work on held issue asks first", async ({ page }) => {
   await openProject(page, "issues");
 

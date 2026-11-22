@@ -142,6 +142,16 @@ function whoColor(login: string) {
 /// The board's filter of each project, by name.
 const filters = new Map<string, BoardFilter>();
 
+/// Whose cards project `project`'s board shows.
+const boardFilter = (project: string): BoardFilter => filters.get(project) ?? { kind: "everyone" };
+
+/// Whether project `project`'s board shows its filter chips with a teammate
+/// or the user picked, so an empty board still offers Everyone.
+export function boardFiltered(project: string) {
+  const view = teamOf(project);
+  return view?.kind === "team" && teammates(view).length > 0 && boardFilter(project).kind !== "everyone";
+}
+
 /// A board card with whose it is, for the filter.
 export interface OwnedCard { login: string; card: BoardCard }
 
@@ -160,7 +170,7 @@ export function teamBoard(project: string, mine: readonly BoardCard[], openThrea
     ...team.teammates.map(card => ({ login: card.login, card: teamCard(project, card, openThread, true) })),
   ];
 
-  return filterCards(owned, filters.get(project) ?? { kind: "everyone" }, view.me).map(owned => owned.card);
+  return filterCards(owned, boardFilter(project), view.me).map(owned => owned.card);
 }
 
 /// An issue or pull request a team card links to.
@@ -229,7 +239,7 @@ export function TeamFilter({ project, view }: { project: string; view: Team }) {
   const others = teammates(view);
   if (!others.length) return null;
 
-  const filter = filters.get(project) ?? { kind: "everyone" };
+  const filter = boardFilter(project);
   const pick = (next: BoardFilter) => { filters.set(project, next); redrawProjects(); };
   const on = (login: string) => filter.kind === "member" && sameLogin(filter.login, login);
 
