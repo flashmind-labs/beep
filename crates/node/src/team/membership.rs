@@ -72,8 +72,8 @@ pub(super) fn teams(teams: &Teams) -> Vec<Team> {
 }
 
 /// What the gateway keeps of the membership of the teams it holds.
+#[derive(Default)]
 pub(super) struct Membership {
-    me: EndpointId,
     /// The last time this mesh's entries were sent on each team.
     announced: BTreeMap<TeamRepo, Announced>,
     /// When each held team's members were last checked.
@@ -132,14 +132,6 @@ impl Announced {
 }
 
 impl Membership {
-    pub(super) fn new(me: EndpointId) -> Self {
-        Self {
-            me,
-            announced: BTreeMap::new(),
-            checked: BTreeMap::new(),
-        }
-    }
-
     /// Forgets the checks of the teams that are not `held` here any more.
     pub(super) fn keep(&mut self, held: &BTreeSet<TeamRepo>) {
         self.checked.retain(|repo, _| held.contains(repo));
@@ -199,7 +191,7 @@ impl Membership {
 
             if let Some(entry) = new {
                 if fresh.as_ref() == Some(&entry) {
-                    take(link, self.me, team, &entry);
+                    take(link, team, &entry);
                 }
                 let others = team.others.clone();
                 let announced = Announced::sent(link, &team.repo, entry, admitted, others);
@@ -282,12 +274,17 @@ pub(crate) fn with_devices(
 }
 
 /// Takes `entry`, this mesh's entry on `team` with its devices now, as a
-/// teammate's roster is taken, for a desktop to write.
-fn take(link: &TeamLink, me: EndpointId, team: &Team, entry: &Member) {
+/// teammate's roster is taken, for a desktop to write. It comes as from a
+/// device on the entry: this machine is not one when it acts for a team
+/// whose entry names no machine with the project any more.
+fn take(link: &TeamLink, team: &Team, entry: &Member) {
     let roster = roster(&team.repo, vec![entry.clone()]);
     let own = Some(team.mine.mesh);
+    let Some(from) = team.mine.devices.first() else {
+        return;
+    };
 
-    match link.with(|link| link.rosters.apply(me, own, &roster)) {
+    match link.with(|link| link.rosters.apply(from.id, own, &roster)) {
         Ok(applied) if applied.changed.is_some() => link.wake(),
         Ok(_) => {}
         Err(refusal) => log::info!(

@@ -77,10 +77,11 @@ async fn gateway_and_ci_watcher_elect_the_same_machine() {
     assert_eq!(watched.elected(me, &ci, &peers), Some(me));
     assert_eq!(elected(project, &mine, &repo(), me, &ci, &peers), Some(me));
 
-    // A machine with the project that is not on the entry never acts for
-    // the team, though it watches CI.
+    // When the entry names no machine with the project, as when the last
+    // checkout moved before its new machine was announced, one with it still
+    // acts for the team, so that it announces itself.
     let elsewhere = member("alice", SecretKey::generate().public());
-    assert_eq!(elected(project, &elsewhere, &repo(), me, &ci, &peers), None);
+    assert_eq!(elected(project, &elsewhere, &repo(), me, &ci, &peers), Some(me));
 }
 
 #[test]

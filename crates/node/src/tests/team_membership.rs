@@ -102,7 +102,7 @@ async fn a_device_added_after_the_join_is_announced_and_taken() {
     };
     bob_knows_the_team(&pair);
 
-    let mut membership = Membership::new(gateway);
+    let mut membership = Membership::default();
     membership.announce(
         &pair.gateway,
         &[added].into(),
@@ -136,7 +136,6 @@ async fn a_device_added_after_the_join_is_announced_and_taken() {
 #[tokio::test]
 async fn a_teammate_offline_at_the_announcement_gets_it_later() {
     let pair = Pair::new().await;
-    let gateway = pair.gateway.endpoint().id();
     let added = SecretKey::generate().public();
     let mut devices = pair.alice.devices.clone();
     devices.push(EndpointAddr::new(added));
@@ -149,7 +148,7 @@ async fn a_teammate_offline_at_the_announcement_gets_it_later() {
     };
     let teams = std::slice::from_ref(&team);
     bob_knows_the_team(&pair);
-    let mut membership = Membership::new(gateway);
+    let mut membership = Membership::default();
     membership.announce(&pair.gateway, &BTreeSet::new(), |_| true, teams, &projects);
     assert_eq!(sent(&mut membership).await, [pair.bob.mesh].into());
 
@@ -179,7 +178,6 @@ async fn a_teammate_offline_at_the_announcement_gets_it_later() {
 #[tokio::test]
 async fn a_teammate_offline_at_the_announcement_gets_it_after_the_gateway_moves() {
     let pair = Pair::new().await;
-    let gateway = pair.gateway.endpoint().id();
     let (added_link, _added) = device().await;
     let added = added_link.endpoint().id();
     let mut devices = pair.alice.devices.clone();
@@ -192,7 +190,7 @@ async fn a_teammate_offline_at_the_announcement_gets_it_after_the_gateway_moves(
         others: vec![reachable_bob(&pair)],
     };
     bob_knows_the_team(&pair);
-    let mut old = Membership::new(gateway);
+    let mut old = Membership::default();
     old.announce(
         &pair.gateway,
         &BTreeSet::new(),
@@ -220,7 +218,7 @@ async fn a_teammate_offline_at_the_announcement_gets_it_after_the_gateway_moves(
         mine: entry,
         ..team
     };
-    let mut new = Membership::new(added);
+    let mut new = Membership::default();
     new.announce(
         &added_link,
         &BTreeSet::new(),
@@ -318,8 +316,7 @@ async fn a_teammate_offline_at_a_rejoin_takes_the_member_later() {
     };
     let teams = std::slice::from_ref(&team);
     let projects = projects(pair.alice.devices.clone());
-    let gateway = pair.gateway.endpoint().id();
-    let mut membership = Membership::new(gateway);
+    let mut membership = Membership::default();
     membership.announce(&pair.gateway, &BTreeSet::new(), |_| true, teams, &projects);
     assert!(sent(&mut membership).await.contains(&pair.bob.mesh));
 
@@ -371,4 +368,43 @@ async fn a_teammate_offline_at_a_removal_gets_it_later() {
     })
     .await
     .expect("the removal reaches bob");
+}
+
+/// A gateway whose entry names none of the project's machines, the last
+/// checkout having moved, still takes the entry naming itself.
+#[tokio::test]
+async fn a_gateway_not_on_the_entry_takes_the_entry_naming_it() {
+    let pair = Pair::new().await;
+    let gateway = pair.gateway.endpoint().id();
+    let old = SecretKey::generate().public();
+    let mine = member("alice", old);
+    let record = TeamRecord::new(repo(), vec![mine.clone(), pair.bob.clone()]);
+    pair.gateway.with(|teams| {
+        teams.rosters.refresh([(repo(), record)].into());
+        teams.home.mesh = Some(mine.mesh);
+    });
+    let team = Team {
+        repo: repo(),
+        project: "org/repo".to_owned(),
+        mine,
+        others: vec![pair.bob.clone()],
+    };
+    let projects = projects(vec![EndpointAddr::new(gateway)]);
+
+    let mut membership = Membership::default();
+    membership.announce(
+        &pair.gateway,
+        &[gateway].into(),
+        |id| id != old,
+        std::slice::from_ref(&team),
+        &projects,
+    );
+
+    timeout(Duration::from_secs(5), pair.gateway.waiting())
+        .await
+        .expect("the change waits for a desktop");
+    assert!(
+        pair.gateway
+            .with(|teams| teams.rosters.allows(gateway, &repo()))
+    );
 }

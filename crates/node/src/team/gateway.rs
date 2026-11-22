@@ -54,7 +54,9 @@ const GIT_LIMIT: Duration = Duration::from_secs(5);
 
 /// The machine that acts for `repo`, as `me` sees it with the online
 /// `peers`: one of the project's machines on `mine`, this mesh's entry on the
-/// team, since teammates turn away any other.
+/// team, since teammates turn away any other. When the entry names none of
+/// them, as when the last checkout moved before its new machine was
+/// announced, any of them, so that it announces itself.
 pub(crate) fn elected(
     project: &Project,
     mine: &Member,
@@ -63,12 +65,13 @@ pub(crate) fn elected(
     ci: &Ci,
     peers: &BTreeMap<EndpointId, ForgeReach>,
 ) -> Option<EndpointId> {
-    let machines = project
-        .devices
+    let all: BTreeSet<EndpointId> = project.devices.iter().map(|device| device.id).collect();
+    let on: BTreeSet<EndpointId> = all
         .iter()
-        .map(|device| device.id)
+        .copied()
         .filter(|machine| mine.devices.iter().any(|device| device.id == *machine))
         .collect();
+    let machines = if on.is_empty() { all } else { on };
 
     elect(&machines, me, ci.reach_of(&repo.host), peers, &repo.host)
 }
@@ -91,7 +94,7 @@ pub(crate) async fn run(mesh: Mesh, me: EndpointId, link: TeamLink, offers: Offe
         held: BTreeSet::new(),
         titles: BTreeMap::new(),
         branches: HashMap::new(),
-        membership: Membership::new(me),
+        membership: Membership::default(),
         follows: BTreeMap::new(),
         pickups: Pickups::new(dir),
     };
