@@ -40,7 +40,7 @@ export function AgentLogShell({ value, log }: { value: LogShell; log: LogWindow 
     {value.error && (value.external ? <div className="derr" data-log-part="error">{value.error}</div> : <div data-log-part="error"><AgentError message={value.error} switchModel={value.switchModel} /></div>)}
     {value.note && <div className={value.note.tone === "error" ? "derr" : value.note.tone === "connecting" ? "dmuted dlate" : "dmuted"} data-log-part="note">{value.note.text}</div>}
     {value.retry && <Button look="quiet" id="agresume" data-log-part="retry">Retry</Button>}
-  </div><button className="dagjump" id="agjump" hidden>Jump to latest<Icon name="pull" /></button></>;
+  </div><Button look="plain" className="dagjump" id="agjump" hidden>Scroll to bottom<Icon name="pull" /></Button></>;
 }
 
 /// The log's turns as React draws them; the window decides which.

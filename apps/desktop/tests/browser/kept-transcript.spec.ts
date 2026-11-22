@@ -98,7 +98,7 @@ test("a kept log reopens at the latest message with its older entries still load
   await expect(body).toContainText("Question 0");
   await body.evaluate(b => { b.scrollTop = 160; });
   await expect.poll(() => body.evaluate(b => b.scrollTop)).toBe(160);
-  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Scroll to bottom" })).toBeVisible();
 
   await open("notice-two");
   await expect(body).toContainText("Answer 1");

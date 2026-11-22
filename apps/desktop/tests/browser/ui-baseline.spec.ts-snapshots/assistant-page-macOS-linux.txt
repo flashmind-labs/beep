@@ -210,7 +210,7 @@ body.cbody
                                 span.lb [title="cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"] "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
                                 span.since [data-since="1768471200000"] "2h 0m"
                           div.agspace [hidden] style(height)
-                      button#agjump.dagjump [hidden] "Jump to latest"
+                      button#agjump.dagjump [hidden] "Scroll to bottom"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                     div.agrail.off
                   div#agmovebox

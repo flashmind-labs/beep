@@ -78,7 +78,7 @@ body
                             svg [fill="none" height="11" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="11"]
                         button.dbtn [data-agcancel="true" type="button"] "Cancel"
                           kbd "⌘."
-                button#agjump.dagjump [hidden] "Jump to latest"
+                button#agjump.dagjump [hidden] "Scroll to bottom"
                   svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
               div.agrail.off
             div#agmovebox

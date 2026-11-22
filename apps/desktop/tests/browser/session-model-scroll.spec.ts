@@ -125,7 +125,7 @@ test("returning from Home opens the same conversation at its latest message", as
   const open = () => page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
   const body = page.locator("#agbody");
   const gap = () => body.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop);
-  const jump = page.getByRole("button", { name: "Jump to latest" });
+  const jump = page.getByRole("button", { name: "Scroll to bottom" });
 
   await open();
   await expect(body).toContainText("Message 39");
@@ -148,7 +148,7 @@ test("reopening the desktop window returns the conversation to the latest messag
   await openDesktop(page, false, { agent_view: view(active) });
   await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
   const body = page.locator("#agbody");
-  const jump = page.getByRole("button", { name: "Jump to latest" });
+  const jump = page.getByRole("button", { name: "Scroll to bottom" });
   await expect(body).toContainText("Message 39");
   await expect(body.getByText("Message 39", { exact: false })).toBeInViewport();
   await page.keyboard.press("Home");

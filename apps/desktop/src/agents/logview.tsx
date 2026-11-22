@@ -191,7 +191,7 @@ export function scrolledLog(b: ChatBody) {
   if (fillLog(b, b.stuck !== false)) drawnRows(b);
 }
 
-/// Shows "Jump to latest" while the log is scrolled up from the bottom.
+/// Shows "Scroll to bottom" while the log is scrolled up from the bottom.
 export function syncJump(b: ChatBody) {
   const jump = b.querySelector<HTMLElement>("#agjump");
   const hidden = b.stuck !== false || atBottom(b);
