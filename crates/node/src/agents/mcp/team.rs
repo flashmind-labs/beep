@@ -36,7 +36,10 @@ use futures::future::BoxFuture;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::time::{Duration, Instant};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 use tokio::time::timeout;
 
 /// How long handing an ask to a session on another machine, or reading the
@@ -266,11 +269,7 @@ pub(crate) async fn answer(
             }
         }
         Tool::TeamDeliver => match parse::<Handed>(&request.args) {
-            Ok(Handed {
-                card,
-                delivery,
-                text,
-            }) => match here(agents, &card, delivery, text).await {
+            Ok(handed) => match handed_here(link, agents, from, handed).await {
                 Ok(()) => ok("Delivered."),
                 Err(e) => fail(e),
             },
@@ -472,10 +471,50 @@ impl Sessions for TeamSessions {
     }
 }
 
+/// Puts what `from` handed into its session here, when that session works
+/// in a team project and `from` acts for that team; an ask also needs the
+/// team to take messages from teammates' agents. Whether an answer is for
+/// an ask the session sent only the gateway knows.
+async fn handed_here(
+    link: &TeamLink,
+    agents: &Agents,
+    from: Option<EndpointId>,
+    handed: Handed,
+) -> Result<(), String> {
+    let Handed {
+        card,
+        delivery,
+        text,
+    } = handed;
+    let session = agents
+        .teammates_session(&session_of(&card))
+        .ok_or_else(|| format!("{card} no longer runs"))?;
+    let folder = PathBuf::from(session.info().cwd);
+    let team = link.with(|teams| {
+        let repo = teams.home.team_of(&folder)?;
+        let asks = teams.rosters.get(&repo)?.asks;
+        Some((repo, asks))
+    });
+    let (repo, asks) = team.ok_or_else(|| format!("{card} works on no team's project"))?;
+
+    acts_for(link, &repo, from)?;
+    if delivery == Delivery::Ask && !asks {
+        return Err(format!("{card} takes no messages from teammates' agents"));
+    }
+
+    here(agents, &card, delivery, text).await
+}
+
 /// Puts `text` into the session on the card `card`, which runs here.
 async fn here(agents: &Agents, card: &str, delivery: Delivery, text: String) -> Result<(), String> {
-    let session = card.split_once('@').map_or(card, |(session, _)| session);
-    let session = Into::<SessionId>::into(session);
+    agents
+        .deliver_from_teammate(&session_of(card), card, delivery, text)
+        .await
+}
 
-    agents.deliver_from_teammate(&session, card, delivery, text).await
+/// The session of the card `card` (`<session>@<machine>`).
+fn session_of(card: &str) -> SessionId {
+    let session = card.split_once('@').map_or(card, |(session, _)| session);
+
+    Into::<SessionId>::into(session)
 }

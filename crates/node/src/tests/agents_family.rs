@@ -1,6 +1,6 @@
 use super::*;
 use crate::agents::{AgentKind, OpenSession, SavedSession};
-use crate::team::asks::Delivery;
+use crate::team::{asks::Delivery, link::TeamLink};
 use beep_proto::node::agent::Request;
 use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path};
@@ -979,6 +979,81 @@ async fn a_teammate_reaches_no_session_the_user_stopped() {
 
     let log = rig.read("top.log");
     assert!(!log.contains("Can I take #52?"), "{log}");
+    rig.agents.shutdown().await;
+}
+
+/// What this machine answers when `from` hands `text` to the session on `card`.
+async fn handed(
+    link: &TeamLink,
+    agents: &Agents,
+    from: Option<EndpointId>,
+    card: &str,
+    delivery: Delivery,
+) -> (String, bool) {
+    let args = serde_json::json!({ "card": card, "delivery": delivery, "text": "Can I take #52?" });
+    let request = beep_proto::node::tools::Request {
+        session: SessionId::default(),
+        tool: beep_proto::node::tools::Tool::TeamDeliver,
+        args: args.to_string(),
+        approved: Default::default(),
+    };
+
+    match crate::agents::mcp::answer_team(link, agents, from, &request).await {
+        beep_proto::node::tools::Reply::Done { text, failed } => (text, failed),
+        other => panic!("not done: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_teammate_reaches_only_a_team_session_through_its_gateway() {
+    use crate::team::home::{Checkout, ForgeCli, Project};
+    use beep_proto::team::{TeamRecord, TeamRepo};
+
+    let rig = Rig::new();
+    let session = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let card = format!("{}@build-box", Agents::name_of(&session));
+    let endpoint = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
+        .bind()
+        .await
+        .expect("an endpoint");
+    // Handing a text on asks the forge nothing.
+    let link = TeamLink::new(endpoint, Arc::new(ForgeCli));
+    let repo = || "github.com/org/repo".parse::<TeamRepo>().expect("a repo");
+    let elected = iroh::SecretKey::generate().public();
+    let gateway = Some(elected);
+    let agents = &rig.agents;
+
+    let (text, failed) = handed(&link, agents, gateway, &card, Delivery::Ask).await;
+    assert!(failed && text.contains("works on no team's project"), "{text}");
+
+    let mut record = TeamRecord::new(repo(), Vec::new());
+    record.asks = false;
+    let folder = rig.dir.path().to_owned();
+    link.with(|teams| {
+        teams.rosters.refresh([(repo(), record)].into());
+        teams.gateways.insert(repo(), elected);
+        let checkout = Some(Checkout {
+            folder,
+            remote: String::new(),
+        });
+        let project = Project {
+            name: "org/repo".to_owned(),
+            checkout,
+            devices: Vec::new(),
+        };
+        teams.home.projects.insert(repo(), project);
+    });
+
+    let elsewhere = Some(iroh::SecretKey::generate().public());
+    let (text, failed) = handed(&link, agents, elsewhere, &card, Delivery::Reply).await;
+    assert!(failed && text.contains("does not act for the team"), "{text}");
+
+    let (text, failed) = handed(&link, agents, gateway, &card, Delivery::Ask).await;
+    assert!(failed && text.contains("takes no messages"), "{text}");
+    assert!(!rig.read("top.log").contains("Can I take #52?"));
+
+    let (text, failed) = handed(&link, agents, gateway, &card, Delivery::Reply).await;
+    assert!(!failed, "{text}");
     rig.agents.shutdown().await;
 }
 

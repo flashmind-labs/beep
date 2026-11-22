@@ -188,9 +188,7 @@ impl Agents {
         text: String,
     ) -> Result<(), String> {
         let session = self
-            .peers()
-            .into_iter()
-            .find(|session| session.id == *id || Self::name_of(session) == *id)
+            .teammates_session(id)
             .ok_or_else(|| format!("{card} no longer runs"))?;
         let idle = watched::read(&session.live, |live| open_to_teammates(live, card))?;
 
@@ -198,6 +196,13 @@ impl Agents {
             Delivery::Ask => self.message(&SessionId::default(), id, text).await,
             Delivery::Reply => put(&session, idle, text).await,
         }
+    }
+
+    /// The live session here a team knows by `id`: its own id or its agent's.
+    pub(in crate::agents) fn teammates_session(&self, id: &SessionId) -> Option<Arc<Session>> {
+        self.peers()
+            .into_iter()
+            .find(|session| session.id == *id || Self::name_of(session) == *id)
     }
 }
 
