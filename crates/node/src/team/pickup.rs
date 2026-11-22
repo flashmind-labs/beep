@@ -85,8 +85,10 @@ pub(crate) struct Plan {
 
 /// What to do with the `assigned` issues: each not started before, not
 /// given up, not assigned when pickup was turned on and with no `live`
-/// session starts, lowest number first, while fewer than `limit` automatic
-/// sessions are live or followed, not known to have ended; the rest wait.
+/// session starts, lowest number first, while fewer than `limit` sessions
+/// on issues started here or assigned are live or followed, not known to
+/// have ended; the rest wait. Those assigned count wherever they started, so
+/// a gateway that took over counts the sessions the one before it started.
 pub(crate) fn due(p: &Pickup, assigned: &[u64], live: &BTreeSet<u64>, limit: Option<u32>) -> Plan {
     let new: BTreeSet<u64> = assigned
         .iter()
@@ -95,9 +97,9 @@ pub(crate) fn due(p: &Pickup, assigned: &[u64], live: &BTreeSet<u64>, limit: Opt
         .filter(|n| p.failed.get(n).is_none_or(|failed| *failed < ATTEMPTS))
         .collect();
     let mut new: Vec<u64> = new.into_iter().collect();
-    let running = p
-        .started
-        .iter()
+    let ours: BTreeSet<&u64> = p.started.iter().chain(assigned).collect();
+    let running = ours
+        .into_iter()
         .filter(|n| live.contains(n) || p.running.contains_key(n))
         .count();
     let room = limit.map_or(usize::MAX, |limit| {

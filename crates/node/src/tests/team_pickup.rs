@@ -73,6 +73,15 @@ fn live_automatic_sessions_count_against_the_limit() {
 /// A session off the last list, whose machine did not say it ended, may
 /// still work: its slot is not handed out again.
 #[test]
+fn a_gateway_that_took_over_counts_the_sessions_the_one_before_started() {
+    // It started nothing itself; #5's session runs on the board all the same.
+    let plan = due(&pickup(&[], &[]), &[5, 6], &set(&[5]), Some(1));
+
+    assert_eq!(plan.start, Vec::<u64>::new());
+    assert_eq!(plan.queued, [6]);
+}
+
+#[test]
 fn a_followed_session_not_known_to_have_ended_counts_against_the_limit() {
     let mut p = pickup(&[9], &[]);
     p.running.insert(
