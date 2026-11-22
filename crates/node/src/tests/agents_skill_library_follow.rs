@@ -22,3 +22,21 @@ fn a_chat_gets_its_skills_in_its_folder_and_its_threads() {
     assert!(chat_folders(home.path(), "..", &folders).is_empty());
     assert!(chat_folders(home.path(), "chat-one/pricing", &folders).is_empty());
 }
+
+#[test]
+fn a_peer_fetches_skills_picked_only_for_a_chat() {
+    use beep_proto::node::mesh_state::Pick;
+
+    let library = SkillLibrary {
+        url: "bundle.git".into(),
+        revision: String::new(),
+        skills: Vec::new(),
+        global: Pick::None,
+        projects: Default::default(),
+        chats: [("chat".into(), Pick::Only(["bundle".into(), "notes".into()].into()))].into(),
+    };
+
+    assert!(picked(&library, "bundle"));
+    assert!(picked(&library, "notes"));
+    assert!(!picked(&library, "other"));
+}

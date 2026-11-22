@@ -166,12 +166,13 @@ fn the_exclude_block_is_replaced_and_lines_outside_it_stay() {
 }
 
 #[test]
-fn a_root_skill_can_be_picked_for_a_project_on_either_node() {
+fn root_and_child_skills_can_be_picked_for_a_project_on_either_node() {
     let temp = tempfile::tempdir().unwrap();
     let repo = temp.path().join("Example-Skill.git");
     let reader = temp.path().join("reader");
     let peer = temp.path().join("peer");
     put(&repo, "", "Reads examples.", "Body");
+    put(&repo, "skills/notes", "Takes notes.", "Notes");
     fs::create_dir(repo.join("references")).unwrap();
     fs::write(repo.join("references/guide.md"), "Guide").unwrap();
     run_git(&repo, &["init", "--quiet"]);
@@ -180,14 +181,17 @@ fn a_root_skill_can_be_picked_for_a_project_on_either_node() {
 
     let url = repo.to_str().unwrap();
     let (revision, skills) = store::inspect_git(&reader, url).unwrap();
-    assert_eq!(skills.len(), 1);
+    assert_eq!(skills.len(), 2);
+    assert_eq!(skills[1].name, "notes");
     let name = &skills[0].name;
     assert_eq!(name, "example-skill");
     assert_eq!(skills[0].description, "Reads examples.");
 
-    let files = store::skill_at(&reader, url, &revision, name).unwrap().unwrap();
     let copy = store::copy_root(&peer, url, &revision).unwrap();
-    write(&copy.join(name), &files).unwrap();
+    for skill in &skills {
+        let files = store::skill_at(&reader, url, &revision, &skill.name).unwrap().unwrap();
+        write(&copy.join(&skill.name), &files).unwrap();
+    }
     let clone = store::ensure_git(&reader, url, &revision).unwrap();
 
     for (node, source) in [(reader, clone), (peer, copy)] {
@@ -197,7 +201,7 @@ fn a_root_skill_can_be_picked_for_a_project_on_either_node() {
             keep_out_of_git: false,
         };
         fs::create_dir_all(&checkout.folder).unwrap();
-        let ready = Ready {
+        let mut ready = Ready {
             name: name.clone(),
             library: SkillLibrary {
                 url: url.into(),
@@ -209,14 +213,30 @@ fn a_root_skill_can_be_picked_for_a_project_on_either_node() {
         };
         let checkouts = std::slice::from_ref(&checkout);
         let mut record = Record::load(&node).unwrap();
-        let problems = apply(&mut record, wants(&[ready], &[], checkouts), checkouts);
-        assert!(problems.is_empty(), "{problems:?}");
+        for picked in [names(&[name]), Pick::All, names(&["notes"])] {
+            ready.library.projects.insert(PROJECT.into(), picked.clone());
+            let desired = wants(std::slice::from_ref(&ready), &[], checkouts);
+            let problems = apply(&mut record, desired, checkouts);
+            assert!(problems.is_empty(), "{problems:?}");
 
-        for folder in PROJECT_FOLDERS {
-            let installed = checkout.folder.join(folder).join(name);
-            assert_eq!(read(&installed), read(&repo));
-            assert_eq!(fs::read_to_string(installed.join("references/guide.md")).unwrap(), "Guide");
-            assert!(!installed.join(".git").exists());
+            for folder in PROJECT_FOLDERS {
+                let target = checkout.folder.join(folder);
+                let main = target.join(name);
+                let child = target.join("notes");
+                assert_eq!(main.exists(), picked.has(name));
+                assert_eq!(child.exists(), picked.has("notes"));
+
+                if main.exists() {
+                    assert_eq!(read(&main), read(&repo));
+                    assert_eq!(fs::read_to_string(main.join("references/guide.md")).unwrap(), "Guide");
+                    assert_eq!(read(&main.join("skills/notes")), read(&repo.join("skills/notes")));
+                    assert!(!main.join(".git").exists());
+                }
+
+                if child.exists() {
+                    assert_eq!(read(&child), read(&repo.join("skills/notes")));
+                }
+            }
         }
     }
 }

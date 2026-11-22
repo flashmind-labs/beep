@@ -238,7 +238,7 @@ fn git_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>> {
 
 /// Maps each skill name to its path prefix, including the trailing slash for a subfolder.
 /// Hidden folders (except agent skills folders), nested skills and duplicate names are skipped.
-/// If no subfolder is a skill, a root SKILL.md defines one named after the repository.
+/// A root SKILL.md uses the repository name, with a numeric suffix if a child owns that name.
 fn skill_dirs<'a>(
     mut paths: impl Iterator<Item = &'a str> + Clone,
     url: &str,
@@ -272,11 +272,19 @@ fn skill_dirs<'a>(
         }
     }
 
-    if found.is_empty() && paths.any(|path| path == SKILL_MD) {
-        let name = library_name(url);
-        if disk::valid_part(&name) {
-            found.insert(name, String::new());
+    let base = library_name(url);
+    if paths.any(|path| path == SKILL_MD) && disk::valid_part(&base) {
+        let mut name = base.clone();
+        let mut number = 2;
+
+        while found.keys().any(|child| child.eq_ignore_ascii_case(&name)) {
+            let suffix = format!("-{number}");
+            // library_name returns ASCII, so this keeps the folder within the byte limit.
+            name = format!("{}{suffix}", &base[..base.len().min(255 - suffix.len())]);
+            number += 1;
         }
+
+        found.insert(name, String::new());
     }
 
     found

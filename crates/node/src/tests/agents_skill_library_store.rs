@@ -35,6 +35,7 @@ fn skills_are_folders_with_a_skill_md_outside_hidden_folders_and_other_skills() 
     let paths = [
         "README.md",
         "SKILL.md",
+        "skills/Bundle/SKILL.md",
         "pdf/SKILL.md",
         "pdf/inner/SKILL.md",
         "group/docx/SKILL.md",
@@ -50,7 +51,9 @@ fn skills_are_folders_with_a_skill_md_outside_hidden_folders_and_other_skills() 
     assert_eq!(
         found.into_iter().collect::<Vec<_>>(),
         [
+            ("Bundle".to_owned(), "skills/Bundle/".to_owned()),
             ("blend".to_owned(), ".claude/skills/blend/".to_owned()),
+            ("bundle-2".to_owned(), String::new()),
             ("docx".to_owned(), "group/docx/".to_owned()),
             ("pdf".to_owned(), "pdf/".to_owned()),
         ]

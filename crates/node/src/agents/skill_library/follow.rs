@@ -490,7 +490,7 @@ fn chat_folders(home: &Path, chat: &str, folders: &BTreeSet<PathBuf>) -> Vec<Pat
 
 /// Whether any place picks the library's skill `name`.
 fn picked(library: &SkillLibrary, name: &str) -> bool {
-    library.global.has(name) || library.projects.values().any(|pick| pick.has(name))
+    library.global.has(name) || library.projects.values().chain(library.chats.values()).any(|pick| pick.has(name))
 }
 
 /// Fetches the repository at `url` and lists its skills.
