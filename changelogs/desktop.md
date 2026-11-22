@@ -7,6 +7,17 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.16] - 2026-11-22
+
+### Added
+
+- Desktop: a thread started as a persona shows the persona's name, with its
+  colour dot, on its row in the chat's thread list and in the thread's header.
+
+### Fixed
+
+- Desktop: install a skill from a library with a top-level `SKILL.md`.
+
 ## [0.10.15] - 2026-11-22
 
 ### Added
