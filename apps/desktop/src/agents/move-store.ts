@@ -31,7 +31,8 @@ export async function refreshMoves() {
   const read = bySession(Array.isArray(records) ? records : []);
   // Published at once, so a start or cancel made during the reads below stays.
   moveStore.setState({ records: read });
-  const recent = [...read.values()].filter(r => Date.now() - r.at < RECENT_MS).slice(0, MAX_ASKED);
+  // The latest first: a chat's move writes a record for each of its threads.
+  const recent = [...read.values()].filter(r => Date.now() - r.at < RECENT_MS).sort((a, b) => b.at - a.at).slice(0, MAX_ASKED);
 
   if (recent.length && !machineNames.size) {
     try { for (const m of await invoke<{ machine_id: string; machine_name: string }[]>("agent_hosts")) machineNames.set(m.machine_id, m.machine_name); }

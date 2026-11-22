@@ -376,6 +376,18 @@ impl Agents {
         crate::link::restart::changed();
     }
 
+    /// Puts `session`, which came from another machine, in its family
+    /// here: it tells its parent how it stands, and its children that came
+    /// before it tell it and end with it, as those started after it do.
+    pub(in crate::agents) fn join_family(&self, session: &Arc<Session>) {
+        self.watch_parent(session);
+
+        for child in self.children_of(&self.who_of(session)) {
+            self.watch_parent(&child);
+            child.follow(session.live.clone());
+        }
+    }
+
     /// The parent's state, when it runs here: the child ends with it.
     pub(super) fn parent_live_of(&self, link: &ParentLink) -> Option<watch::Receiver<Live>> {
         (link.machine == self.me())

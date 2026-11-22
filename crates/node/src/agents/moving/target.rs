@@ -1,20 +1,22 @@
 //! The machine a session moves to: waits until the source ended it, brings
 //! the conversation and the project's files, writes the transcript into the
-//! harness's store and resumes the session in its own checkout.
+//! harness's store and resumes the session in its own checkout. A session
+//! of a chat has a folder of its own in place of a checkout: what it holds
+//! comes over, and a session that had ended is kept ended.
 
 use beep_proto::SessionId;
 use super::{
     Env, Harness,
     dial::dial,
-    flsh,
+    files, flsh,
     folder::{Folders, project_folder},
     progress::{Tracker, show},
     read::{self, Checkout, Refused},
-    resume::{Arrival, resume},
+    resume::{Arrival, kept_here, resume, store},
     saved::{Folder, Phase, PlacedTree, Saved},
     worktree,
 };
-use crate::agents::found::Agent;
+use crate::agents::{SavedSession, conversation, found::Agent};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{agent::MovePhase, link, mesh_state::SessionMove};
 use std::{
@@ -84,8 +86,9 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     }
 
     let (folders, roots) = folders(env, record)?;
+    let chat = record.conversation.as_ref();
 
-    if !folders.new.is_dir() {
+    if chat.is_none() && !folders.new.is_dir() {
         bail!(
             "{} has no checkout on this machine to resume in",
             record.project
@@ -110,19 +113,28 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     );
     let copy = env.state.copy(&record.id);
     let copied = conversation(env, record, tracker, &copy).await?;
-    log::info!(
-        "session {}: the conversation is here, waiting for the checkouts",
-        record.id
-    );
-    let mut checkout = checkouts(env, record, tracker, &roots.new).await?;
-    let saved = checkout.session.take();
-    let moved: Vec<String> = checkout
-        .worktrees
-        .iter()
-        .map(|tree| roots.new.join(&tree.path).to_string_lossy().into_owned())
-        .collect();
-    worktrees(env, record, tracker, &roots.new, checkout).await?;
-    log::info!("session {}: the worktrees are here, resuming", record.id);
+    let (saved, moved) = match chat {
+        Some(_) => {
+            log::info!("session {}: the conversation is here, bringing its files", record.id);
+            (chat_files(env, record, tracker, &folders.new).await?, Vec::new())
+        }
+        None => {
+            log::info!(
+                "session {}: the conversation is here, waiting for the checkouts",
+                record.id
+            );
+            let mut checkout = checkouts(env, record, tracker, &roots.new).await?;
+            let saved = checkout.session.take();
+            let moved: Vec<String> = checkout
+                .worktrees
+                .iter()
+                .map(|tree| roots.new.join(&tree.path).to_string_lossy().into_owned())
+                .collect();
+            worktrees(env, record, tracker, &roots.new, checkout).await?;
+            (saved, moved)
+        }
+    };
+    log::info!("session {}: its files are here, resuming", record.id);
     show(tracker, |progress| progress.phase = MovePhase::Resuming);
     let arrival = Arrival {
         id: &record.id,
@@ -131,15 +143,42 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         worktrees: moved,
         from: record.from,
         saved,
+        chat: chat.is_some(),
     };
-    resume(env, &arrival, &kind, &folders, copied.file_name, copy).await
+    store(env, &record.id, &kind, &folders, copied.file_name, copy).await?;
+
+    if chat.is_some_and(|chat| chat.ended) {
+        // It lists as ended from the store; what the source saved of it
+        // keeps its name and its place under its chat.
+        if let Some(saved) = kept_here(&arrival, &folders.new, env.mesh.me()) {
+            env.agents.keep_arrived(saved);
+        }
+
+        return Ok(());
+    }
+
+    resume(env, &arrival, &kind, &folders)
 }
 
 /// The session's folder in the source's checkout and in this machine's, and
-/// the two checkouts themselves. A session works in its project folder,
+/// the two checkouts themselves (for a chat's session, its folder twice). A
+/// session works in its project folder,
 /// never in a worktree: a record from an app that still sent a worktree
 /// move resumes in the project folder.
 fn folders(env: &Env, record: &SessionMove) -> Result<(Folders, Folders)> {
+    if let Some(chat) = &record.conversation {
+        // A chat's session keeps its place under the chats, which here are
+        // in this machine's home folder.
+        let new = conversation::moved(&env.home, &record.path)
+            .context("the session's folder is not a chat's")?;
+        let old = record
+            .path
+            .split('/')
+            .fold(PathBuf::from(&chat.root), |folder, name| folder.join(name));
+        let folders = Folders { old, new };
+        return Ok((folders.clone(), folders));
+    }
+
     let theirs = project_folder(&env.mesh, &record.project, &record.from)
         .context("the source does not keep the project")?;
     let mine = project_folder(&env.mesh, &record.project, &env.mesh.me())
@@ -452,35 +491,76 @@ pub(super) async fn take_back(env: &Env, id: &SessionId) {
     }
 }
 
-/// One worktree from the source, asked again while the source cannot be
-/// reached; a refusal ends it.
+/// What the source saved of a chat's session, with what the session's
+/// folder holds there unpacked into `folder` here, made if it is missing.
+async fn chat_files(
+    env: &Env,
+    record: &SessionMove,
+    tracker: &Tracker,
+    folder: &Path,
+) -> Result<Option<SavedSession>> {
+    show(tracker, |progress| progress.phase = MovePhase::Files);
+    let archive = env.state.copy(&record.id).with_file_name("files.tar");
+    let saved = from_source(record, tracker, "its files", || async {
+        let saved = ask_checkout(env, record).await?.session;
+        let connection = dial(env, record.from).await?;
+        let (send, recv) = connection.open_bi().await?;
+        let (tx, rx) = link(send, recv);
+        let brought = read::files(tx, rx, &record.id, &archive).await;
+        connection.close(0u32.into(), b"done");
+        brought.map(|()| saved)
+    })
+    .await?;
+    let folder = folder.to_owned();
+    spawn_blocking(move || {
+        let unpacked = std::fs::File::open(&archive)
+            .map_err(anyhow::Error::from)
+            .and_then(|archive| files::unpack(archive, &folder));
+        let _ = std::fs::remove_file(&archive);
+        unpacked
+    })
+    .await?
+    .context("unpacking the chat's files")?;
+    Ok(saved)
+}
+
+/// One worktree from the source.
 async fn fetch_worktree(
     env: &Env,
     record: &SessionMove,
     tracker: &Tracker,
     ask: read::WorktreeAsk<'_>,
 ) -> Result<read::Fetched> {
+    from_source(record, tracker, "a worktree", || async {
+        let connection = dial(env, record.from).await?;
+        let (send, recv) = connection.open_bi().await?;
+        let (tx, rx) = link(send, recv);
+        let fetched = read::worktree(tx, rx, &ask).await;
+        connection.close(0u32.into(), b"done");
+        fetched
+    })
+    .await
+}
+
+/// What `ask` brings from the source, asked again while the source cannot
+/// be reached or is not done with the session; a refusal ends it.
+async fn from_source<T, F: Future<Output = Result<T>>>(
+    record: &SessionMove,
+    tracker: &Tracker,
+    what: &str,
+    ask: impl Fn() -> F,
+) -> Result<T> {
     let mut wait = FIRST_WAIT;
 
     loop {
-        let fetched = async {
-            let connection = dial(env, record.from).await?;
-            let (send, recv) = connection.open_bi().await?;
-            let (tx, rx) = link(send, recv);
-            let fetched = read::worktree(tx, rx, &ask).await;
-            connection.close(0u32.into(), b"done");
-            fetched
-        }
-        .await;
-
-        match fetched {
-            Ok(fetched) => {
+        match ask().await {
+            Ok(brought) => {
                 show(tracker, |progress| progress.source_away = false);
-                return Ok(fetched);
+                return Ok(brought);
             }
             Err(e) if e.is::<Refused>() => return Err(e),
             Err(e) => {
-                log::debug!("session {}: a worktree not read yet: {e:#}", record.id);
+                log::debug!("session {}: {what} not read yet: {e:#}", record.id);
                 show(tracker, |progress| progress.source_away = true);
                 sleep(wait).await;
                 wait = (wait * 2).min(LAST_WAIT);

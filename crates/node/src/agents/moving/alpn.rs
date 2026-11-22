@@ -6,7 +6,10 @@ use super::{
     folder::project_folder,
     read::{Access, Asked, Leaving, serve},
 };
-use crate::{agents::Agents, link::Membership};
+use crate::{
+    agents::{Agents, conversation},
+    link::Membership,
+};
 use beep_mesh::{Key, Mesh};
 use beep_proto::node::mesh_state::{SessionMove, StateValue};
 use iroh::{
@@ -14,7 +17,7 @@ use iroh::{
     endpoint::Connection,
     protocol::{AcceptError, ProtocolHandler},
 };
-use std::{fmt, sync::Arc};
+use std::{fmt, path::PathBuf, sync::Arc};
 use tokio::task::JoinSet;
 
 /// The most reads one peer has open at once.
@@ -59,6 +62,36 @@ pub(super) fn permits(
         Asked::Read => record.from == me && record.to == peer,
         Asked::State => record.to == me && record.from == peer,
     }
+}
+
+/// What this machine keeps of the session `record` moves away: its
+/// project's folder, or for a chat's session the folder under this
+/// machine's own chats, whatever the record says of where that is.
+fn leaving(mesh: &Mesh, record: &SessionMove) -> Option<Leaving> {
+    if record.conversation.is_none() {
+        let folder = project_folder(mesh, &record.project, &mesh.me())?;
+        return Some(Leaving::Project {
+            folder: Into::<PathBuf>::into(folder),
+            worktrees: record.worktrees.clone(),
+        });
+    }
+
+    let home = dirs::home_dir()?;
+    let folder = conversation::moved(&home, &record.path)?;
+    let apart = chat_moves(mesh)
+        .filter(|other| other.from == record.from && other.id != record.id)
+        .filter_map(|other| conversation::moved(&home, &other.path))
+        .filter(|other| other.starts_with(&folder))
+        .collect();
+    Some(Leaving::Chat { folder, apart })
+}
+
+/// The records in `mesh` that move a chat's session.
+fn chat_moves(mesh: &Mesh) -> impl Iterator<Item = SessionMove> {
+    mesh.scan("session-move/")
+        .into_iter()
+        .filter_map(|(_, bytes)| SessionMove::from_bytes(&bytes).ok())
+        .filter(|record| record.conversation.is_some())
 }
 
 /// The move record of session `id` in `mesh`.
@@ -117,14 +150,7 @@ impl ProtocolHandler for SessionsAlpn {
                             mesh.is_member(peer)
                                 && permits(record_of(&mesh, id).as_ref(), mesh.me(), peer, ask, id)
                         };
-                        let leaving = |id: &SessionId| {
-                            let record = record_of(&mesh, id)?;
-                            let folder = project_folder(&mesh, &record.project, &mesh.me())?;
-                            Some(Leaving {
-                                folder: Into::<std::path::PathBuf>::into(folder),
-                                worktrees: record.worktrees,
-                            })
-                        };
+                        let leaving = |id: &SessionId| leaving(&mesh, &record_of(&mesh, id)?);
                         let me = name_of_me(&mesh);
                         let access = Access { check: &allow, updates, leaving: &leaving };
                         serve(tx, rx, &agents, &me, access).await

@@ -55,7 +55,7 @@ impl Actor {
                 self.stop_tasks(cx);
                 Ok(Ok(()))
             }
-            Command::Close { .. } => Ok(Ok(())),
+            Command::Close { .. } | Command::ParentGone => Ok(Ok(())),
             Command::Moving { stop } => {
                 self.moving = true;
 

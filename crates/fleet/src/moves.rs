@@ -14,7 +14,7 @@ use beep_mesh::{
 use beep_proto::SessionId;
 use beep_proto::{
     AgentSlug, ModelId,
-    node::mesh_state::{SessionMove, StateValue, SyncSpec},
+    node::mesh_state::{ConversationMove, SessionMove, StateValue, SyncSpec},
 };
 use iroh::EndpointId;
 use std::path::{Component, Path};
@@ -39,16 +39,96 @@ pub struct MoveAsk<'a> {
     pub stop: bool,
 }
 
+/// A chat to move with its threads, as the desktop knows them from the
+/// source's lists.
+pub struct ChatMoveAsk {
+    pub from: EndpointId,
+    pub to: EndpointId,
+    /// The chat, then its threads.
+    pub sessions: Vec<ChatSession>,
+    /// Stop the turns instead of waiting for them.
+    pub stop: bool,
+}
+
+/// A session of a chat: the chat itself or one of its threads.
+pub struct ChatSession {
+    pub agent: String,
+    /// The agent's own id.
+    pub id: SessionId,
+    /// The folder it works in on the source.
+    pub cwd: String,
+    /// The model it runs on.
+    pub model: Option<ModelId>,
+    /// It ended, and arrives ended.
+    pub ended: bool,
+}
+
 impl Desk {
+    /// Asks `ask.to` to take a chat over from `ask.from`, with its threads
+    /// and its folder: a record for each session, which moves as one of a
+    /// project does. Refused, in words for the user, when one of them
+    /// cannot move, before anything is written.
+    pub async fn move_chat(&self, ask: ChatMoveAsk) -> Result<Vec<SessionMove>> {
+        if ask.from == ask.to {
+            return Err(FleetError::refused("the chat is on that machine already"));
+        }
+
+        let at = now_ms();
+        let mut records: Vec<SessionMove> = Vec::with_capacity(ask.sessions.len());
+
+        for session in ask.sessions {
+            movable(&session.agent)?;
+            let (root, path) = chat_place(&session.cwd).ok_or_else(|| {
+                FleetError::refused("only a chat in a folder of its own can move")
+            })?;
+            let chat = records
+                .first()
+                .map_or(path.as_str(), |chat| chat.path.as_str());
+
+            if path != chat && !path.starts_with(&format!("{chat}/")) {
+                return Err(FleetError::refused("a thread is not in this chat's folder"));
+            }
+
+            records.push(SessionMove {
+                agent: AgentSlug::from(session.agent.as_str()),
+                id: session.id,
+                from: ask.from,
+                to: ask.to,
+                project: String::new(),
+                path,
+                mode: None,
+                stop: ask.stop,
+                at,
+                worktree: None,
+                model: session.model,
+                worktrees: Vec::new(),
+                conversation: Some(ConversationMove {
+                    root: root.to_owned(),
+                    ended: session.ended,
+                }),
+            });
+        }
+
+        let _one = WRITES.lock().await;
+        self.forget_old_moves(at).await?;
+
+        // The threads first: the chat leaves the folders they bring to them.
+        for record in records.iter().rev() {
+            self.mesh
+                .set(
+                    Key::SessionMove(record.id.clone()),
+                    Some(record.to_bytes().map_err(anyhow::Error::from)?),
+                )
+                .await?;
+        }
+
+        Ok(records)
+    }
+
     /// Asks `ask.to` to take the session over from `ask.from`. Refused, in
     /// words for the user, when the session is one that cannot move yet.
     pub async fn move_session(&self, ask: MoveAsk<'_>) -> Result<SessionMove> {
-        if !matches!(ask.agent, "claude" | "codex" | "pi") {
-            return Err(FleetError::refused(format!(
-                "{} sessions cannot move between machines yet",
-                ask.agent
-            )));
-        }
+        movable(ask.agent)?;
 
         if ask.from == ask.to {
             return Err(FleetError::refused(
@@ -85,6 +165,7 @@ impl Desk {
             worktree: None,
             model: ask.model,
             worktrees: ask.worktrees,
+            conversation: None,
         };
         let _one = WRITES.lock().await;
         self.forget_old_moves(record.at).await?;
@@ -154,6 +235,32 @@ impl Desk {
         let client = self.peers.client(record.to).await?;
         Ok(move_progress(&client, id).await?)
     }
+}
+
+/// Refuses, in words for the user, a session of an agent whose sessions
+/// cannot move: one that keeps them in a database.
+fn movable(agent: &str) -> Result<()> {
+    if matches!(agent, "claude" | "codex" | "pi" | "flsh") {
+        return Ok(());
+    }
+
+    Err(FleetError::refused(format!(
+        "{agent} sessions cannot move between machines yet"
+    )))
+}
+
+/// Where a chat's session works: the folder its machine keeps its chats in
+/// (`<home>/.beep/assistant`), and the session's folder below it with `/`
+/// between the names, whichever the machine puts there. `None` for a
+/// folder anywhere else.
+fn chat_place(cwd: &str) -> Option<(&str, String)> {
+    ['/', '\\'].into_iter().find_map(|between| {
+        let chats = format!("{between}.beep{between}assistant{between}");
+        let at = cwd.rfind(&chats)?;
+        let names: Vec<&str> = cwd[at + chats.len()..].split(between).collect();
+        let plain = names.iter().all(|name| !matches!(*name, "" | "." | ".."));
+        plain.then(|| (&cwd[..at + chats.len() - 1], names.join("/")))
+    })
 }
 
 /// How long the record of a move is kept: a session that moved shows once

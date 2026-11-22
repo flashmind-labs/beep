@@ -4,7 +4,7 @@
 
 use super::Fleet;
 use crate::{
-    agents::steer::{BEFORE_ACCOUNTS, BEFORE_ASSISTANT, newer_than},
+    agents::steer::{BEFORE_ACCOUNTS, BEFORE_ASSISTANT, BEFORE_CHAT_MOVES, newer_than},
     error::{DesktopError, Result},
 };
 use beep_mesh::{
@@ -693,6 +693,16 @@ pub(crate) fn runs_assistant(fleet: &Fleet, host: &AgentHost) -> bool {
         || newer_than(
             fleet.status().version(machine).as_deref(),
             &BEFORE_ASSISTANT,
+        )
+}
+
+/// Whether the node of `machine` moves chats: this computer's own node is
+/// this build, and another node must be newer than `BEFORE_CHAT_MOVES`.
+pub(crate) fn moves_chats(fleet: &Fleet, machine: EndpointId) -> bool {
+    machine == fleet.id()
+        || newer_than(
+            fleet.status().version(machine).as_deref(),
+            &BEFORE_CHAT_MOVES,
         )
 }
 

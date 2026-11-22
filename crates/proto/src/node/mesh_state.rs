@@ -253,6 +253,22 @@ pub struct SessionMove {
     /// Added after `model`.
     #[serde(default)]
     pub worktrees: Vec<String>,
+    /// Set for a session of an assistant chat, which runs in no project:
+    /// `project` is empty and `path` is its folder below `root`, with `/`
+    /// between the names. Added after `worktrees`.
+    #[serde(default)]
+    pub conversation: Option<ConversationMove>,
+}
+
+/// What a `SessionMove` says of a session of an assistant chat: the chat
+/// itself or one of its threads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConversationMove {
+    /// The folder the source keeps its chats in, `<home>/.beep/assistant`.
+    pub root: String,
+    /// The session had ended: the target keeps it, ended, and does not
+    /// start it.
+    pub ended: bool,
 }
 
 /// The linked worktree in a `SessionMove` from an app from before worktree

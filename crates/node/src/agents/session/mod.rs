@@ -142,6 +142,9 @@ pub(super) enum Command {
     },
     /// The move is off: prompts are taken again.
     NotMoving,
+    /// Its parent ended for good, so it closes: unless it is moving, when
+    /// its parent may have left first for the machine it goes to.
+    ParentGone,
 }
 
 /// A question the node asks in a session.
@@ -274,7 +277,7 @@ async fn follow_parent(mut parent: watch::Receiver<Live>, orders: mpsc::Sender<O
         // Refused when the child ended first.
         let _ = orders
             .send(Order {
-                command: Command::Close { by_user: false },
+                command: Command::ParentGone,
                 done,
             })
             .await;
@@ -534,6 +537,12 @@ impl Session {
             seen: Mutex::default(),
             user_turn: Arc::default(),
         })
+    }
+
+    /// Closes with `parent` from now on, as a child started while its
+    /// parent ran does: one that came to this machine before its parent.
+    pub(super) fn follow(&self, parent: watch::Receiver<Live>) {
+        self.keep(tokio::spawn(follow_parent(parent, self.orders.clone())));
     }
 
     /// Keeps `task`, which watches over a child, for as long as the session

@@ -232,6 +232,13 @@ impl Agents {
         *crate::lock(&self.saved) = saved;
     }
 
+    /// Keeps `saved`, a session that came from another machine ended, as
+    /// one that ended here.
+    pub(crate) fn keep_arrived(&self, saved: SavedSession) {
+        kept_with(&mut crate::lock(&self.saved), vec![saved], |kept| &kept.info.id);
+        crate::link::restart::changed();
+    }
+
     /// What session `id`, by the agent's own id, is: from its state when it
     /// is here, else as kept from before.
     pub(crate) fn saved(&self, id: &SessionId) -> Option<SavedSession> {

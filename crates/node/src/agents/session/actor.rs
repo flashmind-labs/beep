@@ -578,6 +578,15 @@ impl Actor {
                         return Ok(End::Closed);
                     };
 
+                    let command = match command {
+                        Command::ParentGone if self.moving => {
+                            let _ = done.send(Ok(()));
+                            continue;
+                        }
+                        Command::ParentGone => Command::Close { by_user: false },
+                        other => other,
+                    };
+
                     if let Command::Close { by_user } = command {
                         self.by_user = by_user;
                         self.live.send_modify(|live| live.closing = by_user);

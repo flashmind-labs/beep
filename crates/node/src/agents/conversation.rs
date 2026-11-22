@@ -101,6 +101,19 @@ pub(super) fn remove(home: &Path, folder: &Path) -> io::Result<()> {
     }
 }
 
+/// The folder under `home` of a session of a chat that moves between
+/// machines: `path` names the chat, then the threads down to the session's
+/// own, with `/` between. `None` for a path that leaves the chats' folder.
+pub(super) fn moved(home: &Path, path: &str) -> Option<PathBuf> {
+    let plain = |name: &&str| {
+        let mut parts = Path::new(name).components();
+        matches!((parts.next(), parts.next()), (Some(Component::Normal(_)), None))
+    };
+    path.split('/')
+        .all(|name| plain(&name))
+        .then(|| path.split('/').fold(root(home), |folder, name| folder.join(name)))
+}
+
 fn root(home: &Path) -> PathBuf {
     home.join(HIDDEN).join("assistant")
 }

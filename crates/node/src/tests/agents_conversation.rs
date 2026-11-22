@@ -154,3 +154,17 @@ fn only_an_assistant_in_a_folder_of_its_own_is_told_to_keep_notes_there() {
     assert_eq!(brief(home, &folder(home, "ab12cd").join("a-thread")), None);
     assert!(!crate::agents::brief::ASSISTANT.contains("notes.md"));
 }
+
+#[test]
+fn a_moving_session_keeps_its_place_under_the_chats_folder() {
+    let home = Path::new("/srv/home");
+    assert_eq!(
+        moved(home, "ab12/research"),
+        Some(home.join(".beep/assistant/ab12/research"))
+    );
+    assert_eq!(moved(home, "ab12"), Some(home.join(".beep/assistant/ab12")));
+
+    for outside in ["", "..", "ab12/..", "/etc", "ab12//x", "./ab12"] {
+        assert_eq!(moved(home, outside), None, "{outside:?}");
+    }
+}

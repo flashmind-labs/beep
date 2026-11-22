@@ -89,7 +89,7 @@ pub(crate) async fn follow(
 ) {
     let old = dir.clone();
     let _ = tokio::task::spawn_blocking(move || drop_copies(&old)).await;
-    let Some(roots) = StoreRoots::locate() else {
+    let (Some(roots), Some(home)) = (StoreRoots::locate(), dirs::home_dir()) else {
         log::warn!("not moving sessions: no home folder to find the agents' stores in");
         return;
     };
@@ -100,6 +100,7 @@ pub(crate) async fn follow(
         endpoint,
         state: Folder::new(&dir),
         roots,
+        home,
     });
     let mut updates = env.mesh.updates();
     let mut running: HashMap<SessionId, Running> = HashMap::new();
@@ -107,8 +108,13 @@ pub(crate) async fn follow(
     loop {
         reconcile(&env, &mut running).await;
 
-        if updates.changed().await.is_err() {
-            return;
+        tokio::select! {
+            changed = updates.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+            }
+            () = env.agents.moves.ended.notified() => {}
         }
     }
 }
@@ -136,6 +142,16 @@ fn records(env: &Env) -> HashMap<SessionId, SessionMove> {
         .collect()
 }
 
+/// `records` as they are taken up when more move than at once: the oldest
+/// first, and a chat before its threads, so the move the user watches is
+/// not the one left waiting.
+pub(super) fn in_order(records: HashMap<SessionId, SessionMove>) -> Vec<(SessionId, SessionMove)> {
+    let mut records: Vec<(SessionId, SessionMove)> = records.into_iter().collect();
+    records.sort_by(|(_, a), (_, b)| (a.at, &a.path).cmp(&(b.at, &b.path)));
+
+    records
+}
+
 pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<SessionId, Running>) {
     let records = records(env);
     let gone: Vec<SessionId> = running
@@ -161,7 +177,7 @@ pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<SessionId, R
         // the task is left to finish starting it.
     }
 
-    for (id, record) in records {
+    for (id, record) in in_order(records) {
         if running.get(&id).is_some_and(|one| one.at == record.at) {
             continue;
         }
@@ -211,6 +227,8 @@ fn spawn(env: Arc<Env>, record: SessionMove, target: bool) -> AbortOnDropHandle<
             Ok(()) => log::info!("the move of session {} is done on this side", record.id),
             Err(e) => log::warn!("the move of session {} did not finish: {e:#}", record.id),
         }
+
+        env.agents.moves.ended.notify_one();
     }))
 }
 

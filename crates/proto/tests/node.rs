@@ -605,6 +605,7 @@ mod mesh_state {
             worktree: Option<MovedWorktree>,
             model: Option<String>,
             worktrees: Vec<String>,
+            conversation: Option<ConversationMove>,
             added_later: u8,
         }
         let (from, to) = (
@@ -624,6 +625,7 @@ mod mesh_state {
             worktree: None,
             model: None,
             worktrees: vec!["/srv/app/.worktrees/fix".into()],
+            conversation: None,
             added_later: 1,
         };
         let record = SessionMove::from_bytes(&rmp_serde::to_vec(&sent).unwrap()).unwrap();
@@ -682,6 +684,47 @@ mod mesh_state {
             u64,
         ) = beep_proto::lenient::from_slice(&moved.to_bytes().unwrap()).unwrap();
         assert_eq!(older.8, 7);
+    }
+
+    #[test]
+    fn a_move_record_from_before_conversations_reads_as_a_project_move() {
+        let record = SessionMove {
+            agent: AgentSlug::CODEX,
+            id: "s1".into(),
+            from: SecretKey::generate().public(),
+            to: SecretKey::generate().public(),
+            project: String::new(),
+            path: "ab12/research".into(),
+            mode: None,
+            stop: false,
+            at: 7,
+            worktree: None,
+            model: None,
+            worktrees: Vec::new(),
+            conversation: Some(ConversationMove {
+                root: "/srv/home/.beep/assistant".into(),
+                ended: true,
+            }),
+        };
+        let bytes = record.to_bytes().unwrap();
+        assert_eq!(SessionMove::from_bytes(&bytes).unwrap(), record);
+        // A record written before conversations moved has none.
+        let before = rmp_serde::to_vec(&(
+            &record.agent,
+            &record.id,
+            record.from,
+            record.to,
+            "org/app",
+            "",
+            &record.mode,
+            record.stop,
+            record.at,
+            &record.worktree,
+            &record.model,
+            &record.worktrees,
+        ))
+        .unwrap();
+        assert_eq!(SessionMove::from_bytes(&before).unwrap().conversation, None);
     }
 
     #[test]

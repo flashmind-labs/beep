@@ -6,6 +6,7 @@ mod alpn;
 mod claude;
 mod codex;
 mod dial;
+mod files;
 mod flsh;
 mod folder;
 mod follow;
@@ -57,6 +58,8 @@ struct Env {
     endpoint: Endpoint,
     state: Folder,
     roots: StoreRoots,
+    /// This machine's home folder, which holds its chats.
+    home: PathBuf,
 }
 
 impl Env {

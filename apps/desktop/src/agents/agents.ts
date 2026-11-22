@@ -110,6 +110,8 @@ export interface AgentHost {
   capabilities: string[];
   /// Its node runs the home assistant: this computer's, or one new enough.
   assistant: boolean;
+  /// Its node takes part in moving a chat.
+  moves_chats: boolean;
 }
 
 /// One line of a session's log. Only the agent's own and its thoughts

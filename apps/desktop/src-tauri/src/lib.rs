@@ -204,6 +204,7 @@ pub fn run() {
             machines::forwards::machine_forward_port,
             agents::processes::agent_close_external,
             agents::moving::session_move,
+            agents::moving::chat_move,
             agents::moving::session_move_cancel,
             agents::moving::session_move_probe,
             agents::moving::session_move_progress,

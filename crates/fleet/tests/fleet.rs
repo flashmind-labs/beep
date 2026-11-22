@@ -2712,6 +2712,117 @@ async fn a_harness_variable_taken_out_drops_its_record_and_one_left_blank_keeps_
 }
 
 #[tokio::test]
+async fn a_chat_is_asked_to_move_with_its_threads() {
+    use beep_fleet::{ChatMoveAsk, ChatSession};
+    let f = fleet().await;
+    let second = join(&f.studio, DeviceKind::Node, "mac-box").await;
+    until(&f.studio.mesh, |m| online(m, second.id)).await;
+    let desk = desk(&f.studio, &[]).await;
+    let session = |agent: &str, id: &str, cwd: &str, ended: bool| ChatSession {
+        agent: agent.to_owned(),
+        id: SessionId::from(id),
+        cwd: cwd.to_owned(),
+        model: None,
+        ended,
+    };
+    let ask = |sessions: Vec<ChatSession>| ChatMoveAsk {
+        from: f.build.id,
+        to: second.id,
+        sessions,
+        stop: false,
+    };
+    let why = |result: Result<_, FleetError>| match result {
+        Err(FleetError::Refused(why)) => why,
+        other => panic!("not refused: {:?}", other.map(|_| ())),
+    };
+    let chat = "/srv/home/.beep/assistant/ab12";
+    assert!(
+        why(desk
+            .move_chat(ask(vec![session("opencode", "c", chat, false)]))
+            .await)
+        .contains("yet")
+    );
+    assert!(
+        why(desk
+            .move_chat(ask(vec![session("flsh", "c", "/srv/home/notes", false)]))
+            .await)
+        .contains("folder of its own")
+    );
+    let stray = vec![
+        session("flsh", "c", chat, false),
+        session(
+            "codex",
+            "t",
+            "/srv/home/.beep/assistant/zz99/pricing",
+            false,
+        ),
+    ];
+    assert!(why(desk.move_chat(ask(stray)).await).contains("not in this chat"));
+    assert!(
+        desk.moves().is_empty(),
+        "a move that cannot go writes nothing"
+    );
+
+    let records = desk
+        .move_chat(ask(vec![
+            session("flsh", "c", chat, false),
+            session(
+                "codex",
+                "t1",
+                "/srv/home/.beep/assistant/ab12/pricing",
+                false,
+            ),
+            session(
+                "claude",
+                "t2",
+                "/srv/home/.beep/assistant/ab12/pricing/deep",
+                true,
+            ),
+        ]))
+        .await
+        .expect("the move is asked for");
+    let told: Vec<_> = records
+        .iter()
+        .map(|record| {
+            let chat = record.conversation.as_ref().expect("a chat's session");
+            (
+                record.id.as_ref(),
+                record.path.as_str(),
+                chat.root.as_str(),
+                chat.ended,
+            )
+        })
+        .collect();
+    let root = "/srv/home/.beep/assistant";
+    assert_eq!(
+        told,
+        [
+            ("c", "ab12", root, false),
+            ("t1", "ab12/pricing", root, false),
+            ("t2", "ab12/pricing/deep", root, true),
+        ]
+    );
+    assert!(records.iter().all(|record| record.project.is_empty()));
+    assert_eq!(desk.moves().len(), 3);
+
+    // A chat on a Windows machine keeps its folders' names.
+    let records = desk
+        .move_chat(ask(vec![session(
+            "claude",
+            "w",
+            r"C:\Users\me\.beep\assistant\cd34",
+            false,
+        )]))
+        .await
+        .expect("the move is asked for");
+    let chat = records[0].conversation.as_ref().expect("a chat's session");
+    assert_eq!(
+        (records[0].path.as_str(), chat.root.as_str()),
+        ("cd34", r"C:\Users\me\.beep\assistant")
+    );
+}
+
+#[tokio::test]
 async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cannot_go() {
     use beep_fleet::MoveAsk;
     use beep_proto::node::mesh_state::{SessionMove, StateValue, SyncSpec};

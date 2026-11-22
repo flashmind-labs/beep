@@ -67,6 +67,8 @@ pub struct HostRow {
     capabilities: Vec<&'static str>,
     /// Its node runs the home assistant.
     assistant: bool,
+    /// Its node takes part in moving a chat.
+    moves_chats: bool,
 }
 
 impl From<AgentHost> for HostRow {
@@ -83,6 +85,7 @@ impl From<AgentHost> for HostRow {
                 .map(<&'static str>::from)
                 .collect(),
             assistant: false,
+            moves_chats: false,
         }
     }
 }
@@ -293,6 +296,9 @@ pub async fn agent_hosts(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<HostRow>> {
         .into_iter()
         .map(|host| HostRow {
             assistant: direct::runs_assistant(&fleet, &host),
+            moves_chats: fleet
+                .member(&host.machine_id)
+                .is_some_and(|machine| direct::moves_chats(&fleet, machine)),
             ..HostRow::from(host)
         })
         .collect())
