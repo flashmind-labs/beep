@@ -174,3 +174,27 @@ test("a chat shows what its threads do, and the Assistant link counts the chats 
   await expect(first).toContainText("thread needs you");
   await expect(first).toContainText("1 thread working");
 });
+
+test("a chat's pane folded once opens beside the chat again", async ({ page }) => {
+  const entry = (name: string, folder: boolean) => ({ name, folder, size: 1, ignored: false, change: null });
+  await openDesktop(page, false, {
+    agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat], agent_view: view(chat),
+    agent_tree: { folders: [{ path: "", entries: [entry("notes.txt", false), entry("plan.txt", false)], more: 0, git: false }], truncated: false },
+  });
+  await page.locator("#side").getByRole("button", { name: /^Assistant/ }).click();
+  await page.locator(".asst-list").getByRole("button", { name: /Plan the launch/ }).click();
+  const pane = page.locator("#agpane-right");
+  await page.getByRole("tab", { name: "Files", exact: true }).first().click();
+  await page.locator('[data-fpath="notes.txt"]').click();
+  await expect(pane).toBeVisible();
+
+  await pane.locator('[data-pact="fold"]').click();
+  await expect(pane).toBeHidden();
+  await expect(page.locator(".asst-list")).toBeVisible();
+  await page.locator("#agpstrip-right").getByRole("tab", { name: "Files", exact: true }).click();
+  await page.locator('[data-fpath="plan.txt"]').click();
+  await page.waitForTimeout(300);
+  await expect(pane).toBeVisible();
+  await expect(page.locator(".asst-list")).toBeHidden();
+  await expect(page.locator(".agshell")).not.toHaveClass(/zoomed/);
+});

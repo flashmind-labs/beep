@@ -22,7 +22,7 @@ import { onShownChange } from "../ui/active.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
-import { type TabKind, AGENTS, ARTS, CHANGES, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
+import { type TabKind, AGENTS, ARTS, CHANGES, setFolded, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
 import { type DockModel, type DockView, chatPane, docked, foldNarrow, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
 import { savedIn } from "../ui/platform.ts";
 
@@ -263,7 +263,7 @@ export function moveDock(d: Dock) {
 
 /// Folds dock `d` to its strip, or unfolds it.
 export function foldDock(d: Dock, folded: boolean) {
-  P.layout.hidden[d] = folded;
+  setFolded(d, folded);
   saveLayout();
   draw();
 }

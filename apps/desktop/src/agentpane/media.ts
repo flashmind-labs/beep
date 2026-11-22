@@ -306,11 +306,18 @@ function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Parti
   focusTab(t.id);
 }
 
+/// Folds dock `d` or shows it, as the user asked. On a window too narrow for the right pane
+/// beside the conversation, that is also the choice it goes back to once the window is wide.
+export function setFolded(d: Dock, folded: boolean) {
+  P.layout.hidden[d] = folded;
+  if (d === "right" && P.wideFolded !== null) P.wideFolded = folded;
+}
+
 /// Shows tab `id`, unfolding its dock, and gives the pane the keys.
 export function focusTab(id: string) {
   const d = dockOf(id);
   leaveLog();
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   saveLayout();
   P.on[d] = id;
   rememberPane();
@@ -330,7 +337,7 @@ export function showPaneTab(n: number) {
   const id = [...right, ...bottom][n];
   if (!id || !shell()) return false;
   const d = dockOf(id);
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   if (P.zoom) P.zoom = d;
   saveLayout();
   showTab(d, id);
@@ -546,7 +553,7 @@ export function showFiles() {
   const d = dockOf(FILES);
   leaveLog();
   P.on[d] = FILES;
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   draw();
 }
 
@@ -560,7 +567,7 @@ function showList(id: typeof RUNNING | typeof SUBS) {
   if (paneModel.getState().phone) return pickPhoneTab(id);
 
   const d = dockOf(id);
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   saveLayout();
   showTab(d, id);
 }
@@ -570,7 +577,7 @@ function showList(id: typeof RUNNING | typeof SUBS) {
 export function showDevice() {
   if (!shell() || paneModel.getState().phone || !tabIds().includes(DEVICE)) return;
   const d = dockOf(DEVICE);
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   saveLayout();
   P.on[d] = DEVICE;
   rememberPane();
@@ -585,7 +592,7 @@ export function showArtifact(path?: string) {
   const d = dockOf(ARTS);
   leaveLog();
   P.on[d] = ARTS;
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   saveLayout();
   draw();
   return true;
@@ -598,7 +605,7 @@ export function showChanges(zoomed = true) {
   if (!shell()) return;
   const d = dockOf(CHANGES);
   P.on[d] = CHANGES;
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   setPaneModel({ log: false });
   draw();
 

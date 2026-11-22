@@ -13,11 +13,18 @@ export function chatAgentsCount(chat: Pick<AgentSession, "machine_id" | "machine
   return agents.count(place(chat));
 }
 
-/// Reads the agents of the pane's chat again, if it shows one.
+/// Reads the agents of the pane's chat again, if it shows one, at most every `RELOAD_MS`:
+/// the Files tree reads again on each change in the folder.
 export function reloadChatAgents() {
-  const chat = chatPane();
-  if (chat) void agents.reload(place(chat));
+  const chat = chatPane(), now = Date.now();
+  if (!chat || now - (reloaded.get(chat.cwd) ?? 0) < RELOAD_MS) return;
+  reloaded.set(chat.cwd, now);
+  void agents.reload(place(chat));
 }
+
+const RELOAD_MS = 15_000;
+/// When each chat folder's agents were read again last.
+const reloaded = new Map<string, number>();
 
 export function ChatAgentsPane({ hidden }: { hidden: boolean }) {
   const chat = chatPane();
