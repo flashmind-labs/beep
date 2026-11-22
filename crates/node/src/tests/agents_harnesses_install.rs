@@ -29,6 +29,31 @@ fn hermes_uses_its_own_updater_without_an_npm_package() {
 }
 
 #[test]
+fn antigravity_installs_with_its_script_and_then_updates_itself() {
+    let missing = Target {
+        agent: "agy",
+        cli: None,
+        npm_adapter: None,
+    };
+    let line = plan(&missing, &npm_none())
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(line.ends_with(if cfg!(windows) {
+        "\"irm https://antigravity.google/cli/install.ps1 | iex\""
+    } else {
+        "\"curl -fsSL https://antigravity.google/cli/install.sh | bash\""
+    }), "{line}");
+
+    let installed = Target {
+        cli: Some(Path::new("/srv/tools/agy")),
+        ..missing
+    };
+    assert!(plan(&installed, &npm_none()).is_empty());
+}
+
+#[test]
 fn a_missing_claude_installs_with_npm_then_its_own_installer() {
     let missing = Target {
         agent: "claude",

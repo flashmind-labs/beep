@@ -30,7 +30,7 @@ export function byOrder(order: readonly string[]) {
 }
 
 /// The harnesses in the order a form prefers them.
-export const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh", "hermes"];
+export const AGENT_ORDER = ["claude", "codex", "gemini", "agy", "opencode", "pi", "flsh", "hermes"];
 export const byPreference = byOrder(AGENT_ORDER);
 
 /// The harness the form starts on: the one picked when the machine has

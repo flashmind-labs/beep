@@ -379,6 +379,7 @@ const AGENT_KINDS: Record<string, AgentKind> = {
   claude: { ini: "CC", name: "Claude Code", cls: "claude" },
   codex: { ini: "CX", name: "Codex", cls: "codex" },
   gemini: { ini: "GE", name: "Gemini CLI", cls: "gemini" },
+  agy: { ini: "AG", name: "Antigravity", cls: "agy" },
   pi: { ini: "PI", name: "pi", cls: "pi" },
   flsh: { ini: "FL", name: "flsh", cls: "flsh" },
   opencode: { ini: "OC", name: "OpenCode", cls: "opencode" },

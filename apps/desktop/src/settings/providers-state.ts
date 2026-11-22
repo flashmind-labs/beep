@@ -97,6 +97,7 @@ const NAMES: Record<string, string> = {
   codex: "Codex",
   pi: "pi",
   gemini: "Gemini CLI",
+  agy: "Antigravity",
   flsh: "flsh",
   opencode: "OpenCode",
   hermes: "Hermes",

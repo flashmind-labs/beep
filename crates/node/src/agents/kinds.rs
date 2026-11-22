@@ -246,6 +246,23 @@ pub(super) const KNOWN: &[Known] = &[
         compact: Route::OwnTrigger,
         async_tasks: false,
     },
+    // Google's Antigravity CLI, which replaces Gemini CLI. It has no
+    // session modes; the flag approves every tool. Model and thinking are
+    // its ACP config options.
+    Known {
+        name: "agy",
+        title: "Antigravity",
+        cli: "agy",
+        adapter: Adapter::Flags(&["acp", "--dangerously-skip-permissions"]),
+        env: &[],
+        thinking_env: &[],
+        bypass_mode: None,
+        full_mode: None,
+        read_only_mode: None,
+        model_flag: false,
+        compact: Route::OwnTrigger,
+        async_tasks: false,
+    },
     // pi has no permission prompts; only its extensions ask.
     Known {
         name: "pi",

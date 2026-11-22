@@ -112,7 +112,7 @@ export function machineById<T extends { id: string }>(machines: readonly T[] | n
 
 const OS_NAMES: Record<string, string> = { linux: "Linux", macos: "macOS", windows: "Windows" };
 const TOOL_NAMES: Record<string, string> = {
-  docker: "Docker", claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", opencode: "OpenCode",
+  docker: "Docker", claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", agy: "Antigravity", opencode: "OpenCode",
   xcodebuild: "Xcode", adb: "Android SDK", node: "Node", cargo: "Rust", python3: "Python", go: "Go",
 };
 

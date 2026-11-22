@@ -139,8 +139,8 @@ pub(super) async fn table() -> anyhow::Result<Arc<HashMap<u32, Process>>> {
 }
 
 /// The coding agents' own programs, never a command they ran.
-const HARNESSES: [&str; 7] = [
-    "claude", "codex", "gemini", "opencode", "pi", "flsh", "hermes",
+const HARNESSES: [&str; 8] = [
+    "claude", "codex", "gemini", "agy", "opencode", "pi", "flsh", "hermes",
 ];
 /// The npm packages an agent's CLI runs from, as Node starts it.
 const HARNESS_PACKAGES: [&str; 3] = [

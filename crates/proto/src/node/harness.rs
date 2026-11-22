@@ -51,6 +51,14 @@ pub const HARNESSES: &[Harness] = &[
         home_default: "~",
         npm: Some("@google/gemini-cli"),
     },
+    // Its config is under `~/.gemini/antigravity-cli` and nothing but the
+    // home moves it; its sign-in is in the OS keyring.
+    Harness {
+        agent: "agy",
+        home_var: "HOME",
+        home_default: "~",
+        npm: None,
+    },
     Harness {
         agent: "flsh",
         home_var: "FLASHMIND_HOME",

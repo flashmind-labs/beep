@@ -334,6 +334,13 @@ fn every_known_agent_starts_without_permission_prompts() {
     assert_eq!(launched("flsh"), (vec!["acp".into()], vec![]));
     assert_eq!(launched("hermes"), (vec!["acp".into()], vec![]));
     assert_eq!(
+        launched("agy"),
+        (
+            vec!["acp".into(), "--dangerously-skip-permissions".into()],
+            vec![]
+        )
+    );
+    assert_eq!(
         kinds::known("hermes").unwrap().bypass_mode,
         Some("dont_ask")
     );

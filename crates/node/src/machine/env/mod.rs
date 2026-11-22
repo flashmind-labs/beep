@@ -42,6 +42,7 @@ const KNOWN_TOOLS: &[(&str, &[&str])] = &[
     ("claude", &["--version"]),
     ("codex", &["--version"]),
     ("gemini", &["--version"]),
+    ("agy", &["--version"]),
     ("pi", &["--version"]),
     ("flsh", &["--version"]),
     ("opencode", &["--version"]),
