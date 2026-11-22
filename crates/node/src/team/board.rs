@@ -71,12 +71,6 @@ impl Boards {
     pub(crate) fn cards(&self, repo: &TeamRepo) -> Option<Vec<Card>> {
         Some(self.0.get(repo)?.cards.clone())
     }
-
-    pub(super) fn watched(&self, repo: &TeamRepo) -> bool {
-        self.0
-            .get(repo)
-            .is_some_and(|board| board.changes.receiver_count() > 0)
-    }
 }
 
 /// Serves `repo`'s board to `peer`, a member's device: the whole board, then

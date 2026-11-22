@@ -211,8 +211,8 @@ impl Gateway {
         self.peers = gather("team gateway", asked, |peer| ask_reach(mesh, peer)).await;
     }
 
-    /// Makes the cards of every held team with a subscriber, and of those
-    /// whose pickup is due, which then starts sessions on new issues.
+    /// Makes the cards of every held team, which teammates and this mesh's
+    /// agents read, and starts sessions on new issues where pickup is due.
     async fn serve_cards(&mut self, teams: &[Team], projects: &BTreeMap<TeamRepo, Project>) {
         let pickup = |team: &Team| {
             let record = self
@@ -234,19 +234,11 @@ impl Gateway {
             }
         }
 
-        let served: Vec<&Team> = teams
-            .iter()
-            .filter(|team| {
-                picking.contains_key(&team.repo)
-                    || self.link.with(|link| link.boards.watched(&team.repo))
-            })
-            .collect();
-
-        if served.is_empty() {
+        if teams.is_empty() {
             return;
         }
 
-        let machines: BTreeSet<EndpointId> = served
+        let machines: BTreeSet<EndpointId> = teams
             .iter()
             .flat_map(|team| &projects[&team.repo].devices)
             .map(|device| device.id)
@@ -262,7 +254,7 @@ impl Gateway {
         self.branches
             .retain(|id, _| listed.iter().any(|listed| listed.view.id == *id));
 
-        for team in served {
+        for team in teams {
             let (titles, read) = self.read_titles(&team.repo).await;
             self.read_branches(&listed, &team.project, read).await;
             let now = SystemTime::now();
