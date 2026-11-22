@@ -2,6 +2,40 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.8] - 2026-11-22
+
+### Added
+
+- Node: Google's Antigravity CLI (`agy`), a coding agent harness, is
+  supported. The node finds it on the machine and starts it over ACP
+  with every tool approved. When it is missing, the node installs it
+  with Google's install script, and Antigravity updates itself.
+- Node: a session's running commands report which of their ports
+  answer as a web page, so the desktop can offer the right one.
+- Node: the node reads how much of Antigravity's weekly limits is left
+  for each model group: Gemini models, and Claude and GPT models. It
+  reads this from the Antigravity CLI, so checking uses none of your
+  quota.
+
+### Fixed
+
+- Node: after a Claude Code session resumes, for example after the
+  node restarts, its Files and Changes tabs stay on the linked
+  worktree the session works in instead of jumping back to the main
+  checkout.
+- Node: a Claude Code session resumes in the folder it was started in,
+  even after it worked in a worktree that was later removed. If that
+  folder is gone too, it resumes in the home folder. Resuming no longer
+  fails with "Recreate that folder to resume it."
+- Node: a server that a coding agent starts shows its port in the
+  Running tab within about a second of it listening, instead of up to
+  a minute later.
+- Node: in a Claude Code session, when the agent keeps working on its
+  own after a background task finishes, without a new prompt from you,
+  each of its messages now shows as a separate message with its own
+  time. Before, they ran together into the previous message with no
+  space between them.
+
 ## [0.8.7] - 2026-11-21
 
 ### Added

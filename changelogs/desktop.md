@@ -7,6 +7,38 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.11] - 2026-11-22
+
+### Added
+
+- Desktop: Antigravity is one of the coding agents you can start, pick
+  models for, and set up on each machine.
+- Desktop: when a coding agent starts a web server, a line above the
+  message field offers "Open :<port>" for its page. The Running tab
+  lists that port first and highlighted, and the server's other ports
+  appear only in the expanded row. A port the command names, such as
+  `--port`, is preferred when it serves a page.
+- Desktop: Usage shows Antigravity's weekly limits beside Claude Code's
+  and Codex's.
+
+### Changed
+
+- Desktop: Removed the Close button from the Review card on the Board tab,
+  so sessions are closed from their row menu instead.
+
+### Fixed
+
+- Desktop: a diagram in a chat reply shows once instead of twice after the reply redraws.
+- Desktop: in a window narrow enough for the phone layout, a project's
+  session list no longer sits stacked above the open session and squeezes
+  it; the session takes the whole window again.
+- Desktop: triple-clicking a prompt you sent in a chat selects just
+  that prompt instead of running on into the replies after it (seen
+  on macOS).
+- Desktop: a server that a coding agent starts shows its port in the
+  Running tab within about a second of it listening, instead of up to
+  a minute later, or never when it runs on this desktop's own machine.
+
 ## [0.10.10] - 2026-11-21
 
 ### Added
