@@ -203,7 +203,7 @@ function askActions(project: string, view: Team, card: TeamCard, id: string): Ca
     project, machine: null, choose: true, label, hint, session: null, start: (pick, machine) => startTask(project, { prompt, target: null }, pick, machine),
   }) });
   const actions = [
-    agent("Start agent", "Pick a model: an agent works on what they ask", askWorkPrompt(card.login, { text: card.title })),
+    agent("Start agent", "Pick a model: an agent works on what they ask", askWorkPrompt(card.login, { id, text: card.title })),
     agent("Reply", "Pick a model: an agent answers them", replyPrompt(card.login, { id, text: card.title })),
   ];
   const issue = card.issue;

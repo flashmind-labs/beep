@@ -142,8 +142,8 @@ export function replyPrompt(login: string, ask: { id: string; text: string }) {
 }
 
 /// The prompt of an agent that works on what a teammate's ask needs.
-export function askWorkPrompt(login: string, ask: { text: string }) {
-  return `${teammateAsks(login, ask.text)}\n\nWork on it. When you have something, tell ${login} with team_ask.`;
+export function askWorkPrompt(login: string, ask: { id: string; text: string }) {
+  return `${teammateAsks(login, ask.text)}\n\nWork on it. When you are done, answer them once with team_ask, setting reply_to to ${ask.id}.`;
 }
 
 /// The tags Beep writes into an agent's prompt (`agents/tags.rs`).
