@@ -188,7 +188,8 @@ fn a_branchs_pulls_are_read_open_and_closed_on_every_page() {
 
 #[test]
 fn a_404_says_no_and_other_failures_are_errors() {
-    assert!(collaborator_answer(true, "").expect("204"));
+    // A read-only collaborator gets a 204 too: it does not say they may push.
+    assert!(collaborator_answer(true, "").is_err());
     assert!(!collaborator_answer(false, "gh: Not Found (HTTP 404)").expect("404"));
     assert!(collaborator_answer(false, "sh: 1: gh: not found").is_err());
     assert!(collaborator_answer(false, "teacli: not found").is_err());
@@ -230,7 +231,7 @@ fn only_write_access_and_above_may_push() {
         permission_answer(false, "", "gh: Not Found (HTTP 404)").expect("404"),
         Some(false)
     );
-    // Forgejo tells only admins: the collaborator check answers.
+    // Forgejo tells only admins: the collaborator check says who may not.
     assert_eq!(
         permission_answer(false, "", "teacli: Forbidden (HTTP 403)").expect("403"),
         None

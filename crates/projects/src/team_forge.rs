@@ -64,8 +64,8 @@ pub fn permission_call(host: &IssueHost, repo: &RepoName, login: &ForgeLogin) ->
 
 /// Reads [`permission_call`]'s outcome: whether they may push, or `None` when the forge does
 /// not say. Forgejo tells only a repository's admins what others may do and refuses the rest
-/// with a 403; [`collaborator_call`] answers for them. GitHub reports maintain as `write` in
-/// `permission` and names it in `role_name`; Forgejo also has `owner`.
+/// with a 403; [`collaborator_call`] then says only who is no collaborator. GitHub reports
+/// maintain as `write` in `permission` and names it in `role_name`; Forgejo also has `owner`.
 pub fn permission_answer(
     exit_ok: bool,
     stdout: &str,
@@ -99,12 +99,16 @@ pub fn collaborator_call(host: &IssueHost, repo: &RepoName, login: &ForgeLogin) 
     ForgeCall::api(host, path, &[])
 }
 
-/// Reads [`collaborator_call`]'s outcome. `gh api` and `teacli api` both exit non-zero on a 404
-/// and print its status ("HTTP 404") on stderr, so a 404 token says no. A bare "not found" is
-/// also what a missing CLI prints, so it is an error.
+/// Reads [`collaborator_call`]'s outcome as whether they may push: `false` for one who is no
+/// collaborator. A collaborator may only read, so that is an error: it does not say yes. `gh
+/// api` and `teacli api` both exit non-zero on a 404 and print its status ("HTTP 404") on
+/// stderr, so a 404 token says no. A bare "not found" is also what a missing CLI prints, so it
+/// is an error.
 pub fn collaborator_answer(exit_ok: bool, stderr: &str) -> Result<bool, SourceError> {
     if exit_ok {
-        return Ok(true);
+        return Err(SourceError::Refused(
+            "Only the repository's admins see whether a collaborator may push".to_owned(),
+        ));
     }
     if status_of(stderr) == Some("404") {
         return Ok(false);
