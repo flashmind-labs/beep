@@ -193,6 +193,7 @@ body.mobile #agstop { order: 8 }
 body.mobile #agstop .dstopico { width: 11px; height: 11px }
 body.mobile #agsend { display: inline-flex; order: 10; border-color: transparent; background: var(--accent); color: var(--ink) }
 body.mobile .agmain > .agdiv { display: none }
+body.mobile .dagjump { --jump-height: max(44px, var(--ctl-h)) }
 /* Puts the keyboard away; there while the composer has it up. */
 body.mobile .mb-kbdhide { display: none; order: 7; flex: none; margin-left: auto; width: 38px; height: 38px; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted) }
 body.mobile .dinput:focus-within .mb-kbdhide { display: grid }

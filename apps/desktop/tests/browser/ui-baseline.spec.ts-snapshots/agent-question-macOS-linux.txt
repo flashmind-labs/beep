@@ -269,7 +269,7 @@ body.cbody
                               button.dbtn [data-agallow="true" data-agopt="1" data-agquestion="[\"build-box\",\"codex\",\"notice-one\",1,\"Run cargo test?\",\"cargo test --workspace\",[[\"allow\",\"Allow\",true],[\"always\",\"Always allow\",true],[\"deny\",\"Deny\",false]]]" type="button"] "Always allow"
                               button.dbtn.warn [data-agallow="false" data-agopt="2" data-agquestion="[\"build-box\",\"codex\",\"notice-one\",1,\"Run cargo test?\",\"cargo test --workspace\",[[\"allow\",\"Allow\",true],[\"always\",\"Always allow\",true],[\"deny\",\"Deny\",false]]]" type="button"] "Deny"
                                 kbd "⌘D"
-                      button#agjump.dagjump [hidden] "Scroll to bottom"
+                      button#agjump.dagjump [hidden type="button"] "Scroll to bottom"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                     div.agrail.off
                   div#agmovebox

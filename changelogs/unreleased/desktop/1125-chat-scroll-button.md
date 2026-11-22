@@ -1,3 +1,3 @@
 ### Changed
 
-- Desktop: The agent chat button now says “Scroll to bottom.”
+- Desktop: The agent chat scroll-to-bottom button is larger, easier to see, and clearly labeled.

@@ -1,3 +1,3 @@
 ### Changed
 
-- Android: The agent chat button now says “Scroll to bottom.”
+- Android: The agent chat scroll-to-bottom button is larger, easier to see, and clearly labeled.

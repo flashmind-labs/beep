@@ -207,7 +207,7 @@ body.cbody.mb-full.mobile
                                   span.lb "Waiting for 3 commands"
                                   span.ln "· cargo test -p sync"
                           div.agspace [hidden] style(height)
-                      button#agjump.dagjump [hidden] "Scroll to bottom"
+                      button#agjump.dagjump [hidden type="button"] "Scroll to bottom"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                     div.agrail.off
                   div#agmovebox
