@@ -671,7 +671,10 @@ async fn roster_newcomer_needs_the_forge() {
     let dave = mesh_id();
     let add_dave = || TeamMsg::Roster {
         repo: repo(),
-        members: vec![member("dave", mesh_id(), dave)],
+        members: vec![Member {
+            admitted_by: Some(carol),
+            ..member("dave", mesh_id(), dave)
+        }],
     };
 
     let refusing = Pair::with(SystemTime::now() + DAY, Answer::No, "bob").await;
@@ -815,6 +818,7 @@ fn a_member_let_back_in_is_taken_everywhere() {
     rosters.remove_member(&repo(), &login("carol")).unwrap();
     let again = Member {
         joined_at: old.joined_at + Duration::from_secs(60),
+        admitted_by: Some(alice),
         ..old
     };
 
@@ -871,8 +875,24 @@ fn roster_rules() {
         .unwrap();
     assert!(rosters.allows(laptop, &repo()));
 
-    // A newcomer waits for the forge, then any member adds them.
+    // A newcomer from another mesh's admission, or admitted by nobody, is
+    // not Alice's to vouch for.
     let dave = member("dave", mesh_id(), mesh_id());
+    let by_bob = Member {
+        admitted_by: Some(bob),
+        ..dave.clone()
+    };
+    for claimed in [by_bob, dave] {
+        let applied = rosters.apply(alice_device, None, &roster(vec![claimed.clone()]));
+        assert_eq!(applied, Ok(Applied::default()));
+        assert!(!rosters.allows(claimed.devices[0].id, &repo()));
+    }
+
+    // A newcomer Alice's mesh admitted waits for the forge, then is added.
+    let dave = Member {
+        admitted_by: Some(alice),
+        ..member("dave", mesh_id(), mesh_id())
+    };
     let applied = rosters
         .apply(alice_device, None, &roster(vec![dave.clone()]))
         .unwrap();

@@ -148,9 +148,15 @@ impl Rosters {
                         continue;
                     }
 
+                    // Only the mesh that admitted a newcomer vouches for
+                    // them. The founder, admitted by nobody, every member
+                    // has from its own join.
+                    let vouched = entry.admitted_by == Some(next.members[sender].mesh);
+
                     match vet(&next, entry, Some(sender))? {
                         Vetted::New if Some(entry.mesh) == own => return Err(Refusal::OwnMesh),
-                        Vetted::New => newcomers.push(entry.clone()),
+                        Vetted::New if vouched => newcomers.push(entry.clone()),
+                        Vetted::New => {}
                         Vetted::Own(at) => next.members[at] = entry.clone(),
                         Vetted::Other | Vetted::Same => {}
                     }
