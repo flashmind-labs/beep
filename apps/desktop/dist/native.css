@@ -388,7 +388,7 @@ body:not(.mobile) :is(.bd-projects, #sec-needs) .cc-row + .cc-row { border-top: 
 body:not(.mobile) :is(.bd-projects, .bd-review) .cc-ag { border: 0; background: none }
 /* The list's rows keep their projects and their times in two columns. */
 body:not(.mobile) .bd-review .cc-row .r { grid-template-columns: 200px 72px }
-body:not(.mobile) .bd-tag { max-width: none; justify-self: start }
+body:not(.mobile) .bd-tag { max-width: 100%; justify-self: start }
 /* The review's two columns: the side stays while the list scrolls, and scrolls in itself when it is taller than the window. */
 body:not(.mobile) .bd-review { grid-template-columns: 400px minmax(0, 1fr); gap: 22px; align-items: start }
 body:not(.mobile) .bd-side { position: sticky; top: 38px; max-height: calc(100vh - 120px); overflow-y: auto; scrollbar-width: none }

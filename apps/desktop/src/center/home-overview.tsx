@@ -252,7 +252,7 @@ function Deck({ card, row, done, open, step }: { card: BoardCard; row: RunningAg
 
 /// A session's project, with its colour.
 function ProjectTag({ card }: { card: BoardCard }) {
-  return <span className="bd-tag">{card.color !== null && <span className="pj-swatch" style={{ "--c": card.color } as CSSProperties}/>}{card.project}</span>;
+  return <span className="bd-tag">{card.color !== null && <span className="pj-swatch" style={{ "--c": card.color } as CSSProperties}/>}<span className="bd-tag-name">{card.project}</span></span>;
 }
 
 /// The left and right arrows step back and on while the review shows and nothing else takes them.
