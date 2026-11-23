@@ -531,6 +531,11 @@ body.cbody
                                 div.cm-gutterElement style(height) "73"
                                 div.cm-gutterElement style(height) "74"
                                 div.cm-gutterElement style(height) "75"
+                              div.cm-foldGutter.cm-gutter
+                                div.cm-gutterElement style(height,pointer-events,visibility)
+                                  span [title="Unfold line"] "›"
+                                div.cm-activeLineGutter.cm-gutterElement style(height,margin-top)
+                                  span [title="Fold line"] "⌄"
                             div.cm-content [aria-multiline="true" autocapitalize="off" autocorrect="off" contenteditable="true" data-language="markdown" role="textbox" spellcheck="false" translate="no" writingsuggestions="false"] style(tab-size) (focused)
                               div.cm-activeLine.cm-line "// noteconst value0 = 0;"
                               div.cm-line "const value1 = 1;"

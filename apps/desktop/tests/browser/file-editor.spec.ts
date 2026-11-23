@@ -1,10 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-async function openFile(page: Page, editable: boolean) {
-  const text = "first match\r\nsecond match\r\n";
+async function openFile(page: Page, editable: boolean, name = "notes.txt", text = "first match\r\nsecond match\r\n") {
   await openDesktop(page, true, {
-    agent_tree: { folders: [{ path: "", entries: [{ name: "notes.txt", folder: false, size: text.length, ignored: false, change: null }], more: 0, git: true }], truncated: false },
+    agent_tree: { folders: [{ path: "", entries: [{ name, folder: false, size: text.length, ignored: false, change: null }], more: 0, git: true }], truncated: false },
     agent_tree_text: { size: text.length, text, cut: false, binary: false, editable },
     agent_tree_edit: null,
   });
@@ -13,8 +12,8 @@ async function openFile(page: Page, editable: boolean) {
     cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
   } }));
   await page.getByRole("tab", { name: "Files", exact: true }).click();
-  await page.locator('[data-fpath="notes.txt"]').click();
-  await expect(page.locator(".agcode pre")).toContainText("second match");
+  await page.locator(`[data-fpath="${name}"]`).click();
+  await expect(page.locator(".agcode pre")).toBeVisible();
 }
 
 for (const editable of [true, false]) {
@@ -72,4 +71,28 @@ test("Vim toggles on a draft, searches, edits and writes the current file", { ta
   await vim.click();
   await page.keyboard.type("x");
   await expect(editor).toContainText("xupdated first match");
+});
+
+test("fold a function with the gutter, keyboard and Vim", { tag: "@windows" }, async ({ page }) => {
+  await openFile(page, true, "sample.ts", "function total() {\n  return 42;\n}\n");
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  const editor = page.locator(".agcm .cm-content");
+  const placeholder = editor.locator(".cm-foldPlaceholder");
+
+  await page.getByTitle("Fold line", { exact: true }).click();
+  await expect(placeholder).toBeVisible();
+  await expect(editor).not.toContainText("return 42");
+  await editor.focus();
+  const modifier = await page.evaluate(() => /Mac/.test(navigator.platform) ? "Meta+Alt" : "Control+Shift");
+  await editor.press(`${modifier}+BracketRight`);
+  await expect(editor).toContainText("return 42");
+  await editor.press(`${modifier}+BracketLeft`);
+  await expect(placeholder).toBeVisible();
+
+  await page.getByRole("button", { name: "Vim", exact: true }).click();
+  await page.keyboard.type("za");
+  await expect(editor).toContainText("return 42");
+  await page.keyboard.type("za");
+  await expect(placeholder).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
 });

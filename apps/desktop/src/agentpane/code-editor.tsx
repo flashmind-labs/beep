@@ -1,12 +1,12 @@
 // CodeMirror for a text tab being edited; loaded in its own chunk on the first edit.
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { bracketMatching, HighlightStyle, indentOnInput, LanguageDescription, syntaxHighlighting } from "@codemirror/language";
+import { bracketMatching, foldGutter, foldKeymap, HighlightStyle, indentOnInput, LanguageDescription, syntaxHighlighting, toggleFold } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, openSearchPanel, search, searchKeymap, searchPanelOpen } from "@codemirror/search";
 import { Compartment, EditorState } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, keymap, lineNumbers } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
-import { getCM, vim } from "@replit/codemirror-vim";
+import { getCM, Vim, vim } from "@replit/codemirror-vim";
 import { useLayoutEffect, useRef } from "react";
 import type { FileEdit } from "./media.ts";
 
@@ -97,6 +97,8 @@ export function SourceSearch({ text, findRequest, close }: { text: string; findR
 }
 
 const bindings = new Compartment();
+Vim.defineAction("toggleFold", cm => { toggleFold(cm.cm6); });
+Vim.mapCommand("za", "action", "toggleFold", {}, { context: "normal" });
 const vimBindings = vim({ status: true });
 const fileSearch = [search({ top: true }), keymap.of(searchKeymap)];
 const language = new Compartment();
@@ -121,6 +123,7 @@ const theme = EditorView.theme({
   ".cm-searchMatch-selected": { backgroundColor: "color-mix(in srgb, var(--accent) 52%, transparent)" },
   ".cm-cursor": { borderLeftColor: "var(--fg)" },
   ".cm-gutters": { backgroundColor: "transparent", color: "var(--dim)", border: "none" },
+  ".cm-foldPlaceholder": { backgroundColor: "var(--ctl-fill)", color: "var(--muted)", border: "none" },
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "var(--ctl-fill)" },
   // As specific as the base theme's selection, which is dark and hides the text on a light skin.
   "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionLayer .cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent)" },
@@ -131,10 +134,10 @@ function setup(text: string, changed: () => void, save: () => void, closeSearch:
     // A file with Windows line ends keeps them.
     EditorState.lineSeparator.of(text.includes("\r\n") ? "\r\n" : "\n"),
     bindings.of([]), fileSearch,
-    lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), history(), drawSelection(),
+    lineNumbers(), foldGutter(), highlightActiveLineGutter(), highlightSpecialChars(), history(), drawSelection(),
     indentOnInput(), bracketMatching(), highlightActiveLine(), highlightSelectionMatches(),
     syntaxHighlighting(tokens), language.of([]), theme,
-    keymap.of([{ key: "Mod-s", run: () => { save(); return true; }, preventDefault: true }, indentWithTab, ...defaultKeymap, ...historyKeymap]),
+    keymap.of([{ key: "Mod-s", run: () => { save(); return true; }, preventDefault: true }, indentWithTab, ...foldKeymap, ...defaultKeymap, ...historyKeymap]),
     EditorView.updateListener.of(update => {
       if (update.docChanged) changed();
       if (searchPanelOpen(update.startState) && !searchPanelOpen(update.state)) closeSearch();
