@@ -553,7 +553,7 @@ export function startConflictFix(name: string, c: Conflict, pick: ProjectPick) {
 export async function startSyncRepair(name: string, machine: string, error: string, pick: ProjectPick) {
   const p = projectRows()?.find(p => p.name === name);
   if (!p) throw new Error(`${name} is not on a machine.`);
-  const sessions = await invoke<SessionRow[]>("project_sessions", { project: name }).catch(e => { console.warn("repair sessions:", e); return []; });
+  const sessions = await invoke<SessionRow[] | null>("project_sessions", { project: name }).then(rows => rows ?? state.sessions.get(name) ?? [], e => { console.warn("repair sessions:", e); return []; });
   const prompt = syncRepairPrompt({ project: name, machine, error, checkouts: p.machines, git: state.gitsync.get(name) ?? [], sessions });
   await startTask(name, { prompt, target: null }, pick, machine);
 }

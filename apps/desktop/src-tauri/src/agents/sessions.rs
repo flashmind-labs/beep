@@ -16,6 +16,7 @@ use crate::{
         Fleet, Machines, SessionParent, agents as direct,
         asked::{ORDER_LIMIT, READ_LIMIT, SMALL_LIMIT},
         node_actor::{FAST_JOB_WAIT, JobKind},
+        session_lists::SessionLists,
     },
     machines::list::MachineLists,
     projects::known,
@@ -427,7 +428,7 @@ pub(crate) async fn machine_changed(app: &AppHandle, machine: EndpointId) {
         break;
     }
 
-    fleet.projections().forget_project_sessions_on(machine);
+    app.state::<SessionLists>().stale(machine);
     app.state::<Arc<AgentSessions>>().stale();
     app.state::<crate::palette::lists::PaletteCache>()
         .sessions_changed();
@@ -702,6 +703,7 @@ pub async fn agent_delete(
         s.machine_id == machine_id && s.id == session
     });
     fleet.projections().forget_session(machine, &session);
+    app.state::<SessionLists>().forget(machine, session.clone());
 
     // The windows read their session lists again.
     if let Err(e) = app.emit("sessions-changed", session) {
@@ -997,7 +999,7 @@ pub async fn agent_relocate(
             FAST_JOB_WAIT,
         )
         .await?;
-    fleet.projections().forget_project_sessions_on(machine);
+    app.state::<SessionLists>().stale(machine);
     app.emit("sessions-changed", session)
         .map_err(anyhow::Error::from)?;
     Ok(())

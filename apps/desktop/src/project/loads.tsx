@@ -16,7 +16,7 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { FoundSection, RepoSection } from "./outside-lists.tsx";
 import { ProjectRail, type RailCard, type RecentSessions } from "./split-view.tsx";
 import { hideRail, railProject, shell } from "../center/window-shell.tsx";
-import { foundFor, withSyncthing, projectName, projectRunning, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow, whereRows } from "./projects-state.ts";
+import { foundFor, withSyncthing, projectName, projectRunning, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionList, type SessionRow, type SyncthingPlace, type WhereRow, whereRows } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { localProjectId, projectRef } from "./localid.ts";
@@ -388,23 +388,39 @@ async function readSessions(name: string) {
   readingSessions.add(name);
   sessionsDue.delete(name);
   sessionChanges.read(name);
-  let got: SessionRow[] | null = null;
+  let got: SessionRow[] | null = null, failed = false;
 
   try {
-    [got] = await Promise.all([invoke<SessionRow[]>("project_sessions", { project: name }), refreshMoves()]);
+    // Null until every machine answered once: the list comes as a `session-list` event.
+    [got] = await Promise.all([invoke<SessionRow[] | null>("project_sessions", { project: name }), refreshMoves()]);
   } catch (e) {
+    failed = true;
     console.warn("project sessions:", e);
     sessionChanges.changed();
   } finally {
     readingSessions.delete(name);
   }
 
-  const { list } = nextSessions(state.sessions.get(name), got);
+  if (got || failed) showSessions(name, nextSessions(state.sessions.get(name), got).list, got !== null);
+  // The draw drops the Updating note. With no list yet it reads Reading sessions, and a draw
+  // would ask again at once.
+  else if (state.sessions.has(name)) drawSessions(name);
+}
+
+listen<SessionList>("session-list", ({ payload }) => {
+  if (payload.list !== "home") showSessions(payload.list.project, payload.sessions, true);
+});
+
+/// Project `name`'s sessions are `list` now; `read` when the machines gave it, so it is kept.
+function showSessions(name: string, list: SessionRow[], read: boolean) {
   state.sessions.set(name, list);
-  if (got) keep("sessions", name, list);
+  if (read) keep("sessions", name, list);
+  drawSessions(name);
+}
+
+function drawSessions(name: string) {
   if (railProject(shell.getState().side.rail) === name) drawRail();
   if (currentLocation()?.view !== "projects" || state.picked !== name) return;
-  // The draw also drops the Updating note.
   drawProjects();
 }
 

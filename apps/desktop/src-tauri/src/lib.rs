@@ -758,6 +758,10 @@ fn setup(
         Arc::new(Fleet::observer(endpoint, &mesh))
     };
     app.manage(fleet.clone());
+    app.manage(fleet::session_lists::SessionLists::start(
+        handle.clone(),
+        fleet.clone(),
+    ));
     let opened_files = handle.path().app_cache_dir()?.join("agent-files");
     let files = {
         let files = Arc::new(agents::file_cache::FileCache::new(

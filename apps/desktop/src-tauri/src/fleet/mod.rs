@@ -19,6 +19,7 @@ mod parents;
 pub(crate) mod phone;
 mod presence;
 pub(crate) mod projects;
+pub(crate) mod session_lists;
 mod status;
 pub(crate) mod terminals;
 

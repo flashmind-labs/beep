@@ -1,0 +1,424 @@
+//! The session lists of project pages and Home, owned by one actor. It keeps
+//! each machine's last answer, asks the machines again in the background and
+//! sends a list to the windows only once every machine in it has answered and
+//! the list changed, so a slow or failing machine never empties a list.
+
+use super::{Fleet, files::Place};
+use crate::agents::sessions::SessionRow;
+use beep_mesh::machine::listing;
+use beep_proto::{MachineSession, SessionId};
+use iroh::EndpointId;
+use serde::Serialize;
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tauri::{AppHandle, Emitter};
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::timeout,
+};
+
+/// The event that carries a list to the windows.
+pub(crate) const SESSION_LIST: &str = "session-list";
+/// How long another machine's answer stays fresh; this Mac is asked on every read.
+const FRESH: Duration = Duration::from_secs(15);
+/// How long one machine gets to answer.
+const ANSWER_LIMIT: Duration = Duration::from_secs(6);
+
+/// A list the windows show: one project's sessions, or every project's for Home.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ListId {
+    Project(String),
+    Home,
+}
+
+/// A machine and the project folders asked of it.
+pub(crate) type MachineFolders = (EndpointId, Vec<String>);
+
+/// What the windows hear when a list changes.
+#[derive(Clone, Serialize)]
+struct Update {
+    list: ListId,
+    sessions: Vec<SessionRow>,
+}
+
+/// The handle the commands and session changes use.
+pub(crate) struct SessionLists {
+    asks: mpsc::UnboundedSender<Ask>,
+}
+
+enum Ask {
+    Want {
+        list: ListId,
+        places: Vec<Place>,
+        reply: oneshot::Sender<Option<Vec<SessionRow>>>,
+    },
+    Answered {
+        asked: Asked,
+        rows: Option<Vec<MachineSession>>,
+    },
+    Forget {
+        machine: EndpointId,
+        session: SessionId,
+    },
+    Stale {
+        machine: EndpointId,
+    },
+}
+
+impl SessionLists {
+    pub(crate) fn start(app: AppHandle, fleet: Arc<Fleet>) -> Self {
+        let (asks, queue) = mpsc::unbounded_channel();
+        tauri::async_runtime::spawn(serve(app, fleet, asks.clone(), queue));
+        Self { asks }
+    }
+
+    /// `list` as it stands, with `places` its checkouts now, and asks the machines whose answer
+    /// is old. `None` until every machine in it answered once: its update follows.
+    pub(crate) async fn want(&self, list: ListId, places: Vec<Place>) -> Option<Vec<SessionRow>> {
+        let (reply, answer) = oneshot::channel();
+        self.asks
+            .send(Ask::Want {
+                list,
+                places,
+                reply,
+            })
+            .ok()?;
+        answer.await.ok().flatten()
+    }
+
+    /// `session` on `machine` is gone.
+    pub(crate) fn forget(&self, machine: EndpointId, session: SessionId) {
+        let _ = self.asks.send(Ask::Forget { machine, session });
+    }
+
+    /// `machine`'s sessions changed: ask it again, keeping what it said until it answers.
+    pub(crate) fn stale(&self, machine: EndpointId) {
+        let _ = self.asks.send(Ask::Stale { machine });
+    }
+}
+
+async fn serve(
+    app: AppHandle,
+    fleet: Arc<Fleet>,
+    asks: mpsc::UnboundedSender<Ask>,
+    mut queue: mpsc::UnboundedReceiver<Ask>,
+) {
+    let mut lists = Lists::new(fleet.id());
+    let shown = |rows: Vec<MachineSession>| finish(&fleet, rows);
+
+    while let Some(ask) = queue.recv().await {
+        let now = Instant::now();
+        let moved = match ask {
+            Ask::Want {
+                list,
+                places,
+                reply,
+            } => {
+                let (rows, moved) = lists.want(list, keys(&places), now, shown);
+                let _ = reply.send(rows.map(session_rows));
+                moved
+            }
+            Ask::Answered { asked, rows } => lists.answered(asked, rows, now, shown),
+            Ask::Forget { machine, session } => lists.forget(machine, &session, shown),
+            Ask::Stale { machine } => lists.stale(machine),
+        };
+
+        for asked in moved.fetch {
+            tauri::async_runtime::spawn(ask_machine(fleet.clone(), asks.clone(), asked));
+        }
+
+        for (list, rows) in moved.sent {
+            let sessions = session_rows(rows);
+            if let Err(e) = app.emit(SESSION_LIST, Update { list, sessions }) {
+                log::warn!("could not send a session list: {e}");
+            }
+        }
+    }
+}
+
+/// One machine's sessions in its folders; `None` when it failed or did not answer in time.
+async fn ask_machine(fleet: Arc<Fleet>, asks: mpsc::UnboundedSender<Ask>, asked: Asked) {
+    let (machine, folders) = asked.key.clone();
+    let read = async {
+        let client = fleet.client(machine).await.ok()?;
+        Some(listing::project_sessions(&client, &fleet.host_of(machine), folders).await)
+    };
+    let rows = timeout(ANSWER_LIMIT, read).await.ok().flatten();
+    let _ = asks.send(Ask::Answered { asked, rows });
+}
+
+/// The rows as the windows read them.
+fn session_rows(rows: Vec<MachineSession>) -> Vec<SessionRow> {
+    rows.into_iter().map(SessionRow::from).collect()
+}
+
+/// Each machine's folders among `places`, sorted, once.
+fn keys(places: &[Place]) -> Vec<MachineFolders> {
+    let mut keys: Vec<MachineFolders> = Vec::new();
+
+    for place in places {
+        match keys
+            .iter_mut()
+            .find(|(machine, _)| *machine == place.machine)
+        {
+            Some((_, folders)) => folders.push(place.folder.clone()),
+            None => keys.push((place.machine, vec![place.folder.clone()])),
+        }
+    }
+
+    for (_, folders) in &mut keys {
+        folders.sort();
+        folders.dedup();
+    }
+
+    keys
+}
+
+/// The machines' rows as the windows list them: without sessions being deleted, in their new
+/// folder when moved, with their saved titles, newest first.
+fn finish(fleet: &Fleet, rows: Vec<MachineSession>) -> Vec<MachineSession> {
+    let mesh = fleet.mesh();
+    let ops = fleet.node_ops();
+    let rows = rows
+        .into_iter()
+        .filter(|session| !ops.is_deleting_session(&session.machine_id, &session.id))
+        .map(|mut session| {
+            if let Some(folder) = ops.relocated_folder(&session.machine_id, &session.id) {
+                session.cwd = folder;
+            }
+            if let Some(mesh) = &mesh {
+                beep_fleet::session_titles::apply(mesh, &mut session);
+            }
+            session
+        });
+
+    listing::project_history(rows)
+}
+
+/// The actor's state: each machine's last answer and each list's machines and last sent rows.
+pub(crate) struct Lists {
+    me: EndpointId,
+    answers: HashMap<MachineFolders, Answer>,
+    lists: HashMap<ListId, Listed>,
+}
+
+#[derive(Default)]
+struct Answer {
+    /// `None` until the machine answered or failed once.
+    rows: Option<Vec<MachineSession>>,
+    at: Option<Instant>,
+    asking: bool,
+    /// Raised when its sessions change here, so an answer asked before is dropped.
+    generation: u64,
+}
+
+struct Listed {
+    keys: Vec<MachineFolders>,
+    sent: Option<Vec<MachineSession>>,
+}
+
+/// A machine asked for its sessions, and the generation of its answer then.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Asked {
+    pub(crate) key: MachineFolders,
+    generation: u64,
+}
+
+/// What a change leads to: the lists to send and the machines to ask.
+#[derive(Default)]
+pub(crate) struct Moved {
+    pub(crate) sent: Vec<(ListId, Vec<MachineSession>)>,
+    pub(crate) fetch: Vec<Asked>,
+}
+
+type Finish<'a> = &'a dyn Fn(Vec<MachineSession>) -> Vec<MachineSession>;
+
+impl Lists {
+    pub(crate) fn new(me: EndpointId) -> Self {
+        Self {
+            me,
+            answers: HashMap::new(),
+            lists: HashMap::new(),
+        }
+    }
+
+    /// `list` with `keys` its machines now: its rows once every machine answered, and the
+    /// machines whose answer is old to ask. This Mac's is always old.
+    pub(crate) fn want(
+        &mut self,
+        list: ListId,
+        keys: Vec<MachineFolders>,
+        now: Instant,
+        finish: impl Fn(Vec<MachineSession>) -> Vec<MachineSession>,
+    ) -> (Option<Vec<MachineSession>>, Moved) {
+        let mut moved = Moved::default();
+
+        for key in &keys {
+            let mine = key.0 == self.me;
+            let answer = self.answers.entry(key.clone()).or_default();
+            if answer.at.is_none_or(|at| mine || now - at >= FRESH) {
+                moved.fetch.extend(ask(key, answer));
+            }
+        }
+
+        let rows = self.merged(&keys).map(finish);
+        self.lists.insert(
+            list,
+            Listed {
+                keys,
+                sent: rows.clone(),
+            },
+        );
+
+        (rows, moved)
+    }
+
+    /// A machine answered, or failed with `None`, which keeps what it said before. An answer
+    /// asked before its sessions changed here is dropped and the machine asked again.
+    pub(crate) fn answered(
+        &mut self,
+        asked: Asked,
+        rows: Option<Vec<MachineSession>>,
+        now: Instant,
+        finish: impl Fn(Vec<MachineSession>) -> Vec<MachineSession>,
+    ) -> Moved {
+        let listed = self.listed(&asked.key);
+        let answer = self.answers.entry(asked.key.clone()).or_default();
+        answer.asking = false;
+
+        if asked.generation != answer.generation {
+            return Moved {
+                sent: Vec::new(),
+                fetch: if listed {
+                    ask(&asked.key, answer).into_iter().collect()
+                } else {
+                    Vec::new()
+                },
+            };
+        }
+
+        answer.at = Some(now);
+        match rows {
+            Some(rows) => answer.rows = Some(rows),
+            None => {
+                answer.rows.get_or_insert_with(Vec::new);
+            }
+        }
+
+        Moved {
+            sent: self.changed(|keys| keys.contains(&asked.key), &finish),
+            fetch: Vec::new(),
+        }
+    }
+
+    /// `session` on `machine` is gone from every list.
+    pub(crate) fn forget(
+        &mut self,
+        machine: EndpointId,
+        session: &SessionId,
+        finish: impl Fn(Vec<MachineSession>) -> Vec<MachineSession>,
+    ) -> Moved {
+        for (_, answer) in self.answers.iter_mut().filter(|(key, _)| key.0 == machine) {
+            answer.generation += 1;
+            if let Some(rows) = &mut answer.rows {
+                rows.retain(|row| row.id != *session);
+            }
+        }
+
+        Moved {
+            sent: self.changed(|keys| keys.iter().any(|key| key.0 == machine), &finish),
+            fetch: Vec::new(),
+        }
+    }
+
+    /// Asks `machine` again for its lists; what it said stays until it answers.
+    pub(crate) fn stale(&mut self, machine: EndpointId) -> Moved {
+        let listed: Vec<MachineFolders> = self
+            .lists
+            .values()
+            .flat_map(|listed| &listed.keys)
+            .filter(|key| key.0 == machine)
+            .cloned()
+            .collect();
+        let mut moved = Moved::default();
+
+        for (key, answer) in self.answers.iter_mut().filter(|(key, _)| key.0 == machine) {
+            answer.generation += 1;
+            answer.at = None;
+            if listed.contains(key) {
+                moved.fetch.extend(ask(key, answer));
+            }
+        }
+
+        moved
+    }
+
+    fn listed(&self, key: &MachineFolders) -> bool {
+        self.lists.values().any(|listed| listed.keys.contains(key))
+    }
+
+    /// The lists `touched` names whose rows differ from what was sent, now sent.
+    fn changed(
+        &mut self,
+        touched: impl Fn(&[MachineFolders]) -> bool,
+        finish: Finish<'_>,
+    ) -> Vec<(ListId, Vec<MachineSession>)> {
+        let ids: Vec<ListId> = self
+            .lists
+            .iter()
+            .filter(|(_, listed)| touched(&listed.keys))
+            .map(|(id, _)| id.clone())
+            .collect();
+        let mut sent = Vec::new();
+
+        for id in ids {
+            let Some(listed) = self.lists.get(&id) else {
+                continue;
+            };
+            let Some(rows) = self.merged(&listed.keys).map(finish) else {
+                continue;
+            };
+            let Some(listed) = self.lists.get_mut(&id) else {
+                continue;
+            };
+            if listed.sent.as_ref() != Some(&rows) {
+                listed.sent = Some(rows.clone());
+                sent.push((id, rows));
+            }
+        }
+
+        sent
+    }
+
+    /// Every machine's rows among `keys`, once each has answered.
+    fn merged(&self, keys: &[MachineFolders]) -> Option<Vec<MachineSession>> {
+        let mut rows = Vec::new();
+
+        for key in keys {
+            rows.extend(self.answers.get(key)?.rows.clone()?);
+        }
+
+        Some(rows)
+    }
+}
+
+/// `key` to ask, unless it is being asked.
+fn ask(key: &MachineFolders, answer: &mut Answer) -> Option<Asked> {
+    if answer.asking {
+        return None;
+    }
+
+    answer.asking = true;
+    Some(Asked {
+        key: key.clone(),
+        generation: answer.generation,
+    })
+}
+
+#[cfg(test)]
+#[path = "../tests/fleet_session_lists.rs"]
+mod tests;

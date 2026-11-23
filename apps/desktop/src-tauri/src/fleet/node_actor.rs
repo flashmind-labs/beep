@@ -2,7 +2,7 @@
 //! read projections (`Projected`), so degraded or offline `beep-node` links never
 //! block UI commands or stall healthy machines.
 
-use super::{Fleet, alerts};
+use super::{Fleet, alerts, session_lists::SessionLists};
 use crate::{
     center::home_sessions::HOME_CHANGED,
     error::{DesktopError, Result},
@@ -17,7 +17,7 @@ use beep_mesh::{
     },
 };
 use beep_proto::{
-    AgentModels, CustomAgent, MachineSession, SessionId, ToolUpdate,
+    AgentModels, CustomAgent, SessionId, ToolUpdate,
     node::{
         agent::{ReviewRun, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
         device::{
@@ -165,17 +165,6 @@ where
         held.refresh_ids.remove(key);
         if let Some(kept) = held.known.get_mut(key) {
             change(&mut kept.value);
-        }
-    }
-
-    pub(crate) fn edit_where(&self, pred: impl Fn(&K) -> bool, mut change: impl FnMut(&mut V)) {
-        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-        held.in_flight.retain(|key, _| !pred(key));
-        held.refresh_ids.retain(|key, _| !pred(key));
-        for (key, kept) in &mut held.known {
-            if pred(key) {
-                change(&mut kept.value);
-            }
         }
     }
 
@@ -423,14 +412,11 @@ pub(crate) struct GitStateRow {
     pub(crate) error: Option<String>,
 }
 
-pub(crate) type MachineFolders = (EndpointId, Vec<String>);
-
 /// All per-node read projections shared on [`Fleet`].
 pub(crate) struct Projections {
     pub(crate) models: Arc<Projected<(EndpointId, String), AgentModels>>,
     pub(crate) custom_agents: Arc<Projected<(EndpointId, String), Vec<CustomAgent>>>,
     pub(crate) harnesses: Arc<Projected<EndpointId, HarnessReport>>,
-    pub(crate) project_sessions: Arc<Projected<MachineFolders, Vec<MachineSession>>>,
     pub(crate) git_state: Arc<Projected<(EndpointId, String), GitStateRow>>,
     pub(crate) devices: Arc<Projected<EndpointId, Vec<Device>>>,
     pub(crate) reviews: Arc<Projected<(EndpointId, SessionId), Vec<ReviewRun>>>,
@@ -455,11 +441,6 @@ impl Default for Projections {
                 Duration::from_secs(60),
                 Duration::from_millis(500),
                 Duration::from_secs(8),
-            ),
-            project_sessions: Projected::new(
-                Duration::from_secs(15),
-                Duration::from_millis(450),
-                Duration::from_secs(6),
             ),
             git_state: Projected::new(
                 Duration::from_secs(10),
@@ -492,15 +473,7 @@ impl Default for Projections {
 
 impl Projections {
     pub(crate) fn forget_session(&self, machine: EndpointId, session: &SessionId) {
-        self.project_sessions.edit_where(
-            |(m, _)| *m == machine,
-            |rows| rows.retain(|row| row.id != *session),
-        );
         self.reviews.forget(&(machine, session.clone()));
-    }
-
-    pub(crate) fn forget_project_sessions_on(&self, machine: EndpointId) {
-        self.project_sessions.forget_where(|(m, _)| *m == machine);
     }
 
     pub(crate) fn forget_models_on(&self, machine: EndpointId) {
@@ -873,11 +846,16 @@ fn on_settled(
         JobKind::DeleteSession { session, .. } => {
             if ok {
                 fleet.projections().forget_session(machine, session);
-            } else {
-                fleet.projections().forget_project_sessions_on(machine);
             }
 
             if let Some(app) = app {
+                if let Some(lists) = app.try_state::<SessionLists>() {
+                    if ok {
+                        lists.forget(machine, session.clone());
+                    } else {
+                        lists.stale(machine);
+                    }
+                }
                 if let Some(lists) = app.try_state::<MachineLists>() {
                     let machine_id = machine.to_string();
                     if ok {
@@ -901,8 +879,10 @@ fn on_settled(
             }
         }
         JobKind::RelocateSession { session, .. } => {
-            fleet.projections().forget_project_sessions_on(machine);
             if let Some(app) = app {
+                if let Some(lists) = app.try_state::<SessionLists>() {
+                    lists.stale(machine);
+                }
                 if let Some(lists) = app.try_state::<MachineLists>() {
                     lists.local.stale();
                     lists.sessions.stale();

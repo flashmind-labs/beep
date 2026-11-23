@@ -1,5 +1,5 @@
 // Home: its tabs and the board.
-import { conflicted, invoke } from "../ui/tauri.ts";
+import { conflicted, invoke, listen } from "../ui/tauri.ts";
 import { isMobile } from "../ui/platform.ts";
 import { Button } from "../ui/kit.tsx";
 import { Segmented } from "../ui/aria-kit.tsx";
@@ -17,7 +17,7 @@ import { ensureAllTerms } from "../terminals/view.tsx";
 import { thisMacRow } from "../machines/machine-state.ts";
 import { onPlaces } from "../agents/place.ts";
 import { ensureSessions, sessionsChanged, sessionsRead } from "../agents/sessions.ts";
-import type { SessionRow } from "../project/projects-state.ts";
+import type { SessionList, SessionRow } from "../project/projects-state.ts";
 import { ambient } from "../ui/active.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { onClosing } from "../agents/closing.ts";
@@ -139,8 +139,11 @@ export const homeSessions = () => projectSessions;
 const readSessions = ambient(() => {
   sessionsStale = false;
   ensureSessions().catch(e => console.warn("sessions:", e));
-  return invoke<SessionRow[]>("projects_sessions").then(rows => { projectSessions = rows; draw(); }, e => { sessionsStale = true; console.warn("sessions:", e); });
+  // Null until every machine answered once: the list comes as a `session-list` event.
+  return invoke<SessionRow[] | null>("projects_sessions").then(rows => { if (rows) showSessions(rows); }, e => { sessionsStale = true; console.warn("sessions:", e); });
 }, DONE_REREAD_MS, () => currentLocation()?.view === "home");
+listen<SessionList>("session-list", ({ payload }) => { if (payload.list === "home") showSessions(payload.sessions); });
+function showSessions(rows: SessionRow[]) { projectSessions = rows; draw(); }
 sessionsChanged.add(() => { sessionsStale = true; readSessions(); });
 sessionsRead.add(() => draw());
 onPlaces(() => draw());
