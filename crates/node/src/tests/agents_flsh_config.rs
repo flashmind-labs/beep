@@ -8,15 +8,15 @@ use std::collections::{BTreeMap, HashMap};
 /// (flashmind-cli's `Config` and `AutoCompactSettings`).
 #[derive(Debug, Deserialize)]
 struct FlshConfig {
-    #[serde(default)]
     openrouter: OpenRouterConfig,
     autocompact: Option<Rule>,
     #[serde(default)]
     auto_compact_models: HashMap<Model, Rule>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct OpenRouterConfig {
+    stream_idle_timeout_secs: std::num::NonZeroU32,
     routing: Option<ProviderPreferences>,
     #[serde(default)]
     model_quantizations: BTreeMap<String, Vec<Quantization>>,
@@ -62,6 +62,7 @@ fn rule(name: &str, enabled: bool, tokens: Option<u32>) -> FlshModelRule {
 
 fn full() -> FlshSettings {
     FlshSettings {
+        stream_idle_timeout_secs: std::num::NonZeroU32::new(120),
         zdr: Some(true),
         quantizations: vec![FlshQuantization::Fp8, FlshQuantization::Bf16],
         sort: Some(FlshSort::Throughput),
@@ -77,8 +78,9 @@ fn full() -> FlshSettings {
 #[test]
 fn flsh_reads_every_setting_beep_writes() {
     let dir = tempfile::tempdir().unwrap();
-    apply(dir.path(), &full()).unwrap();
+    apply(dir.path(), Some(&full())).unwrap();
     let config = as_flsh(dir.path());
+    assert_eq!(config.openrouter.stream_idle_timeout_secs.get(), 120);
     let routing = config.openrouter.routing.expect("routing is set");
     assert_eq!(routing.zdr, Some(true));
     assert_eq!(routing.sort, Some(ProviderSort::Throughput));
@@ -141,7 +143,7 @@ tokens = 90000
 fn the_users_own_keys_and_comments_stay() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join(CONFIG), HAND_WRITTEN).unwrap();
-    apply(dir.path(), &full()).unwrap();
+    apply(dir.path(), Some(&full())).unwrap();
     let text = read(dir.path());
     for kept in [
         "# flsh settings\nmodel = \"openrouter:vendor/large\"\n",
@@ -169,12 +171,12 @@ fn clearing_a_setting_drops_only_what_beep_set() {
         models: vec![rule("openrouter:vendor/small", false, None)],
         ..FlshSettings::default()
     };
-    apply(dir.path(), &settings).unwrap();
+    apply(dir.path(), Some(&settings)).unwrap();
     assert!(as_flsh(dir.path()).auto_compact_models.len() == 2);
 
     settings.sort = None;
     settings.models.clear();
-    apply(dir.path(), &settings).unwrap();
+    apply(dir.path(), Some(&settings)).unwrap();
     let config = as_flsh(dir.path());
     let routing = config.openrouter.routing.unwrap();
     assert_eq!(routing.sort, None);
@@ -187,7 +189,7 @@ fn clearing_a_setting_drops_only_what_beep_set() {
     );
     // Settings that change nothing leave the file as it is.
     let text = read(dir.path());
-    apply(dir.path(), &settings).unwrap();
+    apply(dir.path(), Some(&settings)).unwrap();
     assert_eq!(read(dir.path()), text);
 }
 
@@ -203,7 +205,7 @@ fn a_model_spelled_another_way_is_replaced() {
         models: vec![rule("openrouter:vendor/small", true, Some(50_000))],
         ..FlshSettings::default()
     };
-    apply(dir.path(), &settings).unwrap();
+    apply(dir.path(), Some(&settings)).unwrap();
     let text = read(dir.path());
     assert!(!text.contains("OpenRouter:"), "{text}");
     // `enable` and `enabled` together would not read.
@@ -224,7 +226,7 @@ fn the_configs_permissions_stay() {
     let path = dir.path().join(CONFIG);
     fs::write(&path, "model = \"ollama:example\"\n").unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
-    apply(dir.path(), &full()).unwrap();
+    apply(dir.path(), Some(&full())).unwrap();
     let mode = fs::metadata(&path).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o640);
 }
@@ -234,7 +236,7 @@ fn a_config_that_does_not_read_is_left_alone() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(CONFIG);
     fs::write(&path, "model = \n").unwrap();
-    let error = apply(dir.path(), &full()).unwrap_err();
+    let error = apply(dir.path(), Some(&full())).unwrap_err();
     assert!(format!("{error:#}").contains("not valid TOML"), "{error:#}");
     assert_eq!(fs::read_to_string(&path).unwrap(), "model = \n");
     assert!(!dir.path().join(OWNED).exists());
@@ -262,7 +264,7 @@ fn a_models_own_quantizations_are_written_and_cleared() {
         ],
         ..FlshSettings::default()
     };
-    apply(dir.path(), &settings).unwrap();
+    apply(dir.path(), Some(&settings)).unwrap();
     let config = as_flsh(dir.path());
     assert_eq!(
         config.openrouter.model_quantizations,
@@ -279,11 +281,28 @@ fn a_models_own_quantizations_are_written_and_cleared() {
     );
 
     settings.models.clear();
-    apply(dir.path(), &settings).unwrap();
+    apply(dir.path(), Some(&settings)).unwrap();
     let config = as_flsh(dir.path());
     assert_eq!(
         config.openrouter.model_quantizations.keys().collect::<Vec<_>>(),
         ["vendor/mine"]
     );
     assert!(config.auto_compact_models.is_empty());
+}
+
+#[test]
+fn a_local_timeout_stays_until_the_user_selects_one_in_beep() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path();
+    fs::write(path.join(CONFIG), "[openrouter]\nstream_idle_timeout_secs = 90\n").unwrap();
+    for settings in [None, Some(&FlshSettings::default())] {
+        apply(path, settings).unwrap();
+        assert_eq!(as_flsh(path).openrouter.stream_idle_timeout_secs.get(), 90);
+    }
+
+    apply(path, Some(&full())).unwrap();
+    apply(path, None).unwrap();
+    assert_eq!(as_flsh(path).openrouter.stream_idle_timeout_secs.get(), 120);
+    apply(path, Some(&FlshSettings::default())).unwrap();
+    assert_eq!(as_flsh(path).openrouter.stream_idle_timeout_secs.get(), 300);
 }

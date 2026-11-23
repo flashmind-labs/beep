@@ -25,7 +25,7 @@ use reqwest::Client;
 use std::{
     collections::HashMap,
     ffi::OsString,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::Stdio,
     sync::Mutex,
     time::{Duration, Instant},
@@ -91,26 +91,27 @@ impl Settings {
 
     /// Writes the user's flsh settings into the config `kind` (as
     /// `configured` gives it) reads, before it starts: all of them for
-    /// flsh, the routing for pi. Nothing for another agent, or while the
-    /// user has none. An error when they cannot be written: an agent must
-    /// not start without a setting such as zero data retention.
+    /// flsh, the routing for pi. flsh gets its default stream timeout on
+    /// hosts without saved settings.
     pub(super) async fn prepare(&self, kind: &AgentKind) -> Result<()> {
-        let (dir, apply): (_, fn(&Path, &FlshSettings) -> Result<()>) = if AgentSlug::FLSH
-            == kind.name.as_str()
+        let name = &kind.name;
+        let config_dir = |dir: Option<PathBuf>| {
+            dir.with_context(|| format!("{name}'s config folder is not known"))
+        };
+        let settings = lock(&self.0).flsh.clone();
+        let write = if AgentSlug::FLSH == name.as_str() {
+            let dir = config_dir(flsh_dir_of(kind))?;
+            tokio::task::spawn_blocking(move || flsh_config::apply(&dir, settings.as_ref()))
+        } else if AgentSlug::PI == name.as_str()
+            && let Some(settings) = settings
         {
-            (flsh_dir_of(kind), flsh_config::apply)
-        } else if AgentSlug::PI == kind.name.as_str() {
-            (pi_dir_of(kind), flsh_config::pi::apply)
+            let dir = config_dir(pi_dir_of(kind))?;
+            tokio::task::spawn_blocking(move || flsh_config::pi::apply(&dir, &settings))
         } else {
             return Ok(());
         };
 
-        let Some(flsh) = lock(&self.0).flsh.clone() else {
-            return Ok(());
-        };
-        let name = kind.name.clone();
-        let dir = dir.with_context(|| format!("{name}'s config folder is not known"))?;
-        tokio::task::spawn_blocking(move || apply(&dir, &flsh))
+        write
             .await
             .context("writing the agent's settings stopped")?
             .with_context(|| format!("Beep's settings could not be written to {name}'s config"))

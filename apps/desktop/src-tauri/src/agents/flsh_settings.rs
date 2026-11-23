@@ -11,6 +11,7 @@ use beep_proto::{
     FlshAutoCompact, FlshModel, FlshModelRule, FlshQuantization, FlshSettings, FlshSort,
 };
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU32;
 
 /// The settings as the page reads and writes them. Null or empty means
 /// flsh's own default.
@@ -23,6 +24,7 @@ pub struct FlshView {
     allow_fallbacks: Option<bool>,
     autocompact: Option<FlshAutoCompact>,
     models: Vec<ModelRuleView>,
+    stream_idle_timeout_secs: Option<NonZeroU32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -45,6 +47,7 @@ impl From<FlshSettings> for FlshView {
             sort: settings.sort.map(|sort| <&str>::from(sort).to_owned()),
             allow_fallbacks: settings.allow_fallbacks,
             autocompact: settings.autocompact,
+            stream_idle_timeout_secs: settings.stream_idle_timeout_secs,
             models: settings
                 .models
                 .into_iter()
@@ -111,6 +114,7 @@ impl TryFrom<FlshView> for FlshSettings {
             sort,
             allow_fallbacks: view.allow_fallbacks,
             autocompact: view.autocompact,
+            stream_idle_timeout_secs: view.stream_idle_timeout_secs,
             models,
         };
         settings.check().map_err(|e| bad(e.to_string()))?;

@@ -116,3 +116,19 @@ fn an_older_rule_reads_with_its_own_compaction() {
         }
     );
 }
+
+#[test]
+fn released_settings_have_no_explicit_stream_timeout() {
+    let older = (
+        Some(true),
+        Vec::<FlshQuantization>::new(),
+        Some(FlshSort::Price),
+        Some(false),
+        None::<FlshAutoCompact>,
+        Vec::<FlshModelRule>::new(),
+    );
+    let bytes = rmp_serde::to_vec(&older).expect("encodes");
+    let read: FlshSettings = crate::lenient::from_slice(&bytes).expect("reads");
+    assert_eq!(read.stream_idle_timeout_secs, None);
+    assert_eq!(read.sort, Some(FlshSort::Price));
+}

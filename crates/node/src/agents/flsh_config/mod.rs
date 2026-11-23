@@ -21,6 +21,8 @@ use toml_edit::{Array, DocumentMut, Item, Table, TableLike, value};
 
 /// flsh's config file in its config folder.
 const CONFIG: &str = "config.toml";
+const IDLE_TIMEOUT: &str = "stream_idle_timeout_secs";
+const DEFAULT_IDLE_TIMEOUT_SECS: i64 = 300;
 /// What Beep set in it last time, next to it, so a setting cleared in Beep
 /// goes back to flsh's default without touching a key the user set by hand.
 const OWNED: &str = "beep-owned.json";
@@ -50,6 +52,7 @@ enum RoutingKey {
 struct Owned {
     routing: BTreeSet<RoutingKey>,
     autocompact: bool,
+    stream_idle_timeout: bool,
     /// The `auto_compact_models` keys, as Beep wrote them.
     models: BTreeSet<String>,
     /// The `openrouter.model_quantizations` keys.
@@ -58,7 +61,7 @@ struct Owned {
 
 /// Writes `settings` into the `config.toml` in flsh's config folder `dir`,
 /// making it when there is none. Blocking.
-pub(super) fn apply(dir: &Path, settings: &FlshSettings) -> Result<()> {
+pub(super) fn apply(dir: &Path, settings: Option<&FlshSettings>) -> Result<()> {
     let _writing = lock(&WRITING);
     let path = dir.join(CONFIG);
     let text = read_capped(&path)?;
@@ -66,8 +69,18 @@ pub(super) fn apply(dir: &Path, settings: &FlshSettings) -> Result<()> {
         .parse()
         .with_context(|| format!("{} is not valid TOML", path.display()))?;
     let owned_path = dir.join(OWNED);
-    let before = read_owned(&owned_path);
-    let owned = edit(&mut doc, settings, &before)?;
+    let before: Owned = read_owned(&owned_path);
+    let openrouter = table(doc.as_table_mut(), "openrouter")?;
+    let timeout = settings.and_then(|s| s.stream_idle_timeout_secs);
+    if let Some(seconds) = timeout {
+        openrouter.insert(IDLE_TIMEOUT, value(i64::from(seconds.get())));
+    } else if !openrouter.contains_key(IDLE_TIMEOUT)
+        || (settings.is_some() && before.stream_idle_timeout)
+    {
+        openrouter.insert(IDLE_TIMEOUT, value(DEFAULT_IDLE_TIMEOUT_SECS));
+    }
+
+    let owned = settings.map(|s| edit(&mut doc, s, &before)).transpose()?;
     let edited = doc.to_string();
 
     if edited != text {
@@ -76,7 +89,9 @@ pub(super) fn apply(dir: &Path, settings: &FlshSettings) -> Result<()> {
         log::info!("flsh settings written; path={}", path.display());
     }
 
-    if owned != before {
+    if let Some(owned) = owned
+        && owned != before
+    {
         write_atomic(&owned_path, &serde_json::to_vec(&owned)?)?;
     }
 
@@ -88,7 +103,10 @@ pub(super) fn apply(dir: &Path, settings: &FlshSettings) -> Result<()> {
 /// other key, comment and blank line stays as it was.
 fn edit(doc: &mut DocumentMut, settings: &FlshSettings, before: &Owned) -> Result<Owned> {
     let root = doc.as_table_mut();
-    let mut owned = Owned::default();
+    let mut owned = Owned {
+        stream_idle_timeout: settings.stream_idle_timeout_secs.is_some(),
+        ..Owned::default()
+    };
 
     let quantizations =
         (!settings.quantizations.is_empty()).then(|| value(names(&settings.quantizations)));

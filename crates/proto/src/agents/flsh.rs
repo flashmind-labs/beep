@@ -7,7 +7,7 @@
 //! for a list) means Beep leaves that key to flsh's own default.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::{collections::HashSet, num::NonZeroU32};
 use thiserror::Error;
 
 /// A model as flsh names it, `provider:name` such as
@@ -50,6 +50,10 @@ wire_structs! {
         pub autocompact: Option<FlshAutoCompact>,
         /// Rules that replace the ones above for their model only.
         pub models: Vec<FlshModelRule>,
+        /// Maximum silence after OpenRouter starts streaming. When unset,
+        /// use the host's timeout or 300 seconds if it has none.
+        #[serde(default)]
+        pub stream_idle_timeout_secs: Option<NonZeroU32>,
     }
 
     /// When flsh compacts a conversation.

@@ -3,6 +3,7 @@ use super::*;
 fn view() -> FlshView {
     FlshView {
         zdr: Some(true),
+        stream_idle_timeout_secs: NonZeroU32::new(120),
         quantizations: vec!["fp8".into(), "bf16".into()],
         sort: Some("throughput".into()),
         allow_fallbacks: None,

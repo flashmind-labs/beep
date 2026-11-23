@@ -26,14 +26,15 @@ test("flsh routing preserves edits and focus during save and reuses the panel on
     const view = render(createElement(FlshView, { panel, agent: "flsh" }));
     await waitFor(() => assert.ok(view.getByLabelText("Auto-compact threshold")));
     const input = view.getByLabelText("Auto-compact threshold") as HTMLInputElement;
+    fireEvent.change(view.getByLabelText("Stream idle timeout (seconds)"), { target: { value: "120" } });
     input.focus();
     fireEvent.change(input, { target: { value: "300k" } });
     input.setSelectionRange(1, 3);
     fireEvent.click(view.getByRole("button", { name: "Save" }));
-    assert.deepEqual(submitted, { ...EMPTY, autocompact: { enabled: true, tokens: 300000 } });
+    assert.deepEqual(submitted, { ...EMPTY, stream_idle_timeout_secs: 120, autocompact: { enabled: true, tokens: 300000 } });
     fireEvent.change(input, { target: { value: "400k" } });
     input.setSelectionRange(1, 3);
-    saved = { ...EMPTY, autocompact: { enabled: true, tokens: 300000 } };
+    saved = { ...EMPTY, stream_idle_timeout_secs: 120, autocompact: { enabled: true, tokens: 300000 } };
     await act(async () => { finish(); await Promise.resolve(); });
     await waitFor(() => assert.equal((view.getByLabelText("Auto-compact threshold") as HTMLInputElement).value, "400k"));
     assert.equal(view.getByLabelText("Auto-compact threshold"), input);
@@ -49,6 +50,7 @@ test("flsh routing preserves edits and focus during save and reuses the panel on
     // pi takes the routing only: a model's quantizations, no compaction.
     const pi = render(createElement(FlshView, { panel, agent: "pi" }));
     assert.equal(pi.queryByLabelText("Auto-compact threshold"), null);
+    assert.equal(pi.queryByLabelText("Stream idle timeout (seconds)"), null);
     fireEvent.click(pi.getByRole("button", { name: "Add model" }));
     assert.equal(pi.queryByLabelText("Auto-compact for model 1"), null);
     fireEvent.change(pi.getByLabelText("Model 1"), { target: { value: "openrouter:vendor/fp4-only" } });

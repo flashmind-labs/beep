@@ -18,6 +18,7 @@
 // review the changed files under `ui-baseline.spec.ts-snapshots/` with
 // `git diff`, and commit them with the change.
 
+import { EMPTY } from "../../src/settings/flsh-state.ts";
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, openStartForm, projectName } from "./harness.ts";
 import { audit, auditing } from "./ui-audit.ts";
@@ -585,6 +586,19 @@ test("settings claude code", async ({ page }) => {
   await nav.getByRole("button", { name: /^Claude/ }).click();
   await expect(settings.getByRole("button", { name: "Direct", exact: true })).toHaveAttribute("aria-pressed", "true");
   await baseline(page, "settings-claude-code");
+});
+
+test("settings flsh stream idle timeout", async ({ page }) => {
+  await openDesktop(page, false, { ...settingsResponses, flsh_settings_get: EMPTY });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  const nav = settings.getByRole("navigation", { name: "Settings pages" });
+  await nav.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await nav.getByRole("button", { name: "flsh", exact: true }).click();
+  const timeout = settings.getByRole("textbox", { name: "Stream idle timeout (seconds)" });
+  await expect(timeout).toHaveAttribute("placeholder", "300");
+  await timeout.scrollIntoViewIfNeeded();
+  await baseline(page, "settings-flsh");
 });
 
 test("settings codex", async ({ page }) => {

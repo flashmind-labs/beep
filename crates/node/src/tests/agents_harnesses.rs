@@ -48,18 +48,19 @@ async fn flsh_settings_go_to_the_config_its_home_names() {
     let pi = settings.configured(&kind("pi")).unwrap();
     settings.prepare(&pi).await.unwrap();
     assert!(!other.path().join("config.toml").exists());
-    // Without flsh settings, flsh's config is left as it is.
-    let untouched = tempfile::tempdir().unwrap();
+    // A new flsh host gets Beep's default before its first session.
+    let fresh_home = tempfile::tempdir().unwrap();
     settings.set(AgentSettings {
         harnesses: vec![HarnessConfig {
-            home: Some(untouched.path().display().to_string()),
+            home: Some(fresh_home.path().display().to_string()),
             ..HarnessConfig::new("flsh")
         }],
         flsh: None,
     });
     let flsh = settings.configured(&kind("flsh")).unwrap();
     settings.prepare(&flsh).await.unwrap();
-    assert!(!untouched.path().join("config.toml").exists());
+    let written = std::fs::read_to_string(fresh_home.path().join("config.toml")).unwrap();
+    assert!(written.contains("stream_idle_timeout_secs = 300"), "{written}");
 }
 
 #[test]

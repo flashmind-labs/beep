@@ -30,6 +30,7 @@ export interface FlshSettings {
   allow_fallbacks: boolean | null;
   autocompact: AutoCompact | null;
   models: ModelRule[];
+  stream_idle_timeout_secs: number | null;
 }
 
 /// The page's edit: thresholds as typed, so a half-typed number stays.
@@ -40,18 +41,20 @@ export interface FlshDraft {
   allow_fallbacks: boolean | null;
   compact_on: boolean;
   compact_tokens: string;
+  idle_seconds: string;
   models: ModelDraft[];
 }
 
 export const NEW_MODEL: ModelDraft = { model: "", compact: "all", tokens: "", quantizations: null };
 
-export const EMPTY: FlshSettings = { zdr: null, quantizations: [], sort: null, allow_fallbacks: null, autocompact: null, models: [] };
+export const EMPTY: FlshSettings = { zdr: null, quantizations: [], sort: null, allow_fallbacks: null, autocompact: null, models: [], stream_idle_timeout_secs: null };
 
 export function flshDraft(s: FlshSettings): FlshDraft {
   return {
     zdr: s.zdr,
     quantizations: ordered(s.quantizations),
     sort: s.sort,
+    idle_seconds: s.stream_idle_timeout_secs?.toString() ?? "",
     allow_fallbacks: s.allow_fallbacks,
     compact_on: s.autocompact?.enabled ?? true,
     compact_tokens: s.autocompact?.tokens != null ? String(s.autocompact.tokens) : "",
@@ -78,6 +81,8 @@ const tokensOk = (n: number | null) => n === null || (Number.isInteger(n) && n >
 
 /// Why the draft cannot be saved; "" when it can.
 export function flshProblem(d: FlshDraft): string {
+  const seconds = d.idle_seconds.trim();
+  if (seconds && (!/^\d+$/.test(seconds) || Number(seconds) < 1 || Number(seconds) > 0xffff_ffff)) return "Enter a positive whole number of seconds for the stream idle timeout (at most 4,294,967,295).";
   if (!tokensOk(parseTokens(d.compact_tokens))) return `A threshold is a token count from ${MIN_TOKENS.toLocaleString("en")} to ${MAX_TOKENS.toLocaleString("en")}.`;
   const seen = new Set<string>();
 
@@ -101,6 +106,7 @@ export function flshInput(d: FlshDraft): FlshSettings {
     zdr: d.zdr,
     quantizations: ordered(d.quantizations),
     sort: d.sort,
+    stream_idle_timeout_secs: d.idle_seconds.trim() ? Number(d.idle_seconds) : null,
     allow_fallbacks: d.allow_fallbacks,
     autocompact: d.compact_on && tokens === null ? null : { enabled: d.compact_on, tokens },
     models: d.models.map(m => ({

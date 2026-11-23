@@ -4,6 +4,7 @@ import { EMPTY, NEW_MODEL, flshChanged, flshDraft, flshInput, flshProblem, toggl
 
 const saved: FlshSettings = {
   zdr: true,
+  stream_idle_timeout_secs: 120,
   quantizations: ["bf16", "fp8"],
   sort: "throughput",
   allow_fallbacks: false,
@@ -35,6 +36,9 @@ test("nothing set stays nothing set", () => {
 test("bad values are named before saving", () => {
   const d = flshDraft(saved);
   assert.equal(flshProblem(d), "");
+  for (const idle_seconds of ["0", "-1", "2.5", "5m", "4294967296"]) {
+    assert.match(flshProblem({ ...d, idle_seconds }), /stream idle timeout/);
+  }
   assert.match(flshProblem({ ...d, compact_tokens: "10" }), /token count/);
   assert.match(flshProblem({ ...d, models: [{ ...NEW_MODEL, model: "vendor/model" }] }), /provider:model/);
   assert.match(flshProblem({ ...d, models: [...d.models, { ...NEW_MODEL, model: "openrouter:vendor/model" }] }), /twice/);
