@@ -553,7 +553,10 @@ async fn the_views_file_is_written_at_most_every_thirty_seconds() {
     tokio::spawn(keep(rig.mirror.watch(), move |rows| {
         let _ = saved.send(rows.to_vec());
     }));
+    // The task takes the rows it starts from before the first change.
+    tokio::task::yield_now().await;
     let started = Instant::now();
+
     // The first change is written at once.
     rig.mirror.closed(&me.to_string(), &"s1".into());
     let first = next_write(&mut written).await;
