@@ -24,6 +24,7 @@ pub mod files;
 pub mod link;
 
 host! {
+    pub mod actor;
     pub mod machine;
     mod run;
     mod team;
