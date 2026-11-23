@@ -2,7 +2,7 @@
 //! stream that started them, so they outlive the turn; the node keeps at
 //! most `MAX_TASKS` and the last `MAX_LINES` lines of each.
 
-use crate::lock;
+use crate::{actor, lock};
 use crate::{
     machine::provision::spawn_env::{self, Scope},
     run::lines::read_piece,
@@ -29,7 +29,7 @@ use std::{
 use tokio::{
     io::BufReader,
     process::ChildStdout,
-    sync::{mpsc, oneshot, watch},
+    sync::{oneshot, watch},
     task::{JoinError, JoinSet},
     time::{Instant, sleep_until, timeout},
 };
@@ -155,7 +155,7 @@ struct Gate {
 }
 
 struct Started {
-    commands: mpsc::Sender<Start>,
+    commands: actor::Sender<Start>,
     _task: AbortOnDropHandle<()>,
 }
 
@@ -176,6 +176,12 @@ struct Start {
     cwd: Option<String>,
     limit: Option<Duration>,
     reply: oneshot::Sender<Reply>,
+}
+
+impl From<&Start> for &'static str {
+    fn from(_: &Start) -> Self {
+        "Start"
+    }
 }
 
 /// Where a run of the node starts numbering tasks: from the clock, so a
@@ -322,9 +328,9 @@ impl Tasks {
     /// The actor's mailbox, starting the actor the first time. The actor
     /// runs on the runtime that sends the first command, which is the only
     /// one in the node; it stops answering if that runtime ends.
-    fn commands(&self) -> &mpsc::Sender<Start> {
+    fn commands(&self) -> &actor::Sender<Start> {
         let started = self.actor.get_or_init(|| {
-            let (commands, mailbox) = mpsc::channel(MAILBOX);
+            let (commands, mailbox) = actor::channel("tasks", MAILBOX);
             let actor = Actor {
                 last: first_id(),
                 jobs: Vec::new(),
@@ -364,11 +370,11 @@ struct Actor {
 }
 
 impl Actor {
-    async fn run(mut self, mut mailbox: mpsc::Receiver<Start>) {
+    async fn run(mut self, mut mailbox: actor::Receiver<Start>) {
         loop {
             tokio::select! {
                 start = mailbox.recv() => match start {
-                    Some(start) => self.start(start),
+                    Some((start, _timing)) => self.start(start),
                     None => return,
                 },
                 Some(spawned) = self.spawning.join_next() => self.spawned(spawned),
@@ -413,7 +419,7 @@ impl Actor {
                 .as_ref()
                 .map(PathBuf::from)
                 .or_else(dirs::home_dir);
-            let process = spawn(&start.command, cwd);
+            let process = actor::job_blocking("tasks", "spawn", || spawn(&start.command, cwd));
             Spawned { start, process }
         });
     }

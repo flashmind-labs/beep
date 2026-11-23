@@ -186,15 +186,27 @@ impl Drop for Handling {
 pub async fn job<T>(actor: &'static str, job: &'static str, work: impl Future<Output = T>) -> T {
     let started = Instant::now();
     let done = work.await;
-    let took = started.elapsed();
+    record_job(actor, job, started.elapsed());
+
+    done
+}
+
+/// `job` for work that blocks its thread, run inside `spawn_blocking`.
+pub fn job_blocking<T>(actor: &'static str, job: &'static str, work: impl FnOnce() -> T) -> T {
+    let started = Instant::now();
+    let done = work();
+    record_job(actor, job, started.elapsed());
+
+    done
+}
+
+fn record_job(actor: &'static str, job: &'static str, took: Duration) {
     metrics::histogram!("beep_actor_job_seconds", "actor" => actor, "job" => job)
         .record(took.as_secs_f64());
 
     if took >= SLOW_JOB {
         tracing::info!(actor, job, took_ms = took.as_millis(), "slow actor job");
     }
-
-    done
 }
 
 #[cfg(test)]
