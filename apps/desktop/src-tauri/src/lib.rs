@@ -585,6 +585,13 @@ fn quit(app: &AppHandle) {
     hide_windows(app);
     // The size of a project window still open.
     app.state::<Prefs>().save();
+    // The sessions as they stand now, for the next start.
+    fleet::session_mirror::save(
+        app.state::<Arc<center::view_cache::ViewCache>>().inner(),
+        &app.state::<Arc<fleet::session_mirror::SessionMirror>>()
+            .current()
+            .sessions(),
+    );
     let claude = app
         .state::<agents::accounts::ClaudeSignIn>()
         .stop_and_wait();
@@ -805,7 +812,10 @@ fn setup(
             fleet::session_mirror::kept(&cache),
         )
     });
-    tauri::async_runtime::spawn(fleet::session_mirror::keep(mirror.watch(), cache));
+    let kept = cache.clone();
+    tauri::async_runtime::spawn(fleet::session_mirror::keep(mirror.watch(), move |rows| {
+        fleet::session_mirror::save(&kept, rows)
+    }));
     app.manage(Arc::new(mirror));
     app.manage(projects::live::Followed::default());
     app.manage(settings::gh_sign_in::GhSignIn::default());

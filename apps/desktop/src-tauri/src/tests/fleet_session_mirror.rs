@@ -35,6 +35,10 @@ impl Outside for Fake {
         self.online.lock().unwrap().clone()
     }
 
+    fn me(&self) -> EndpointId {
+        mac()
+    }
+
     fn members(&self) -> Option<HashSet<EndpointId>> {
         self.members.lock().unwrap().clone()
     }
@@ -76,6 +80,20 @@ fn rig(online: Vec<EndpointId>, kept: Vec<MachineSession>) -> Rig {
         asks: asked,
         drawn: told,
     }
+}
+
+/// This Mac, as the fake outside names it.
+fn mac() -> EndpointId {
+    machine(0)
+}
+
+/// The next question to a machine; a test that waits for one that never
+/// comes fails instead of hanging.
+async fn next(asks: &mut mpsc::UnboundedReceiver<Ask>) -> Ask {
+    timeout(Duration::from_secs(5), asks.recv())
+        .await
+        .expect("a machine is asked")
+        .expect("the mirror runs")
 }
 
 fn machine(seed: u8) -> EndpointId {
@@ -126,9 +144,13 @@ fn ids(rows: &Rows, machine: EndpointId) -> Vec<String> {
 
 async fn rows_where(mirror: &SessionMirror, ready: impl Fn(&Rows) -> bool) -> Arc<Rows> {
     let mut rows = mirror.watch();
-    watched::wait_for(&mut rows, |rows| ready(rows))
-        .await
-        .expect("the mirror runs");
+    timeout(
+        Duration::from_secs(5),
+        watched::wait_for(&mut rows, |rows| ready(rows)),
+    )
+    .await
+    .expect("the rows come")
+    .expect("the mirror runs");
     watched::read(&rows, Arc::clone)
 }
 
@@ -142,7 +164,7 @@ async fn one_machines_answer_replaces_only_its_rows() {
     let mut rig = rig(vec![a, b], kept);
 
     rig.mirror.changed(a);
-    let ask = rig.asks.recv().await.unwrap();
+    let ask = next(&mut rig.asks).await;
     assert_eq!(ask.machine, a);
     ask.reply
         .send(Some(vec![session(a, "a2", AgentStatus::Running {})]))
@@ -211,7 +233,7 @@ async fn a_machine_absent_from_the_first_listing_keeps_its_kept_rows() {
     // A read lists and scans the one online machine.
     rig.mirror.rows();
     for _ in 0..2 {
-        let ask = rig.asks.recv().await.unwrap();
+        let ask = next(&mut rig.asks).await;
         assert_eq!(ask.machine, a);
         let found = if ask.scan {
             Vec::new()
@@ -233,13 +255,13 @@ async fn two_changes_while_a_listing_runs_cause_one_more_listing() {
     let mut rig = rig(vec![a], Vec::new());
 
     rig.mirror.changed(a);
-    let first = rig.asks.recv().await.unwrap();
+    let first = next(&mut rig.asks).await;
     rig.mirror.changed(a);
     rig.mirror.changed(a);
     first.reply.send(Some(Vec::new())).unwrap();
     assert_eq!(rig.drawn.recv().await, Some(Drawn::Pushed(a)));
 
-    let second = rig.asks.recv().await.unwrap();
+    let second = next(&mut rig.asks).await;
     second.reply.send(Some(Vec::new())).unwrap();
     assert_eq!(rig.drawn.recv().await, Some(Drawn::Pushed(a)));
     // The lists that ask the machine themselves hear once, when the chain ends.
@@ -257,9 +279,9 @@ async fn a_machine_that_does_not_answer_is_asked_again_and_keeps_its_rows() {
     let mut rig = rig(vec![a], vec![session(a, "a1", AgentStatus::Running {})]);
 
     rig.mirror.changed(a);
-    rig.asks.recv().await.unwrap().reply.send(None).unwrap();
+    next(&mut rig.asks).await.reply.send(None).unwrap();
     // The pause passes on the paused clock.
-    let again = rig.asks.recv().await.unwrap();
+    let again = next(&mut rig.asks).await;
     again
         .reply
         .send(Some(vec![session(a, "a2", AgentStatus::Running {})]))
@@ -329,7 +351,7 @@ async fn an_answer_during_a_listing_does_not_come_back() {
     let mut rig = rig(vec![a], vec![asking.clone()]);
 
     rig.mirror.changed(a);
-    let first = rig.asks.recv().await.unwrap();
+    let first = next(&mut rig.asks).await;
     rig.mirror.answered(&a.to_string(), &"s1".into(), Some(7));
     rows_where(&rig.mirror, |rows| {
         rows.iter().all(|row| row.question.is_none())
@@ -338,7 +360,7 @@ async fn an_answer_during_a_listing_does_not_come_back() {
     // The machine answered before it heard of the answer.
     first.reply.send(Some(vec![asking])).unwrap();
 
-    let second = rig.asks.recv().await.unwrap();
+    let second = next(&mut rig.asks).await;
     second
         .reply
         .send(Some(vec![session(a, "s1", AgentStatus::Working {})]))
@@ -376,7 +398,7 @@ fn a_machine_that_is_off_shows_no_rows_until_it_is_back() {
 #[tokio::test]
 async fn a_machine_that_left_the_mesh_is_dropped_from_the_rows() {
     let (a, b) = (machine(1), machine(2));
-    let rig = rig(
+    let mut rig = rig(
         vec![],
         vec![
             session(a, "a1", AgentStatus::Running {}),
@@ -384,9 +406,13 @@ async fn a_machine_that_left_the_mesh_is_dropped_from_the_rows() {
         ],
     );
 
-    // Until the mesh opens nothing is dropped.
+    // Until the mesh opens nothing is dropped: the read came before the
+    // change, whose listing starts only after the mirror took the read.
     rig.mirror.rows();
+    rig.mirror.changed(a);
+    let ask = next(&mut rig.asks).await;
     assert_eq!(rig.mirror.rows().iter().count(), 2);
+    drop(ask);
 
     *rig.members.lock().unwrap() = Some(HashSet::from([a]));
     rig.mirror.rows();
@@ -401,16 +427,41 @@ async fn every_caller_of_the_launch_waits_for_this_macs_first_listing() {
     let mut rig = rig(vec![me], Vec::new());
 
     let driver = async {
-        let ask = rig.asks.recv().await.unwrap();
+        let ask = next(&mut rig.asks).await;
         ask.reply
             .send(Some(vec![session(me, "s1", AgentStatus::Running {})]))
             .unwrap();
     };
-    let (tray, window, ()) =
-        tokio::join!(rig.mirror.rows_live(me), rig.mirror.rows_live(me), driver,);
+    let (tray, window, ()) = tokio::join!(
+        rig.mirror.launch_rows(me, true),
+        rig.mirror.launch_rows(me, true),
+        driver,
+    );
 
     assert!(tray.live(me));
     assert!(window.live(me));
+}
+
+#[tokio::test(start_paused = true)]
+async fn callers_stop_waiting_for_this_mac_at_the_end_of_the_launch_wait() {
+    let me = machine(1);
+    let mut rig = rig(vec![me], Vec::new());
+    let started = Instant::now();
+
+    let hold = async { next(&mut rig.asks).await };
+    let (tray, window, _unanswered) = tokio::join!(
+        rig.mirror.launch_rows(me, true),
+        rig.mirror.launch_rows(me, true),
+        hold,
+    );
+
+    assert!(!tray.live(me) && !window.live(me));
+    assert_eq!(started.elapsed(), LOCAL_WAIT);
+
+    // A caller after the wait does not wait at all.
+    let late = Instant::now();
+    rig.mirror.launch_rows(me, true).await;
+    assert_eq!(late.elapsed(), Duration::ZERO);
 }
 
 #[tokio::test(start_paused = true)]
@@ -422,7 +473,7 @@ async fn at_most_four_machines_are_listed_at_once() {
     // Four listings and four scans start, the rest wait for a slot.
     let (mut lists, mut scans) = (Vec::new(), Vec::new());
     for _ in 0..8 {
-        let ask = rig.asks.recv().await.unwrap();
+        let ask = next(&mut rig.asks).await;
         // An ask left unanswered holds its slot; a dropped one frees it.
         if ask.scan {
             scans.push(ask);
@@ -435,19 +486,105 @@ async fn at_most_four_machines_are_listed_at_once() {
     assert!(rig.asks.try_recv().is_err());
 
     lists.pop().unwrap().reply.send(None).unwrap();
-    assert!(!rig.asks.recv().await.unwrap().scan);
+    assert!(!next(&mut rig.asks).await.scan);
+}
+
+#[tokio::test(start_paused = true)]
+async fn this_macs_listing_does_not_wait_for_a_free_slot() {
+    let others: Vec<EndpointId> = (1..=5).map(machine).collect();
+    let mut online = others.clone();
+    online.push(mac());
+    let mut rig = rig(online, Vec::new());
+
+    rig.mirror.rows();
+    let mut held = Vec::new();
+    let mut mine = false;
+    for _ in 0..10 {
+        let ask = next(&mut rig.asks).await;
+        mine |= ask.machine == mac() && !ask.scan;
+        held.push(ask);
+    }
+
+    // Four remote machines hold the slots, a fifth waits, this Mac asked anyway.
+    assert!(mine);
 }
 
 #[test]
-fn the_views_file_takes_rows_that_differ_in_what_is_drawn() {
+fn the_views_file_takes_every_field_but_the_last_activity() {
     let me = machine(1);
     let old = vec![session(me, "s1", AgentStatus::Running {})];
-    let mut moved = old.clone();
-    moved[0].last_activity = UNIX_EPOCH + Duration::from_secs(5);
-    let mut ended = old.clone();
-    ended[0].status = AgentStatus::Ended {};
+    let changed = |change: fn(&mut MachineSession)| {
+        let mut new = old.clone();
+        change(&mut new[0]);
+        kept_between(&old, &new)
+    };
 
-    assert!(!drawn_between(&old, &moved));
-    assert!(drawn_between(&old, &ended));
-    assert!(drawn_between(&old, &[]));
+    assert!(!changed(
+        |row| row.last_activity = UNIX_EPOCH + Duration::from_secs(5)
+    ));
+    assert!(changed(|row| row.title = Some("Fix the build".into())));
+    assert!(changed(|row| row.cwd = "/srv/other".into()));
+    assert!(changed(|row| row.status = AgentStatus::Ended {}));
+    assert!(kept_between(&old, &[]));
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_views_file_is_written_at_most_every_thirty_seconds() {
+    let me = machine(1);
+    let rig = rig(
+        vec![me],
+        vec![
+            external(me, "s1", AgentStatus::Running {}),
+            external(me, "s2", AgentStatus::Running {}),
+        ],
+    );
+    let (saved, mut written) = mpsc::unbounded_channel();
+    tokio::spawn(keep(rig.mirror.watch(), move |rows| {
+        let _ = saved.send(rows.to_vec());
+    }));
+    let started = Instant::now();
+    let next_write = |written: &mut mpsc::UnboundedReceiver<Vec<MachineSession>>| {
+        let written = written.recv();
+        async move {
+            timeout(KEEP_EVERY * 2, written)
+                .await
+                .expect("the rows are written")
+                .expect("the mirror runs")
+        }
+    };
+
+    // The first change is written at once.
+    rig.mirror.closed(&me.to_string(), &"s1".into());
+    let first = next_write(&mut written).await;
+    assert!(
+        first
+            .iter()
+            .any(|row| row.id == "s1" && row.status == AgentStatus::Ended {})
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
+
+    // One inside the window waits for the end of it, and is still written.
+    sleep(Duration::from_secs(10)).await;
+    rig.mirror.reported(
+        &me.to_string(),
+        &ExternalSession {
+            id: "s2".into(),
+            agent: "claude".into(),
+            presence: Presence::Waiting,
+            ..ExternalSession::default()
+        },
+    );
+    rows_where(&rig.mirror, |rows| {
+        rows.iter().any(|row| row.status == AgentStatus::Waiting {})
+    })
+    .await;
+    assert!(written.try_recv().is_err());
+
+    let second = next_write(&mut written).await;
+    assert!(
+        second
+            .iter()
+            .any(|row| row.id == "s2" && row.status == AgentStatus::Waiting {})
+    );
+    assert!(started.elapsed() >= KEEP_EVERY);
 }

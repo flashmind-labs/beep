@@ -22,16 +22,18 @@ use beep_proto::{
     },
     watched,
 };
+use futures::FutureExt;
 use iroh::EndpointId;
 use std::{
     collections::{HashMap, HashSet},
     future::Future,
+    panic::AssertUnwindSafe,
     sync::Arc,
     time::{Duration, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::{
-    sync::{Semaphore, mpsc, watch},
+    sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch},
     task::JoinSet,
     time::{Instant, sleep, timeout},
 };
@@ -106,6 +108,11 @@ impl Rows {
         self.iter_of(None)
     }
 
+    /// Every row, for the views file.
+    pub(crate) fn sessions(&self) -> Vec<MachineSession> {
+        self.iter().cloned().collect()
+    }
+
     /// The rows of `shown` machines only; of every machine when `None`.
     pub(crate) fn iter_of<'a>(
         &'a self,
@@ -134,6 +141,8 @@ impl Rows {
 pub(crate) trait Outside: Send + Sync + 'static {
     /// The machines of the mesh that are online now, this Mac among them.
     fn online(&self) -> Vec<EndpointId>;
+    /// This Mac, whose listing and scan wait for no free slot.
+    fn me(&self) -> EndpointId;
     /// The machines of the mesh, this Mac among them; `None` until the mesh opens.
     fn members(&self) -> Option<HashSet<EndpointId>>;
     /// Beep's sessions on `machine`; `None` when it did not answer.
@@ -241,10 +250,6 @@ impl SessionMirror {
         self.current()
     }
 
-    fn current(&self) -> Arc<Rows> {
-        watched::read(&self.rows, Arc::clone)
-    }
-
     /// As `rows`, once `ready` holds of them or `wait` has passed.
     pub(crate) async fn rows_when(
         &self,
@@ -263,25 +268,33 @@ impl SessionMirror {
     /// the launch each caller waits for this Mac's node to list, then they
     /// are as they stand.
     pub(crate) async fn rows_of_launch(&self, fleet: &Fleet) -> Arc<Rows> {
-        if self.started.elapsed() >= LOCAL_WAIT {
+        let me = fleet.id();
+        // Without the mesh open this Mac is not online yet; the mesh gets no
+        // longer than the wait.
+        let open = timeout(self.launch_left(), fleet.ready()).await.is_ok();
+
+        self.launch_rows(me, open && fleet.online().contains(&me))
+            .await
+    }
+
+    /// The rows once this Mac listed, if it is `online`, or `LOCAL_WAIT`
+    /// after the launch.
+    async fn launch_rows(&self, me: EndpointId, online: bool) -> Arc<Rows> {
+        if !online {
             return self.rows();
         }
 
-        let me = fleet.id();
-        // Without the mesh open this Mac is not online yet.
-        let _ = fleet.ready().await;
-
-        if fleet.online().contains(&me) {
-            return self.rows_live(me).await;
-        }
-
-        self.rows()
+        self.rows_when(|rows| rows.live(me), self.launch_left())
+            .await
     }
 
-    /// The rows once `machine` listed, or `LOCAL_WAIT` after the launch.
-    async fn rows_live(&self, machine: EndpointId) -> Arc<Rows> {
-        let left = LOCAL_WAIT.saturating_sub(self.started.elapsed());
-        self.rows_when(|rows| rows.live(machine), left).await
+    fn launch_left(&self) -> Duration {
+        LOCAL_WAIT.saturating_sub(self.started.elapsed())
+    }
+
+    /// The rows as they stand, without a read.
+    pub(crate) fn current(&self) -> Arc<Rows> {
+        watched::read(&self.rows, Arc::clone)
     }
 
     /// A subscription to the rows, for what follows them.
@@ -400,10 +413,7 @@ impl<O: Outside> Actor<O> {
                 Some(done) = self.tasks.join_next() => match done {
                     Ok(message) => message,
                     Err(e) => {
-                        // Its machine is asked again by the next read.
                         log::warn!("asking a machine for its sessions stopped: {e}");
-                        self.relisting.clear();
-                        self.scanning.clear();
                         continue;
                     }
                 },
@@ -550,12 +560,16 @@ impl<O: Outside> Actor<O> {
                 sleep(after).await;
             }
 
-            // The semaphore lives as long as the actor, so this holds a slot or the task ends.
-            let _slot = slots.acquire_owned().await;
+            let _slot = slot(&slots, outside.me() == machine).await;
+            // A panic is an answer that did not come: the machine is asked again.
+            let rows = AssertUnwindSafe(outside.list(machine)).catch_unwind().await;
 
             Message::Listed {
                 machine,
-                rows: outside.list(machine).await,
+                rows: rows.unwrap_or_else(|_| {
+                    log::warn!("listing the sessions of {machine} panicked");
+                    None
+                }),
             }
         });
     }
@@ -567,11 +581,15 @@ impl<O: Outside> Actor<O> {
 
         let (outside, slots) = (self.outside.clone(), self.scan_slots.clone());
         self.tasks.spawn(async move {
-            let _slot = slots.acquire_owned().await;
+            let _slot = slot(&slots, outside.me() == machine).await;
+            let rows = AssertUnwindSafe(outside.scan(machine)).catch_unwind().await;
 
             Message::Scanned {
                 machine,
-                rows: outside.scan(machine).await,
+                rows: rows.unwrap_or_else(|_| {
+                    log::warn!("scanning {machine} panicked");
+                    None
+                }),
             }
         });
     }
@@ -698,6 +716,16 @@ impl<O: Outside> Actor<O> {
     }
 }
 
+/// A free slot among the machines asked at once; this Mac's node needs none.
+async fn slot(slots: &Arc<Semaphore>, mine: bool) -> Option<OwnedSemaphorePermit> {
+    if mine {
+        return None;
+    }
+
+    // The semaphore lives as long as the actor, so this holds a slot or the task ends.
+    slots.clone().acquire_owned().await.ok()
+}
+
 fn is(row: &MachineSession, machine_id: &str, session: &SessionId) -> bool {
     row.machine_id == machine_id && row.id == *session
 }
@@ -775,6 +803,10 @@ pub(crate) struct Desk {
 impl Outside for Desk {
     fn online(&self) -> Vec<EndpointId> {
         self.fleet.online()
+    }
+
+    fn me(&self) -> EndpointId {
+        self.fleet.id()
     }
 
     fn members(&self) -> Option<HashSet<EndpointId>> {
@@ -862,11 +894,19 @@ pub(crate) fn kept(cache: &ViewCache) -> Vec<MachineSession> {
     }
 }
 
-/// Keeps the rows in `cache` for the next start, when what the windows draw
-/// of them changed and `KEEP_EVERY` has passed since the last write.
-pub(crate) async fn keep(mut rows: watch::Receiver<Arc<Rows>>, cache: Arc<ViewCache>) {
-    let all = |rows: &Rows| rows.iter().cloned().collect::<Vec<MachineSession>>();
-    let mut saved = watched::read(&rows, |rows| all(rows));
+/// Keeps `rows` in `cache` for the next start.
+pub(crate) fn save(cache: &Arc<ViewCache>, rows: &[MachineSession]) {
+    cache_view(cache, View::AgentSessions, &rows);
+}
+
+/// Hands `save` the rows for the next start, when what they hold changed
+/// and `KEEP_EVERY` has passed since the last time. The app saves them
+/// again when it quits.
+pub(crate) async fn keep(
+    mut rows: watch::Receiver<Arc<Rows>>,
+    mut save: impl FnMut(&[MachineSession]),
+) {
+    let mut saved = watched::read(&rows, |rows| rows.sessions());
     let mut at: Option<Instant> = None;
 
     while rows.changed().await.is_ok() {
@@ -874,18 +914,19 @@ pub(crate) async fn keep(mut rows: watch::Receiver<Arc<Rows>>, cache: Arc<ViewCa
             sleep((at + KEEP_EVERY).saturating_duration_since(Instant::now())).await;
         }
 
-        let now = watched::read_and_update(&mut rows, |rows| all(rows));
+        let now = watched::read_and_update(&mut rows, |rows| rows.sessions());
 
-        if drawn_between(&saved, &now) {
-            cache_view(&cache, View::AgentSessions, &now);
+        if kept_between(&saved, &now) {
+            save(&now);
             saved = now;
             at = Some(Instant::now());
         }
     }
 }
 
-/// Whether two lists of rows differ in what the windows draw.
-fn drawn_between(old: &[MachineSession], new: &[MachineSession]) -> bool {
+/// Whether two lists of rows differ in what the next start shows: every field
+/// but the time of the last activity, which moves with every report.
+fn kept_between(old: &[MachineSession], new: &[MachineSession]) -> bool {
     let old: HashMap<_, _> = old
         .iter()
         .map(|row| ((&row.machine_id, &row.id), row))
@@ -893,8 +934,11 @@ fn drawn_between(old: &[MachineSession], new: &[MachineSession]) -> bool {
 
     old.len() != new.len()
         || new.iter().any(|row| {
-            old.get(&(&row.machine_id, &row.id))
-                .is_none_or(|old| !same(old, row))
+            old.get(&(&row.machine_id, &row.id)).is_none_or(|old| {
+                let mut row = row.clone();
+                row.last_activity = old.last_activity;
+                row != **old
+            })
         })
 }
 
