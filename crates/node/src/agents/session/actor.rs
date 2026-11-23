@@ -423,6 +423,11 @@ impl Actor {
 
         if closed && by_user {
             let info = watched::read_sent(&self.live, |live| live.info.clone());
+            // A throwaway copy the session started in goes with it.
+            let trees = info.worktrees.clone();
+            if let Err(e) = spawn_blocking(move || crate::agents::checkout::remove_copies(&trees)).await {
+                log::warn!("could not remove the session's copies: {e}");
+            }
             let removed =
                 spawn_blocking(move || crate::agents::uploads::remove(&info.agent, &info.id)).await;
             if let Err(e) = removed.unwrap_or_else(|e| Err(e.into())) {

@@ -6,7 +6,7 @@ use super::{folder, worktrees};
 use crate::agents::found;
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::{
-    CheckoutPlan, prompt_branch, valid_branch, valid_ref, worktree_path,
+    COPY_PREFIX, CheckoutPlan, prompt_branch, valid_branch, valid_ref, worktree_path,
 };
 use std::{
     fs::{self, OpenOptions},
@@ -72,6 +72,8 @@ pub(super) enum Start {
     OwnWorktree,
     /// An existing branch, in a worktree made for it now.
     AddedWorktree,
+    /// A throwaway copy of the work in `base`, its worktree detached.
+    Copy,
 }
 
 /// What a checkout plan made.
@@ -106,6 +108,7 @@ impl Made {
             Start::AddedWorktree => {
                 format!("Started on the branch {branch}, in a new worktree {folder}.")
             }
+            Start::Copy => format!("Started in a throwaway copy of {base}, at {folder}."),
         }
     }
 
@@ -126,6 +129,12 @@ impl Made {
             Start::OwnWorktree => format!(
                 "This session works on the branch {branch} in its worktree {folder}. \
                 Work and commit there."
+            ),
+            Start::Copy => format!(
+                "Beep made {folder} for this session: a throwaway copy of the work in {}, \
+                with its uncommitted changes and untracked files. Work only in the copy and \
+                change nothing in {}. Beep removes the copy when this session closes.",
+                self.base, self.base
             ),
         }
     }
@@ -264,6 +273,7 @@ pub(super) fn make(dir: &Path, plan: &CheckoutPlan, prompt: &str) -> Result<Made
         CheckoutPlan::NewWorktree { .. } => new_worktree(&at, base, &prompt_branch(prompt)),
         CheckoutPlan::NamedWorktree { branch, .. } => new_worktree(&at, base, branch),
         CheckoutPlan::BranchWorktree { branch } => branch_worktree(&at, branch),
+        CheckoutPlan::CopyWorktree => copy_worktree(&at),
         _ => bail!("this beep-node cannot make that checkout"),
     }
 }
@@ -289,6 +299,107 @@ fn new_worktree(at: &Checkout, base: &str, first: &str) -> Result<Made> {
         start: Start::NewWorktree,
         added: Some(tree),
     })
+}
+
+/// A throwaway copy of the worktree `at` is in: a detached worktree on its
+/// `HEAD` in `.worktrees/`, named with [`COPY_PREFIX`], with its uncommitted
+/// changes applied and its untracked files copied. A failed copy is removed.
+fn copy_worktree(at: &Checkout) -> Result<Made> {
+    let start = start_point(&at.top, "HEAD")?;
+    let tree = (1..=MAX_NAMES)
+        .map(|n| at.root.join(".worktrees").join(format!("{COPY_PREFIX}{n}")))
+        .find(|tree| !tree.exists())
+        .context("every name for a copy is taken")?;
+    let path = tree
+        .to_str()
+        .context("the checkout's folder is not UTF-8")?;
+    git(
+        &at.top,
+        &["worktree", "add", "--quiet", "--detach", path, &start],
+    )?;
+
+    if let Err(e) = copy_work(&at.top, &tree) {
+        let _ = git(&at.top, &["worktree", "remove", "--force", path]);
+        return Err(e);
+    }
+
+    exclude_worktrees(&at.root)?;
+    Ok(Made {
+        folder: at.inside(tree.clone()),
+        branch: String::new(),
+        base: at.top.display().to_string(),
+        start: Start::Copy,
+        added: Some(tree),
+    })
+}
+
+/// Brings the uncommitted changes and untracked files of the worktree at
+/// `top` into `copy`, which is on the same commit.
+fn copy_work(top: &Path, copy: &Path) -> Result<()> {
+    let diff = crate::run::process::background_command("git")
+        .args(["diff", "HEAD", "--binary"])
+        .current_dir(top)
+        .stdin(Stdio::null())
+        .output()
+        .context("running git diff")?;
+    ensure!(diff.status.success(), "git diff failed: {}", String::from_utf8_lossy(&diff.stderr).trim());
+
+    if !diff.stdout.is_empty() {
+        let mut apply = crate::run::process::background_command("git")
+            .args(["apply", "--whitespace=nowarn"])
+            .current_dir(copy)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("running git apply")?;
+        apply
+            .stdin
+            .take()
+            .context("git apply's input")?
+            .write_all(&diff.stdout)
+            .context("handing git apply the changes")?;
+        let applied = apply.wait_with_output().context("running git apply")?;
+        ensure!(applied.status.success(), "git apply failed: {}", String::from_utf8_lossy(&applied.stderr).trim());
+    }
+
+    let untracked = git(top, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    for name in untracked.split('\0').filter(|name| !name.is_empty()) {
+        let (from, to) = (top.join(name), copy.join(name));
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("making {}", parent.display()))?;
+        }
+        if fs::symlink_metadata(&from).is_ok_and(|meta| meta.is_file()) {
+            fs::copy(&from, &to).with_context(|| format!("copying {}", from.display()))?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Removes the throwaway copies among `trees`, the worktrees a session
+/// made; its other worktrees stay. Logs what it cannot remove.
+pub(super) fn remove_copies(trees: &[String]) {
+    for tree in trees.iter().map(Path::new).filter(|tree| is_copy(tree)) {
+        let Some(main) = tree.parent().and_then(Path::parent) else {
+            continue;
+        };
+        let Some(path) = tree.to_str() else { continue };
+
+        if let Err(e) = git(main, &["worktree", "remove", "--force", path]) {
+            log::warn!("could not remove the copy {path}: {e:#}");
+        }
+    }
+}
+
+/// Whether `tree` is a copy [`copy_worktree`] made: named with
+/// [`COPY_PREFIX`] in a `.worktrees` folder.
+fn is_copy(tree: &Path) -> bool {
+    tree.parent().and_then(Path::file_name).is_some_and(|dir| dir == ".worktrees")
+        && tree
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with(COPY_PREFIX))
 }
 
 /// The existing `branch`: in the worktree that has it checked out, else in
@@ -701,5 +812,31 @@ pub(super) mod tests {
         );
         let error = make(&clone, &plan("nope"), "go").expect_err("no such branch");
         assert!(format!("{error:#}").contains("no branch nope"), "{error:#}");
+    }
+
+    #[test]
+    fn a_copy_carries_the_work_and_goes_alone() {
+        let (_dir, work) = repo("copy");
+        let work = paths::canonicalize(&work).expect("the work folder");
+        fs::write(work.join("README.md"), "changed\n").expect("a change");
+        fs::create_dir_all(work.join("src/new")).expect("a folder");
+        fs::write(work.join("src/new/file.rs"), "new\n").expect("an untracked file");
+        let other = make(&work, &CheckoutPlan::NewWorktree { base: None }, "keep me").expect("a worktree");
+
+        let made = make(&work.join("src"), &CheckoutPlan::CopyWorktree, "go").expect("the copy");
+        let copy = work.join(".worktrees/beep-copy-1");
+        assert_eq!(made.start, Start::Copy);
+        assert_eq!(made.folder, copy.join("src"), "the same subfolder");
+        assert_eq!(fs::read_to_string(copy.join("README.md")).unwrap(), "changed\n");
+        assert_eq!(fs::read_to_string(copy.join("src/new/file.rs")).unwrap(), "new\n");
+        assert_eq!(current(&copy), "", "detached");
+        assert_eq!(fs::read_to_string(work.join("README.md")).unwrap(), "changed\n", "the work stays");
+        assert!(made.brief().contains("throwaway copy"));
+
+        let trees = [made.added, other.added].map(|tree| tree.unwrap().to_str().unwrap().to_owned());
+        remove_copies(&trees);
+        assert!(!copy.exists(), "the copy goes");
+        assert!(Path::new(&trees[1]).exists(), "another worktree stays");
+        assert!(!run(&work, &["worktree", "list"]).contains("beep-copy-1"));
     }
 }

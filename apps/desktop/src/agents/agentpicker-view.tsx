@@ -36,6 +36,8 @@ interface StepPickerProps extends PickerProps {
   modelName: string;
   /// The machines the Machine step lists; null where the machine is fixed.
   machines: readonly MachineRow[] | null;
+  /// Opens on the model step, for the harness picked; Back reaches the earlier steps.
+  onModels: boolean;
   onMachine: (id: string) => void;
   /// The last step was answered: the pick is whole.
   onDone: () => void;
@@ -169,11 +171,11 @@ export function AgentPicker({ picked, model, offered, everywhere, machineName, m
 /// machine where it can change, the harness, the model, then the thinking
 /// level, whose pick starts. A step answered shows along the top; clicking
 /// it asks it again.
-export function StepPicker({ picked, model, modelName, offered, everywhere, machines, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onMachine, onAgent, onModel, onEffort, onFast, onDone, anchor, search }: StepPickerProps) {
+export function StepPicker({ picked, model, modelName, offered, everywhere, machines, onModels, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onMachine, onAgent, onModel, onEffort, onFast, onDone, anchor, search }: StepPickerProps) {
   const name = agentKind(picked.agent).name;
   const levels = effortsOf(picked.agent).filter(level => !model?.efforts?.length || model.efforts.includes(level.value));
   const steps: Step[] = [...(machines ? ["machine" as const] : []), "harness", "model", ...(thinks(picked.agent) ? ["thinking" as const] : [])];
-  const [step, setStep] = useState<Step>(steps[0]);
+  const [step, setStep] = useState<Step>(onModels ? "model" : steps[0]);
   const at = steps.indexOf(step);
   const [lit, setLit] = useState<Lit | null>(null);
   const highlight = lit === null ? -1 : rows.findIndex(row => rowKey(row) === lit.key);

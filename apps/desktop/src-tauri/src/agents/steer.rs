@@ -209,6 +209,10 @@ pub(crate) const BEFORE_ASSISTANT: Version = Version::new(0, 7, 12);
 /// node is the desktop's build and is not held to it.
 pub(crate) const BEFORE_ACCOUNTS: Version = Version::new(0, 8, 4);
 
+/// The last released node, which makes no throwaway copy for a challenger.
+/// This computer's own node is the desktop's build and is not held to it.
+pub(crate) const BEFORE_COPIES: Version = Version::new(0, 8, 15);
+
 /// The last released node, which moves no chat. This computer's own node is
 /// the desktop's build and is not held to it.
 pub(crate) const BEFORE_CHAT_MOVES: Version = Version::new(0, 8, 8);

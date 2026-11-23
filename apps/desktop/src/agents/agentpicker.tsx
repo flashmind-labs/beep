@@ -116,9 +116,10 @@ export interface PickerOpts {
   /// What the model column says without a machine.
   noMachine: string;
   /// The picker under an agent button asks in steps, with the Machine step's
-  /// machines and picking one (`machines` null where the machine is fixed);
+  /// machines and picking one (`machines` null where the machine is fixed),
+  /// opening on the model step for the harness picked when `onModels`;
   /// null for the plain picker.
-  steps: { machines: { rows: readonly MachineRow[]; pick: (id: string) => void } | null } | null;
+  steps: { machines: { rows: readonly MachineRow[]; pick: (id: string) => void } | null; onModels?: boolean } | null;
   /// The pill the picker opens from.
   anchor: () => HTMLElement | null;
   /// After a pick, or once the models are read ("models"); the caller
@@ -191,7 +192,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   };
   const steps = o.steps;
   o.render(steps
-    ? <StepPicker {...props} modelName={modelLabel(own, p.model)} machines={steps.machines?.rows ?? null}
+    ? <StepPicker {...props} modelName={modelLabel(own, p.model)} machines={steps.machines?.rows ?? null} onModels={steps.onModels ?? false}
       onMachine={(id: string) => steps.machines?.pick(id)} onDone={() => o.changed("done")} />
     : <AgentPicker {...props} />);
 }

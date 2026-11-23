@@ -89,6 +89,14 @@ impl Agents {
         self.forget_saved(&indexed);
         spawn_blocking(move || super::uploads::remove(&attachment_agent, &attachment_id)).await??;
 
+        // A throwaway copy the session started in goes with it.
+        let copies: Vec<String> = records
+            .iter()
+            .filter_map(|(key, _)| self.get(key))
+            .flat_map(|session| watched::read(&session.live, |live| live.info.worktrees.clone()))
+            .collect();
+        spawn_blocking(move || super::checkout::remove_copies(&copies)).await?;
+
         {
             let mut sessions = self.lock();
 

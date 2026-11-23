@@ -789,21 +789,38 @@ test("agent report draft on a whole item", async ({ page }) => {
   await expect(page.locator(".rv-bar")).toHaveCount(0);
 });
 
+const challengeHosts = [{ machine_id: machineId, machine_name: machineId, agents: ["codex", "claude"], workspace: folder, home: "/srv", capabilities: [] }];
+const challengeModels = { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }, { id: "beta", name: "Beta", description: null }] };
+
 test("agent report challenged", async ({ page }) => {
   const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }];
-  const challenger = agentRow("challenger-one", "Challenge the report", "working", 0);
-  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries }, agent_begin: { session: challenger, why: "" } });
+  const challenger = { ...agentRow("challenger-one", "Challenge the report", "working", 0), agent: "claude" };
+  const work = `${folder}/.worktrees/beep-fix-login`;
+  await openAgent(page, {
+    agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries }, agent_begin: { session: challenger, why: "" },
+    agent_hosts: challengeHosts, agent_models: challengeModels,
+    agent_worktrees: [{ path: folder, branch: "main", head: "abc1234", own: true, created: false }, { path: work, branch: "beep/fix-login", head: "def5678", own: false, created: true }],
+  });
   const report = page.locator(".dcoderen.report");
 
-  // Challenge starts a fresh agent of the same kind, in the same folder, with the report.
+  // Challenge asks which model, opening on another harness than the session's.
   await report.getByRole("button", { name: "Challenge" }).click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  await expect(picker.locator(".agc-stephead")).toHaveAttribute("data-agstep", "model");
+  await expect(picker.locator(".agc-stephead small")).toHaveText("Claude Code");
+  await baseline(page, "agent-report-challenge-pick");
+  await picker.locator('[data-agmo="beta"]').click();
+  await picker.locator('[data-age=""]').click();
+  await expect(picker).toHaveCount(0);
+
+  // It starts on that pick, in a copy of the worktree the session made, with the report.
   await expect(report.locator(".report-busy")).toContainText("Challenging…");
   const begun = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").map(call => call.args));
-  expect(begun).toEqual([expect.objectContaining({ agent: "codex", cwd: session.cwd, checkout: null })]);
+  expect(begun).toEqual([expect.objectContaining({ agent: "claude", model: "beta", cwd: work, checkout: "copy_worktree" })]);
   expect(String(begun[0].prompt)).toContain("Beep's `challenge` skill");
   await baseline(page, "agent-report-challenging");
 
-  // Finished, its findings wait as drafts on the claims they dispute.
+  // Finished, its findings wait as drafts on the claims they dispute, and its session is closed.
   const found = "Partly done: one claim broke.\n\n## Needs you\n\n1. **[confirmed] Changed 1**\n   > it was dropped when `next` was read.\n   It is still dropped after the old sign-on page.\n   Evidence: `npm test -- sso` failed 1 of 1.";
   await page.evaluate(([row, text]) => {
     window.__navigation.respond("agent_sessions", [{ ...row, status: "idle" }]);
@@ -815,7 +832,31 @@ test("agent report challenged", async ({ page }) => {
   await expect(note).toContainText("Confirmed: It is still dropped after the old sign-on page.");
   await expect(report.locator('.rv-mark[data-ask="finding"]')).toHaveText(["it was dropped when ", "next", " was read."]);
   await expect(page.locator(".rv-bar")).toContainText("1 finding · goes with your next message");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").map(call => call.args))).toContainEqual(expect.objectContaining({ session: "challenger-one", steer: "close" }));
   await baseline(page, "agent-report-challenged");
+});
+
+test("agent report challenger stopped", async ({ page }) => {
+  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }];
+  const challenger = agentRow("challenger-one", "Challenge the report", "working", 0);
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries }, agent_begin: { session: challenger, why: "" }, agent_hosts: challengeHosts, agent_models: challengeModels });
+  const report = page.locator(".dcoderen.report");
+  await report.getByRole("button", { name: "Challenge" }).click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  // Back reaches the harnesses.
+  await picker.getByRole("button", { name: "Back" }).click();
+  await picker.locator('[data-agh="codex"]').click();
+  await picker.locator('[data-agmo="alpha"]').click();
+  await picker.locator('[data-age=""]').click();
+
+  // Stop, next to the spinner, closes the challenger and deletes its session; Challenge comes back.
+  await report.locator(".report-busy").getByRole("button", { name: "Stop" }).click();
+  await expect(report.getByRole("button", { name: "Challenge" })).toBeVisible();
+  const calls = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer" || call.command === "agent_delete").map(call => [call.command, call.args]));
+  expect(calls).toEqual([
+    ["agent_steer", expect.objectContaining({ session: "challenger-one", steer: "close" })],
+    ["agent_delete", { machineId, agent: "codex", session: "challenger-one" }],
+  ]);
 });
 
 test("agent report summarized in place", async ({ page }) => {

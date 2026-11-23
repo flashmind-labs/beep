@@ -262,7 +262,8 @@ body.cbody
                                   span.report-acts
                                     span.report-busy "Challenging…"
                                       span.dspin style(animation-delay)
-                                      button.dbtn.quiet.small [type="button"] "Open"
+                                      button.dbtn.quiet.small [title="Open the challenger's session" type="button"] "Open"
+                                      button.dbtn.quiet.small.warn [title="Stop the challenger and remove its session and copy" type="button"] "Stop"
                                     button.dbtn.quiet.small [data-report-summarize="8" title="Ask the agent for a shorter version of this report" type="button"] "Summarize"
                                 div.reply-body
                                   p.report-headline "The redirect keeps the query string."
@@ -326,7 +327,7 @@ body.cbody
                       button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"]
                         span.cc-ag.codex.mark
                           svg [aria-hidden="true" viewBox="0 0 24 24"]
-                        span.txt "Model unknown"
+                        span.txt "Alpha"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                     button#agstop.dbtn [aria-label="Stop the turn" title="Stop main turn (subagents keep running)" type="button"] style(display;display:none)
                       span.dstopico
@@ -425,7 +426,10 @@ body.cbody
                   div.agpane-content
                     div.agphead
                       div.agtabs [role="tablist"]
-                      span.agwtw [hidden]
+                      span.agwtw
+                        button.agpbtn.agwt [aria-expanded="false" aria-haspopup="menu" title="The worktree Files and Changes show"]
+                          code "main"
+                          span [aria-hidden="true"] "▾"
                       button.agaddterm.agpbtn [data-pact="term" title="New terminal in this folder (⌃`)"] "+ Terminal"
                       button.agpbtn [data-pact="dock" title="Dock these tabs on the right"]
                         span style(display)
@@ -448,7 +452,10 @@ body.cbody
                         i style(display)
                           svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                         span "Changes"
-                    span.agwtw [hidden]
+                    span.agwtw
+                      button.agpbtn.agwt [aria-expanded="false" aria-haspopup="menu" title="The worktree Files and Changes show"]
+                        code "main"
+                        span [aria-hidden="true"] "▾"
                     button.agaddterm.agpbtn [data-pact="term" title="New terminal in this folder (⌃`)"] "+ Terminal"
                     button.agpbtn [data-pact="dock" title="Dock these tabs at the bottom"]
                       span style(display)

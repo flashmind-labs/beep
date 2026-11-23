@@ -28,6 +28,12 @@ pub enum CheckoutPlan {
     /// after fetching `branch` from `origin`. Like `NamedWorktree`, a
     /// node from before it does not read the start.
     BranchWorktree { branch: String },
+    /// A throwaway copy of the work in the checkout: a worktree on its
+    /// `HEAD`, detached, with its uncommitted changes and untracked files
+    /// copied in. The node removes it when the session is closed or
+    /// deleted. Like `NamedWorktree`, a node from before it does not read
+    /// the start.
+    CopyWorktree,
 }
 
 impl CheckoutPlan {
@@ -37,7 +43,7 @@ impl CheckoutPlan {
             Self::NewBranch { base }
             | Self::NewWorktree { base }
             | Self::NamedWorktree { base, .. } => base.as_deref(),
-            Self::BranchWorktree { .. } => None,
+            Self::BranchWorktree { .. } | Self::CopyWorktree => None,
         }
     }
 
@@ -45,7 +51,7 @@ impl CheckoutPlan {
     pub fn branch(&self) -> Option<&str> {
         match self {
             Self::NamedWorktree { branch, .. } | Self::BranchWorktree { branch } => Some(branch),
-            Self::NewBranch { .. } | Self::NewWorktree { .. } => None,
+            Self::NewBranch { .. } | Self::NewWorktree { .. } | Self::CopyWorktree => None,
         }
     }
 }
@@ -108,6 +114,10 @@ pub fn prompt_branch(prompt: &str) -> String {
     let slug = if slug.is_empty() { "agent" } else { &slug };
     format!("beep/{slug}")
 }
+
+/// The folder name a throwaway copy's worktree starts with, in the
+/// checkout's `.worktrees/`.
+pub const COPY_PREFIX: &str = "beep-copy-";
 
 /// Where `branch`'s worktree goes in its checkout: `.worktrees/` and the
 /// name with each `/` as `-`, as the desktop's `worktreeName` and the

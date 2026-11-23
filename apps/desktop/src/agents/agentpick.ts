@@ -300,7 +300,7 @@ export function knownWorktrees(sessions: readonly (SessionAt & { last_activity?:
 /// What `agent_start` sends as `checkout`: the node makes a `beep/<slug>`
 /// branch from `base` (the checkout's HEAD when null), in the checkout or
 /// in a new worktree under `.worktrees/`.
-export type CheckoutPlan = { new_branch: { base: string | null } } | { new_worktree: { base: string | null } };
+export type CheckoutPlan = { new_branch: { base: string | null } } | { new_worktree: { base: string | null } } | "copy_worktree";
 
 /// Whether the pick makes a new branch, so the form asks for its base.
 export function makesBranch(pick: CheckoutPick): boolean {

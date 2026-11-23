@@ -4,7 +4,9 @@
 
 use super::Fleet;
 use crate::{
-    agents::steer::{BEFORE_ACCOUNTS, BEFORE_ASSISTANT, BEFORE_CHAT_MOVES, newer_than},
+    agents::steer::{
+        BEFORE_ACCOUNTS, BEFORE_ASSISTANT, BEFORE_CHAT_MOVES, BEFORE_COPIES, newer_than,
+    },
     error::{DesktopError, Result},
 };
 use beep_mesh::{
@@ -527,6 +529,16 @@ async fn plan_within(
     {
         return Err(DesktopError::BadRequest(format!(
             "Update Beep on {} to start on the account {account}.",
+            host.machine_name
+        )));
+    }
+
+    if matches!(start.checkout, Some(agent::CheckoutPlan::CopyWorktree))
+        && machine != fleet.id()
+        && !newer_than(fleet.status().version(machine).as_deref(), &BEFORE_COPIES)
+    {
+        return Err(DesktopError::BadRequest(format!(
+            "Update Beep on {} to challenge a report there.",
             host.machine_name
         )));
     }

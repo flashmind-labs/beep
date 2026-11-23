@@ -29,10 +29,10 @@ export interface Challenge {
   findings: number;
 }
 
-/// The message that starts a challenger: the skill to follow, where the
-/// work is, and the report.
-export function challengePrompt(report: string, cwd: string) {
-  return `Challenge the report below, following Beep's \`challenge\` skill: try to prove its claims wrong, in a throwaway copy of the work. Another agent wrote it in a session that runs in \`${cwd}\`; its work is there or in one of that checkout's worktrees.\n\n<report>\n${report.trim()}\n</report>`;
+/// The message that starts a challenger in its copy of the work in `work`:
+/// the skill to follow, and the report.
+export function challengePrompt(report: string, work: string) {
+  return `Challenge the report below, following Beep's \`challenge\` skill: try to prove its claims wrong. Another agent wrote it about its work in \`${work}\`; you run in a throwaway copy of that work.\n\n<report>\n${report.trim()}\n</report>`;
 }
 
 /// The findings in a challenger's report: its Needs you items in the
@@ -54,6 +54,44 @@ export function parseFindings(text: string): Finding[] {
   }
 
   return out;
+}
+
+/// The harness, model and thinking a challenge starts on.
+export interface ChallengeModel {
+  agent: string;
+  /// Empty for the harness's own.
+  model: string;
+  effort: string | null;
+  fast: boolean | null;
+}
+
+/// What the picker opens on, of the harnesses `offered` in preference order:
+/// the last pick while its harness is offered, else another harness than
+/// the challenged session's `own`, so a different model checks the work.
+export function challengeDefault(offered: readonly string[], own: string, last: ChallengeModel | null): ChallengeModel {
+  if (last && offered.includes(last.agent)) return last;
+  return { agent: offered.find(agent => agent !== own) ?? offered[0] ?? own, model: "", effort: null, fast: null };
+}
+
+const PICK_STORAGE = "beep.challengePick";
+
+/// The challenge model picked last, from this machine's storage.
+export function lastChallengeModel(): ChallengeModel | null {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(PICK_STORAGE) ?? "null");
+    if (typeof raw !== "object" || raw === null || !("agent" in raw) || typeof raw.agent !== "string" || !("model" in raw) || typeof raw.model !== "string") return null;
+    const effort = "effort" in raw && typeof raw.effort === "string" ? raw.effort : null;
+    const fast = "fast" in raw && typeof raw.fast === "boolean" ? raw.fast : null;
+    return { agent: raw.agent, model: raw.model, effort, fast };
+  } catch {
+    return null;
+  }
+}
+
+export function keepChallengeModel(pick: ChallengeModel) {
+  try {
+    localStorage.setItem(PICK_STORAGE, JSON.stringify(pick));
+  } catch { /* picked again next time */ }
 }
 
 /// A finding as a review draft on the report at `entry`, which starts `opening`.

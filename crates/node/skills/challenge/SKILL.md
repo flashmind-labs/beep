@@ -9,22 +9,11 @@ Another agent finished a task and wrote a report. Your job is to find where it i
 are not its reviewer for style or taste. You are looking for claims that are false, or that
 its evidence doesn't support.
 
-## Work in a copy
+## Work in the copy
 
-Change nothing in the other agent's checkout. First find where its work is: the folder
-you were started in, or one of its worktrees (`git worktree list`; the files the report names
-tell you which). Then make a throwaway copy of it and work only there:
-
-```sh
-cd <the checkout with the work>
-copy=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.worktrees/challenge-$(date +%s)
-git worktree add --quiet --detach "$copy" HEAD
-git diff HEAD --binary | git -C "$copy" apply --allow-empty
-git ls-files --others --exclude-standard -z | tar --null -T - -cf - | tar -xf - -C "$copy"
-```
-
-When you are done, remove it with `git worktree remove --force "$copy"`, even when you found
-nothing.
+Beep started you in a throwaway copy of the other agent's work: its commit, with its
+uncommitted changes and untracked files. Run and change what you like there, and nothing
+outside it. Beep removes the copy when your session closes.
 
 ## What to check
 
