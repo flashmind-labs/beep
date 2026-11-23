@@ -135,7 +135,7 @@ test("a draft's start opens as a session at once, and the session its machine na
   expect((await calls(page, "agent_begin")).at(-1)).toEqual({ machineId: "build-box", agent: "codex", cwd: "/srv/project", prompt: "Inspect the project", model: null, effort: null, fast: null, checkout: null, images: [], account: null });
   await expect.poll(async () => (await calls(page, "agent_view")).map(args => args.session)).toContain("start:one");
 
-  for (const command of ["agent_start", "agent_follow", "agent_modes", "agent_tasks", "agent_processes", "transcript_kept", "outbox_list"]) {
+  for (const command of ["agent_start", "agent_follow", "agent_modes", "agent_tasks", "transcript_kept", "outbox_list"]) {
     expect(await calls(page, command), command).toEqual([]);
   }
 

@@ -11,6 +11,35 @@ export interface RunningProcess {
   pages: number[];
 }
 
+/// What a session's `processes.<id>` topic pushed: its whole list, or why the node could not make it.
+export type ProcessesValue =
+  | { kind: "list"; processes: RunningProcess[] }
+  | { kind: "failed"; message: string };
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const numbers = (value: unknown): value is number[] => Array.isArray(value) && value.every(n => typeof n === "number");
+
+function isProcess(value: unknown): value is RunningProcess {
+  return isRecord(value) && typeof value.pid === "number" && typeof value.command === "string" && typeof value.started_at === "number"
+    && numbers(value.ports) && typeof value.left_group === "boolean" && typeof value.parent === "number" && numbers(value.pages);
+}
+
+/// Reads the update's JSON, which is the node's `events::Value` as serde writes it: the unit
+/// `"Missing"` when the session has no state, else `{ Sessions: { Processes: { processes } } }`
+/// or `{ Sessions: { Error: { message } } }`; native code sends `{ error }` when the node's read failed.
+/// Null for anything else.
+export function parseProcesses(data: unknown): ProcessesValue | null {
+  if (data === "Missing") return { kind: "list", processes: [] };
+  if (isRecord(data) && typeof data.error === "string") return { kind: "failed", message: data.error };
+  const reply = isRecord(data) && isRecord(data.Sessions) ? data.Sessions : null;
+  if (!reply) return null;
+
+  const listed = isRecord(reply.Processes) ? reply.Processes.processes : null;
+  if (Array.isArray(listed) && listed.every(isProcess)) return { kind: "list", processes: listed };
+
+  return isRecord(reply.Error) && typeof reply.Error.message === "string" ? { kind: "failed", message: reply.Error.message } : null;
+}
+
 /// A row: a command the session started and the processes under it.
 export interface RunningTree { root: RunningProcess; children: RunningProcess[] }
 

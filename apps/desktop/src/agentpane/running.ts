@@ -1,24 +1,27 @@
-// Commands the session left running, following changes while its pane shows.
+// Commands the session left running, as the node pushes them while its pane shows.
 // `RunningPane` in running-view.tsx draws `runningModel`.
 import { createStore } from "zustand";
 import type { RunningActions, RunningModel } from "./running-view.tsx";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { runningTrees, type RunningProcess } from "./running-state.ts";
+import { topic } from "../ui/mesh-events.ts";
+import { TopicValues } from "../ui/topic-values-state.ts";
+import { parseProcesses, runningTrees, type ProcessesValue, type RunningProcess } from "./running-state.ts";
 import { paneSession } from "./media.ts";
 import { draw } from "./media-draw.ts";
 import { viewKey } from "./view-memory.ts";
 import { shellSize, shownDocks } from "./media-layout.ts";
-import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
+import { paneShown } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
-import { AGENT_READ_WAIT_MS, type AgentTask } from "../agents/agents.ts";
+import type { AgentTask } from "../agents/agents.ts";
 import { readError } from "./read.ts";
-import { isStarting } from "../agents/starting-state.ts";
 
-interface ProcessesView { processes: RunningProcess[] }
 let key = "";
 let unfollow: (() => void) | undefined;
+/// The lists of the sessions seen lately, so one shows at once when its conversation opens again.
+const lists = new TopicValues<ProcessesValue>(parseProcesses, 32);
 let list: RunningProcess[] = [];
 let error = "";
+/// Set while `syncSession` takes the kept list, which its caller draws.
+let syncing = false;
 
 /// The background commands the session's agent runs, listed above its
 /// processes with their Stop; the log shows only their count.
@@ -35,7 +38,6 @@ export function paneTasks(state = backgroundTasks.getState()) {
 
 /// What the view draws, for the session the pane shows.
 export const runningModel = createStore<{ model: RunningModel; actions: RunningActions } | null>(() => null);
-const reads = latest();
 const stopping = new Set<number>();
 /// Rows whose whole command shows, by pid.
 const whole = new Set<number>();
@@ -45,42 +47,43 @@ function syncSession() {
   const next = sessionKey(s);
   if (key === next) return;
   key = next;
-  reads.cancel();
   unfollow?.();
-  unfollow = s?.id && !s.external ? subscribeChanges(topic("processes", s.id), { deliver: "latest", receive: readRunning }, { machine: s.machine_id, when: visible, wait: AMBIENT_MS }) : undefined;
+  unfollow = undefined;
   list = [];
   error = "";
   runningModel.setState(null, true);
   stopping.clear();
-  if (s?.id && !s.external) queueMicrotask(() => void readRunning());
+  if (!s?.id || s.external) return;
+
+  // The kept list is applied before this returns, with no draw: the caller draws.
+  syncing = true;
+  unfollow = lists.watch(s.machine_id, topic("processes", s.id), update, visible);
+  syncing = false;
+  if (list.length || error) queueMicrotask(() => { if (key === next) { render(); draw(); } });
+}
+
+/// Takes a pushed list. A node that could not list keeps the last one on screen with the reason.
+function update(value: ProcessesValue) {
+  const count = list.length;
+
+  if (value.kind === "list") {
+    list = value.processes;
+    error = "";
+  } else {
+    error = value.message;
+  }
+
+  if (syncing || !visible()) return;
+  render();
+  if (list.length !== count) draw();
 }
 
 export function runningCount() { syncSession(); return runningTrees(list).length + paneTasks().length; }
 
 const visible = () => paneShown() && shellSize().width > 0 && shownDocks().length > 0;
 
-window.addEventListener("agent-pane-shown", () => void readRunning());
-onShownChange(shown => { if (shown) void readRunning(); }, true);
-
-export async function readRunning() {
-  syncSession();
-  const s = paneSession(), asked = key, count = list.length;
-  if (!s?.id || s.external || isStarting(s.id) || !visible()) return;
-
-  try {
-    const view = await reads.run(invoke<ProcessesView>("agent_processes", { machineId: s.machine_id, session: s.id }, AGENT_READ_WAIT_MS));
-    syncSession();
-    if (view === STALE || key !== asked || !visible()) return;
-    list = view.processes;
-    error = "";
-  } catch (e) {
-    if (key !== asked || !visible()) return;
-    error = readError(e);
-  }
-
-  render();
-  if (list.length !== count) draw();
-}
+// The list changed while the pane was hidden: it draws now.
+window.addEventListener("agent-pane-shown", () => { syncSession(); render(); });
 
 const actions: RunningActions = {
   open: port => void openPort(port),
@@ -115,7 +118,6 @@ async function openPort(port: number) {
 async function stop(pids: number[]) {
   const s = paneSession(), asked = key;
   if (!s) return;
-  reads.cancel();
   for (const pid of pids) stopping.add(pid);
   error = "";
   render();
@@ -127,14 +129,16 @@ async function stop(pids: number[]) {
     await Promise.all(pids.slice(i, i + 4).map(async pid => {
       try {
         await invoke("agent_stop_process", { machineId: s.machine_id, session: s.id, pid });
-        if (key === asked) list = list.filter(p => p.pid !== pid);
+        if (key === asked) {
+          list = list.filter(p => p.pid !== pid);
+          lists.put(s.machine_id, topic("processes", s.id), { kind: "list", processes: list });
+        }
       } catch (e) { failed.push(readError(e)); }
       finally { if (key === asked) stopping.delete(pid); }
     }));
   }
 
   if (key !== asked) return;
-  reads.cancel();
   error = failed.join(" ");
   render();
   draw();
