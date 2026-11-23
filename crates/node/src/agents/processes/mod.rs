@@ -200,6 +200,18 @@ impl Process {
     }
 }
 
+/// What the poll task last published: when it read the table, and its list
+/// or why it could not.
+#[derive(Clone)]
+struct Published {
+    at: Instant,
+    listing: Result<Listing, String>,
+}
+
+/// How old a published list may be and still answer a reader: what a
+/// followed session's polls keep it within.
+const FRESH: Duration = Duration::from_secs(2);
+
 /// A session's processes and ports, as the poll task last saw them.
 #[derive(Clone, PartialEq, Eq)]
 struct Listing {
@@ -210,13 +222,17 @@ struct Listing {
     ours: Vec<Process>,
 }
 
-/// Asks the poll task to read the table now. It answers once the list is published.
-type Poll = oneshot::Sender<Result<(), String>>;
+/// Asks the poll task to read the table now, and the ports too when `scan`.
+/// It answers once the list is published.
+struct Poll {
+    scan: bool,
+    done: oneshot::Sender<Result<(), String>>,
+}
 
 /// What the poll task takes over in `watch`.
 struct Inbox {
     polls: mpsc::Receiver<Poll>,
-    publish: watch::Sender<Option<Listing>>,
+    publish: watch::Sender<Option<Published>>,
 }
 
 /// How many `Poll`s wait for the task.
@@ -229,7 +245,7 @@ pub(super) struct Processes {
     root: AtomicU32,
     polls: mpsc::Sender<Poll>,
     /// `None` until the first poll.
-    published: watch::Receiver<Option<Listing>>,
+    published: watch::Receiver<Option<Published>>,
     inbox: Mutex<Option<Inbox>>,
 }
 
@@ -319,6 +335,7 @@ impl Processes {
 
             loop {
                 let forced = !asked.is_empty();
+                let forced_scan = asked.iter().any(|poll| poll.scan);
                 let age = if forced { Duration::ZERO } else { max_age };
                 let result = processes.refresh(&mut observed, age).await;
                 let followers_now = watched::read_sent(&DEMAND, |demand| *demand);
@@ -326,27 +343,24 @@ impl Processes {
                     .changed_at
                     .is_some_and(|at| at.elapsed() < STARTING);
                 let due = WATCH_PORTS.load(Ordering::Relaxed) && Instant::now() >= ports_due;
-                let scan = forced
+                let scan = forced_scan
                     || due
                     || (starting && followers_now > 0)
                     || followers_now > followers
                     || watched::read_sent(&publish, Option::is_none);
                 followers = followers_now;
 
-                match &result {
-                    Ok(()) => {
-                        if scan {
-                            ports_due = Instant::now() + PORTS;
-                            observed.scan().await;
-                        }
+                let result = result.map_err(|e| format!("{e:#}"));
 
-                        processes.publish(&observed, &publish, &session);
-                    }
-                    Err(e) => log::debug!("could not read session processes: {e:#}"),
+                if result.is_ok() && scan {
+                    ports_due = Instant::now() + PORTS;
+                    observed.scan().await;
                 }
 
-                for done in asked.drain(..) {
-                    let _ = done.send(result.as_ref().map(|_| ()).map_err(|e| format!("{e:#}")));
+                processes.publish(&observed, &result, &publish, &session);
+
+                for poll in asked.drain(..) {
+                    let _ = poll.done.send(result.clone());
                 }
 
                 tokio::select! {
@@ -354,7 +368,13 @@ impl Processes {
                         Some(age) => max_age = age,
                         None => return,
                     },
-                    Some(done) = polls.recv() => asked.push(done),
+                    Some(poll) = polls.recv() => {
+                        asked.push(poll);
+                        // One read answers every poll that is waiting.
+                        while let Ok(poll) = polls.try_recv() {
+                            asked.push(poll);
+                        }
+                    }
                 }
             }
         }))
@@ -364,13 +384,20 @@ impl Processes {
     pub(super) fn set_root(&self, root: u32) {
         self.root.store(root, Ordering::Relaxed);
         // Nobody waits for the answer, and a poll already queued sees the root.
-        let _ = self.polls.try_send(oneshot::channel().0);
+        let _ = self.polls.try_send(Poll {
+            scan: false,
+            done: oneshot::channel().0,
+        });
     }
 
-    /// Has the poll task read the table now, and waits until it published.
-    pub(super) async fn poll(&self) -> anyhow::Result<()> {
+    /// Has the poll task read the table now, and the ports too when `scan`,
+    /// and waits until it published.
+    pub(super) async fn poll(&self, scan: bool) -> anyhow::Result<()> {
         let (done, answer) = oneshot::channel();
-        self.polls.send(done).await.map_err(|_| ended())?;
+        self.polls
+            .send(Poll { scan, done })
+            .await
+            .map_err(|_| ended())?;
 
         answer
             .await
@@ -378,19 +405,32 @@ impl Processes {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    /// The last published list. The first read waits for the first poll.
+    /// The last published list when it is fresh, else a new one: the poll
+    /// task reads the table and the ports and the reader takes that. The
+    /// first read waits for the first poll. A followed session is polled
+    /// every second, so its readers never ask.
     pub(super) async fn list(&self) -> anyhow::Result<Vec<RunningProcess>> {
         let mut seen = self.published.clone();
         watched::wait_for(&mut seen, Option::is_some)
             .await
             .map_err(|_| ended())?;
 
-        Ok(watched::read(&seen, |listing| {
-            listing
-                .as_ref()
-                .map(|listing| listing.rows.clone())
-                .unwrap_or_default()
-        }))
+        if watched::read(&seen, |published| {
+            published.as_ref().is_none_or(|p| p.at.elapsed() >= FRESH)
+        }) {
+            self.poll(true).await?;
+        }
+
+        watched::read(&seen, |published| match published {
+            Some(Published {
+                listing: Ok(listing),
+                ..
+            }) => Ok(listing.rows.clone()),
+            Some(Published {
+                listing: Err(e), ..
+            }) => Err(anyhow::anyhow!(e.clone())),
+            None => Err(ended()),
+        })
     }
 
     /// Observes the session's processes in a table at most `max_age` old.
@@ -450,28 +490,32 @@ impl Processes {
         Ok(())
     }
 
-    /// Publishes the list, and signals this session's followers when it differs.
+    /// Publishes the list or the failure to read it, and signals this
+    /// session's followers when the list differs from the last one read.
     fn publish(
         &self,
         observed: &Observed,
-        publish: &watch::Sender<Option<Listing>>,
+        result: &Result<(), String>,
+        publish: &watch::Sender<Option<Published>>,
         session: &watch::Receiver<super::live::Live>,
     ) {
-        let next = Listing {
+        let listing = result.clone().map(|()| Listing {
             rows: observed.rows(self.root.load(Ordering::Relaxed)),
             ours: observed.ours.clone(),
-        };
+        });
         let mut signal = false;
 
-        publish.send_if_modified(|current| {
-            if current.as_ref() == Some(&next) {
-                return false;
-            }
-
+        publish.send_modify(|current| {
             // The first list is read, not signalled.
-            signal = current.as_ref().is_some_and(|last| last.rows != next.rows);
-            *current = Some(next);
-            true
+            signal = match (&*current, &listing) {
+                (None, _) | (_, Err(_)) => false,
+                (Some(Published { listing: Ok(last), .. }), Ok(next)) => last.rows != next.rows,
+                (Some(Published { listing: Err(_), .. }), Ok(_)) => true,
+            };
+            *current = Some(Published {
+                at: Instant::now(),
+                listing,
+            });
         });
 
         if signal {
@@ -481,16 +525,17 @@ impl Processes {
 
     /// The session's processes in the last list.
     fn ours(&self) -> Vec<Process> {
-        watched::read(&self.published, |listing| {
-            listing
-                .as_ref()
-                .map(|listing| listing.ours.clone())
-                .unwrap_or_default()
+        watched::read(&self.published, |published| match published {
+            Some(Published {
+                listing: Ok(listing),
+                ..
+            }) => listing.ours.clone(),
+            _ => Vec::new(),
         })
     }
 
     pub(super) async fn stop(&self, pid: u32) -> anyhow::Result<()> {
-        self.poll().await?;
+        self.poll(false).await?;
         let process = self
             .ours()
             .into_iter()
@@ -499,12 +544,15 @@ impl Processes {
         let stopped = stop(&[process]).await;
         snapshot::invalidate().await;
         // Readers must not be left listing what ended.
-        self.poll().await?;
+        if let Err(e) = self.poll(false).await {
+            log::debug!("could not read session processes after a stop: {e:#}");
+        }
+
         stopped
     }
 
     pub(super) async fn close(&self) {
-        match self.poll().await {
+        match self.poll(false).await {
             Ok(()) => {
                 if let Err(e) = stop(&self.ours()).await {
                     log::warn!("could not stop session processes: {e:#}");

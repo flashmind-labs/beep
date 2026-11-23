@@ -172,14 +172,53 @@ async fn a_list_that_is_published_is_read_without_asking_for_a_poll() {
     // Nothing is published yet, so the read waits for the first poll.
     assert!(futures::poll!(&mut first).is_pending());
 
-    publish.send_replace(Some(Listing {
-        rows: vec![row.clone()],
-        ours: vec![],
+    publish.send_replace(Some(Published {
+        at: Instant::now(),
+        listing: Ok(Listing {
+            rows: vec![row.clone()],
+            ours: vec![],
+        }),
     }));
     assert_eq!(first.await.unwrap(), vec![row.clone()]);
     assert_eq!(processes.list().await.unwrap(), vec![row]);
     // No reader asked the task to read the table, and none could scan itself.
     assert!(polls.try_recv().is_err());
+
+    // An old list is not served: the reader asks for a read with a port scan.
+    publish.send_replace(Some(Published {
+        at: Instant::now() - FRESH * 2,
+        listing: Ok(Listing {
+            rows: vec![],
+            ours: vec![],
+        }),
+    }));
+    let mut stale = std::pin::pin!(processes.list());
+    assert!(futures::poll!(&mut stale).is_pending());
+    let poll = polls.recv().await.unwrap();
+    assert!(poll.scan);
+    publish.send_replace(Some(Published {
+        at: Instant::now(),
+        listing: Ok(Listing {
+            rows: vec![],
+            ours: vec![],
+        }),
+    }));
+    poll.done.send(Ok(())).unwrap();
+    assert!(stale.await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_read_is_the_readers_error() {
+    let processes = Processes::new(Some(1));
+    let Some(Inbox { publish, .. }) = crate::lock(&processes.inbox).take() else {
+        panic!("nothing watches yet");
+    };
+    publish.send_replace(Some(Published {
+        at: Instant::now(),
+        listing: Err("table unreadable".into()),
+    }));
+    let error = processes.list().await.unwrap_err();
+    assert!(format!("{error:#}").contains("table unreadable"));
 }
 
 #[cfg(target_os = "linux")]
@@ -204,14 +243,15 @@ async fn a_port_opened_after_a_reader_listed_reaches_the_next_reader() {
     let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     assert!(!listening(&first, port));
-    processes.poll().await.unwrap();
-    assert!(listening(&processes.list().await.unwrap(), port));
-    // A second reader, with a list of its own, sees it too, and was told.
+    // A second reader lists between the bind and the poll. It must not
+    // swallow the change the poll finds.
+    assert!(!listening(&processes.list().await.unwrap(), port));
+    processes.poll(true).await.unwrap();
     assert!(listening(&processes.list().await.unwrap(), port));
     assert!(signalled(&mut changes));
 
     drop(listener);
-    processes.poll().await.unwrap();
+    processes.poll(true).await.unwrap();
     assert!(!listening(&processes.list().await.unwrap(), port));
     assert!(signalled(&mut changes));
 }
@@ -269,7 +309,7 @@ async fn a_port_that_answers_with_a_page_is_one_of_its_pages_once_it_is_ready() 
     assert!(starting.ports.contains(&web_port) && starting.ports.contains(&silent_port));
     assert!(!starting.pages.contains(&web_port));
     ready.store(true, Ordering::Relaxed);
-    processes.poll().await.unwrap();
+    processes.poll(true).await.unwrap();
 
     let serving = me().await;
     assert!(serving.pages.contains(&web_port));
