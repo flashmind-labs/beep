@@ -505,8 +505,8 @@ pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
         .then(|| format!("this machine is not shared with other devices: {protocol} is off"))
 }
 
-/// Why another node's `remote_run` may not run here, or `None`: the host
-/// lends this machine to no other device ("Let Beep use this Mac" is off).
+/// Why another node may not run commands or start agents here, if
+/// "Let Beep use this computer" is off.
 fn commands_off(offers: &Offers) -> Option<String> {
     if offers.lends_to_peers() {
         return None;
@@ -602,7 +602,7 @@ pub(super) async fn serve_open(
             }
             SessionProtocol::Shell => shell::serve(tx, rx).await,
             SessionProtocol::Skills => {
-                let desktop = !matches!(who, Who::Node { .. });
+                let desktop = matches!(who, Who::Everything(_));
                 let mesh = offers.mesh.get().context("this node is not in a mesh")?;
                 crate::agents::skills::serve(tx, rx, offers.skills, mesh, desktop).await
             }

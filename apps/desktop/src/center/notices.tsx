@@ -2,7 +2,7 @@ import { projectWindowProps } from "./sidebar.tsx";
 import { placeWindowParts } from "./window-root.tsx";
 import { windowHost } from "./window-shell.tsx";
 import { NoticesView } from "./notices-view.tsx";
-// The bell at the right end of every command center header, beside the usage
+// The bell at the right end of the main window header, beside the usage
 // pill, and the notifications pane it opens: what the mesh told this Mac (a
 // coding agent finished or asks, sync conflicts, a failed move, a machine that
 // went offline).

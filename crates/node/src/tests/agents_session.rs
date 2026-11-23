@@ -2662,6 +2662,48 @@ async fn saved_instructions_reach_new_and_resumed_sessions_without_editing_files
 
 #[cfg(unix)]
 #[tokio::test]
+async fn antigravity_receives_saved_instructions_in_session_metadata() {
+    for (load_session, resume, method) in [
+        ("true", None, "session/new"),
+        ("true", Some(SessionId::from("s")), "session/load"),
+        ("false", Some(SessionId::from("s")), "session/resume"),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let log = temp.path().join("sent.jsonl");
+        let adapter = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":LOAD_SESSION,"sessionCapabilities":{"resume":{}},"_meta":{"antigravity":{"systemPrompt":{"append":true}}}}}'
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+read -r line; log "$1"
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+        let kind = script("agy", &adapter.replace("LOAD_SESSION", load_session), &log);
+        let instructions = "Use plain words.";
+        let session = Session::start(Start {
+            instructions: Some(instructions.into()),
+            resume,
+            ..start_on(&kind, temp.path(), None)
+        })
+        .unwrap();
+
+        settle(&session).await;
+        assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
+        let requests = sent(&log);
+        assert_eq!(requests[1]["method"], method);
+        let params = &requests[1]["params"];
+        assert_eq!(
+            params["_meta"]["antigravity"]["systemPrompt"]["append"],
+            instructions
+        );
+        assert!(params.get("systemPrompt").is_none());
+        assert_eq!(prompt_texts(&requests[2]), ["go"]);
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn saved_instructions_stop_an_unsupported_adapter_before_open_or_prompt() {
     for resume in [None, Some(SessionId::from("s"))] {
         let temp = tempfile::tempdir().unwrap();

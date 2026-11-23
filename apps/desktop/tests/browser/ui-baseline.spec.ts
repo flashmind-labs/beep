@@ -179,6 +179,26 @@ const gitItems = [
 
 // Desktop window
 
+test("detached project header", async ({ page }) => {
+  const spend = { project: "", cost_usd: 2, unpriced: [] };
+  const period = { total: spend, tokens: 0, projects: [], harnesses: [] };
+  await openProject(page, { center_window_alone: { kind: "project", project: projectName }, usage_get: { limits: [], today: period, week: period, month: period } });
+  await expect(page.locator("#rail")).toBeVisible();
+  await expect(page.locator("#usage")).toContainText("$2");
+  await baseline(page, "detached-project-header", ".cc-top");
+});
+
+test("detached assistant threads", async ({ page }) => {
+  const chat = { ...assistantSessions[0], doing: "Reading the project notes" };
+  const thread = { ...agentRow("thread-one", "Choose a title", "asking", 0), parent: { machine_id: machineId, id: chat.id, key: "" } };
+  await openDesktop(page, false, {
+    center_window_alone: { kind: "chat", machine_id: machineId, session: chat.id },
+    agent_sessions: [chat, thread], agent_hosts: [assistantHost], agent_view: { ...agentView, session: chat },
+  }, "chat-sample");
+  await expect(page.locator("#rail")).toContainText("needs you");
+  await baseline(page, "detached-assistant-threads", "#rail");
+});
+
 test("home overview", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   await expect(page.locator("#sec-running .bd-card").first()).toBeVisible();

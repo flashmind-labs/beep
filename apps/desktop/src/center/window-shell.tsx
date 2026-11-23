@@ -8,7 +8,7 @@ import { HazeArt } from "../ui/painted-art.tsx";
 import type { ViewName } from "./state.ts";
 
 /// The places of the window that modules fill.
-export type ShellPart = "sidebar" | "mobile-back" | "project-back" | "title" | "date" | "scope" | "tools" | "usage" | "notices"
+export type ShellPart = "opening" | "sidebar" | "mobile-back" | "project-back" | "title" | "date" | "scope" | "tools" | "usage" | "notices"
   | "mobile-settings" | "home" | "home-composer" | "pages" | "mobile-tabs" | "palette" | "assistant" | "rail";
 
 interface Shell {
@@ -143,12 +143,12 @@ export function CenterWindow() {
         <small id="date" data-tauri-drag-region="">{parts.date}</small>
         <span className="tools" id="tools">{parts.tools}</span>
         <span id="usage" className="us" hidden={parts.usage == null} ref={refs.usage}>{parts.usage}</span>
-        <span id="bell" className="nt" ref={refs.bell}>{parts.notices}</span>
+        <span id="bell" className="nt" hidden={parts.notices == null} ref={refs.bell}>{parts.notices}</span>
         {parts["mobile-settings"]}
       </div>
       <div className="cc-box" id="home-box" hidden={view !== null && view !== "home"} ref={refs.homeBox}>
-        <div className="cc-view" id="view" ref={refs.view}>{parts.home}</div>
-        {parts["home-composer"]}
+        <div className="cc-view" id="view" ref={refs.view}>{view === null && parts.opening ? parts.opening : parts.home}</div>
+        {(view !== null || !parts.opening) && parts["home-composer"]}
       </div>
       {/* The Assistant page sets its chats beside the pane's bar, which `adoptBar` appends after them. */}
       <div className={`cc-box${assistant ? ` pj-split${assistant.picked ? " picked" : ""}` : ""}`} id="pane-box" hidden={view !== "pane"} ref={refs.paneBox}>{parts.assistant}</div>

@@ -506,15 +506,19 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
 interface Taken { text: string; images: SentImage[] }
 
 /// What `outbox-changed` tells every window.
-interface OutboxChanged extends OpenAgent { rows: OutboxRow[]; sent: OutboxRow[] }
+interface OutboxChanged extends OpenAgent { sent: OutboxRow[] }
 
-/// Reads what waits on this device for `o`, as it opens.
+let latestOutboxRead = 0;
+
+/// Reads the current rows. An older reply can arrive after a delivery or a new send.
 export async function readOutbox(o: OpenAgent) {
+  const read = ++latestOutboxRead;
   try {
     const rows = await invoke<OutboxRow[] | null>("outbox_list", where(o));
-    if (AG.open !== o) return;
+    if (AG.open !== o || read !== latestOutboxRead) return;
     AG.outbox = rows ?? [];
     drawQueue();
+    redrawAgentHints();
   } catch (e) {
     console.warn("reading the outbox:", e);
   }
@@ -522,12 +526,11 @@ export async function readOutbox(o: OpenAgent) {
 
 listen<OutboxChanged>("outbox-changed", ({ payload }) => {
   const o = AG.open;
-  if (!sameSession(o, { machine_id: payload.machine_id, agent: payload.agent, id: payload.session })) return;
-  AG.outbox = payload.rows;
+  if (!o || !sameSession(o, { machine_id: payload.machine_id, agent: payload.agent, id: payload.session })) return;
   // What went is the node's now: its row stays until the agent has it.
   for (const row of payload.sent) AG.queue.push(sentFromOutbox(row, AG.polls));
-  drawQueue();
-  redrawAgentHints();
+  // A sending notification may arrive after delivery. Read what is still held.
+  void readOutbox(o);
 });
 
 /// Takes waiting message `id` out; to edit, it goes back in the field.

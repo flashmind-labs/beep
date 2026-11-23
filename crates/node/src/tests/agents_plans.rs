@@ -54,14 +54,16 @@ async fn reads_a_cli_that_answers() {
 }
 
 #[test]
-fn antigravity_usage_gives_a_window_per_group() {
+fn antigravity_usage_keeps_each_reported_window_per_group() {
     let data = json!({
         "groups": [
             {"name": "Gemini Models", "buckets": [
                 {"id": "gemini-weekly", "window": "weekly", "remaining_fraction": 0.75, "reset_time": "2026-11-29T05:30:21Z"},
+                {"window": "5h", "remaining_fraction": 0.5, "reset_time": "2026-01-01T04:00:00Z"},
             ]},
             {"name": "Claude and GPT models", "buckets": [
                 {"id": "3p-weekly", "window": "weekly", "remaining_fraction": 1, "reset_time": "2026-11-29T06:12:45Z"},
+                {"window": "5h", "remaining_fraction": 1, "reset_time": "2026-01-01T05:00:00Z"},
                 {"id": "3p-other", "window": "monthly", "remaining_fraction": 0.5},
             ]},
         ],
@@ -77,6 +79,8 @@ fn antigravity_usage_gives_a_window_per_group() {
     assert_eq!(
         shown,
         [
+            (300, 50.0, Some(1_767_240_000), Some("Gemini Models")),
+            (300, 0.0, None, Some("Claude and GPT models")),
             (10080, 25.0, Some(1_795_930_221), Some("Gemini Models")),
             (10080, 0.0, None, Some("Claude and GPT models")),
         ]
@@ -94,5 +98,7 @@ async fn reads_antigravity_usage() {
         r#"echo '{"event":"init"}'; echo '{"event":"command_result","command":{"name":"usage","data":{"groups":[{"name":"Gemini Models","buckets":[{"window":"weekly","remaining_fraction":0.5,"reset_time":"2026-11-29T05:30:21Z"}]}]}}}'; cat >/dev/null"#,
     ]);
     let plan = read_agy(command).await.unwrap().unwrap();
+    assert_eq!(plan.windows.len(), 1);
+    assert_eq!(plan.windows[0].minutes, WEEK_MINUTES);
     assert_eq!(plan.windows[0].used_percent, 50.0);
 }

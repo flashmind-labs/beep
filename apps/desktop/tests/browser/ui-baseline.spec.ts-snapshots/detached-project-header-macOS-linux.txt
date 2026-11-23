@@ -1,0 +1,17 @@
+div.cc-top
+  button.mb-back [aria-label="Back" hidden type="button"]
+    svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
+  h2#title "example/widget"
+  span#scope
+  small#date "example.test"
+  span#tools.tools
+    button.dbtn.small [title="https://example.test/example/widget" type="button"] "Forgejo"
+    button.dbtn.quiet.small [aria-label="More" title="More" type="button"] "⋯"
+  span#usage.us
+    button.us-pill [aria-expanded="false" aria-label="Cost today: $2.00" title="Plan usage and cost" type="button"]
+      span.us-x
+        span "today"
+          b "$2.00"
+  span#bell.nt [hidden]
+  button.mb-set [aria-label="Settings" type="button"]
+    svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]

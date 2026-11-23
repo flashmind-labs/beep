@@ -4,7 +4,7 @@ import { addMention } from "../agents/workdrop.ts";
 import { invoke } from "../ui/tauri.ts";
 import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
 import { hasPreview } from "./html-preview-state.ts";
-import { type MediaTab, type TextPlace, type TreeText, discardSheet, P, saveWorkFile } from "./media.ts";
+import { type MediaTab, type TextPlace, type TreeText, discardSheet, P, rememberPane, saveWorkFile } from "./media.ts";
 import { noteTab, touchTab } from "./media-draw.ts";
 import { fileError, readError } from "./read.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
@@ -30,6 +30,7 @@ export async function togglePreview(tab: MediaTab) {
   const preview = tab.preview ??= { active: false, loading: false, src: "", html: "", error: "" };
   tab.findRequest = 0;
   preview.active = !preview.active;
+  rememberPane();
   if (!preview.active || preview.src || preview.html || preview.loading) { touchTab(tab); return; }
   preview.loading = true; preview.error = ""; touchTab(tab);
 

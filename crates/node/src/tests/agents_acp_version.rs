@@ -108,7 +108,7 @@ fn v2_session_requests_tag_v1_stdio_mcp_servers() {
     let new = session::new_session(
         std::path::Path::new("/srv/project"),
         vec![server.clone()],
-        Some("brief"),
+        Some(SystemPromptFormat::Acp.append("brief")),
         true,
     )
     .unwrap();
@@ -117,7 +117,7 @@ fn v2_session_requests_tag_v1_stdio_mcp_servers() {
         v1::SessionId::new("s"),
         std::path::Path::new("/srv/project"),
         vec![server],
-        Some("brief"),
+        Some(SystemPromptFormat::Acp.append("brief")),
         true,
     )
     .unwrap();

@@ -2,7 +2,7 @@
 // reply and what came with a prompt (Beep's context, another session's
 // message, a child's reply). Their bodies are sanitized Markdown HTML.
 import { conversationBlocked } from "./turnrows.ts";
-import { memo, useRef, type MouseEvent } from "react";
+import { memo, type MouseEvent } from "react";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { Button, CopyButton, useHtml } from "../ui/kit.tsx";
 import { sessionMessageTitle, type PromptPart } from "./promptparts-state.ts";
@@ -30,15 +30,14 @@ export function AgentError({ message, switchModel = false }: { message: string; 
 /// A triple-click selects the whole prompt: macOS WebKit's own paragraph
 /// selection runs on past it to the end of the log.
 export const AgentPrompt = memo(function AgentPrompt({ prompt }: { prompt: PromptRow }) {
-  const said = useRef<HTMLDivElement>(null);
   const selectPrompt = (event: MouseEvent) => {
-    if (event.detail < 3 || !said.current) return;
+    if (event.detail < 3 || event.button !== 0 || (event.target instanceof Element && event.target.closest("summary, button, [role=button]"))) return;
 
     event.preventDefault();
-    getSelection()?.selectAllChildren(said.current);
+    getSelection()?.selectAllChildren(event.currentTarget);
   };
 
-  return <div className="dcoderen user md" data-at={prompt.row} onMouseDown={selectPrompt}><b>You <EntryTime at={prompt.sentAt ?? null} /></b>{prompt.html && <div className="said" ref={said} dangerouslySetInnerHTML={{ __html: prompt.html }} />}{prompt.files.length > 0 && <AttachedFiles paths={prompt.files} />}{prompt.pictures && <span className="pics" dangerouslySetInnerHTML={{ __html: prompt.pictures }} />}</div>;
+  return <div className="dcoderen user md" data-at={prompt.row}><b>You <EntryTime at={prompt.sentAt ?? null} /></b>{prompt.html && <div className="said" onMouseDown={selectPrompt} dangerouslySetInnerHTML={{ __html: prompt.html }} />}{prompt.files.length > 0 && <AttachedFiles paths={prompt.files} />}{prompt.pictures && <span className="pics" dangerouslySetInnerHTML={{ __html: prompt.pictures }} />}</div>;
 });
 
 /// The files a prompt named, by file name. More than five fold under a

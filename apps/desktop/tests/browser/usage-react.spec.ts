@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, projectName } from "./harness.ts";
 
 test("usage updates retain the open popover and selected period", async ({ page }) => {
   const spend = { project: "Example", cost_usd: 2, unpriced: [] };
@@ -30,28 +30,64 @@ const subscribed = (() => {
     projects: [project("acme/widget", 38_000_000), project("acme/relay", 1_300_000)],
     harnesses: [{ agent: "claude", subscription: true, cost_usd: null, tokens: 39_300_000, models: [{ name: "claude-sonnet", tokens: 39_300_000 }] }],
   };
-  const window = (minutes: number, used: number) => ({ minutes, used_percent: used, resets_at: null, scope: null });
+  const window = (minutes: number, used: number, scope: string | null = null) => ({ minutes, used_percent: used, resets_at: null, scope });
   return {
     limits: [
       { agent: "claude", account: null, plan: "max", machine_name: "build-box", as_of: Date.now(), windows: [window(300, 38), window(10_080, 76)], credits: [] },
       { agent: "codex", account: null, plan: "pro", machine_name: "build-box", as_of: Date.now(), windows: [window(10_080, 20)], credits: [] },
-      { agent: "agy", account: null, plan: null, machine_name: "build-box", as_of: Date.now(), windows: [{ minutes: 10_080, used_percent: 4, resets_at: null, scope: "Gemini Models" }, { minutes: 10_080, used_percent: 0, resets_at: null, scope: "Claude and GPT models" }], credits: [] },
+      { agent: "agy", account: null, plan: null, machine_name: "build-box", as_of: Date.now(), windows: [
+        window(300, 12, "Gemini Models"), window(300, 0, "Claude and GPT models"),
+        window(10_080, 4, "Gemini Models"), window(10_080, 0, "Claude and GPT models"),
+      ], credits: [] },
     ],
     historical: [{ first: "2026-03-03", last: "2026-03-04", project: "acme/legacy", agent: "flsh", cost_usd: 3.25, tokens: 7000 }],
     today: period, week: period, month: period,
   };
 })();
 
+for (const kind of ["project", "chat"] as const) {
+  test(`a detached ${kind} keeps plan usage available beside its conversation @windows`, async ({ page }, info) => {
+    const session = { machine_id: "build-box", machine_name: "Build box", id: "waiting", agent: "codex", title: "Choose a title", cwd: "/srv/project", status: "asking", doing: null, question: null, assistant: kind === "chat", parent: null, last_activity: 1, started_at: 1, external: false };
+    const alone = kind === "project" ? { kind, project: projectName } : { kind, machine_id: session.machine_id, session: session.id };
+    await page.setViewportSize({ width: 1000, height: 700 });
+    await openDesktop(page, false, {
+      center_window_alone: alone, project_sessions: [session], agent_sessions: [session], usage_get: subscribed,
+      agent_view: { session, entries: [], plan: [], files: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+    }, `${kind}-sample`);
+
+    const row = page.locator("#rail").getByRole("button", { name: /Choose a title/ });
+    await expect(row.getByText("needs you")).toBeVisible();
+    if (kind === "project") await row.click();
+    await expect(page.locator("#agmsg")).toBeVisible();
+    await expect(page.locator("#side")).toBeHidden();
+    const modifier = info.project.name === "Windows" ? "Control" : "Meta";
+    await page.keyboard.press(`${modifier}+b`);
+    await expect(page.locator("#bell")).toBeHidden();
+    expect(await page.evaluate(() => window.__navigation.calls().some(call => call.command === "notes_list" || call.command === "notes_read"))).toBe(false);
+
+    for (const width of [1000, 640]) {
+      await page.setViewportSize({ width, height: 700 });
+      const pill = page.getByRole("button", { name: /^Plan usage:/ });
+      await expect(pill.locator(".us-plan").first()).toBeInViewport({ ratio: 1 });
+      await pill.click();
+      const pop = page.getByRole("dialog", { name: "Plan usage and cost" });
+      await expect(pop.getByText("76% used")).toBeVisible();
+      await pill.click();
+      await expect(pop).toBeHidden();
+    }
+  });
+}
+
 for (const [name, size] of [["desktop", { width: 1280, height: 900 }], ["phone", { width: 390, height: 844 }]] as const) {
   test(`the ${name} pill shows each harness's binding share and the popover its values`, async ({ page }) => {
     await page.setViewportSize(size);
     await openDesktop(page, false, { usage_get: subscribed });
-    const pill = page.getByRole("button", { name: "Plan usage: Claude Code 76%, Codex 20%, Antigravity 4%" });
+    const pill = page.getByRole("button", { name: "Plan usage: Claude Code 76%, Codex 20%, Antigravity 12%" });
     await expect(pill).toBeVisible();
     await expect(pill.locator(".us-plan")).toHaveCount(3);
     await expect(pill.locator(".us-plan svg")).toHaveCount(3);
     await expect(pill).not.toContainText("Gemini Models");
-    await expect(pill.locator(".us-plan").nth(2)).toHaveAttribute("title", "Antigravity: 4% of This week, Gemini Models used");
+    await expect(pill.locator(".us-plan").nth(2)).toHaveAttribute("title", "Antigravity: 12% of 5 hours, Gemini Models used");
     await expect(pill.locator(".us-plan").nth(2).locator("image")).toHaveAttribute("href", "antigravity.svg");
     await expect(pill.locator(".bar")).toHaveCount(0);
     await expect(pill.locator("b.warn")).toHaveText("76%");
@@ -60,6 +96,9 @@ for (const [name, size] of [["desktop", { width: 1280, height: 900 }], ["phone",
     await pill.click();
     const pop = page.getByRole("dialog", { name: "Plan usage and cost" });
     await expect(pop.getByText("76% used")).toBeVisible();
+    await expect(pop.getByText("5 hours, Gemini Models", { exact: true })).toBeVisible();
+    await expect(pop.getByText("5 hours, Claude and GPT models", { exact: true })).toBeVisible();
+    await expect(pop.getByText("This week, Gemini Models", { exact: true })).toBeVisible();
     await expect(pop.getByRole("row").filter({ hasText: "acme/widget" }).getByText("38M")).toBeVisible();
     await expect(pop.getByRole("row").filter({ hasText: "Claude Code, subscription" }).getByText("39.3M")).toBeVisible();
     await expect(pop.getByRole("row").filter({ hasText: "claude-sonnet" }).getByText("39.3M")).toBeVisible();

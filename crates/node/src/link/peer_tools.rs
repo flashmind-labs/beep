@@ -40,10 +40,10 @@ const DEFAULT_RUN_SECS: u64 = 600;
 pub(crate) struct Caller {
     /// The tasks the caller's jobs live in and can see.
     pub table: Table,
-    /// This device is a desktop: a node may not start agents on it.
+    /// Whether this device is a desktop, used for team roster and invite writes.
     pub desktop_here: bool,
-    /// Why a node's `RunOn` may not run here, or `None` when it may: the
-    /// host lends this machine to no other device.
+    /// Why a node may not run commands or start agents here, if the host
+    /// does not share this machine with other devices.
     pub commands_off: Option<String>,
     /// This node's synced projects and transfers, when it shares folders.
     pub transfers: Option<Transfers>,
@@ -191,9 +191,7 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
     }
 }
 
-/// An agent tool another node's agent calls on this machine. A desktop is
-/// the user's own: another node's agent may not start agents on it. Any
-/// machine lists the agents here, a desktop acting for a team too.
+/// An agent tool another node's agent calls on this machine.
 async fn agent_call(request: Request, caller: &Caller) -> Reply {
     let failed = |text: &str| Reply::Done {
         text: text.to_owned(),
@@ -211,8 +209,10 @@ async fn agent_call(request: Request, caller: &Caller) -> Reply {
         return failed("Agents are started through the node's own Beep MCP server.");
     };
 
-    if request.tool == Tool::StartAgent && caller.desktop_here {
-        return failed("This device is a desktop: another node may not start agents on it.");
+    if request.tool == Tool::StartAgent
+        && let Some(reason) = &caller.commands_off
+    {
+        return failed(reason);
     }
 
     children::answer_peer(agents, peer, request).await

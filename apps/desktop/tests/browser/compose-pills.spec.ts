@@ -1,5 +1,5 @@
 import { expect, test, type Locator } from "@playwright/test";
-import { openDesktop, openStartForm } from "./harness.ts";
+import { openDesktop, openStartForm, projectName } from "./harness.ts";
 
 const LONG = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join("\n");
 
@@ -73,6 +73,37 @@ test("text after a blank line is outlined as code", async ({ page }) => {
   await expect(layer(field).locator(".cx-code")).toHaveCount(1);
   await field.fill("plain");
   await expect(layer(field)).toBeHidden();
+});
+
+test("each project keeps its own unsent task", async ({ page }) => {
+  const other = "example/gadget";
+  const row = (name: string) => ({ display_name: null, name, url: `https://example.test/${name}`, machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 });
+  await openDesktop(page, false, {
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
+    center_home: { machines: [], projects: [row(projectName), row(other)], running: [], needs_you: [] },
+  });
+  const input = page.locator(".cc-pjc:visible").getByRole("textbox", { name: "Task for a coding agent" });
+  const open = (project: string) => page.evaluate(name => window.__navigation.open({ projects: { project: name } }), project);
+
+  await open(projectName);
+  await input.pressSequentially("Widget task");
+  const widgetField = await input.elementHandle();
+  await open(other);
+  await expect(input).toHaveAttribute("placeholder", /gadget/);
+  await expect(input).toHaveValue("");
+  expect(await widgetField.evaluate(field => field.isConnected)).toBe(false);
+  await expect(input).toBeFocused();
+  await expect(input).toHaveAttribute("data-prompt-stash", "");
+  await input.fill("Gadget task");
+  await open(projectName);
+  await expect(input).toHaveValue("Widget task");
+  await expect(input).toBeFocused();
+  await input.pressSequentially(" continued");
+  await expect(input).toHaveValue("Widget task continued");
+  await page.reload();
+  await page.waitForFunction(() => window.__navigation.ready());
+  await open(other);
+  await expect(input).toHaveValue("Gadget task");
 });
 
 test("each session keeps its own draft, a pill's full text included", async ({ page }) => {

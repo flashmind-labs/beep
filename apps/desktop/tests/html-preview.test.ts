@@ -16,7 +16,7 @@ let answer: () => Promise<unknown> = async () => ({ kind: "html", src: "beepview
 Object.assign(globalThis, { previewState: state, previewInvoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); return answer(); } });
 const stubs = new Map(Object.entries({
   "agentpane/media-draw.ts": "export const touchTab = t => globalThis.previewDraw(t); export const noteTab = () => {};",
-  "agentpane/media.ts": "export const P = globalThis.previewState; export const closeTab = () => {}; export const saveWorkFile = () => {}; export const discardSheet = () => {};",
+  "agentpane/media.ts": "export const P = globalThis.previewState; export const rememberPane = () => {}; export const closeTab = () => {}; export const saveWorkFile = () => {}; export const discardSheet = () => {};",
   "agentpane/read.ts": "export const readFile = () => {}; export const readError = e => e.message; export const fileError = e => e.message; export const drawTermStatus = () => {};",
   "agentpane/terminal.ts": "export const attach = () => {}; export const detachTerm = () => {}; export const killTerm = () => {};",
   "ui/tauri.ts": "export const invoke = globalThis.previewInvoke;",

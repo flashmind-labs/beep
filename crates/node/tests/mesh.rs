@@ -9,6 +9,7 @@
 //! two runtime workers so parallel tests do not start a pool per CPU.
 
 use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN};
+use beep_node::agents::AgentKind;
 use beep_node::link::{
     Offers,
     peers::{Peers, ReportError},
@@ -1907,13 +1908,13 @@ async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
 /// A desktop with its node in this process, as the Mac app runs it with Let
 /// Beep use this Mac on: it creates the mesh and serves its streams through
 /// `Peers`, the offers it was given answering them.
-async fn desktop_with_node() -> (Member, Offers) {
+async fn desktop_with_node(agents: &[AgentKind]) -> (Member, Offers) {
     let dir = TempDir::new().expect("a temp folder");
     let endpoint = bind(&SecretKey::generate()).await;
     let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
         .await
         .expect("the mesh is created");
-    let offers = Offers::local(&[], Provision::new(dir.path()));
+    let offers = Offers::local(agents, Provision::new(dir.path()));
     let peers = Peers::new(
         endpoint.clone(),
         dir.path().to_path_buf(),
@@ -1938,7 +1939,7 @@ async fn desktop_with_node() -> (Member, Offers) {
 #[cfg(unix)]
 #[tokio::test]
 async fn an_agent_runs_a_command_on_a_desktop_that_lends_itself() {
-    let (desktop, offers) = desktop_with_node().await;
+    let (desktop, offers) = desktop_with_node(&[]).await;
     let work = TempDir::new().expect("a temp folder");
     let sent = work.path().join("sent.jsonl");
     let node = Node::start(Config {
@@ -1968,6 +1969,52 @@ async fn an_agent_runs_a_command_on_a_desktop_that_lends_itself() {
     assert_eq!(
         text,
         "desktop doesn't run commands: Let Beep use this computer is off in its Settings."
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_agent_starts_a_child_on_a_desktop_that_shares_the_machine() {
+    let work = TempDir::new().expect("a temp folder");
+    let sent = work.path().join("sent.jsonl");
+    let child_sent = work.path().join("child.jsonl");
+    let (program, args) = adapter(&child_sent);
+    let (desktop, offers) = desktop_with_node(&[AgentKind {
+        name: "desktop-agent".to_owned(),
+        program,
+        args,
+        env: Default::default(),
+        compact: None,
+        compact_models: Vec::new(),
+        default_model: None,
+        bridge: None,
+    }])
+    .await;
+    let node = Node::start(Config {
+        agent: Some(adapter(&sent)),
+        ..Config::default()
+    })
+    .await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let mut mcp = agent_mcp(&desktop, &node, work.path(), &sent).await;
+    let call = json!({
+        "machine": "desktop",
+        "harness": "desktop-agent",
+        "cwd": work.path(),
+        "prompt": "Reply from the desktop.",
+        "wait": true,
+    });
+    let (text, failed) = mcp.call("start_agent", call.clone()).await;
+    assert!(!failed, "{text}");
+    let child: serde_json::Value = serde_json::from_str(&text).expect("a child session");
+    assert_eq!(child["machine"], "desktop");
+    assert_eq!(child["turns"], 1);
+
+    offers.lend_to_peers(false);
+    let (text, failed) = mcp.call("start_agent", call).await;
+    assert!(
+        failed && text.contains("Let Beep use this computer is off"),
+        "{text}"
     );
 }
 

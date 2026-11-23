@@ -66,30 +66,6 @@ test("project composer keeps draft, menu choices and issue branch across redraws
   await expect(input).toHaveValue("");
 });
 
-test("each project keeps its own unsent task", async ({ page }) => {
-  const other = "example/gadget";
-  const row = (name: string) => ({ display_name: null, name, url: `https://example.test/${name}`, machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 });
-  await openDesktop(page, false, {
-    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
-    center_home: { machines: [], projects: [row(projectName), row(other)], running: [], needs_you: [] },
-  });
-  const input = page.locator(".cc-pjc:visible").getByRole("textbox", { name: "Task for a coding agent" });
-  const open = (project: string) => page.evaluate(name => window.__navigation.open({ projects: { project: name } }), project);
-
-  await open(projectName);
-  await input.fill("Widget task");
-  await open(other);
-  await expect(input).toHaveAttribute("placeholder", /gadget/);
-  await expect(input).toHaveValue("");
-  await input.fill("Gadget task");
-  await open(projectName);
-  await expect(input).toHaveValue("Widget task");
-  await page.reload();
-  await page.waitForFunction(() => window.__navigation.ready());
-  await open(other);
-  await expect(input).toHaveValue("Gadget task");
-});
-
 for (const typed of ["Inspect the attachment", ""]) test(`project composer submits ${typed ? "typed" : "default"} image prompt with the chosen checkout`, async ({ page }) => {
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],

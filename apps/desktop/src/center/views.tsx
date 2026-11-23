@@ -1,16 +1,16 @@
-import { Button } from "../ui/kit.tsx";
+import { Button, EmptyPanel } from "../ui/kit.tsx";
 import { projectName } from "../project/projects-state.ts";
-import { Fragment, memo } from "react";
+import { Fragment, memo, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
-import { shownChanged } from "../ui/active.ts";
+import { pageShown, shownChanged } from "../ui/active.ts";
 // The window's views: their boxes, going to one, and the header it draws.
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import { perfOpened, perfView, perfViewOf } from "../ui/perf.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import { keepWindowSession, mainTarget, route, type Alone, type CenterTarget, type WindowScope } from "../project/projectwindow.ts";
-import { sessions } from "../agents/sessions.ts";
+import { loadSessions, sessions, sessionsChanged } from "../agents/sessions.ts";
 import { threadsByChat } from "../agents/threads-state.ts";
 import { shortName } from "../project/agent.ts";
 import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName } from "./state.ts";
@@ -22,6 +22,7 @@ import { TerminalsPage, terminalsView } from "../terminals/view.tsx";
 import { windowHistory } from "./window-router.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { S } from "../bar/core.ts";
+import { RETRY_MS } from "../agents/reconnect-state.ts";
 import { isStarting } from "../agents/starting-state.ts";
 import { canGoBack, syncMobile } from "./mobile.tsx";
 import { placeWindowParts } from "./window-root.tsx";
@@ -112,7 +113,54 @@ function opensAgent(arg: PaneTarget): arg is Extract<PaneTarget, { agent: unknow
 
 /// The project or chat a window shows alone; null in the main window.
 export let windowAlone: Alone | null = null;
-export function setWindowAlone(alone: Alone | null) { windowAlone = alone; }
+
+export function openDetachedWindow(alone: Alone, saved: { machine_id: string; id: string } | null) {
+  windowAlone = alone;
+  document.body.classList.add("pw");
+
+  const savedThread = alone.kind === "chat" && saved !== null
+    && (saved.id !== alone.session || saved.machine_id !== alone.machine_id);
+
+  const open = (chatOnly: boolean) => {
+    const session = !chatOnly && saved && sessions.find(row => row.machine_id === saved.machine_id && row.id === saved.id);
+    if (session) {
+      const page = { view: "pane" as const, arg: { agent: session } };
+      if (opensHere(page)) return goTo(page);
+    }
+    if (savedThread && !chatOnly && !session) return false;
+    if (alone.kind === "project") return go("projects", { project: alone.project });
+    const chat = sessions.find(row => row.machine_id === alone.machine_id && row.id === alone.session);
+    return !!chat && go("pane", { agent: chat });
+  };
+
+  if (!open(false)) placeWindowParts({ title: document.title, opening: <WaitingForChat open={open} savedThread={savedThread} /> });
+}
+
+/// The machine can reconnect before it has published its sessions.
+function WaitingForChat({ open, savedThread }: { open(chatOnly: boolean): boolean; savedThread: boolean }) {
+  const [chatOnly, setChatOnly] = useState(false);
+
+  useEffect(() => {
+    let waiting = true;
+    const read = async () => {
+      await loadSessions().catch(() => {});
+      if (waiting && !currentLocation()) open(chatOnly);
+    };
+    sessionsChanged.add(read);
+    const timer = setInterval(() => { if (pageShown()) void read(); }, RETRY_MS);
+    void read();
+
+    return () => {
+      waiting = false;
+      sessionsChanged.delete(read);
+      clearInterval(timer);
+    };
+  }, [open, chatOnly]);
+
+  return <EmptyPanel spin text={savedThread && !chatOnly
+    ? <>Waiting for the machine to list this thread… <Button onClick={() => setChatOnly(true)}>Open parent chat</Button></>
+    : "Waiting for the machine to list this chat…"} />;
+}
 
 /// The project a project's window shows; null in any other.
 export function aloneProject() {
@@ -134,7 +182,7 @@ function windowScope(): WindowScope | null {
 }
 
 /// A session may have moved out of this project or chat since it was saved.
-export function opensHere(page: Location): boolean {
+function opensHere(page: Location): boolean {
   return route(windowScope(), page) === "here";
 }
 
