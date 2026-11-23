@@ -264,7 +264,7 @@ async fn sessions_kept_in_a_database_are_refused() {
 
     let err = m
         .agents
-        .delete_session("gemini", &SessionId::from("ses_1"))
+        .delete_session("example", &SessionId::from("ses_1"))
         .await
         .unwrap_err();
     assert!(err.to_string().contains("no agent"), "{err}");

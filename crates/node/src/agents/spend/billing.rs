@@ -22,7 +22,6 @@ const SUBSCRIPTION_PROVIDERS: &[&str] = &[
     "claude-code",
     "claude-max",
     "claude-pro",
-    "google-gemini-cli",
     "google-antigravity",
     "kimi-code",
     "kimi-for-coding",

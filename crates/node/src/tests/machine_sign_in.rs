@@ -3,7 +3,7 @@ use super::*;
 #[tokio::test]
 async fn unknown_tools_and_idle_ones_say_so() {
     let refused = answer(Request::Start {
-        tool: "gemini".into(),
+        tool: "example".into(),
     })
     .await;
     assert!(matches!(refused, State::Failed { .. }), "{refused:?}");

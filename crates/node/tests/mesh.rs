@@ -545,7 +545,7 @@ async fn a_desktop_asks_a_node_about_its_sign_ins() {
     .await;
     assert_eq!(idle, SignInState::Idle {});
     let refused = ask(sign_in::Request::Start {
-        tool: "gemini".into(),
+        tool: "example".into(),
     })
     .await;
     assert!(matches!(refused, SignInState::Failed { .. }), "{refused:?}");

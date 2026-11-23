@@ -9,7 +9,6 @@ const WORDS: &[(&str, &str)] = &[
     ("codestral", "Codestral"),
     ("deepseek", "DeepSeek"),
     ("fim", "FIM"),
-    ("gemini", "Gemini"),
     ("glm", "GLM"),
     ("gpt", "GPT"),
     ("grok", "Grok"),

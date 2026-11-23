@@ -34,5 +34,5 @@ fn tools_go_by_name() {
     assert_eq!("opencode".parse::<Tool>().ok(), Some(Tool::Opencode));
     assert_eq!(Tool::Claude.to_string(), "claude");
     assert_eq!("agy".parse::<Tool>().ok(), Some(Tool::Agy));
-    assert!("gemini".parse::<Tool>().is_err());
+    assert!("example".parse::<Tool>().is_err());
 }
