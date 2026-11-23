@@ -126,8 +126,8 @@ async fn every_reader_sees_a_terminals_exit() {
     assert!(terminals.live(id).is_some(), "an attach still finds it");
 }
 
-// The clock is paused once the terminal ended, so the keep time is the only
-// timer the actor waits for.
+// The clock stays paused and moves only by `advance`, so the keep time is
+// the only timer the actor waits for.
 #[cfg(unix)]
 #[tokio::test]
 async fn an_ended_terminal_leaves_the_list_after_the_keep_time() {
@@ -143,22 +143,20 @@ async fn an_ended_terminal_leaves_the_list_after_the_keep_time() {
     );
     let live = terminals.live(id).expect("the terminal is kept");
     assert!(live.wait_ended(Duration::from_secs(20)).await);
-    let mut reader = terminals.subscribe();
     tokio::time::pause();
+    // A publish that starts after the end, so the actor has timed it.
+    let mut reader = terminals.subscribe();
+    watched::read_and_update(&mut reader, |_| ());
+    terminals.opener.changed.notify_one();
+    reader.changed().await.expect("the terminals are kept");
     assert_eq!(terminals.list().len(), 1);
 
-    tokio::time::advance(KEEP_ENDED - Duration::from_secs(1)).await;
-    tokio::task::yield_now().await;
-    assert_eq!(terminals.list().len(), 1, "still listed before the time is up");
+    tokio::time::advance(KEEP_ENDED - Duration::from_millis(1)).await;
+    assert_eq!(terminals.list().len(), 1, "listed just before the time is up");
 
-    tokio::time::advance(Duration::from_secs(2)).await;
-    timeout(
-        Duration::from_secs(120),
-        watched::wait_for(&mut reader, |list| list.is_empty()),
-    )
-    .await
-    .expect("the terminal leaves the list")
-    .expect("the terminals are kept");
+    tokio::time::advance(Duration::from_millis(2)).await;
+    tokio::task::yield_now().await;
+    assert!(terminals.list().is_empty(), "gone right after it");
     assert!(terminals.live(id).is_none());
 }
 

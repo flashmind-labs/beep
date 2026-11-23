@@ -19,7 +19,10 @@ use portable_pty::{ChildKiller, MasterPty};
 use std::{
     future,
     path::PathBuf,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::{
@@ -60,6 +63,8 @@ pub(super) struct Opener {
     pub(super) env: watch::Sender<Option<Vec<EnvSecret>>>,
     /// Woken when a terminal starts or ends.
     pub(super) changed: Arc<Notify>,
+    /// Set by `kill_all`: terminals that finish opening after it are killed.
+    killed: AtomicBool,
 }
 
 enum Command {
@@ -82,6 +87,7 @@ impl Default for Terminals {
             opener: Arc::new(Opener {
                 env: watch::channel(None).0,
                 changed: Arc::default(),
+                killed: AtomicBool::new(false),
             }),
             actor: OnceLock::new(),
         }
@@ -206,11 +212,13 @@ impl Terminals {
     }
 
     /// The list, woken whenever a terminal starts, ends or leaves.
+    #[cfg(any(test, all(unix, feature = "cli")))]
     pub(super) fn subscribe(&self) -> watch::Receiver<Vec<Arc<Term>>> {
         self.list.subscribe()
     }
 
     /// Whether any terminal runs.
+    #[cfg(all(unix, feature = "cli"))]
     pub(super) fn any_running(&self) -> bool {
         watched::read_sent(&self.list, |list| {
             list.iter().any(|term| term.live.is_running())
@@ -218,6 +226,7 @@ impl Terminals {
     }
 
     /// Sets the environment terminals started from now on get.
+    #[cfg(all(unix, feature = "cli"))]
     pub(super) fn set_env(&self, env: Vec<EnvSecret>) {
         self.opener.env.send_replace(Some(env));
     }
@@ -235,7 +244,10 @@ impl Terminals {
             .await;
 
         match sent {
-            Ok(()) => answer.await.unwrap_or_else(|_| stopped()),
+            Ok(()) => answer.await.unwrap_or_else(|_| Reply::Error {
+                // The reply is dropped when opening panicked.
+                message: "Could not start the terminal.".to_owned(),
+            }),
             Err(_) => stopped(),
         }
     }
@@ -295,12 +307,14 @@ impl Terminals {
             .map_err(|_| anyhow::anyhow!("the terminals stopped"))?;
         answer
             .await
-            .map_err(|_| anyhow::anyhow!("the terminals stopped"))?
+            .map_err(|_| anyhow::anyhow!("opening the terminal failed"))?
     }
 
     // A terminal host lets its terminals outlive it.
     #[cfg_attr(all(unix, feature = "cli"), expect(dead_code))]
     pub(super) fn kill_all(&self) {
+        // Set first: an open still running kills its terminal when it lands.
+        self.opener.killed.store(true, Ordering::SeqCst);
         let terms = watched::read_sent(&self.list, Clone::clone);
 
         for term in terms {
@@ -308,7 +322,9 @@ impl Terminals {
         }
     }
 
-    /// The actor's mailbox, starting the actor the first time.
+    /// The actor's mailbox, starting the actor the first time. The actor
+    /// runs on the runtime that sends the first command, which is the only
+    /// one in the node; it stops answering if that runtime ends.
     fn commands(&self) -> &mpsc::Sender<Command> {
         let started = self.actor.get_or_init(|| {
             let (commands, mailbox) = mpsc::channel(MAILBOX);
@@ -455,6 +471,14 @@ impl Actor {
             term
         });
         self.publish();
+
+        // After the publish, so `kill_all` either sees the terminal listed
+        // or this sees its flag.
+        if let Ok(term) = &term
+            && self.opener.killed.load(Ordering::SeqCst)
+        {
+            term.signal(Signal::Shutdown);
+        }
 
         // The caller may have gone, which leaves the terminal kept.
         match (asked, term) {

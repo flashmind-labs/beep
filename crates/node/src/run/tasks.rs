@@ -20,7 +20,10 @@ use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
     process::Stdio,
-    sync::{Arc, LazyLock, Mutex, OnceLock},
+    sync::{
+        Arc, LazyLock, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -137,6 +140,18 @@ struct Tasks {
     /// Written by the actor only.
     list: Arc<watch::Sender<Vec<Arc<Entry>>>>,
     actor: OnceLock<Started>,
+    /// Set by `kill_all`: tasks that finish spawning after it are killed.
+    killed: Arc<AtomicBool>,
+    /// Holds the next spawn, for a test.
+    #[cfg(test)]
+    gate: Arc<Mutex<Option<Gate>>>,
+}
+
+/// A spawn held in flight: it says it is there, then waits to go on.
+#[cfg(test)]
+struct Gate {
+    reached: oneshot::Sender<()>,
+    release: oneshot::Receiver<()>,
 }
 
 struct Started {
@@ -149,6 +164,9 @@ impl Default for Tasks {
         Self {
             list: Arc::new(watch::channel(Vec::new()).0),
             actor: OnceLock::new(),
+            killed: Arc::default(),
+            #[cfg(test)]
+            gate: Arc::default(),
         }
     }
 }
@@ -241,7 +259,10 @@ impl Tasks {
         };
 
         match self.commands().send(start).await {
-            Ok(()) => answer.await.unwrap_or_else(|_| stopped()),
+            Ok(()) => answer.await.unwrap_or_else(|_| Reply::Error {
+                // The reply is dropped when spawning panicked.
+                message: "Could not start the background process.".to_owned(),
+            }),
             Err(_) => stopped(),
         }
     }
@@ -260,6 +281,8 @@ impl Tasks {
     }
 
     fn kill_all(&self) {
+        // Set first: a spawn still running kills its task when it lands.
+        self.killed.store(true, Ordering::SeqCst);
         let entries = watched::read_sent(&self.list, Clone::clone);
 
         for entry in entries {
@@ -296,7 +319,9 @@ impl Tasks {
         self.status(id)
     }
 
-    /// The actor's mailbox, starting the actor the first time.
+    /// The actor's mailbox, starting the actor the first time. The actor
+    /// runs on the runtime that sends the first command, which is the only
+    /// one in the node; it stops answering if that runtime ends.
     fn commands(&self) -> &mpsc::Sender<Start> {
         let started = self.actor.get_or_init(|| {
             let (commands, mailbox) = mpsc::channel(MAILBOX);
@@ -305,6 +330,9 @@ impl Tasks {
                 jobs: Vec::new(),
                 spawning: JoinSet::new(),
                 list: self.list.clone(),
+                killed: self.killed.clone(),
+                #[cfg(test)]
+                gate: self.gate.clone(),
             };
 
             Started {
@@ -330,6 +358,9 @@ struct Actor {
     /// Commands being spawned off the loop. Each holds a place.
     spawning: JoinSet<Spawned>,
     list: Arc<watch::Sender<Vec<Arc<Entry>>>>,
+    killed: Arc<AtomicBool>,
+    #[cfg(test)]
+    gate: Arc<Mutex<Option<Gate>>>,
 }
 
 impl Actor {
@@ -368,7 +399,15 @@ impl Actor {
         }
 
         // Spawning a process is slow, so it runs off the loop.
+        #[cfg(test)]
+        let gate = self.gate.clone();
         self.spawning.spawn_blocking(move || {
+            #[cfg(test)]
+            if let Some(gate) = lock(&gate).take() {
+                let _ = gate.reached.send(());
+                let _ = gate.release.blocking_recv();
+            }
+
             let cwd = start
                 .cwd
                 .as_ref()
@@ -424,6 +463,16 @@ impl Actor {
             _task: AbortOnDropHandle::new(task),
         });
         self.publish();
+
+        // After the publish, so `kill_all` either sees the task listed or
+        // this sees its flag.
+        if self.killed.load(Ordering::SeqCst)
+            && let Some(job) = self.jobs.last()
+            && let Some(group) = &job.entry.group
+        {
+            group.kill();
+        }
+
         crate::events::system().changed(beep_proto::node::events::Topic::new("processes"));
         // The caller may have gone, which leaves the task running.
         let _ = start.reply.send(Reply::Started { id });
