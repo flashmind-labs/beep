@@ -811,6 +811,7 @@ dependencies = [
  "tonic-prost-build",
  "tower",
  "tracing",
+ "tracing-subscriber",
  "url",
  "uuid",
  "which",

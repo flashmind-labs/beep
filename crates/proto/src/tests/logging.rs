@@ -162,7 +162,8 @@ fn a_stream_ends_quietly_unless_it_failed() {
     assert!(trace_in("ok", false).ends_quietly(Duration::ZERO));
 }
 
-fn info_lines(run: impl FnOnce()) -> String {
+/// A subscriber that captures what is logged at `INFO` and above.
+fn capture_info() -> (Captured, tracing::subscriber::DefaultGuard) {
     let output = Captured::default();
     let writer = output.clone();
     let subscriber = tracing_subscriber::registry().with(
@@ -172,39 +173,48 @@ fn info_lines(run: impl FnOnce()) -> String {
             .with_writer(move || writer.clone())
             .with_filter(tracing_subscriber::filter::LevelFilter::INFO),
     );
-    tracing::subscriber::with_default(subscriber, run);
-    let bytes = output.0.lock().unwrap();
-    String::from_utf8(bytes.clone()).unwrap()
+
+    (output, tracing::subscriber::set_default(subscriber))
 }
 
 #[test]
 fn a_refused_request_logs_its_reason_cut_short_and_a_failed_one_its_error() {
-    let text = info_lines(|| {
-        let mut refused = RequestTrace::new("InFoldersPage");
-        refused.refuse("x".repeat(500));
-        drop(refused);
-        let mut failed = RequestTrace::new("External");
-        failed.fail("the caller left");
-    });
+    let (output, _guard) = capture_info();
+    let mut refused = RequestTrace::new("InFoldersPage");
+    refused.refuse(format!(
+        "{}: git said https://user:secret@host/repo",
+        "x".repeat(500)
+    ));
+    drop(refused);
+    let mut failed = RequestTrace::new("External");
+    failed.fail("the caller left: /srv/project/file");
+    drop(failed);
+    let mut plain = RequestTrace::new("Live");
+    plain.finish(false);
+    drop(plain);
+    let bytes = output.0.lock().unwrap();
+    let text = std::str::from_utf8(&bytes).unwrap();
+    // A failure with no reason logs none, not an empty one.
+    assert_eq!(
+        text.lines().filter(|line| line.contains("reason=")).count(),
+        2,
+        "{text}"
+    );
+    assert_eq!(text.lines().count(), 3, "{text}");
     let refused = text.lines().find(|line| line.contains("refused")).unwrap();
-    assert!(refused.contains(&"x".repeat(200)), "{text}");
-    assert!(!refused.contains(&"x".repeat(201)), "{text}");
+    assert!(refused.contains(&"x".repeat(120)), "{text}");
+    assert!(!refused.contains(&"x".repeat(121)), "{text}");
+    assert!(
+        !text.contains("secret") && !text.contains("/srv/project"),
+        "{text}"
+    );
     assert!(text.contains("outcome=\"error\""), "{text}");
     assert!(text.contains("reason=\"the caller left\""), "{text}");
 }
 
 #[tokio::test]
 async fn a_stream_that_ends_writes_nothing_at_info_and_its_error_one_line() {
-    let output = Captured::default();
-    let writer = output.clone();
-    let subscriber = tracing_subscriber::registry().with(
-        tracing_subscriber::fmt::layer()
-            .event_format(TextLayout)
-            .with_ansi(false)
-            .with_writer(move || writer.clone())
-            .with_filter(tracing_subscriber::filter::LevelFilter::INFO),
-    );
-    let _guard = tracing::subscriber::set_default(subscriber);
+    let (output, _guard) = capture_info();
 
     RequestTrace::new("FollowUsage")
         .stream(async { Ok::<(), String>(()) })

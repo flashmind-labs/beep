@@ -100,7 +100,7 @@ where
 pub(crate) const SLOW_REQUEST: Duration = Duration::from_secs(1);
 
 /// A reason is cut to this many characters in the log.
-const REASON_CHARS: usize = 200;
+const REASON_CHARS: usize = 120;
 
 /// Logs a request's phases at `DEBUG`, and its end, including when its
 /// future is dropped: at `INFO` only when it failed, was refused, was dropped
@@ -200,8 +200,16 @@ impl RequestTrace {
     }
 }
 
+/// Only the outermost part of `reason`, the text before the first `: `: the
+/// rest of an error chain can hold paths and git's output, which can hold a
+/// remote's credentials, and logs end up in problem reports.
 fn cut(reason: impl fmt::Display) -> String {
-    reason.to_string().chars().take(REASON_CHARS).collect()
+    let reason = reason.to_string();
+    let outer = reason
+        .split_once(": ")
+        .map_or(reason.as_str(), |(outer, _)| outer);
+
+    outer.chars().take(REASON_CHARS).collect()
 }
 
 impl Drop for RequestTrace {
@@ -213,14 +221,16 @@ impl Drop for RequestTrace {
         } else {
             self.outcome
         };
-        let reason = self.reason.as_deref().unwrap_or_default();
 
         if quiet {
             tracing::debug!(request = %self.id, operation = self.operation, phase = self.phase,
                 outcome, elapsed_ms = elapsed.as_millis(), "request ended");
-        } else {
+        } else if let Some(reason) = &self.reason {
             tracing::info!(request = %self.id, operation = self.operation, phase = self.phase,
                 outcome, reason, elapsed_ms = elapsed.as_millis(), "request ended");
+        } else {
+            tracing::info!(request = %self.id, operation = self.operation, phase = self.phase,
+                outcome, elapsed_ms = elapsed.as_millis(), "request ended");
         }
     }
 }

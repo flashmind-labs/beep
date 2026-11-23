@@ -176,7 +176,6 @@ impl Inner {
         let protocol = read_open(&mut rx).await?;
         let mut trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
         trace.phase("waiting for protocol readiness");
-        trace.long_lived();
         let result = self.serve_protocol(tx, rx, protocol, who, &mut trace).await;
         trace.end(&result);
         result
@@ -203,6 +202,7 @@ impl Inner {
         }
 
         trace.phase("serving");
+        trace.long_lived();
         let offers = self.offers().clone();
         // Diagnostics are open to every machine of the mesh, even when not lent.
         let diagnostic = matches!(
@@ -357,7 +357,6 @@ impl Peers {
             "subscriptions use their own ALPN"
         );
         let mut trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
-        trace.long_lived();
         let who = self.channel_who(peer, mesh).context("not authorized")?;
         let result = self
             .inner

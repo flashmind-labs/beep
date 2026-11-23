@@ -338,11 +338,11 @@ impl Processes {
             let mut max_age = WATCHED;
             let mut ports_due = Instant::now() + PORTS;
             let mut followers = 0;
-            let mut asked: Vec<(Poll, actor::Handling)> = Vec::new();
+            let mut asked: Vec<Poll> = Vec::new();
 
             loop {
                 let forced = !asked.is_empty();
-                let forced_scan = asked.iter().any(|(poll, _)| poll.scan);
+                let forced_scan = asked.iter().any(|poll| poll.scan);
                 let age = if forced { Duration::ZERO } else { max_age };
                 let result =
                     actor::job("processes", "table", processes.refresh(&mut observed, age)).await;
@@ -367,7 +367,7 @@ impl Processes {
 
                 processes.publish(&observed, &result, &publish, &session);
 
-                for (poll, _timing) in asked.drain(..) {
+                for poll in asked.drain(..) {
                     let _ = poll.done.send(result.clone());
                 }
 
@@ -376,10 +376,11 @@ impl Processes {
                         Some(age) => max_age = age,
                         None => return,
                     },
-                    Some(poll) = polls.recv() => {
+                    // The table read and port scan are timed as jobs, not as the poll.
+                    Some((poll, _)) = polls.recv() => {
                         asked.push(poll);
                         // One read answers every poll that is waiting.
-                        while let Some(poll) = polls.try_recv() {
+                        while let Some((poll, _)) = polls.try_recv() {
                             asked.push(poll);
                         }
                     }

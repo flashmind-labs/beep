@@ -4,8 +4,9 @@
 //! times work an actor runs off its loop. Labels are fixed names: the
 //! actor's, the message enum's variant (`strum::IntoStaticStr`) and the job's.
 //!
-//! Metrics: `beep_actor_wait_seconds{actor,message}`,
-//! `beep_actor_handle_seconds{actor,message}`,
+//! Metrics: `beep_actor_wait_seconds{actor}`,
+//! `beep_actor_handle_seconds{actor}` (one series per actor: the message
+//! kind is only on the log line),
 //! `beep_actor_job_seconds{actor,job}`. An `INFO` line only for a message
 //! that waited `SLOW_WAIT`, took `SLOW_HANDLE`, or a job that took `SLOW_JOB`.
 
@@ -141,7 +142,7 @@ where
     fn taken(&self, Stamped { message, sent }: Stamped<M>) -> (M, Handling) {
         let waited = sent.elapsed();
         let label = Into::<&'static str>::into(&message);
-        metrics::histogram!("beep_actor_wait_seconds", "actor" => self.actor, "message" => label)
+        metrics::histogram!("beep_actor_wait_seconds", "actor" => self.actor)
             .record(waited.as_secs_f64());
         let handling = Handling {
             actor: self.actor,
@@ -173,13 +174,13 @@ pub struct Handling {
 impl Drop for Handling {
     fn drop(&mut self) {
         let handled = self.taken.elapsed();
-        metrics::histogram!("beep_actor_handle_seconds", "actor" => self.actor, "message" => self.message)
+        metrics::histogram!("beep_actor_handle_seconds", "actor" => self.actor)
             .record(handled.as_secs_f64());
 
         if self.waited >= SLOW_WAIT || handled >= SLOW_HANDLE {
             tracing::info!(
                 actor = self.actor,
-                message = self.message,
+                kind = self.message,
                 waited_ms = self.waited.as_millis(),
                 handled_ms = handled.as_millis(),
                 "slow actor message"
