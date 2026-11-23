@@ -63,10 +63,15 @@ export function setMentionImages(state: MentionState, images: Attached[]) {
 }
 export function rememberMentionImages() { current.images = AG.att; }
 
-export function activateMentions(session: { machine_id: string; agent: string; id: string }) {
+export function mentionsOf(session: { machine_id: string; agent: string; id: string }) {
   const key = conversationKey(session);
   let state = conversations.get(key);
   if (!state) { state = freshMentions(); conversations.set(key, state); }
+  return state;
+}
+
+export function activateMentions(session: { machine_id: string; agent: string; id: string }) {
+  const state = mentionsOf(session);
   if (state === current) { AG.attError = state.error; return; }
   current = state;
   AG.att = state.images;

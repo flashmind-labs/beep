@@ -1,7 +1,6 @@
 //! The source's side of a move, with a shell script for the agent, and the
 //! pieces the target uses.
 
-use beep_proto::SessionId;
 use super::{
     Env, Stored,
     follow::{in_order, reconcile},
@@ -12,6 +11,7 @@ use super::{
 };
 use crate::agents::{AgentKind, Agents, Begin, session::Command};
 use beep_mesh::{Key, Mesh, transport_config};
+use beep_proto::SessionId;
 use beep_proto::watched;
 use beep_proto::{
     AgentSlug,
@@ -190,7 +190,11 @@ async fn the_source_stops_the_turn_when_told_to_and_ends_the_session() {
         .await
         .expect("it ends in time")
         .expect("it ends the session");
-    let saved = source.env.state.load(&SessionId::from("held-1")).expect("it is kept");
+    let saved = source
+        .env
+        .state
+        .load(&SessionId::from("held-1"))
+        .expect("it is kept");
     assert_eq!((saved.at, saved.phase), (record.at, Phase::Done));
     source.env.agents.shutdown().await;
 }
@@ -282,7 +286,13 @@ async fn a_cancelled_move_lets_prompts_in_again() {
         .order(Command::Moving { stop: false })
         .await
         .expect("held");
-    source::cancel(&source.env, &SessionId::from("held-1"), 1_793_696_400_000, record(&source.env, true).to).await;
+    source::cancel(
+        &source.env,
+        &SessionId::from("held-1"),
+        1_793_696_400_000,
+        record(&source.env, true).to,
+    )
+    .await;
     session
         .order(Command::Prompt("after".to_owned().into()))
         .await
@@ -344,11 +354,20 @@ async fn a_target_that_gives_up_leaves_the_session_running_here() {
         .order(Command::Prompt("still here".to_owned().into()))
         .await
         .expect("the session takes prompts again");
-    let saved = source.env.state.load(&SessionId::from("held-1")).expect("it is kept");
+    let saved = source
+        .env
+        .state
+        .load(&SessionId::from("held-1"))
+        .expect("it is kept");
     assert_eq!(saved.phase, Phase::Failed);
     assert_eq!(saved.reason.as_deref(), Some("this machine has no fake"));
     assert_eq!(
-        source.env.agents.moves.refusal(&SessionId::from("held-1")).as_deref(),
+        source
+            .env
+            .agents
+            .moves
+            .refusal(&SessionId::from("held-1"))
+            .as_deref(),
         Some("this machine has no fake"),
         "a target that asks hears why"
     );
@@ -378,7 +397,11 @@ async fn a_target_that_gives_up_after_the_session_ended_has_it_start_again_here(
         "the session runs again where it was"
     );
     assert_eq!(
-        source.env.state.load(&SessionId::from("held-1")).map(|saved| saved.phase),
+        source
+            .env
+            .state
+            .load(&SessionId::from("held-1"))
+            .map(|saved| saved.phase),
         Some(Phase::Failed)
     );
     source.env.agents.shutdown().await;
@@ -399,7 +422,13 @@ async fn a_move_cancelled_after_the_session_ended_does_not_start_it_while_the_ta
         }
     }
     // The target took it and cannot be asked since: it may run it.
-    source::cancel(&source.env, &SessionId::from("held-1"), record.at, record.to).await;
+    source::cancel(
+        &source.env,
+        &SessionId::from("held-1"),
+        record.at,
+        record.to,
+    )
+    .await;
     assert!(
         !source.env.agents.runs(&SessionId::from("held-1")),
         "the session does not run on two machines"
@@ -414,8 +443,11 @@ async fn a_move_taken_back_after_an_earlier_one_ended_here_still_frees_the_sessi
     let source = source_env().await;
     let session = asking(&source).await;
     let env = Arc::new(source.env);
-    let earlier = env.agents.moves.begin(&SessionId::from("held-1"), 1);
-    show(&earlier, |progress| progress.phase = MovePhase::Done);
+    let earlier = env
+        .agents
+        .moves
+        .begin(&SessionId::from("held-1"), 1, env.mesh.me());
+    earlier.finish(MovePhase::Done, None);
     let record = record(&env, false);
     env.mesh
         .set(
@@ -458,6 +490,52 @@ async fn a_move_taken_back_after_an_earlier_one_ended_here_still_frees_the_sessi
         .order(Command::Prompt("again".to_owned().into()))
         .await
         .expect("the session takes prompts again: the old tracker did not hide the cancel");
+    env.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_replacement_move_releases_the_old_source_before_starting() {
+    let source = source_env().await;
+    let session = asking(&source).await;
+    let env = Arc::new(source.env);
+    let old = record(&env, false);
+    let key = Key::SessionMove(old.id.clone());
+    env.mesh
+        .set(key.clone(), Some(old.to_bytes().unwrap()))
+        .await
+        .unwrap();
+    let mut running = HashMap::new();
+    reconcile(&env, &mut running).await;
+    timeout(Duration::from_secs(30), async {
+        while session
+            .order(Command::Prompt("x".to_owned().into()))
+            .await
+            .is_ok()
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the old move held the session");
+
+    // The new record makes this node the target. Nothing here can pick up
+    // where the old source left off if its moving flag is never cleared.
+    let replacement = SessionMove {
+        at: old.at + 1,
+        from: old.to,
+        to: old.from,
+        ..old
+    };
+    env.mesh
+        .set(key, Some(replacement.to_bytes().unwrap()))
+        .await
+        .unwrap();
+    reconcile(&env, &mut running).await;
+
+    session
+        .order(Command::Prompt("again".to_owned().into()))
+        .await
+        .expect("the replaced move released the session");
     env.agents.shutdown().await;
 }
 
@@ -529,14 +607,27 @@ fn the_oldest_move_is_taken_up_first_and_a_chat_before_its_threads() {
 #[test]
 fn a_target_that_resumes_the_session_reads_as_landed() {
     let moves = crate::agents::moving::Moves::default();
-    let tracker = moves.begin(&SessionId::from("held-1"), 7);
-    moves.take(&SessionId::from("held-1"));
+    let id = SessionId::from("held-1");
+    let source = SecretKey::generate().public();
+    let next_source = SecretKey::generate().public();
+    let tracker = moves.begin(&id, 7, source);
+    tracker.take();
     show(&tracker, |progress| progress.phase = MovePhase::Files);
-    assert_eq!(moves.target(&SessionId::from("held-1"), 7), Target::Taken);
-    show(&tracker, |progress| progress.phase = MovePhase::Resuming);
-    assert_eq!(moves.target(&SessionId::from("held-1"), 7), Target::Starting, "past taking back, not yet running");
-    show(&tracker, |progress| progress.phase = MovePhase::Done);
-    assert_eq!(moves.target(&SessionId::from("held-1"), 7), Target::Landed);
+    assert_eq!(moves.target(&id, 7), Target::Taken);
+    assert!(tracker.resume());
+    assert_eq!(moves.target(&id, 7), Target::Starting);
+    assert!(!tracker.request_cancel());
+    tracker.finish(MovePhase::Done, None);
+    assert_eq!(moves.target(&id, 7), Target::Landed);
+
+    let next = moves.begin(&id, 8, next_source);
+    assert_eq!(moves.target(&id, 7), Target::Landed);
+    assert!(moves.owns_target(&id, 7, source));
+    assert!(!moves.owns_target(&id, 7, next_source));
+    assert!(next.request_cancel());
+    assert!(!next.resume());
+    next.finish(MovePhase::Cancelled, None);
+    assert!(matches!(moves.target(&id, 8), Target::Failed(_)));
 }
 
 #[tokio::test]
@@ -553,7 +644,10 @@ async fn the_source_waits_for_a_starting_target_to_run_the_session() {
     }
     said.send(Target::Starting).expect("the source listens");
     let early = timeout(Duration::from_millis(300), &mut moving).await;
-    assert!(early.is_err(), "the source is done before the session runs there");
+    assert!(
+        early.is_err(),
+        "the source is done before the session runs there"
+    );
     said.send(Target::Landed).expect("the source listens");
     timeout(Duration::from_secs(30), moving)
         .await
@@ -604,7 +698,7 @@ fn a_move_that_ended_is_remembered_by_the_record_it_answered() {
     let saved = Saved::over(7, Phase::Failed, Some("no checkout".into()));
     folder.save(&SessionId::from("s1"), &saved).expect("saved");
     assert_eq!(folder.load(&SessionId::from("s1")), Some(saved));
-    folder.clear(&SessionId::from("s1"), true);
+    folder.clear(&SessionId::from("s1"), 7);
     assert_eq!(folder.load(&SessionId::from("s1")), None);
     assert!(valid_id("0b1c2d3e-0000-4000-8000-0123456789ab"));
     assert!(!valid_id("../etc"));

@@ -2,7 +2,7 @@
 // in its folder, kept running by the node like any terminal (Home lists it
 // under the machine).
 
-import { describeMessage, endsForGood, inOrderChannel, newView, readTermMessage, Replay, sizeChanged, splice, type Screen, type TerminalRow, type TermSize } from "../terminals/terminals.tsx";
+import { changeTerminalLink, describeMessage, endsForGood, inOrderChannel, newView, readTermMessage, Replay, sizeChanged, splice, terminalAttempt, terminalFollowing, type Screen, type TerminalLink, type TerminalRow, type TermSize } from "../terminals/terminals.tsx";
 import { indexedChannel, invoke, logError, logInfo } from "../ui/tauri.ts";
 import { onShownChange } from "../ui/active.ts";
 import { RETRY_MS } from "../agents/reconnect-state.ts";
@@ -10,25 +10,16 @@ import { RETRY_MS } from "../agents/reconnect-state.ts";
 /// The size a terminal starts at, before its screen is fitted.
 const START_SIZE = { cols: 100, rows: 30 };
 
-type PaneLink = "attaching" | "attached" | "detached" | "ended";
-
 /// One terminal tab.
 export interface PaneTerm {
   row: TerminalRow;
   screen: Screen;
-  link: PaneLink;
+  link: TerminalLink;
   /// Bytes of output on the screen so far: where a reattach starts.
   next: number;
-  tries: number;
-  timer?: ReturnType<typeof setTimeout>;
   /// This tab's name for its stream: another view of the same terminal
   /// keeps its own.
   view: string;
-  /// Counts attaches, so a stream that an attach replaced is ignored.
-  attaches: number;
-  disposed?: boolean;
-  /// Let go while the pane was off screen, to follow again when it shows.
-  paused?: boolean;
   /// The size the node last got from this tab.
   sent: TermSize | null;
   /// Which output replays what the node kept.
@@ -73,14 +64,14 @@ export async function followTerm(row: TerminalRow, hooks: TermHooks, opened = fa
 /// Terminal `row` on `screen`, with typing and resizes wired to it; not
 /// attached yet.
 export function paneTerm(row: TerminalRow, screen: Screen, hooks: TermHooks, opened = false): PaneTerm {
-  const t: PaneTerm = { row, screen, link: "attaching", next: 0, tries: 0, view: newView(), attaches: 0, sent: null, replay: new Replay(opened), ...hooks };
+  const t: PaneTerm = { row, screen, link: { kind: "detached" }, next: 0, view: newView(), sent: null, replay: new Replay(opened), ...hooks };
   const input = (data: string) => {
-    if (t.link === "attached") invoke("terminal_input", { id: row.id, view: t.view, data }).catch(() => {});
+    if (t.link.kind === "attached") invoke("terminal_input", { id: row.id, view: t.view, data }).catch(() => {});
   };
   screen.onData(input);
   // The node does not answer queries yet: the screen's answers go as input.
   screen.onReply(input);
-  screen.onResize(() => { if (t.link === "attached") sendSize(t); });
+  screen.onResize(() => { if (t.link.kind === "attached") sendSize(t); });
   screen.onEscape(() => t.onEscape());
   follow(t);
   return t;
@@ -100,17 +91,11 @@ function follow(t: PaneTerm) {
 }
 
 function pause(t: PaneTerm) {
-  if (t.link !== "attached" && t.link !== "attaching") return;
-  detachTerm(t);
-  t.paused = true;
+  if (terminalFollowing(t.link)) leave(t, { kind: "paused" });
 }
 
 function resume(t: PaneTerm) {
-  if (!t.paused) return;
-  t.paused = false;
-  if (t.disposed || t.link !== "detached") return;
-  t.tries = 0;
-  attach(t);
+  if (t.link.kind === "paused") attach(t);
 }
 
 /// Tells the node the screen's size, when it changed since it last heard:
@@ -125,15 +110,15 @@ function sendSize(t: PaneTerm) {
 /// Follows `t` from where its screen got to, until it ends or is detached;
 /// a dropped stream is attached again after a wait, shown in the footer
 /// rather than on the screen.
-export function attach(t: PaneTerm) {
-  clearTimeout(t.timer);
-  t.link = "attaching";
+export function attach(t: PaneTerm, tries = 0) {
+  if (t.link.kind === "disposed" || t.link.kind === "closing") return;
+  const attempt = { cancel: () => {} };
+  changeTerminalLink(t, { kind: "attaching", attempt, tries });
+  const current = () => terminalAttempt(t.link) === attempt;
   t.onLink();
-  const attempt = ++t.attaches;
-  // Whether this is still the tab's stream: one it replaced says nothing.
-  const current = () => t.attaches === attempt;
+  if (!current()) return;
+
   const show = (message: unknown) => {
-    if (t.link === "detached") return;
     const ev = readTermMessage(message);
     if (ev === null) {
       logError(`terminal ${t.row.id}: a stream message was not understood (${describeMessage(message)})`);
@@ -143,8 +128,7 @@ export function attach(t: PaneTerm) {
     if (ev.kind === "attached") {
       logInfo(`terminal ${t.row.id}: attached in a pane`);
       t.replay.start(performance.now());
-      t.link = "attached";
-      t.tries = 0;
+      changeTerminalLink(t, { kind: "attached", attempt });
       t.screen.setInput(true);
       // The screen may have been fitted while it attached.
       sendSize(t);
@@ -158,77 +142,93 @@ export function attach(t: PaneTerm) {
       return;
     } else if (ev.kind === "ended") {
       logInfo(`terminal ${t.row.id}: ended (${ev.state})`);
-      t.link = "ended";
+      changeTerminalLink(t, { kind: "ended" });
       t.screen.setInput(false);
       if (endsForGood(ev.state)) return t.onEnd();
       t.row = { ...t.row, state: ev.state, code: ev.code };
     } else {
       // A terminal that takes no input is not one the pane opened.
       logInfo(`terminal ${t.row.id}: view only in a pane`);
-      t.link = "ended";
+      changeTerminalLink(t, { kind: "ended" });
       t.screen.setInput(false);
     }
 
     t.onLink();
   };
-  const channel = inOrderChannel(indexedChannel, current, show, missing => {
+  const stream = inOrderChannel(indexedChannel, current, show, missing => {
     logError(`terminal ${t.row.id}: stream message ${missing} was lost in a pane; attaching again`);
-    attach(t);
+    attach(t, t.link.kind === "attaching" ? t.link.tries : 0);
   });
+  attempt.cancel = stream.cancel;
   // The attach carries the size, so the node has it from here on.
   const size = t.screen.size();
   t.sent = size;
-  invoke("terminal_attach", { id: t.row.id, view: t.view, from: t.next, ...size, onEvent: channel })
-    .then(() => { if (current() && (t.link === "attached" || t.link === "attaching")) retry(t); })
-    .catch(() => { if (current() && t.link !== "detached" && t.link !== "ended") retry(t); });
+  invoke("terminal_attach", { id: t.row.id, view: t.view, from: t.next, ...size, onEvent: stream.channel })
+    .then(() => { if (current()) retry(t); })
+    .catch(() => { if (current()) retry(t); });
 }
 
 function retry(t: PaneTerm) {
-  logInfo(`terminal ${t.row.id}: stream dropped in a pane, try ${t.tries + 1}`);
-  t.tries += 1;
+  const tries = (t.link.kind === "attaching" ? t.link.tries : 0) + 1;
+  logInfo(`terminal ${t.row.id}: stream dropped in a pane, try ${tries}`);
   t.screen.setInput(false);
-  t.link = "attaching";
-  t.timer = setTimeout(() => attach(t), RETRY_MS);
+  changeTerminalLink(t, { kind: "retrying", tries, timer: setTimeout(() => attach(t, tries), RETRY_MS) });
   t.onLink();
 }
 
 /// Stops following `t` here; it keeps running on its machine.
 export function detachTerm(t: PaneTerm) {
-  clearTimeout(t.timer);
-  const was = t.link;
-  t.link = "detached";
-  t.paused = false;
+  if (t.link.kind !== "disposed" && t.link.kind !== "closing") leave(t, { kind: "detached" });
+}
+
+function leave(t: PaneTerm, link: TerminalLink) {
+  const following = terminalFollowing(t.link);
+  changeTerminalLink(t, link);
   t.screen.setInput(false);
-  if (was === "attached" || was === "attaching") invoke("terminal_detach", { id: t.row.id, view: t.view }).catch(() => {});
+  if (following) invoke("terminal_detach", { id: t.row.id, view: t.view }).catch(() => {});
 }
 
 /// Detaches `t` and lets go of its screen.
 export function dropTerm(t: PaneTerm) {
-  if (t.disposed) return;
-  t.disposed = true;
+  if (t.link.kind === "disposed") return;
   tabs.delete(t);
-  detachTerm(t);
+  leave(t, { kind: "disposed" });
   t.screen.dispose();
 }
 
 /// Stops `t`'s shell on its machine and lets go of its screen. The tab
 /// stops following it first, so the end the stop causes is not taken for
 /// one of its own; when the stop fails it follows it again.
-export async function killTerm(t: PaneTerm) {
+export function killTerm(t: PaneTerm): Promise<void> {
   const was = t.link;
-  detachTerm(t);
+  if (was.kind === "closing") return was.completion;
 
-  try {
-    await invoke("terminal_close", { id: t.row.id });
-  } catch (e) {
-    if (!t.disposed) {
-      if (was === "attached" || was === "attaching") { t.tries = 0; attach(t); } else t.link = was;
+  const completion = Promise.resolve().then(stop);
+  if (was.kind !== "disposed") {
+    leave(t, { kind: "closing", completion });
+    t.onLink();
+  }
+  return completion;
+
+  async function stop() {
+    try {
+      await invoke("terminal_close", { id: t.row.id });
+    } catch (e) {
+      if (t.link.kind === "closing") {
+        if (terminalFollowing(was)) {
+          changeTerminalLink(t, { kind: "detached" });
+          attach(t);
+        } else {
+          changeTerminalLink(t, was);
+          t.onLink();
+        }
+      }
+
+      throw e;
     }
 
-    throw e;
+    dropTerm(t);
   }
-
-  dropTerm(t);
 }
 
 /// Forgets an ended terminal on its machine, as Home does.
@@ -239,10 +239,15 @@ export function forgetTerm(t: PaneTerm) {
 
 /// The footer line of a terminal tab.
 export function termStatus(t: PaneTerm, machine: string) {
-  switch (t.link) {
-    case "attaching": return t.tries ? `Reconnecting to ${machine}…` : "Attaching…";
+  switch (t.link.kind) {
+    case "attaching": return t.link.tries ? `Reconnecting to ${machine}…` : "Attaching…";
+    case "retrying": return `Reconnecting to ${machine}…`;
     case "attached": return `${machine} · what you type goes there`;
+    case "closing": return "Closing…";
+    case "paused":
+    case "disposed":
     case "detached": return "Detached: it keeps running";
+    case "view_only":
     case "ended": return t.row.state === "offline" ? `${machine} is offline; it may still run there` : "Ended";
   }
 }

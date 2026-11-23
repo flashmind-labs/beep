@@ -4,6 +4,7 @@ use super::{
     device_name,
     folder::project_folder,
     read::{Access, Asked, Leaving, serve},
+    saved::Outgoing,
 };
 use crate::{
     agents::{Agents, conversation},
@@ -61,7 +62,7 @@ pub(super) fn permits(
 
     match ask {
         Asked::Read => record.from == me && record.to == peer,
-        Asked::State => record.to == me && record.from == peer,
+        Asked::State(at) => record.at == at && record.to == me && record.from == peer,
     }
 }
 
@@ -140,11 +141,17 @@ impl ProtocolHandler for SessionsAlpn {
                         let updates = Some(mesh.updates());
                         let allow = |ask: Asked, id: &SessionId| {
                             mesh.is_member(peer)
-                                && permits(record_of(&mesh, id).as_ref(), mesh.me(), peer, ask, id)
+                                && (permits(record_of(&mesh, id).as_ref(), mesh.me(), peer, ask, id)
+                                    || matches!(ask, Asked::State(at) if agents.moves.owns_target(id, at, peer)))
                         };
                         let leaving = |id: &SessionId| leaving(&mesh, &record_of(&mesh, id)?);
                         let me = device_name(&mesh, &mesh.me());
-                        let access = Access { check: &allow, updates, leaving: &leaving };
+                        let outgoing = |id: &SessionId| {
+                            let record = record_of(&mesh, id)?;
+                            (mesh.is_member(peer) && permits(Some(&record), mesh.me(), peer, Asked::Read, id))
+                                .then_some(Outgoing { at: record.at, to: record.to })
+                        };
+                        let access = Access { check: &allow, updates, leaving: &leaving, outgoing: Some(&outgoing) };
                         serve(tx, rx, &agents, &me, access).await
                     }.in_current_span());
                 }

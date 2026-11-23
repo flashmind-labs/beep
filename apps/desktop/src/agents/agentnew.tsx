@@ -1,5 +1,5 @@
 import { withMentions } from "../agentpane/files-state.ts";
-import { keepProjectAccount, keepProjectPick, lastProjectPick, startAccount } from "./agentmodels.ts";
+import { keepProjectAccount, keepProjectPick, lastProjectPick, projectAccount, startAccount } from "./agentmodels.ts";
 import { Spinner } from "../ui/kit.tsx";
 import { createRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { flushSync } from "react-dom";
@@ -86,9 +86,18 @@ function keepAssistantMachine(machine: string) {
 /// Every machine of the user's, online or not, for the Machine menu; null
 /// until read.
 let KNOWN: Machine[] | null = null;
-let composer: StartComposer | null = null;
-let shellPage: BarPageSlot | null = null;
-let attachments: ReturnType<typeof startAttachments>;
+type FormError = { kind: "prompt" } | { kind: "failed"; message: string };
+type StartPhase = { kind: "editing"; error: FormError | null } | { kind: "preparing" } | { kind: "starting" };
+
+interface StartView {
+  composer: StartComposer;
+  attachments: ReturnType<typeof startAttachments>;
+  page: BarPageSlot;
+  phase: StartPhase;
+}
+
+let startView: StartView | null = null;
+const formBusy = () => startView !== null && startView.phase.kind !== "editing";
 
 /// Each project's branches for the Base menu, by project: `undefined`
 /// while asked, `null` when the server cannot list them.
@@ -117,10 +126,8 @@ export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: Agen
     ? { prompt, assistant, machine: "", machinePicked: false, agent: null, cwd: "", project: null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false }
     : { prompt, assistant, machine: at?.machine || lastMachine(at?.project), machinePicked: false, agent: null, cwd: at?.cwd || "", places: at?.places, project: at?.project ?? null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
   if (assistant) presetAssistant(); else restoreProjectPick();
-  AG.error = "";
-  AG.busy = false;
   drawFrame();
-  composer?.input.focus();
+  startView?.composer.input.focus();
   // What the form showed last stands until machines or accounts change.
   const changed = !AG.hosts || hostChanges.dirty("");
   if (changed) loadAgentHosts();
@@ -148,7 +155,7 @@ function formAgents() {
 
 /// Redraws the form, keeping the prompt as typed when it shows already.
 export function drawAgentNew() {
-  if (composer?.box.isConnected) drawParts();
+  if (startView?.composer.box.isConnected) drawParts();
   else drawFrame();
 }
 
@@ -156,14 +163,22 @@ export function drawAgentNew() {
 /// prompt is drawn once, so redrawing the rest keeps what is typed.
 function drawFrame() {
   const f = AG.form;
-  const c = composer = makeStartComposer({
+  const c = makeStartComposer({
     ids: true,
     actions: {
-      submit: () => void startAgent(), harness: () => { if (!AG.busy) togglePicker(); }, choice: toggleChoice, keyDown: switchMachine, files: files => attachments.take(files), images: files => attachments.add(files), removeLast: () => attachments.removeLast(),
+      submit: () => { if (startView?.composer === c) void startAgent(); },
+      harness: () => { if (!formBusy()) togglePicker(); },
+      choice: toggleChoice, keyDown: switchMachine,
+      files: files => attachments.take(files), images: files => attachments.add(files), removeLast: () => attachments.removeLast(),
       input: value => {
-        AG.form.prompt = value;
-        if (AG.form.assistant) assistantDraft = value;
-        if (AG.error === "prompt") { AG.error = ""; drawParts(); }
+        const view = startView;
+        if (view?.composer !== c) return;
+        f.prompt = value;
+        if (f.assistant) assistantDraft = value;
+        if (view.phase.kind === "editing" && view.phase.error?.kind === "prompt") {
+          view.phase = { kind: "editing", error: null };
+          drawParts();
+        }
       },
     },
     place: () => {
@@ -171,11 +186,24 @@ function drawFrame() {
       return S.view === "agentnew" && f.machine && f.agent && f.cwd ? menuPlaceFor(f.machine, f.agent, f.cwd) : null;
     },
   });
-  const started = attachments = startAttachments(c, text => { AG.error = text; c.update({ error: text }); }, () => drawParts());
+  const attachments = startAttachments(c, text => {
+    if (startView?.composer !== c || startView.phase.kind !== "editing") return;
+    startView.phase = { kind: "editing", error: text ? { kind: "failed", message: text } : null };
+    c.update({ error: text });
+  }, () => { if (startView?.composer === c) drawParts(); });
   c.setText(f.prompt);
-  const page = shellPage = openBarPage(() => { shellPage = null; closedPicker(c.pick); started.discard(); c.dispose(); stopOutside(); });
+  const page = openBarPage(() => {
+    if (startView?.composer === c) {
+      if (!formBusy()) attachments.discard();
+      startView = null;
+    }
+    closedPicker(c.pick);
+    c.dispose();
+    stopOutside();
+  });
+  startView = { composer: c, attachments, page, phase: { kind: "editing", error: null } };
   showForm(page, c);
-  attachments.bindStash(() => AG.form.project ?? null);
+  attachments.bindStash(() => f.project ?? null);
   stopOutside();
   document.addEventListener("click", closeOutside);
   drawParts();
@@ -184,7 +212,7 @@ function drawFrame() {
 /// A click outside the open menu or picker closes it.
 function closeOutside(e: MouseEvent) {
   const f = AG.form;
-  if (S.view !== "agentnew" || AG.busy || !f.open || !(e.target instanceof Element)) return;
+  if (S.view !== "agentnew" || formBusy() || !f.open || !(e.target instanceof Element)) return;
   if (e.target.closest(".agc-pick, .agc-menu, .pill")) return;
   f.open = null;
   drawParts();
@@ -195,11 +223,11 @@ function stopOutside() { document.removeEventListener("click", closeOutside); }
 /// Brings the form's choices in line with the machine picked, then draws
 /// everything but the prompt.
 function drawParts() {
-  const c = composer;
-  if (S.view !== "agentnew" || !c?.box.isConnected) return;
+  const view = startView;
+  if (S.view !== "agentnew" || !view?.composer.box.isConnected) return;
+  const { composer: c, page, attachments, phase } = view;
   const f = AG.form, hosts = AG.hosts ?? [];
-  const page = shellPage;
-  if (page) showForm(page, c);
+  showForm(page, c);
 
   // With no machine picked, or one that no longer runs agents: the project's
   // first machine with a checkout and an agent, else the first with an agent.
@@ -216,19 +244,21 @@ function drawParts() {
   f.effort = keepEffort(f.agent, f.effort);
   syncModel();
   const none = !!AG.hosts && !addHosts(hosts).length;
-  const missing = AG.error === "prompt";
+  const error = phase.kind === "editing" ? phase.error : null;
+  const missing = error?.kind === "prompt";
+  const busy = phase.kind !== "editing";
   const host = formHost();
   const words = f.assistant ? ASSISTANT_WORDS : TASK_WORDS;
   c.update({
-    invalid: missing, placeholder: missing ? PROMPT_MISSING : words.placeholder, words, error: missing ? PROMPT_MISSING : AG.error,
+    invalid: missing, placeholder: missing ? PROMPT_MISSING : words.placeholder, words, error: missing ? PROMPT_MISSING : error?.message ?? "",
     project: f.project ?? null,
-    sendDisabled: AG.busy || attachments.reading || !hosts.length || !f.machine,
+    sendDisabled: busy || attachments.reading || !hosts.length || !f.machine,
     sendTitle: !f.machine ? "Pick a machine first" : "Start (⌘↩)",
-    busy: AG.busy, open: f.open ?? null,
+    busy, open: f.open ?? null,
     folderHidden: f.assistant || !!f.typing, folderTitle: f.cwd.trim() || host?.workspace || "The machine's workspace",
   });
-  attachments.setBusy(AG.busy);
-  if (!AG.busy) attachments.files.moveTo(f.machine, f.cwd.trim() || host?.workspace || "");
+  attachments.setBusy(busy);
+  if (!busy) attachments.files.moveTo(f.machine, f.cwd.trim() || host?.workspace || "");
   // Text set from code (a stash restore, a start) fits once drawn.
   requestAnimationFrame(c.grow);
   drawPill(c, none);
@@ -314,7 +344,7 @@ function drawExtras(c: StartComposer) {
 
 /// The pill the open menu hangs from, and the area it stays in.
 function menuAnchor() {
-  const open = AG.form.open, c = composer;
+  const open = AG.form.open, c = startView?.composer;
   if (open === "base") return baseButton.current;
   if (open === "account") return accountButton.current;
   return c && (open === "host" || open === "folder") ? c.choice(open) : null;
@@ -343,7 +373,7 @@ function accountMenu(): ChoiceMenu | null {
 
 function toggleAccount() {
   const f = AG.form;
-  if (S.view !== "agentnew" || AG.busy) return;
+  if (S.view !== "agentnew" || formBusy()) return;
   f.open = f.open === "account" ? null : "account";
   drawParts();
 }
@@ -397,7 +427,7 @@ function folderMenu(checkout: boolean): ChoiceMenu | null {
 /// the assistant for the assistant, one with a checkout for a project.
 function switchMachine(e: KeyboardEvent) {
   const f = AG.form;
-  if (e.key !== "Tab" || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || AG.busy) return;
+  if (e.key !== "Tab" || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || formBusy()) return;
   const hosts = (AG.hosts ?? []).filter(h => !f.assistant || h.assistant);
   const next = nextBarMachine(f.places ?? null, hosts, f.machine);
   if (!next) return;
@@ -409,14 +439,14 @@ function switchMachine(e: KeyboardEvent) {
 /// Opens or closes the machine or folder menu.
 function toggleChoice(which: "host" | "folder") {
   const f = AG.form;
-  if (S.view !== "agentnew" || AG.busy) return;
+  if (S.view !== "agentnew" || formBusy()) return;
   f.open = f.open === which ? null : which;
   drawParts();
 }
 
 function toggleBase() {
   const f = AG.form;
-  if (S.view !== "agentnew" || AG.busy) return;
+  if (S.view !== "agentnew" || formBusy()) return;
   // Without the project's branches, the ref is typed.
   if (formBranches() === null) return typeBase();
   f.open = f.open === "base" ? null : "base";
@@ -426,7 +456,7 @@ function toggleBase() {
 /// A row picked in the open menu.
 function pickChoice(action: ChoiceAction, value: string) {
   const f = AG.form;
-  if (S.view !== "agentnew" || AG.busy) return;
+  if (S.view !== "agentnew" || formBusy()) return;
 
   switch (action) {
     case "agb": f.base = value; break;
@@ -480,7 +510,7 @@ export function closeAgentNewMenus() {
   f.typing = false;
   f.baseTyping = false;
   drawParts();
-  composer?.input.focus();
+  startView?.composer.input.focus();
   return true;
 }
 
@@ -497,7 +527,7 @@ function typeFolder(value: string) {
   const f = AG.form;
   f.cwd = value;
   f.checkout = DEFAULT_CHECKOUT;
-  if (composer) drawExtras(composer);
+  if (startView) drawExtras(startView.composer);
   lookFolders();
 }
 
@@ -549,7 +579,7 @@ function lookFolders() {
 
 function showMenu(next: FolderMenu) {
   menu = AG.form.typing ? next : NO_MENU;
-  if (composer && S.view === "agentnew") drawExtras(composer);
+  if (startView && S.view === "agentnew") drawExtras(startView.composer);
 }
 
 function pickFolder(index: number) {
@@ -610,53 +640,66 @@ function syncModel() {
     f.modelFor = key;
   }
   if (!machine || !agent) return;
-  modelsOn(machine, agent, () => { if (S.view === "agentnew" && AG.form.modelFor === key && composer) drawPill(composer, false); });
+  modelsOn(machine, agent, () => { if (S.view === "agentnew" && AG.form.modelFor === key && startView) drawPill(startView.composer, false); });
 }
 
 // ----- Start -----
 
 export async function startAgent() {
-  const f = AG.form;
-  if (S.view !== "agentnew" || AG.busy || attachments.reading) return;
-  if (!f.prompt.trim() && !attachments.count) { AG.error = "prompt"; drawParts(); return composer?.input.focus(); }
+  const view = startView, f = AG.form;
+  if (S.view !== "agentnew" || !view || view.phase.kind !== "editing" || view.attachments.reading || view.composer.input.readOnly) return;
+  const { attachments, composer } = view;
+
+  if (!f.prompt.trim() && !attachments.count) {
+    view.phase = { kind: "editing", error: { kind: "prompt" } };
+    drawParts();
+    return composer.input.focus();
+  }
   if (!f.machine) { f.open = "host"; return drawParts(); }
-  AG.busy = true;
-  AG.error = "";
+
+  const { agent, assistant, machine, machinePicked } = f;
+  const back = AG.back, hosts = AG.hosts ?? [], typed = f.prompt, folder = f.cwd.trim();
+  const model = f.model?.trim() && f.modelFor ? modelId(knownModels(machine, agent), f.model) : null;
+  const effort = f.effort || null, fast = f.fast ?? null;
+  const account = projectAccount(f.project ?? null, agent);
+  const images = attachments.images.map(sentImage);
+  const hasFiles = attachments.files.pending.length > 0;
+  const root = folder || formHost()?.workspace || "";
+  // A new branch or worktree is made only when it was selected.
+  const { cwd, checkout } = checkoutHere()
+    ? startPlace(f.checkout ?? DEFAULT_CHECKOUT, folder, baseFor(f.base, formBranches()))
+    : { cwd: folder, checkout: null };
+  const showing = () => startView === view && S.view === "agentnew";
+
+  view.phase = { kind: "preparing" };
   f.open = null;
   drawParts();
 
   try {
-    const model = f.model?.trim() && f.modelFor ? modelId(knownModels(f.machine, f.agent), f.model) : null;
-    const effort = f.effort || null;
-    if (!f.assistant) keepMachine(f.project, f.machine);
-    // In a project's checkout, an existing worktree is a folder to start
-    // in, and the node makes a new branch or worktree before it starts
-    // only when one is picked.
-    const { cwd, checkout } = checkoutHere()
-      ? startPlace(f.checkout ?? DEFAULT_CHECKOUT, f.cwd.trim(), baseFor(f.base, formBranches()))
-      : { cwd: f.cwd.trim(), checkout: null };
-    const hasFiles = attachments.files.pending.length > 0;
-    const root = f.cwd.trim() || formHost()?.workspace || "";
-    const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, root);
-    // The account the form shows, as saved now.
-    await loadAccountNames();
-    if (hasFiles) composer?.update({ progress: "Starting the agent…" });
-    const images = attachments.images.map(sentImage);
-    const started = f.assistant
-      ? await startAssistant(prompt, { agent: f.agent, model, effort, fast: f.fast ?? null }, AG.hosts ?? [], f.machinePicked || hasFiles ? f.machine : null, images)
-      : await start({ machine: f.machine, agent: f.agent, cwd: cwd || null, prompt, images, model, effort, fast: f.agent === "codex" ? f.fast ?? null : null, checkout, assistant: false, account: formAccount() });
+    if (!assistant) keepMachine(f.project, machine);
+    const prompt = await attachments.files.prompt(composeMessage(typed), machine, root);
+    const accounts = await loadAccountNames();
+
+    view.phase = { kind: "starting" };
+    if (showing() && hasFiles) composer.update({ progress: "Starting the agent…" });
+    const started = assistant
+      ? await startAssistant(prompt, { agent, model, effort, fast }, hosts, machinePicked || hasFiles ? machine : null, images)
+      : await start({ machine, agent, cwd: cwd || null, prompt, images, model, effort, fast: agent === "codex" ? fast : null, checkout, assistant: false,
+        account: accounts.some(named => named.agent === agent && named.name === account) ? account : null });
+
     attachments.clear();
-    if (f.assistant) assistantDraft = "";
-    AG.busy = false;
-    composer?.update({ progress: "" });
-    if (S.view !== "agentnew") return;
-    // Back from the session goes where the form came from.
-    openAgent(started.session, { why: started.why, back: AG.back });
+    view.phase = { kind: "editing", error: null };
+    if (assistant && assistantDraft === typed && (startView === view || !startView || !AG.form.assistant)) assistantDraft = "";
+    if (showing()) openAgent(started.session, { why: started.why, back });
   } catch (e) {
-    AG.busy = false;
-    composer?.update({ progress: "" });
-    AG.error = String(e).replace(/^bad request: /, "");
-    if (S.view === "agentnew") drawParts();
+    const message = String(e).replace(/^bad request: /, "");
+    view.phase = { kind: "editing", error: { kind: "failed", message } };
+    if (startView !== view) {
+      attachments.discard();
+    } else if (showing()) {
+      composer.update({ progress: "" });
+      drawParts();
+    }
   }
 }
 

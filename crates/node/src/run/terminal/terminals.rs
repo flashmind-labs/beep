@@ -1,11 +1,13 @@
 //! The set of terminals the node or the host keeps, and each one's
 //! shared state.
 
-use super::{OpenTerminal, lock, pty::pty_size, screen::Screen, unknown};
-use crate::run::{
-    process::STOP_GRACE,
-    tasks::first_id,
+use super::{
+    OpenTerminal, lock,
+    pty::pty_size,
+    screen::{Phase, Screen},
+    unknown,
 };
+use crate::run::{process::STOP_GRACE, tasks::first_id};
 use anyhow::Result;
 use beep_proto::node::{
     EnvSecret,
@@ -15,10 +17,7 @@ use beep_proto::node::{
 use portable_pty::{ChildKiller, MasterPty};
 use std::{
     path::PathBuf,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
@@ -79,8 +78,8 @@ pub(super) struct Live {
     /// Typed keys, for the writer thread.
     pub(super) input: mpsc::Sender<Vec<u8>>,
     pub(super) master: Mutex<Box<dyn MasterPty + Send>>,
-    /// Set by a stop, so the exit reads as stopped.
-    pub(super) stopping: AtomicBool,
+    #[cfg(windows)]
+    pub(super) process: Option<std::os::windows::io::OwnedHandle>,
     /// Its set's `changed`.
     pub(super) started_or_ended: Arc<Notify>,
 }
@@ -89,12 +88,12 @@ impl Live {
         Task {
             id: self.id,
             command: self.command.clone(),
-            state: lock(&self.screen).state,
+            state: lock(&self.screen).phase.state(),
         }
     }
 
     pub(super) fn is_running(&self) -> bool {
-        lock(&self.screen).state.is_running()
+        lock(&self.screen).phase.state().is_running()
     }
 
     /// Says it started or ended, to the node's note and its set.
@@ -173,8 +172,13 @@ impl Terminals {
     /// its own handle until it has sent the end.
     fn list(&self) -> Vec<Task> {
         let mut inner = lock(&self.inner);
-        let listed = inner.terms.iter().map(|term| term.live.task()).collect();
-        inner.terms.retain(|term| term.live.is_running());
+        let mut listed = Vec::with_capacity(inner.terms.len());
+        inner.terms.retain(|term| {
+            let task = term.live.task();
+            let running = task.state.is_running();
+            listed.push(task);
+            running
+        });
         listed
     }
 
@@ -217,12 +221,10 @@ impl Terminals {
         };
 
         if live.is_running() {
-            live.stopping.store(true, Ordering::Release);
-            self.signal(id, false);
+            self.signal(id, Signal::Stop);
 
             if !live.wait_ended(STOP_GRACE).await {
-                log::debug!("terminal {id} outlived its hang-up; killing it");
-                self.signal(id, true);
+                self.signal(id, Signal::Escalate);
 
                 if !live.wait_ended(STOP_WAIT).await {
                     log::warn!("terminal {id} did not stop in time");
@@ -232,28 +234,26 @@ impl Terminals {
         Reply::Stopped { task: live.task() }
     }
 
-    /// Hangs up terminal `id`, or kills it when `hard`, while it runs: once
-    /// its child is reaped the group's id may be someone else's.
-    fn signal(&self, id: TaskId, hard: bool) {
+    fn signal(&self, id: TaskId, signal: Signal) {
         let mut inner = lock(&self.inner);
         let Some(term) = inner.terms.iter_mut().find(|term| term.live.id == id) else {
             return;
         };
 
-        if term.live.is_running() {
-            term.signal(hard);
-        }
+        term.signal(signal);
     }
 
     pub(super) fn running(&self) -> Vec<OpenTerminal> {
         lock(&self.inner)
             .terms
             .iter()
-            .filter(|term| term.live.is_running())
-            .map(|term| OpenTerminal {
-                id: term.live.id.0,
-                cwd: term.pid.and_then(current_dir).or_else(|| term.cwd.clone()),
-                command: term.live.command.clone(),
+            .filter_map(|term| {
+                let screen = lock(&term.live.screen);
+                screen.phase.has_child().then(|| OpenTerminal {
+                    id: term.live.id.0,
+                    cwd: term.pid.and_then(current_dir).or_else(|| term.cwd.clone()),
+                    command: term.live.command.clone(),
+                })
             })
             .collect()
     }
@@ -284,26 +284,55 @@ impl Terminals {
     #[cfg_attr(all(unix, feature = "cli"), expect(dead_code))]
     pub(super) fn kill_all(&self) {
         for term in &mut lock(&self.inner).terms {
-            if term.live.is_running() {
-                term.signal(true);
-            }
+            term.signal(Signal::Shutdown);
         }
     }
 }
+
+enum Signal {
+    Stop,
+    Escalate,
+    Shutdown,
+}
+
 impl Term {
-    fn signal(&mut self, hard: bool) {
+    /// The screen lock orders signals with reaping the child.
+    fn signal(&mut self, signal: Signal) {
+        let mut screen = lock(&self.live.screen);
+        #[cfg(windows)]
+        if let Some(process) = &self.live.process {
+            use std::os::windows::io::AsRawHandle;
+            use windows_sys::Win32::{
+                Foundation::WAIT_OBJECT_0, System::Threading::WaitForSingleObject,
+            };
+
+            // SAFETY: This owned handle stays valid for the nonblocking check.
+            if unsafe { WaitForSingleObject(process.as_raw_handle(), 0) } == WAIT_OBJECT_0 {
+                return;
+            }
+        }
+
+        match (&signal, screen.phase) {
+            (Signal::Stop, Phase::Running) => screen.phase = Phase::Stopping,
+            (Signal::Escalate, Phase::Stopping)
+            | (Signal::Shutdown, Phase::Running | Phase::Stopping) => {}
+            _ => return,
+        }
+
+        if matches!(signal, Signal::Escalate) {
+            log::debug!("terminal {} outlived its hang-up; killing it", self.live.id);
+        }
+
         #[cfg(unix)]
         if let Some(group) = &self.group {
-            if hard {
-                group.kill();
-            } else {
+            if matches!(signal, Signal::Stop) {
                 group.hang_up();
+            } else {
+                group.kill();
             }
 
             return;
         }
-        // Windows has no gentle way; elsewhere SIGHUP to the child alone.
-        let _ = hard;
 
         if let Err(e) = self.killer.kill() {
             log::debug!("could not end terminal {}: {e}", self.live.id);

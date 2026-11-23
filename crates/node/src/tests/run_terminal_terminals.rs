@@ -97,3 +97,71 @@ async fn a_terminal_ends_with_its_command() {
     assert!(listed.is_empty());
     assert!(terminals.live(id).is_none());
 }
+
+#[tokio::test]
+async fn stop_waits_for_output_from_a_terminal_that_already_exited() {
+    use portable_pty::native_pty_system;
+    use std::{
+        io,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    #[derive(Clone, Debug, Default)]
+    struct Killer(Arc<AtomicUsize>);
+
+    impl ChildKiller for Killer {
+        fn kill(&mut self) -> io::Result<()> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+            Box::new(self.clone())
+        }
+    }
+
+    let terminals = Terminals::default();
+    let id = TaskId(1);
+    let exit = TaskState::Exited { code: Some(7) };
+    let mut screen = Screen::new();
+    screen.phase = Phase::Draining(exit);
+    let pty = native_pty_system()
+        .openpty(pty_size(Size::DEFAULT))
+        .expect("a pty");
+    let live = Arc::new(Live {
+        id,
+        command: "shell".into(),
+        screen: Mutex::new(screen),
+        changed: watch::channel(0).0,
+        input: mpsc::channel(1).0,
+        master: Mutex::new(pty.master),
+        #[cfg(windows)]
+        process: None,
+        started_or_ended: terminals.changed.clone(),
+    });
+    let killer = Killer::default();
+    lock(&terminals.inner).terms.push(Term {
+        live: live.clone(),
+        killer: Box::new(killer.clone()),
+        #[cfg(unix)]
+        group: None,
+        pid: None,
+        cwd: None,
+    });
+
+    let stop = terminals.answer(Request::Stop { id });
+    tokio::pin!(stop);
+    assert!(futures::poll!(stop.as_mut()).is_pending());
+    assert_eq!(killer.0.load(Ordering::Relaxed), 0);
+    assert!(
+        terminals.running().is_empty(),
+        "an exited child cannot be reopened"
+    );
+
+    lock(&live.screen).phase = Phase::Ended(exit);
+    live.changed.send_replace(1);
+    let Reply::Stopped { task } = stop.await else {
+        panic!("the terminal did not report its end");
+    };
+    assert_eq!(task.state, exit);
+}

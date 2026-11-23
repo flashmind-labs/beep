@@ -19,7 +19,29 @@ pub(super) struct Screen {
     start: u64,
     /// The bytes in `lines`.
     len: usize,
-    pub(super) state: TaskState,
+    pub(super) phase: Phase,
+}
+
+/// The child can exit before its last output is read.
+#[derive(Clone, Copy)]
+pub(super) enum Phase {
+    Running,
+    Stopping,
+    Draining(TaskState),
+    Ended(TaskState),
+}
+
+impl Phase {
+    pub(super) fn has_child(self) -> bool {
+        matches!(self, Self::Running | Self::Stopping)
+    }
+
+    pub(super) fn state(self) -> TaskState {
+        match self {
+            Self::Running | Self::Stopping | Self::Draining(_) => TaskState::Running,
+            Self::Ended(state) => state,
+        }
+    }
 }
 
 impl Screen {
@@ -28,7 +50,7 @@ impl Screen {
             lines: VecDeque::new(),
             start: 0,
             len: 0,
-            state: TaskState::Running,
+            phase: Phase::Running,
         }
     }
 

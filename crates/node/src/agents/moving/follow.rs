@@ -3,18 +3,18 @@
 //! owned here; a restart starts them again from the records and what
 //! `saved` keeps.
 
-use beep_proto::SessionId;
 use super::{
     Env, MAX_MOVES,
     dial::watch_target,
-    progress::Target,
-    saved::{Folder, valid_id},
+    progress::{Target, Tracker},
+    saved::{Folder, Phase, valid_id},
     source,
     store::StoreRoots,
     target,
 };
 use crate::agents::Agents;
 use beep_mesh::{Key, Mesh};
+use beep_proto::SessionId;
 use beep_proto::node::{
     agent::MovePhase,
     mesh_state::{SessionMove, StateValue},
@@ -32,17 +32,22 @@ use tokio_util::task::AbortOnDropHandle;
 /// What this node does for one record.
 pub(super) struct Running {
     at: u64,
-    target: bool,
-    /// The machine the session moves to.
-    to: EndpointId,
+    side: Side,
     task: AbortOnDropHandle<()>,
 }
 
-impl Running {
-    /// The move is past the point where it can be taken back: this machine
-    /// is the target, and the session starts or runs here.
-    fn committed(&self, env: &Env, id: &SessionId) -> bool {
-        self.target && env.agents.moves.committed(id)
+#[derive(Clone)]
+enum Side {
+    Source { to: EndpointId },
+    Target(Arc<Tracker>),
+}
+
+impl Side {
+    fn request_cancel(&self) -> bool {
+        match self {
+            Self::Source { .. } => true,
+            Self::Target(tracker) => tracker.request_cancel(),
+        }
     }
 }
 
@@ -81,12 +86,7 @@ fn drop_copies(state_dir: &Path) {
 }
 
 /// Follows the mesh's move records until the node stops.
-pub(crate) async fn follow(
-    mesh: Mesh,
-    endpoint: Endpoint,
-    dir: PathBuf,
-    agents: Arc<Agents>,
-) {
+pub(crate) async fn follow(mesh: Mesh, endpoint: Endpoint, dir: PathBuf, agents: Arc<Agents>) {
     let old = dir.clone();
     let _ = tokio::task::spawn_blocking(move || drop_copies(&old)).await;
     let (Some(roots), Some(home)) = (StoreRoots::locate(), dirs::home_dir()) else {
@@ -153,19 +153,19 @@ pub(super) fn in_order(records: HashMap<SessionId, SessionMove>) -> Vec<(Session
 }
 
 pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<SessionId, Running>) {
-    let records = records(env);
-    let gone: Vec<SessionId> = running
+    let wanted = records(env);
+    let superseded: Vec<SessionId> = running
         .iter()
-        .filter(|(id, _)| !records.contains_key(*id))
+        .filter(|(id, one)| wanted.get(*id).is_none_or(|record| one.at != record.at))
         .map(|(id, _)| id.clone())
         .collect();
-    for id in gone {
+    for id in superseded {
         let Some(one) = running.get(&id) else {
             continue;
         };
         if one.task.is_finished() {
             running.remove(&id);
-        } else if !one.committed(env, &id)
+        } else if one.side.request_cancel()
             && let Some(mut one) = running.remove(&id)
         {
             // Its task stops first, so nothing it does races the take-back.
@@ -173,12 +173,11 @@ pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<SessionId, R
             let _ = (&mut one.task).await;
             cancelled(env, &id, &one).await;
         }
-        // Past the resume the session runs here: nothing to take back, and
-        // the task is left to finish starting it.
+        // A target that claimed settlement finishes before a replacement.
     }
 
-    for (id, record) in in_order(records) {
-        if running.get(&id).is_some_and(|one| one.at == record.at) {
+    for (id, record) in in_order(records(env)) {
+        if running.contains_key(&id) {
             continue;
         }
 
@@ -187,39 +186,49 @@ pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<SessionId, R
             continue;
         }
 
-        let target = record.to == env.mesh.me();
-        let task = spawn(env.clone(), record.clone(), target);
-        running.insert(
-            id,
-            Running {
-                at: record.at,
-                target,
-                to: record.to,
-                task,
-            },
-        );
+        // A restart may find the previous generation's staged work before
+        // it has any running task to cancel.
+        if let Some(old) = env
+            .state
+            .load(&id)
+            .filter(|old| old.at != record.at && old.phase == Phase::Working)
+        {
+            target::take_back(env, &id, old.at).await;
+            env.state.clear(&id, old.at);
+        }
+
+        let side = if record.to == env.mesh.me() {
+            Side::Target(env.agents.moves.begin(&id, record.at, record.from))
+        } else {
+            env.agents.moves.forget(&id);
+            Side::Source { to: record.to }
+        };
+        let at = record.at;
+        let task = spawn(env.clone(), record, side.clone());
+        running.insert(id, Running { at, side, task });
     }
 }
 
-fn spawn(env: Arc<Env>, record: SessionMove, target: bool) -> AbortOnDropHandle<()> {
+fn spawn(env: Arc<Env>, record: SessionMove, side: Side) -> AbortOnDropHandle<()> {
     AbortOnDropHandle::new(tokio::spawn(async move {
         log::info!(
             "taking part in the move of {} session {}, as its {}",
             record.agent,
             record.id,
-            if target { "target" } else { "source" }
+            if matches!(side, Side::Target(_)) {
+                "target"
+            } else {
+                "source"
+            }
         );
-        let result = if target {
-            let tracker = env.agents.moves.begin(&record.id, record.at);
-            target::run(&env, &record, &tracker).await
-        } else {
-            // What this machine knew of the session's earlier moves does not
-            // answer for this one.
-            env.agents.moves.forget(&record.id);
-            let (said, mut target) = watch::channel(Target::Unknown);
-            tokio::select! {
-                done = source::run(&env, &record, &mut target) => done,
-                () = watch_target(&env, &record, said) => Ok(()),
+        let result = match side {
+            Side::Target(tracker) => target::run(&env, &record, &tracker).await,
+            Side::Source { .. } => {
+                let (said, mut target) = watch::channel(Target::Unknown);
+                tokio::select! {
+                    done = source::run(&env, &record, &mut target) => done,
+                    () = watch_target(&env, &record, said) => Ok(()),
+                }
             }
         };
 
@@ -233,16 +242,18 @@ fn spawn(env: Arc<Env>, record: SessionMove, target: bool) -> AbortOnDropHandle<
 }
 
 async fn cancelled(env: &Env, id: &SessionId, one: &Running) {
-    if one.target {
-        target::take_back(env, id).await;
-        env.agents.moves.begin(id, one.at).send_modify(|progress| {
-            progress.phase = MovePhase::Cancelled;
-        });
-    } else {
-        source::cancel(env, id, one.at, one.to).await;
+    match &one.side {
+        Side::Target(tracker) => {
+            target::take_back(env, id, one.at).await;
+            env.state.clear(id, one.at);
+            tracker.finish(MovePhase::Cancelled, None);
+        }
+        Side::Source { to } => match source::cancel(env, id, one.at, *to).await {
+            source::Recovery::Released => env.state.clear(id, one.at),
+            source::Recovery::TargetMayRun => return,
+        },
     }
 
-    env.state.clear(id, true);
     log::info!("the move of session {id} was cancelled");
 }
 

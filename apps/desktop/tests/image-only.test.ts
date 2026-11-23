@@ -3,13 +3,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
 import { S } from "../src/bar/core.ts";
-import { sendAgentMessage, steerMessage } from "../src/agents/messages.ts";
+import { sendAgentMessage, steerMessage, stopAllWork } from "../src/agents/messages.ts";
 import { pollAgent } from "../src/agents/session.tsx";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
-import { MN, resetMentions, currentMentions, rememberMentionImages } from "../src/agents/workdrop.ts";
+import { MN, activateMentions, resetMentions, currentMentions, rememberMentionImages } from "../src/agents/workdrop.ts";
 import { disposeComposerUi } from "../src/agents/composer-ui.tsx";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { showSessionBody } from "./session-frame-env.ts";
+import { conversationKey } from "../src/agents/conversation-state.ts";
+import type { Waiting } from "../src/agents/agentqueue.ts";
 
 const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=", original: null };
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });
@@ -178,6 +180,72 @@ test("switching sessions sends uploaded attachments to the original conversation
   assert.deepEqual(MN.paths, []);
   assert.deepEqual(AG.att, []);
   assert.deepEqual(original.paths, []);
+});
+
+test("Stop all returns text and images to its session when navigation interrupts the drain", async t => {
+  const storage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: window.localStorage });
+  t.after(() => {
+    if (storage) Object.defineProperty(globalThis, "localStorage", storage);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+    delete answers.outbox_drain;
+  });
+  const { session } = openSession("working");
+  activateMentions(session);
+  const original = currentMentions();
+  const drafts = [{ text: "Recover this draft", images: [png] }];
+  let finish = (_drafts: typeof drafts) => {};
+  answers.outbox_drain = new Promise<typeof drafts>(resolve => { finish = resolve; });
+  const stopped = stopAllWork(session);
+
+  openSession("idle");
+  AG.open = { machine_id: "m1", agent: "claude", session: "s2" };
+  field().value = "Other conversation";
+  finish(drafts);
+  await stopped;
+
+  const sent = calls.filter(call => call.cmd === "agent_steer");
+  assert.deepEqual(sent.map(call => call.args), [{ machineId: "m1", agent: "claude", session: "s1", steer: "stop_all", seen: null }]);
+  assert.equal(localStorage.getItem(`beep.promptDraft.v1.${conversationKey(session)}`), "Recover this draft");
+  assert.deepEqual(original.images.map(image => image.name), [png.name]);
+  assert.equal(field().value, "Other conversation");
+  assert.deepEqual(AG.att, []);
+});
+
+test("Stop all preserves the outbox draft when the node refuses the stop", async t => {
+  const { session } = openSession("working");
+  const input = field();
+  input.value = "Next draft";
+  answers.outbox_drain = [{ text: "Recover this draft", images: [png] }];
+  refuse("agent_steer", "The stop was refused");
+  t.after(() => { delete answers.outbox_drain; delete answers.agent_steer; clearTimeout(AG.timer); });
+
+  await stopAllWork(session);
+
+  assert.equal(input.value, "Recover this draft\nNext draft");
+  assert.deepEqual(AG.att.map(image => image.name), [png.name]);
+  assert.equal(AG.stopping, null);
+});
+
+test("Stop all does not restore a steer delivered while the stop was pending", async t => {
+  const { session } = openSession("working");
+  const input = field();
+  input.value = "Next draft";
+  const steer: Waiting = { typed: "Already sent", text: "Already sent", paths: [], images: [], state: "sent", after: 0 };
+  AG.queue.push(steer);
+  let finish = () => {};
+  answers.agent_steer = new Promise<void>(resolve => { finish = resolve; });
+  t.after(() => { finish(); delete answers.agent_steer; clearTimeout(AG.timer); });
+
+  const stopping = stopAllWork(session);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(steers(), ["stop_all"]);
+  steer.state = "delivered";
+  finish();
+  await stopping;
+
+  assert.equal(input.value, "Next draft");
+  assert.deepEqual(AG.queue, []);
 });
 
 test("steers wait for attachment uploads too", async () => {

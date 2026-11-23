@@ -1,37 +1,54 @@
 use super::*;
+use tokio::sync::oneshot::{self, error::TryRecvError};
 
 #[test]
 fn a_list_that_cannot_be_read_keeps_the_last_one() {
-    let held = Arc::new(Held::<String>::default());
-    let refresh = held.begin().expect("the first refresh starts");
-    assert!(!held.take_again());
-    assert!(held.begin().is_none(), "one refresh runs at a time");
-    assert!(
-        held.take_again(),
-        "a concurrent request queues one follow-up pass"
-    );
-    assert!(!held.take_again());
+    let held = Held::<String>::default();
     assert!(held.finish(Ok(vec!["far".to_owned()]), |a, b| a == b));
-    drop(refresh);
-    let refresh = held.begin().expect("the next refresh starts");
     assert!(!held.finish(Err(DesktopError::NotInMesh), |a, b| a == b));
     assert_eq!(held.last(), ["far"]);
-    drop(refresh);
     // A list that did not change is not news.
     assert!(!held.finish(Ok(vec!["far".to_owned()]), |a, b| a == b));
 }
 
-#[test]
-fn a_refresh_that_panicked_does_not_block_the_next() {
-    let held = Arc::new(Held::<String>::default());
-    let refresh = held.begin().expect("the first refresh starts");
-    let died = std::thread::spawn(move || {
-        let _refresh = refresh;
+#[tokio::test]
+async fn requests_during_a_refresh_share_one_follow_up() {
+    let held = Held::<String>::default();
+    let (started, running) = oneshot::channel();
+    let (release, blocked) = oneshot::channel();
+    held.queue_refresh(Box::pin(async move {
+        started.send(()).unwrap();
+        blocked.await.unwrap();
+    }));
+    running.await.unwrap();
+
+    let (follow_up, mut followed) = oneshot::channel();
+    held.queue_refresh(Box::pin(async move { follow_up.send(()).unwrap() }));
+    let (extra, mut discarded) = oneshot::channel();
+    held.queue_refresh(Box::pin(async move { extra.send(()).unwrap() }));
+
+    assert_eq!(followed.try_recv(), Err(TryRecvError::Empty));
+    assert_eq!(discarded.try_recv(), Err(TryRecvError::Closed));
+    release.send(()).unwrap();
+    followed.await.unwrap();
+
+    let (later, ran) = oneshot::channel();
+    held.queue_refresh(Box::pin(async move { later.send(()).unwrap() }));
+    ran.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_refresh_that_panicked_does_not_block_the_next() {
+    let held = Held::<String>::default();
+    held.queue_refresh(Box::pin(async move {
         panic!("the task died");
-    })
-    .join();
-    assert!(died.is_err());
-    assert!(held.begin().is_some());
+    }));
+    let queue = lock(&held.state).refresh.clone().unwrap();
+    queue.closed().await;
+
+    let (next, ran) = oneshot::channel();
+    held.queue_refresh(Box::pin(async move { next.send(()).unwrap() }));
+    ran.await.unwrap();
 }
 
 #[test]

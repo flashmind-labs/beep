@@ -27,7 +27,7 @@ import { readError, loadText, startTerminal, load } from "./read.ts";
 import { togglePreview } from "./text-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
-import { draw, flipTab, noteTab, pickPhoneTab } from "./media-draw.ts";
+import { draw, flipTab, noteTab, pickPhoneTab, touchTab } from "./media-draw.ts";
 import { dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 import { savedIn } from "../ui/platform.ts";
 import { confirmSheet } from "../ui/menu.tsx";
@@ -531,15 +531,7 @@ export function closeTab(id: string) {
 
   if (tab.term) {
     if (tab.closed) return;
-    tab.closed = true;
-    const term = tab.term;
-    noteTab(tab, "Closing…");
-    killTerm(term).then(() => {
-      if (tab.term !== term) return;
-      tab.term = undefined;
-      closeTab(id);
-    }, e => {
-      tab.closed = false;
+    void stopTerminalTab(tab).catch(e => {
       noteTab(tab, `Could not stop it: ${e instanceof Error ? e.message : e}`);
     });
     return;
@@ -560,6 +552,27 @@ export function closeTab(id: string) {
 
   rememberPane();
   draw();
+}
+
+/// Stops a terminal and removes its tab after the machine acknowledges.
+export async function stopTerminalTab(tab: MediaTab) {
+  const term = tab.term;
+  if (!term) return;
+  tab.closed = true;
+
+  try {
+    await killTerm(term);
+  } catch (e) {
+    if (tab.term === term) {
+      tab.closed = false;
+      touchTab(tab);
+    }
+    throw e;
+  }
+
+  if (tab.term !== term) return;
+  tab.term = undefined;
+  closeTab(tab.id);
 }
 
 /// Closes the tab on screen in the focused pane (⌘W); false when no pane is

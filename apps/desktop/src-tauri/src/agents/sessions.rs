@@ -448,10 +448,7 @@ pub(crate) async fn machine_sessions(
         let f = fleet.clone();
         held.local.refreshed_after(
             app,
-            move || {
-                let f = f.clone();
-                async move { Ok(direct::local_sessions(&f).await) }
-            },
+            async move { Ok(direct::local_sessions(&f).await) },
             same_session,
             SESSIONS_FRESH,
         )
@@ -463,33 +460,30 @@ pub(crate) async fn machine_sessions(
     let (a, f, kept) = (app.clone(), fleet.clone(), held.sessions.clone());
     sessions.extend(held.sessions.refreshed_after(
         app,
-        move || {
-            let (a, f, kept) = (a.clone(), f.clone(), kept.clone());
-            async move {
-                let peers = direct::peer_sessions(&f).await;
-                let mut sessions = peers.sessions;
-                // A machine that did not say keeps its rows: one being connected
-                // to shows them as connecting, one that did not answer is asked
-                // again.
-                let unsaid: Vec<String> = peers
-                    .unanswered
-                    .iter()
-                    .chain(&peers.connecting)
-                    .map(ToString::to_string)
-                    .collect();
-                sessions.extend(
-                    kept.last()
-                        .into_iter()
-                        .filter(|session| unsaid.contains(&session.machine_id)),
-                );
+        async move {
+            let peers = direct::peer_sessions(&f).await;
+            let mut sessions = peers.sessions;
+            // A machine that did not say keeps its rows: one being connected
+            // to shows them as connecting, one that did not answer is asked
+            // again.
+            let unsaid: Vec<String> = peers
+                .unanswered
+                .iter()
+                .chain(&peers.connecting)
+                .map(ToString::to_string)
+                .collect();
+            sessions.extend(
+                kept.last()
+                    .into_iter()
+                    .filter(|session| unsaid.contains(&session.machine_id)),
+            );
 
-                for machine in peers.unanswered {
-                    let a = a.clone();
-                    tauri::async_runtime::spawn(async move { machine_changed(&a, machine).await });
-                }
-
-                Ok(sessions)
+            for machine in peers.unanswered {
+                let a = a.clone();
+                tauri::async_runtime::spawn(async move { machine_changed(&a, machine).await });
             }
+
+            Ok(sessions)
         },
         same_session,
         SESSIONS_FRESH,
@@ -497,10 +491,7 @@ pub(crate) async fn machine_sessions(
     let f = fleet.clone();
     sessions.extend(held.scans.refreshed_after(
         app,
-        move || {
-            let f = f.clone();
-            async move { Ok(direct::scanned_sessions(&f).await) }
-        },
+        async move { Ok(direct::scanned_sessions(&f).await) },
         same_session,
         SCAN_FRESH,
     ));

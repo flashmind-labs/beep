@@ -1,9 +1,10 @@
-use beep_proto::SessionId;
 use super::read::{ALPN, Access, Leaving, MovingWorktree, Pulled, pull};
+use super::saved::{Folder, Outgoing, Phase, Saved};
 use crate::{
     agents::{Agents, found::Stores},
     link::Membership,
 };
+use beep_proto::SessionId;
 use beep_proto::{AgentSlug, node::link};
 use iroh::{
     Endpoint, SecretKey,
@@ -18,7 +19,7 @@ const ID: &str = "0b1c2d3e-0000-4000-8000-0123456789ab";
 
 /// Serves reads with no check of who asks.
 #[derive(Clone)]
-struct Open(Arc<Agents>);
+struct Open(Arc<Agents>, Option<Outgoing>);
 
 impl std::fmt::Debug for Open {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -32,10 +33,12 @@ impl ProtocolHandler for Open {
             return Ok(());
         };
         let (tx, rx) = link(send, recv);
+        let outgoing = |_: &SessionId| self.1;
         let access = Access {
             check: &|_, _| true,
             updates: None,
             leaving: &|_| None,
+            outgoing: self.1.is_some().then_some(&outgoing),
         };
         let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
         connection.closed().await;
@@ -100,11 +103,57 @@ async fn read_from(server: &Router, copy: &Path, id: &str) -> anyhow::Result<Pul
 }
 
 fn serving(agents: &Arc<Agents>) -> impl std::future::Future<Output = Router> {
-    let handler = Open(agents.clone());
+    serving_move(agents, None)
+}
+
+fn serving_move(
+    agents: &Arc<Agents>,
+    outgoing: Option<Outgoing>,
+) -> impl std::future::Future<Output = Router> {
+    let handler = Open(agents.clone(), outgoing);
     async move {
         let endpoint = endpoint().await;
         Router::builder(endpoint).accept(ALPN, handler).spawn()
     }
+}
+
+#[tokio::test]
+async fn a_replacement_target_cannot_take_a_session_the_previous_target_may_run() {
+    let source = source(&header(""));
+    let id = SessionId::from(ID);
+    let folder = Folder::new(source._dir.path());
+    source.agents.moves.keep_in(folder.clone());
+    let mut old = Saved::over(1, Phase::Closed, None);
+    old.destination = Some(SecretKey::generate().public());
+    folder.save(&id, &old).expect("the source saved its close");
+
+    let next = Outgoing {
+        at: 2,
+        to: SecretKey::generate().public(),
+    };
+    let server = serving_move(&source.agents, Some(next)).await;
+    let copy = source._dir.path().join("copy.jsonl");
+
+    let pulled = read_from(&server, &copy, ID)
+        .await
+        .expect("the transcript was copied");
+    assert!(
+        pulled.live,
+        "the next target must wait while the old target settles"
+    );
+
+    old.phase = Phase::Done;
+    folder
+        .save(&id, &old)
+        .expect("the source saved the old move's outcome");
+    assert!(read_from(&server, &copy, ID).await.is_err());
+
+    folder.clear(&id, old.at);
+    let pulled = read_from(&server, &copy, ID)
+        .await
+        .expect("the old move was cleared");
+    assert!(!pulled.live);
+    server.shutdown().await.expect("the test router shuts down");
 }
 
 #[tokio::test]
@@ -220,6 +269,7 @@ impl ProtocolHandler for Strict {
             check: &|_, _| false,
             updates: None,
             leaving: &|_| None,
+            outgoing: None,
         };
         let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
         connection.closed().await;
@@ -340,10 +390,28 @@ fn a_move_record_lets_only_its_two_machines_read_and_ask() {
         worktree: None,
     };
     // The source serves its target.
-    assert!(permits(Some(&record), a, b, Asked::Read, &SessionId::from(ID)));
+    assert!(permits(
+        Some(&record),
+        a,
+        b,
+        Asked::Read,
+        &SessionId::from(ID)
+    ));
     // Nobody else reads, a member of the mesh or not, and not the other way.
-    assert!(!permits(Some(&record), a, c, Asked::Read, &SessionId::from(ID)));
-    assert!(!permits(Some(&record), b, a, Asked::Read, &SessionId::from(ID)));
+    assert!(!permits(
+        Some(&record),
+        a,
+        c,
+        Asked::Read,
+        &SessionId::from(ID)
+    ));
+    assert!(!permits(
+        Some(&record),
+        b,
+        a,
+        Asked::Read,
+        &SessionId::from(ID)
+    ));
     assert!(!permits(None, a, b, Asked::Read, &SessionId::from(ID)));
     assert!(!permits(
         Some(&record),
@@ -353,9 +421,17 @@ fn a_move_record_lets_only_its_two_machines_read_and_ask() {
         &SessionId::from("another-session")
     ));
     // The target answers its source.
-    assert!(permits(Some(&record), b, a, Asked::State, &SessionId::from(ID)));
-    assert!(!permits(Some(&record), b, c, Asked::State, &SessionId::from(ID)));
-    assert!(!permits(Some(&record), a, b, Asked::State, &SessionId::from(ID)));
+    let state = Asked::State(record.at);
+    assert!(permits(Some(&record), b, a, state, &SessionId::from(ID)));
+    assert!(!permits(Some(&record), b, c, state, &SessionId::from(ID)));
+    assert!(!permits(Some(&record), a, b, state, &SessionId::from(ID)));
+    assert!(!permits(
+        Some(&record),
+        b,
+        a,
+        Asked::State(record.at + 1),
+        &SessionId::from(ID)
+    ));
 }
 
 #[tokio::test]
@@ -598,6 +674,7 @@ impl ProtocolHandler for Project {
             check: &|_, _| true,
             updates: None,
             leaving: &leaving,
+            outgoing: None,
         };
         let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
         connection.closed().await;
@@ -637,7 +714,9 @@ async fn stream(server: &Router) -> (beep_proto::node::LinkTx, beep_proto::node:
 async fn the_checkout_lists_only_the_sessions_worktrees_that_are_still_there() {
     let (_dir, main, server) = project_server().await;
     let (tx, rx) = stream(&server).await;
-    let checkout = super::read::checkout(tx, rx, &SessionId::from(ID)).await.expect("an answer");
+    let checkout = super::read::checkout(tx, rx, &SessionId::from(ID))
+        .await
+        .expect("an answer");
     assert_eq!(checkout.head, Some(git(&main, &["rev-parse", "HEAD"])));
     assert_eq!(
         checkout.worktrees,
@@ -733,6 +812,7 @@ impl ProtocolHandler for Leaves {
             check: &|_, _| true,
             updates: None,
             leaving: &leaving,
+            outgoing: None,
         };
         let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
         connection.closed().await;
@@ -773,7 +853,9 @@ async fn the_source_sends_what_it_saved_of_the_session_with_its_checkout() {
     let (send, recv) = connection.open_bi().await.expect("a stream");
     let (tx, rx) = link(send, recv);
 
-    let checkout = super::read::checkout(tx, rx, &SessionId::from(ID)).await.expect("answered");
+    let checkout = super::read::checkout(tx, rx, &SessionId::from(ID))
+        .await
+        .expect("answered");
     let saved = checkout.session.expect("the saved session came along");
     assert_eq!(saved.info.title.as_deref(), Some("Plan the week"));
     assert!(saved.info.assistant);
@@ -807,6 +889,7 @@ impl ProtocolHandler for Chat {
             check: &|_, _| true,
             updates: None,
             leaving: &leaving,
+            outgoing: None,
         };
         let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
         connection.closed().await;
@@ -837,16 +920,24 @@ async fn a_chats_files_come_without_the_folder_its_thread_brings() {
 
     let archive = dir.path().join("files.tar");
     let mut came = Vec::new();
-    super::read::files(tx, rx, &SessionId::from(ID), &archive, |held| came.push(held))
-        .await
-        .expect("the files came");
+    super::read::files(tx, rx, &SessionId::from(ID), &archive, |held| {
+        came.push(held)
+    })
+    .await
+    .expect("the files came");
     // The bytes are counted as they come, for the move's progress.
     assert!(came.len() > 1, "{came:?}");
-    assert_eq!(came.last().copied(), Some(fs::metadata(&archive).unwrap().len()));
+    assert_eq!(
+        came.last().copied(),
+        Some(fs::metadata(&archive).unwrap().len())
+    );
     let there = dir.path().join("there");
     super::files::unpack(fs::File::open(&archive).unwrap(), &there).expect("it unpacks");
 
-    assert_eq!(fs::read_to_string(there.join("notes.md")).unwrap(), "open: pricing");
+    assert_eq!(
+        fs::read_to_string(there.join("notes.md")).unwrap(),
+        "open: pricing"
+    );
     assert_eq!(fs::read(there.join("big.bin")).unwrap().len(), 600 * 1024);
     assert!(!there.join("research").exists());
 }
@@ -870,7 +961,9 @@ async fn a_chats_checkout_says_how_much_its_files_take() {
     let (send, recv) = connection.open_bi().await.expect("a stream");
     let (tx, rx) = link(send, recv);
 
-    let checkout = super::read::checkout(tx, rx, &SessionId::from(ID)).await.expect("answered");
+    let checkout = super::read::checkout(tx, rx, &SessionId::from(ID))
+        .await
+        .expect("answered");
     let size = super::files::packed_size(&chat, &[chat.join("research")]).expect("it measures");
     assert!(size > 0);
     assert_eq!(checkout.files, size);
@@ -882,7 +975,10 @@ async fn a_project_sessions_folder_is_not_sent_as_a_chats_files() {
     let folder = TempDir::new().expect("a temp folder");
     fs::write(folder.path().join("secret.env"), "TOKEN=example").unwrap();
     let server = Router::builder(endpoint().await)
-        .accept(ALPN, Leaves(source.agents.clone(), folder.path().to_owned()))
+        .accept(
+            ALPN,
+            Leaves(source.agents.clone(), folder.path().to_owned()),
+        )
         .spawn();
     let client = endpoint().await;
     let connection = client

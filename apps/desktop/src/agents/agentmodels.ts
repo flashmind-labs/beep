@@ -126,9 +126,13 @@ function projectAccounts(): Map<string, string> {
 /// the agent's accounts: the one last picked there while the agent still has
 /// it; null for the default account.
 export function startAccount(names: readonly string[], project: string | null, agent: string | null): string | null {
-  if (!agent) return null;
-  const picked = projectAccounts().get(`${project ?? ""}/${agent}`);
+  const picked = projectAccount(project, agent);
   return names.find(name => name === picked) ?? null;
+}
+
+/// The saved choice before checking whether the account is still available.
+export function projectAccount(project: string | null, agent: string | null): string | null {
+  return agent ? projectAccounts().get(`${project ?? ""}/${agent}`) ?? null : null;
 }
 
 /// Keeps `name` as the account `agent` starts as in `project`; null for the default one.

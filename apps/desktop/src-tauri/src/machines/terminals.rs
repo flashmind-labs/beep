@@ -108,14 +108,9 @@ fn same_terminal(old: &Terminal, new: &Terminal) -> bool {
 /// the windows redraw when one changes.
 async fn every(app: &AppHandle, fleet: &Arc<Fleet>, held: &MachineLists) -> Result<Vec<Terminal>> {
     let f = fleet.clone();
-    let remote = held.terminals.refreshed(
-        app,
-        move || {
-            let f = f.clone();
-            async move { direct::remote(&f).await }
-        },
-        same_terminal,
-    );
+    let remote =
+        held.terminals
+            .refreshed(app, async move { direct::remote(&f).await }, same_terminal);
     let mut rows = direct::local(fleet).await?;
     rows.extend(direct::remote_now(fleet, &remote));
     Ok(rows)

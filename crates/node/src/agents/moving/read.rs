@@ -7,15 +7,15 @@
 //! Sent as compact msgpack: a field is added only at the end with
 //! `#[serde(default)]`.
 
-use beep_proto::SessionId;
 use super::{
     Harness, files,
     progress::Target,
-    saved::SentTree,
+    saved::{MOVED_AWAY, Outgoing, Previous, SentTree},
     worktree::{self, Work},
 };
 use crate::agents::{Agents, SavedSession, found::Agent};
 use anyhow::{Context, Result, bail};
+use beep_proto::SessionId;
 use beep_proto::{
     AgentSlug,
     node::{LinkRx, LinkTx},
@@ -208,7 +208,10 @@ pub(crate) enum Leaving {
     },
     /// The folder of a chat or of one of its threads, and the folders in
     /// it that other moving sessions bring themselves.
-    Chat { folder: PathBuf, apart: Vec<PathBuf> },
+    Chat {
+        folder: PathBuf,
+        apart: Vec<PathBuf>,
+    },
 }
 
 /// One worktree as `Worktree` brought it.
@@ -225,7 +228,7 @@ pub(super) enum Asked {
     /// A target reads the transcript.
     Read,
     /// A source asks the target how the move stands.
-    State,
+    State(u64),
 }
 
 /// A session a node offered for a background copy, in the unused `Offers`
@@ -245,12 +248,15 @@ pub(crate) struct Offer {
     pub(crate) hash: Vec<u8>,
 }
 
+type CurrentMove<'a> = dyn Fn(&SessionId) -> Option<Outgoing> + Send + Sync + 'a;
+
 /// Checks the peer's access again while the move record reaches this machine.
 pub(super) struct Access<'a> {
     pub(super) check: &'a (dyn Fn(Asked, &SessionId) -> bool + Send + Sync),
     pub(super) updates: Option<watch::Receiver<u64>>,
     /// The session's project and worktrees here, from its move record.
     pub(super) leaving: &'a (dyn Fn(&SessionId) -> Option<Leaving> + Send + Sync),
+    pub(super) outgoing: Option<&'a CurrentMove<'a>>,
 }
 
 impl Access<'_> {
@@ -322,7 +328,9 @@ pub(super) async fn serve(
         | Request::Checkout { id }
         | Request::Worktree { id, .. }
         | Request::Files { id } => Some((Asked::Read, id, "no move of that session to you")),
-        Request::State { id, .. } => Some((Asked::State, id, "no move of that session from you")),
+        Request::State { id, at } => {
+            Some((Asked::State(*at), id, "no move of that session from you"))
+        }
         Request::WorktreeBundle { .. } | Request::List {} | Request::Copy { .. } => None,
     };
 
@@ -330,6 +338,18 @@ pub(super) async fn serve(
         && !access.allows(asked, id).await
     {
         return tx.send(&refuse(message)).await;
+    }
+
+    if let Some((Asked::Read, id, message)) = auth
+        && let Some(outgoing) = access.outgoing
+        && !matches!(&request, Request::Read { .. })
+    {
+        let Some(generation) = outgoing(id) else {
+            return tx.send(&refuse(message)).await;
+        };
+        if agents.moves.preceding(id, generation).await != Previous::Released {
+            return tx.send(&refuse(MOVED_AWAY)).await;
+        }
     }
 
     match request {
@@ -353,7 +373,20 @@ pub(super) async fn serve(
             // ended. A session that may still be coming back from a
             // restart, or that the source is still finishing with, counts
             // as running.
-            let live = !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id);
+            let mut live = !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id);
+            if let Some(outgoing) = access.outgoing {
+                let Some(generation) = outgoing(&id) else {
+                    return tx.send(&refuse("no move of that session to you")).await;
+                };
+                match agents.moves.preceding(&id, generation).await {
+                    Previous::Departed => return tx.send(&refuse(MOVED_AWAY)).await,
+                    Previous::Settling => live = true,
+                    Previous::Released => {
+                        // A cancelled move may have reopened it during the read.
+                        live |= agents.runs(&id) || agents.moves.holds(&id);
+                    }
+                }
+            }
 
             match send_after(&mut tx, &found, from, &prefix_hash, live).await {
                 Ok(()) => tx.finish().await,
@@ -369,7 +402,9 @@ pub(super) async fn serve(
         }
         Request::Checkout { id } => {
             let Some(leaving) = (access.leaving)(&id) else {
-                return tx.send(&refuse("this machine does not keep the project")).await;
+                return tx
+                    .send(&refuse("this machine does not keep the project"))
+                    .await;
             };
             let session = agents.saved(&id).map(Box::new);
             let reply = spawn_blocking(move || -> Result<Reply> {
@@ -414,7 +449,9 @@ pub(super) async fn serve(
             }
 
             let Some(Leaving::Project { folder, worktrees }) = (access.leaving)(&id) else {
-                return tx.send(&refuse("this machine does not keep the project")).await;
+                return tx
+                    .send(&refuse("this machine does not keep the project"))
+                    .await;
             };
 
             let wanted = bundle.then_some(base);
@@ -430,11 +467,17 @@ pub(super) async fn serve(
                     tx.send(&Reply::Work { head: work.head }).await?;
 
                     for piece in bytes.iter().flat_map(|bytes| bytes.chunks(CHUNK)) {
-                        tx.send(&Reply::Bundle { data: piece.to_vec() }).await?;
+                        tx.send(&Reply::Bundle {
+                            data: piece.to_vec(),
+                        })
+                        .await?;
                     }
 
                     for piece in work.patch.chunks(CHUNK) {
-                        tx.send(&Reply::Patch { data: piece.to_vec() }).await?;
+                        tx.send(&Reply::Patch {
+                            data: piece.to_vec(),
+                        })
+                        .await?;
                     }
 
                     tx.send(&Reply::BundleEnd {}).await?;
@@ -446,7 +489,9 @@ pub(super) async fn serve(
         Request::Files { id } => {
             // As for a worktree: the target asks again.
             if !agents.reopened() || agents.runs(&id) {
-                log::info!("session {id}: its files are asked for, but it still runs here or the sessions are not read yet; the target asks again");
+                log::info!(
+                    "session {id}: its files are asked for, but it still runs here or the sessions are not read yet; the target asks again"
+                );
                 return Ok(());
             }
 
@@ -682,7 +727,11 @@ pub(super) async fn pull_within(
         worktree: false,
     };
     tx.send(&request).await?;
-    let Some(Reply::Head { from: start, file_name }) = next(&mut rx, quiet).await? else {
+    let Some(Reply::Head {
+        from: start,
+        file_name,
+    }) = next(&mut rx, quiet).await?
+    else {
         bail!("the source ended without answering");
     };
 
@@ -756,7 +805,13 @@ pub(crate) async fn checkout(mut tx: LinkTx, mut rx: LinkRx, id: &SessionId) -> 
 /// Asks a source for what the folder of session `id` holds, and writes the
 /// archive to `into`, over what a try before left there, telling `came` the
 /// bytes that came so far.
-pub(crate) async fn files(mut tx: LinkTx, mut rx: LinkRx, id: &SessionId, into: &Path, mut came: impl FnMut(u64)) -> Result<()> {
+pub(crate) async fn files(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    id: &SessionId,
+    into: &Path,
+    mut came: impl FnMut(u64),
+) -> Result<()> {
     tx.send(&Request::Files { id: id.to_owned() }).await?;
     let mut out = File::create(into).await?;
     let mut held = 0u64;
@@ -793,7 +848,11 @@ pub(crate) struct WorktreeAsk<'a> {
 }
 
 /// Asks a source for one of a session's worktrees.
-pub(crate) async fn worktree(mut tx: LinkTx, mut rx: LinkRx, ask: &WorktreeAsk<'_>) -> Result<Fetched> {
+pub(crate) async fn worktree(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    ask: &WorktreeAsk<'_>,
+) -> Result<Fetched> {
     let bundle = ask.bundle;
     tx.send(&Request::Worktree {
         id: ask.id.clone(),

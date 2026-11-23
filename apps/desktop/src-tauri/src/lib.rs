@@ -584,7 +584,9 @@ fn quit(app: &AppHandle) {
     hide_windows(app);
     // The size of a project window still open.
     app.state::<Prefs>().save();
-    app.state::<agents::accounts::ClaudeSignIn>().stop();
+    let claude = app
+        .state::<agents::accounts::ClaudeSignIn>()
+        .stop_and_wait();
     let gh = app.state::<settings::gh_sign_in::GhSignIn>().stop_on_quit();
     // The router stops, and the sync and transfer services save their state,
     // while an update installs.
@@ -592,7 +594,7 @@ fn quit(app: &AppHandle) {
     // What this Mac has open is noted for the next start.
     let noting = app.state::<machines::this_mac::Machine>().quit();
     let stopping = tauri::async_runtime::spawn(async move {
-        tokio::join!(noting, fleet.stop(), gh);
+        tokio::join!(noting, fleet.stop(), claude, gh);
     });
     // However Beep quits, a downloaded update is installed for next time.
     // With none this returns at once.

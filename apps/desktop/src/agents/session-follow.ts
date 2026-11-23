@@ -111,15 +111,15 @@ export async function keptTranscript(o: OpenAgent): Promise<AgentPage | null> {
   return kept.page;
 }
 
-/// The steers the node holds for `o`, as its newest page says, now dropped by a Stop all: the
-/// page held no longer lists them. A page no longer followed may list steers the node has
-/// delivered since: it gives none.
-export function takeHeldSteers(o: OpenAgent): string[] {
+/// The steers the live page lists. It must still be followed for its queue to be current.
+export function heldSteers(o: OpenAgent): string[] {
+  return feed.live(o) ? transcripts.peek(transcriptKey(o))?.page.queued_messages ?? [] : [];
+}
+
+/// The node dropped its steers after Stop all.
+export function clearHeldSteers(o: OpenAgent) {
   const held = transcripts.peek(transcriptKey(o));
-  if (!held) return [];
-  const steers = feed.live(o) ? held.page.queued_messages ?? [] : [];
-  held.page = { ...held.page, queued: 0, queued_messages: [] };
-  return steers;
+  if (held) held.page = { ...held.page, queued: 0, queued_messages: [] };
 }
 
 /// Drops what is held of a deleted session, in memory and on disk.

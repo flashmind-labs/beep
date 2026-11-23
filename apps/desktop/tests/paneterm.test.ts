@@ -2,7 +2,7 @@ import { answers, calls, callbacks, nativeEvent } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { attach, dropTerm, paneTerm, termStatus } from "../src/agentpane/terminal.ts";
-import { P, closeTab, closePaneTabs, type MediaTab } from "../src/agentpane/media.ts";
+import { P, closeTab, closePaneTabs, stopTerminalTab, type MediaTab } from "../src/agentpane/media.ts";
 import { makeTerminals, ALL, LOST_MS, type Screen, type TermMessage, type TerminalRow } from "../src/terminals/terminals.tsx";
 import { indexedChannel } from "../src/ui/tauri.ts";
 import { RETRY_MS } from "../src/agents/reconnect-state.ts";
@@ -108,7 +108,7 @@ test("attaching and reconnecting do not take keyboard focus", () => {
     attach(term);
     stream.send({ kind: "attached" });
     assert.equal(focuses, 0);
-    assert.equal(term.link, "attached");
+    assert.equal(term.link.kind, "attached");
   }
 });
 
@@ -128,7 +128,7 @@ test("an exited or missing shell closes its tab instead of reconnecting", async 
     t.mock.timers.tick(60_000);
 
     assert.equal(ended, 1);
-    assert.equal(term.link, "ended");
+    assert.equal(term.link.kind, "ended");
     assert.equal(count("terminal_attach"), 1);
   }
 });
@@ -154,8 +154,7 @@ test("a stream that a newer attach replaced ending does not reconnect", async t 
   second.send({ kind: "attached" });
   first.end();
   await settle();
-  assert.equal(term.link, "attached");
-  assert.equal(term.tries, 0);
+  assert.equal(term.link.kind, "attached");
   t.mock.timers.tick(60_000);
   assert.equal(count("terminal_attach"), 2);
   second.end();
@@ -232,9 +231,30 @@ test("a terminal whose stop fails keeps its tab and is followed again", async t 
   await settle();
   delete answers.terminal_close;
   assert.ok(P.tabs.includes(tab), "the tab stays");
-  assert.equal(term.link, "attaching");
+  assert.equal(term.link.kind, "attaching");
   assert.equal(count("terminal_attach"), 2);
   P.tabs.length = 0;
+});
+
+test("repeated closes wait for the same terminal stop", async t => {
+  noPane(t);
+  calls.length = 0;
+  let stopped = () => {};
+  answers.terminal_close = new Promise<void>(resolve => { stopped = resolve; });
+  t.after(() => { delete answers.terminal_close; });
+  const term = paneTerm(ROW, fakeScreen(), { onEnd() {}, onLink() {}, onEscape() {} });
+  const tab: MediaTab = { id: "term:shell", kind: "term", name: "shell", path: null, url: null, size: 0, started: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, term };
+  P.tabs.push(tab);
+
+  const first = stopTerminalTab(tab), second = stopTerminalTab(tab);
+  await settle();
+  assert.equal(term.link.kind, "closing");
+  assert.equal(count("terminal_close"), 1);
+  assert.ok(P.tabs.includes(tab));
+
+  stopped();
+  await Promise.all([first, second]);
+  assert.ok(!P.tabs.includes(tab));
 });
 
 
@@ -305,7 +325,7 @@ test("a stop refused after leaving cannot reconnect the disposed terminal", asyn
   refuse(new Error("the node stopped answering"));
   await settle();
   delete answers.terminal_close;
-  assert.equal(term.link, "detached");
+  assert.equal(term.link.kind, "disposed");
   assert.equal(count("terminal_attach"), 1);
   assert.equal(disposed, 1);
   assert.equal(P.tabs.length, 0);
@@ -345,7 +365,7 @@ test("a terminal hidden then shown again shows the output from meanwhile, in ord
   sendTo(term.view, { kind: "attached" });
   sendTo(term.view, output(0, "one\r\ntwo\r\nthree\r\n"));
   assert.deepEqual(screen.shown, ["one\r\n", "two\r\nthree\r\n"]);
-  assert.equal(term.link, "attached");
+  assert.equal(term.link.kind, "attached");
   dropTerm(term);
 });
 
@@ -404,6 +424,25 @@ test("stream messages show in order, and a lost one attaches again from what sho
   const again = calls.findLast(c => c.cmd === "terminal_attach")!;
   assert.equal(count("terminal_attach"), 2);
   assert.equal((again.args as { from: number }).from, 6);
+});
+
+test("a gap in a disposed terminal stream cannot attach it again", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  calls.length = 0;
+  const term = paneTerm(ROW, fakeScreen(), { onEnd() {}, onLink() {}, onEscape() {} });
+  const stream = nextAttach();
+  attach(term);
+  stream.send({ kind: "attached" }, 0);
+  stream.send(output(3, "def"), 2);
+
+  dropTerm(term);
+  t.mock.timers.tick(LOST_MS + RETRY_MS);
+  stream.send(output(0, "abc"), 1);
+  stream.end();
+  await settle();
+
+  assert.equal(term.link.kind, "disposed");
+  assert.equal(count("terminal_attach"), 1);
 });
 
 test("output replayed on attach is told apart from live output, except for a terminal just opened", t => {

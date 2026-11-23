@@ -149,7 +149,7 @@ async fn attach(live: Arc<Live>, from: u64, peer: &mut impl Peer) -> Result<()> 
         watched::read_and_update(&mut changed, |_| ());
         let (chunk, state) = {
             let screen = lock(&live.screen);
-            (screen.read_from(next), screen.state)
+            (screen.read_from(next), screen.phase.state())
         };
 
         if let Some((at, data)) = chunk {
