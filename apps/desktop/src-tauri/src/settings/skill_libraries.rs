@@ -9,13 +9,12 @@ use crate::{
         projects::{FleetState, desk},
     },
 };
-use beep_fleet::{Desk, library_name};
+use beep_fleet::{Desk, Session, library_name};
 use beep_proto::node::{
-    mesh_state::{LibrarySkill, Pick, ProjectSkills, SkillLibrary},
+    mesh_state::{Pick, ProjectSkills, SkillLibrary},
     skill_library::{PROTOCOL, Problem, Reply, Request},
 };
 use futures::{StreamExt, stream::FuturesUnordered};
-use iroh::EndpointId;
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -24,8 +23,20 @@ use std::{
 };
 use tauri::State;
 
-/// How long a node may take to clone a library's repository.
-const INSPECT_LIMIT: Duration = Duration::from_secs(120);
+/// A failed check or a newly connected controller gets another chance on the next pass.
+const CHECK_EVERY: Duration = Duration::from_secs(5 * 60);
+
+pub(crate) async fn follow(session: Arc<Session>) {
+    loop {
+        if let Ok(desk) = session.desk().await
+            && let Err(error) = desk.check_skill_libraries().await
+        {
+            log::warn!("could not check skill libraries: {error}");
+        }
+
+        tokio::time::sleep(CHECK_EVERY).await;
+    }
+}
 
 /// A library as Settings lists it: its name, then the mesh record.
 #[derive(Debug, Serialize)]
@@ -77,45 +88,20 @@ pub async fn skill_libraries_list(session: FleetState<'_>) -> Result<Vec<Library
 #[tauri::command]
 pub async fn skill_library_add(
     session: FleetState<'_>,
-    fleet: State<'_, Arc<Fleet>>,
     url: String,
     global: bool,
 ) -> Result<Library> {
-    let desk = desk(&session).await?;
-    let url = url.trim().to_owned();
-    let (revision, skills) = inspect(&fleet, &url).await?;
-    let name = free_name(&desk, &library_name(&url));
-    let library = SkillLibrary {
-        url,
-        revision,
-        skills,
-        global: if global { Pick::All } else { Pick::None },
-        projects: BTreeMap::new(),
-        chats: Default::default(),
-    };
-
-    desk.set_skill_library(&name, &library).await?;
+    let (name, library) = desk(&session)
+        .await?
+        .add_skill_library(url.trim().to_owned(), global)
+        .await?;
     Ok(Library { name, library })
 }
 
 /// Reads the library's repository again; every machine moves to the new revision, picks kept.
 #[tauri::command]
-pub async fn skill_library_update(
-    session: FleetState<'_>,
-    fleet: State<'_, Arc<Fleet>>,
-    name: String,
-) -> Result<()> {
-    let desk = desk(&session).await?;
-    let library = desk
-        .skill_library(&name)
-        .ok_or_else(|| DesktopError::BadRequest(format!("No library {name}.")))?;
-    let (revision, skills) = inspect(&fleet, &library.url).await?;
-
-    desk.edit_skill_library(&name, |library| {
-        library.revision = revision;
-        library.skills = skills;
-    })
-    .await?;
+pub async fn skill_library_update(session: FleetState<'_>, name: String) -> Result<()> {
+    desk(&session).await?.update_skill_library(&name).await?;
     Ok(())
 }
 
@@ -315,60 +301,6 @@ fn libraries(desk: &Desk) -> Vec<Library> {
         .into_iter()
         .map(|(name, library)| Library { name, library })
         .collect()
-}
-
-/// `base`, or `base-2`, `base-3` and on when a library has that name.
-fn free_name(desk: &Desk, base: &str) -> String {
-    let base = if base.is_empty() { "library" } else { base };
-    let taken: BTreeSet<String> = desk
-        .skill_libraries()
-        .into_iter()
-        .map(|(name, _)| name)
-        .collect();
-
-    (1..)
-        .map(|n| match n {
-            1 => base.to_owned(),
-            n => format!("{base}-{n}"),
-        })
-        .find(|name| !taken.contains(name))
-        .unwrap_or_else(|| base.to_owned())
-}
-
-/// Has a node clone `url` and list its skills at the newest commit.
-async fn inspect(fleet: &Fleet, url: &str) -> Result<(String, Vec<LibrarySkill>)> {
-    let machine = reader(fleet)?;
-    let request = Request::Inspect {
-        url: url.to_owned(),
-    };
-    let reply = fleet
-        .client(machine)
-        .await?
-        .call_within::<_, Reply>(INSPECT_LIMIT, PROTOCOL, &request)
-        .await?;
-
-    match reply {
-        Reply::Inspected { revision, skills } => Ok((revision, skills)),
-        Reply::Failed { message } => Err(DesktopError::BadRequest(message)),
-        _ => Err(DesktopError::BadRequest(format!(
-            "{} answered something else.",
-            fleet.name_of(machine)
-        ))),
-    }
-}
-
-/// The node that clones a library: this computer's when it runs one, else the first online.
-fn reader(fleet: &Fleet) -> Result<EndpointId> {
-    let online = fleet.online();
-
-    if online.contains(&fleet.id()) {
-        return Ok(fleet.id());
-    }
-
-    online
-        .into_iter()
-        .next()
-        .ok_or_else(|| DesktopError::BadRequest("No machine is online to read it.".into()))
 }
 
 /// `request` to every online machine at once, with each answer and the machine's name. Machines

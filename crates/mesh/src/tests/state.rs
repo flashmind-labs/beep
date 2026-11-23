@@ -109,6 +109,14 @@ fn keys_keep_their_released_wire_names() {
             "project-skills/acme/widget",
             Key::ProjectSkills("acme/widget".into()),
         ),
+        (
+            "skill-library-check/example",
+            Key::SkillLibraryCheck("example".into()),
+        ),
+        (
+            "skill-library-checker/abc",
+            Key::SkillLibraryChecker("abc".into()),
+        ),
         ("machine-name/abc", Key::MachineName("abc".into())),
         ("future-kind/x y", Key::Other("future-kind/x y".into())),
     ];
