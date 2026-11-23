@@ -420,15 +420,18 @@ async fn at_most_four_machines_are_listed_at_once() {
 
     rig.mirror.rows();
     // Four listings and four scans start, the rest wait for a slot.
-    let mut lists = Vec::new();
+    let (mut lists, mut scans) = (Vec::new(), Vec::new());
     for _ in 0..8 {
         let ask = rig.asks.recv().await.unwrap();
-        if !ask.scan {
+        // An ask left unanswered holds its slot; a dropped one frees it.
+        if ask.scan {
+            scans.push(ask);
+        } else {
             lists.push(ask);
         }
     }
     tokio::task::yield_now().await;
-    assert_eq!(lists.len(), 4);
+    assert_eq!((lists.len(), scans.len()), (4, 4));
     assert!(rig.asks.try_recv().is_err());
 
     lists.pop().unwrap().reply.send(None).unwrap();
