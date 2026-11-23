@@ -85,16 +85,80 @@ async fn a_terminal_ends_with_its_command() {
     assert!(live.wait_ended(Duration::from_secs(20)).await);
     assert_eq!(live.task().state, TaskState::Exited { code: Some(3) });
     wait_for_output(&live, "done").await;
-    let Reply::Terminals { terminals: listed } = terminals.answer(Request::List {}).await else {
-        panic!("no list");
-    };
+    let listed = terminals.list();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].command, "echo done; exit 3");
-    // Listed with how it ended once, then gone.
-    let Reply::Terminals { terminals: listed } = terminals.answer(Request::List {}).await else {
-        panic!("no list");
-    };
-    assert!(listed.is_empty());
+    assert_eq!(listed[0].state, TaskState::Exited { code: Some(3) });
+}
+
+// Every reader sees how a terminal ended, however many look and when.
+#[cfg(unix)]
+#[tokio::test]
+async fn every_reader_sees_a_terminals_exit() {
+    let terminals = Terminals::default();
+    let id = started(
+        terminals
+            .answer(Request::Start {
+                command: Some("exit 4".into()),
+                cwd: None,
+                size: Size::DEFAULT,
+            })
+            .await,
+    );
+    let live = terminals.live(id).expect("the terminal is kept");
+    assert!(live.wait_ended(Duration::from_secs(20)).await);
+    let exit = TaskState::Exited { code: Some(4) };
+
+    for _ in 0..2 {
+        let Reply::Terminals { terminals: listed } = terminals.answer(Request::List {}).await
+        else {
+            panic!("no list");
+        };
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].state, exit);
+    }
+
+    let reader = terminals.subscribe();
+    assert_eq!(
+        watched::read(&reader, |list| list[0].live.task().state),
+        exit
+    );
+    assert!(terminals.live(id).is_some(), "an attach still finds it");
+}
+
+// The clock is paused once the terminal ended, so the keep time is the only
+// timer the actor waits for.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_ended_terminal_leaves_the_list_after_the_keep_time() {
+    let terminals = Terminals::default();
+    let id = started(
+        terminals
+            .answer(Request::Start {
+                command: Some("exit 0".into()),
+                cwd: None,
+                size: Size::DEFAULT,
+            })
+            .await,
+    );
+    let live = terminals.live(id).expect("the terminal is kept");
+    assert!(live.wait_ended(Duration::from_secs(20)).await);
+    let mut reader = terminals.subscribe();
+    tokio::time::pause();
+    assert_eq!(terminals.list().len(), 1);
+
+    tokio::time::advance(KEEP_ENDED - Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(terminals.list().len(), 1, "still listed before the time is up");
+
+    tokio::time::advance(Duration::from_secs(2)).await;
+    timeout(
+        Duration::from_secs(120),
+        watched::wait_for(&mut reader, |list| list.is_empty()),
+    )
+    .await
+    .expect("the terminal leaves the list")
+    .expect("the terminals are kept");
     assert!(terminals.live(id).is_none());
 }
 
@@ -137,16 +201,19 @@ async fn stop_waits_for_output_from_a_terminal_that_already_exited() {
         master: Mutex::new(pty.master),
         #[cfg(windows)]
         process: None,
-        started_or_ended: terminals.changed.clone(),
+        started_or_ended: terminals.opener.changed.clone(),
     });
     let killer = Killer::default();
-    lock(&terminals.inner).terms.push(Term {
-        live: live.clone(),
-        killer: Box::new(killer.clone()),
-        #[cfg(unix)]
-        group: None,
-        pid: None,
-        cwd: None,
+    // The actor never started here, so the test is the list's writer.
+    terminals.list.send_modify(|list| {
+        list.push(Arc::new(Term {
+            live: live.clone(),
+            killer: Mutex::new(Box::new(killer.clone())),
+            #[cfg(unix)]
+            group: None,
+            pid: None,
+            cwd: None,
+        }));
     });
 
     let stop = terminals.answer(Request::Stop { id });

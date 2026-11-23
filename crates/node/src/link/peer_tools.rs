@@ -252,7 +252,7 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
     let limit = Duration::from_secs(secs);
 
     if args.background {
-        return match tasks::start_for(table, command, args.cwd, limit) {
+        return match tasks::start_for(table, command, args.cwd, limit).await {
             TaskReply::Started { id } => Ok(format!(
                 "Started it in the background. Job id: {id}. Check it with remote_run_status, \
                  stop it with remote_run_cancel."

@@ -4,10 +4,11 @@
 use super::{
     lock,
     screen::{Phase, Screen},
-    terminals::{Live, Term, Terminals},
+    terminals::{Live, Opener, Term},
 };
 use crate::machine::provision::spawn_env::{self, Scope};
 use anyhow::{Context, Result};
+use beep_proto::watched;
 use beep_proto::node::{
     process::{TaskId, TaskState},
     terminal::Size,
@@ -73,7 +74,7 @@ fn shell_command(command: Option<&str>) -> (String, CommandBuilder) {
         (program, builder)
     }
 }
-impl Terminals {
+impl Opener {
     /// Opens a pseudo-terminal of `size` and starts the shell in it, its
     /// output starting with `banner` when given.
     pub(super) fn open(
@@ -95,7 +96,7 @@ impl Terminals {
         builder.env("TERM", "xterm-256color");
         builder.env("COLORTERM", "truecolor");
 
-        match &*lock(&self.env) {
+        watched::read_sent(&self.env, |env| match env {
             Some(env) => {
                 for var in env {
                     builder.env(&var.name, var.value.expose());
@@ -106,7 +107,7 @@ impl Terminals {
                     builder.env(name, value);
                 }
             }
-        }
+        });
 
         let pair = native_pty_system()
             .openpty(pty_size(size))
@@ -175,7 +176,7 @@ impl Terminals {
         live.started_or_ended();
         Ok(Term {
             live,
-            killer,
+            killer: Mutex::new(killer),
             #[cfg(unix)]
             group,
             pid,

@@ -9,6 +9,7 @@ use super::{
 };
 use crate::run::{process::STOP_GRACE, tasks::first_id};
 use anyhow::Result;
+use beep_proto::watched;
 use beep_proto::node::{
     EnvSecret,
     process::{Task, TaskId},
@@ -16,40 +17,73 @@ use beep_proto::node::{
 };
 use portable_pty::{ChildKiller, MasterPty};
 use std::{
+    future,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 use tokio::{
-    sync::{Notify, mpsc, watch},
-    time::timeout,
+    sync::{Notify, mpsc, oneshot, watch},
+    task::JoinSet,
+    time::{Instant, sleep_until, timeout},
 };
+use tokio_util::task::AbortOnDropHandle;
 
 /// How long a stop waits for the kill to land.
 const STOP_WAIT: Duration = Duration::from_secs(5);
+/// How long an ended terminal stays in the list, so every reader sees how
+/// it ended before it goes.
+const KEEP_ENDED: Duration = Duration::from_secs(30);
+/// Commands waiting for the actor.
+const MAILBOX: usize = 16;
 
-#[derive(Default)]
+/// The node's terminals. An actor owns the set and is its only writer; the
+/// set is published as `list`, and everything that only looks reads that.
+/// Starting and reopening are commands. The actor starts with the first one,
+/// as a set can be made outside a runtime.
 pub(super) struct Terminals {
-    pub(super) inner: Mutex<Inner>,
-    /// Woken when a terminal starts or ends.
-    pub(super) changed: Arc<Notify>,
+    /// Written by the actor only, so reading the list changes nothing.
+    list: Arc<watch::Sender<Vec<Arc<Term>>>>,
+    opener: Arc<Opener>,
+    actor: OnceLock<Started>,
+}
+
+struct Started {
+    commands: mpsc::Sender<Command>,
+    _task: AbortOnDropHandle<()>,
+}
+
+/// What opening a terminal needs, apart from the set.
+pub(super) struct Opener {
     /// What terminals get on top of this process's environment, when not
     /// the node's own: a terminal host gets the node's.
-    pub(super) env: Mutex<Option<Vec<EnvSecret>>>,
+    pub(super) env: watch::Sender<Option<Vec<EnvSecret>>>,
+    /// Woken when a terminal starts or ends.
+    pub(super) changed: Arc<Notify>,
 }
 
-pub(super) struct Inner {
-    pub(super) last: u32,
-    pub(super) terms: Vec<Term>,
+enum Command {
+    Start {
+        command: Option<String>,
+        cwd: Option<String>,
+        size: Size,
+        reply: oneshot::Sender<Reply>,
+    },
+    Reopen {
+        was: OpenTerminal,
+        reply: oneshot::Sender<Result<()>>,
+    },
 }
 
-impl Default for Inner {
+impl Default for Terminals {
     fn default() -> Self {
         Self {
-            // From the clock, so a restarted node does not hand out the
-            // number of a terminal that died with the old one.
-            last: first_id(),
-            terms: Vec::new(),
+            list: Arc::new(watch::channel(Vec::new()).0),
+            opener: Arc::new(Opener {
+                env: watch::channel(None).0,
+                changed: Arc::default(),
+            }),
+            actor: OnceLock::new(),
         }
     }
 }
@@ -58,7 +92,7 @@ impl Default for Inner {
 pub(super) struct Term {
     pub(super) live: Arc<Live>,
     /// Ends the child; on Unix its group is hung up instead.
-    pub(super) killer: Box<dyn ChildKiller + Send + Sync>,
+    pub(super) killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     /// The child's process group: it leads a session of its own.
     #[cfg(unix)]
     pub(super) group: Option<crate::run::process::Group>,
@@ -147,16 +181,12 @@ impl Live {
 }
 impl Terminals {
     pub(super) fn live(&self, id: TaskId) -> Option<Arc<Live>> {
-        lock(&self.inner)
-            .terms
-            .iter()
-            .find(|term| term.live.id == id)
-            .map(|term| term.live.clone())
+        self.term(id).map(|term| term.live.clone())
     }
 
     pub(super) async fn answer(&self, request: Request) -> Reply {
         match request {
-            Request::Start { command, cwd, size } => self.start(command, cwd, size),
+            Request::Start { command, cwd, size } => self.start(command, cwd, size).await,
             Request::List {} => Reply::Terminals {
                 terminals: self.list(),
             },
@@ -167,51 +197,46 @@ impl Terminals {
         }
     }
 
-    /// Every terminal as it stands. One that ended is listed this once,
-    /// with how it ended, then dropped: a stream still attached to it holds
-    /// its own handle until it has sent the end.
+    /// Every terminal as it stands, those that ended recently with how they
+    /// ended. Reading changes nothing: the actor drops them in time.
     fn list(&self) -> Vec<Task> {
-        let mut inner = lock(&self.inner);
-        let mut listed = Vec::with_capacity(inner.terms.len());
-        inner.terms.retain(|term| {
-            let task = term.live.task();
-            let running = task.state.is_running();
-            listed.push(task);
-            running
-        });
-        listed
+        watched::read_sent(&self.list, |list| {
+            list.iter().map(|term| term.live.task()).collect()
+        })
     }
 
-    fn start(&self, command: Option<String>, cwd: Option<String>, size: Size) -> Reply {
-        let mut inner = lock(&self.inner);
+    /// The list, woken whenever a terminal starts, ends or leaves.
+    pub(super) fn subscribe(&self) -> watch::Receiver<Vec<Arc<Term>>> {
+        self.list.subscribe()
+    }
 
-        if inner.terms.len() >= MAX_TERMINALS {
-            match inner.terms.iter().position(|term| !term.live.is_running()) {
-                Some(oldest) => {
-                    inner.terms.remove(oldest);
-                }
-                None => {
-                    return Reply::Error {
-                        message: format!(
-                            "Terminal limit reached ({MAX_TERMINALS}). Close a terminal first."
-                        ),
-                    };
-                }
-            }
-        }
+    /// Whether any terminal runs.
+    pub(super) fn any_running(&self) -> bool {
+        watched::read_sent(&self.list, |list| {
+            list.iter().any(|term| term.live.is_running())
+        })
+    }
 
-        inner.last = inner.last.wrapping_add(1);
-        let id = TaskId(inner.last);
+    /// Sets the environment terminals started from now on get.
+    pub(super) fn set_env(&self, env: Vec<EnvSecret>) {
+        self.opener.env.send_replace(Some(env));
+    }
 
-        match self.open(id, command.as_deref(), cwd, size, None) {
-            Ok(term) => {
-                let task = term.live.task();
-                inner.terms.push(term);
-                Reply::Started { task }
-            }
-            Err(e) => Reply::Error {
-                message: format!("{e:#}"),
-            },
+    async fn start(&self, command: Option<String>, cwd: Option<String>, size: Size) -> Reply {
+        let (reply, answer) = oneshot::channel();
+        let sent = self
+            .commands()
+            .send(Command::Start {
+                command,
+                cwd,
+                size,
+                reply,
+            })
+            .await;
+
+        match sent {
+            Ok(()) => answer.await.unwrap_or_else(|_| stopped()),
+            Err(_) => stopped(),
         }
     }
 
@@ -235,57 +260,267 @@ impl Terminals {
     }
 
     fn signal(&self, id: TaskId, signal: Signal) {
-        let mut inner = lock(&self.inner);
-        let Some(term) = inner.terms.iter_mut().find(|term| term.live.id == id) else {
-            return;
-        };
+        if let Some(term) = self.term(id) {
+            term.signal(signal);
+        }
+    }
 
-        term.signal(signal);
+    fn term(&self, id: TaskId) -> Option<Arc<Term>> {
+        watched::read_sent(&self.list, |list| {
+            list.iter().find(|term| term.live.id == id).cloned()
+        })
     }
 
     pub(super) fn running(&self) -> Vec<OpenTerminal> {
-        lock(&self.inner)
-            .terms
-            .iter()
-            .filter_map(|term| {
-                let screen = lock(&term.live.screen);
-                screen.phase.has_child().then(|| OpenTerminal {
-                    id: term.live.id.0,
-                    cwd: term.pid.and_then(current_dir).or_else(|| term.cwd.clone()),
-                    command: term.live.command.clone(),
+        watched::read_sent(&self.list, |list| {
+            list.iter()
+                .filter_map(|term| {
+                    let screen = lock(&term.live.screen);
+                    screen.phase.has_child().then(|| OpenTerminal {
+                        id: term.live.id.0,
+                        cwd: term.pid.and_then(current_dir).or_else(|| term.cwd.clone()),
+                        command: term.live.command.clone(),
+                    })
                 })
-            })
-            .collect()
+                .collect()
+        })
     }
 
     /// Opens a new shell for `open` under its id, unless one runs there.
-    pub(super) fn reopen(&self, was: &OpenTerminal) -> Result<()> {
-        let mut inner = lock(&self.inner);
-        let id = TaskId(was.id);
-        anyhow::ensure!(
-            inner.terms.len() < MAX_TERMINALS,
-            "{MAX_TERMINALS} terminals already run"
-        );
-        anyhow::ensure!(
-            inner.terms.iter().all(|term| term.live.id != id),
-            "terminal {id} already runs"
-        );
-        let cwd = was.cwd.as_ref().filter(|cwd| cwd.is_dir());
-        let banner = reopened_banner(was, cwd);
-        let cwd = cwd.map(|cwd| cwd.to_string_lossy().into_owned());
-        let term = self.open(id, None, cwd, Size::DEFAULT, Some(&banner))?;
-        // Ids handed out later stay clear of it.
-        inner.last = inner.last.max(was.id);
-        inner.terms.push(term);
-        Ok(())
+    pub(super) async fn reopen(&self, was: OpenTerminal) -> Result<()> {
+        let (reply, answer) = oneshot::channel();
+        self.commands()
+            .send(Command::Reopen { was, reply })
+            .await
+            .map_err(|_| anyhow::anyhow!("the terminals stopped"))?;
+        answer
+            .await
+            .map_err(|_| anyhow::anyhow!("the terminals stopped"))?
     }
 
     // A terminal host lets its terminals outlive it.
     #[cfg_attr(all(unix, feature = "cli"), expect(dead_code))]
     pub(super) fn kill_all(&self) {
-        for term in &mut lock(&self.inner).terms {
+        let terms = watched::read_sent(&self.list, Clone::clone);
+
+        for term in terms {
             term.signal(Signal::Shutdown);
         }
+    }
+
+    /// The actor's mailbox, starting the actor the first time.
+    fn commands(&self) -> &mpsc::Sender<Command> {
+        let started = self.actor.get_or_init(|| {
+            let (commands, mailbox) = mpsc::channel(MAILBOX);
+            let actor = Actor {
+                last: first_id(),
+                slots: Vec::new(),
+                opening: JoinSet::new(),
+                list: self.list.clone(),
+                opener: self.opener.clone(),
+            };
+
+            Started {
+                commands,
+                _task: AbortOnDropHandle::new(tokio::spawn(actor.run(mailbox))),
+            }
+        });
+
+        &started.commands
+    }
+}
+
+fn stopped() -> Reply {
+    Reply::Error {
+        message: "The terminals stopped.".to_owned(),
+    }
+}
+
+/// Owns the set of terminals.
+struct Actor {
+    last: u32,
+    slots: Vec<Slot>,
+    /// Terminals being opened off the loop. Each holds a place.
+    opening: JoinSet<Opened>,
+    list: Arc<watch::Sender<Vec<Arc<Term>>>>,
+    opener: Arc<Opener>,
+}
+
+struct Slot {
+    term: Arc<Term>,
+    /// When it goes from the list, once it ended.
+    leaves: Option<Instant>,
+}
+
+/// Who asked for a terminal being opened.
+enum Asked {
+    Start(oneshot::Sender<Reply>),
+    Reopen(oneshot::Sender<Result<()>>),
+}
+
+struct Opened {
+    asked: Asked,
+    term: Result<Term>,
+}
+
+impl Actor {
+    async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
+        loop {
+            let leaves = self.slots.iter().filter_map(|slot| slot.leaves).min();
+            let expiry = async {
+                match leaves {
+                    Some(at) => sleep_until(at).await,
+                    None => future::pending().await,
+                }
+            };
+
+            tokio::select! {
+                command = mailbox.recv() => match command {
+                    Some(command) => self.command(command),
+                    None => return,
+                },
+                Some(opened) = self.opening.join_next() => self.opened(opened),
+                () = self.opener.changed.notified() => self.publish(),
+                () = expiry => self.expire(),
+            }
+        }
+    }
+
+    fn command(&mut self, command: Command) {
+        match command {
+            Command::Start {
+                command,
+                cwd,
+                size,
+                reply,
+            } => {
+                if let Err(message) = self.make_room() {
+                    let _ = reply.send(Reply::Error { message });
+                    return;
+                }
+
+                self.last = self.last.wrapping_add(1);
+                let id = TaskId(self.last);
+                self.open(Asked::Start(reply), move |opener| {
+                    opener.open(id, command.as_deref(), cwd, size, None)
+                });
+            }
+            Command::Reopen { was, reply } => {
+                let id = TaskId(was.id);
+                let taken = self.slots.iter().any(|slot| slot.term.live.id == id);
+
+                if self.places() >= MAX_TERMINALS {
+                    let _ = reply.send(Err(anyhow::anyhow!(
+                        "{MAX_TERMINALS} terminals already run"
+                    )));
+                } else if taken {
+                    let _ = reply.send(Err(anyhow::anyhow!("terminal {id} already runs")));
+                } else {
+                    // Ids handed out later stay clear of it.
+                    self.last = self.last.max(was.id);
+                    self.open(Asked::Reopen(reply), move |opener| {
+                        let cwd = was.cwd.as_ref().filter(|cwd| cwd.is_dir());
+                        let banner = reopened_banner(&was, cwd);
+                        let cwd = cwd.map(|cwd| cwd.to_string_lossy().into_owned());
+                        opener.open(id, None, cwd, Size::DEFAULT, Some(&banner))
+                    });
+                }
+            }
+        }
+    }
+
+    /// Opening a pseudo-terminal and its threads is slow, so it runs
+    /// off the loop and comes back as a joined task.
+    fn open(&mut self, asked: Asked, open: impl FnOnce(&Opener) -> Result<Term> + Send + 'static) {
+        let opener = self.opener.clone();
+        self.opening.spawn_blocking(move || Opened {
+            asked,
+            term: open(&opener),
+        });
+    }
+
+    fn opened(&mut self, joined: Result<Opened, tokio::task::JoinError>) {
+        let Opened { asked, term } = match joined {
+            Ok(opened) => opened,
+            // The caller's reply is dropped with it, which it reports.
+            Err(e) => return log::warn!("opening a terminal failed: {e}"),
+        };
+
+        let term = term.map(|term| {
+            let term = Arc::new(term);
+            self.slots.push(Slot {
+                term: term.clone(),
+                leaves: None,
+            });
+            term
+        });
+        self.publish();
+
+        // The caller may have gone, which leaves the terminal kept.
+        match (asked, term) {
+            (Asked::Start(reply), Ok(term)) => {
+                let _ = reply.send(Reply::Started {
+                    task: term.live.task(),
+                });
+            }
+            (Asked::Start(reply), Err(e)) => {
+                let _ = reply.send(Reply::Error {
+                    message: format!("{e:#}"),
+                });
+            }
+            (Asked::Reopen(reply), term) => {
+                let _ = reply.send(term.map(drop));
+            }
+        }
+    }
+
+    /// The places terminals hold, those open and those opening.
+    fn places(&self) -> usize {
+        self.slots.len() + self.opening.len()
+    }
+
+    /// Frees a place for a new terminal: at the limit the oldest that ended
+    /// makes room.
+    fn make_room(&mut self) -> Result<(), String> {
+        if self.places() < MAX_TERMINALS {
+            return Ok(());
+        }
+
+        match self
+            .slots
+            .iter()
+            .position(|slot| !slot.term.live.is_running())
+        {
+            Some(oldest) => {
+                self.slots.remove(oldest);
+                Ok(())
+            }
+            None => Err(format!(
+                "Terminal limit reached ({MAX_TERMINALS}). Close a terminal first."
+            )),
+        }
+    }
+
+    /// Drops the terminals whose time in the list is up.
+    fn expire(&mut self) {
+        let now = Instant::now();
+        self.slots
+            .retain(|slot| slot.leaves.is_none_or(|leaves| leaves > now));
+        self.publish();
+    }
+
+    /// Publishes the set, giving a terminal that ended its time in the list.
+    fn publish(&mut self) {
+        let leaves = Instant::now() + KEEP_ENDED;
+
+        for slot in &mut self.slots {
+            if slot.leaves.is_none() && !slot.term.live.is_running() {
+                slot.leaves = Some(leaves);
+            }
+        }
+
+        self.list
+            .send_replace(self.slots.iter().map(|slot| slot.term.clone()).collect());
     }
 }
 
@@ -297,7 +532,7 @@ enum Signal {
 
 impl Term {
     /// The screen lock orders signals with reaping the child.
-    fn signal(&mut self, signal: Signal) {
+    fn signal(&self, signal: Signal) {
         let mut screen = lock(&self.live.screen);
         #[cfg(windows)]
         if let Some(process) = &self.live.process {
@@ -334,7 +569,7 @@ impl Term {
             return;
         }
 
-        if let Err(e) = self.killer.kill() {
+        if let Err(e) = lock(&self.killer).kill() {
             log::debug!("could not end terminal {}: {e}", self.live.id);
         }
     }

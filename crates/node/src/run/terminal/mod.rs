@@ -76,8 +76,10 @@ pub(crate) async fn reopen(dir: &Path, terminals: Vec<OpenTerminal>) {
         let _ = dir;
 
         for open in terminals {
-            if let Err(e) = TERMINALS.reopen(&open) {
-                log::warn!("could not reopen terminal {}: {e:#}", open.id);
+            let id = open.id;
+
+            if let Err(e) = TERMINALS.reopen(open).await {
+                log::warn!("could not reopen terminal {id}: {e:#}");
             }
         }
     }

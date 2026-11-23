@@ -9,16 +9,7 @@ fn started(reply: Reply) -> TaskId {
 }
 
 async fn wait_done(tasks: &Tasks, id: TaskId) -> Reply {
-    let mut done = {
-        let inner = lock(&tasks.inner);
-        inner
-            .jobs
-            .iter()
-            .find(|job| job.id == id)
-            .expect("the task is kept")
-            .done
-            .clone()
-    };
+    let mut done = tasks.entry(id).expect("the task is kept").done.clone();
     timeout(
         Duration::from_secs(20),
         watched::wait_for(&mut done, |done| *done),
@@ -134,11 +125,15 @@ async fn stopping_a_task_stops_its_whole_group() {
 #[tokio::test]
 async fn background_timeout_still_applies_after_stdout_closes() {
     let tasks = Tasks::default();
-    let id = started(tasks.start_limited(
-        "exec >/dev/null 2>&1; sleep 300".to_owned(),
-        None,
-        Some(Duration::from_millis(100)),
-    ));
+    let id = started(
+        tasks
+            .start_limited(
+                "exec >/dev/null 2>&1; sleep 300".to_owned(),
+                None,
+                Some(Duration::from_millis(100)),
+            )
+            .await,
+    );
     let Reply::Status { task, .. } = wait_done(&tasks, id).await else {
         panic!("no status");
     };

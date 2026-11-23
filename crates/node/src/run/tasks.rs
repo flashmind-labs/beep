@@ -20,16 +20,17 @@ use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
     process::Stdio,
-    sync::{Arc, LazyLock, Mutex},
+    sync::{Arc, LazyLock, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::BufReader,
     process::ChildStdout,
-    sync::{oneshot, watch},
+    sync::{mpsc, oneshot, watch},
+    task::{JoinError, JoinSet},
     time::{Instant, sleep_until, timeout},
 };
-use tokio_util::task::AbortOnDropHandle;
+use tokio_util::{sync::CancellationToken, task::AbortOnDropHandle};
 
 pub use beep_proto::node::process::PROTOCOL;
 
@@ -37,6 +38,8 @@ pub use beep_proto::node::process::PROTOCOL;
 const MAX_LINE_BYTES: usize = 1000;
 /// How long a stop waits for the task to end, past the group's grace.
 const STOP_WAIT: Duration = Duration::from_secs(5);
+/// Commands waiting for the actor.
+const MAILBOX: usize = 16;
 
 /// The node's tasks. One per process: a host embedding the node, such as
 /// the Mac app, gets them too without wiring anything.
@@ -92,13 +95,13 @@ pub(crate) async fn answer(table: Table, request: Request) -> Reply {
 
 /// Starts a background task with a deadline owned by its process watcher.
 /// No process/1 request fields change: MCP timeouts are local task policy.
-pub(crate) fn start_for(
+pub(crate) async fn start_for(
     table: Table,
     command: String,
     cwd: Option<String>,
     limit: Duration,
 ) -> Reply {
-    table.tasks().start_limited(command, cwd, Some(limit))
+    table.tasks().start_limited(command, cwd, Some(limit)).await
 }
 
 /// Runs `command` as a task and waits for it, up to `limit`; one still
@@ -110,15 +113,11 @@ pub(crate) async fn run_for(
     limit: Duration,
 ) -> Reply {
     let tasks = table.tasks();
-    let id = match tasks.start(command, cwd) {
+    let id = match tasks.start(command, cwd).await {
         Reply::Started { id } => id,
         other => return other,
     };
-    let done = lock(&tasks.inner)
-        .jobs
-        .iter()
-        .find(|job| job.id == id)
-        .map(|job| job.done.clone());
+    let done = tasks.entry(id).map(|entry| entry.done.clone());
     if let Some(mut done) = done
         && timeout(limit, watched::wait_for(&mut done, |done| *done))
             .await
@@ -130,23 +129,35 @@ pub(crate) async fn run_for(
     tasks.status(id)
 }
 
-#[derive(Default)]
+/// A set of tasks. An actor owns it and is its only writer; the set is
+/// published as `list`, and everything that only looks reads that. Starting
+/// is a command. The actor starts with the first one, as a set can be made
+/// outside a runtime.
 struct Tasks {
-    inner: Mutex<Inner>,
+    /// Written by the actor only.
+    list: Arc<watch::Sender<Vec<Arc<Entry>>>>,
+    actor: OnceLock<Started>,
 }
 
-struct Inner {
-    last: u32,
-    jobs: Vec<Job>,
+struct Started {
+    commands: mpsc::Sender<Start>,
+    _task: AbortOnDropHandle<()>,
 }
 
-impl Default for Inner {
+impl Default for Tasks {
     fn default() -> Self {
         Self {
-            last: first_id(),
-            jobs: Vec::new(),
+            list: Arc::new(watch::channel(Vec::new()).0),
+            actor: OnceLock::new(),
         }
     }
+}
+
+struct Start {
+    command: String,
+    cwd: Option<String>,
+    limit: Option<Duration>,
+    reply: oneshot::Sender<Reply>,
 }
 
 /// Where a run of the node starts numbering tasks: from the clock, so a
@@ -161,18 +172,25 @@ pub(super) fn first_id() -> u32 {
     u32::try_from(secs % 1_000_000 * 100).unwrap_or(0)
 }
 
-struct Job {
+/// What readers of the list share of a task. Its lines are written by the
+/// task itself, so they never pass through the actor.
+struct Entry {
     id: TaskId,
     command: String,
     shared: Arc<Mutex<Shared>>,
-    /// Taken by the first stop.
-    stop: Option<oneshot::Sender<()>>,
+    /// Asks the task to stop.
+    stop: CancellationToken,
     /// Turns true once the task ended.
     done: watch::Receiver<bool>,
-    /// Dropping the job ends its task, and the group with it.
-    _task: AbortOnDropHandle<()>,
     /// The task's process group, for `kill_all` at exit.
     group: Option<Group>,
+}
+
+/// A task as the actor keeps it.
+struct Job {
+    entry: Arc<Entry>,
+    /// Dropping the job ends its task, and the group with it.
+    _task: AbortOnDropHandle<()>,
 }
 
 struct Shared {
@@ -181,12 +199,20 @@ struct Shared {
     earlier: bool,
 }
 
+/// A command being spawned off the loop.
+struct Spawned {
+    start: Start,
+    process: Result<(GroupLeader, ChildStdout)>,
+}
+
 impl Tasks {
     async fn answer(&self, request: Request) -> Reply {
         match request {
-            Request::Start { command, cwd } => self.start(command, cwd),
+            Request::Start { command, cwd } => self.start(command, cwd).await,
             Request::List {} => Reply::Tasks {
-                tasks: lock(&self.inner).jobs.iter().map(Job::task).collect(),
+                tasks: watched::read_sent(&self.list, |list| {
+                    list.iter().map(|entry| entry.task()).collect()
+                }),
             },
             Request::Status { id } => self.status(id),
             Request::Stop { id } => self.stop(id).await,
@@ -196,95 +222,53 @@ impl Tasks {
         }
     }
 
-    fn start(&self, command: String, cwd: Option<String>) -> Reply {
-        self.start_limited(command, cwd, None)
+    async fn start(&self, command: String, cwd: Option<String>) -> Reply {
+        self.start_limited(command, cwd, None).await
     }
 
-    fn start_limited(
+    async fn start_limited(
         &self,
         command: String,
         cwd: Option<String>,
         limit: Option<Duration>,
     ) -> Reply {
-        let mut inner = lock(&self.inner);
-
-        if inner.jobs.len() >= MAX_TASKS {
-            // Room comes from the oldest finished task.
-            match inner
-                .jobs
-                .iter()
-                .position(|job| watched::read(&job.done, |done| *done))
-            {
-                Some(oldest) => {
-                    inner.jobs.remove(oldest);
-                }
-                None => {
-                    return Reply::Error {
-                        message: format!(
-                            "Background process limit reached ({MAX_TASKS}). Stop a process first."
-                        ),
-                    };
-                }
-            }
-        }
-
-        let cwd = cwd.map(PathBuf::from).or_else(dirs::home_dir);
-        let (leader, stdout) = match spawn(&command, cwd) {
-            Ok(started) => started,
-            Err(e) => {
-                return Reply::Error {
-                    message: format!("{e:#}"),
-                };
-            }
-        };
-        inner.last = inner.last.wrapping_add(1);
-        let id = TaskId(inner.last);
-        let shared = Arc::new(Mutex::new(Shared {
-            state: TaskState::Running,
-            lines: VecDeque::new(),
-            earlier: false,
-        }));
-        let (stop_tx, stop_rx) = oneshot::channel();
-        let (done_tx, done_rx) = watch::channel(false);
-        let group = leader.group();
-        let task = tokio::spawn(follow(
-            leader,
-            stdout,
-            shared.clone(),
-            stop_rx,
-            done_tx,
-            limit.map(|limit| Instant::now() + limit),
-        ));
-        inner.jobs.push(Job {
-            id,
+        let (reply, answer) = oneshot::channel();
+        let start = Start {
             command,
-            shared,
-            stop: Some(stop_tx),
-            done: done_rx,
-            _task: AbortOnDropHandle::new(task),
-            group,
-        });
-        crate::events::system().changed(beep_proto::node::events::Topic::new("processes"));
-        Reply::Started { id }
+            cwd,
+            limit,
+            reply,
+        };
+
+        match self.commands().send(start).await {
+            Ok(()) => answer.await.unwrap_or_else(|_| stopped()),
+            Err(_) => stopped(),
+        }
+    }
+
+    fn entry(&self, id: TaskId) -> Option<Arc<Entry>> {
+        watched::read_sent(&self.list, |list| {
+            list.iter().find(|entry| entry.id == id).cloned()
+        })
     }
 
     fn status(&self, id: TaskId) -> Reply {
-        let inner = lock(&self.inner);
-
-        match inner.jobs.iter().find(|job| job.id == id) {
-            Some(job) => job.status(),
+        match self.entry(id) {
+            Some(entry) => entry.status(),
             None => unknown(id),
         }
     }
 
     fn kill_all(&self) {
-        for job in &lock(&self.inner).jobs {
+        let entries = watched::read_sent(&self.list, Clone::clone);
+
+        for entry in entries {
             // A finished task's leader is reaped, so its group id may be
             // someone else's now.
-            if let Some(group) = job
+            if let Some(group) = entry
                 .group
                 .as_ref()
-                .filter(|_| !watched::read(&job.done, |done| *done))
+                .filter(|_| !watched::read(&entry.done, |done| *done))
             {
                 group.kill();
             }
@@ -292,19 +276,12 @@ impl Tasks {
     }
 
     async fn stop(&self, id: TaskId) -> Reply {
-        let mut done = {
-            let mut inner = lock(&self.inner);
-            let Some(job) = inner.jobs.iter_mut().find(|job| job.id == id) else {
-                return unknown(id);
-            };
-
-            if let Some(stop) = job.stop.take() {
-                // A task that already ended dropped its receiver.
-                let _ = stop.send(());
-            }
-
-            job.done.clone()
+        let Some(entry) = self.entry(id) else {
+            return unknown(id);
         };
+        // A task that already ended is not listening.
+        entry.stop.cancel();
+        let mut done = entry.done.clone();
 
         if timeout(
             STOP_GRACE + STOP_WAIT,
@@ -318,9 +295,147 @@ impl Tasks {
 
         self.status(id)
     }
+
+    /// The actor's mailbox, starting the actor the first time.
+    fn commands(&self) -> &mpsc::Sender<Start> {
+        let started = self.actor.get_or_init(|| {
+            let (commands, mailbox) = mpsc::channel(MAILBOX);
+            let actor = Actor {
+                last: first_id(),
+                jobs: Vec::new(),
+                spawning: JoinSet::new(),
+                list: self.list.clone(),
+            };
+
+            Started {
+                commands,
+                _task: AbortOnDropHandle::new(tokio::spawn(actor.run(mailbox))),
+            }
+        });
+
+        &started.commands
+    }
 }
 
-impl Job {
+fn stopped() -> Reply {
+    Reply::Error {
+        message: "The background processes stopped.".to_owned(),
+    }
+}
+
+/// Owns the set of tasks.
+struct Actor {
+    last: u32,
+    jobs: Vec<Job>,
+    /// Commands being spawned off the loop. Each holds a place.
+    spawning: JoinSet<Spawned>,
+    list: Arc<watch::Sender<Vec<Arc<Entry>>>>,
+}
+
+impl Actor {
+    async fn run(mut self, mut mailbox: mpsc::Receiver<Start>) {
+        loop {
+            tokio::select! {
+                start = mailbox.recv() => match start {
+                    Some(start) => self.start(start),
+                    None => return,
+                },
+                Some(spawned) = self.spawning.join_next() => self.spawned(spawned),
+            }
+        }
+    }
+
+    fn start(&mut self, start: Start) {
+        if self.jobs.len() + self.spawning.len() >= MAX_TASKS {
+            // Room comes from the oldest finished task.
+            match self
+                .jobs
+                .iter()
+                .position(|job| watched::read(&job.entry.done, |done| *done))
+            {
+                Some(oldest) => {
+                    self.jobs.remove(oldest);
+                    self.publish();
+                }
+                None => {
+                    let message = format!(
+                        "Background process limit reached ({MAX_TASKS}). Stop a process first."
+                    );
+                    let _ = start.reply.send(Reply::Error { message });
+                    return;
+                }
+            }
+        }
+
+        // Spawning a process is slow, so it runs off the loop.
+        self.spawning.spawn_blocking(move || {
+            let cwd = start
+                .cwd
+                .as_ref()
+                .map(PathBuf::from)
+                .or_else(dirs::home_dir);
+            let process = spawn(&start.command, cwd);
+            Spawned { start, process }
+        });
+    }
+
+    fn spawned(&mut self, joined: Result<Spawned, JoinError>) {
+        let Spawned { start, process } = match joined {
+            Ok(spawned) => spawned,
+            // The caller's reply is dropped with it, which it reports.
+            Err(e) => return log::warn!("spawning a background task failed: {e}"),
+        };
+        let (leader, stdout) = match process {
+            Ok(process) => process,
+            Err(e) => {
+                let _ = start.reply.send(Reply::Error {
+                    message: format!("{e:#}"),
+                });
+                return;
+            }
+        };
+        self.last = self.last.wrapping_add(1);
+        let id = TaskId(self.last);
+        let shared = Arc::new(Mutex::new(Shared {
+            state: TaskState::Running,
+            lines: VecDeque::new(),
+            earlier: false,
+        }));
+        let stop = CancellationToken::new();
+        let (done_tx, done_rx) = watch::channel(false);
+        let entry = Arc::new(Entry {
+            id,
+            command: start.command,
+            shared: shared.clone(),
+            stop: stop.clone(),
+            done: done_rx,
+            group: leader.group(),
+        });
+        let task = tokio::spawn(follow(
+            leader,
+            stdout,
+            shared,
+            stop,
+            done_tx,
+            start.limit.map(|limit| Instant::now() + limit),
+        ));
+        self.jobs.push(Job {
+            entry,
+            _task: AbortOnDropHandle::new(task),
+        });
+        self.publish();
+        crate::events::system().changed(beep_proto::node::events::Topic::new("processes"));
+        // The caller may have gone, which leaves the task running.
+        let _ = start.reply.send(Reply::Started { id });
+    }
+
+    fn publish(&self) {
+        self.list
+            .send_replace(self.jobs.iter().map(|job| job.entry.clone()).collect());
+    }
+}
+
+impl Entry {
     fn task(&self) -> Task {
         Task {
             id: self.id,
@@ -376,7 +491,7 @@ async fn follow(
     mut leader: GroupLeader,
     stdout: ChildStdout,
     shared: Arc<Mutex<Shared>>,
-    mut stop: oneshot::Receiver<()>,
+    stop: CancellationToken,
     done: watch::Sender<bool>,
     deadline: Option<Instant>,
 ) {
@@ -392,7 +507,6 @@ async fn follow(
     // Past the first piece of a long line: the rest is dropped, as `keep`
     // only holds the start of a line anyway.
     let mut cut = false;
-    // A dropped sender counts as a stop too: the job is gone.
     let mut stopped = false;
 
     loop {
@@ -402,7 +516,7 @@ async fn follow(
                 stopped = true;
                 break;
             }
-            _ = &mut stop => {
+            () = stop.cancelled() => {
                 stopped = true;
                 break;
             }
@@ -431,7 +545,7 @@ async fn follow(
                 leader.stop(STOP_GRACE).await;
                 TaskState::Stopped
             }
-            _ = &mut stop => {
+            () = stop.cancelled() => {
                 leader.stop(STOP_GRACE).await;
                 TaskState::Stopped
             }
