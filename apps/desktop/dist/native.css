@@ -271,6 +271,8 @@ body:not(.mobile) .cc-side > .painted-art { display: var(--paintings); position:
    so its mask fades out before the edges instead of being cut. ----- */
 .painted-art { display: none; image-rendering: pixelated }
 .cc-pjc.centered { position: relative; isolation: isolate }
+/* Narrower than its width, the composer keeps a margin from the panel's edges. */
+body:not(.mobile) .cc-pjc.centered { max-width: 800px; padding-inline: 20px }
 .agc-intro > .painted-art { display: var(--paintings); position: absolute; z-index: -1; left: 50%; top: -290px; width: min(1500px, 100cqw); height: 640px; opacity: .9; transform: translateX(-50%); pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent); mask-image: radial-gradient(closest-side, #000 45%, transparent) }
 .cc-pjc.centered .agc-intro h3 { text-shadow: 0 2px 24px var(--ink) }
 .cc-pjc.centered .agc-intro p { font-family: var(--mono); font-size: 12px; color: color-mix(in srgb, var(--fg) 78%, transparent); text-shadow: 0 1px 12px var(--ink) }
@@ -464,3 +466,16 @@ body:not(.mobile) .pj-org ~ .pj-add { display: none }
 /* A machine card's actions show when it is pointed at or focused. */
 body:not(.mobile) .mcard .act:not(.keep) { opacity: 0; transition: opacity .12s }
 body:not(.mobile) .mcard:is(:hover, :focus-within) .act { opacity: 1 }
+
+/* A found folder's machines and activity give way to each other on one line, never overlap. */
+body:not(.mobile) .pl-row.found .where { flex-wrap: nowrap; overflow: hidden }
+body:not(.mobile) .pl-row.found .where .chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+body:not(.mobile) .pl-row.found .r .dim { min-width: 0; overflow: hidden; text-overflow: ellipsis }
+/* A found folder in a narrow window: its name and Import, then where it is and its activity. */
+@container (max-width: 640px) {
+  body:not(.mobile) .pl-row.found { grid-template-columns: minmax(0, 1fr) minmax(0, max-content); row-gap: 2px; padding-block: 6px }
+  body:not(.mobile) .pl-row.found .r { display: contents }
+  body:not(.mobile) .pl-row.found .acts { grid-area: 1 / 2 }
+  body:not(.mobile) .pl-row.found .where { grid-area: 2 / 1 }
+  body:not(.mobile) .pl-row.found .r .dim { grid-area: 2 / 2; text-align: right }
+}
