@@ -726,12 +726,10 @@ impl Agents {
         );
         let assistant = begin.assistant;
         // A reviewer changes nothing, so it needs no git rule.
-        let rule = super::session::standing(
-            crate::lock(&self.instructions)
-                .clone()
-                .filter(|text| !text.trim().is_empty()),
-            checkout::rule(&cwd).filter(|_| !begin.review),
-        );
+        let rule = checkout::rule(&cwd).filter(|_| !begin.review).map(str::to_owned);
+        let instructions = crate::lock(&self.instructions)
+            .clone()
+            .filter(|text| !text.trim().is_empty());
         let mut sessions = self.lock();
         // Checked under the lock: two takeovers of one session must not
         // both start it.
@@ -809,6 +807,7 @@ impl Agents {
             note: begin.note,
             worktrees: begin.worktrees,
             brief,
+            instructions,
             rule,
             skills: self
                 .skills_dir

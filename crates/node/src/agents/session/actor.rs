@@ -269,6 +269,8 @@ pub(super) struct Actor {
     /// Beep's word to the agent from whoever started the session; once
     /// `initialize` is answered, what the first prompt still carries.
     pub(super) brief: Option<String>,
+    /// Saved instructions still to be delivered through ACP.
+    pub(super) instructions: Option<String>,
     /// What holds for the whole session: the git rule for its folder and
     /// what the Beep tools are. In the system prompt of an agent that takes
     /// one; for the others, said again after the agent compacts.
@@ -1069,13 +1071,17 @@ impl Actor {
         cx: &ConnectionTo<Agent>,
         initialized: &acp::Capabilities,
     ) -> Option<End> {
-        // The standing rules hold for the whole session; the caller's brief
-        // is said once, where the session starts or resumes. An agent with
-        // no system prompt gets both in its first prompt and the rules again
-        // after each compaction, which can summarize them away.
         let takes_system = initialized.system_prompt;
+        if self.instructions.is_some() && !takes_system {
+            return Some(End::Failed(format!(
+                "{} cannot apply saved instructions. Use an adapter that supports ACP system prompts.",
+                self.agent
+            )));
+        }
+
+        // Only Beep's built-in guidance can be repeated in user prompts.
         let standing = if takes_system {
-            self.standing.take()
+            joined(self.instructions.take(), self.standing.take().as_deref())
         } else {
             self.standing.clone()
         };

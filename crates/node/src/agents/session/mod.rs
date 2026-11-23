@@ -248,7 +248,9 @@ pub(super) struct Start<'a> {
     /// Beep's word to the agent, kept out of the transcript: in its system
     /// prompt when it takes one, else ahead of the first prompt.
     pub(super) brief: Option<Cow<'static, str>>,
-    /// Saved user instructions and Beep's checkout rule for the whole session.
+    /// Saved user instructions, delivered only through a system prompt.
+    pub(super) instructions: Option<String>,
+    /// Beep's checkout rule for the whole session.
     pub(super) rule: Option<String>,
     /// The skills Beep keeps in its own folder, listed for the agent.
     pub(super) skills: Option<String>,
@@ -312,6 +314,7 @@ impl Session {
             note,
             worktrees,
             brief,
+            mut instructions,
             rule,
             skills,
             mcp,
@@ -355,11 +358,48 @@ impl Session {
         // An off switch the node inherited, such as `DISABLE_AUTO_COMPACT`
         // from the shell that started it, would beat the setting.
         let cleared = native_policy.and_then(|policy| policy.cleared(route, &kind.env));
+        let own_folder = (assistant && mcp.is_some())
+            .then(dirs::home_dir)
+            .flatten()
+            .and_then(|home| super::conversation::brief(&home, cwd));
+        let mut standing = [
+            rule.as_deref(),
+            mcp.is_some().then_some(super::mcp::BRIEF),
+            (assistant && mcp.is_some()).then_some(super::mcp::ASSISTANT),
+            own_folder,
+            mcp.is_some().then_some(super::mcp::CHAT),
+            skills.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .fold(None, |text, part| actor::joined(text, Some(part)));
+        let mut brief = brief.map(Cow::into_owned);
+
         let mut process = command(&kind.program);
         // The credentials this agent may have, such as Claude Code's token.
         spawn_env::apply(&mut process, Scope::for_agent(&kind.name, account.as_ref()));
+        let native_flsh = kind.name == "flsh"
+            && Path::new(&kind.program).file_stem().is_some_and(|stem| stem == "flsh")
+            && kind.args.first().is_some_and(|arg| arg == "acp");
+        if native_flsh {
+            let mut system = actor::joined(instructions.take(), standing.take().as_deref());
+            if resume.is_none() {
+                system = actor::joined(brief.take(), system.as_deref());
+            }
+
+            // flsh supports one --system at the root and another after acp.
+            // Preserve an existing subcommand flag when adding ours.
+            let flag = system.map(|text| format!("--system={text}"));
+            if kind.args.iter().any(|arg| arg == "--system" || arg.starts_with("--system=")) {
+                process.args(flag).args(&kind.args);
+            } else {
+                process.args(&kind.args).args(flag);
+            }
+        } else {
+            process.args(&kind.args);
+        }
+
         process
-            .args(&kind.args)
             .args(flag)
             .envs(&kind.env)
             .envs(agent_env)
@@ -419,10 +459,6 @@ impl Session {
         // bridge starts its CLI the same way, once the session starts.
         let agent = super::start(process, kind.bridge.as_ref())?;
         let processes = Processes::new(agent.running.pid());
-        let own_folder = (assistant && mcp.is_some())
-            .then(dirs::home_dir)
-            .flatten()
-            .and_then(|home| super::conversation::brief(&home, cwd));
         // The agent names a session that came back with a title only on load.
         let kept_title = resume.is_some() && title.is_some();
         let info = SessionInfo {
@@ -485,20 +521,9 @@ impl Session {
             by_user: false,
             stop_within,
             running: HashSet::new(),
-            brief: brief.map(Cow::into_owned),
-            standing: actor::joined(
-                actor::joined(
-                    actor::joined(
-                        actor::joined(
-                            actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
-                            (assistant && mcp.is_some()).then_some(super::mcp::ASSISTANT),
-                        ),
-                        own_folder,
-                    ),
-                    mcp.is_some().then_some(super::mcp::CHAT),
-                ),
-                skills.as_deref(),
-            ),
+            brief,
+            instructions,
+            standing,
             mcp_servers: mcp.into_iter().collect(),
             subagents: !assistant,
             resume,

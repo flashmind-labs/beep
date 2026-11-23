@@ -45,6 +45,12 @@ handshake() {
     read -r line; log "$1"
     reply '{"sessionId":"s"}'
 }
+system_handshake() {
+    read -r line; log "$1"
+    reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"systemPrompt":{}}}}'
+    read -r line; log "$1"
+    reply '{"sessionId":"s"}'
+}
 "#;
 
 /// An ACP adapter in a few lines of shell: it can resume sessions and
@@ -230,10 +236,7 @@ async fn the_first_prompt_carries_the_brief() {
 /// An adapter that takes a system prompt, as Claude Code's and Codex's do:
 /// it makes or loads a session and ends its first turn at once.
 const SYSTEM_PROMPT_ADAPTER: &str = r#"
-read -r line; log "$1"
-reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"systemPrompt":{}}}}'
-read -r line; log "$1"
-reply '{"sessionId":"s"}'
+system_handshake "$1"
 read -r line; log "$1"
 reply '{"stopReason":"end_turn"}'
 cat > /dev/null
@@ -980,6 +983,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         note: None,
         worktrees: Vec::new(),
         brief: None,
+        instructions: None,
         rule: None,
         skills: None,
         mcp: None,
@@ -1285,8 +1289,13 @@ async fn a_full_window_is_compacted_as_soon_as_its_turn_ends() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
-    let kind = script("codex", COMPACTING_ADAPTER, &log);
-    let session = Session::start(start_on(&kind, dir, None)).unwrap();
+    let adapter = COMPACTING_ADAPTER.replace("handshake ", "system_handshake ");
+    let kind = script("codex", &adapter, &log);
+    let session = Session::start(Start {
+        instructions: Some("Use plain words.".into()),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
     settle(&session).await;
     // Nothing waits: the compaction goes before the next message comes, so
     // that message does not wait for it.
@@ -1309,9 +1318,13 @@ async fn a_full_window_is_compacted_as_soon_as_its_turn_ends() {
     let info = session.info();
     assert_eq!(info.turns, 2, "{:?}", info.state.error);
     assert_eq!(prompts(&log), ["go", COMPACT_PROMPT, "next"]);
-    let initialize = &sent(&log)[0];
+    let requests = sent(&log);
+    assert_eq!(requests[1]["params"]["systemPrompt"]["content"][0]["text"], "Use plain words.");
+    for request in requests.iter().filter(|request| request["method"] == "session/prompt") {
+        assert_eq!(prompt_texts(request).len(), 1);
+    }
     assert_eq!(
-        initialize["params"]["clientCapabilities"]["session"]["compaction"],
+        requests[0]["params"]["clientCapabilities"]["session"]["compaction"],
         serde_json::json!({})
     );
     let (entries, _) = watched::read(&session.live, |live| live.transcript(100));
@@ -2633,6 +2646,7 @@ async fn saved_instructions_reach_new_and_resumed_sessions_without_editing_files
             sent[1]["params"]["systemPrompt"]["content"][0]["text"],
             text
         );
+        assert_eq!(prompt_texts(&sent[2]), ["go"]);
         assert_eq!(
             std::fs::read_to_string(&local).unwrap(),
             "Local instructions.\n"
@@ -2643,6 +2657,89 @@ async fn saved_instructions_reach_new_and_resumed_sessions_without_editing_files
             .await
             .unwrap();
         until(&session, |live| live.status() == Status::Ended).await;
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn saved_instructions_stop_an_unsupported_adapter_before_open_or_prompt() {
+    for resume in [None, Some(SessionId::from("s"))] {
+        let temp = tempfile::tempdir().unwrap();
+        let log = temp.path().join("sent.jsonl");
+        let adapter = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}'
+while read -r line; do log "$1"; done
+"#;
+        let kind = script("pi", adapter, &log);
+        let session = Session::start(Start {
+            instructions: Some("Use plain words.".into()),
+            resume,
+            ..start_on(&kind, temp.path(), None)
+        })
+        .unwrap();
+
+        settle(&session).await;
+        assert_eq!(session.info().state.status, Status::Ended);
+        assert!(session.info().state.error.unwrap().contains("cannot apply saved instructions"));
+        let requests = sent(&log);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["method"], "initialize");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn native_flsh_receives_its_instructions_only_in_the_system_argument() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for resume in [None, Some(SessionId::from("s"))] {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let flsh = dir.join("flsh");
+        let log = dir.join("sent.jsonl");
+        let adapter = r#"
+printf '%s\n' "$@" > args
+read -r line; log sent.jsonl
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}'
+read -r line; log sent.jsonl
+reply '{"sessionId":"s"}'
+read -r line; log sent.jsonl
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+        std::fs::write(&flsh, format!("#!/bin/sh\n{REPLY}{adapter}")).unwrap();
+        std::fs::set_permissions(&flsh, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut args = vec!["acp".to_owned()];
+        if resume.is_some() {
+            args.push("--system=Keep the configured prompt.".to_owned());
+        }
+        let kind = AgentKind {
+            program: flsh.display().to_string(),
+            args,
+            ..script("flsh", "", &log)
+        };
+        let session = Session::start(Start {
+            instructions: Some("Use plain words.".into()),
+            rule: Some("Use a worktree.".into()),
+            resume: resume.clone(),
+            ..start_on(&kind, dir, None)
+        })
+        .unwrap();
+
+        settle(&session).await;
+        assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
+        let args = std::fs::read_to_string(dir.join("args")).unwrap();
+        let system = "--system=Use plain words.\n\nUse a worktree.";
+        let expected = if resume.is_some() {
+            format!("{system}\nacp\n--system=Keep the configured prompt.\n")
+        } else {
+            format!("acp\n{system}\n")
+        };
+        assert_eq!(args, expected);
+        let requests = sent(&log);
+        assert!(requests[1]["params"].get("systemPrompt").is_none());
+        assert_eq!(prompt_texts(&requests[2]), ["go"]);
     }
 }
 
