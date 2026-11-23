@@ -291,17 +291,7 @@ pub async fn serve_sessions(
             ignored,
             depth,
         } => {
-            work_request(&agents, &root, reach::Access::Read, move |real| {
-                let root = work_folder::WorkRoot::at(&real)?;
-                Ok(if depth == 0 {
-                    let folder = work_folder::list(&root, &path, ignored)?;
-                    SessionsReply::Folder { folder }
-                } else {
-                    let tree = work_folder::tree(&root, &path, ignored, depth)?;
-                    SessionsReply::Tree { tree }
-                })
-            })
-            .await
+            folder_reply(&agents, &root, path, ignored, depth).await
         }
         SessionsRequest::ReadFile {
             root,
@@ -615,6 +605,40 @@ async fn share_reply(
         },
         Err(e) => failed(e),
     }
+}
+
+/// The folder `path` in `root` as a `Folder` request asks for it. Its git
+/// marks come from the checkout's kept status when the checkout has one.
+async fn folder_reply(
+    agents: &Agents,
+    root: &str,
+    path: String,
+    ignored: bool,
+    depth: u32,
+) -> SessionsReply {
+    let real = match agents.reachable(root, reach::Access::Read).await {
+        Ok(real) => real,
+        Err(e) => return failed(e),
+    };
+    let checkouts = agents.checkouts.clone();
+    let runtime = tokio::runtime::Handle::current();
+
+    file_job(move || {
+        let root = work_folder::WorkRoot::at(&real)?;
+        // A path that is no folder is refused before any status is asked.
+        work_folder::open_folder(&root, &path)?;
+        let kept = runtime.block_on(checkouts.status(real));
+        let kept = kept.as_deref();
+
+        Ok(if depth == 0 {
+            let folder = work_folder::list(&root, &path, ignored, kept)?;
+            SessionsReply::Folder { folder }
+        } else {
+            let tree = work_folder::tree(&root, &path, ignored, depth, kept)?;
+            SessionsReply::Tree { tree }
+        })
+    })
+    .await
 }
 
 /// The reply carrying a chunk of a file.

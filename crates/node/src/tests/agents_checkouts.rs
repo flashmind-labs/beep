@@ -72,6 +72,58 @@ async fn readers_share_one_diff_until_the_checkout_changes() {
 }
 
 #[tokio::test]
+async fn readers_share_one_status_until_the_checkout_changes() {
+    if !has_git() {
+        return;
+    }
+
+    let (_dir, work) = repo("status");
+    let root = reach::real(&work).unwrap();
+    let checkouts = Checkouts::default();
+    // The first reads come before the watch holds: they are not kept, and
+    // the checkout answers none.
+    let first = timeout(WAIT, async {
+        loop {
+            let first = checkouts.status(root.clone()).await;
+            let second = checkouts.status(root.clone()).await;
+
+            if let (Some(first), Some(second)) = (first, second)
+                && Arc::ptr_eq(&first, &second)
+            {
+                return first;
+            }
+        }
+    })
+    .await
+    .expect("the checkout keeps its status");
+    assert!(first.out.is_empty());
+
+    fs::write(work.join("README.md"), "hi\nthere\n").unwrap();
+    timeout(WAIT, async {
+        loop {
+            if checkouts
+                .status(root.clone())
+                .await
+                .is_some_and(|status| !status.out.is_empty())
+            {
+                return;
+            }
+
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the change is heard");
+}
+
+#[tokio::test]
+async fn a_folder_that_is_not_a_checkout_has_no_status() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = reach::real(dir.path()).unwrap();
+    assert!(Checkouts::default().status(root).await.is_none());
+}
+
+#[tokio::test]
 async fn a_diff_of_another_branch_is_not_kept() {
     if !has_git() {
         return;

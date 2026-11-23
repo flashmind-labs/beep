@@ -15,6 +15,7 @@ use beep_proto::{
 };
 use ignore::WalkBuilder;
 use std::{
+    sync::Arc,
     collections::{HashMap, HashSet, VecDeque},
     fs::{self, OpenOptions},
     io::{ErrorKind, Read, Seek, SeekFrom, Write},
@@ -140,10 +141,17 @@ fn names(rel: &str) -> Result<PathBuf> {
 }
 
 /// The folder `path` inside `root`: what git ignores left out unless
-/// `ignored`, `.git` always. Blocks on the file system and git.
-pub(super) fn list(root: &WorkRoot, path: &str, ignored: bool) -> Result<WorkFolder> {
+/// `ignored`, `.git` always. `kept` is git's status of the whole root when
+/// the caller has it, so no git runs for what it covers. Blocks on the file
+/// system, and on git without `kept`.
+pub(super) fn list(
+    root: &WorkRoot,
+    path: &str,
+    ignored: bool,
+    kept: Option<&GitStatus>,
+) -> Result<WorkFolder> {
     let dir = open_folder(root, path)?;
-    let status = git_status(&dir);
+    let status = status_in(root, &dir, kept);
     let changes = status.as_ref().map(|s| changes_in(&s.out, &s.prefix));
     read_folder(&dir, root.relative(&dir), ignored, changes.as_ref())
 }
@@ -151,10 +159,16 @@ pub(super) fn list(root: &WorkRoot, path: &str, ignored: bool) -> Result<WorkFol
 /// The folder `path` inside `root` and those under it, `depth` levels in
 /// all, each as `list` gives it. Folders git ignores and symlinks are not
 /// read into, and it stops past `MAX_TREE_ENTRIES` entries. Blocks on the
-/// file system and git.
-pub(super) fn tree(root: &WorkRoot, path: &str, ignored: bool, depth: u32) -> Result<WorkTree> {
+/// file system, and on git without `kept`.
+pub(super) fn tree(
+    root: &WorkRoot,
+    path: &str,
+    ignored: bool,
+    depth: u32,
+    kept: Option<&GitStatus>,
+) -> Result<WorkTree> {
     let top = open_folder(root, path)?;
-    let status = git_status(&top);
+    let status = status_in(root, &top, kept);
     let depth = depth.clamp(1, MAX_TREE_DEPTH);
     let top_rel = root.relative(&top);
     // Each folder by its path under `top`, and how many levels down it is.
@@ -162,12 +176,20 @@ pub(super) fn tree(root: &WorkRoot, path: &str, ignored: bool, depth: u32) -> Re
     let mut folders: Vec<WorkFolder> = Vec::new();
     let mut entries = 0;
     let mut truncated = false;
+    let mut fresh: Option<Option<GitStatus>> = None;
 
     while let Some((sub, level)) = queue.pop_front() {
         let dir = top.join(&sub);
-        let changes = status
-            .as_ref()
-            .map(|s| changes_in(&s.out, &format!("{}{}", s.prefix, slashed(&sub))));
+        // Every folder reads the top's status, as ever. A kept one may be
+        // stale under a folder the watch skips: those read git once, fresh.
+        let skipped = !sub.is_empty() && !crate::events::paths::reports(&top, &dir);
+        let status = match (&status, kept) {
+            (Some(had), Some(kept)) if skipped && Arc::ptr_eq(&had.out, &kept.out) => {
+                fresh.get_or_insert_with(|| git_status(&top)).as_ref()
+            }
+            _ => status.as_ref(),
+        };
+        let changes = status.map(|s| changes_in(&s.out, &format!("{}{}", s.prefix, slashed(&sub))));
         let folder = match read_folder(&dir, joined(&top_rel, &sub), ignored, changes.as_ref()) {
             Ok(folder) => folder,
             // A folder under the top that cannot be read is left unread;
@@ -217,7 +239,7 @@ fn slashed(sub: &str) -> String {
 }
 
 /// The folder `path` inside `root`, its symlinks resolved.
-fn open_folder(root: &WorkRoot, path: &str) -> Result<PathBuf> {
+pub(super) fn open_folder(root: &WorkRoot, path: &str) -> Result<PathBuf> {
     let dir = root
         .find(&names(path)?)?
         .with_context(|| format!("{path} is not there"))?;
@@ -310,14 +332,45 @@ fn not_ignored(dir: &Path) -> HashSet<String> {
 
 /// What git sees changed under `dir`: `git status` output and `dir`'s
 /// path from the checkout's top, as `changes_in` reads them.
-struct GitStatus {
-    out: String,
+#[derive(Clone)]
+pub(super) struct GitStatus {
+    pub(super) out: Arc<str>,
     prefix: String,
+}
+
+/// What git sees changed under `dir`, read from `kept`, the status of the
+/// whole `root`, when `dir` lies in the same repository: a folder with its
+/// own `.git` (a nested repository, a submodule or a linked worktree) is
+/// asked in itself, as git's status at the root only names it. So is one a
+/// rename crosses the edge of, see `straddles`, and one under a folder the
+/// checkout's watch skips (`target`, `node_modules`, ...), where a change
+/// would not drop the kept status.
+///
+/// Gaps that remain: a kept status does not hear a change to a `.gitignore`
+/// above a root that is a subfolder, to the global excludes file, or to a
+/// submodule's own metadata, and is read again after `KEPT_FOR` at the latest.
+fn status_in(root: &WorkRoot, dir: &Path, kept: Option<&GitStatus>) -> Option<GitStatus> {
+    let own = dir
+        .ancestors()
+        .take_while(|folder| *folder != root.root)
+        .any(|folder| fs::symlink_metadata(folder.join(".git")).is_ok());
+
+    let prefix = |kept: &GitStatus| format!("{}{}", kept.prefix, slashed(&root.relative(dir)));
+
+    let watched = dir == root.root || crate::events::paths::reports(&root.root, dir);
+
+    match kept {
+        Some(kept) if watched && !own && !straddles(&kept.out, &prefix(kept)) => Some(GitStatus {
+            out: kept.out.clone(),
+            prefix: prefix(kept),
+        }),
+        _ => git_status(dir),
+    }
 }
 
 /// `None` outside a checkout or without git, where there is nothing to
 /// mark.
-fn git_status(dir: &Path) -> Option<GitStatus> {
+pub(super) fn git_status(dir: &Path) -> Option<GitStatus> {
     let prefix = git(dir, &["rev-parse", "--show-prefix"])?;
     let out = git(
         dir,
@@ -332,7 +385,7 @@ fn git_status(dir: &Path) -> Option<GitStatus> {
         ],
     )?;
     Some(GitStatus {
-        out,
+        out: out.into(),
         prefix: prefix.trim_end_matches('\n').to_owned(),
     })
 }
@@ -355,22 +408,34 @@ pub(in crate::agents) fn git(dir: &Path, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// The entries of `git status --porcelain=v1 -z` output: each one's code and
+/// path from the checkout's top, and for a rename or copy where it came from.
+fn records(status: &str) -> impl Iterator<Item = (&str, &str, Option<&str>)> {
+    let mut fields = status.split('\0');
+
+    std::iter::from_fn(move || {
+        loop {
+            let field = fields.next()?;
+            let (Some(code), Some(path)) = (field.get(..2), field.get(3..)) else {
+                continue;
+            };
+            let from = code
+                .contains(['R', 'C'])
+                .then(|| fields.next())
+                .flatten();
+
+            return Some((code, path, from));
+        }
+    })
+}
+
 /// `git status --porcelain=v1 -z` output, its paths from the checkout's
 /// top, read for the folder `prefix` (`src/`, or empty for the top): each
 /// name in it with the strongest change under it.
 fn changes_in(status: &str, prefix: &str) -> HashMap<String, GitChange> {
     let mut out: HashMap<String, GitChange> = HashMap::new();
-    let mut fields = status.split('\0');
 
-    while let Some(field) = fields.next() {
-        let (Some(code), Some(path)) = (field.get(..2), field.get(3..)) else {
-            continue;
-        };
-        // A rename or copy names where it came from next.
-        if code.contains(['R', 'C']) {
-            fields.next();
-        }
-
+    for (code, path, _) in records(status) {
         let Some(inside) = path.strip_prefix(prefix) else {
             continue;
         };
@@ -390,6 +455,15 @@ fn changes_in(status: &str, prefix: &str) -> HashMap<String, GitChange> {
     }
 
     out
+}
+
+/// Whether a rename or copy in `status` has one end under `prefix` and the
+/// other outside it. Git's status in the folder alone sees that as an added
+/// or deleted file, which the status of the whole checkout does not say.
+fn straddles(status: &str, prefix: &str) -> bool {
+    records(status).any(|(_, path, from)| {
+        from.is_some_and(|from| path.starts_with(prefix) != from.starts_with(prefix))
+    })
 }
 
 /// Up to `len` bytes, at most `AGENT_FILE_CHUNK`, of the file `path` inside
@@ -508,7 +582,7 @@ fn hash(root: &WorkRoot, path: &str) -> Result<Option<[u8; 32]>> {
 /// The folder `path` inside the folder `root` on this machine and those
 /// under it, as `tree` reads them. Blocks on the file system and git.
 pub fn local_tree(root: &Path, path: &str, ignored: bool, depth: u32) -> Result<WorkTree> {
-    tree(&local_root(root)?, path, ignored, depth)
+    tree(&local_root(root)?, path, ignored, depth, None)
 }
 
 /// Part of the file `path` inside the folder `root` on this machine, as

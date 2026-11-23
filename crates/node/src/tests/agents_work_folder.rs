@@ -37,10 +37,10 @@ fn leaves_out_what_git_ignores_unless_asked() {
     fs::write(dir.path().join("src/main.rs"), "").unwrap();
     let root = root_in(&dir);
     assert_eq!(
-        names_of(&list(&root, "", false).unwrap()),
+        names_of(&list(&root, "", false, None).unwrap()),
         ["src", ".gitignore"]
     );
-    let all = list(&root, "", true).unwrap();
+    let all = list(&root, "", true, None).unwrap();
     assert_eq!(names_of(&all), ["src", "target", ".gitignore", "build.log"]);
     let ignored: Vec<_> = all
         .entries
@@ -50,7 +50,7 @@ fn leaves_out_what_git_ignores_unless_asked() {
         .collect();
     assert_eq!(ignored, ["target", "build.log"]);
     // The root's `.gitignore` counts in a folder under it too.
-    assert_eq!(names_of(&list(&root, "src", false).unwrap()), ["main.rs"]);
+    assert_eq!(names_of(&list(&root, "src", false, None).unwrap()), ["main.rs"]);
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn marks_what_git_sees_changed() {
     fs::create_dir_all(at.join("notes")).unwrap();
     fs::write(at.join("notes/a.md"), "").unwrap();
     let root = root_in(&dir);
-    let top = list(&root, "", false).unwrap();
+    let top = list(&root, "", false, None).unwrap();
     assert!(top.git);
     let change =
         |f: &WorkFolder, name: &str| f.entries.iter().find(|e| e.name == name).unwrap().change;
@@ -81,7 +81,7 @@ fn marks_what_git_sees_changed() {
     assert_eq!(change(&top, "notes"), Some(GitChange::Untracked {}));
     assert_eq!(change(&top, "new.txt"), Some(GitChange::Untracked {}));
     assert_eq!(change(&top, "README.md"), None);
-    let src = list(&root, "src", false).unwrap();
+    let src = list(&root, "src", false, None).unwrap();
     assert_eq!(change(&src, "deep"), Some(GitChange::Modified {}));
 }
 
@@ -98,19 +98,19 @@ fn a_tree_reads_levels_down_to_its_depth() {
     fs::create_dir_all(dir.path().join("target/debug")).unwrap();
     fs::write(dir.path().join("src/deep/lib.rs"), "").unwrap();
     let root = root_in(&dir);
-    let two = tree(&root, "", false, 2).unwrap();
+    let two = tree(&root, "", false, 2, None).unwrap();
     assert_eq!(paths_of(&two), ["", "src"]);
     assert!(!two.truncated);
-    let three = tree(&root, "", false, 3).unwrap();
+    let three = tree(&root, "", false, 3, None).unwrap();
     assert_eq!(paths_of(&three), ["", "src", "src/deep"]);
     assert_eq!(names_of(&three.folders[2]), ["deeper", "lib.rs"]);
     // From a folder inside, paths stay relative to the root.
     assert_eq!(
-        paths_of(&tree(&root, "src", false, 2).unwrap()),
+        paths_of(&tree(&root, "src", false, 2, None).unwrap()),
         ["src", "src/deep"]
     );
     // What git ignores is listed when asked, but not read into.
-    let all = tree(&root, "", true, 3).unwrap();
+    let all = tree(&root, "", true, 3, None).unwrap();
     assert_eq!(names_of(&all.folders[0]), ["src", "target", ".gitignore"]);
     assert_eq!(paths_of(&all), ["", "src", "src/deep"]);
 }
@@ -128,7 +128,7 @@ fn a_tree_stops_past_its_entries() {
         }
     }
 
-    let got = tree(&root_in(&dir), "", false, 3).unwrap();
+    let got = tree(&root_in(&dir), "", false, 3, None).unwrap();
     assert_eq!(paths_of(&got), ["", "a", "b"]);
     assert!(got.truncated);
 }
@@ -149,7 +149,7 @@ fn a_tree_marks_changes_in_each_folder() {
     run_git(at, &["add", "."]);
     run_git(at, &["commit", "-qm", "first"]);
     fs::write(at.join("src/deep/lib.rs"), "two").unwrap();
-    let got = tree(&root_in(&dir), "src", false, 2).unwrap();
+    let got = tree(&root_in(&dir), "src", false, 2, None).unwrap();
     let change =
         |f: &WorkFolder, name: &str| f.entries.iter().find(|e| e.name == name).unwrap().change;
     assert_eq!(
@@ -230,7 +230,7 @@ fn a_symlink_out_of_the_root_is_refused() {
     .unwrap();
     let root = root_in(&dir);
     for e in [
-        list(&root, "out", true).unwrap_err(),
+        list(&root, "out", true, None).unwrap_err(),
         read(&root, "out/secret.txt", 0, 10).unwrap_err(),
         read(&root, "link.txt", 0, 10).unwrap_err(),
         write(&root, "out/dropped.txt", 0, 2, b"hi").unwrap_err(),
@@ -345,4 +345,188 @@ fn a_hash_changes_with_the_content_and_an_unchanged_file_is_not_read_again() {
     assert_eq!(ask("site/gone.html"), None);
     assert_eq!(ask("site"), None);
     assert_eq!(ask("../outside"), None);
+}
+
+/// The folders under `at` as paths inside it, `at` itself as `""`.
+fn folders_under(at: &Path, rel: &str, out: &mut Vec<String>) {
+    out.push(rel.to_owned());
+
+    for item in fs::read_dir(at).unwrap().flatten() {
+        let name = item.file_name().to_string_lossy().into_owned();
+
+        if name != ".git" && item.file_type().unwrap().is_dir() {
+            folders_under(&item.path(), &joined(rel, &name), out);
+        }
+    }
+}
+
+/// Lists and reads trees of every folder in `root` from the status of the
+/// whole root, and again with git asked in each folder; the two agree.
+fn assert_kept_status_agrees(root: &WorkRoot, trees: bool) {
+    let kept = git_status(&root.root).expect("a checkout");
+    let mut all = Vec::new();
+    folders_under(&root.root, "", &mut all);
+    assert!(all.len() > 1);
+
+    for path in all {
+        for ignored in [false, true] {
+            assert_eq!(
+                list(root, &path, ignored, Some(&kept)).unwrap(),
+                list(root, &path, ignored, None).unwrap(),
+                "listing {path:?}"
+            );
+            if trees {
+                assert_eq!(
+                    tree(root, &path, ignored, 3, Some(&kept)).unwrap(),
+                    tree(root, &path, ignored, 3, None).unwrap(),
+                    "tree of {path:?}"
+                );
+            }
+        }
+    }
+}
+
+fn repo_with_changes(dir: &TempDir) {
+    let at = dir.path();
+    run_git(at, &["init", "-q"]);
+    fs::write(at.join(".gitignore"), "build/\n*.log\n").unwrap();
+    fs::create_dir_all(at.join("src/deep")).unwrap();
+    fs::create_dir_all(at.join("old")).unwrap();
+    fs::write(at.join("src/deep/lib.rs"), "one").unwrap();
+    fs::write(at.join("src/keep.rs"), "one").unwrap();
+    fs::write(at.join("old/moved.txt"), "line one\nline two\nline three\nline four\n").unwrap();
+    fs::write(at.join("old/inner.txt"), "line one\nline two\nline three\nline four\n").unwrap();
+    fs::write(at.join("old/staying.txt"), "x").unwrap();
+    run_git(at, &["add", "."]);
+    run_git(at, &["commit", "-qm", "first"]);
+    fs::write(at.join("src/deep/lib.rs"), "two").unwrap();
+    // A folder git collapses into one entry, with a folder inside it.
+    fs::create_dir_all(at.join("fresh/inner")).unwrap();
+    fs::write(at.join("fresh/inner/a.txt"), "a").unwrap();
+    fs::write(at.join("fresh/b.txt"), "b").unwrap();
+    // A tracked folder with an untracked one in it, and ignored files.
+    fs::create_dir_all(at.join("src/new")).unwrap();
+    fs::write(at.join("src/new/c.txt"), "c").unwrap();
+    fs::create_dir_all(at.join("build")).unwrap();
+    fs::write(at.join("build/out.o"), "o").unwrap();
+    fs::write(at.join("src/debug.log"), "l").unwrap();
+    // A rename across folders, both ways, and one within a folder.
+    run_git(at, &["mv", "old/moved.txt", "src/moved.txt"]);
+    run_git(at, &["mv", "old/inner.txt", "old/renamed.txt"]);
+    // A staged new file and a deleted one.
+    fs::write(at.join("src/staged.rs"), "s").unwrap();
+    run_git(at, &["add", "src/staged.rs"]);
+    fs::remove_file(at.join("old/staying.txt")).unwrap();
+}
+
+#[test]
+fn a_status_at_the_root_marks_each_folder_as_git_in_it_does() {
+    if !has_git() {
+        eprintln!("skipped: no git");
+        return;
+    }
+
+    let dir = TempDir::new().unwrap();
+    repo_with_changes(&dir);
+    assert_kept_status_agrees(&root_in(&dir), true);
+
+    // A folder git collapses lists no mark for what is in it, as before.
+    let kept = git_status(&root_in(&dir).root).unwrap();
+    let inside = list(&root_in(&dir), "fresh", false, Some(&kept)).unwrap();
+    assert!(inside.git && inside.entries.iter().all(|e| e.change.is_none()));
+    let top = list(&root_in(&dir), "", false, Some(&kept)).unwrap();
+    let change = |name: &str| top.entries.iter().find(|e| e.name == name).unwrap().change;
+    assert_eq!(change("fresh"), Some(GitChange::Untracked {}));
+    assert_eq!(change("src"), Some(GitChange::Modified {}));
+}
+
+#[test]
+fn a_root_inside_a_repository_reads_the_status_from_its_prefix() {
+    if !has_git() {
+        eprintln!("skipped: no git");
+        return;
+    }
+
+    let dir = TempDir::new().unwrap();
+    repo_with_changes(&dir);
+    let root = WorkRoot::at(&paths::canonicalize(dir.path().join("src")).unwrap()).unwrap();
+    assert_kept_status_agrees(&root, true);
+    let kept = git_status(&root.root).unwrap();
+    let top = list(&root, "", false, Some(&kept)).unwrap();
+    let change = |name: &str| top.entries.iter().find(|e| e.name == name).unwrap().change;
+    assert_eq!(change("moved.txt"), Some(GitChange::Added {}));
+    assert_eq!(change("new"), Some(GitChange::Untracked {}));
+}
+
+#[test]
+fn a_nested_repository_is_read_in_itself() {
+    if !has_git() {
+        eprintln!("skipped: no git");
+        return;
+    }
+
+    let dir = TempDir::new().unwrap();
+    repo_with_changes(&dir);
+    let nested = dir.path().join("vendor/lib");
+    fs::create_dir_all(nested.join("pkg")).unwrap();
+    run_git(&nested, &["init", "-q"]);
+    fs::write(nested.join("pkg/x.txt"), "x").unwrap();
+    run_git(&nested, &["add", "."]);
+    run_git(&nested, &["commit", "-qm", "first"]);
+    fs::write(nested.join("pkg/x.txt"), "y").unwrap();
+    fs::write(nested.join("z.txt"), "z").unwrap();
+    let root = root_in(&dir);
+    assert_kept_status_agrees(&root, true);
+    let kept = git_status(&root.root).unwrap();
+    let lib = list(&root, "vendor/lib", false, Some(&kept)).unwrap();
+    let change = |name: &str| lib.entries.iter().find(|e| e.name == name).unwrap().change;
+    assert_eq!(change("pkg"), Some(GitChange::Modified {}));
+    assert_eq!(change("z.txt"), Some(GitChange::Untracked {}));
+}
+
+#[test]
+fn the_kept_status_serves_a_folder_unless_the_watch_skips_it() {
+    if !has_git() {
+        eprintln!("skipped: no git");
+        return;
+    }
+
+    let dir = TempDir::new().unwrap();
+    repo_with_changes(&dir);
+    fs::create_dir_all(dir.path().join("target/debug")).unwrap();
+    fs::create_dir_all(dir.path().join("src/node_modules")).unwrap();
+    let root = root_in(&dir);
+    let kept = git_status(&root.root).unwrap();
+    let from = |path: &str| status_in(&root, &root.root.join(path), Some(&kept)).unwrap();
+    assert!(Arc::ptr_eq(&from("").out, &kept.out));
+    assert!(Arc::ptr_eq(&from("src/deep").out, &kept.out));
+    assert_eq!(from("src/deep").prefix, "src/deep/");
+    // A change under these is not heard, so git is asked.
+    assert!(!Arc::ptr_eq(&from("target/debug").out, &kept.out));
+    assert!(!Arc::ptr_eq(&from("src/node_modules").out, &kept.out));
+    // So is a folder a rename crosses the edge of.
+    assert!(!Arc::ptr_eq(&from("src").out, &kept.out));
+}
+
+#[test]
+fn a_tree_reads_a_tracked_folder_the_watch_skips_in_itself() {
+    if !has_git() {
+        eprintln!("skipped: no git");
+        return;
+    }
+
+    let dir = TempDir::new().unwrap();
+    let at = dir.path();
+    run_git(at, &["init", "-q"]);
+    fs::create_dir_all(at.join("target/debug")).unwrap();
+    fs::write(at.join("target/debug/out.txt"), "one").unwrap();
+    run_git(at, &["add", "-f", "."]);
+    run_git(at, &["commit", "-qm", "first"]);
+    fs::write(at.join("target/debug/out.txt"), "two").unwrap();
+    let root = root_in(&dir);
+    let kept = git_status(&root.root).unwrap();
+    let got = tree(&root, "", true, 3, Some(&kept)).unwrap();
+    assert_eq!(got, tree(&root, "", true, 3, None).unwrap());
+    let debug = got.folders.iter().find(|f| f.path == "target/debug").unwrap();
+    assert_eq!(debug.entries[0].change, Some(GitChange::Modified {}));
 }

@@ -265,3 +265,48 @@ async fn a_native_codex_conversation_reads_only_its_own_messages_and_outputs() {
     assert_eq!(earlier, 0);
     assert_eq!(first, entries[..2]);
 }
+
+#[tokio::test]
+async fn a_folder_listing_shows_an_edit_made_after_the_status_was_kept() {
+    use crate::agents::checkout::tests::{has_git, repo};
+    use std::time::Duration;
+
+    if !has_git() {
+        return;
+    }
+
+    let (_dir, work) = repo("folder");
+    let agents = Agents::new(Vec::new());
+    agents.share_folders(vec![work.clone()]);
+    let root = work.to_str().unwrap();
+    let readme = |reply: SessionsReply| match reply {
+        SessionsReply::Folder { folder } => folder
+            .entries
+            .iter()
+            .find(|e| e.name == "README.md")
+            .unwrap()
+            .change,
+        other => panic!("not a folder: {other:?}"),
+    };
+
+    // Listed until the checkout's watch holds and keeps the status.
+    for _ in 0..3 {
+        let reply = folder_reply(&agents, root, String::new(), false, 0).await;
+        assert_eq!(readme(reply), None);
+    }
+
+    fs::write(work.join("README.md"), "hi\nthere\n").unwrap();
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let reply = folder_reply(&agents, root, String::new(), false, 0).await;
+
+            if readme(reply).is_some() {
+                return;
+            }
+
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the edit shows");
+}

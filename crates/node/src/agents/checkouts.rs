@@ -1,7 +1,7 @@
 //! One task per checkout keeps what git says of it, so the sessions and
 //! peers that read a folder share one git run for each change to it.
 
-use super::work_diff;
+use super::{work_diff, work_folder::{GitStatus, git_status}};
 use crate::events::paths::Paths;
 use anyhow::{Result, anyhow};
 use beep_proto::{
@@ -34,8 +34,9 @@ const GIT_RETRY: Duration = Duration::from_secs(30);
 const WAITING: usize = 64;
 const STOPPED: &str = "the checkout's reader stopped";
 
-/// A diff as its readers share it.
-type Read = Result<Arc<WorkDiff>, Arc<anyhow::Error>>;
+/// What git gave for a read, as its readers share it.
+type Read<V> = Result<Arc<V>, Arc<anyhow::Error>>;
+type Reply<V> = oneshot::Sender<Read<V>>;
 
 /// The node's checkouts. The task that owns them starts with the first read
 /// and ends with this.
@@ -55,10 +56,15 @@ struct Open {
     reply: oneshot::Sender<mpsc::Sender<Ask>>,
 }
 
-/// Asks one checkout for a diff.
-struct Ask {
-    ask: DiffAsk,
-    reply: oneshot::Sender<Read>,
+/// Asks one checkout for what git says of it.
+enum Ask {
+    Diff {
+        ask: DiffAsk,
+        reply: Reply<WorkDiff>,
+    },
+    Status {
+        reply: Reply<GitStatus>,
+    },
 }
 
 impl Checkouts {
@@ -66,15 +72,29 @@ impl Checkouts {
     /// while the checkout has not changed since it was read.
     pub(crate) async fn diff(&self, root: PathBuf, ask: DiffAsk) -> Result<Arc<WorkDiff>> {
         let (reply, read) = oneshot::channel();
-        self.open(root)
-            .await?
-            .send(Ask { ask, reply })
+        // Held until the answer comes, so the sweep leaves the task be.
+        let asks = self.open(root).await?;
+        asks.send(Ask::Diff { ask, reply })
             .await
             .map_err(|_| anyhow!(STOPPED))?;
 
         read.await
             .map_err(|_| anyhow!(STOPPED))?
             .map_err(|e| anyhow!("{e:#}"))
+    }
+
+    /// What `git status` says of the checkout at `root`, a real folder in
+    /// reach: the kept one while the checkout has not changed since it was
+    /// read. `None` outside a git checkout, when it cannot be read, and when
+    /// nothing is kept because no watch holds: the caller asks git itself.
+    pub(in crate::agents) async fn status(&self, root: PathBuf) -> Option<Arc<GitStatus>> {
+        let (reply, read) = oneshot::channel();
+        let asks = self.open(root).await.ok()?;
+        asks.send(Ask::Status { reply }).await.ok()?;
+        let read = read.await.ok()?.ok();
+        drop(asks);
+
+        read
     }
 
     /// The lines added and removed in the checkout at `folder`, as the diff
@@ -178,30 +198,116 @@ struct Checkout {
     /// When Git was last asked for the metadata to watch; `None` while it
     /// is being asked.
     tried: Option<Instant>,
-    kept: VecDeque<Kept>,
-    reading: Vec<Reading>,
+    diffs: Reads<DiffAsk, WorkDiff>,
+    /// The status of the whole checkout: one read, whatever folder asks.
+    statuses: Reads<(), GitStatus>,
     jobs: JoinSet<Job>,
 }
 
-struct Kept {
-    ask: DiffAsk,
-    diff: Arc<WorkDiff>,
+/// What git gave for each `K` asked of one checkout: kept until the
+/// checkout changes, and shared by the readers that ask while it is read.
+struct Reads<K, V> {
+    keep: usize,
+    kept: VecDeque<Kept<K, V>>,
+    reading: Vec<Reading<K, V>>,
+}
+
+struct Kept<K, V> {
+    key: K,
+    value: Arc<V>,
     read: Instant,
 }
 
-/// A diff git is working on, and who waits for it.
-struct Reading {
-    ask: DiffAsk,
+/// A read git is working on, and who waits for it.
+struct Reading<K, V> {
+    key: K,
     revision: u64,
-    waiting: Vec<oneshot::Sender<Read>>,
+    waiting: Vec<Reply<V>>,
     /// Those who asked after the checkout changed again: this read may have
     /// missed the change, so they get the next one.
-    late: Vec<oneshot::Sender<Read>>,
+    late: Vec<Reply<V>>,
 }
 
 enum Job {
     Watched(Option<Paths>),
     Diffed { ask: DiffAsk, read: Result<WorkDiff> },
+    Statused(Result<GitStatus>),
+}
+
+impl<K: PartialEq + Clone, V> Reads<K, V> {
+    fn new(keep: usize) -> Self {
+        Self {
+            keep,
+            kept: VecDeque::new(),
+            reading: Vec::new(),
+        }
+    }
+
+    /// Answers with the kept value, or joins the read under way. Gives back
+    /// the reply when no read is, for `begin`. `current` is whether a change
+    /// since `revision` would be heard.
+    fn ask(&mut self, key: &K, reply: Reply<V>, current: bool, revision: u64) -> Option<Reply<V>> {
+        if let Some(kept) = self
+            .kept
+            .iter()
+            .find(|kept| kept.key == *key && kept.read.elapsed() < KEPT_FOR)
+        {
+            let _ = reply.send(Ok(kept.value.clone()));
+            return None;
+        }
+
+        match self.reading.iter_mut().find(|reading| reading.key == *key) {
+            Some(reading) if current && reading.revision == revision => reading.waiting.push(reply),
+            Some(reading) => reading.late.push(reply),
+            None => return Some(reply),
+        }
+
+        None
+    }
+
+    /// Notes a read of `key` started for `waiting`.
+    fn begin(&mut self, key: K, waiting: Vec<Reply<V>>, revision: u64) {
+        self.reading.push(Reading {
+            key,
+            revision,
+            waiting,
+            late: Vec::new(),
+        });
+    }
+
+    /// Hands out what was read, and keeps it when `keep` holds and the
+    /// checkout has not changed since the read began. Gives back those who
+    /// are owed a newer read.
+    fn done(&mut self, key: &K, read: Result<V>, keep: bool, revision: u64) -> Vec<Reply<V>> {
+        let Some(at) = self.reading.iter().position(|reading| reading.key == *key) else {
+            return Vec::new();
+        };
+        let reading = self.reading.swap_remove(at);
+        let read = read.map(Arc::new).map_err(Arc::new);
+
+        if let Ok(value) = &read
+            && keep
+            && reading.revision == revision
+        {
+            self.kept.retain(|kept| kept.key != *key);
+
+            if self.kept.len() == self.keep {
+                self.kept.pop_front();
+            }
+
+            self.kept.push_back(Kept {
+                key: key.clone(),
+                value: value.clone(),
+                read: Instant::now(),
+            });
+        }
+
+        for reply in reading.waiting {
+            let _ = reply.send(read.clone());
+        }
+
+        reading.late
+    }
 }
 
 impl Checkout {
@@ -212,8 +318,8 @@ impl Checkout {
             changed: Arc::default(),
             watch: None,
             tried: None,
-            kept: VecDeque::new(),
-            reading: Vec::new(),
+            diffs: Reads::new(KEPT),
+            statuses: Reads::new(1),
             jobs: JoinSet::new(),
         }
     }
@@ -223,51 +329,57 @@ impl Checkout {
         self.start_watch();
 
         loop {
+            // A change heard goes first, so no ask is answered from what it
+            // made stale.
             tokio::select! {
+                biased;
+                () = changed.notified() => self.forget(),
                 ask = asks.recv() => match ask {
                     Some(ask) => self.asked(ask),
                     None => return,
                 },
-                () = changed.notified() => self.forget(),
                 Some(Ok(job)) = self.jobs.join_next() => self.done(job),
             }
         }
     }
 
-    /// Answers with the kept diff, joins the read of it under way, or
-    /// starts one.
-    fn asked(&mut self, Ask { ask, reply }: Ask) {
-        // The folder is this task's, and git never takes fewer lines.
-        let ask = DiffAsk {
-            root: String::new(),
-            context: work_diff::context(&ask),
-            ..ask
-        };
-
-        if let Some(kept) = self
-            .kept
-            .iter()
-            .find(|kept| kept.ask == ask && kept.read.elapsed() < KEPT_FOR)
-        {
-            let _ = reply.send(Ok(kept.diff.clone()));
-            return;
-        }
-
+    /// Answers with what is kept, joins the read under way, or starts one.
+    fn asked(&mut self, ask: Ask) {
         if self.watch.is_none() && self.tried.is_some_and(|tried| tried.elapsed() >= GIT_RETRY) {
             self.start_watch();
         }
 
-        let current = self.watch.is_some();
-        let revision = self.revision;
+        let (current, revision) = (self.watch.is_some(), self.revision);
 
-        match self.reading.iter_mut().find(|reading| reading.ask == ask) {
-            Some(reading) if current && reading.revision == revision => reading.waiting.push(reply),
-            Some(reading) => reading.late.push(reply),
-            None => self.read(ask, vec![reply]),
+        match ask {
+            Ask::Diff { ask, reply } => {
+                // The folder is this task's, and git never takes fewer lines.
+                let ask = DiffAsk {
+                    root: String::new(),
+                    context: work_diff::context(&ask),
+                    ..ask
+                };
+
+                if let Some(reply) = self.diffs.ask(&ask, reply, current, revision) {
+                    self.read_diff(ask, vec![reply]);
+                }
+            }
+            Ask::Status { reply } => {
+                // Nothing is kept without a watch, and a read for each reader
+                // would only queue behind the others: they ask git themselves.
+                if !current {
+                    let _ = reply.send(Err(Arc::new(anyhow!("the checkout is not watched"))));
+                    return;
+                }
+
+                if let Some(reply) = self.statuses.ask(&(), reply, current, revision) {
+                    self.read_status(vec![reply]);
+                }
+            }
         }
     }
 
-    fn read(&mut self, ask: DiffAsk, waiting: Vec<oneshot::Sender<Read>>) {
+    fn read_diff(&mut self, ask: DiffAsk, waiting: Vec<Reply<WorkDiff>>) {
         let (root, asked) = (self.root.clone(), ask.clone());
         self.jobs.spawn(async move {
             let read = spawn_blocking({
@@ -279,63 +391,58 @@ impl Checkout {
 
             Job::Diffed { ask: asked, read }
         });
-        self.reading.push(Reading {
-            ask,
-            revision: self.revision,
-            waiting,
-            late: Vec::new(),
+        self.diffs.begin(ask, waiting, self.revision);
+    }
+
+    fn read_status(&mut self, waiting: Vec<Reply<GitStatus>>) {
+        let root = self.root.clone();
+        self.jobs.spawn(async move {
+            let read = spawn_blocking(move || {
+                git_status(&root).ok_or_else(|| anyhow!("{} is not a git checkout", root.display()))
+            })
+            .await
+            .unwrap_or_else(|e| Err(anyhow!("reading the status stopped: {e}")));
+
+            Job::Statused(read)
         });
+        self.statuses.begin((), waiting, self.revision);
     }
 
     fn done(&mut self, job: Job) {
-        let (ask, read) = match job {
+        match job {
             Job::Watched(watch) => {
                 self.tried = Some(Instant::now());
                 self.watch = watch;
                 // What was read before the watch held may have missed a change.
                 self.forget();
-                return;
             }
-            Job::Diffed { ask, read } => (ask, read.map(Arc::new).map_err(Arc::new)),
-        };
-        let Some(at) = self.reading.iter().position(|reading| reading.ask == ask) else {
-            return;
-        };
-        let reading = self.reading.swap_remove(at);
-        // A branch may be checked out in another worktree, which this
-        // checkout's watch does not cover.
-        let watched = self.watch.is_some() && ask.head.trim().is_empty();
+            Job::Diffed { ask, read } => {
+                // A branch may be checked out in another worktree, which this
+                // checkout's watch does not cover.
+                let watched = self.watch.is_some() && ask.head.trim().is_empty();
+                let late = self.diffs.done(&ask, read, watched, self.revision);
 
-        if let Ok(diff) = &read
-            && watched
-            && reading.revision == self.revision
-        {
-            self.kept.retain(|kept| kept.ask != ask);
-
-            if self.kept.len() == KEPT {
-                self.kept.pop_front();
+                if !late.is_empty() {
+                    self.read_diff(ask, late);
+                }
             }
+            Job::Statused(read) => {
+                let late = self
+                    .statuses
+                    .done(&(), read, self.watch.is_some(), self.revision);
 
-            self.kept.push_back(Kept {
-                ask: ask.clone(),
-                diff: diff.clone(),
-                read: Instant::now(),
-            });
-        }
-
-        for reply in reading.waiting {
-            let _ = reply.send(read.clone());
-        }
-
-        if !reading.late.is_empty() {
-            self.read(ask, reading.late);
+                if !late.is_empty() {
+                    self.read_status(late);
+                }
+            }
         }
     }
 
     /// The checkout changed: nothing kept of it holds any more.
     fn forget(&mut self) {
         self.revision += 1;
-        self.kept.clear();
+        self.diffs.kept.clear();
+        self.statuses.kept.clear();
     }
 
     /// Starts watching the folder and its Git metadata, off this task: the
