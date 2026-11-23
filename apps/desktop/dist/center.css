@@ -1064,7 +1064,8 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .rail-card-li > small.bad { color: var(--hot) }
 .cc-rail .rail-back { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; padding-inline: 0; margin-right: auto }
 .cc-rail > .rail-filter { margin: 10px 0 4px; width: auto; flex: none }
-.rail-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; scrollbar-width: thin }
+.rail-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; scrollbar-width: none }
+.rail-scroll::-webkit-scrollbar { display: none }
 .rail-scroll > h4 { padding: 10px 6px 3px }
 .cc-rail .pj-li { flex: none; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; padding: 4px 6px; border-radius: var(--radius-sm) }
 .cc-rail .pj-li .lead svg, .cc-rail .pj-li .lead > * { width: 14px; height: 14px }

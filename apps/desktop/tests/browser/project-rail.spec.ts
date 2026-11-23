@@ -76,6 +76,7 @@ test("the project's sessions scroll under a header that stays put, and an idle o
   await page.locator(".pj-det .pv-row").filter({ hasText: "Past session 1" }).first().click();
   const rail = page.locator("#rail"), list = rail.locator(".rail-scroll"), filter = rail.getByPlaceholder("Filter sessions");
   await expect(rail).toBeVisible();
+  await expect(list).toHaveCSS("scrollbar-width", "none");
   // An idle running session shows the first line of its last reply.
   const idleRow = rail.locator(".rail-live > .pj-li").filter({ hasText: "Idle session" });
   await expect(idleRow.locator(".rail-reply")).toHaveText("All 42 tests pass in beep-node.");
@@ -85,7 +86,8 @@ test("the project's sessions scroll under a header that stays put, and an idle o
   await expect(rail.locator(".rail-live > .pj-li").filter({ hasText: "First notification" }).locator(".rail-diff")).toHaveCount(0);
   const before = await filter.boundingBox();
 
-  await list.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await list.hover();
+  await page.mouse.wheel(0, 1000);
   await expect.poll(() => list.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
   expect(await rail.evaluate(node => node.scrollTop)).toBe(0);
   // Rows over the painting dim it.
