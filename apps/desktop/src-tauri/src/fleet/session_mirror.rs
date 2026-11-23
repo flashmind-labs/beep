@@ -532,7 +532,9 @@ impl<O: Outside> Actor<O> {
         }
 
         if relist.again {
+            // The listing to come is for the pushes that waited.
             relist.again = false;
+            relist.loud = true;
             self.list(machine, Duration::ZERO);
             self.relisting.insert(machine, relist);
         }
