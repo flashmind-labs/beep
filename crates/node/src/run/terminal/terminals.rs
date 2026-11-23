@@ -7,7 +7,7 @@ use super::{
     screen::{Phase, Screen},
     unknown,
 };
-use crate::run::{process::STOP_GRACE, tasks::first_id};
+use crate::{actor, run::{process::STOP_GRACE, tasks::first_id}};
 use anyhow::Result;
 use beep_proto::watched;
 use beep_proto::node::{
@@ -52,7 +52,7 @@ pub(super) struct Terminals {
 }
 
 struct Started {
-    commands: mpsc::Sender<Command>,
+    commands: actor::Sender<Command>,
     _task: AbortOnDropHandle<()>,
 }
 
@@ -67,6 +67,7 @@ pub(super) struct Opener {
     killed: AtomicBool,
 }
 
+#[derive(strum::IntoStaticStr)]
 enum Command {
     Start {
         command: Option<String>,
@@ -325,9 +326,9 @@ impl Terminals {
     /// The actor's mailbox, starting the actor the first time. The actor
     /// runs on the runtime that sends the first command, which is the only
     /// one in the node; it stops answering if that runtime ends.
-    fn commands(&self) -> &mpsc::Sender<Command> {
+    fn commands(&self) -> &actor::Sender<Command> {
         let started = self.actor.get_or_init(|| {
-            let (commands, mailbox) = mpsc::channel(MAILBOX);
+            let (commands, mailbox) = actor::channel("terminals", MAILBOX);
             let actor = Actor {
                 last: first_id(),
                 slots: Vec::new(),
@@ -380,7 +381,7 @@ struct Opened {
 }
 
 impl Actor {
-    async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
+    async fn run(mut self, mut mailbox: actor::Receiver<Command>) {
         loop {
             let leaves = self.slots.iter().filter_map(|slot| slot.leaves).min();
             let expiry = async {
@@ -392,7 +393,7 @@ impl Actor {
 
             tokio::select! {
                 command = mailbox.recv() => match command {
-                    Some(command) => self.command(command),
+                    Some((command, _timing)) => self.command(command),
                     None => return,
                 },
                 Some(opened) = self.opening.join_next() => self.opened(opened),
