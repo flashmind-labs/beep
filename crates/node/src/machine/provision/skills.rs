@@ -40,6 +40,10 @@ pub(super) const SKILLS: &[Skill] = &[
         text: include_str!("../../../skills/forgejo/SKILL.md"),
     },
     Skill {
+        name: "challenge",
+        text: include_str!("../../../skills/challenge/SKILL.md"),
+    },
+    Skill {
         name: REPORT,
         text: include_str!("../../../skills/report/SKILL.md"),
     },

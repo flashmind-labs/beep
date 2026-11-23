@@ -260,6 +260,7 @@ body.cbody
                                   span.report-label "Report"
                                   span.report-length "83 words, about 1 min"
                                   span.report-acts
+                                    button.dbtn.quiet.small [title="Start a fresh agent that tries to prove this report wrong" type="button"] "Challenge"
                                     button.dbtn.quiet.small [data-report-summarize="8" title="Ask the agent for a shorter version of this report" type="button"] "Summarize"
                                 div.reply-body
                                   p.report-headline "The redirect keeps the query string."

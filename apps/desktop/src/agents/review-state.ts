@@ -4,8 +4,9 @@
 // so the chat shows its comments rather than the prompt Beep wrote.
 import { createStore } from "zustand";
 
-/// What a comment asks for.
-export type Ask = "question" | "change";
+/// What a comment asks for: an answer, a change, or a fix for what a
+/// challenge found wrong.
+export type Ask = "question" | "change" | "finding";
 
 /// A draft on part of an agent's reply.
 export interface ReviewComment {
@@ -77,10 +78,11 @@ export function keepWriting(review: Review): Review {
   return { ...review, writing: null, comments };
 }
 
-/// "1 question · 2 changes".
+/// "1 finding · 1 question · 2 changes".
 export function reviewCount(comments: readonly ReviewComment[]) {
-  const questions = comments.filter(c => c.ask === "question").length, changes = comments.length - questions;
-  return [questions && `${questions} ${questions === 1 ? "question" : "questions"}`, changes && `${changes} ${changes === 1 ? "change" : "changes"}`].filter(Boolean).join(" · ");
+  const words: Record<Ask, [string, string]> = { finding: ["finding", "findings"], question: ["question", "questions"], change: ["change", "changes"] };
+  return ASKS.map(ask => [ask, comments.filter(c => c.ask === ask).length] as const)
+    .filter(([, n]) => n > 0).map(([ask, n]) => `${n} ${words[ask][n === 1 ? 0 : 1]}`).join(" · ");
 }
 
 // ----- The message -----
@@ -88,16 +90,18 @@ export function reviewCount(comments: readonly ReviewComment[]) {
 const HEAD = "Review comments on what you wrote.";
 const REPLY = "Reply with a report, as after any task. Each change asked for is a bullet under `## Changed`. Each answer comes after the report's first line, quoting what it answers. A place such as item 2 under \"Changed\" is in your last report: don't use it as a heading.";
 const SECTIONS: Record<Ask, { title: string; how: string }> = {
+  finding: { title: "Challenge findings", how: "Another agent tried to prove your report wrong and found these. Fix each, or show why it is wrong." },
   question: { title: "Questions", how: "Answer each, quoting it. Change nothing for these." },
   change: { title: "Changes asked for", how: "Make these changes. When one is unclear or wrong, say so instead of guessing." },
 };
 const ALSO = "Also";
+const ASKS = ["finding", "question", "change"] as const;
 
 /// The message the agent gets for `comments`, with what the user typed (`also`) last.
 export function reviewPrompt(comments: readonly ReviewComment[], also: string) {
   let out = `${HEAD}\n\n${REPLY}`;
 
-  for (const ask of ["question", "change"] as const) {
+  for (const ask of ASKS) {
     const of = comments.filter(c => c.ask === ask);
     if (!of.length) continue;
 
@@ -142,7 +146,7 @@ export function parseReview(text: string): SentReview | null {
     if (heading) {
       finish();
       const title = heading[1].trim();
-      ask = title === SECTIONS.question.title ? "question" : title === SECTIONS.change.title ? "change" : null;
+      ask = ASKS.find(a => SECTIONS[a].title === title) ?? null;
       if (title === ALSO) also = [];
       continue;
     }
@@ -208,6 +212,6 @@ function isComment(value: unknown): value is ReviewComment {
   return typeof value === "object" && value !== null
     && "id" in value && typeof value.id === "number" && "entry" in value && typeof value.entry === "number"
     && "quote" in value && typeof value.quote === "string" && "place" in value && typeof value.place === "string"
-    && "opening" in value && typeof value.opening === "string" && "ask" in value && (value.ask === "question" || value.ask === "change")
+    && "opening" in value && typeof value.opening === "string" && "ask" in value && ASKS.some(a => a === value.ask)
     && "text" in value && typeof value.text === "string";
 }

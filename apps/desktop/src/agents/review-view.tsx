@@ -12,7 +12,7 @@ import { Element as Tag, Text as TextNode, attributesToProps, domToReact, type D
 import { isTag, isText, openingOf, textOf } from "./report-state.ts";
 import { keepWriting, reviewCount, reviewOf, reviews, updateReview, type Ask, type ReviewComment, type Review, type SentReview } from "./review-state.ts";
 
-const ASK_LABEL: Record<Ask, string> = { question: "Question", change: "Change" };
+const ASK_LABEL: Record<Ask, string> = { question: "Question", change: "Change", finding: "Finding" };
 
 // ----- Starting a comment -----
 
@@ -146,7 +146,7 @@ function CommentField({ reviewKey, review, sendNow }: { reviewKey: string; revie
       <Button small look="primary" onClick={save}>Save<kbd>⏎</kbd></Button>
     </div>
     <p className="rv-quote">{w.quote}</p>
-    <textarea ref={field} rows={2} value={w.text} aria-label={w.ask === "question" ? "Your question" : "The change you ask for"}
+    <textarea ref={field} rows={2} value={w.text} aria-label={w.ask === "question" ? "Your question" : w.ask === "finding" ? "What the challenge found" : "The change you ask for"}
       placeholder={w.ask === "question" ? "Ask about this…" : "What should change…"}
       onChange={event => { const text = event.target.value; set(r => r.writing ? { ...r, writing: { ...r.writing, text } } : r); }} onKeyDown={onKey} />
   </div>;

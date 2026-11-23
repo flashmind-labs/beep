@@ -739,11 +739,13 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 @property --measure { syntax: "<length>"; inherits: true; initial-value: 0px }
 .dcoderen.report { --measure: 31em }
 .dcoderen.report .reply-body :is(p, li, blockquote, h2) { max-width: var(--measure) }
-.report-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; font: 11.5px/20px var(--mono); color: var(--dim) }
+.report-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-bottom: 4px; font: 11.5px/20px var(--mono); color: var(--dim) }
+.report-head > *, .report-acts > * { white-space: nowrap }
 .report-label { color: var(--muted) }
 .report-length::before { content: "·"; margin-inline-end: 8px }
 .report-acts { display: flex; gap: 4px; margin-inline-start: auto }
 .report-busy { display: flex; align-items: center; gap: 6px; color: var(--dim) }
+.report-err { align-self: center; font: 11px var(--mono); color: var(--err) }
 @media (prefers-reduced-motion: no-preference) { .dcoderen.report > .reply-body.swapped { animation: report-swap .18s ease-out } }
 @keyframes report-swap { from { opacity: 0; transform: translateY(3px) } }
 
@@ -753,7 +755,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .rv-pop { position: fixed; z-index: 45; display: flex; gap: 2px; padding: 3px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent); background: color-mix(in srgb, var(--elev) 92%, transparent); box-shadow: 0 10px 30px -8px rgb(0 0 0 / .5) }
 :is(.rv-pop, .rv-field) kbd { margin-inline-start: 6px; padding: 0 4px; border-radius: 3px; font: 10.5px var(--mono); color: var(--dim); background: color-mix(in srgb, var(--fg) 6%, transparent) }
 .rv-mark { --mark: var(--accent); color: inherit; background: color-mix(in srgb, var(--mark) 22%, transparent); text-decoration: underline 2px var(--mark); text-underline-offset: 3px; text-decoration-skip-ink: none }
-.rv-mark[data-ask="change"] { --mark: var(--warn) }
+.rv-mark[data-ask="change"] { --mark: var(--warn) } .rv-mark[data-ask="finding"] { --mark: var(--err) }
 .rv-note { position: relative; box-sizing: border-box; width: 100%; max-width: var(--measure, none); margin: 6px 0 10px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .rv-note:is(:hover, :focus-within) { background: color-mix(in srgb, var(--fg) 8%, transparent) }
 .rv-note-open { all: unset; display: grid; gap: 2px; box-sizing: border-box; width: 100%; padding: 7px 36px 8px 12px; cursor: default }
@@ -763,9 +765,10 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .rv-note .k b, .rv-sent .k b, .rv-field .h b { font-weight: 500 }
 :is(.rv-note, .rv-item, .rv-sent .it, .rv-field)[data-ask="question"] :is(.k b, .h b) { color: var(--accent) }
 :is(.rv-note, .rv-item, .rv-sent .it, .rv-field)[data-ask="change"] :is(.k b, .h b) { color: var(--warn) }
-.rv-item[data-ask="question"] .k { color: var(--accent) } .rv-item[data-ask="change"] .k { color: var(--warn) }
+:is(.rv-note, .rv-item, .rv-sent .it, .rv-field)[data-ask="finding"] :is(.k b, .h b) { color: var(--err) }
+.rv-item[data-ask="question"] .k { color: var(--accent) } .rv-item[data-ask="change"] .k { color: var(--warn) } .rv-item[data-ask="finding"] .k { color: var(--err) }
 .rv-quote { margin: 0; padding: 1px 0 1px 10px; border-left: 2px solid var(--warn); color: var(--muted); font-size: 13px; line-height: 19px; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
-[data-ask="question"] > .rv-quote { border-left-color: var(--accent) }
+[data-ask="question"] > .rv-quote { border-left-color: var(--accent) } [data-ask="finding"] > .rv-quote { border-left-color: var(--err) }
 .rv-field { display: grid; gap: 8px; margin-bottom: 6px; padding: 9px 10px 8px 12px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent); background: var(--elev) }
 .rv-field .h { display: flex; align-items: center; gap: 6px; font: 11.5px var(--mono); color: var(--dim) }
 .rv-field .sp, .rv-bar .sp { flex: 1 }

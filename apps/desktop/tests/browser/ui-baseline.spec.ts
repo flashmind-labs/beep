@@ -789,6 +789,35 @@ test("agent report draft on a whole item", async ({ page }) => {
   await expect(page.locator(".rv-bar")).toHaveCount(0);
 });
 
+test("agent report challenged", async ({ page }) => {
+  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }];
+  const challenger = agentRow("challenger-one", "Challenge the report", "working", 0);
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries }, agent_begin: { session: challenger, why: "" } });
+  const report = page.locator(".dcoderen.report");
+
+  // Challenge starts a fresh agent of the same kind, in the same folder, with the report.
+  await report.getByRole("button", { name: "Challenge" }).click();
+  await expect(report.locator(".report-busy")).toContainText("Challenging…");
+  const begun = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin").map(call => call.args));
+  expect(begun).toEqual([expect.objectContaining({ agent: "codex", cwd: session.cwd, checkout: null })]);
+  expect(String(begun[0].prompt)).toContain("Beep's `challenge` skill");
+  await baseline(page, "agent-report-challenging");
+
+  // Finished, its findings wait as drafts on the claims they dispute.
+  const found = "Partly done: one claim broke.\n\n## Needs you\n\n1. **[confirmed] Changed 1**\n   > it was dropped when `next` was read.\n   It is still dropped after the old sign-on page.\n   Evidence: `npm test -- sso` failed 1 of 1.";
+  await page.evaluate(([row, text]) => {
+    window.__navigation.respond("agent_sessions", [{ ...row, status: "idle" }]);
+    window.__navigation.respond("agent_views", { [row.id]: { session: { ...row, status: "idle" }, plan: [], files: [], entries: [{ kind: "agent", text }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1, usage: null } });
+    window.__navigation.emit("sessions-changed", null);
+  }, [challenger, found] as const);
+  await expect(report.getByRole("button", { name: "1 finding" })).toBeVisible();
+  const note = report.locator('.report-part[data-kind="changed"] li:first-child > .rv-note[data-ask="finding"]');
+  await expect(note).toContainText("Confirmed: It is still dropped after the old sign-on page.");
+  await expect(report.locator('.rv-mark[data-ask="finding"]')).toHaveText(["it was dropped when ", "next", " was read."]);
+  await expect(page.locator(".rv-bar")).toContainText("1 finding · goes with your next message");
+  await baseline(page, "agent-report-challenged");
+});
+
 test("agent report summarized in place", async ({ page }) => {
   const summary = "Done: the redirect keeps the query string.\n\n- Keep `?next=` for one release: the mobile app sends it.";
   const summaryHtml = "<p>Done: the redirect keeps the query string.</p>\n<ul>\n<li>Keep <code>?next=</code> for one release: the mobile app sends it.</li>\n</ul>";

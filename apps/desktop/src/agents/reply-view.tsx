@@ -2,11 +2,13 @@
 // reply and what came with a prompt (Beep's context, another session's
 // message, a child's reply). Their bodies are sanitized Markdown HTML.
 import { conversationBlocked } from "./turnrows.ts";
-import { memo, useMemo, useRef, type MouseEvent } from "react";
+import { memo, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Element, htmlToDOM, type DOMNode } from "html-react-parser";
 import { OUTCOME_LABEL, REPORT_MIN_WORDS, reportOf, reportViews, toggleOriginal, type Report, type ReportSection } from "./report-state.ts";
 import { DraftNotes, SentReviewCard, WithDrafts, useReviewed } from "./review-view.tsx";
-import type { ReviewComment, SentReview } from "./review-state.ts";
+import { reviews, type ReviewComment, type SentReview } from "./review-state.ts";
+import { challengeReport, openChallenger } from "./challenge.ts";
+import { challengeOf, challenges } from "./challenge-state.ts";
 import { useStore } from "zustand";
 import { plural } from "../ui/format.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
@@ -68,6 +70,7 @@ function ReportReply({ reply, report }: { reply: ReplyRow; report: Report }) {
       <span className="report-label">{shown === report ? "Report" : "Summary"}</span>
       <span className="report-length">{`${plural(shown.words, "word", "words")}, about ${shown.minutes} min`}</span>
       <span className="report-acts">
+        <ChallengeActs entry={reply.row} can={reply.idle && report.kind === "shaped"} />
         {summary?.state === "writing" ? <span className="report-busy"><Spinner />Summarizing…</span>
           : done ? <Button small look="quiet" onClick={() => toggleOriginal(done.id)} title={original ? "Show the summary" : "Show the full report"}>{original ? "Summary" : "Original"}</Button>
           : reply.idle && report.words >= REPORT_MIN_WORDS && <Button small look="quiet" data-report-summarize={reply.row} title="Ask the agent for a shorter version of this report">Summarize</Button>}
@@ -75,6 +78,23 @@ function ReportReply({ reply, report }: { reply: ReplyRow; report: Report }) {
     </div>
     <ReportBody key={view} entry={reply.row} report={shown} swapped={swapped} />
   </div>;
+}
+
+/// A report's challenge: Challenge, then the challenger at work, then what
+/// it found, each opening its session.
+function ChallengeActs({ entry, can }: { entry: string; can: boolean }) {
+  const key = useStore(reviews, state => state.open);
+  const challenge = useStore(challenges, state => challengeOf(state.by, key, Number(entry)));
+  const [error, setError] = useState("");
+  const start = () => {
+    setError("");
+    challengeReport(Number(entry)).catch(e => setError(String(e)));
+  };
+
+  if (challenge?.state === "running") return <span className="report-busy"><Spinner />Challenging…<Button small look="quiet" onClick={() => void openChallenger(challenge)}>Open</Button></span>;
+  if (challenge) return <Button small look="quiet" onClick={() => void openChallenger(challenge)} title="Open the challenger's session">{challenge.findings ? plural(challenge.findings, "finding", "findings") : "Nothing broken"}</Button>;
+  if (!can) return null;
+  return <>{error && <span className="report-err" title={error}>Not started</span>}<Button small look="quiet" onClick={start} title="Start a fresh agent that tries to prove this report wrong">Challenge</Button></>;
 }
 
 /// A report's text: its headline, opening and parts, each draft under the
