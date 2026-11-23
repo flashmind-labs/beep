@@ -509,6 +509,17 @@ async fn this_macs_listing_does_not_wait_for_a_free_slot() {
     assert!(mine);
 }
 
+/// The next write to the views file; a test that waits for one that never
+/// comes fails instead of hanging.
+async fn next_write(
+    written: &mut mpsc::UnboundedReceiver<Vec<MachineSession>>,
+) -> Vec<MachineSession> {
+    timeout(KEEP_EVERY * 2, written.recv())
+        .await
+        .expect("the rows are written")
+        .expect("the mirror runs")
+}
+
 #[test]
 fn the_views_file_takes_every_field_but_the_last_activity() {
     let me = machine(1);
@@ -543,16 +554,6 @@ async fn the_views_file_is_written_at_most_every_thirty_seconds() {
         let _ = saved.send(rows.to_vec());
     }));
     let started = Instant::now();
-    let next_write = |written: &mut mpsc::UnboundedReceiver<Vec<MachineSession>>| {
-        let written = written.recv();
-        async move {
-            timeout(KEEP_EVERY * 2, written)
-                .await
-                .expect("the rows are written")
-                .expect("the mirror runs")
-        }
-    };
-
     // The first change is written at once.
     rig.mirror.closed(&me.to_string(), &"s1".into());
     let first = next_write(&mut written).await;
