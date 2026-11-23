@@ -23,7 +23,7 @@ pub const SLOW_HANDLE: Duration = Duration::from_millis(50);
 pub const SLOW_JOB: Duration = Duration::from_secs(1);
 
 /// A message and when its sender started to send it.
-struct Stamped<M> {
+pub(crate) struct Stamped<M> {
     message: M,
     sent: Instant,
 }
@@ -96,6 +96,12 @@ impl<M> Sender<M> {
 
     pub fn is_closed(&self) -> bool {
         self.mailbox.is_closed()
+    }
+
+    /// A sender that does not keep the mailbox open.
+    #[cfg(test)]
+    pub(crate) fn downgrade(&self) -> mpsc::WeakSender<Stamped<M>> {
+        self.mailbox.downgrade()
     }
 
     /// How many senders there are, this one included.

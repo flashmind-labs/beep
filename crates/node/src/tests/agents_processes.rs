@@ -182,7 +182,7 @@ async fn a_list_that_is_published_is_read_without_asking_for_a_poll() {
     assert_eq!(first.await.unwrap(), vec![row.clone()]);
     assert_eq!(processes.list().await.unwrap(), vec![row]);
     // No reader asked the task to read the table, and none could scan itself.
-    assert!(polls.try_recv().is_err());
+    assert!(polls.try_recv().is_none());
 
     // An old list is not served: the reader asks for a read with a port scan.
     publish.send_replace(Some(Published {
@@ -194,7 +194,7 @@ async fn a_list_that_is_published_is_read_without_asking_for_a_poll() {
     }));
     let mut stale = std::pin::pin!(processes.list());
     assert!(futures::poll!(&mut stale).is_pending());
-    let poll = polls.recv().await.unwrap();
+    let (poll, _timing) = polls.recv().await.unwrap();
     assert!(poll.scan);
     publish.send_replace(Some(Published {
         at: Instant::now(),
