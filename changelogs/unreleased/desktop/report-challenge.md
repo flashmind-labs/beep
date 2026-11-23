@@ -1,11 +1,10 @@
 ### Added
 
 - Desktop: a report in a session's chat has a Challenge button. It asks which
-  model to challenge with, opening on the one picked last, else on another
-  harness than the session's, and starts a fresh agent on it that tries to prove
-  the report's claims wrong in a throwaway copy of the work. The header shows it
-  running, with Open to see its session and Stop to stop it and remove its
-  session and copy, then how many findings it left.
+  harness, then which model, to challenge with, and starts a fresh agent on it
+  that tries to prove the report's claims wrong in a throwaway copy of the work.
+  The header shows it running, with Open to see its session and Stop to stop it
+  and remove its session and copy, then how many findings it left.
 - Desktop: a challenger that asks you something shows "Challenger asks you" in
   place of the spinner. One that stops without its report, fails to start, or
   whose session is deleted shows "Challenge failed", with the reason on hover,
@@ -20,3 +19,5 @@
 
 - Desktop: the words a review comment is about stay marked, underlined, after
   the comment is saved.
+- Desktop: the model picker shows a model's whole name, wrapping a long one,
+  with the provider and id that tell apart models of the same name.

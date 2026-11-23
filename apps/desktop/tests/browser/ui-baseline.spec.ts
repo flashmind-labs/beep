@@ -803,12 +803,13 @@ test("agent report challenged", async ({ page }) => {
   });
   const report = page.locator(".dcoderen.report");
 
-  // Challenge asks which model, opening on another harness than the session's.
+  // Challenge asks for the harness first, then the model.
   await report.getByRole("button", { name: "Challenge" }).click();
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
-  await expect(picker.locator(".agc-stephead")).toHaveAttribute("data-agstep", "model");
-  await expect(picker.locator(".agc-stephead small")).toHaveText("Claude Code");
+  await expect(picker.locator(".agc-stephead")).toHaveAttribute("data-agstep", "harness");
   await baseline(page, "agent-report-challenge-pick");
+  await picker.locator('[data-agh="claude"]').click();
+  await expect(picker.locator(".agc-stephead")).toHaveAttribute("data-agstep", "model");
   await picker.locator('[data-agmo="beta"]').click();
   await picker.locator('[data-age=""]').click();
   await expect(picker).toHaveCount(0);
@@ -836,6 +837,24 @@ test("agent report challenged", async ({ page }) => {
   await baseline(page, "agent-report-challenged");
 });
 
+test("agent report challenge picker shows whole model names", async ({ page }) => {
+  const name = "openrouter/DeepSeek: DeepSeek V4 Flash";
+  const models = { pick: "listed", current: "a", models: ["free", "nitro", "floor", "exacto"].map(tier => ({ id: `deepseek/deepseek-v4-flash:${tier}`, name, description: null, provider: "openrouter" })) };
+  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }];
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries }, agent_hosts: challengeHosts, agent_models: models });
+  await page.locator(".dcoderen.report").getByRole("button", { name: "Challenge" }).click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  await picker.locator('[data-agh="codex"]').click();
+
+  // Models that share a long name show it whole, each with the id that tells it apart.
+  const rows = picker.locator("[data-agmo^='deepseek/']");
+  await expect(rows).toHaveCount(4);
+  for (const tier of ["free", "nitro", "floor", "exacto"]) await expect(picker.locator(`[data-agmo="deepseek/deepseek-v4-flash:${tier}"]`)).toContainText(`${name}openrouter · deepseek/deepseek-v4-flash:${tier}`);
+  const cut = await rows.evaluateAll(list => list.filter(row => row.scrollWidth > row.clientWidth || [...row.children].some(child => child.scrollWidth > child.clientWidth)).length);
+  expect(cut).toBe(0);
+  await baseline(page, "agent-report-challenge-models");
+});
+
 test("agent report challenger stopped", async ({ page }) => {
   const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }];
   const challenger = agentRow("challenger-one", "Challenge the report", "working", 0);
@@ -843,8 +862,6 @@ test("agent report challenger stopped", async ({ page }) => {
   const report = page.locator(".dcoderen.report");
   await report.getByRole("button", { name: "Challenge" }).click();
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
-  // Back reaches the harnesses.
-  await picker.getByRole("button", { name: "Back" }).click();
   await picker.locator('[data-agh="codex"]').click();
   await picker.locator('[data-agmo="alpha"]').click();
   await picker.locator('[data-age=""]').click();
@@ -866,7 +883,6 @@ async function startChallenge(page: Page, challenger: ReturnType<typeof agentRow
   const report = page.locator(".dcoderen.report");
   await report.getByRole("button", { name: "Challenge" }).click();
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
-  await picker.getByRole("button", { name: "Back" }).click();
   await picker.locator('[data-agh="codex"]').click();
   await picker.locator('[data-agmo="alpha"]').click();
   await picker.locator('[data-age=""]').click();

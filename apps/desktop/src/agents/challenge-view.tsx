@@ -7,10 +7,9 @@ import { Button, Spinner } from "../ui/kit.tsx";
 import { plural, reason } from "../ui/format.ts";
 import { AG, loadAgentHosts } from "./agents.ts";
 import type { Picked } from "./agentpicker.tsx";
-import { byPreference } from "./agentpick.ts";
 import { pickPopover } from "./pick-popover.ts";
 import { challengeReport, openChallenger, stopChallenger } from "./challenge.ts";
-import { challengeDefault, challengeOf, challenges, keepChallengeModel, lastChallengeModel, type Challenge } from "./challenge-state.ts";
+import { challengeOf, challenges, type Challenge } from "./challenge-state.ts";
 import { reviews } from "./review-state.ts";
 
 /// `can`: the report may be challenged now.
@@ -30,16 +29,13 @@ export function ChallengeActs({ entry, can }: { entry: string; can: boolean }) {
       machine: () => { const h = host(); return h ? { id: h.machine_id, name: h.machine_name, agents: h.agents } : null; },
       everywhere: () => [...new Set((AG.hosts ?? []).flatMap(h => h.agents))],
       machines: () => null,
-      // On the models of the harness picked last, else of another harness than the session's.
-      onModels: true,
+      // The harness is the first step.
       opening: () => {
-        const offered = [...host()?.agents ?? []].sort(byPreference);
-        Object.assign(picked, challengeDefault(offered, AG.page?.session.agent ?? "", lastChallengeModel()));
-        return offered.length > 0;
+        Object.assign(picked, { agent: "", model: "", effort: null, fast: null });
+        return (host()?.agents.length ?? 0) > 0;
       },
       start: () => {
         const pick = { agent: picked.agent, model: picked.model, effort: picked.effort, fast: picked.fast };
-        keepChallengeModel(pick);
         setProblem(null);
         challengeReport(Number(entry), pick).catch(e => setProblem({ label: "Not started", why: reason(e) }));
       },

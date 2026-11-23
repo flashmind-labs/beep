@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { challengeDefault, challengePrompt, challengeResult, challengeStep, findingDraft, parseFindings } from "../src/agents/challenge-state.ts";
+import { challengePrompt, challengeResult, challengeStep, findingDraft, parseFindings } from "../src/agents/challenge-state.ts";
 import { parseReview, reviewPrompt } from "../src/agents/review-state.ts";
 
 const challenger = `Partly done: one claim broke, two held.
@@ -44,15 +44,6 @@ test("a challenger is told the skill, where the work is and the report", () => {
   assert.match(prompt, /Beep's `challenge` skill/);
   assert.match(prompt, /its work in `\/srv\/project`; you run in a throwaway copy/);
   assert.match(prompt, /<report>\nDone: it works\.\n<\/report>$/);
-});
-
-test("a challenge opens on another harness than the session's, then on the last pick", () => {
-  assert.equal(challengeDefault(["claude", "codex"], "claude", null).agent, "codex");
-  assert.equal(challengeDefault(["claude", "codex"], "codex", null).agent, "claude");
-  assert.equal(challengeDefault(["codex"], "codex", null).agent, "codex", "the only one");
-  const last = { agent: "claude", model: "opus", effort: "high", fast: null };
-  assert.deepEqual(challengeDefault(["claude", "codex"], "claude", last), last);
-  assert.equal(challengeDefault(["codex"], "codex", last).agent, "codex", "not offered here");
 });
 
 test("a challenger's session status moves its challenge on", () => {

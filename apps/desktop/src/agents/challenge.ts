@@ -5,7 +5,8 @@ import { isStarting, type AgentStarted } from "./starting-state.ts";
 import { AG, AGENT_READ_WAIT_MS, type AgentPage, type AgentRow, type AgentSession, type Started } from "./agents.ts";
 import type { Tree } from "../agentpane/worktree-state.ts";
 import { closeSession } from "./closing.ts";
-import { challengePrompt, challengeResult, challengeStep, challenges, findingDraft, updateChallenges, type Challenge, type ChallengeModel } from "./challenge-state.ts";
+import { challengePrompt, challengeResult, challengeStep, challenges, findingDraft, updateChallenges, type Challenge } from "./challenge-state.ts";
+import type { Picked } from "./agentpicker.tsx";
 import { openingOf } from "./report-state.ts";
 import { reviewKey, updateReview } from "./review-state.ts";
 import { ensureSessions, loadSessions, sessions, sessionsChanged, sessionsRead } from "./sessions.ts";
@@ -14,7 +15,7 @@ import { openAgent, startedWith } from "./session.tsx";
 /// Starts a fresh agent on `pick`, on the open session's machine, in a
 /// throwaway copy of the work: the last worktree the session made, else
 /// its folder. It is given the report at entry `at`.
-export async function challengeReport(at: number, pick: ChallengeModel) {
+export async function challengeReport(at: number, pick: Pick<Picked, "agent" | "model" | "effort" | "fast">) {
   const page = AG.page, report = page?.entries[at - page.earlier];
   if (!page || report?.kind !== "agent") return;
 

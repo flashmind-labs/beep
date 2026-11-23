@@ -20,8 +20,6 @@ export interface PickPopoverOpts {
   machines: () => { rows: readonly MachineRow[]; pick: (id: string) => void } | null;
   /// Sets the pick's defaults as the picker opens; false keeps it shut.
   opening: () => boolean;
-  /// Opens on the model step for the harness `opening` picked.
-  onModels?: boolean;
   /// The last step was picked and the picker closed.
   start: () => void;
   /// Draws the button again; `sync` is false while React is committing.
@@ -96,7 +94,7 @@ export function pickPopover(o: PickPopoverOpts): PickPopover {
       everywhere: o.everywhere(),
       machine: { id: machine.id, name: machine.name },
       noMachine: "",
-      steps: { machines: machinesStep(), onModels: o.onModels ?? false },
+      steps: { machines: machinesStep() },
       anchor: () => currentButton,
       changed: what => {
         if (what === "done") { close(); o.draw(true); o.start(); return; }

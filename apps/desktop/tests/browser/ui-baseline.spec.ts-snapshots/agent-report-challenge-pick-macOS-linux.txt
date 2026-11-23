@@ -264,22 +264,18 @@ body.cbody
                                       button.dbtn.quiet.small [aria-expanded="true" title="Pick a model to try to prove this report wrong" type="button"] "Challenge"
                                       div
                                         div.agc-pick.steps [aria-label="Machine, harness, model and thinking" role="dialog"] style(left,top,width)
-                                          div.agc-stephead [data-agstep="model"]
-                                            button.agc-back [aria-label="Back" title="Back (⌫)" type="button"]
-                                              svg [aria-hidden="true" fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+                                          div.agc-stephead [data-agstep="harness"]
                                             div
-                                              b "Pick a model"
-                                              small "Claude Code"
-                                            span "2 / 3"
+                                              b "Pick a harness"
+                                            span "1 / 2"
                                           div.agc-list
-                                            div.agc-find
-                                              input.agc-search [autocomplete="off" placeholder="Search Claude Code models…" spellcheck="false" value] value="" (focused)
                                             div.agc-models
-                                              div style(height,position)
-                                                button [data-agmo data-index="0" tabindex="-1" type="button"] style(left,position,right,top,transform) "Default"
-                                                  small "Alpha"
-                                                button [data-agmo="alpha" data-index="1" tabindex="-1" type="button"] style(left,position,right,top,transform) "Alpha"
-                                                button [data-agmo="beta" data-index="2" tabindex="-1" type="button"] style(left,position,right,top,transform) "Beta"
+                                              button [data-agh="claude" type="button"] (focused) "Claude Code"
+                                                span.cc-ag.claude.mark
+                                                  svg [aria-hidden="true" viewBox="0 0 24 24"]
+                                              button [data-agh="codex" type="button"] "Codex"
+                                                span.cc-ag.codex.mark
+                                                  svg [aria-hidden="true" viewBox="0 0 24 24"]
                                     button.dbtn.quiet.small [data-report-summarize="8" title="Ask the agent for a shorter version of this report" type="button"] "Summarize"
                                 div.reply-body
                                   p.report-headline "The redirect keeps the query string."
