@@ -11,20 +11,22 @@ test("a session is the assistant only by its flag, never as a reviewer", () => {
   assert.equal(isAssistant({ assistant: true, reviewer: true }), false);
 });
 
-const session = (id: string, cwd: string, status: string, last_activity: number, assistant = false): AgentSession => ({
-  machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: null, cwd, status, doing: null, started_at: 0, last_activity, external: false, question: null, assistant, persona: null,
+const session = (id: string, cwd: string, status: string, started_at: number, last_activity: number, assistant = false): AgentSession => ({
+  machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: null, cwd, status, doing: null, started_at, last_activity, external: false, question: null, assistant, persona: null,
 });
 
-test("the assistant list splits running from ended, the latest first, and leaves out home folder sessions without the flag", () => {
+test("Assistant lists open and ended chats by creation time and leaves out other sessions", () => {
   const rows = assistantRows([
-    session("home", HOME, "idle", 10),
-    session("new", "/srv/x", "working", 30, true),
-    session("done", HOME, "ended", 20, true),
-    session("project", "/srv/project", "working", 40),
-    session("latest", HOME, "idle", 50, true),
+    session("home", HOME, "idle", 1, 10),
+    session("older", "/srv/x", "working", 2, 60, true),
+    session("done-older", HOME, "ended", 1, 70, true),
+    session("project", "/srv/project", "working", 4, 40),
+    session("newer-b", HOME, "idle", 3, 30, true),
+    session("newer-a", HOME, "idle", 3, 50, true),
+    session("done-newer", HOME, "ended", 4, 20, true),
   ]);
-  assert.deepEqual(rows.running.map(s => s.id), ["latest", "new"]);
-  assert.deepEqual(rows.ended.map(s => s.id), ["done"]);
+  assert.deepEqual(rows.running.map(s => s.id), ["newer-a", "newer-b", "older"]);
+  assert.deepEqual(rows.ended.map(s => s.id), ["done-newer", "done-older"]);
 });
 
 test("the assistant's harness is the one picked when offered, else the first offered", () => {

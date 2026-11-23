@@ -6,6 +6,7 @@
 // layout and dividers in media-layout.ts.
 import { readWindowPreference, writeWindowPreference, windowPreferenceKey } from "../ui/window-layout.ts";
 import { shownMessage } from "../agents/session-frame.tsx";
+import type { AgentSession } from "../agents/agents.ts";
 import { type SubagentRow } from "./subagents-view.tsx";
 import { readView, writeView, viewKey } from "./view-memory.ts";
 import { hasPreview } from "./html-preview-state.ts";
@@ -28,7 +29,7 @@ import { togglePreview } from "./text-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { draw, flipTab, noteTab, pickPhoneTab, touchTab } from "./media-draw.ts";
-import { dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
+import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 import { savedIn } from "../ui/platform.ts";
 import { confirmSheet } from "../ui/menu.tsx";
 
@@ -151,7 +152,7 @@ export interface MediaTab {
 }
 
 /// The session the pane belongs to.
-interface PaneSession {
+interface PaneSession extends Partial<Pick<AgentSession, "assistant" | "reviewer" | "parent">> {
   id: string;
   machine_id: string;
   machine_name: string;
@@ -191,6 +192,8 @@ export const P = {
   zoom: null as Dock | null,
   /// The wide layout's fold of the right pane while a narrow window keeps it folded.
   wideFolded: null as boolean | null,
+  /// The user opened a tab while Assistant's right pane was hidden for lack of content.
+  rightRequested: false,
   /// The session drew on a phone, which shows the conversation first.
   phoneShown: false,
 };
@@ -216,6 +219,7 @@ export function startPane(s: PaneSession) {
   P.moved.clear();
   P.zoom = null;
   P.wideFolded = null;
+  P.rightRequested = false;
   P.phoneShown = false;
   const el = shell();
   if (!el) return;
@@ -331,6 +335,7 @@ function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Parti
 /// list steps aside for it; one hidden there leaves the wide layout's choice as it was.
 export function setFolded(d: Dock, folded: boolean) {
   P.layout.hidden[d] = folded;
+  if (d === "right" && folded) P.rightRequested = false;
   if (d === "right" && !folded && P.wideFolded !== null) P.wideFolded = false;
 }
 
@@ -620,6 +625,7 @@ export function openSessionBeside(s: SplitSession, dock: Dock = "right") {
 export function showFiles() {
   const d = dockOf(FILES);
   leaveLog();
+  requestRightPane(d);
   P.on[d] = FILES;
   setFolded(d, false);
   draw();
@@ -645,6 +651,7 @@ function showList(id: typeof RUNNING | typeof SUBS) {
 export function showDevice() {
   if (!shell() || paneModel.getState().phone || !tabIds().includes(DEVICE)) return;
   const d = dockOf(DEVICE);
+  requestRightPane(d);
   setFolded(d, false);
   saveLayout();
   P.on[d] = DEVICE;
@@ -659,6 +666,7 @@ export function showArtifact(path?: string) {
   if (!artifactCount()) return false;
   const d = dockOf(ARTS);
   leaveLog();
+  requestRightPane(d);
   P.on[d] = ARTS;
   setFolded(d, false);
   saveLayout();
@@ -700,10 +708,16 @@ export function leavePane() {
 }
 
 export function showTab(d: Dock, id: string) {
+  requestRightPane(d);
   P.on[d] = id;
   rememberPane();
   if (!flipTab(d)) draw();
   paneOf(d)?.focus({ preventScroll: true });
+}
+
+function requestRightPane(d: Dock) {
+  const right = paneModel.getState().docks?.right;
+  if (d === "right" && right && !right.shown && !right.strip && desktopChatPane()) P.rightRequested = true;
 }
 
 /// Files and Changes read the folder of session `s`.

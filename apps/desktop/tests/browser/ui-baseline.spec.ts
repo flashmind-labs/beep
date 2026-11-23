@@ -225,12 +225,15 @@ test("assistant page", async ({ page }) => {
     center_home: assistantHome, agent_sessions: assistantSessions, agent_hosts: [assistantHost],
     assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null },
     agent_view: { ...agentView, session: { ...chat, question: null }, entries: transcript },
+    agent_tree: { folders: [{ path: "", entries: [], more: 0, git: false }], truncated: false },
   });
   await page.locator("#side").getByRole("button", { name: /^Assistant/ }).click();
   const list = page.locator(".asst-list");
   await list.getByRole("button", { name: /Set up the widget project/ }).click();
   await expect(page.getByText("Cloned example/widget")).toBeVisible();
   await expect(list.locator('[aria-current="true"]')).toContainText("Set up the widget project");
+  await expect(page.locator("#agpane-right")).toBeHidden();
+  await expect(page.locator("#agpstrip-right")).toBeHidden();
   await baseline(page, "assistant-page");
 });
 

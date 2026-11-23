@@ -18,10 +18,10 @@ export function isAssistant(session: Pick<AgentSession, "assistant" | "reviewer"
   return session.assistant && !session.reviewer;
 }
 
-/// The assistant sessions Home lists, the latest first by `last`: those that run, and those that
-/// ended.
-export function assistantRows(sessions: readonly AgentSession[], last: (session: AgentSession) => number = session => session.last_activity): { running: AgentSession[]; ended: AgentSession[] } {
-  const listed = sessions.filter(isAssistant).sort((a, b) => last(b) - last(a));
+/// The assistant's open and ended chats, newest created first within each group.
+export function assistantRows(sessions: readonly AgentSession[]): { running: AgentSession[]; ended: AgentSession[] } {
+  const listed = sessions.filter(isAssistant).sort((a, b) =>
+    b.started_at - a.started_at || a.id.localeCompare(b.id) || a.machine_id.localeCompare(b.machine_id));
 
   return { running: listed.filter(s => s.status !== "ended"), ended: listed.filter(s => s.status === "ended") };
 }

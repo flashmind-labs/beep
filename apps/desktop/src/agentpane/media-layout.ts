@@ -6,19 +6,21 @@ import { flushSync } from "react-dom";
 import { createStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { invoke } from "../ui/tauri.ts";
-import { onPhone } from "../ui/platform.ts";
+import { isMobile, onPhone } from "../ui/platform.ts";
 import { type Box, type Dock, DOCKS, frameKey, onZoomKey, paneSize, SIDE_BY_SIDE_MIN, splitTabs } from "./media-state.ts";
 import type { PaneTabItem } from "./tabs-view.tsx";
 import type { WorktreeMenuModel } from "./worktree-view.tsx";
 import { artifactCount } from "./artifacts.ts";
-import { S } from "../bar/core.ts";
+import { PANE, S } from "../bar/core.ts";
 import { runningCount } from "./running.ts";
 import { hasDeviceTab } from "./device.ts";
 import { sessions } from "../agents/sessions.ts";
-import { chatOf } from "../agents/threads-state.ts";
+import { sessionVisible } from "../agents/closing.ts";
+import { chatOf, chatRail } from "../agents/threads-state.ts";
 import { shell as windowShell } from "../center/window-shell.tsx";
 import { P, rememberPane, saveLayout, showTab, FILES, CHANGES, ARTS, RUNNING, SUBS, DEVICE, AGENTS, type MediaTab } from "./media.ts";
 import { chatAgentsCount } from "./chat-agents.tsx";
+import { hasFolderEntries } from "./files.ts";
 
 /// How far an arrow key moves a divider.
 const ARROW_STEP = 24;
@@ -78,8 +80,23 @@ export function tabIds() {
 /// The chat of the pane of an assistant chat or one of its threads: their folders have no git,
 /// and the list beside them shows the threads. Null for any other session.
 export function chatPane() {
-  const s = P.session, row = s && sessions.find(r => r.machine_id === s.machine_id && r.id === s.id);
-  return row ? chatOf(sessions, row) : null;
+  const s = P.session;
+  if (!s) return null;
+  const row = sessions.find(r => r.machine_id === s.machine_id && r.id === s.id);
+  return (row && chatOf(sessions, row)) || chatOf(sessions, s);
+}
+
+/// The desktop Assistant keeps watching its working folder even without a pane.
+export function desktopChatPane() {
+  return PANE && !onPhone() && !isMobile() ? chatPane() : null;
+}
+
+function rightPaneAvailable(tabs: string[]) {
+  const chat = desktopChatPane();
+  if (!chat || P.rightRequested || hasFolderEntries() || P.tabs.some(tab => tabs.includes(tab.id))) return true;
+
+  const rail = chatRail(sessions.filter(sessionVisible), chat);
+  return !!rail?.running.some(row => row !== rail.chat);
 }
 
 /// The width the docks lay out in. A phone never gets a right dock: the phone layout shows one
@@ -170,10 +187,10 @@ export function place(fresh?: Record<Dock, DockModel>, extra: Partial<PaneModel>
   const over = foldNarrow();
   const split = docked();
   const next = { ...docks };
+  const rightAvailable = rightPaneAvailable(split.right);
 
   for (const d of DOCKS) {
-    // The Files tab is always there while a session shows, so one dock is.
-    const has = !!P.session && split[d].length > 0;
+    const has = !!P.session && split[d].length > 0 && (d === "bottom" || rightAvailable);
     const shown = has && !P.layout.hidden[d];
     const total = d === "right" ? width : height;
     next[d] = { ...docks[d], shown, strip: has && P.layout.hidden[d], size: shown ? paneSize(d, P.layout[d], total) : docks[d].size };

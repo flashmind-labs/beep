@@ -20,8 +20,9 @@ import { onShownChange } from "../ui/active.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
+import { sessionsRead } from "../agents/sessions.ts";
 import { type TabKind, AGENTS, ARTS, CHANGES, setFolded, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveFile, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
-import { type DockModel, type DockView, chatPane, docked, foldNarrow, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
+import { type DockModel, type DockView, chatPane, desktopChatPane, docked, foldNarrow, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
 
 // ----- Tabs -----
 
@@ -57,6 +58,10 @@ export function draw() {
   followFiles();
   publish(split);
 }
+
+sessionsRead.add(() => {
+  if (shell() && desktopChatPane()) draw();
+});
 
 /// Shows the tab now in `P.on[d]` when nothing else changed: dock `d`'s views flip and
 /// it draws again alone, without laying the docks out. False when the docks need `draw`.

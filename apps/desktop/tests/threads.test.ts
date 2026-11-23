@@ -130,18 +130,18 @@ test("a chat's files leave out its threads' folders, and a thread's its own thre
   assert.deepEqual([...threadFolders(rows, deep)], []);
 });
 
-test("a chat sums up what its running threads do and sorts by its newest one", () => {
-  const quiet = row("quiet", { assistant: true, last_activity: 1 }), busy = row("busy", { assistant: true, last_activity: 2 });
+test("a chat counts threads that are working or need an answer", () => {
+  const quiet = row("quiet", { assistant: true }), busy = row("busy", { assistant: true });
   const rows = [
     quiet, busy,
-    row("asks", { parent: under("quiet"), status: "asking", last_activity: 50 }),
+    row("asks", { parent: under("quiet"), status: "asking" }),
     row("works", { parent: under("quiet"), status: "working" }),
-    row("done", { parent: under("quiet"), status: "ended", last_activity: 99 }),
+    row("done", { parent: under("quiet"), status: "ended" }),
   ];
   const threads = threadsByChat(rows);
 
-  assert.deepEqual(chatActivity(quiet, threads.get(quiet) ?? []), { asking: 1, working: 1, last: 99 });
-  assert.deepEqual(chatActivity(busy, []), { asking: 0, working: 0, last: 2 });
+  assert.deepEqual(chatActivity(threads.get(quiet) ?? []), { asking: 1, working: 1 });
+  assert.deepEqual(chatActivity([]), { asking: 0, working: 0 });
   assert.equal(chatsAsking(rows), 1);
   assert.equal(chatsAsking([row("solo", { assistant: true, status: "asking" })]), 1);
 });
