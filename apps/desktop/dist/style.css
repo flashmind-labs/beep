@@ -733,8 +733,11 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoderen.agent.md pre { font-size: 12px; line-height: 18px }
 .dcoderen.agent.md img { max-width: 100%; height: auto }
 /* A turn's report (report-state.ts): its outcome and length over its headline and parts. Its prose
-   keeps to a reading measure, as a newspaper column does; code and tables take the full width. */
-.dcoderen.report { --measure: 68ch }
+   keeps to a reading measure of about 66 characters, as a newspaper column does, narrower than the
+   rest of the chat; code and tables take the full width. The measure is a length, worked out once
+   on the card, so the larger headline keeps to the same column as the text. */
+@property --measure { syntax: "<length>"; inherits: true; initial-value: 0px }
+.dcoderen.report { --measure: 31em }
 .dcoderen.report .reply-body :is(p, li, blockquote, h2) { max-width: var(--measure) }
 .report-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; font: 11.5px/20px var(--mono); color: var(--dim) }
 .report-label { color: var(--muted) }
