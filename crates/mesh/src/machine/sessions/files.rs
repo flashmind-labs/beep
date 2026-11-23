@@ -253,6 +253,21 @@ pub async fn edit_files<S: Sessions + ?Sized>(
     }
 }
 
+/// Removes an upload that was taken off a draft.
+pub async fn discard_draft_attachment<S: Sessions + ?Sized>(
+    node: &S,
+    draft: SessionId,
+    path: String,
+) -> Result<NodeWork<()>, MeshError> {
+    let request = SessionsRequest::DiscardDraftAttachment { draft, path };
+
+    match once(node, request).await? {
+        SessionsReply::FilesEdited {} => Ok(NodeWork::Done(())),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
 /// The custom agents the harnesses define for `folder` on the node and in its home.
 pub async fn custom_agents<S: Sessions + ?Sized>(
     node: &S,

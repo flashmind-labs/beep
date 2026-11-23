@@ -14,7 +14,7 @@ fn key(session: &str) -> SessionKey {
 fn outbox() -> (tempfile::TempDir, PathBuf, Outbox) {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kept = dir.path().join("outbox");
-    let outbox = Outbox::load(kept.clone());
+    let outbox = Outbox::load(kept.clone(), dir.path().join("cache"));
     (dir, kept, outbox)
 }
 
@@ -256,14 +256,14 @@ fn stop_all_drains_what_waits_at_once_and_leaves_the_one_being_sent() {
 
 #[test]
 fn every_message_kept_from_before_a_restart_is_checked_before_it_goes_again() {
-    let (_dir, kept, outbox) = outbox();
+    let (dir, kept, outbox) = outbox();
     push(&outbox, "s1", "first");
     push(&outbox, "s1", "second");
     outbox.with(|held| held.begin(&key("s1")));
     outbox.sync();
     drop(outbox);
 
-    let again = Outbox::load(kept);
+    let again = Outbox::load(kept, dir.path().join("cache"));
     assert_eq!(texts(&again, "s1"), ["first", "second"]);
     assert_eq!(again.read(Held::waiting), [key("s1")]);
     let first = again
@@ -279,8 +279,8 @@ fn every_message_kept_from_before_a_restart_is_checked_before_it_goes_again() {
 }
 
 #[test]
-fn images_are_kept_in_their_own_files_and_go_with_their_message() {
-    let (_dir, kept, outbox) = outbox();
+fn images_are_cached_and_go_with_their_message() {
+    let (dir, kept, outbox) = outbox();
     let with_image = Draft {
         images: vec![image("shot.png")],
         ..draft("look")
@@ -291,14 +291,36 @@ fn images_are_kept_in_their_own_files_and_go_with_their_message() {
     let messages = fs::read_to_string(kept.join(MESSAGES)).expect("the messages' file");
     assert!(messages.contains("shot.png"));
     assert!(!messages.contains("aGVsbG8="));
-    let file = kept.join(IMAGES).join(image_file(id, 0));
+    let cache = dir.path().join("cache");
+    let file = cache.join(IMAGES).join(image_file(id, 0));
     assert_eq!(fs::read_to_string(&file).expect("the image"), "aGVsbG8=");
+    assert!(!kept.join(IMAGES).exists());
 
-    let again = Outbox::load(kept.clone());
+    let again = Outbox::load(kept, cache);
     let (message, _) = again.with(|held| held.take(id)).expect("taken");
     assert_eq!(message.images[0].data, "aGVsbG8=");
     again.sync();
     assert!(!file.exists());
+}
+
+#[test]
+fn an_image_queued_before_the_cache_move_can_still_be_loaded() {
+    let (dir, kept, outbox) = outbox();
+    let with_image = Draft {
+        images: vec![image("shot.png")],
+        ..draft("look")
+    };
+    let (id, _) = outbox.with(|held| held.push(&key("s1"), with_image, None));
+    outbox.sync();
+
+    let cache = dir.path().join("cache");
+    let legacy = kept.join(IMAGES);
+    fs::rename(cache.join(IMAGES), &legacy).unwrap();
+    let again = Outbox::load(kept, cache);
+    let (message, _) = again.with(|held| held.take(id)).expect("taken");
+    assert_eq!(message.images[0].data, "aGVsbG8=");
+    again.sync();
+    assert!(!legacy.join(image_file(id, 0)).exists());
 }
 
 fn entry(kind: AgentEntryKind, text: &str) -> AgentEntry {

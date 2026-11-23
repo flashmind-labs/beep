@@ -1,5 +1,6 @@
 import { bindMentionMenu, type MenuPlace } from "./mentionmenu.ts";
 import { ComposeField } from "../chat/compose.tsx";
+import { pastedFiles, type PastedFiles } from "../chat/attach.tsx";
 import { DailyArt } from "../ui/painted-art.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import { createPortal } from "react-dom";
@@ -42,7 +43,7 @@ export interface StartComposerActions {
   /// The task field changed.
   input?(value: string): void;
   /// Files pasted or dropped on the composer.
-  files?(files: File[]): void;
+  files?(files: PastedFiles): void;
   /// A picture whose path was pasted in the task field.
   images?(files: File[]): void;
   /// Takes the last attachment off: a Backspace at the start of the task field.
@@ -88,8 +89,9 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
   useLayoutEffect(() => { if (state.centered) box.current?.after(choices); else row.current?.prepend(choices); }, [state.centered, choices]);
   useLayoutEffect(grow, [state.centered]);
   const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const pasted = [...event.clipboardData.items].filter(item => item.kind === "file").map(item => item.getAsFile()).filter((file): file is File => !!file);
-    if (!pasted.length || !actions.files) return;
+    if (!actions.files) return;
+    const pasted = pastedFiles(event.nativeEvent);
+    if (!pasted) return;
     event.preventDefault();
     event.stopPropagation();
     actions.files(pasted);

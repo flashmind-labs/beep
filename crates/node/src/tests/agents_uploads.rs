@@ -64,6 +64,27 @@ fn duplicate_names_do_not_overwrite_and_empty_files_are_uploaded() {
 }
 
 #[test]
+fn discarding_a_draft_upload_removes_its_parts_only() {
+    let dir = TempDir::new().unwrap();
+    let draft = SessionId::from(Uuid::new_v4().to_string());
+    assert!(is_draft(DRAFT, &draft));
+    assert!(!is_draft(DRAFT, &SessionId::from("session")));
+    let draft = owner(DRAFT, &draft);
+    let cache = dir.path();
+    let partial = write_in(cache, &draft, "notes.txt", 0, 8, b"part").unwrap();
+    let complete = write_in(cache, &draft, "notes.txt", 0, 4, b"keep").unwrap();
+    let other = put(cache, "session", "notes.txt", b"also keep");
+
+    assert!(discard_in(cache, &draft, &other).is_err());
+    discard_in(cache, &draft, &partial).unwrap();
+    discard_in(cache, &draft, &partial).unwrap();
+
+    assert!(write_in(cache, &draft, &partial, 4, 8, b"rest").is_err());
+    assert_eq!(fs::read(complete).unwrap(), b"keep");
+    assert_eq!(fs::read(other).unwrap(), b"also keep");
+}
+
+#[test]
 fn attachments_have_no_file_or_aggregate_size_quota() {
     let dir = TempDir::new().unwrap();
     let session = owner("codex", &SessionId::from("session"));

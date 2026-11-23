@@ -69,7 +69,7 @@ test("project composer keeps draft, menu choices and issue branch across redraws
 for (const typed of ["Inspect the attachment", ""]) test(`project composer submits ${typed ? "typed" : "default"} image prompt with the chosen checkout`, async ({ page }) => {
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
-    agent_tree_upload: ".beep/uploads/example.png",
+    agent_tree_upload: "/cache/attachments/example.png",
     agent_begin: { session: start, why: "" },
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
@@ -86,7 +86,10 @@ for (const typed of ["Inspect the attachment", ""]) test(`project composer submi
   await expect.poll(async () => (await calls(page, "agent_begin")).length).toBe(1);
   const [args] = await calls(page, "agent_begin");
   expect(args?.machineId).toBe("build-box");
-  expect(args?.prompt).toBe(`${typed || "Check this image."}\n\n@/srv/project/.beep/uploads/example.png`);
+  expect(args?.prompt).toBe(`${typed || "Check this image."}\n\n@/cache/attachments/example.png`);
+  expect(await calls(page, "agent_tree_upload")).toMatchObject([
+    { root: "/srv/project", path: "example.png", attachment: { agent: "draft", session: expect.any(String) } },
+  ]);
   expect(args?.checkout).toEqual({ new_worktree: { base: null } });
   expect(args?.images).toEqual([expect.objectContaining({ name: "example.png", mime: "image/png" })]);
 });

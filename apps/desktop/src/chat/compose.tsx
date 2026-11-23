@@ -190,7 +190,7 @@ function insert(field: HTMLTextAreaElement, text: string) {
 function paste(field: HTMLTextAreaElement, e: ClipboardEvent, images: ComposeOptions["images"]) {
   const data = e.clipboardData;
   // Files go to the attachments, as before.
-  if (!data || [...data.items].some(i => i.kind === "file")) return;
+  if (!data || data.files.length || [...data.items].some(i => i.kind === "file")) return;
   const text = data.getData("text/plain");
   if (!text) return;
   const image = images ? imagePath(text) : null;

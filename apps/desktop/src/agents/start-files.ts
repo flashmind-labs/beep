@@ -1,8 +1,8 @@
-import { joinPath, uploadParts, withMentions } from "../agentpane/files-state.ts";
+import { uploadParts, withMentions } from "../agentpane/files-state.ts";
 import { fileBase64 } from "../chat/attach.tsx";
 import { invoke } from "../ui/tauri.ts";
 
-/// The machine and folder a new agent starts in.
+/// The machine holding the cache, and the work folder older nodes check.
 interface Destination { machine: string; root: string }
 
 export interface PendingFile {
@@ -18,11 +18,11 @@ export interface PendingFile {
 
 const absolute = (root: string) => /^(?:\/|[A-Za-z]:[\\/])/.test(root);
 
-// Files upload as soon as they are attached and follow the destination as it
-// changes. A file removed, stashed or left behind is deleted there again.
-// Paths are absolute so a new worktree can read them too.
+// Draft files upload to the selected machine's cache. A file removed,
+// stashed or left behind is deleted there again.
 export class StartFiles {
   readonly pending: PendingFile[] = [];
+  private readonly draft = crypto.randomUUID();
   private where: Destination | null = null;
   private running: Promise<void> | null = null;
 
@@ -40,11 +40,16 @@ export class StartFiles {
     void this.pump();
   }
 
-  /// Follows the form's machine and folder.
+  /// Follows the form's machine. Folders on that machine share its cache.
   moveTo(machine: string, root: string) {
-    const same = this.where?.machine === machine && this.where.root === root;
-    if (same || (!this.where && !(machine && absolute(root)))) return;
-    this.where = machine && absolute(root) ? { machine, root } : null;
+    root = absolute(root) ? root : "";
+    if (this.where?.machine === machine) {
+      this.where.root = root;
+      return;
+    }
+    if (!this.where && !machine) return;
+    this.where = machine ? { machine, root } : null;
+    for (const entry of this.pending) entry.error = null;
     void this.pump();
   }
 
@@ -75,14 +80,17 @@ export class StartFiles {
   }
 
   async prompt(text: string, machine: string, root: string) {
-    if (this.pending.length && !absolute(root)) throw new Error("Pick a project folder before attaching files");
+    if (this.pending.length && !machine) throw new Error("Pick a machine before attaching files");
     this.moveTo(machine, root);
     for (const entry of this.pending) entry.error = null;
     while (this.next() || this.running) await (this.running ?? this.pump());
     const failed = this.pending.find(entry => entry.error);
     if (failed?.error) throw new Error(failed.error);
 
-    return withMentions(text, this.pending.map(entry => joinPath(root, entry.path ?? "")));
+    return withMentions(text, this.pending.map(({ path }) => {
+      if (!path) throw new Error("An attachment did not finish uploading");
+      return path;
+    }));
   }
 
   private next() {
@@ -109,7 +117,7 @@ export class StartFiles {
     Object.assign(entry, { at: where, started: Date.now(), path: null, done: 0, error: null });
     this.changed();
     const name = entry.file.name || "file";
-    let path = joinPath(".beep/uploads", name), written = false;
+    let path = name, written = false;
     const gone = () => !this.pending.includes(entry) || this.where !== where;
 
     try {
@@ -120,34 +128,37 @@ export class StartFiles {
         try { data = await fileBase64(entry.file.slice(part.offset, part.offset + part.len)); }
         catch { throw new Error(`${name} could not be read; drop files rather than folders`); }
 
-        path = await invoke<string>("agent_tree_upload", { machineId: where.machine, root: where.root, path, offset: part.offset, size: entry.file.size, data, attachment: null });
+        path = await invoke<string>("agent_tree_upload", {
+          machineId: where.machine, root: where.root, path, offset: part.offset, size: entry.file.size, data,
+          attachment: { agent: "draft", session: this.draft },
+        });
         written = true;
         entry.done = part.offset + part.len;
         this.changed();
       }
 
       if (gone()) {
-        if (written) remove(where, path);
+        if (written) this.removeUpload(where.machine, path);
         if (entry.at === where) entry.at = null;
       } else entry.path = path;
     } catch (e) {
-      if (written) remove(where, path);
-      entry.error = String(e instanceof Error ? e.message : e).replace(/^bad request: /, "");
-      this.failed(entry.error);
+      if (written) this.removeUpload(where.machine, path);
+      if (!gone()) {
+        entry.error = String(e instanceof Error ? e.message : e).replace(/^bad request: /, "");
+        this.failed(entry.error);
+      }
     }
 
     this.changed();
   }
 
   private discard(entry: PendingFile) {
-    if (entry.at && entry.path) remove(entry.at, entry.path);
+    if (entry.at && entry.path) this.removeUpload(entry.at.machine, entry.path);
     entry.at = null;
     entry.path = null;
   }
-}
-
-/// Deletes an upload; one that cannot be deleted stays in `.beep/uploads`.
-function remove(at: Destination, path: string) {
-  invoke("agent_tree_edit", { machineId: at.machine, root: at.root, action: { Delete: { paths: [path] } } })
-    .catch(e => console.warn("could not delete an upload", e));
+  private removeUpload(machineId: string, path: string) {
+    invoke("agent_discard_draft_attachment", { machineId, draft: this.draft, path })
+      .catch(e => console.warn("could not discard a cached upload", e));
+  }
 }

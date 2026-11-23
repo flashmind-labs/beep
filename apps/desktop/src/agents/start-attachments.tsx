@@ -1,4 +1,4 @@
-import { fileBase64 } from "../chat/attach.tsx";
+import { fileBase64, type PastedFiles } from "../chat/attach.tsx";
 import { draftText } from "../chat/compose.tsx";
 import { bindPromptStash } from "../chat/stash.tsx";
 import { stashFile } from "../chat/stash-state.ts";
@@ -29,13 +29,15 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
       ? <StartAttachmentChips images={[...images]} files={[...files.pending]} progress={files.progress} remove={remove} />
       : null });
   };
-  const add = (input: Iterable<File>) => {
+  const add = (input: PastedFiles) => {
     if (locked) return Promise.resolve();
-    const dropped = [...input];
+    const field = c.input;
     error("");
     reading++;
     changed();
     serial = serial.then(async () => {
+      const dropped = await input;
+      if (!field.isConnected || !dropped.length) return;
       files.add(dropped);
       for (const file of dropped) if (file.type.startsWith("image/") && files.pending.some(entry => entry.file === file)) await attachPreview(images, file, file);
       draw();
@@ -47,7 +49,10 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
   return {
     add, images, files,
     /// Files pasted or dropped on the composer, which keeps the focus.
-    take(dropped: File[]) { void add(dropped).then(() => c.input.focus()); },
+    take(dropped: PastedFiles) {
+      const field = c.input;
+      void add(dropped).then(() => { if (field.isConnected) field.focus(); });
+    },
     /// Takes the last chip off the composer.
     removeLast() {
       const loose = files.pending.findLastIndex(entry => !images.some(image => image.original === entry.file));

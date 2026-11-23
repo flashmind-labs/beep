@@ -297,6 +297,7 @@ pub enum SessionsRequest {
         action: FileAction,
     },
     /// Writes a temporary attachment outside the project, authorized by `root`.
+    /// A draft with a UUID and the agent name `draft` can use an empty root.
     /// `path` is a file name on the first part, then the absolute path returned
     /// by `Written`. Older nodes refuse this request.
     UploadFile {
@@ -369,6 +370,11 @@ pub enum SessionsRequest {
     FollowIndex {
         epoch: String,
         after: u64,
+    },
+    /// Discards one temporary upload from a composer draft.
+    DiscardDraftAttachment {
+        draft: SessionId,
+        path: String,
     },
 }
 
@@ -621,6 +627,7 @@ impl SessionsRequest {
             | Self::EditFiles { .. }
             | Self::WriteFile { .. }
             | Self::UploadFile { .. }
+            | Self::DiscardDraftAttachment { .. }
             | Self::RelocateSession { .. }
             | Self::DeleteSession { .. }
             | Self::ContinueCopy { .. }

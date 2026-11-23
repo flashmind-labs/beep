@@ -26,6 +26,7 @@ const UNUSED: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
 /// In a session's attachment folder: when the session last ended.
 const ENDED: &str = "ended";
+const DRAFT: &str = "draft";
 // Chunks and cleanup must see one another's disk changes.
 static WRITING: Mutex<()> = Mutex::new(());
 
@@ -37,6 +38,10 @@ struct Upload {
 
 pub(super) fn folder() -> Option<PathBuf> {
     dirs::cache_dir().map(|dir| dir.join("beep-node").join("attachments"))
+}
+
+pub(super) fn is_draft(agent: &str, session: &SessionId) -> bool {
+    agent == DRAFT && Uuid::parse_str(session.as_ref()).is_ok()
 }
 
 /// Cleanup runs hourly from the first hour on, so sessions are back after a
@@ -159,6 +164,30 @@ fn owner(agent: &str, session: &SessionId) -> String {
         .to_string()
 }
 
+/// Deletes the upload bucket, including a file that is still being written.
+pub(super) fn discard_draft(draft: &SessionId, path: &str) -> Result<()> {
+    anyhow::ensure!(is_draft(DRAFT, draft), "invalid attachment draft");
+    let cache = folder().context("this host has no cache folder for attachments")?;
+    discard_in(&cache, &owner(DRAFT, draft), path)
+}
+
+fn discard_in(cache: &Path, owner: &str, path: &str) -> Result<()> {
+    let _writing = lock(&WRITING);
+    let cache = paths::canonicalize(cache)?;
+    let (bucket, name) = upload_path(&cache, owner, path)?;
+
+    match fs::symlink_metadata(&bucket) {
+        Ok(meta) if meta.is_dir() => {}
+        Ok(_) => bail!("the attachment bucket is not a directory"),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    }
+
+    WorkRoot::at(&bucket)?;
+    anyhow::ensure!(name.to_str() == Some(&record(&bucket)?.name), "the attachment name changed");
+    fs::remove_dir_all(bucket).context("removing the draft attachment")
+}
+
 /// Only an explicit close or deletion removes completed attachments. Node
 /// shutdown and agent failures leave them available for resume.
 pub(super) fn remove(agent: &str, session: &SessionId) -> Result<()> {
@@ -220,24 +249,7 @@ fn write_in(
         fs::write(bucket.join("upload.json"), serde_json::to_vec(&upload)?)?;
         (bucket, upload)
     } else {
-        let relative = Path::new(path)
-            .strip_prefix(cache.join(owner))
-            .context("the attachment is outside this session's cache")?;
-        let parts: Vec<_> = relative.components().collect();
-        let [
-            Component::Normal(id),
-            Component::Normal(files),
-            Component::Normal(name),
-        ] = parts.as_slice()
-        else {
-            bail!("the attachment path is invalid");
-        };
-
-        if *files != "files" || Uuid::parse_str(&id.to_string_lossy()).is_err() {
-            bail!("the attachment path is invalid");
-        }
-
-        let bucket = cache.join(owner).join(id);
+        let (bucket, name) = upload_path(&cache, owner, path)?;
         WorkRoot::at(&bucket)?;
         let upload = record(&bucket)?;
 
@@ -261,6 +273,25 @@ fn write_in(
     full.into_os_string()
         .into_string()
         .map_err(|_| anyhow::anyhow!("the attachment path is not UTF-8"))
+}
+
+fn upload_path<'a>(cache: &Path, owner: &str, path: &'a str) -> Result<(PathBuf, &'a std::ffi::OsStr)> {
+    let group = cache.join(owner);
+    let relative = Path::new(path)
+        .strip_prefix(&group)
+        .context("the attachment is outside this session's cache")?;
+    let mut parts = relative.components();
+    let (Some(Component::Normal(id)), Some(Component::Normal(files)), Some(Component::Normal(name)), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        bail!("the attachment path is invalid");
+    };
+
+    if files != "files" || Uuid::parse_str(&id.to_string_lossy()).is_err() {
+        bail!("the attachment path is invalid");
+    }
+
+    Ok((group.join(id), name))
 }
 
 fn file_name(name: &str) -> Result<()> {

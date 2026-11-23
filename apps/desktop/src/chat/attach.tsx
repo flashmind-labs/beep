@@ -1,11 +1,13 @@
 import { agentMessage } from "../agents/session-frame.tsx";
 import { showFieldDrop } from "../agents/composer-ui.tsx";
 import { PATH_TYPE } from "../agentpane/files.ts";
+import { bytesOf } from "../agentpane/media-state.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
 import { bar, S } from "../bar/core.ts";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { ICON } from "../ui/icons.tsx";
+import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
 
 // ---------- Images and files dropped or pasted on a session ----------
 
@@ -61,12 +63,29 @@ export async function picPreview(file: File, maxBytes = AGENT_IMAGE_BYTES) {
 /// pasted or dropped.
 const agentField = () => S.view === "agent" && !!agentMessage.current;
 
+export type PastedFiles = File[] | Promise<File[]>;
+
+/// WebKit can deliver an empty event for a picture on the OS clipboard.
+export function pastedFiles(event: ClipboardEvent): PastedFiles | null {
+  if (event.defaultPrevented) return null;
+  const data = event.clipboardData;
+  const files = [...(data?.files ?? [])];
+  if (files.length) return files;
+  const items = [...(data?.items ?? [])].filter(item => item.kind === "file").map(item => item.getAsFile()).filter((file): file is File => file !== null);
+  if (items.length) return items;
+  if (!event.isTrusted || data?.types.some(type => type !== "Files") || !useBuildCapabilities.getState().image_clipboard) return null;
+
+  return invoke<string | null>("read_clipboard_image").then(png =>
+    png ? [new File([bytesOf(png)], "image.png", { type: "image/png" })] : [],
+  ).catch(error => { console.warn("reading a pasted picture:", error); return []; });
+}
+
 document.addEventListener("paste", e => {
   if (!agentField()) return;
-  const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter((f): f is File => !!f);
-  if (!files.length) return;
+  const files = pastedFiles(e);
+  if (!files) return;
   e.preventDefault();
-  agentDrop(files);
+  void uploadDropped(files, null, paneSession()?.cwd ?? "", true);
 });
 
 /// Files pasted or dropped on a coding agent session upload to its machine

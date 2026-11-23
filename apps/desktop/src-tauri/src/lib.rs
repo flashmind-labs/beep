@@ -225,6 +225,7 @@ pub fn run() {
             agents::files::agent_tree_text,
             agents::files::agent_file_hashes,
             agents::files::agent_tree_upload,
+            agents::files::agent_discard_draft_attachment,
             agents::flsh_settings::flsh_settings_get,
             agents::flsh_settings::flsh_settings_save,
             agents::harnesses::agent_adapters_install,
@@ -295,6 +296,7 @@ pub fn run() {
             bar::app::set_mac_control,
             bar::app::settings,
             bar::pasted_image::read_pasted_image,
+            chat::clipboard::read_clipboard_image,
             bar::window::hide_bar,
             bar::window::resize_bar,
             bar::zoom::set_zoom_level,
@@ -674,8 +676,15 @@ fn setup(
     app.manage(Arc::new(agents::kept_transcripts::KeptTranscripts::new(
         dir.join("transcripts"),
     )));
-    app.manage(Arc::new(agents::outbox::Outbox::load(dir.join("outbox"))));
-    app.manage(Arc::new(agents::starts::Starts::load(dir.join("starts"))));
+    let cache = app.path().app_cache_dir()?;
+    app.manage(Arc::new(agents::outbox::Outbox::load(
+        dir.join("outbox"),
+        cache.join("outbox"),
+    )));
+    app.manage(Arc::new(agents::starts::Starts::load(
+        dir.join("starts"),
+        cache.join("starts"),
+    )));
     let endpoint = tauri::async_runtime::block_on(bind_endpoint(
         beep::identity::secret_key(&identity),
         beep_mesh::transport_config(),

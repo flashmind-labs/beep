@@ -9,9 +9,13 @@ use arboard::{Clipboard, ImageData};
 #[cfg(desktop)]
 use base64::{Engine, engine::general_purpose::STANDARD};
 #[cfg(desktop)]
-use image::{ImageFormat, ImageReader, Limits};
+use image::{
+    ExtendedColorType, ImageEncoder, ImageFormat, ImageReader, Limits, codecs::png::PngEncoder,
+};
+use std::sync::Arc;
 #[cfg(desktop)]
 use std::{borrow::Cow, io::Cursor, sync::Mutex};
+use tauri::State;
 
 #[cfg(desktop)]
 #[derive(Default)]
@@ -26,12 +30,40 @@ impl ImageClipboard {
     pub(crate) fn copy_png(&self, _png: &str) -> Result<()> {
         anyhow::bail!("image copying is not included in this build")
     }
+
+    fn read_png(&self) -> Result<Option<String>> {
+        Ok(None)
+    }
 }
 
 #[cfg(desktop)]
 impl ImageClipboard {
     pub(crate) fn copy_png(&self, png: &str) -> Result<()> {
         let image = decode(png)?;
+        self.with_clipboard(|clipboard| clipboard.set_image(image).context("copy image"))
+    }
+
+    fn read_png(&self) -> Result<Option<String>> {
+        let image = self.with_clipboard(|clipboard| match clipboard.get_image() {
+            Ok(image) => Ok(Some(image)),
+            Err(arboard::Error::ContentNotAvailable) => Ok(None),
+            Err(error) => Err(error).context("read clipboard image"),
+        })?;
+        let Some(image) = image else {
+            return Ok(None);
+        };
+        let mut png = Vec::new();
+        PngEncoder::new(&mut png).write_image(
+            &image.bytes,
+            u32::try_from(image.width)?,
+            u32::try_from(image.height)?,
+            ExtendedColorType::Rgba8,
+        )?;
+
+        Ok(Some(STANDARD.encode(png)))
+    }
+
+    fn with_clipboard<T>(&self, run: impl FnOnce(&mut Clipboard) -> Result<T>) -> Result<T> {
         let mut clipboard = self
             .0
             .lock()
@@ -40,12 +72,20 @@ impl ImageClipboard {
             *clipboard = Some(Clipboard::new().context("open clipboard")?);
         }
 
-        clipboard
-            .as_mut()
-            .context("clipboard unavailable")?
-            .set_image(image)
-            .context("copy image")
+        run(clipboard.as_mut().context("clipboard unavailable")?)
     }
+}
+
+/// Used when the webview's paste event omits the native clipboard image.
+#[tauri::command]
+pub(crate) async fn read_clipboard_image(
+    clipboard: State<'_, Arc<ImageClipboard>>,
+) -> crate::error::Result<Option<String>> {
+    let clipboard = clipboard.inner().clone();
+    let png = tauri::async_runtime::spawn_blocking(move || clipboard.read_png())
+        .await
+        .map_err(anyhow::Error::from)??;
+    Ok(png)
 }
 
 #[cfg(desktop)]

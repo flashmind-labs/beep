@@ -8,7 +8,7 @@ import type { Attached } from "./agentqueue.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { agentMessage } from "./session-frame.tsx";
 import { joinPath, uploadParts, type Transfer } from "../agentpane/files-state.ts";
-import { fileBase64 } from "../chat/attach.tsx";
+import { fileBase64, type PastedFiles } from "../chat/attach.tsx";
 import { rememberLocalUpload } from "../agentpane/read.ts";
 import { reloadFolder } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
@@ -127,12 +127,16 @@ export function askUpload(files: File[], folder: string, root = paneSession()?.c
 
 /// Files dropped or pasted on the session: temporary attachments by default,
 /// permanent when `folder` is chosen. Gives those that uploaded and where.
-export async function uploadDropped(files: File[], folder: string | null = null, root = paneSession()?.cwd ?? "", preview = false) {
+export async function uploadDropped(files: PastedFiles, folder: string | null = null, root = paneSession()?.cwd ?? "", preview = false) {
   const state = current, session = paneSession();
   const pending = state.pending;
-  const batch: UploadBatch = { paths: [], failed: false, ready: Promise.resolve(), size: files.reduce((n, f) => n + f.size, 0), done: 0 };
+  const batch: UploadBatch = { paths: [], failed: false, ready: Promise.resolve(), size: 0, done: 0 };
   pending.add(batch);
-  const work = uploadFiles(files, folder, root, preview, batch, state, session);
+  const upload = (dropped: File[]) => {
+    batch.size = dropped.reduce((n, f) => n + f.size, 0);
+    return uploadFiles(dropped, folder, root, preview, batch, state, session);
+  };
+  const work = Array.isArray(files) ? upload(files) : files.then(upload);
   batch.ready = work.then(() => {});
 
   try { return await work; }

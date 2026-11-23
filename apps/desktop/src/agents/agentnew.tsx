@@ -228,7 +228,7 @@ function drawParts() {
     folderHidden: f.assistant || !!f.typing, folderTitle: f.cwd.trim() || host?.workspace || "The machine's workspace",
   });
   attachments.setBusy(AG.busy);
-  if (!AG.busy) attachments.files.moveTo(f.machine, f.cwd.trim());
+  if (!AG.busy) attachments.files.moveTo(f.machine, f.cwd.trim() || host?.workspace || "");
   // Text set from code (a stash restore, a start) fits once drawn.
   requestAnimationFrame(c.grow);
   drawPill(c, none);
@@ -635,13 +635,15 @@ export async function startAgent() {
     const { cwd, checkout } = checkoutHere()
       ? startPlace(f.checkout ?? DEFAULT_CHECKOUT, f.cwd.trim(), baseFor(f.base, formBranches()))
       : { cwd: f.cwd.trim(), checkout: null };
-    const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, f.cwd.trim());
+    const hasFiles = attachments.files.pending.length > 0;
+    const root = f.cwd.trim() || formHost()?.workspace || "";
+    const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, root);
     // The account the form shows, as saved now.
     await loadAccountNames();
-    if (attachments.files.pending.length) composer?.update({ progress: "Starting the agent…" });
+    if (hasFiles) composer?.update({ progress: "Starting the agent…" });
     const images = attachments.images.map(sentImage);
     const started = f.assistant
-      ? await startAssistant(prompt, { agent: f.agent, model, effort, fast: f.fast ?? null }, AG.hosts ?? [], f.machinePicked ? f.machine : null, images)
+      ? await startAssistant(prompt, { agent: f.agent, model, effort, fast: f.fast ?? null }, AG.hosts ?? [], f.machinePicked || hasFiles ? f.machine : null, images)
       : await start({ machine: f.machine, agent: f.agent, cwd: cwd || null, prompt, images, model, effort, fast: f.agent === "codex" ? f.fast ?? null : null, checkout, assistant: false, account: formAccount() });
     attachments.clear();
     if (f.assistant) assistantDraft = "";

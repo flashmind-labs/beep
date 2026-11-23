@@ -5,6 +5,36 @@ const session = { kind: "agent" as const, machine_id: "build-box", machine_name:
 const path = "/srv/project/.beep/uploads/screenshot.png";
 const tiny = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
+test("an assistant can start with a pasted image and no project folder", async ({ page }) => {
+  const cached = "/cache/beep-node/attachments/draft/files/screenshot.png";
+  await openDesktop(page, false, {
+    agent_hosts: [{ machine_id: session.machine_id, machine_name: session.machine_name, agents: ["codex"], home: "/srv", workspace: null, capabilities: [], assistant: true }],
+    agent_sessions: [],
+    assistant_settings_get: { agent: "codex", model: null, effort: null, fast: null },
+    agent_begin: { session: { ...session, cwd: "/srv", assistant: true }, why: "" },
+    agent_tree_upload: cached,
+  });
+  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  const prompt = page.locator("#agprompt");
+  await prompt.fill("Read the screenshot");
+  await prompt.evaluate((field, png) => {
+    const data = new DataTransfer();
+    const bytes = Uint8Array.from(atob(png), char => char.charCodeAt(0));
+    data.items.add(new File([bytes], "screenshot.png", { type: "image/png" }));
+    field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  }, tiny);
+  await expect(page.getByRole("button", { name: "1 file", exact: true })).toBeVisible();
+  await prompt.press("Enter");
+
+  const calls = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_begin"));
+  await expect.poll(calls).toMatchObject([{ args: {
+    machineId: session.machine_id, agent: "codex", assistant: true, cwd: null, prompt: `Read the screenshot\n\n@${cached}`,
+    images: [{ name: "screenshot.png", mime: "image/png", data: tiny }],
+  } }]);
+  const uploads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_tree_upload"));
+  expect(uploads).toMatchObject([{ args: { machineId: session.machine_id, root: "", path: "screenshot.png", attachment: { agent: "draft", session: expect.any(String) } } }]);
+});
+
 async function screenshot(page: Page) {
   return page.evaluate(() => {
     const canvas = document.createElement("canvas");

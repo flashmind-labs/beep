@@ -284,6 +284,21 @@ pub(crate) async fn upload(
     )
 }
 
+/// Removes an upload abandoned before a new chat started.
+pub(crate) async fn discard_draft_attachment(
+    fleet: &Fleet,
+    machine: EndpointId,
+    draft: SessionId,
+    path: String,
+) -> Result<()> {
+    let client = fleet.client(machine).await?;
+    work(
+        fleet,
+        machine,
+        sessions::discard_draft_attachment(&client, draft, path).await?,
+    )
+}
+
 /// What changed in the checkout `ask.root`.
 pub(crate) async fn work_diff(
     fleet: &Fleet,

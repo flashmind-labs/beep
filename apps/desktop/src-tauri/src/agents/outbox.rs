@@ -816,8 +816,8 @@ pub struct Outbox {
 
 impl Outbox {
     /// The outbox kept in `dir`, or an empty one.
-    pub fn load(dir: PathBuf) -> Self {
-        let folder = KeptFolder::open(dir, MESSAGES, "outbox");
+    pub fn load(dir: PathBuf, cache: PathBuf) -> Self {
+        let folder = KeptFolder::open(dir, cache, MESSAGES, "outbox");
         let messages = read_messages(&folder);
         Self {
             held: Mutex::new(Held::from_messages(messages)),

@@ -342,7 +342,8 @@ pub async fn serve_sessions(
             data,
         } => {
             let running = agents.get(&session);
-            work_request(&agents, &root, reach::Access::Write, move |_real| {
+            let draft = root.is_empty() && super::uploads::is_draft(&agent, &session);
+            let write = move || {
                 let path = super::uploads::write(
                     &agent,
                     &session,
@@ -353,6 +354,18 @@ pub async fn serve_sessions(
                     running.as_deref(),
                 )?;
                 Ok(SessionsReply::Written { path })
+            };
+
+            if draft {
+                file_job(write).await
+            } else {
+                work_request(&agents, &root, reach::Access::Write, move |_| write()).await
+            }
+        }
+        SessionsRequest::DiscardDraftAttachment { draft, path } => {
+            file_job(move || {
+                super::uploads::discard_draft(&draft, &path)?;
+                Ok(SessionsReply::FilesEdited {})
             })
             .await
         }
@@ -621,7 +634,13 @@ async fn work_request(
         Err(e) => return failed(e),
     };
 
-    match spawn_blocking(move || job(real)).await {
+    file_job(move || job(real)).await
+}
+
+async fn file_job(
+    job: impl FnOnce() -> Result<SessionsReply> + Send + 'static,
+) -> SessionsReply {
+    match spawn_blocking(job).await {
         Ok(Ok(reply)) => reply,
         Ok(Err(e)) => failed(e),
         Err(e) => SessionsReply::Error {
