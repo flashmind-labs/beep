@@ -92,7 +92,7 @@ export const projectComp = (() => {
   addEventListener("mousedown", e => {
     if (pc.open && e.target instanceof Node && !pick.contains(e.target) && !harness.contains(e.target)) closeBarPicker();
   }, true);
-  return { ...composer, renderChoices };
+  return Object.assign(composer, { renderChoices });
 })();
 
 /// Where the bar's `/` and `@` menus look: its machine's checkout, with the
@@ -169,8 +169,6 @@ const barAttachments = startAttachments(projectComp, error => projectComp.update
   const p = barProject();
   projectComp.update({ sendDisabled: pc.starting || barAttachments.reading || !p || !barPlace(p.places, pc.hosts ?? [], pc.machine) || !!pc.adding });
 });
-
-barAttachments.bindStash(() => pc.project);
 
 function closeBarPicker() {
   pc.open = false;
@@ -272,6 +270,7 @@ export function drawProjectComp(name: string) {
   c.setPresentation(inDraft || pa.blank ? "centered" : "compact");
 
   if (pc.project !== name) {
+    c.input.blur();
     finishCopy?.();
     pc.project = name;
     pc.machine = lastMachine(name);
@@ -284,6 +283,8 @@ export function drawProjectComp(name: string) {
     pc.target = null;
     // Each project keeps its own unsent task.
     c.update({ error: "", draft: `project:${name}` });
+    barAttachments.bindStash(() => name);
+    fitted = null;
     loadProjectBar(name);
     void loadAccountNames().then(() => { if (barOn(name)) redrawProjects(); });
   }

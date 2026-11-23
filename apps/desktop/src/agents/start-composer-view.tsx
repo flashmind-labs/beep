@@ -1,3 +1,4 @@
+import { bindMentionMenu, type MenuPlace } from "./mentionmenu.ts";
 import { ComposeField } from "../chat/compose.tsx";
 import { DailyArt } from "../ui/painted-art.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
@@ -54,7 +55,7 @@ export function FolderChoice({ checkout, label, detail }: { checkout: boolean; l
   if (checkout) return <>{label} <small>{detail}</small></>;
   return <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>{label ? <>{label} <small className="mono">{detail}</small></> : <span className="mono">{detail}</span>}</>;
 }
-export function StartComposerView({ nodes, choices, externalChoices, ids, title, state, actions }: { nodes: StartComposerNodes; choices: HTMLSpanElement; externalChoices: boolean; ids: boolean; title: string; state: StartComposerState; actions: StartComposerActions }) {
+export function StartComposerView({ nodes, choices, externalChoices, ids, title, state, actions, place }: { place: () => MenuPlace | null; nodes: StartComposerNodes; choices: HTMLSpanElement; externalChoices: boolean; ids: boolean; title: string; state: StartComposerState; actions: StartComposerActions }) {
   const row = useRef<HTMLDivElement>(null), box = useRef<HTMLDivElement>(null), input = useRef<HTMLTextAreaElement>(null);
   const id = (value: string) => ids ? value : undefined;
   const grow = () => {
@@ -70,12 +71,19 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
   const refs = useMemo(() => ({
     box: (node: HTMLDivElement | null) => { box.current = node; nodes.box = node; },
     att: (node: HTMLDivElement | null) => { nodes.att = node; },
-    input: (node: HTMLTextAreaElement | null) => { input.current = node; nodes.input = node; },
+    input: (node: HTMLTextAreaElement | null) => {
+      input.current = node;
+      nodes.input = node;
+      if (!node) return;
+
+      bindMentionMenu(node, place);
+      node.setSelectionRange(node.value.length, node.value.length);
+    },
     harness: (node: HTMLButtonElement | null) => { nodes.harness = node; },
     pick: (node: HTMLDivElement | null) => { nodes.pick = node; },
     machine: (node: HTMLButtonElement | null) => { nodes.machine = node; },
     folder: (node: HTMLButtonElement | null) => { nodes.folder = node; },
-  }), [nodes]);
+  }), [nodes, place]);
   // The choices keep one host, so a focused pill or a typed branch stays when the layout changes.
   useLayoutEffect(() => { if (state.centered) box.current?.after(choices); else row.current?.prepend(choices); }, [state.centered, choices]);
   useLayoutEffect(grow, [state.centered]);
@@ -94,7 +102,7 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
   const machine = externalChoices ? state.machineView : <button ref={refs.machine} id={id("aghostb")} className="pill" type="button" title="The machine it runs on (Shift+Tab in the field)" aria-expanded={expanded("host")} onClick={choice("host")}>{state.choiceContents?.machine}</button>;
   return <>{state.centered && <section className="agc-intro"><DailyArt /><IntroHeading text={heading} /><p className="agc-where">{state.project && <b>{state.project}</b>}{machine}</p></section>}
     <div className={`box${state.invalid ? " err" : ""}${state.dropping ? " dropping" : ""}`} id={id("agbox")} ref={refs.box}>
-      <ComposeField ref={refs.input} draft={state.draft ?? undefined} images={actions.images} removeLast={actions.removeLast} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label={state.words.label} title={title} placeholder={state.placeholder}
+      <ComposeField key={state.draft} ref={refs.input} draft={state.draft ?? undefined} images={actions.images} removeLast={actions.removeLast} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label={state.words.label} title={title} placeholder={state.placeholder}
         onInput={event => { grow(); actions.input?.(event.currentTarget.value); }}
         onPaste={paste}
         onKeyDown={event => { actions.keyDown?.(event.nativeEvent); if (event.currentTarget.readOnly || event.key !== "Enter" || event.shiftKey || isMobile() || event.nativeEvent.isComposing || event.defaultPrevented) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.form?.requestSubmit(); }} />

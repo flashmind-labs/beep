@@ -4,7 +4,7 @@ import { createDocumentView } from "../ui/document-root.tsx";
 import { StartComposerView, type StartComposerActions, type StartComposerNodes, type StartComposerState } from "./start-composer-view.tsx";
 import { nextSessionIntro } from "./session-intro.ts";
 import { TASK_WORDS } from "./assistant-state.ts";
-import { bindMentionMenu, type MenuPlace } from "./mentionmenu.ts";
+import type { MenuPlace } from "./mentionmenu.ts";
 
 type Presentation = "compact" | "centered";
 
@@ -39,7 +39,7 @@ export function makeStartComposer({ externalChoices = false, presentation = "cen
   };
   const draw = () => {
     form.classList.toggle("centered", state.centered);
-    flushSync(() => root.render(<StartComposerView {...{ nodes, choices, externalChoices, ids, title, state, actions }} />));
+    flushSync(() => root.render(<StartComposerView {...{ nodes, choices, externalChoices, ids, title, state, actions, place }} />));
   };
   const update = (patch: Partial<StartComposerState>) => {
     const next = { ...state, ...patch };
@@ -76,7 +76,6 @@ export function makeStartComposer({ externalChoices = false, presentation = "cen
   }
 
   draw();
-  if (nodes.input) bindMentionMenu(nodes.input, place);
   const required = <T,>(value: T | null): T => { if (!value) throw new Error("Start composer did not mount"); return value; };
   const view = (key: "choiceView" | "machineView" | "footer" | "picker" | "harness") => (node: ReactNode) => update({ [key]: node });
 
@@ -91,7 +90,7 @@ export function makeStartComposer({ externalChoices = false, presentation = "cen
     setHarness: view("harness"),
     centered: () => state.centered,
     form, choices,
-    input: required(nodes.input),
+    get input() { return required(nodes.input); },
     harness: required(nodes.harness),
     pick: required(nodes.pick),
     att: required(nodes.att),

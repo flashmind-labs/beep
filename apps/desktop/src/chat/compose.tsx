@@ -23,8 +23,7 @@ export function composeMessage(value: string) {
 }
 
 interface ComposeOptions {
-  /// The key of a prompt kept locally between visits and app launches. A new
-  /// key keeps the text under the old one and shows the text kept under it.
+  /// The field is keyed by draft so each prompt gets its own native editor.
   draft?: string;
   /// Takes a picture whose path was pasted; without it the path stays text.
   images?: (files: File[]) => unknown;
@@ -71,7 +70,6 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
   const field = useRef<HTMLTextAreaElement | null>(null), layer = useRef<HTMLDivElement>(null), pillNodes = useRef(new Map<number, HTMLSpanElement>());
   const draftKey = draft === undefined ? null : draftKeyOf(draft);
   const [initial] = useState(() => keptDraft(draftKey));
-  const savedTo = useRef(draftKey);
   const [value, setValue] = useState(initial);
   const [box, setBox] = useState<CSSProperties | null>(null);
   const [size, setSize] = useState(0);
@@ -81,15 +79,14 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
   const pills = pillsIn(value), fences = fenceSpans(value, pastes), shown = pills.length > 0 || fences.length > 0;
 
   const saveDraft = (text: string) => {
-    const key = savedTo.current;
-    if (!key) return;
+    if (!draftKey) return;
 
     try {
       // Pill IDs only live in this window. Keep their text without changing
       // whitespace or adding the code fences that sending would add.
       const kept = expandPills(text, pastes);
-      if (kept) localStorage.setItem(key, kept);
-      else localStorage.removeItem(key);
+      if (kept) localStorage.setItem(draftKey, kept);
+      else localStorage.removeItem(draftKey);
     } catch { /* Keep the field usable when storage is full or unavailable. */ }
   };
   const changed = (text: string) => { saveDraft(text); setValue(text); };
@@ -104,17 +101,8 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
 
     const { get, set } = VALUE;
     Object.defineProperty(node, "value", { configurable: true, get() { return get.call(this); }, set(text: string) { set.call(this, text); changed(text); } });
-  // `changed` reads the draft key through `savedTo`.
-  }, [ref]);
+  }, [ref, draftKey]);
 
-  // Another draft: the text typed so far is already kept under the old key.
-  useLayoutEffect(() => {
-    const node = field.current;
-    if (savedTo.current === draftKey || !node) return;
-
-    savedTo.current = draftKey;
-    node.value = keptDraft(draftKey);
-  }, [draftKey]);
   const closePop = useCallback(() => setPop(null), []);
 
   useLayoutEffect(() => {
