@@ -400,21 +400,16 @@ impl Peers {
             return None;
         }
 
-        let devices = active.mesh.devices();
-        let kind = devices
+        let kind = active
+            .mesh
+            .devices()
             .iter()
             .find(|status| status.device.id == peer)?
             .device
             .kind;
         Some(match kind {
             DeviceKind::Desktop => Who::Everything(peer),
-            DeviceKind::Node => Who::Node {
-                peer,
-                desktop_here: devices.iter().any(|status| {
-                    status.device.id == active.mesh.me()
-                        && status.device.kind == DeviceKind::Desktop
-                }),
-            },
+            DeviceKind::Node => Who::Node(peer),
         })
     }
 
@@ -659,10 +654,6 @@ impl Peers {
                 let Some(inner) = peers.upgrade() else {
                     return;
                 };
-                let desktop_here = Peers {
-                    inner: inner.clone(),
-                }
-                .is_desktop();
                 let PeerStream {
                     peer,
                     kind,
@@ -671,7 +662,7 @@ impl Peers {
                 } = stream;
                 let who = match kind {
                     DeviceKind::Desktop => Who::Everything(peer),
-                    DeviceKind::Node => Who::Node { peer, desktop_here },
+                    DeviceKind::Node => Who::Node(peer),
                 };
                 let (tx, rx) = link(send, recv);
 

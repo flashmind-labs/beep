@@ -1,10 +1,9 @@
 use beep_proto::SessionId;
 use super::*;
 
-fn caller(table: Table, node_here: bool) -> Caller {
+fn caller(table: Table) -> Caller {
     Caller {
         table,
-        desktop_here: !node_here,
         commands_off: None,
         transfers: None,
         agents: None,
@@ -33,7 +32,7 @@ async fn an_older_nodes_run_on_with_a_prompt_starts_no_agent_here() {
             args: args.to_owned(),
             ..run_on()
         };
-        let Reply::Done { text, failed } = answer(request, caller(table, true)).await else {
+        let Reply::Done { text, failed } = answer(request, caller(table)).await else {
             panic!("not done");
         };
         assert!(failed && text.contains("start_agent"), "{args}: {text}");
@@ -42,35 +41,35 @@ async fn an_older_nodes_run_on_with_a_prompt_starts_no_agent_here() {
 }
 
 #[tokio::test]
-async fn a_desktop_takes_a_nodes_files_and_syncs_for_it() {
+async fn a_nodes_file_and_sync_requests_reach_the_transfer_handlers() {
     let table = Table::Peer(iroh::SecretKey::generate().public());
-    let on_desktop = caller(table, false);
+    let receiving = caller(table);
     let send = Request {
         session: SessionId::from("a3f9c1").to_owned(),
         tool: Tool::SendFiles,
         args: "{}".to_owned(),
         approved: Default::default(),
     };
-    let Reply::Done { text, .. } = answer(send, on_desktop.clone()).await else {
+    let Reply::Done { text, failed } = answer(send, receiving.clone()).await else {
         panic!("not done");
     };
-    assert!(!text.contains("desktop"), "{text}");
+    assert!(failed && text.contains("file transfers did not start"), "{text}");
     let sync = Request {
         session: SessionId::from("a3f9c1").to_owned(),
         tool: Tool::SyncProject,
         args: r#"{"project":"game"}"#.to_owned(),
         approved: Default::default(),
     };
-    let Reply::Done { text, .. } = answer(sync, on_desktop).await else {
+    let Reply::Done { text, failed } = answer(sync, receiving).await else {
         panic!("not done");
     };
-    assert!(!text.contains("desktop"), "{text}");
+    assert!(failed && text.contains("Sync did not start"), "{text}");
 }
 
 #[tokio::test]
 async fn no_node_serves_its_log_to_another() {
     let table = Table::Peer(iroh::SecretKey::generate().public());
-    let caller = caller(table, true);
+    let caller = caller(table);
     let request = Request {
         session: SessionId::from("a3f9c1").to_owned(),
         tool: Tool::MachineLog,
@@ -87,9 +86,9 @@ async fn no_node_serves_its_log_to_another() {
 }
 
 #[tokio::test]
-async fn a_desktop_runs_a_nodes_command_unless_it_lends_itself_to_no_one() {
+async fn a_node_runs_a_peers_command_when_it_shares_the_machine() {
     let table = Table::Peer(iroh::SecretKey::generate().public());
-    let Reply::Done { text, failed } = answer(run_on(), caller(table, false)).await else {
+    let Reply::Done { text, failed } = answer(run_on(), caller(table)).await else {
         panic!("not done");
     };
     assert!(!failed && text.contains("ran-here"), "{text}");
@@ -97,7 +96,7 @@ async fn a_desktop_runs_a_nodes_command_unless_it_lends_itself_to_no_one() {
         commands_off: Some(
             "mac doesn't run commands: Let Beep use this computer is off in its Settings.".into(),
         ),
-        ..caller(table, false)
+        ..caller(table)
     };
     let Reply::Done { text, failed } = answer(run_on(), off).await else {
         panic!("not done");
@@ -125,7 +124,7 @@ async fn background_run_stops_at_its_timeout() {
             .to_string(),
         ..run_on()
     };
-    let Reply::Done { text, failed } = answer(request, caller(table, true)).await else {
+    let Reply::Done { text, failed } = answer(request, caller(table)).await else {
         panic!("no start reply");
     };
     assert!(!failed, "{text}");
@@ -194,7 +193,7 @@ async fn peer_requests_keep_accepting_extra_fields() {
         args: serde_json::json!({"command":"echo compatible", "machine":"build-box", "future_field":true}).to_string(),
         ..run_on()
     };
-    let Reply::Done { text, failed } = answer(request, caller(table, true)).await else {
+    let Reply::Done { text, failed } = answer(request, caller(table)).await else {
         panic!("no reply");
     };
     assert!(!failed && text.contains("compatible"), "{text}");
@@ -227,7 +226,7 @@ async fn a_node_gets_a_projects_answer_from_a_desktop_and_a_refusal_otherwise() 
     };
     let with = Caller {
         project_tools: Some(Arc::new(Projects)),
-        ..caller(table, false)
+        ..caller(table)
     };
 
     let Reply::Done { text, failed } = answer(request.clone(), with).await else {
@@ -235,7 +234,7 @@ async fn a_node_gets_a_projects_answer_from_a_desktop_and_a_refusal_otherwise() 
     };
     assert!(!failed && text == "no hosts", "{text}");
 
-    let Reply::Done { text, failed } = answer(request, caller(table, false)).await else {
+    let Reply::Done { text, failed } = answer(request, caller(table)).await else {
         panic!("not done");
     };
     assert!(failed && text.contains("only the Beep desktop"), "{text}");

@@ -453,19 +453,14 @@ pub(crate) enum Who {
     Everything(EndpointId),
     /// Another node of the mesh: its status, agent tools and devices,
     /// nothing else.
-    Node {
-        peer: EndpointId,
-        /// This device is a desktop, read from the device list when the
-        /// stream opened.
-        desktop_here: bool,
-    },
+    Node(EndpointId),
 }
 
 impl Who {
     /// The key of the caller.
     pub(crate) fn id(self) -> EndpointId {
         match self {
-            Self::Everything(id) | Self::Node { peer: id, .. } => id,
+            Self::Everything(id) | Self::Node(id) => id,
         }
     }
 }
@@ -504,8 +499,8 @@ pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
         .then(|| format!("this machine is not shared with other devices: {protocol} is off"))
 }
 
-/// Why another node's `remote_run` may not run here, or `None`: the host
-/// lends this machine to no other device ("Let Beep use this Mac" is off).
+/// Why another node may not run commands or start agents here, if
+/// "Let Beep use this computer" is off.
 fn commands_off(offers: &Offers) -> Option<String> {
     if offers.lends_to_peers() {
         return None;
@@ -551,7 +546,7 @@ pub(super) async fn serve_open(
     offers: Offers,
     who: Who,
 ) -> Result<()> {
-    if matches!(who, Who::Node { .. }) && !node_may_open(&protocol) {
+    if matches!(who, Who::Node(_)) && !node_may_open(&protocol) {
         let reason = format!("a node may not open {}", protocol);
         return tx.send(&Opened::Refused { reason }).await;
     }
@@ -586,9 +581,8 @@ pub(super) async fn serve_open(
             SessionProtocol::Tools => {
                 let caller = match who {
                     Who::Everything(_) => Caller::local(&offers),
-                    Who::Node { peer, desktop_here } => Caller {
+                    Who::Node(peer) => Caller {
                         table: tasks::Table::Peer(peer),
-                        desktop_here,
                         commands_off: commands_off(&offers),
                         transfers: offers.transfers.get(),
                         agents: Some(offers.agents.clone()),
@@ -599,7 +593,7 @@ pub(super) async fn serve_open(
             }
             SessionProtocol::Shell => shell::serve(tx, rx).await,
             SessionProtocol::Skills => {
-                let desktop = !matches!(who, Who::Node { .. });
+                let desktop = matches!(who, Who::Everything(_));
                 let mesh = offers.mesh.get().context("this node is not in a mesh")?;
                 crate::agents::skills::serve(tx, rx, offers.skills, mesh, desktop).await
             }

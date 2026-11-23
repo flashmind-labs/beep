@@ -276,10 +276,7 @@ async fn a_node_opens_another_machines_log_and_metrics() {
 }
 
 fn another_node(peer: EndpointId) -> Who {
-    Who::Node {
-        peer,
-        desktop_here: false,
-    }
+    Who::Node(peer)
 }
 
 /// Opens `report/1` on a node that is not lent, from a caller `who`

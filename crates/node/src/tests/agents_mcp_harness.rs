@@ -126,7 +126,6 @@ cat > /dev/null
     // Peers can query a desktop even when it lends no commands or
     // agents. Its machine argument must not cause another forward.
     let mut caller = Caller::local(&node.offers);
-    caller.desktop_here = true;
     caller.commands_off = Some("Commands are off".to_owned());
     let peer = result(
         peer_tools::answer(

@@ -128,7 +128,7 @@ async fn only_a_controller_can_read_or_change_mcp_servers() -> Result<()> {
     let link = local_link();
     let (_, mut rx) = link.caller;
     let (node_tx, node_rx) = link.node;
-    serve_open(node_tx, node_rx, protocol.clone(), offers.clone(), Who::Node { peer, desktop_here: false }).await?;
+    serve_open(node_tx, node_rx, protocol.clone(), offers.clone(), Who::Node(peer)).await?;
     assert!(matches!(rx.recv::<Opened>().await?, Some(Opened::Refused { .. })));
 
     let link = local_link();
