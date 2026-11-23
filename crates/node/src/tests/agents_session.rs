@@ -2305,6 +2305,8 @@ cat >/dev/null
     settle(&session).await;
     let escaped = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
+            session.processes.poll().await.unwrap();
+
             if let Ok(pid) = std::fs::read_to_string(log.with_extension("pid"))
                 && let Ok(pid) = pid.trim().parse::<u32>()
                 && let Some(row) = session
@@ -2331,6 +2333,7 @@ cat >/dev/null
         .trim()
         .parse::<u32>()
         .unwrap();
+    session.processes.poll().await.unwrap();
     let rows = session.processes.list().await.unwrap();
     assert!(rows.iter().any(|p| p.pid == group_pid && !p.left_group));
     assert!(rows.iter().all(|p| p.pid != session.processes.root()));

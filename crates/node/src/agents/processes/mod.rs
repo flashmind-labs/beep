@@ -1,7 +1,6 @@
 //! Processes a session started, including children that changed groups.
 
-use crate::AsyncMutex;
-use beep_proto::node::agent::RunningProcess;
+use beep_proto::{SessionId, node::{agent::RunningProcess, events::Topic}};
 use beep_proto::watched;
 use std::{
     collections::{BTreeSet, HashMap},
@@ -12,7 +11,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::watch,
+    sync::{mpsc, oneshot, watch},
     time::{Instant, interval, sleep},
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -201,11 +200,37 @@ impl Process {
     }
 }
 
+/// A session's processes and ports, as the poll task last saw them.
+#[derive(Clone, PartialEq, Eq)]
+struct Listing {
+    /// What peers read: the visible processes, their ports and pages.
+    rows: Vec<RunningProcess>,
+    /// Every process that is the session's but not its root, helpers
+    /// included: what closing the session has to stop.
+    ours: Vec<Process>,
+}
+
+/// Asks the poll task to read the table now. It answers once the list is published.
+type Poll = oneshot::Sender<Result<(), String>>;
+
+/// What the poll task takes over in `watch`.
+struct Inbox {
+    polls: mpsc::Receiver<Poll>,
+    publish: watch::Sender<Option<Listing>>,
+}
+
+/// How many `Poll`s wait for the task.
+const POLLS: usize = 8;
+
+/// A session's process list. Its poll task (`watch`) owns what it observes
+/// and publishes each list; readers take the last one and scan nothing.
 pub(super) struct Processes {
     /// The agent's pid, leading its group; 0 until a bridge starts its CLI.
     root: AtomicU32,
-    known: Mutex<Observed>,
-    reading: AsyncMutex<()>,
+    polls: mpsc::Sender<Poll>,
+    /// `None` until the first poll.
+    published: watch::Receiver<Option<Listing>>,
+    inbox: Mutex<Option<Inbox>>,
 }
 
 /// How many times a port that has not answered is tested for a page.
@@ -226,12 +251,15 @@ impl Page {
     }
 }
 
+/// What the poll task has seen of the session, kept by it alone.
 #[derive(Default)]
 struct Observed {
     root_birth: Option<u64>,
     processes: HashMap<u32, Process>,
-    /// The ports of the last list, by pid, and whether each serves a page.
-    ports: BTreeSet<(u32, u16, bool)>,
+    /// `processes` without the root.
+    ours: Vec<Process>,
+    /// The listening ports of the last scan, by pid.
+    ports: HashMap<u32, Vec<u16>>,
     /// When `processes` last changed.
     changed_at: Option<Instant>,
     /// What testing each listening (pid, port) for a page found.
@@ -247,75 +275,134 @@ impl Processes {
     /// The processes under `root`, the agent's pid; with none, under the
     /// CLI its bridge starts, once `set_root` names it.
     pub(super) fn new(root: Option<u32>) -> Arc<Self> {
+        let (polls, inbox) = mpsc::channel(POLLS);
+        let (publish, published) = watch::channel(None);
+
         Arc::new(Self {
             root: AtomicU32::new(root.unwrap_or_default()),
-            known: Default::default(),
-            reading: AsyncMutex::default(),
+            polls,
+            published,
+            inbox: Mutex::new(Some(Inbox {
+                polls: inbox,
+                publish,
+            })),
         })
     }
 
     /// Observe ancestry even while the desktop is closed. Remembering a child's
     /// birth time keeps it ours after its parent exits, without claiming a reused pid.
     /// The table is read every second only while the session works or a
-    /// client follows `processes`. The ports are checked on each read for
-    /// `STARTING` after the processes change while a client follows, and
-    /// on a standalone node each `PORTS` too. The session's actor drops the handle
-    /// when the session ends, so an ended session reads nothing.
+    /// client follows `processes`. The ports are scanned when a follower
+    /// arrives, on each read for `STARTING` after the processes change while
+    /// a client follows, and on a standalone node each `PORTS` too. Each
+    /// poll publishes the list, and a change in it is signalled for this
+    /// session only. The session's actor drops the handle when the session
+    /// ends, so an ended session reads nothing. Call it once.
     pub(super) fn watch(
         self: &Arc<Self>,
         mut session: watch::Receiver<super::live::Live>,
     ) -> AbortOnDropHandle<()> {
         let processes = self.clone();
+        let inbox = crate::lock(&self.inbox).take();
         let mut demand = DEMAND.subscribe();
+
         AbortOnDropHandle::new(tokio::spawn(async move {
+            let Some(Inbox { mut polls, publish }) = inbox else {
+                log::warn!("session processes are watched twice");
+                return;
+            };
+            let mut observed = Observed::default();
             let mut max_age = WATCHED;
             let mut ports_due = Instant::now() + PORTS;
+            let mut followers = 0;
+            let mut asked: Vec<Poll> = Vec::new();
 
             loop {
-                if let Err(e) = processes.refresh(max_age).await {
-                    log::debug!("could not read session processes: {e:#}");
-                }
-
-                let starting = crate::lock(&processes.known)
+                let forced = !asked.is_empty();
+                let age = if forced { Duration::ZERO } else { max_age };
+                let result = processes.refresh(&mut observed, age).await;
+                let followers_now = watched::read_sent(&DEMAND, |demand| *demand);
+                let starting = observed
                     .changed_at
                     .is_some_and(|at| at.elapsed() < STARTING);
-                let followed = watched::read_sent(&DEMAND, |demand| *demand > 0);
                 let due = WATCH_PORTS.load(Ordering::Relaxed) && Instant::now() >= ports_due;
+                let scan = forced
+                    || due
+                    || (starting && followers_now > 0)
+                    || followers_now > followers
+                    || watched::read_sent(&publish, Option::is_none);
+                followers = followers_now;
 
-                if due || (starting && followed) {
-                    ports_due = Instant::now() + PORTS;
-                    match processes.ports_changed().await {
-                        Ok(true) => changed(),
-                        Ok(false) => {}
-                        Err(e) => log::debug!("could not read session ports: {e:#}"),
+                match &result {
+                    Ok(()) => {
+                        if scan {
+                            ports_due = Instant::now() + PORTS;
+                            observed.scan().await;
+                        }
+
+                        processes.publish(&observed, &publish, &session);
                     }
+                    Err(e) => log::debug!("could not read session processes: {e:#}"),
                 }
 
-                match pace(&mut demand, &mut session, super::live::Live::works).await {
-                    Some(age) => max_age = age,
-                    None => return,
+                for done in asked.drain(..) {
+                    let _ = done.send(result.as_ref().map(|_| ()).map_err(|e| format!("{e:#}")));
+                }
+
+                tokio::select! {
+                    age = pace(&mut demand, &mut session, super::live::Live::works) => match age {
+                        Some(age) => max_age = age,
+                        None => return,
+                    },
+                    Some(done) = polls.recv() => asked.push(done),
                 }
             }
         }))
     }
 
-    /// Observes the session's processes in a table at most `max_age` old.
-    /// Names the CLI a bridge started as the root.
+    /// Names the CLI a bridge started as the root, and has its children listed.
     pub(super) fn set_root(&self, root: u32) {
         self.root.store(root, Ordering::Relaxed);
+        // Nobody waits for the answer, and a poll already queued sees the root.
+        let _ = self.polls.try_send(oneshot::channel().0);
     }
 
-    async fn refresh(self: &Arc<Self>, max_age: Duration) -> anyhow::Result<Vec<Process>> {
+    /// Has the poll task read the table now, and waits until it published.
+    pub(super) async fn poll(&self) -> anyhow::Result<()> {
+        let (done, answer) = oneshot::channel();
+        self.polls.send(done).await.map_err(|_| ended())?;
+
+        answer
+            .await
+            .map_err(|_| ended())?
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// The last published list. The first read waits for the first poll.
+    pub(super) async fn list(&self) -> anyhow::Result<Vec<RunningProcess>> {
+        let mut seen = self.published.clone();
+        watched::wait_for(&mut seen, Option::is_some)
+            .await
+            .map_err(|_| ended())?;
+
+        Ok(watched::read(&seen, |listing| {
+            listing
+                .as_ref()
+                .map(|listing| listing.rows.clone())
+                .unwrap_or_default()
+        }))
+    }
+
+    /// Observes the session's processes in a table at most `max_age` old.
+    async fn refresh(&self, observed: &mut Observed, max_age: Duration) -> anyhow::Result<()> {
         let root_pid = self.root.load(Ordering::Relaxed);
         if root_pid == 0 {
-            return Ok(Vec::new());
+            return Ok(());
         }
 
-        let _reading = self.reading.lock().await;
         // A new root must not take a cached entry left by a reused pid.
-        let first = crate::lock(&self.known).root_birth.is_none();
+        let first = observed.root_birth.is_none();
         let all = snapshot::read(if first { Duration::ZERO } else { max_age }).await?;
-        let mut observed = crate::lock(&self.known);
         let before = observed.processes.clone();
         if observed.root_birth.is_none() {
             observed.root_birth = all.get(&root_pid).map(|p| p.birth);
@@ -350,7 +437,7 @@ impl Processes {
             }
         }
 
-        let ours = known
+        observed.ours = known
             .values()
             .filter(|p| p.pid != root_pid)
             .cloned()
@@ -358,26 +445,96 @@ impl Processes {
 
         if observed.processes != before {
             observed.changed_at = Some(Instant::now());
-            changed();
         }
 
-        Ok(ours)
+        Ok(())
     }
 
-    pub(super) async fn list(self: &Arc<Self>) -> anyhow::Result<Vec<RunningProcess>> {
-        let processes: Vec<_> = self
-            .refresh(WATCHED)
-            .await?
+    /// Publishes the list, and signals this session's followers when it differs.
+    fn publish(
+        &self,
+        observed: &Observed,
+        publish: &watch::Sender<Option<Listing>>,
+        session: &watch::Receiver<super::live::Live>,
+    ) {
+        let next = Listing {
+            rows: observed.rows(self.root.load(Ordering::Relaxed)),
+            ours: observed.ours.clone(),
+        };
+        let mut signal = false;
+
+        publish.send_if_modified(|current| {
+            if current.as_ref() == Some(&next) {
+                return false;
+            }
+
+            // The first list is read, not signalled.
+            signal = current.as_ref().is_some_and(|last| last.rows != next.rows);
+            *current = Some(next);
+            true
+        });
+
+        if signal {
+            changed(&watched::read(session, |live| live.info.id.clone()));
+        }
+    }
+
+    /// The session's processes in the last list.
+    fn ours(&self) -> Vec<Process> {
+        watched::read(&self.published, |listing| {
+            listing
+                .as_ref()
+                .map(|listing| listing.ours.clone())
+                .unwrap_or_default()
+        })
+    }
+
+    pub(super) async fn stop(&self, pid: u32) -> anyhow::Result<()> {
+        self.poll().await?;
+        let process = self
+            .ours()
             .into_iter()
+            .find(|p| p.pid == pid && !p.helper())
+            .ok_or_else(|| anyhow::anyhow!("the process is not running in this session"))?;
+        let stopped = stop(&[process]).await;
+        snapshot::invalidate().await;
+        // Readers must not be left listing what ended.
+        self.poll().await?;
+        stopped
+    }
+
+    pub(super) async fn close(&self) {
+        match self.poll().await {
+            Ok(()) => {
+                if let Err(e) = stop(&self.ours()).await {
+                    log::warn!("could not stop session processes: {e:#}");
+                }
+            }
+            Err(e) => log::warn!("could not read closing session's processes: {e:#}"),
+        }
+    }
+}
+
+fn ended() -> anyhow::Error {
+    anyhow::anyhow!("the session's processes are no longer watched")
+}
+
+impl Observed {
+    /// Reads the listening ports of the visible processes and tests them for pages.
+    async fn scan(&mut self) {
+        let visible: Vec<_> = self.ours.iter().filter(|p| !p.helper()).cloned().collect();
+        self.ports = os::ports(&visible).await;
+        self.test_pages().await;
+    }
+
+    /// The visible processes with the ports of the last scan, oldest first.
+    fn rows(&self, root: u32) -> Vec<RunningProcess> {
+        let mut rows: Vec<_> = self
+            .ours
+            .iter()
             .filter(|p| !p.helper())
-            .collect();
-        let root = self.root.load(Ordering::Relaxed);
-        let mut ports = os::ports(&processes).await;
-        let pages = self.pages(&ports).await;
-        let mut rows: Vec<_> = processes
-            .into_iter()
             .map(|p| {
-                let ports = ports.remove(&p.pid).unwrap_or_default();
+                let ports = self.ports.get(&p.pid).cloned().unwrap_or_default();
                 RunningProcess {
                     pid: p.pid,
                     // Long enough to reach the command inside an agent's shell wrapper.
@@ -386,7 +543,7 @@ impl Processes {
                     pages: ports
                         .iter()
                         .copied()
-                        .filter(|port| pages.contains(&(p.pid, *port)))
+                        .filter(|port| self.pages.get(&(p.pid, *port)) == Some(&Page::Yes))
                         .collect(),
                     ports,
                     left_group: cfg!(unix) && p.group != root,
@@ -395,42 +552,30 @@ impl Processes {
             })
             .collect();
         rows.sort_by_key(|p| (p.started_at, p.pid));
-        crate::lock(&self.known).ports = rows
-            .iter()
-            .flat_map(|row| {
-                row.ports
-                    .iter()
-                    .map(|port| (row.pid, *port, row.pages.contains(port)))
-            })
-            .collect();
-        Ok(rows)
+        rows
     }
 
-    /// The (pid, port) pairs of `ports` that serve a page. A pair is tested
-    /// until it answers, as a request to a port that is not a web server may
-    /// end up in its log. One that only times out, such as a server whose
-    /// first page compiles, is tried again on each list up to `TRIES` times.
-    async fn pages(&self, ports: &HashMap<u32, Vec<u16>>) -> BTreeSet<(u32, u16)> {
-        let listening: BTreeSet<_> = ports
+    /// Tests the scanned ports for pages. A pair is tested until it answers,
+    /// as a request to a port that is not a web server may end up in its log.
+    /// One that only times out, such as a server whose first page compiles,
+    /// is tried again on each scan up to `TRIES` times.
+    async fn test_pages(&mut self) {
+        let listening: BTreeSet<(u32, u16)> = self
+            .ports
             .iter()
             .flat_map(|(pid, ports)| ports.iter().map(|port| (*pid, *port)))
             .collect();
-        let untested: BTreeSet<_> = {
-            let mut known = crate::lock(&self.known);
-            known.pages.retain(|pair, _| listening.contains(pair));
-            listening
-                .iter()
-                .filter(|pair| known.pages.get(pair).is_none_or(Page::unsettled))
-                .map(|(_, port)| *port)
-                .collect()
-        };
-
+        self.pages.retain(|pair, _| listening.contains(pair));
+        let untested: BTreeSet<_> = listening
+            .iter()
+            .filter(|pair| self.pages.get(pair).is_none_or(Page::unsettled))
+            .map(|(_, port)| *port)
+            .collect();
         let tested: HashMap<_, _> = pages::test(untested).await.into_iter().collect();
-        let mut known = crate::lock(&self.known);
 
         for pair in &listening {
             if let Some(answer) = tested.get(&pair.1) {
-                let tries = match known.pages.get(pair) {
+                let tries = match self.pages.get(pair) {
                     Some(Page::Unsettled(tries)) => *tries,
                     _ => 0,
                 };
@@ -440,50 +585,21 @@ impl Processes {
                     None if tries + 1 >= TRIES => Page::No,
                     None => Page::Unsettled(tries + 1),
                 };
-                known.pages.insert(*pair, page);
+                self.pages.insert(*pair, page);
             }
-        }
-
-        listening
-            .into_iter()
-            .filter(|pair| known.pages.get(pair) == Some(&Page::Yes))
-            .collect()
-    }
-
-    /// Whether a port opened or closed since the last list.
-    async fn ports_changed(self: &Arc<Self>) -> anyhow::Result<bool> {
-        let before = crate::lock(&self.known).ports.clone();
-        self.list().await?;
-        Ok(crate::lock(&self.known).ports != before)
-    }
-
-    pub(super) async fn stop(self: &Arc<Self>, pid: u32) -> anyhow::Result<()> {
-        let process = self
-            .refresh(Duration::ZERO)
-            .await?
-            .into_iter()
-            .find(|p| p.pid == pid && !p.helper())
-            .ok_or_else(|| anyhow::anyhow!("the process is not running in this session"))?;
-        let stopped = stop(&[process]).await;
-        snapshot::invalidate().await;
-        stopped
-    }
-
-    pub(super) async fn close(self: &Arc<Self>) {
-        match self.refresh(Duration::ZERO).await {
-            Ok(processes) => {
-                if let Err(e) = stop(&processes).await {
-                    log::warn!("could not stop session processes: {e:#}");
-                }
-            }
-            Err(e) => log::warn!("could not read closing session's processes: {e:#}"),
         }
     }
 }
 
-/// Tells followers of `processes` to read them again.
-fn changed() {
-    crate::events::system().changed(beep_proto::node::events::Topic::new("processes"));
+/// Tells followers of `session`'s `processes` to read them again. A session
+/// that has no id yet has no followers, so that one goes to all.
+fn changed(session: &SessionId) {
+    let topic = if session.is_empty() {
+        Topic::new("processes")
+    } else {
+        Topic::keyed("processes", session.to_string())
+    };
+    crate::events::system().changed(topic);
 }
 
 /// Asks `pid`, the process of a session started outside Beep, to end, and
@@ -560,9 +676,9 @@ impl Drop for Cleanup {
     fn drop(&mut self) {
         let root = self.0.root.load(Ordering::Relaxed);
 
-        for p in crate::lock(&self.0.known).processes.values() {
-            if p.pid != root && p.group != root {
-                let _ = signal(p, true);
+        for p in self.0.ours() {
+            if p.group != root {
+                let _ = signal(&p, true);
             }
         }
     }

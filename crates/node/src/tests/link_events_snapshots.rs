@@ -71,6 +71,35 @@ async fn session_process_topics_read_children_and_follow_process_changes() {
     assert!(changed.revision > initial.revision);
 }
 
+#[tokio::test]
+async fn one_sessions_process_change_leaves_other_sessions_clean() {
+    let offers = Offers::default();
+    let caller = iroh::SecretKey::generate().public();
+    let (a, b) = (
+        Topic::keyed("processes", "session-a"),
+        Topic::keyed("processes", "session-b"),
+    );
+    let mut snapshots = Snapshots::new();
+    snapshots.replace(&offers, &[a.clone(), b.clone()], &[], &BTreeMap::new());
+    snapshots.start(&offers, caller);
+
+    for _ in 0..2 {
+        assert!(stepped_snapshot(&mut snapshots).await.is_some());
+    }
+
+    let dirty = |snapshots: &Snapshots, topic: &Topic| {
+        snapshots.entries.get(&(topic.clone(), None)).unwrap().dirty
+    };
+    assert!(!dirty(&snapshots, &a) && !dirty(&snapshots, &b));
+
+    snapshots.changed(&a, ChangeKind::Any);
+    assert!(dirty(&snapshots, &a));
+    assert!(!dirty(&snapshots, &b));
+    // A subscriber to every session's processes still hears each one's change.
+    assert!(affected(&Topic::new("processes"), &a));
+    assert!(affected(&Topic::new("processes"), &b));
+}
+
 #[tokio::test(start_paused = true)]
 async fn plugin_bursts_coalesce_without_idle_timers_or_losing_inflight_changes() {
     let offers = Offers::default();
