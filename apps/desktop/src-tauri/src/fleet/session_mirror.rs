@@ -19,6 +19,7 @@ use beep_proto::{
         agent::{ExternalSession, Presence},
         events::Topic,
     },
+    watched,
 };
 use iroh::EndpointId;
 use std::{
@@ -200,7 +201,7 @@ impl SessionMirror {
     /// the last run.
     pub(crate) fn start(outside: impl Outside, kept: Vec<MachineSession>) -> Self {
         let (inbox, messages) = mpsc::channel(WAITING);
-        let (rows, watched) = watch::channel(Arc::new(Rows::kept(kept)));
+        let (rows, follow) = watch::channel(Arc::new(Rows::kept(kept)));
         let actor = Actor {
             outside: Arc::new(outside),
             rows,
@@ -212,7 +213,7 @@ impl SessionMirror {
 
         Self {
             inbox,
-            rows: watched,
+            rows: follow,
             asked: AtomicBool::new(false),
             _task: AbortOnDropHandle::new(tokio::spawn(actor.run(messages))),
         }
@@ -222,7 +223,11 @@ impl SessionMirror {
     pub(crate) fn rows(&self) -> Arc<Rows> {
         // A full inbox holds a read already.
         let _ = self.inbox.try_send(Message::Read);
-        self.rows.borrow().clone()
+        self.current()
+    }
+
+    fn current(&self) -> Arc<Rows> {
+        watched::read(&self.rows, Arc::clone)
     }
 
     /// As `rows`, once `ready` holds of them or `wait` has passed.
@@ -234,10 +239,9 @@ impl SessionMirror {
         let _ = self.inbox.try_send(Message::Read);
         let mut rows = self.rows.clone();
 
-        match timeout(wait, rows.wait_for(|rows| ready(rows))).await {
-            Ok(Ok(rows)) => rows.clone(),
-            _ => self.rows.borrow().clone(),
-        }
+        // Either way the rows now are the answer.
+        let _ = timeout(wait, watched::wait_for(&mut rows, |rows| ready(rows))).await;
+        self.current()
     }
 
     /// The rows for a reader that cannot wait long: the first call of a launch
@@ -733,7 +737,8 @@ pub(crate) fn kept(cache: &ViewCache) -> Vec<MachineSession> {
 pub(crate) async fn keep(mut rows: watch::Receiver<Arc<Rows>>, cache: Arc<ViewCache>) {
     while rows.changed().await.is_ok() {
         sleep(KEEP_AFTER).await;
-        let all: Vec<MachineSession> = rows.borrow_and_update().iter().cloned().collect();
+        let all: Vec<MachineSession> =
+            watched::read_and_update(&mut rows, |rows| rows.iter().cloned().collect());
         cache_view(&cache, View::AgentSessions, &all);
     }
 }

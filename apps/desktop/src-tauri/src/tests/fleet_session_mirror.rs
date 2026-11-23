@@ -116,12 +116,11 @@ fn ids(rows: &Rows, machine: EndpointId) -> Vec<String> {
 }
 
 async fn rows_where(mirror: &SessionMirror, ready: impl Fn(&Rows) -> bool) -> Arc<Rows> {
-    mirror
-        .watch()
-        .wait_for(|rows| ready(rows))
+    let mut rows = mirror.watch();
+    watched::wait_for(&mut rows, |rows| ready(rows))
         .await
-        .expect("the mirror runs")
-        .clone()
+        .expect("the mirror runs");
+    watched::read(&rows, Arc::clone)
 }
 
 #[tokio::test]
