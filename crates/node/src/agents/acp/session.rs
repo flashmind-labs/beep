@@ -135,20 +135,37 @@ struct AcpModel {
     description: Option<String>,
 }
 
-/// Whether the agent the `initialize` answer describes takes a system
-/// prompt on `session/new`, `session/load` and `session/resume` (ACP's
-/// unstable `sessionCapabilities.systemPrompt`; every such agent appends).
-pub(in crate::agents) fn takes_system_prompt(initialized: &InitializeResponse) -> bool {
-    initialized
-        .agent_capabilities
-        .session_capabilities
-        .system_prompt
-        .is_some()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::agents) enum SystemPromptFormat {
+    Acp,
+    Antigravity,
 }
 
-/// `text` appended to the agent's own system prompt.
-fn system_prompt(text: &str) -> SystemPrompt {
-    SystemPrompt::new(vec![ContentBlock::Text(TextContent::new(text))])
+impl SystemPromptFormat {
+    pub(in crate::agents) fn append(self, text: &str) -> AppendedSystemPrompt<'_> {
+        AppendedSystemPrompt { format: self, text }
+    }
+}
+
+pub(in crate::agents) struct AppendedSystemPrompt<'a> {
+    format: SystemPromptFormat,
+    text: &'a str,
+}
+
+/// How the agent advertises append support in its v1 `initialize` answer.
+pub(super) fn system_prompt_format(initialized: &InitializeResponse) -> Option<SystemPromptFormat> {
+    let capabilities = &initialized.agent_capabilities;
+    if capabilities.session_capabilities.system_prompt.is_some() {
+        return Some(SystemPromptFormat::Acp);
+    }
+
+    capabilities
+        .meta
+        .as_ref()?
+        .get("antigravity")?
+        .pointer("/systemPrompt/append")?
+        .as_bool()?
+        .then_some(SystemPromptFormat::Antigravity)
 }
 
 /// What every session asks of its agent in `_meta`. Claude Code's adapter
@@ -159,7 +176,10 @@ fn system_prompt(text: &str) -> SystemPrompt {
 /// home assistant, whose threads stand in for them, Claude Code drops its
 /// tools that start one and flsh its own (`flsh.subagents`). Other agents
 /// ignore what is not theirs.
-fn session_meta(subagents: bool) -> Meta {
+fn session_options(
+    subagents: bool,
+    brief: Option<AppendedSystemPrompt<'_>>,
+) -> (Meta, Option<SystemPrompt>) {
     let mut options = json!({"perTaskStopAffordance": true});
     let mut meta = Meta::new();
 
@@ -169,7 +189,20 @@ fn session_meta(subagents: bool) -> Meta {
     }
 
     meta.insert("claudeCode".to_owned(), json!({"options": options}));
-    meta
+
+    let system = brief.and_then(|brief| match brief.format {
+        SystemPromptFormat::Acp => Some(SystemPrompt::new(vec![ContentBlock::Text(
+            TextContent::new(brief.text),
+        )])),
+        SystemPromptFormat::Antigravity => {
+            meta.insert(
+                "antigravity".to_owned(),
+                json!({"systemPrompt": {"append": brief.text}}),
+            );
+            None
+        }
+    });
+    (meta, system)
 }
 
 /// `session/new` in `cwd`, with `brief` appended to the agent's system
@@ -178,15 +211,16 @@ fn session_meta(subagents: bool) -> Meta {
 pub(in crate::agents) fn new_session(
     cwd: &Path,
     mcp_servers: Vec<McpServer>,
-    brief: Option<&str>,
+    brief: Option<AppendedSystemPrompt<'_>>,
     subagents: bool,
 ) -> Result<UntypedMessage, agent_client_protocol::Error> {
+    let (meta, system) = session_options(subagents, brief);
     UntypedMessage::new(
         AGENT_METHOD_NAMES.session_new,
         NewSessionRequest::new(cwd)
             .mcp_servers(mcp_servers)
-            .system_prompt(brief.map(system_prompt))
-            .meta(session_meta(subagents)),
+            .system_prompt(system)
+            .meta(meta),
     )
 }
 
@@ -198,25 +232,25 @@ pub(in crate::agents) fn resume_session(
     session: SessionId,
     cwd: &Path,
     mcp_servers: Vec<McpServer>,
-    brief: Option<&str>,
+    brief: Option<AppendedSystemPrompt<'_>>,
     subagents: bool,
 ) -> Result<UntypedMessage, agent_client_protocol::Error> {
-    let brief = brief.map(system_prompt);
+    let (meta, system) = session_options(subagents, brief);
 
     match method {
         ResumeMethod::Load => UntypedMessage::new(
             AGENT_METHOD_NAMES.session_load,
             LoadSessionRequest::new(session, cwd)
                 .mcp_servers(mcp_servers)
-                .system_prompt(brief)
-                .meta(session_meta(subagents)),
+                .system_prompt(system)
+                .meta(meta),
         ),
         ResumeMethod::Resume => UntypedMessage::new(
             AGENT_METHOD_NAMES.session_resume,
             ResumeSessionRequest::new(session, cwd)
                 .mcp_servers(mcp_servers)
-                .system_prompt(brief)
-                .meta(session_meta(subagents)),
+                .system_prompt(system)
+                .meta(meta),
         ),
     }
 }

@@ -1,6 +1,7 @@
 //! Version negotiation and the session operations shared by both ACP versions.
 
 use super::{Offered, ResumeMethod, session};
+use session::SystemPromptFormat;
 use agent_client_protocol::{
     Error, JsonRpcMessage, UntypedMessage, v1::schema as v1, v2::schema as v2,
 };
@@ -20,7 +21,7 @@ pub(in crate::agents) struct Capabilities {
     pub protocol: Protocol,
     pub images: bool,
     pub steering: bool,
-    pub system_prompt: bool,
+    pub system_prompt: Option<SystemPromptFormat>,
     pub resume: Option<ResumeMethod>,
 }
 
@@ -95,7 +96,7 @@ impl Protocol {
                     protocol: Self::V1,
                     images: super::takes_images(&initialized),
                     steering: super::takes_steering(&initialized),
-                    system_prompt: super::takes_system_prompt(&initialized),
+                    system_prompt: session::system_prompt_format(&initialized),
                     resume: super::resume_method(&initialized),
                 })
             }
@@ -114,7 +115,9 @@ impl Protocol {
                         .and_then(|s| s.prompt.as_ref())
                         .is_some_and(|p| p.image.is_some()),
                     steering: false,
-                    system_prompt: session.is_some_and(|s| s.system_prompt.is_some()),
+                    system_prompt: session
+                        .and_then(|s| s.system_prompt.as_ref())
+                        .map(|_| SystemPromptFormat::Acp),
                     resume: Some(ResumeMethod::Load),
                 })
             }

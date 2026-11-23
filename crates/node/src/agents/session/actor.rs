@@ -1071,7 +1071,9 @@ impl Actor {
         cx: &ConnectionTo<Agent>,
         initialized: &acp::Capabilities,
     ) -> Option<End> {
-        let takes_system = initialized.system_prompt;
+        let system_format = initialized.system_prompt;
+        let takes_system = system_format.is_some();
+        let append = |text| system_format.map(|format| format.append(text));
         if self.instructions.is_some() && !takes_system {
             return Some(End::Failed(format!(
                 "{} cannot apply saved instructions. Use an adapter that supports ACP system prompts.",
@@ -1101,7 +1103,7 @@ impl Actor {
             match acp::new_session(
                 &self.cwd,
                 self.mcp_servers.clone(),
-                system.as_deref(),
+                system.as_deref().and_then(append),
                 self.subagents,
             ) {
                 Ok(request) => self.send(cx, request, Reply::NewSession),
@@ -1133,7 +1135,7 @@ impl Actor {
             session.clone(),
             &self.cwd,
             self.mcp_servers.clone(),
-            system.as_deref(),
+            system.as_deref().and_then(append),
             self.subagents,
         ) {
             Ok(request) => self.send(cx, request, |result| Reply::Resumed(session, result)),

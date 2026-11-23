@@ -17,7 +17,7 @@ pub(super) use prompt::{Prompt, SteeringOutcome, prompt, steering, takes_images,
 pub(super) use session::{
     MAX_MODELS, ModelSwitch, Offered, PLAN_MODE, ResumeMethod, initialize, new_session, offers,
     resume_method, resume_session, session_created, set_effort, set_fast, startup_banner,
-    switch_model, takes_system_prompt, wire_name,
+    switch_model, wire_name,
 };
 pub(super) use tasks::{AsyncTask, async_task, stop_task};
 pub(super) use transport::transport;
