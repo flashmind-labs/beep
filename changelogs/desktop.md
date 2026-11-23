@@ -7,6 +7,41 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.18] - 2026-11-23
+
+### Added
+
+- Desktop: select and install root and nested skills independently in Settings > Skills.
+- Desktop: Settings, Agent accounts has an Antigravity card that shows
+  whether each machine is signed in, with a Sign in button for a machine
+  that is not. The sheet shows Google's sign-in link and takes the code the
+  page gives. Antigravity allows one minute for it.
+- Desktop: A machine's Sign-ins list offers Sign in for Antigravity too.
+- Desktop: the machine's MCP servers editor offers Antigravity beside
+  Codex and Claude Code, with add, edit, disable, remove and copy for its
+  stdio and Streamable HTTP servers.
+- Desktop: `Cmd+K` includes quick actions for new sessions, projects, terminals, machines, keyboard shortcuts, problem reporting, and settings including appearance, instructions, and plugins.
+- Desktop: Right-clicking another coding agent session while viewing a session offers `Open beside` to follow, steer, and answer it in a split dock tab.
+
+### Changed
+
+- Desktop: Home's Review deck displays checkout line additions and deletions, a Close button, and an inline quick-reply field to message idle sessions.
+- Desktop: Light skins (`Light`, `Solarized`, `macOS`, `Warm`) use crisp light card fills, subtle top-edge highlights, and softer shadows.
+- Desktop: Session headers arrange in a single aligned row without overlapping tools when resized.
+- Desktop: the usage pill now shows Antigravity's and OpenRouter's icons instead of text labels.
+
+### Fixed
+
+- Desktop: moving the assistant panel to the bottom keeps Changes there when opening a project session.
+- Desktop: assistant usage includes billed OpenRouter costs across models and keeps each machine's share when a chat moves.
+- Desktop: after Esc shows all chats on macOS, the window's buttons no longer
+  cover the page title.
+- Desktop: open HTML previews refresh after an agent edits the file, even when its size stays the same.
+
+### Performance
+
+- Desktop: Faster window startup, smoother conversation scrolling, and GPU-accelerated living paintings.
+
 ## [0.10.17] - 2026-11-22
 
 ### Changed
