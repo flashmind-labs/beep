@@ -30,6 +30,19 @@ desktop-build:
     cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app
     bash scripts/package-macos-dmg.sh "${CARGO_TARGET_DIR:-target}/release/bundle/macos/Beep.app" target/beep-macos.dmg
 
+# Unsigned and without the updater: update it by running this again.
+# Build the desktop app, quit Beep, replace /Applications/Beep.app and open it
+install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    (cd apps/desktop && npm ci --silent)
+    (cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app)
+    osascript -e 'quit app "Beep"' 2>/dev/null || true
+    while pgrep -xq Beep; do sleep 0.5; done
+    rm -rf /Applications/Beep.app
+    ditto "${CARGO_TARGET_DIR:-target}/release/bundle/macos/Beep.app" /Applications/Beep.app
+    open /Applications/Beep.app
+
 # Build the desktop DMG signed with a Developer ID from the keychain, with
 # the native updater as the release workflow builds it.
 desktop-build-signed:
