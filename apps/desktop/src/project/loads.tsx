@@ -27,6 +27,7 @@ import { currentLocation, go, windowAlone } from "../center/views.tsx";
 import { projectRows, importSheet, addProject, importFromPage, loadFound, drawRail, openProjects } from "../center/sidebar.tsx";
 import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage, repairButton } from "./sections.ts";
 import { drawProjects } from "./page.tsx";
+import { sessionsDeleted } from "../agents/sessions.ts";
 import { refresh, onScreen } from "../center/refresh.ts";
 import { openAddToMachine } from "./addmachine.tsx";
 import { runningKey, type RunningAgent } from "../agents/running-state.ts";
@@ -442,6 +443,17 @@ export function elsewhereSection(rows: Project[], enabled: boolean) {
 // shows them, and the rail beside one of its sessions.
 const shownSessions = () => currentLocation()?.view === "projects" ? state.picked : railProject(shell.getState().side.rail);
 const projectSessionsShown = () => !!shownSessions();
+// A deleted session leaves the projects' lists at once, and they are read again.
+sessionsDeleted.add(gone => {
+  for (const [name, list] of state.sessions) {
+    if (!list.some(row => row.machine_id === gone.machine_id && row.id === gone.id)) continue;
+    state.sessions.set(name, list.filter(row => row.machine_id !== gone.machine_id || row.id !== gone.id));
+    sessionsDue.add(name);
+    if (railProject(shell.getState().side.rail) === name) drawRail();
+    if (currentLocation()?.view === "projects" && state.picked === name) drawProjects();
+  }
+});
+
 async function refreshProjectSessions() {
   const name = shownSessions();
   if (name) { sessionsDue.add(name); await loadSessions(name); }

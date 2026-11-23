@@ -9,7 +9,7 @@ import { invoke } from "../ui/tauri.ts";
 import { openInEditor } from "../project/editors.ts";
 import { chatFolder } from "./nesting-state.ts";
 import type { AgentRow } from "./agents.ts";
-import { parentSession, loadSessions, sessions } from "./sessions.ts";
+import { forgetSession, parentSession, loadSessions, sessions } from "./sessions.ts";
 import { type SideWork, sessionOffers, stopAllAsks } from "./sessionmenu-state.ts";
 import { AG, AGENT_ACTIVE, openOf, where } from "./agents.ts";
 import { sameSession } from "./running-state.ts";
@@ -123,13 +123,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
           title: "Delete this session?",
           text: `Its conversation is removed from ${s.machine_name || "the machine"} for good. A terminal or IDE that has it open is closed.`,
           action: "Delete",
-          run: async () => {
-            await invoke("agent_delete", at);
-            forgetView(s.machine_id, s.id);
-            forgetTranscript(openOf(s));
-            forgetLog(s);
-            await loadSessions().catch(err => console.warn("agent sessions:", err));
-          },
+          run: () => deleteSession(s),
         }),
       });
     }
@@ -142,4 +136,22 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
   // Shown at once with what is known; the folder and the mesh fill in a moment later.
   const update = openMenu(e, s.title || "Session", build(null, false));
   update(build(await folder, await reachable));
+}
+
+/// Deletes ended session `s` from its machine and from every list here. A
+/// session the machine no longer has, deleted elsewhere or before, is gone
+/// all the same: only one it still lists is an error.
+export async function deleteSession(s: AgentRow) {
+  try {
+    await invoke("agent_delete", where(openOf(s)));
+  } catch (e) {
+    const listed = await loadSessions().then(list => list.some(row => row.machine_id === s.machine_id && row.id === s.id), () => true);
+    if (listed) throw e;
+  }
+
+  forgetView(s.machine_id, s.id);
+  forgetTranscript(openOf(s));
+  forgetLog(s);
+  forgetSession(s);
+  await loadSessions().catch(err => console.warn("agent sessions:", err));
 }

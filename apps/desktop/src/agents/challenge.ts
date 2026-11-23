@@ -5,6 +5,7 @@ import { isStarting, type AgentStarted } from "./starting-state.ts";
 import { AG, AGENT_READ_WAIT_MS, type AgentPage, type AgentRow, type AgentSession, type Started } from "./agents.ts";
 import type { Tree } from "../agentpane/worktree-state.ts";
 import { closeSession } from "./closing.ts";
+import { deleteSession } from "./sessionmenu.ts";
 import { challengePrompt, challengeResult, challengeStep, challenges, findingDraft, updateChallenges, type Challenge } from "./challenge-state.ts";
 import type { Picked } from "./agentpicker.tsx";
 import { openingOf } from "./report-state.ts";
@@ -39,16 +40,16 @@ async function workFolder(s: AgentRow) {
 /// Stops the challenger and removes it: its session, and the copy it
 /// worked in, which goes with the session's close.
 export async function stopChallenger(key: string, c: Challenge) {
-  const ref = { machine_id: c.challenger.machine, id: c.challenger.session, agent: c.challenger.agent };
-  await closeSession(ref);
+  const row = findSession(c) ?? { machine_id: c.challenger.machine, machine_name: "", id: c.challenger.session, agent: c.challenger.agent, cwd: "", status: "working", external: false };
+  await closeSession(row);
   updateChallenges(key, list => list.filter(d => !sameChallenger(d, c)));
 
   // Deleted once the close has ended it; a harness that keeps its sessions in
   // a database keeps it. A start its machine has not named is gone with the close.
-  for (let tries = 0; !isStarting(ref.id) && tries < DELETE_TRIES; tries++) {
+  for (let tries = 0; !isStarting(row.id) && tries < DELETE_TRIES; tries++) {
     try {
-      await invoke("agent_delete", { machineId: ref.machine_id, agent: ref.agent, session: ref.id });
-      break;
+      await deleteSession(row);
+      return;
     } catch {
       await new Promise(resolve => setTimeout(resolve, DELETE_WAIT_MS));
     }

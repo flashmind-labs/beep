@@ -28,6 +28,15 @@ export function keepNativeSession(row: AgentSession, parent?: AgentRow) {
 
 export const parentSession = (row: AgentRow) => parentRow(sessions, row) ?? nativeParents.get(sessionKey(row));
 
+/// Called with each session deleted from here, for every list that holds it to drop it.
+export const sessionsDeleted = new Set<(s: { machine_id: string; id: string }) => void>();
+
+/// Drops deleted session `s` from the sessions and from every list that holds it.
+export function forgetSession(s: { machine_id: string; id: string }) {
+  sessions = sessions.filter(row => row.machine_id !== s.machine_id || row.id !== s.id);
+  for (const f of sessionsDeleted) f(s);
+}
+
 let loading: Promise<AgentSession[]> | null = null;
 /// Called after each read of the sessions, with the new list in `sessions`.
 export const sessionsRead = new Set<() => void>();

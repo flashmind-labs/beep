@@ -972,6 +972,51 @@ test("agent report challenger that asks, then goes", async ({ page }) => {
   await expect(report.locator(".report-note")).toHaveText("Its session is gone.");
 });
 
+test("a deleted session leaves the project's past sessions at once", async ({ page }) => {
+  await openProject(page, { agent_deletable: true, agent_delete: null });
+  await page.getByRole("button", { name: "Sessions 6 past" }).click();
+  const row = (n: number) => page.locator(".pv-row").filter({ hasText: `Past session ${n}` });
+  await expect(row(2)).toBeVisible();
+
+  // Once deleted, the machine no longer lists it, and neither does the page.
+  await row(2).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await page.evaluate(rows => window.__navigation.respond("project_sessions", rows), pastSessions.filter(row => row.id !== "past-1"));
+  await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(row(2)).toHaveCount(0);
+  await expect(row(1)).toBeVisible();
+});
+
+test("deleting a session its machine no longer has removes it without an error", async ({ page }) => {
+  await openProject(page, { agent_deletable: true, agent_delete: null });
+  await page.getByRole("button", { name: "Sessions 6 past" }).click();
+  const row = (n: number) => page.locator(".pv-row").filter({ hasText: `Past session ${n}` });
+  await row(2).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+
+  // Deleted elsewhere: the machine says it has no such session, and lists none.
+  await page.evaluate(rows => {
+    window.__navigation.respond("project_sessions", rows);
+    window.__navigation.rejectOnce("agent_delete", "build-box: there is no codex session past-1 on this machine");
+  }, pastSessions.filter(row => row.id !== "past-1"));
+  await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(row(2)).toHaveCount(0);
+});
+
+test("deleting a session its machine still lists says why it failed", async ({ page }) => {
+  await openProject(page, { agent_deletable: true, agent_delete: null, agent_sessions: pastSessions });
+  await page.getByRole("button", { name: "Sessions 6 past" }).click();
+  const row = (n: number) => page.locator(".pv-row").filter({ hasText: `Past session ${n}` });
+  await row(2).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await page.evaluate(() => window.__navigation.rejectOnce("agent_delete", "build-box: session past-1 still runs here; close it first"));
+  await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByRole("dialog")).toContainText("still runs here");
+  await expect(row(2)).toBeVisible();
+});
+
 test("agent report summarized in place", async ({ page }) => {
   const summary = "Done: the redirect keeps the query string.\n\n- Keep `?next=` for one release: the mobile app sends it.";
   const summaryHtml = "<p>Done: the redirect keeps the query string.</p>\n<ul>\n<li>Keep <code>?next=</code> for one release: the mobile app sends it.</li>\n</ul>";
