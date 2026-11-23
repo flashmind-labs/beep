@@ -7,7 +7,7 @@ use super::{
     ledger::{Bucket, BucketKey, Part, UNKNOWN_MODEL},
 };
 use crate::agents::claude::unix_seconds;
-use crate::agents::found::{Agent, open_database, unix_secs};
+use crate::agents::found::{Agent, open_database};
 use crate::agents::prices::Tokens;
 use crate::agents::window::head_lines;
 use beep_proto::{ModelId, SessionId, node::usage::Billing};
@@ -142,8 +142,7 @@ pub(super) fn flsh(
             model: row.get(2)?,
             totals,
             turns: Vec::new(),
-            started: None,
-            last: count(last.unwrap_or(0)),
+            legacy_at: last.map(count),
         };
         add_flsh(&mut parts, session, None, accounts);
     }
@@ -154,8 +153,7 @@ pub(super) fn flsh(
 /// What a flsh session file spent beyond `counted`, which was counted
 /// where it ran before it moved here: each turn of its header's
 /// `usage_log` in its own hour, and what its `total_usage` has beyond them
-/// at the first turn, or in the hour the file last changed when no turn was
-/// logged. flsh writes the whole file on each change.
+/// at the first dated message or turn. flsh rewrites the file on resume.
 pub(super) fn flsh_file(
     path: &Path,
     counted: Option<&Counted>,
@@ -241,16 +239,18 @@ pub(super) fn flsh_counted(path: &Path) -> std::io::Result<Option<Counted>> {
 }
 
 fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
-    let modified = std::fs::metadata(path)?.modified()?;
     let mut lines = head_lines(path, MAX_HEADER)?;
     let Some(Ok(header)) = lines.next().map(|l| serde_json::from_str::<FlshHeader>(&l)) else {
         return Ok(None);
     };
-    // The first message tells when the session started.
-    let started = lines
-        .next()
-        .and_then(|line| serde_json::from_str::<FlshMessage>(&line).ok())
-        .and_then(|message| unix_seconds(&message.timestamp));
+    let started = lines.find_map(|line| {
+        let message: FlshMessage = serde_json::from_str(&line).ok()?;
+        // flsh can replace the system prompt when a conversation resumes.
+        match message.kind.as_str() {
+            "user" | "assistant" | "tool" => unix_seconds(&message.timestamp),
+            _ => None,
+        }
+    });
     let Some(cwd) = header.metadata.working_dir else {
         return Ok(None);
     };
@@ -260,8 +260,7 @@ fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
         model: header.metadata.model.unwrap_or_default(),
         totals: header.metadata.total_usage.unwrap_or_default(),
         turns: header.metadata.usage_log,
-        started,
-        last: unix_secs(modified),
+        legacy_at: started,
     }))
 }
 
@@ -277,6 +276,8 @@ struct FlshHeader {
 
 #[derive(Deserialize)]
 struct FlshMessage {
+    #[serde(rename = "type")]
+    kind: String,
     timestamp: String,
 }
 
@@ -363,16 +364,14 @@ struct FlshSession {
     model: String,
     totals: FlshTotals,
     turns: Vec<FlshTurn>,
-    /// Unix seconds of its first message, when known.
-    started: Option<u64>,
-    /// Unix seconds of its last change.
-    last: u64,
+    /// First dated file message, or last entry for a database that only keeps totals.
+    legacy_at: Option<u64>,
 }
 
 /// Adds what `session` spent beyond `counted` to `parts`: each turn in its
 /// hour, and what the totals have beyond the turns, spent before flsh
-/// logged turns: at the session's start when it logged turns, else at its
-/// last change. `counted` is taken from the oldest spend first.
+/// logged turns, at the earliest known time. Undated totals have no reporting
+/// hour. `counted` is taken from the oldest spend first.
 fn add_flsh(
     parts: &mut BTreeMap<SessionId, Part>,
     session: FlshSession,
@@ -385,8 +384,7 @@ fn add_flsh(
         model,
         totals,
         turns,
-        started,
-        last,
+        legacy_at,
     } = session;
 
     let mut logged = Counted::default();
@@ -396,13 +394,14 @@ fn add_flsh(
     }
 
     let (earlier, _) = Counted::from(&totals).beyond(logged);
-    let first = turns
-        .first()
-        .map_or(last, |turn| started.unwrap_or(turn.at).min(turn.at));
+    let first = legacy_at
+        .into_iter()
+        .chain(turns.iter().map(|turn| turn.at))
+        .min();
     let spends =
         std::iter::once((first, model.clone(), earlier, None)).chain(turns.iter().map(|turn| {
             let model = turn.model.clone().unwrap_or_else(|| model.clone());
-            (turn.at, model, Counted::from(turn), turn.cost_known)
+            (Some(turn.at), model, Counted::from(turn), turn.cost_known)
         }));
     let mut before = counted.copied().unwrap_or_default();
     let part = parts.entry(id.clone()).or_default();
@@ -411,6 +410,7 @@ fn add_flsh(
     for (at, model, spend, cost_known) in spends {
         let (spend, left) = spend.beyond(before);
         before = left;
+        let Some(at) = at else { continue };
         let cached = spend.cached.min(spend.input);
         let tokens = Tokens {
             input: spend.input - cached,
@@ -490,7 +490,7 @@ pub(super) mod tests {
         let path = dir.path().join("a.jsonl");
         let usage = |input: u64, cached: u64, cost: &str| {
             format!(
-                "{{\"type\":\"system\",\"subtype\":\"session_metadata\",\"version\":2,\"sessionId\":\"c1\",\"metadata\":{{\"model\":\"openrouter:example/model\",\"working_dir\":\"/srv/project\",\"total_usage\":{{\"input_tokens\":{input},\"cached_input_tokens\":{cached},\"output_tokens\":50,\"total_cost\":\"{cost}\",\"tokens_unknown\":false,\"cost_unknown\":false}}}}}}\n{{\"type\":\"user\"}}\n"
+                "{{\"type\":\"system\",\"subtype\":\"session_metadata\",\"version\":2,\"sessionId\":\"c1\",\"metadata\":{{\"model\":\"openrouter:example/model\",\"working_dir\":\"/srv/project\",\"total_usage\":{{\"input_tokens\":{input},\"cached_input_tokens\":{cached},\"output_tokens\":50,\"total_cost\":\"{cost}\",\"tokens_unknown\":false,\"cost_unknown\":false}}}}}}\n{{\"type\":\"user\",\"timestamp\":\"2026-10-31T08:02:00Z\"}}\n"
             )
         };
         fs::write(&path, usage(1000, 400, "0.42")).expect("a session file");

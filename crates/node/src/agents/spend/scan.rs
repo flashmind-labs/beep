@@ -375,7 +375,11 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
             None
         };
         let previous = ledger.databases.get(path);
-        if previous.is_some_and(|read| read.stamp == stamp && read.billed_stamp == billed_stamp) {
+        if previous.is_some_and(|read| {
+            read.stamp == stamp
+                && read.billed_stamp == billed_stamp
+                && (!flsh_file || read.uses_transcript_dates)
+        }) {
             continue;
         }
 
@@ -399,6 +403,7 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
 
         match read {
             Ok(parts) => {
+                entry.uses_transcript_dates = flsh_file;
                 for session in changed_sessions(&entry.parts, &parts) {
                     ledger.unsent.insert(SessionKey {
                         agent: *agent,

@@ -212,6 +212,9 @@ pub(super) struct Database {
     pub(super) stamp: Stamp,
     #[serde(default)]
     pub(super) billed_stamp: Option<Stamp>,
+    /// Older flsh caches used file modification time for undated turns.
+    #[serde(default)]
+    pub(super) uses_transcript_dates: bool,
     pub(super) parts: BTreeMap<SessionId, Part>,
     /// For a flsh session file that moved here: what it had spent on the
     /// machine it came from.

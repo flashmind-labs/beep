@@ -408,3 +408,58 @@ fn imported_openrouter_hours_replace_estimates_after_the_session_was_scanned() {
     fs::remove_file(billed).unwrap();
     assert!(!by_session(&spend.pass_all(NOW)).contains_key("chat"));
 }
+
+#[test]
+fn resuming_a_legacy_flsh_session_corrects_its_cached_hour() {
+    let mut fixture = fixture();
+    let root = fixture._dir.path().join("flsh");
+    let path = root.join("folder/session.jsonl");
+    let header = serde_json::json!({
+        "sessionId": "chat",
+        "metadata": {
+            "working_dir": "/srv/project",
+            "model": "openrouter:example",
+            "total_usage": {"input_tokens": 40, "total_cost": "0.50"}
+        }
+    });
+    append(&path, &format!("{header}\n{{}}\n"));
+    append(
+        &path,
+        "{\"type\":\"system\",\"timestamp\":\"2026-11-03T09:00:00Z\"}\n",
+    );
+    append(
+        &path,
+        "{\"type\":\"user\",\"timestamp\":\"2026-11-02T09:04:00Z\"}\n",
+    );
+    fixture.roots.flsh = Some(root);
+    let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
+    for report in spend.pass(NOW) {
+        spend.sent(&report);
+    }
+    assert!(spend.pass(NOW).is_empty());
+    drop(spend);
+
+    let mut cache: serde_json::Value =
+        serde_json::from_slice(&fs::read(&fixture.ledger).unwrap()).unwrap();
+    let database = &mut cache["databases"][path.to_str().unwrap()];
+    database
+        .as_object_mut()
+        .unwrap()
+        .remove("uses_transcript_dates");
+    database["parts"]["chat"]["buckets"][0][0]["hour"] = NOW.into();
+    fs::write(&fixture.ledger, serde_json::to_vec(&cache).unwrap()).unwrap();
+
+    let spend = Spend::at(fixture.roots, fixture.ledger);
+    let corrected = spend.pass(NOW);
+    let chat = by_session(&corrected)["chat"];
+    assert_eq!(chat.hours.len(), 1);
+    assert_eq!(chat.hours[0].hour, NOW - 86400);
+    assert_eq!(cost(chat), 0.50);
+    spend.sent(chat);
+
+    append(
+        &path,
+        "{\"type\":\"user\",\"timestamp\":\"2026-11-03T09:03:00Z\"}\n",
+    );
+    assert!(spend.pass(NOW).is_empty());
+}
