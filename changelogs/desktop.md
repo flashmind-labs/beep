@@ -7,6 +7,13 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.23] - 2026-11-23
+
+### Fixed
+
+- Desktop: Pi models show their provider beside the model name.
+- Desktop: saved instructions now work with Pi and agents without system-prompt support.
+
 ## [0.10.22] - 2026-11-23
 
 ### Added

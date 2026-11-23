@@ -2,6 +2,13 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.17] - 2026-11-23
+
+### Fixed
+
+- Node: Pi model lists include provider metadata for model pickers.
+- Node: saved instructions now work with Pi and agents without system-prompt support.
+
 ## [0.8.16] - 2026-11-23
 
 ### Added
