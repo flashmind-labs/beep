@@ -135,7 +135,7 @@ const TabView = memo(function TabView({ tab, hidden }: { tab: MediaTab; rev: num
   const machine = P.session?.machine_id ?? null;
   if (tab.kind === "term" && tab.term && !tab.error) return <TermView tab={tab} term={tab.term} hidden={hidden} />;
   if (tab.kind === "session" && tab.splitSession) return <div className="agpview agsplit-view" hidden={hidden}><SessionTabView session={tab.splitSession} hidden={hidden} close={() => closeTab(tab.id)} /></div>;
-  const ready = !tab.error && (tab.kind === "text" ? !!tab.text : tab.kind === "term" ? false : tab.kind === "model" ? !!tab.bytes : !!tab.url);
+  const ready = !tab.error && (tab.kind === "text" ? !!tab.text : tab.kind === "term" ? false : tab.kind === "model" ? !!tab.bytes : !!(tab.url || tab.exported));
   return <div className="agpview" hidden={hidden}>{!ready ? <PendingView tab={tab} />
     : tab.kind === "text" && tab.text ? <TextView tab={tab} text={tab.text} />
     : tab.kind === "image" ? <ImageView tab={tab} machine={machine} />

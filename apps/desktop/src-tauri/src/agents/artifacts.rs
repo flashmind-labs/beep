@@ -22,23 +22,25 @@
 
 use crate::{
     agents::files::read_part,
-    chat::markdown,
+    chat::{files::free_name, markdown},
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{AGENT_FILE_CHUNK, ReadWorkFile};
 use percent_encoding::percent_decode_str;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::VecDeque,
+    io::{ErrorKind, Write},
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU32, AtomicU64, Ordering},
     },
 };
 use tauri::{
-    State,
+    AppHandle, State,
     http::{Request, Response, StatusCode, header},
 };
 use tokio::sync::Semaphore;
@@ -73,10 +75,101 @@ const PAGE_CSP: &str = "default-src 'none'; \
     script-src 'unsafe-inline' 'unsafe-eval' https: beepview:; \
     style-src 'unsafe-inline' https: beepview:; img-src data: blob: https: beepview:; \
     font-src data: https: beepview:; media-src data: blob: https: beepview:; \
-    connect-src https: beepview:; frame-src 'none'; form-action 'none'; \
+    connect-src https: beepview: blob: data:; frame-src 'none'; form-action 'none'; \
     base-uri 'none'; sandbox allow-scripts";
 
 const PANE_SCRIPT: &[u8] = include_bytes!("preview-script.html");
+
+const MAX_EXPORT_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PreviewExport {
+    Svg,
+    Pdf,
+}
+
+impl PreviewExport {
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Svg => "svg",
+            Self::Pdf => "pdf",
+        }
+    }
+}
+
+/// Saves bytes from an HTML preview to this device's usual download folder.
+#[tauri::command]
+pub async fn agent_preview_export(
+    app: AppHandle,
+    name: String,
+    kind: PreviewExport,
+    data: String,
+) -> Result<PathBuf> {
+    tauri::async_runtime::spawn_blocking(move || {
+        save_preview_export(&crate::platform::saves_dir(&app)?, &name, kind, &data)
+    })
+    .await
+    .map_err(anyhow::Error::from)?
+}
+
+fn save_preview_export(dir: &Path, name: &str, kind: PreviewExport, data: &str) -> Result<PathBuf> {
+    let too_large = || DesktopError::BadRequest("The export is larger than 16 MB.".into());
+    if data.len() > MAX_EXPORT_BYTES.div_ceil(3) * 4 {
+        return Err(too_large());
+    }
+
+    let bytes = STANDARD
+        .decode(data)
+        .map_err(|_| DesktopError::BadRequest("Could not read the export.".into()))?;
+    if bytes.len() > MAX_EXPORT_BYTES {
+        return Err(too_large());
+    }
+    if bytes.is_empty() || (matches!(kind, PreviewExport::Pdf) && !bytes.starts_with(b"%PDF-")) {
+        return Err(DesktopError::BadRequest(
+            "The export has invalid file contents.".into(),
+        ));
+    }
+
+    std::fs::create_dir_all(dir).map_err(anyhow::Error::from)?;
+    let mut temp = tempfile::NamedTempFile::new_in(dir).map_err(anyhow::Error::from)?;
+    temp.write_all(&bytes).map_err(anyhow::Error::from)?;
+    let name = export_name(name, kind);
+    let path = free_name(dir, &name);
+
+    match temp.persist_noclobber(&path) {
+        Ok(_) => Ok(path),
+        // A concurrent save or a dangling symlink can occupy the chosen name.
+        Err(error) if error.error.kind() == ErrorKind::AlreadyExists => {
+            let path = dir.join(format!("{} {name}", Uuid::new_v4()));
+            error
+                .file
+                .persist_noclobber(&path)
+                .map_err(anyhow::Error::from)?;
+            Ok(path)
+        }
+        Err(error) => Err(anyhow::Error::from(error).into()),
+    }
+}
+
+fn export_name(name: &str, kind: PreviewExport) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let stem = base.rsplit_once('.').map_or(base, |(stem, _)| stem);
+    let stem: String = stem
+        .chars()
+        .take(48)
+        .map(|ch| {
+            if ch.is_control() || "<>:\"|?*".contains(ch) {
+                '_'
+            } else {
+                ch
+            }
+        })
+        .collect();
+    let stem = stem.trim_matches([' ', '.']);
+    let stem = if stem.is_empty() { "export" } else { stem };
+    format!("{stem}.{}", kind.extension())
+}
 
 /// The HTML pages ready to serve, by the token in their URL.
 pub struct Pages {

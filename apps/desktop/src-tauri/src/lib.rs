@@ -200,6 +200,7 @@ pub fn run() {
             agents::artifacts::agent_artifact,
             agents::artifacts::agent_artifacts_present,
             agents::artifacts::agent_page_files,
+            agents::artifacts::agent_preview_export,
             agents::custom::custom_agents,
             agents::diff::work_diff,
             agents::review::agent_review_start,

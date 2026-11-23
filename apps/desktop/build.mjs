@@ -2,7 +2,7 @@
 // `--watch` rebuilds on every change, for `cargo tauri dev`.
 import * as esbuild from "esbuild";
 import { buildPlugins } from "./build-plugins.mjs";
-import { copyFileSync, cpSync, readdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 
 await buildPlugins([], process.argv.includes("--watch"));
 
@@ -17,6 +17,14 @@ copyFileSync(
 // Chunks from earlier builds, named by their hash, would ship with the app.
 const dist = new URL("dist/", import.meta.url);
 for (const f of readdirSync(dist)) if (/-[A-Z0-9]{8}\.js$/.test(f)) rmSync(new URL(f, dist));
+
+const pdf = new URL("node_modules/pdfjs-dist/", import.meta.url);
+const pdfAssets = new URL("pdfjs/", dist);
+mkdirSync(pdfAssets, { recursive: true });
+copyFileSync(new URL("legacy/build/pdf.worker.min.mjs", pdf), new URL("pdf-worker.js", pdfAssets));
+for (const dir of ["cmaps", "iccs", "standard_fonts", "wasm"]) {
+  cpSync(new URL(dir, pdf), new URL(dir, pdfAssets), { recursive: true });
+}
 
 const options = {
   absWorkingDir: import.meta.dirname,

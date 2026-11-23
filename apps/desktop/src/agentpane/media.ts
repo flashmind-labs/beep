@@ -110,6 +110,8 @@ export interface MediaTab {
   viewHidden: boolean;
   /// What a save or copy said, shown in its footer.
   note: string | null;
+  /// Local copy of an HTML export, and the preview it came from.
+  exported?: { path: string; blob: Blob; source: { tab: string; url: string } };
   /// A video or audio tab's element, and where it stood when its view went.
   player: HTMLMediaElement | null;
   playerAt: number;
@@ -305,6 +307,17 @@ export function openPicture(url: string, name: string) {
   open({ id: url, kind: "image", name: baseName(name), path: null, url });
 }
 
+export function openPreviewExport(path: string, blob: Blob, source: { tab: string; url: string }) {
+  const name = baseName(path.replaceAll("\\", "/"));
+  const id = `export:${path}`;
+  if (P.tabs.some(tab => tab.id === id)) return focusTab(id);
+
+  const kind = blob.type === "application/pdf" ? "pdf" : "image";
+  const url = kind === "image" ? URL.createObjectURL(blob) : null;
+  P.moved.set(id, dockOf(source.tab));
+  open({ id, kind, name, path: null, url, size: blob.size, note: `Saved to ${savedIn(path)}`, exported: { path, blob, source } });
+}
+
 /// Opens the file at `path` (relative to the session's folder, absolute, or
 /// under `~/`) on the session's machine, when it is one the pane shows.
 export function openPath(path: string) {
@@ -323,7 +336,7 @@ function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Parti
     if (!tab.error) {
       if (tab.kind === "text") loadText(tab);
       else if (tab.kind === "term") startTerminal(tab);
-      else if (!tab.url) load(tab);
+      else if (!tab.url && !tab.exported) load(tab);
     }
   }
 
@@ -552,7 +565,8 @@ export function closeTab(id: string) {
   // The neighbour in the same dock shows next.
   if (P.on[d] === id) {
     const left = docked()[d];
-    P.on[d] = P.tabs.slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES;
+    const source = tab.exported?.source.tab;
+    P.on[d] = source && left.includes(source) ? source : P.tabs.slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES;
   }
 
   rememberPane();
@@ -733,7 +747,7 @@ export function rememberPane() {
   const key = viewKey(P.session.machine_id, P.session.id);
   const pending = P.tabs.filter(t => t.kind === "term" && !t.term && !t.existing && !t.closed);
   if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
-  writeView(windowPreferenceKey(key), { on: P.on, layout: keptLayout(), zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed).map(savedTab) });
+  writeView(windowPreferenceKey(key), { on: P.on, layout: keptLayout(), zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed && !t.exported).map(savedTab) });
 }
 
 function savedTab(t: MediaTab) {

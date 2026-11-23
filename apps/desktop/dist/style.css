@@ -375,6 +375,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agpstage video { max-width: 100%; max-height: 100%; outline: 0 }
 .agpstage.audio audio { width: min(100% - 24px, 520px); outline: 0 }
 .agpstage.pdf { display: flex } .agpstage.pdf iframe { flex: 1; border: 0; background: #fff }
+.agpstage.pdf-export { display: block; overflow: auto }
+.agpstage.pdf-export canvas:not([hidden]) { display: block; width: 100%; height: auto }
 .agpstage.model canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none }
 .agpmsg { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 20px; font-size: 13px; color: var(--muted); text-align: center }
 .agpmsg.derr { color: var(--hot) }

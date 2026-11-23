@@ -148,7 +148,10 @@ function syncDock(d: Dock, ids: string[]) {
   // The Changes view is made the first time it shows, as it runs git; shown
   // again, it reads only when the folder changed.
   if (ids.includes(CHANGES)) changesMade = changesTab(on === CHANGES, on === CHANGES && !folded);
-  if (ids.includes(ARTS)) artifactsTab(on === ARTS, on === ARTS && !folded);
+  if (ids.includes(ARTS)) {
+    const source = P.tabs.find(t => t.id === on)?.exported?.source;
+    artifactsTab(on === ARTS, on === ARTS && !folded, !folded && source?.tab === ARTS ? source.url : null);
+  }
 
   for (const t of P.tabs) {
     if (!ids.includes(t.id)) continue;

@@ -67,11 +67,12 @@ function syncSession() {
 
 /// Whether the tab shows in its dock, as the pane last drew it.
 let tabShown = false;
+let coveredPreview: string | null = null;
 
 /// The pane drew the Artifacts tab: `on` when it is the dock's tab on
 /// screen, `visible` when it can be seen. Drawn the first time for a
 /// session, it reads the picked artifact.
-export function artifactsTab(on: boolean, visible: boolean) {
+export function artifactsTab(on: boolean, visible: boolean, covered: string | null) {
   syncSession();
 
   if (!A.made) {
@@ -82,16 +83,18 @@ export function artifactsTab(on: boolean, visible: boolean) {
   }
 
   tabShown = visible;
+  coveredPreview = covered;
   liveFrames();
   if (on) checkArtifacts();
 }
 
-/// A page runs its scripts only while it can be seen: out of sight its
-/// frame is emptied, and loaded again when it shows.
+/// Keep the source page running while its export covers it, too.
 const isLive = () => tabShown && paneShown() && !folded.has(A.key);
+const keepFrame = () => paneShown() && !folded.has(A.key) &&
+  (tabShown || (preview?.value.kind === "html" && preview.value.src === coveredPreview));
 
 function liveFrames() {
-  if (isLive() !== drawnLive) render();
+  if (keepFrame() !== drawnLive) render();
 }
 
 onShownChange(liveFrames, true);
@@ -190,7 +193,7 @@ function render() {
   const s = paneSession(), a = picked();
   if (!A.made || !s || A.key !== `${s.machine_id}\n${s.cwd}`) return;
   const fold = folded.has(A.key), inside = !!a && relativeTo(s.cwd, a.path) !== null && !A.gone.has(a.path);
-  drawnLive = isLive();
+  drawnLive = keepFrame();
   artifactsModel.setState({
     folded: fold,
     model: {
