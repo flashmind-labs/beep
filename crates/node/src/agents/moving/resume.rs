@@ -80,7 +80,7 @@ pub(super) async fn store(
 
 /// Starts the session `arrival`, whose transcript is in the store, in
 /// `folders.new`.
-pub(super) fn resume(
+pub(super) async fn resume(
     env: &Env,
     arrival: &Arrival<'_>,
     kind: &AgentKind,
@@ -107,7 +107,8 @@ pub(super) fn resume(
         .and_then(|link| env.agents.parent_live_of(link));
     let session = env
         .agents
-        .start(kind, Some(&cwd), Begin { follows, ..begin })?;
+        .start(kind, Some(&cwd), Begin { follows, ..begin })
+        .await?;
     env.agents.join_family(&session);
     Ok(())
 }

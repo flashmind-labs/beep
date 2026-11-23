@@ -192,7 +192,7 @@ impl Agents {
 
     /// The live sessions here that descend from the root `root`.
     pub(crate) fn live_descendants(&self, root_machine: Option<EndpointId>, root: &SessionId) -> usize {
-        self.lock()
+        self.session_map()
             .values()
             .filter(|session| {
                 watched::read(&session.live, |live| {
@@ -208,7 +208,7 @@ impl Agents {
     /// The live children of `who` that run here.
     pub(super) fn children_of(&self, who: &Who) -> Vec<Arc<Session>> {
         let mut kids: Vec<Arc<Session>> = self
-            .lock()
+            .session_map()
             .values()
             .filter(|session| watched::read(&session.live, |live| is_child_of(live, who)))
             .cloned()
@@ -245,7 +245,7 @@ impl Agents {
     /// active at or after `ended_since`, Unix seconds, when given.
     pub(super) fn peers(&self, ended_since: Option<u64>) -> Vec<Arc<Session>> {
         let mut peers: Vec<Arc<Session>> = self
-            .lock()
+            .session_map()
             .values()
             .filter(|session| {
                 !session.reviewer
@@ -360,7 +360,7 @@ impl Agents {
     /// cannot be deleted is still dropped from the node's sessions.
     pub(super) async fn delete_closed_background(&self) {
         let closed: Vec<(String, SessionId)> = self
-            .lock()
+            .session_map()
             .iter()
             .filter(|(_, session)| {
                 watched::read(&session.live, |live| {
@@ -381,7 +381,7 @@ impl Agents {
         for (agent, id) in closed {
             if let Err(e) = self.delete_session(&agent, &id).await {
                 log::warn!("background child {id} was not deleted: {e:#}");
-                self.lock().remove(&id);
+                self.sessions.remove(vec![id.clone()]).await;
             }
         }
 

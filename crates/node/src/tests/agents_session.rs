@@ -2641,7 +2641,7 @@ async fn saved_instructions_reach_new_and_resumed_sessions_without_editing_files
                     ..Begin::default()
                 },
             )
-            .unwrap();
+            .await.unwrap();
         settle(&session).await;
         let sent = sent(&log);
         assert_eq!(

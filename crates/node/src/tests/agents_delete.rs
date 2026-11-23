@@ -170,7 +170,7 @@ async fn a_running_session_is_refused_and_an_ended_one_is_forgotten() {
     let session = m
         .agents
         .start(&kind("claude"), Some("/"), begin)
-        .expect("a session");
+        .await.expect("a session");
     for id in [session.id.clone(), SessionId::from(CLAUDE_ID)] {
         let err = m.agents.delete_session("claude", &id).await.unwrap_err();
         assert!(err.to_string().contains("still runs"), "{err}");
@@ -315,7 +315,7 @@ async fn an_ended_owned_session_keeps_its_identity_after_moving() {
                 ..Begin::default()
             },
         )
-        .expect("session");
+        .await.expect("session");
     assert!(
         m.agents
             .relocate_session("codex", &session.id, destination.to_str().unwrap())

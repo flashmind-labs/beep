@@ -77,7 +77,7 @@ async fn until(live: &mut watch::Receiver<Live>, done: impl FnMut(&Live) -> bool
 async fn queued_during_a_turn(agents: &Agents, kind: &AgentKind, cwd: &Path) -> Arc<Session> {
     let session = agents
         .start(kind, Some(&cwd.to_string_lossy()), begin("first"))
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.status() == Status::Asking).await;
     session
@@ -125,7 +125,7 @@ async fn an_update_restarts_once_the_busy_session_closes() {
     let agents = Agents::new(vec![kind.clone()]);
     let session = agents
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.status() == Status::Asking).await;
     let restarted = agents.restart_when_idle(Duration::from_secs(600), async {});
@@ -149,7 +149,7 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
     let before = Agents::new(vec![kind.clone()]);
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.status() == Status::Asking).await;
     session
@@ -226,7 +226,7 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
     let before = Agents::new(vec![kind.clone()]);
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     before.shutdown().await;
@@ -268,7 +268,7 @@ async fn a_session_the_agent_replays_keeps_a_timestamp_snapshot() {
     let before = Agents::new(vec![kind.clone()]);
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     before.shutdown().await;
@@ -306,7 +306,7 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
     };
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     let name = Agents::name_of(&session);
@@ -348,7 +348,7 @@ async fn a_session_comes_back_after_a_crash() {
     };
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     let noted = timeout(Duration::from_secs(20), async {
@@ -406,7 +406,7 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
                 ..begin("hello")
             },
         )
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     before.shutdown().await;
@@ -454,7 +454,7 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
     let before = Agents::new(vec![kind.clone()]);
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
-        .expect("starts");
+        .await.expect("starts");
     until(&mut session.live.clone(), |live| {
         live.status() == Status::Asking
     })
@@ -493,7 +493,7 @@ async fn begin_assistant_lists_as_assistant() {
                 ..begin("hello")
             },
         )
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
 
@@ -519,7 +519,7 @@ async fn assistant_survives_restart() {
                 ..begin("hello")
             },
         )
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     before.shutdown().await;
@@ -541,7 +541,7 @@ async fn a_fresh_start_in_the_home_folder_is_no_assistant() {
     // No folder is the home folder; only the flag makes the assistant.
     let home = agents
         .start(&kind, None, begin("hello"))
-        .expect("the session starts");
+        .await.expect("the session starts");
 
     assert!(!agents.is_assistant(&home.id));
     agents.shutdown().await;
@@ -562,7 +562,7 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
                 ..begin("hello")
             },
         )
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     session.close().await;
@@ -762,7 +762,7 @@ async fn a_saved_session_keeps_what_it_goes_on_with_and_not_its_state() {
                 ..begin("hello")
             },
         )
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
 
@@ -808,7 +808,7 @@ async fn a_reopened_session_takes_the_title_the_agent_sends_after_loading() {
     let before = Agents::new(vec![kind.clone()]);
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("explain lifetimes"))
-        .expect("starts");
+        .await.expect("starts");
     until(&mut session.live.clone(), |live| live.info.turns == 1).await;
     before.shutdown().await;
     let stopped = before.open_sessions();
@@ -841,7 +841,7 @@ async fn a_reopened_session_keeps_its_title_when_the_agent_titles_a_prompt() {
     let before = Agents::new(vec![kind.clone()]);
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("explain lifetimes"))
-        .expect("starts");
+        .await.expect("starts");
     until(&mut session.live.clone(), |live| live.info.turns == 1).await;
     before.shutdown().await;
     let stopped = before.open_sessions();

@@ -55,7 +55,7 @@ impl Agents {
         }
 
         let records: Vec<(SessionId, bool)> = self
-            .lock()
+            .session_map()
             .iter()
             .filter(|(key, session)| {
                 session.agent == agent
@@ -89,13 +89,9 @@ impl Agents {
         self.forget_saved(&indexed);
         spawn_blocking(move || super::uploads::remove(&attachment_agent, &attachment_id)).await??;
 
-        {
-            let mut sessions = self.lock();
-
-            for (key, _) in &records {
-                sessions.remove(key);
-            }
-        }
+        self.sessions
+            .remove(records.iter().map(|(key, _)| key.clone()).collect())
+            .await;
 
         if let Some(index) = self.search.get() {
             for (key, _) in records.into_iter().filter(|(key, _)| *key != indexed) {

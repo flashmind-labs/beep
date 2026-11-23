@@ -68,7 +68,7 @@ async fn root(agents: &Agents, harness: &AgentKind, dir: &Path) -> Arc<Session> 
                 ..Begin::default()
             },
         )
-        .expect("the session starts");
+        .await.expect("the session starts");
     until(&session, |live| {
         live.agent_session.is_some() && live.info.turns == 1
     })

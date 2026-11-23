@@ -1,10 +1,10 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use super::{
-    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, Prompt, Session, Start, checkout,
+    AgentKind, Agents, Answered, Asking, Command, Prompt, Session, Start, checkout,
     harnesses,
     live::{Live, Sent},
-    models, plans,
+    models, plans, sessions,
 };
 use crate::{
     agents::mcp::{self, Launch},
@@ -31,7 +31,7 @@ use std::{
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
     str::FromStr,
-    sync::{Arc, MutexGuard, atomic::Ordering},
+    sync::{Arc, atomic::Ordering},
 };
 use futures::{StreamExt, stream::FuturesUnordered};
 use tokio::{
@@ -78,8 +78,7 @@ impl Agents {
 
     /// The folders this node's sessions work in, the ended ones it keeps too.
     pub(crate) fn folders(&self) -> std::collections::BTreeSet<PathBuf> {
-        // Read once the lock is released: `info` reads each session's state.
-        let sessions: Vec<Arc<Session>> = self.lock().values().cloned().collect();
+        let sessions: Vec<Arc<Session>> = self.session_map().values().cloned().collect();
 
         sessions
             .iter()
@@ -496,7 +495,7 @@ impl Agents {
     pub async fn shutdown(&self) {
         self.begin_stopping();
         let running: Vec<Arc<Session>> = self
-            .lock()
+            .session_map()
             .values()
             .filter(|session| watched::read(&session.live, |live| live.status() != Status::Ended))
             .cloned()
@@ -510,8 +509,9 @@ impl Agents {
         self.stopping.store(true, Ordering::Relaxed);
     }
 
-    pub(super) fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Arc<Session>>> {
-        crate::lock(&self.sessions)
+    /// The sessions now, as the supervisor last published them.
+    pub(super) fn session_map(&self) -> Arc<sessions::Map> {
+        self.sessions.read()
     }
 
     /// The protocols to offer: one per agent, and `agents/1` always, so the
@@ -585,7 +585,7 @@ impl Agents {
     /// The session `id` names: by the id it started under or by the
     /// agent's own id.
     pub(super) fn get(&self, id: &SessionId) -> Option<Arc<Session>> {
-        find_session(&self.lock(), id)
+        find_session(&self.session_map(), id)
     }
 
     /// Every named session but the reviewers, oldest first.
@@ -644,7 +644,7 @@ impl Agents {
 
     fn listed_where(&self, reviewers: bool, id: Option<&SessionId>) -> Vec<SessionInfo> {
         let mut sessions: Vec<SessionInfo> = self
-            .lock()
+            .session_map()
             .values()
             .filter_map(|s| {
                 // One read: a second while this one is held waits behind any
@@ -682,7 +682,7 @@ impl Agents {
         begin.note = place.note;
         begin.brief = place.brief.map(Cow::Owned);
         begin.worktrees.extend(place.worktree);
-        self.start(kind, place.folder.as_deref(), begin)
+        self.start(kind, place.folder.as_deref(), begin).await
     }
 
     /// Refuses what `start` refuses of a session asked to run in `cwd`,
@@ -747,7 +747,7 @@ impl Agents {
         self.settings.prepare(&configured).await
     }
 
-    pub(super) fn start(
+    pub(super) async fn start(
         &self,
         kind: &AgentKind,
         cwd: Option<&str>,
@@ -773,62 +773,18 @@ impl Agents {
             mcp::projects::may_run(&mesh, &cwd, &kind.name).map_err(anyhow::Error::msg)?;
         }
 
-        // Held until the session is in the list: recovery checks it under this lock.
-        let recovering = crate::lock(&self.recovering);
-        not_recovering(&recovering, &cwd)?;
+        let resume = begin.resume.clone();
+        // The id is taken first, so no other start takes it while this one
+        // spawns. Recovery asks the supervisor for the starts under way.
+        let reservation = self.sessions.reserve(resume.clone(), cwd.clone()).await?;
+        let id = reservation.id.clone();
+        not_recovering(&crate::lock(&self.recovering), &cwd)?;
         let assistant = begin.assistant;
         // A reviewer changes nothing, so it needs no git rule.
         let rule = checkout::rule(&cwd).filter(|_| !begin.review).map(str::to_owned);
         let instructions = crate::lock(&self.instructions)
             .clone()
             .filter(|text| !text.trim().is_empty());
-        let mut sessions = self.lock();
-        // Checked under the lock: two takeovers of one session must not
-        // both start it.
-        if let Some(resume) = &begin.resume
-            && let Some(running) = sessions.values().find(|session| {
-                watched::read(&session.live, |live| {
-                    live.status() != Status::Ended && live.agent_session.as_ref() == Some(resume)
-                })
-            })
-        {
-            anyhow::bail!("session {resume} already runs here as {}", running.id);
-        }
-
-        if sessions.len() >= MAX_KEPT {
-            let oldest = sessions
-                .values()
-                .filter(|session| {
-                    watched::read(&session.live, |live| live.status() == Status::Ended)
-                })
-                .min_by_key(|session| watched::read(&session.live, |live| live.info.started_at))
-                .map(|session| session.id.clone());
-            if let Some(oldest) = oldest {
-                sessions.remove(&oldest);
-            }
-        }
-        // A new process needs a private handle before ACP names its session.
-        // Only ACP's id is published in SessionInfo.
-        let id = match &begin.resume {
-            Some(resume) => {
-                // The ended run may be keyed by its original private handle.
-                // Remove it too, so listings cannot shadow the resumed run.
-                sessions.retain(|handle, session| {
-                    handle != resume
-                        && watched::read(&session.live, |live| {
-                            live.agent_session.as_ref() != Some(resume)
-                        })
-                });
-                resume.clone()
-            }
-            None => loop {
-                let id = new_id();
-
-                if !sessions.contains_key(&id) {
-                    break id;
-                }
-            },
-        };
         let resumed = begin.resume.is_some();
         // A reviewer tells the user nothing itself: the review does.
         let alerts = if begin.review {
@@ -934,7 +890,7 @@ impl Agents {
                 }
             }
         }));
-        sessions.insert(id, session.clone());
+        self.sessions.insert(reservation, resume, session.clone()).await?;
         crate::link::restart::changed();
         Ok(session)
     }
@@ -1152,7 +1108,7 @@ pub(super) fn home_twins(path: &Path, home: &Path) -> Vec<PathBuf> {
 }
 
 /// Six hex digits, random enough to tell sessions apart.
-fn new_id() -> SessionId {
+pub(super) fn new_id() -> SessionId {
     let random = RandomState::new().hash_one(std::time::SystemTime::now());
     SessionId::new(format!("{:06x}", random & 0xff_ffff))
 }

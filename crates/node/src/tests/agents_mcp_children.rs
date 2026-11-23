@@ -298,7 +298,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
                 ..Begin::default()
             },
         )
-        .unwrap();
+        .await.unwrap();
     let mut live = parent.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
@@ -412,7 +412,7 @@ async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
                 ..Begin::default()
             },
         )
-        .expect("the chat starts");
+        .await.expect("the chat starts");
     let mut live = chat.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
@@ -478,7 +478,7 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
                 ..Begin::default()
             },
         )
-        .expect("the chat starts");
+        .await.expect("the chat starts");
     let mut live = chat.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
@@ -527,7 +527,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let mut offers = Offers::local(&[], Provision::new(dir.path()));
     offers.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")]));
     let cwd = dir.path().to_string_lossy().into_owned();
-    let start = |name: &str| {
+    let start = async |name: &str| {
         offers
             .agents
             .start(
@@ -538,9 +538,9 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
                     ..Begin::default()
                 },
             )
-            .expect("a session starts")
+            .await.expect("a session starts")
     };
-    let (mine, theirs) = (start("mine"), start("theirs"));
+    let (mine, theirs) = (start("mine").await, start("theirs").await);
 
     for session in [&mine, &theirs] {
         let mut live = session.live.clone();
@@ -600,7 +600,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
                 ..Begin::default()
             },
         )
-        .unwrap();
+        .await.unwrap();
     assert_eq!(offers.agents.children_of(&who).len(), 3);
     let (_, text) = tool(&offers, &mine, Tool::ListAgents, json!({})).await;
     let listed: Vec<ChildView> = serde_json::from_str(&text).expect("a list");
@@ -688,7 +688,7 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
                 ..Begin::default()
             },
         )
-        .expect("a session starts");
+        .await.expect("a session starts");
     let mut live = parent.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
@@ -725,14 +725,14 @@ async fn another_machine_lists_the_sessions_ended_since_only_when_asked() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let agents = Agents::new(vec![kind("top")]);
     let cwd = dir.path().to_string_lossy().into_owned();
-    let start = || {
+    let start = async || {
         let begin = Begin {
             prompt: Some("hello".to_owned()),
             ..Begin::default()
         };
-        agents.start(&agents.kinds()[0], Some(&cwd), begin).expect("a session starts")
+        agents.start(&agents.kinds()[0], Some(&cwd), begin).await.expect("a session starts")
     };
-    let (ended, running) = (start(), start());
+    let (ended, running) = (start().await, start().await);
 
     for session in [&ended, &running] {
         let mut live = session.live.clone();

@@ -29,29 +29,26 @@ impl Agents {
         let folder =
             tokio::task::spawn_blocking(move || crate::files::paths::canonicalize(&folder))
                 .await??;
-        let running = {
-            // Same lock order as start: no session can appear between this check and reservation.
+        {
+            // `start` takes its id before it checks this set, so a start this
+            // misses finds the folder held.
             let mut recovering = crate::lock(&self.recovering);
             ensure!(
                 !recovering.contains(&folder),
                 "Git recovery already runs in this checkout."
             );
-            let running = self
-                .lock()
-                .values()
-                .filter_map(|session| {
-                    watched::read(&session.live, |live| {
-                        (live.status() != Status::Ended).then(|| PathBuf::from(&live.info.cwd))
-                    })
-                })
-                .collect::<Vec<_>>();
             recovering.insert(folder.clone());
-            running
-        };
+        }
         let hold = RepositoryHold {
             agents: self.clone(),
             folder: folder.clone(),
         };
+        let mut running = self.sessions.starting().await?;
+        running.extend(self.session_map().values().filter_map(|session| {
+            watched::read(&session.live, |live| {
+                (live.status() != Status::Ended).then(|| PathBuf::from(&live.info.cwd))
+            })
+        }));
         let root = folder.clone();
         let busy = tokio::task::spawn_blocking(move || {
             running.iter().any(|path| {

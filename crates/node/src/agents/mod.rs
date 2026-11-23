@@ -71,6 +71,7 @@ host! {
     mod running;
     mod session;
     mod session_stream;
+    mod sessions;
     mod spend;
     mod subagent;
     mod tool_diff;
@@ -168,7 +169,7 @@ host! {
         kinds: watch::Sender<Arc<Vec<AgentKind>>>,
         /// The adapters the node installs itself.
         adapters: adapters::Installs,
-        sessions: Mutex<HashMap<SessionId, Arc<Session>>>,
+        sessions: sessions::Sessions,
         /// Serializes changes to stored sessions against resuming them.
         session_store: AsyncMutex<()>,
         /// Claude Code sessions started outside Beep.

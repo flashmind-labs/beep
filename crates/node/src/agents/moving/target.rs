@@ -178,7 +178,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         return Ok(());
     }
 
-    resume(env, &arrival, &kind, &folders)
+    resume(env, &arrival, &kind, &folders).await
 }
 
 /// The session's folder in the source's checkout and in this machine's, and

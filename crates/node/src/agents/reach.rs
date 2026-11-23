@@ -140,7 +140,7 @@ impl Agents {
 
     /// The folder of each session this node runs.
     fn session_cwds(&self) -> Vec<PathBuf> {
-        self.lock()
+        self.session_map()
             .values()
             .map(|session| PathBuf::from(session.info().cwd))
             .collect()
@@ -191,7 +191,7 @@ impl Agents {
     /// Work directories currently authorized for namespace-wide file subscriptions.
     pub(crate) async fn notification_roots(&self) -> Result<Vec<PathBuf>> {
         let mut work = self.folders.get().cloned().unwrap_or_default();
-        work.extend(self.lock().values().filter_map(|session| {
+        work.extend(self.session_map().values().filter_map(|session| {
             let info = session.info();
             (info.state.status != beep_proto::node::agent::Status::Ended)
                 .then(|| PathBuf::from(info.cwd))

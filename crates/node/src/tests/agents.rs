@@ -144,7 +144,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
             Some(root.path().to_str().expect("a UTF-8 path")),
             begin,
         )
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -229,7 +229,7 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
     };
     let session = agents
         .start(&kind, Some(dir.to_str().unwrap()), begin)
-        .unwrap();
+        .await.unwrap();
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -382,8 +382,8 @@ async fn one_session_cannot_be_taken_over_twice() {
         resume: Some(SessionId::from(id)),
         ..Begin::default()
     };
-    let first = agents.start(&kind, Some("/"), begin()).unwrap();
-    let second = agents.start(&kind, Some("/"), begin()).err().unwrap();
+    let first = agents.start(&kind, Some("/"), begin()).await.unwrap();
+    let second = agents.start(&kind, Some("/"), begin()).await.err().unwrap();
     assert!(
         second
             .to_string()
@@ -403,7 +403,7 @@ async fn an_ended_node_session_resumes_from_the_agents_session() {
         resume: Some(SessionId::from(id)),
         ..Begin::default()
     };
-    let first = agents.start(&kind, Some("/"), begin).unwrap();
+    let first = agents.start(&kind, Some("/"), begin).await.unwrap();
     first.close().await;
     // Nothing on this machine has the agent's session, so it is the
     // agent's id that the node looks for, not its own.
@@ -449,7 +449,7 @@ done
                 ..Begin::default()
             },
         )
-        .unwrap();
+        .await.unwrap();
     let mut live = first.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -521,7 +521,7 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     let kind = sh_agent("codex", NAMING_ADAPTER);
     let agents = Agents::new(vec![kind.clone()]);
     let begin = Begin::default();
-    let session = agents.start(&kind, Some("/"), begin).unwrap();
+    let session = agents.start(&kind, Some("/"), begin).await.unwrap();
     assert!(session.info().id.is_empty());
     assert!(
         agents.list().is_empty(),
@@ -567,7 +567,7 @@ done"#,
         );
     let kind = sh_agent("codex", &script);
     let agents = Agents::new(vec![kind.clone()]);
-    let first = agents.start(&kind, Some("/"), Begin::default()).unwrap();
+    let first = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
     first.named_info().await.unwrap();
     assert_ne!(first.id, AGENT_ID);
     first.close().await;
@@ -581,7 +581,7 @@ done"#,
                 ..Begin::default()
             },
         )
-        .unwrap();
+        .await.unwrap();
     let mut live = resumed.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -719,7 +719,7 @@ async fn a_session_resumes_only_on_its_own_agent() {
         resume: Some(SessionId::from("0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b").to_owned()),
         ..Begin::default()
     };
-    let running = agents.start(&codex, Some("/"), begin).unwrap();
+    let running = agents.start(&codex, Some("/"), begin).await.unwrap();
     let err = agents.resume(&claude, &running.id, None, None).await.err();
     assert!(
         err.is_some_and(|e| e.to_string().contains("runs codex")),
@@ -766,7 +766,7 @@ async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() 
     let kind = sh_agent("codex", THINKING_ADAPTER);
     let session = agents
         .start(&kind, root.path().to_str(), Begin::default())
-        .unwrap();
+        .await.unwrap();
     let mut live = session.live.clone();
     timeout(
         Duration::from_secs(10),
@@ -873,7 +873,7 @@ mod actor_tests {
         let agents = Arc::new(Agents::new(vec![kind.clone()]));
         let session = agents
             .start(&kind, root.path().to_str(), Begin::default())
-            .unwrap();
+            .await.unwrap();
         let public_id = session.named_info().await.unwrap().id;
         let mut live = session.live.clone();
         timeout(
@@ -1061,7 +1061,7 @@ while read -r line; do :; done
             Some(repo.to_str().unwrap()),
             Begin::default(),
         )
-        .unwrap();
+        .await.unwrap();
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -1191,7 +1191,7 @@ done
                     ..Begin::default()
                 },
             )
-            .unwrap();
+            .await.unwrap();
         let mut live = session.live.clone();
         tokio::time::timeout(
             Duration::from_secs(10),

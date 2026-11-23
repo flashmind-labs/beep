@@ -137,7 +137,7 @@ async fn asking(source: &Source) -> Arc<crate::agents::Session> {
                 ..Begin::default()
             },
         )
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     timeout(
         Duration::from_secs(20),

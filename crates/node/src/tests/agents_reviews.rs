@@ -91,7 +91,7 @@ impl Rig {
         let session = self
             .agents
             .start(&top, Some(&cwd), begin)
-            .expect("the session starts");
+            .await.expect("the session starts");
         let mut live = session.live.clone();
         timeout(
             Duration::from_secs(20),

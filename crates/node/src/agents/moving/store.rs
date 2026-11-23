@@ -174,7 +174,7 @@ impl Agents {
             None => id.clone(),
         };
         ensure!(
-            self.lock()
+            self.session_map()
                 .values()
                 .filter(|session| session.agent == agent
                     && watched::read(&session.live, |live| {
@@ -259,7 +259,7 @@ impl Agents {
         })
         .await??;
 
-        for (key, session) in self.lock().iter() {
+        for (key, session) in self.session_map().iter() {
             if session.agent == agent
                 && (key == id
                     || watched::read(&session.live, |live| {

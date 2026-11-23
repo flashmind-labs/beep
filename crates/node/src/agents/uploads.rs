@@ -85,7 +85,7 @@ fn sessions(agents: &Agents) -> (HashSet<String>, HashSet<PathBuf>) {
     let mut running = HashSet::new();
     let mut folders = HashSet::new();
 
-    for session in agents.lock().values() {
+    for session in agents.session_map().values() {
         watched::read(&session.live, |live| {
             if live.status() != Status::Ended {
                 running.insert(owner(&live.info.agent, &live.info.id));

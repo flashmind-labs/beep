@@ -530,7 +530,7 @@ impl Agents {
 
     /// The sessions this node runs, by the agent's own id, to the node's id.
     pub(super) fn owned(&self) -> HashMap<SessionId, SessionId> {
-        self.lock()
+        self.session_map()
             .values()
             .filter_map(|session| {
                 watched::read(&session.live, |live| {
@@ -682,7 +682,7 @@ impl Agents {
         // Never seen here, as one found outside Beep: never the assistant.
         let mut begin = self.resumed_begin(id, before.unwrap_or_default());
         begin.model = model.or(begin.model);
-        let session = self.start(kind, Some(&cwd), begin)?;
+        let session = self.start(kind, Some(&cwd), begin).await?;
         self.watch_parent(&session);
 
         // Its first turn here is the user's, whose words begin it.
