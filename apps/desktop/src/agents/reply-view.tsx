@@ -3,14 +3,14 @@
 // message, a child's reply). Their bodies are sanitized Markdown HTML.
 import { conversationBlocked } from "./turnrows.ts";
 import { memo, useMemo, useRef, type MouseEvent } from "react";
-import { domToReact, type DOMNode } from "html-react-parser";
-import { OUTCOME_LABEL, REPORT_MIN_WORDS, reportOf, reportViews, textOf, toggleOriginal, type Report, type ReportSection } from "./report-state.ts";
-import { DraftNotes, SentReviewCard, draftsIn, useDrafts } from "./review-view.tsx";
+import { Element, htmlToDOM, type DOMNode } from "html-react-parser";
+import { OUTCOME_LABEL, REPORT_MIN_WORDS, reportOf, reportViews, toggleOriginal, type Report, type ReportSection } from "./report-state.ts";
+import { DraftNotes, SentReviewCard, WithDrafts, placeDrafts, useDrafts } from "./review-view.tsx";
 import type { ReviewComment, SentReview } from "./review-state.ts";
 import { useStore } from "zustand";
 import { plural } from "../ui/format.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
-import { Button, CopyButton, Spinner, useHtml } from "../ui/kit.tsx";
+import { Button, CopyButton, Spinner } from "../ui/kit.tsx";
 import { sessionMessageTitle, type PromptPart } from "./promptparts-state.ts";
 import { EntryTime } from "./turn-heading-view.tsx";
 import { SubIcon } from "./activity-view.tsx";
@@ -39,8 +39,9 @@ export const AgentReply = memo(function AgentReply({ reply }: { reply: ReplyRow 
 
 /// Reconciled rather than set as HTML, so a streamed chunk leaves finished blocks, and their diagrams, in place.
 function PlainReply({ reply }: { reply: ReplyRow }) {
-  const body = useHtml(reply.html), drafts = useDrafts(reply.row);
-  return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row}><EntryTime at={reply.sentAt ?? null} />{reply.copy && <CopyButton text={reply.text} look="quiet" small icon className="reply-copy" />}<div className="reply-body">{body}<DraftNotes drafts={drafts} /></div></div>;
+  const list = useMemo(() => htmlToDOM(reply.html), [reply.html]), drafts = useDrafts(reply.row);
+  const { at, rest } = useMemo(() => placeDrafts(list, drafts), [list, drafts]);
+  return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row}><EntryTime at={reply.sentAt ?? null} />{reply.copy && <CopyButton text={reply.text} look="quiet" small icon className="reply-copy" />}<div className="reply-body"><WithDrafts list={list} at={at} /><DraftNotes drafts={rest} /></div></div>;
 }
 
 /// A report: its outcome, length and reading time over its headline and
@@ -76,34 +77,30 @@ function ReportReply({ reply, report }: { reply: ReplyRow; report: Report }) {
   </div>;
 }
 
-/// A report's text: its headline, opening and parts.
-/// Each draft sits under the part it quotes: the headline and opening, or a section; the rest at the end.
+/// A report's text: its headline, opening and parts, each draft under the
+/// paragraph or item it quotes.
 function ReportBody({ report, swapped, drafts }: { report: Report; swapped: boolean; drafts: readonly ReviewComment[] }) {
-  const parts = report.kind === "long" ? [] : [[...report.shaped.headline, ...report.shaped.intro], ...report.shaped.sections.map(section => section.nodes)];
-  const placed = parts.map(part => draftsIn(drafts, part.map(textOf).join(" ")));
-  const elsewhere = drafts.filter(c => !placed.some(list => list.includes(c)));
+  const parts = useMemo(() => report.kind === "long" ? [report.nodes] : [
+    [...report.shaped.headline.length ? [new Element("p", { class: "report-headline" }, report.shaped.headline as Element["children"])] : [], ...report.shaped.intro],
+    ...report.shaped.sections.map(section => section.nodes),
+  ], [report]);
+  const { at, rest } = useMemo(() => placeDrafts(parts.flat(), drafts), [parts, drafts]);
 
   return <div className={`reply-body${swapped ? " swapped" : ""}`}>
-    {report.kind === "long" ? nodes(report.nodes) : <>
-      {report.shaped.headline.length > 0 && <p className="report-headline">{nodes(report.shaped.headline)}</p>}
-      {nodes(report.shaped.intro)}
-      <DraftNotes drafts={placed[0]} />
-      {report.shaped.sections.map((section, i) => <ReportPart key={i} section={section} drafts={placed[i + 1].filter(c => !placed.slice(0, i + 1).some(list => list.includes(c)))} />)}
-    </>}
-    <DraftNotes drafts={elsewhere} />
+    <WithDrafts list={parts[0]} at={at} />
+    {report.kind === "shaped" && report.shaped.sections.map((section, i) => <ReportPart key={i} section={section} list={parts[i + 1]} at={at} />)}
+    <DraftNotes drafts={rest} />
   </div>;
 }
 
 /// A report's `##` section: its title and item count over its body; Needs you as a callout.
-function ReportPart({ section, drafts }: { section: ReportSection; drafts: readonly ReviewComment[] }) {
+function ReportPart({ section, list, at }: { section: ReportSection; list: DOMNode[]; at: ReadonlyMap<DOMNode, readonly ReviewComment[]> }) {
   return <section className="report-part" data-kind={section.kind}>
     <h2>{section.title}{section.count > 0 && <span className="n">{section.count}</span>}</h2>
-    {nodes(section.nodes)}
-    <DraftNotes drafts={drafts} />
+    <WithDrafts list={list} at={at} />
   </section>;
 }
 
-const nodes = (list: DOMNode[]) => list.length ? domToReact(list) : null;
 
 /// `switchModel` offers to run the failed prompt again on a model the user picks.
 export function AgentError({ message, switchModel = false }: { message: string; switchModel?: boolean }) {

@@ -3,12 +3,13 @@
 // go with the next message, the drafts under the passages they quote, and
 // a sent review drawn as its comments. The state is in review-state.ts.
 import { createPortal } from "react-dom";
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "../ui/kit.tsx";
 import { AG } from "./agents.ts";
-import { openingOf } from "./report-state.ts";
+import { attributesToProps, domToReact, type DOMNode, type HTMLReactParserOptions } from "html-react-parser";
+import { isTag, openingOf, textOf } from "./report-state.ts";
 import { keepWriting, reviewCount, reviewOf, reviews, updateReview, type Ask, type ReviewComment, type Review, type SentReview } from "./review-state.ts";
 
 const ASK_LABEL: Record<Ask, string> = { question: "Question", change: "Change" };
@@ -160,8 +161,39 @@ export function useDrafts(entry: string) {
   return useStore(reviews, useShallow(state => (state.open ? state.by[state.open]?.comments ?? [] : []).filter(c => String(c.entry) === entry)));
 }
 
-/// The drafts of `drafts` whose quote is in `text`.
-export const draftsIn = (drafts: readonly ReviewComment[], text: string) => drafts.filter(c => norm(text).includes(norm(c.quote)));
+/// Where each draft goes: under the list item or top-level block that holds
+/// its quote whole, the innermost item first. Drafts no block holds go last.
+export function placeDrafts(list: DOMNode[], drafts: readonly ReviewComment[]) {
+  const at = new Map<DOMNode, ReviewComment[]>(), rest: ReviewComment[] = [];
+  const place = (c: ReviewComment, nodes: DOMNode[], top: boolean): boolean => {
+    const node = nodes.find(n => isTag(n) && norm(textOf(n)).includes(norm(c.quote)));
+    if (!node || !isTag(node)) return false;
+    if (place(c, node.children as DOMNode[], false)) return true;
+    if (!top && node.name !== "li") return false;
+
+    at.set(node, [...at.get(node) ?? [], c]);
+    return true;
+  };
+
+  for (const c of drafts) if (!place(c, list, true)) rest.push(c);
+  return { at, rest };
+}
+
+/// `list` drawn with the drafts `at` puts under its blocks and list items.
+export function WithDrafts({ list, at }: { list: DOMNode[]; at: ReadonlyMap<DOMNode, readonly ReviewComment[]> }) {
+  const options: HTMLReactParserOptions = {
+    replace: node => {
+      const drafts = at.get(node);
+      if (!drafts || !isTag(node) || node.name !== "li") return;
+      return <li {...attributesToProps(node.attribs)}>{domToReact(node.children as DOMNode[], options)}<DraftNotes drafts={drafts} /></li>;
+    },
+  };
+
+  return <>{list.map((node, i) => <Fragment key={i}>
+    {domToReact([node], options)}
+    {!(isTag(node) && node.name === "li") && <DraftNotes drafts={at.get(node) ?? []} />}
+  </Fragment>)}</>;
+}
 
 /// Drafts under the passage they quote; a click opens one in the composer again.
 export function DraftNotes({ drafts }: { drafts: readonly ReviewComment[] }) {
@@ -172,7 +204,7 @@ export function DraftNotes({ drafts }: { drafts: readonly ReviewComment[] }) {
     if (key && !reviewOf(key).writing) updateReview(key, r => ({ ...r, writing: { ...c } }));
   };
   return <>{drafts.map(c => <button type="button" key={c.id} className="rv-note" data-ask={c.ask} onClick={() => open(c)} title="Change this comment">
-    <span className="k"><b>{ASK_LABEL[c.ask]}</b> · draft</span><span className="t">{c.text}</span>
+    <span className="k"><b>{ASK_LABEL[c.ask]}</b> · draft · click to change</span><span className="t">{c.text}</span>
   </button>)}</>;
 }
 

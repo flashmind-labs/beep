@@ -6,7 +6,7 @@ import { Element, Text, htmlToDOM, type DOMNode } from "html-react-parser";
 import { createStore } from "zustand";
 
 // By type, not class: the parser's CommonJS and ES builds each load domhandler's.
-const isTag = (node: { type: string } | undefined): node is Element => node?.type === "tag" || node?.type === "script" || node?.type === "style";
+export const isTag = (node: { type: string } | undefined): node is Element => node?.type === "tag" || node?.type === "script" || node?.type === "style";
 const isText = (node: { type: string } | undefined): node is Text => node?.type === "text";
 
 export type Outcome = "done" | "partly" | "blocked";

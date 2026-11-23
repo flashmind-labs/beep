@@ -279,14 +279,14 @@ body.cbody
                                         strong "Query string kept"
                                         code.fref [data-file="src/login.ts:42" role="link" tabindex="0"] "src/login.ts:42"
                                         code "next"
+                                        button.rv-note [data-ask="change" title="Change this comment" type="button"]
+                                          span.k "· draft · click to change"
+                                            b "Change"
+                                          span.t "Also keep the fragment."
                                       li "( )."
                                         strong "Test for an empty"
                                           code "next"
                                         code.fref [data-file="src/login.test.ts:18" role="link" tabindex="0"] "src/login.test.ts:18"
-                                    button.rv-note [data-ask="change" title="Change this comment" type="button"]
-                                      span.k "· draft"
-                                        b "Change"
-                                      span.t "Also keep the fragment."
                                   section.report-part [data-kind="checked"]
                                     h2 "Checked"
                                       span.n "3"

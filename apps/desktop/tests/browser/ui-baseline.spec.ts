@@ -741,7 +741,7 @@ test("agent report reviewed", async ({ page }) => {
 
   // Saved, it waits under its item and over the composer.
   await expect(page.locator("#agfield")).toBeVisible();
-  await expect(report.locator('.report-part[data-kind="changed"] .rv-note')).toContainText("Also keep the fragment.");
+  await expect(report.locator('.report-part[data-kind="changed"] li:first-child > .rv-note')).toContainText("Also keep the fragment.");
   await expect(page.locator(".rv-bar")).toContainText("1 change · goes with your next message");
   await page.locator(".rv-bar").getByRole("button", { name: "Show" }).click();
   await expect(page.getByRole("list", { name: "Review drafts" })).toContainText("Changed 1");
