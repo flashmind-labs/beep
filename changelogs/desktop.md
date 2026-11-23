@@ -7,6 +7,55 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.21] - 2026-11-23
+
+### Added
+
+- Desktop: teams per project. Invite people who can push to the
+  project's repository with a code that is valid for a day. They join
+  from the Team page, and joining proves they have push access to the
+  repository.
+- Desktop: the project board shows teammates' agent cards beside yours,
+  with a filter for everyone, mine, or one teammate. A teammate's card
+  opens its issue or pull request, never their session.
+- Desktop: the Team page lists members and their machines, the invite
+  code, and contacts to invite to other projects. Switches let you pick
+  up assigned issues and let teammates' agents message yours. You can
+  leave, remove a member, or allow them back.
+- Desktop: removing a contact from the Team page takes them off every
+  team you share with them.
+- Desktop: issues show who they are assigned to, with Mine and
+  Unassigned filters and an Assign menu. In a team project, Work on it
+  assigns the issue to you first, and asks before taking one someone
+  else holds.
+- Desktop: Needs you lists teammates' questions, invites from contacts,
+  and issues that could not start or ended without a pull request.
+
+### Changed
+
+- Desktop: detached project and assistant windows keep plan usage in the header at narrow widths, show local requests for input in their lists, and leave global notifications in the main window.
+- Desktop: agent edit diffs in the chat use the same syntax colours as the file viewer, with the +/- marks coloured.
+- Desktop: the file editor colours types, functions, macros, properties, tags, attributes, constants, headings and links, not only keywords, strings, comments and numbers.
+
+### Fixed
+
+- Desktop: switching projects no longer leaves draft text over the task placeholder.
+- Desktop: double or triple clicks on timestamps or between messages no longer select conversation text.
+- Desktop: show Antigravity's five-hour quotas alongside its weekly quotas when reported.
+- Desktop: detached chats load automatically when their machine reconnects after an update, and HTML tabs reopen in their saved preview or source view.
+- Desktop: Delivered messages no longer reappear as sending in the chat queue.
+- Desktop: Antigravity sessions start and resume with saved instructions.
+- Desktop: attachments in the first message of a new Assistant or project chat use the machine cache, leaving project folders untouched.
+- Desktop: paste images directly into chats on Linux.
+- Desktop: agents on enrolled nodes can start linked agents on a desktop when machine sharing allows it.
+- Desktop: Files and Changes follow a Flashmind session’s worktree again after
+  a node restart.
+- Desktop: the project session list stays scrollable without a visible scrollbar.
+- Desktop: in a narrow window, folders under "Found on your machines" on Home no longer draw their machine names over their agents and activity. Each folder takes two lines.
+- Desktop: the task and assistant boxes no longer show a scrollbar that cuts off their text when macOS is set to always show scroll bars.
+- Desktop: in a narrow window, the task box on a project's page keeps a margin from the panel's edges.
+- Desktop: in a narrow window, the harness, model and thinking picker fits inside the panel it opens from instead of being cut off at its edge.
+
 ## [0.10.20] - 2026-11-23
 
 ### Added
