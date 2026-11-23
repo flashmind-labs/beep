@@ -295,6 +295,7 @@ pub fn agent_follow_show(
 
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
+#[tracing::instrument(skip_all, fields(reader = %id, peer = %machine_id, %session))]
 pub async fn agent_follow(
     app: AppHandle,
     window: WebviewWindow,
@@ -343,6 +344,7 @@ pub async fn agent_follow(
         return Ok(());
     }
 
+    let started = Instant::now();
     let follow = async {
         let machine = fleet
             .member(&machine_id)
@@ -367,6 +369,7 @@ pub async fn agent_follow(
             },
         );
         let mut retried = false;
+        let mut waiting_for_page = Some(started);
         // A hidden window hears nothing until it shows again.
         let mut window_shown = app.state::<OnScreen>().watch(window.label());
         let mut watching = true;
@@ -455,6 +458,7 @@ pub async fn agent_follow(
                             .release_on(window.label(), &machine_id, id) =>
                 {
                     retried = true;
+                    waiting_for_page = Some(Instant::now());
                     sleep(RELEASE_WAIT).await;
                     (_tx, rx) = client
                         .open_sending(SESSION_FOLLOW_PROTOCOL, &request)
@@ -463,6 +467,14 @@ pub async fn agent_follow(
                 }
                 SessionUpdate::Error { reason } => return Err(DesktopError::BadRequest(reason)),
             };
+            if let Some(started) = waiting_for_page.take() {
+                tracing::info!(
+                    elapsed_ms = started.elapsed().as_millis(),
+                    resumed = snapshot.resumed,
+                    "session follow received its first page"
+                );
+            }
+
             let (mut view, modes, tasks) = match snapshot.source {
                 SessionSource::Owned(info) => {
                     let modes = AgentSessionModes {
@@ -544,10 +556,18 @@ pub async fn agent_follow(
             }
         }
     };
-    tokio::select! {
+    let result = tokio::select! {
         result = follow => result,
-        _ = cancelled.changed() => Ok(()),
+        _ = cancelled.changed() => {
+            tracing::info!(elapsed_ms = started.elapsed().as_millis(), "session follow cancelled by desktop");
+            return Ok(());
+        },
+    };
+    if let Err(error) = &result {
+        tracing::info!(elapsed_ms = started.elapsed().as_millis(), %error, "session follow failed");
     }
+
+    result
 }
 
 #[cfg(test)]

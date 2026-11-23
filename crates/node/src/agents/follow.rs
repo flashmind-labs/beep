@@ -155,6 +155,7 @@ pub async fn serve_follow(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -
         .await??
         .context("session subscription closed before its request")?;
     let Ok(permit) = READERS.try_acquire() else {
+        tracing::info!(session = %request.session, "session follow refused because all readers are in use");
         tx.send(&SessionUpdate::Error {
             reason: FOLLOW_READERS_FULL.into(),
         })
@@ -162,11 +163,43 @@ pub async fn serve_follow(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -
         return Ok(());
     };
     let reader = Reader::new(permit);
+    let started = Instant::now();
     // Dropping the reader cancels reads and writes too, including a blocked write.
-    tokio::select! {
-        result = follow(&mut tx, &agents, request, &reader) => result,
-        _ = rx.recv::<serde_json::Value>() => Ok(()),
-    }
+    let end = tokio::select! {
+        result = follow(&mut tx, &agents, &request, &reader) => result,
+        received = rx.recv::<serde_json::Value>() => Ok(match received {
+            Ok(None) => FollowEnd::ClientFinished,
+            Ok(Some(_)) => FollowEnd::UnexpectedClientMessage,
+            Err(error) => FollowEnd::ClientReadFailed(error),
+        }),
+    };
+    let reason = end.as_ref().map_or("server_error", AsRef::as_ref);
+    let error = match &end {
+        Ok(FollowEnd::ClientReadFailed(error)) | Err(error) => Some(format!("{error:#}")),
+        _ => None,
+    };
+    tracing::info!(
+        session = %request.session,
+        reader = reader.id,
+        elapsed_ms = started.elapsed().as_millis(),
+        reason,
+        error,
+        "session follow closed"
+    );
+
+    end.map(|_| ())
+}
+
+#[derive(strum::AsRefStr)]
+#[strum(serialize_all = "snake_case")]
+enum FollowEnd {
+    ClientFinished,
+    UnexpectedClientMessage,
+    ClientReadFailed(anyhow::Error),
+    SnapshotFailed,
+    LiveWatchClosed,
+    PresenceWatchClosed,
+    FileWatchClosed,
 }
 
 async fn send(tx: &mut LinkTx, update: &SessionUpdate) -> Result<()> {
@@ -178,9 +211,9 @@ async fn send(tx: &mut LinkTx, update: &SessionUpdate) -> Result<()> {
 async fn follow(
     tx: &mut LinkTx,
     agents: &Agents,
-    request: FollowSession,
+    request: &FollowSession,
     reader: &Reader,
-) -> Result<()> {
+) -> Result<FollowEnd> {
     let mut presence = agents.presence.subscribe();
     let mut live = agents
         .get(&request.session)
@@ -194,7 +227,7 @@ async fn follow(
     };
     let stale = Arc::new(AtomicBool::new(true));
     // Install file notifications before the initial read so a write cannot fall between them.
-    let paths = paths(agents, &request, followed.as_ref()).await?;
+    let paths = paths(agents, request, followed.as_ref()).await?;
     let (dirty, mut changes) = mpsc::channel(1);
     let _watcher = if paths.is_empty() {
         None
@@ -240,16 +273,17 @@ async fn follow(
             from: held,
         };
         retained = RETAINED_ENTRIES;
-        let snapshot = match snapshot(agents, &request, read).await {
+        let snapshot = match snapshot(agents, request, read).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
-                return send(
+                send(
                     tx,
                     &SessionUpdate::Error {
                         reason: format!("{error:#}"),
                     },
                 )
-                .await;
+                .await?;
+                return Ok(FollowEnd::SnapshotFailed);
             }
         };
         let pid = match &snapshot.source {
@@ -305,14 +339,14 @@ async fn follow(
                         Some(live) => live.changed().await,
                         None => pending().await,
                     }
-                } => if changed.is_err() { return Ok(()); },
+                } => if changed.is_err() { return Ok(FollowEnd::LiveWatchClosed); },
                 changed = async {
                     if follow_presence { presence.changed().await } else { pending().await }
                 } => {
-                    if changed.is_err() { return Ok(()); }
+                    if changed.is_err() { return Ok(FollowEnd::PresenceWatchClosed); }
                     stale.store(true, Ordering::Release);
                 },
-                changed = changes.recv() => if changed.is_none() { return Ok(()); },
+                changed = changes.recv() => if changed.is_none() { return Ok(FollowEnd::FileWatchClosed); },
                 _ = async {
                     match &exit {
                         Some(exit) => exit.wait().await,
