@@ -73,3 +73,20 @@ test("a report shows its summary until its original is asked for", () => {
   toggleOriginal("s:4");
   assert.equal(reportViews.getState().original.has("s:4"), false);
 });
+
+test("a report may open with one short paragraph of the agent's own before its outcome", () => {
+  const r = readReport(htmlToDOM("<p>Two claims broken. Report:</p>\n<p>Done: found 2 broken claims. The checks do run.</p>\n<h2>Needs you</h2><ol><li>Fix it.</li></ol>"));
+  assert.ok(r);
+  assert.equal(r.outcome, "done");
+  assert.equal(text(r.lead), "Two claims broken. Report:");
+  assert.equal(text(r.headline), "Found 2 broken claims.");
+  assert.deepEqual(r.sections.map(s => [s.title, s.count]), [["Needs you", 1]]);
+  assert.deepEqual(readReport(htmlToDOM("<p>Done: it works.</p>"))?.lead, [], "no lead without one");
+
+  // Only one short paragraph: a long one, two, or a heading first is no report.
+  const long = `${"word ".repeat(31)}.`;
+  assert.equal(readReport(htmlToDOM(`<p>${long}</p><p>Done: it works.</p>`)), null);
+  assert.equal(readReport(htmlToDOM("<p>One.</p><p>Two.</p><p>Done: it works.</p>")), null);
+  assert.equal(readReport(htmlToDOM("<h2>Summary</h2><p>Done: it works.</p>")), null);
+  assert.equal(readReport(htmlToDOM("<p>Looked around.</p><p>Nothing to report.</p>")), null);
+});

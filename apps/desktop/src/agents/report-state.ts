@@ -28,6 +28,8 @@ export interface ReportSection {
 /// of the parts of the first paragraph.
 export interface Shaped {
   outcome: Outcome;
+  /// A short paragraph the agent wrote before its report ("Two claims broken. Report:").
+  lead: DOMNode[];
   headline: DOMNode[];
   intro: DOMNode[];
   sections: ReportSection[];
@@ -94,15 +96,28 @@ export function toggleOriginal(id: string) {
   reportViews.setState({ original });
 }
 
-/// `nodes` read as a report, or null when they don't open with an outcome.
+/// The most words a paragraph before a report's outcome may have.
+const LEAD_WORDS = 30;
+
+/// `nodes` read as a report, or null when they don't open with an outcome,
+/// or with one short paragraph and then an outcome.
 export function readReport(nodes: DOMNode[]): Shaped | null {
-  const start = nodes.findIndex(node => !(isText(node) && !node.data.trim()));
+  const blocks = nodes.flatMap((node, at) => isText(node) && !node.data.trim() ? [] : [at]);
+  const opens = (at: number | undefined) => {
+    const node = at === undefined ? undefined : nodes[at];
+    return isTag(node) && node.name === "p" ? outcomeOf(maskedText(node.children as DOMNode[])) : null;
+  };
+  const leads = !opens(blocks[0]) && isTag(nodes[blocks[0]]) && (nodes[blocks[0]] as Element).name === "p"
+    && textOf(nodes[blocks[0]]).split(/\s+/).filter(Boolean).length <= LEAD_WORDS && opens(blocks[1]) !== null;
+  const start = blocks[leads ? 1 : 0];
   const first = nodes[start];
   if (!(isTag(first)) || first.name !== "p") return null;
 
   const masked = maskedText(first.children as DOMNode[]);
   const opened = outcomeOf(masked);
   if (!opened) return null;
+
+  const lead = leads ? [nodes[blocks[0]]] : [];
 
   // The headline is the first sentence: a period and a space, outside code.
   const stop = masked.indexOf(". ", opened.from);
@@ -130,7 +145,7 @@ export function readReport(nodes: DOMNode[]): Shaped | null {
     if (section.kind === "checked") section.nodes = section.nodes.map(markChecks);
   }
 
-  return { outcome: opened.outcome, headline: capitalized(trimStart(headline)), intro, sections };
+  return { outcome: opened.outcome, lead, headline: capitalized(trimStart(headline)), intro, sections };
 }
 
 /// A check's result, from its text: "**`cargo test`:** passes (214 tests)".

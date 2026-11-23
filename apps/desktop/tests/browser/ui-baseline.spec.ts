@@ -709,6 +709,18 @@ test("agent report", async ({ page }) => {
   await expect(page.getByText(/^Summarize your report that starts "Done: the redirect keeps the query string\./)).toBeVisible();
 });
 
+test("agent report after a line of the agent's own", async ({ page }) => {
+  const lead = "One claim broken. Report:";
+  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: `${lead}\n\n${reportText}`, html: `<p>${lead}</p>\n${reportHtml}` }];
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries } });
+  const report = page.locator(".dcoderen.report");
+  await expect(report.locator(".report-outcome")).toHaveText("Done");
+  await expect(report.locator(".report-lead")).toHaveText(lead);
+  await expect(report.locator(".report-headline")).toHaveText("The redirect keeps the query string.");
+  const order = await report.locator(".reply-body > :is(.report-lead, .report-headline)").evaluateAll(nodes => nodes.map(node => node.className));
+  expect(order).toEqual(["report-lead", "report-headline"]);
+});
+
 test("agent report reviewed", async ({ page }) => {
   const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }];
   await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries } });
@@ -822,13 +834,15 @@ test("agent report challenged", async ({ page }) => {
   await baseline(page, "agent-report-challenging");
 
   // Finished, its findings wait as drafts on the claims they dispute, and its session is closed.
-  const found = "Partly done: one claim broke.\n\n## Needs you\n\n1. **[confirmed] Changed 1**\n   > it was dropped when `next` was read.\n   It is still dropped after the old sign-on page.\n   Evidence: `npm test -- sso` failed 1 of 1.";
+  // As a real challenger wrote it: a line of its own before the report, and blank lines in a finding.
+  const found = "One claim broken. Report:\n\nPartly done: one claim broke.\n\n## Needs you\n\n1. **[confirmed] Changed 1**\n   > it was dropped when `next` was read.\n\n   It is still dropped after the old sign-on page.\n   Evidence: `npm test -- sso` failed 1 of 1.";
   await page.evaluate(([row, text]) => {
     window.__navigation.respond("agent_sessions", [{ ...row, status: "idle" }]);
     window.__navigation.respond("agent_views", { [row.id]: { session: { ...row, status: "idle" }, plan: [], files: [], entries: [{ kind: "agent", text }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1, usage: null } });
     window.__navigation.emit("sessions-changed", null);
   }, [challenger, found] as const);
   await expect(report.getByRole("button", { name: "1 finding" })).toBeVisible();
+  await expect(report.locator(".report-note")).toHaveCount(0);
   const note = report.locator('.report-part[data-kind="changed"] li:first-child > .rv-note[data-ask="finding"]');
   await expect(note).toContainText("Confirmed: It is still dropped after the old sign-on page.");
   await expect(report.locator('.rv-mark[data-ask="finding"]')).toHaveText(["it was dropped when ", "next", " was read."]);
@@ -901,15 +915,15 @@ async function challengerIs(page: Page, row: ReturnType<typeof agentRow> | null,
 
 const closedChallenger = (page: Page) => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").map(call => call.args));
 
-test("agent report challenge that ends without a report", async ({ page }) => {
+test("agent report challenge that ends without answering", async ({ page }) => {
   const challenger = agentRow("challenger-one", "Challenge the report", "working", 0);
   const report = await startChallenge(page, challenger);
 
-  // A last reply that is no report fails the challenge, says so, and closes the challenger.
-  await challengerIs(page, { ...challenger, status: "idle" }, { entries: [{ kind: "user", text: "Challenge" }, { kind: "agent", text: "Let me run the tests first." }], error: null });
+  // A turn that ended with no reply fails the challenge, says so, and closes the challenger.
+  await challengerIs(page, { ...challenger, status: "idle" }, { entries: [{ kind: "user", text: "Challenge" }], error: null });
   const failed = report.locator('.report-busy[data-challenge="failed"]');
   await expect(failed.locator(".report-err")).toHaveText("Challenge failed");
-  await expect(failed.locator(".report-err")).toHaveAttribute("title", "It stopped before writing its report.");
+  await expect(report.locator(".report-note")).toHaveText("It stopped without answering.");
   await expect(report.locator(".dspin")).toHaveCount(0);
   await expect(report.locator(".rv-note")).toHaveCount(0);
   await expect.poll(() => closedChallenger(page)).toContainEqual(expect.objectContaining({ session: "challenger-one", steer: "close" }));
@@ -926,7 +940,7 @@ test("agent report challenge that does not start", async ({ page }) => {
 
   // A start its machine refused lists as idle with the reason on its page.
   await challengerIs(page, { ...challenger, status: "idle" }, { entries: [{ kind: "user", text: "Challenge" }], error: "Codex is not signed in on build-box." });
-  await expect(report.locator('[data-challenge="failed"] .report-err')).toHaveAttribute("title", "Codex is not signed in on build-box.");
+  await expect(report.locator(".report-note")).toHaveText("Codex is not signed in on build-box.");
 });
 
 test("agent report challenger that asks, then goes", async ({ page }) => {
@@ -950,13 +964,12 @@ test("agent report challenger that asks, then goes", async ({ page }) => {
   // A Stop the machine refuses says so, and the challenger stays.
   await page.evaluate(() => window.__navigation.rejectOnce("agent_steer", "build-box is offline."));
   await busy.getByRole("button", { name: "Stop" }).click();
-  await expect(busy.locator(".report-err")).toHaveText("Not stopped");
-  await expect(busy.locator(".report-err")).toHaveAttribute("title", /build-box is offline\./);
+  await expect(report.locator(".report-note")).toHaveText(/^Not stopped: .*build-box is offline\./);
   await expect(busy).toContainText("Challenging…");
 
   // A session deleted elsewhere fails the challenge.
   await challengerIs(page, null);
-  await expect(report.locator('[data-challenge="failed"] .report-err')).toHaveAttribute("title", "Its session is gone.");
+  await expect(report.locator(".report-note")).toHaveText("Its session is gone.");
 });
 
 test("agent report summarized in place", async ({ page }) => {

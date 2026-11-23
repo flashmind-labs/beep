@@ -4,10 +4,10 @@
 import { conversationBlocked } from "./turnrows.ts";
 import { memo, useMemo, useRef, type MouseEvent } from "react";
 import { Element, htmlToDOM, type DOMNode } from "html-react-parser";
-import { OUTCOME_LABEL, REPORT_MIN_WORDS, reportOf, reportViews, toggleOriginal, type Report, type ReportSection } from "./report-state.ts";
+import { OUTCOME_LABEL, REPORT_MIN_WORDS, isTag, reportOf, reportViews, toggleOriginal, type Report, type ReportSection } from "./report-state.ts";
 import { DraftNotes, SentReviewCard, WithDrafts, useReviewed } from "./review-view.tsx";
 import type { ReviewComment, SentReview } from "./review-state.ts";
-import { ChallengeActs } from "./challenge-view.tsx";
+import { ChallengeActs, ChallengeNote } from "./challenge-view.tsx";
 import { useStore } from "zustand";
 import { plural } from "../ui/format.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
@@ -75,6 +75,7 @@ function ReportReply({ reply, report }: { reply: ReplyRow; report: Report }) {
           : reply.idle && report.words >= REPORT_MIN_WORDS && <Button small look="quiet" data-report-summarize={reply.row} title="Ask the agent for a shorter version of this report">Summarize</Button>}
       </span>
     </div>
+    <ChallengeNote entry={reply.row} />
     <ReportBody key={view} entry={reply.row} report={shown} swapped={swapped} />
   </div>;
 }
@@ -83,7 +84,11 @@ function ReportReply({ reply, report }: { reply: ReplyRow; report: Report }) {
 /// paragraph or item it quotes.
 function ReportBody({ entry, report, swapped }: { entry: string; report: Report; swapped: boolean }) {
   const shapedParts = useMemo(() => report.kind === "long" ? [report.nodes] : [
-    [...report.shaped.headline.length ? [new Element("p", { class: "report-headline" }, report.shaped.headline as Element["children"])] : [], ...report.shaped.intro],
+    [
+      ...report.shaped.lead.map(node => isTag(node) ? new Element(node.name, { ...node.attribs, class: "report-lead" }, node.children) : node),
+      ...report.shaped.headline.length ? [new Element("p", { class: "report-headline" }, report.shaped.headline as Element["children"])] : [],
+      ...report.shaped.intro,
+    ],
     ...report.shaped.sections.map(section => section.nodes),
   ], [report]);
   const { parts, at, rest } = useReviewed(entry, shapedParts);

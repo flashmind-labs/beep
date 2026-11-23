@@ -54,10 +54,29 @@ test("a challenger's session status moves its challenge on", () => {
   assert.equal(challengeStep(null, false), "gone", "a named session no longer listed");
 });
 
-test("a finished challenger fails its challenge unless its last reply is a report", () => {
+test("whatever a finished challenger answered is its result; without an answer it failed", () => {
   assert.deepEqual(challengeResult(challenger, null), { state: "done", findings: parseFindings(challenger) });
-  assert.deepEqual(challengeResult("Done: every claim held.\n\n## Checked\n- **Changed 1:** held.", null), { state: "done", findings: [] });
-  assert.deepEqual(challengeResult("Let me run the tests first.", null), { state: "failed", error: "It stopped before writing its report." });
-  assert.deepEqual(challengeResult(null, null), { state: "failed", error: "It stopped before writing its report." });
-  assert.deepEqual(challengeResult(null, "codex is not signed in "), { state: "failed", error: "codex is not signed in" });
+  assert.deepEqual(challengeResult(`Two claims broken. Report:\n\n${challenger}`, null), { state: "done", findings: parseFindings(challenger) });
+  assert.deepEqual(challengeResult("Every claim held.", null), { state: "done", findings: [] });
+  assert.deepEqual(challengeResult(null, null), { state: "failed", error: "It stopped without answering." });
+  assert.deepEqual(challengeResult("  ", "codex is not signed in "), { state: "failed", error: "codex is not signed in" });
 });
+
+test("findings are read as serpis reads them", () => {
+  const report = "Done: two claims don't hold.\n\n## Needs you\n\n1. **[confirmed] Changed 1**\n   > This is the likely cause of the flaky `retries_respect_limit` test in CI.\n   The race is still there: `push_front` runs first.\n   It reads the old count.\n   Evidence: 8 workers failed 3 of 500 runs.\n2. **[Plausible] Checked 2:** The loop ran on one thread.\n   > passed every time.\n3. Something else, not a finding.\n   > not a quote\n\n## Checked\n\n- **Changed 2:** held. Read the backoff.\n";
+  assert.deepEqual(parseFindings(report), [
+    { tag: "confirmed", place: "Changed 1", quote: "This is the likely cause of the flaky retries_respect_limit test in CI.", text: "The race is still there: `push_front` runs first. It reads the old count.", evidence: "8 workers failed 3 of 500 runs." },
+    { tag: "plausible", place: "Checked 2", quote: "passed every time.", text: "The loop ran on one thread.", evidence: "" },
+  ]);
+  assert.deepEqual(parseFindings("- **[confirmed]** Headline\n"), [], "outside Needs you");
+  assert.deepEqual(parseFindings("## Needs you\n- [CONFIRMED] Headline\n  > it works\n  **Evidence:** ran it,\n  twice.").map(f => [f.tag, f.place, f.quote, f.evidence]), [["confirmed", "Headline", "it works", "ran it, twice."]]);
+});
+
+test("a real challenger's answer, a line of its own before its report, gives its findings", () => {
+  const said = "Two claims broken. Report:\n\nDone: found 2 broken claims — the checks do run (all pass), and the import count is 65 files, not 68.\n\n## Needs you\n\n1. **[confirmed] Headline**\n   > but the rename isn't compiled, since there's no Go toolchain on this machine\n\n   Go 1.27.4 is on PATH and everything passes.\n   Evidence: `go vet ./...` exit 0, `go test ./...` all 6 packages ok.\n\n2. **[confirmed] Changed 1**\n   > Every import in 68 files\n\n   65 files change their imports, not 68.\n   Evidence: `git show HEAD` lists 65 files with changed import lines.\n\n## Checked\n\n- **Changed 2:** held.";
+  assert.deepEqual(parseFindings(said).map(f => [f.tag, f.place, f.quote, f.text]), [
+    ["confirmed", "Headline", "but the rename isn't compiled, since there's no Go toolchain on this machine", "Go 1.27.4 is on PATH and everything passes."],
+    ["confirmed", "Changed 1", "Every import in 68 files", "65 files change their imports, not 68."],
+  ]);
+});
+

@@ -261,12 +261,13 @@ body.cbody
                                   span.report-length "83 words, about 1 min"
                                   span.report-acts
                                     span.report-busy [data-challenge="failed"]
-                                      span.report-err [title="It stopped before writing its report."] "Challenge failed"
+                                      span.report-err "Challenge failed"
                                       button.dbtn.quiet.small [title="Open the challenger's session" type="button"] "Open"
                                       span.report-challenge
                                         button.dbtn.quiet.small [aria-expanded="false" title="Pick a model to try to prove this report wrong" type="button"] "Again"
                                         div
                                     button.dbtn.quiet.small [data-report-summarize="8" title="Ask the agent for a shorter version of this report" type="button"] "Summarize"
+                                p.report-note [role="status"] "It stopped without answering."
                                 div.reply-body
                                   p.report-headline "The redirect keeps the query string."
                                   p "Sign-in lands where it started."

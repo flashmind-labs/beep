@@ -2,7 +2,6 @@
 // tries to prove the report's claims wrong. What it finds comes back as
 // review drafts on the claims it disputes, for the user to send or drop.
 import { createStore } from "zustand";
-import { outcomeOf } from "./report-state.ts";
 import type { ReviewComment } from "./review-state.ts";
 
 /// How sure a finding is: shown by running something, or read in the code.
@@ -45,11 +44,12 @@ export function challengeStep(status: string | null, starting: boolean): "runnin
   return status === "idle" || status === "ended" ? "finished" : "running";
 }
 
-/// How a finished challenger's last reply ends its challenge: its findings
-/// when it is a report, else failed, with the session's own error if any.
+/// How a finished challenger's last reply ends its challenge: whatever it
+/// said is its answer, its findings read from it, none when it broke no
+/// claim. Without a reply it failed, with the session's own error if any.
 export function challengeResult(reply: string | null, error: string | null): { state: "done"; findings: Finding[] } | { state: "failed"; error: string } {
-  if (reply !== null && outcomeOf(reply) !== null) return { state: "done", findings: parseFindings(reply) };
-  return { state: "failed", error: error?.trim() || "It stopped before writing its report." };
+  if (reply?.trim()) return { state: "done", findings: parseFindings(reply) };
+  return { state: "failed", error: error?.trim() || "It stopped without answering." };
 }
 
 /// The message that starts a challenger in its copy of the work in `work`:
@@ -58,22 +58,42 @@ export function challengePrompt(report: string, work: string) {
   return `Challenge the report below, following Beep's \`challenge\` skill: try to prove its claims wrong. Another agent wrote it about its work in \`${work}\`; you run in a throwaway copy of that work.\n\n<report>\n${report.trim()}\n</report>`;
 }
 
-/// The findings in a challenger's report: its Needs you items in the
-/// challenge skill's shape. Other items are left out.
+/// The findings in a challenger's report: its Needs you items tagged
+/// `[confirmed]` or `[plausible]`, read leniently as serpis reads them. An
+/// item is `1.`, `1)` or `- ` at the line's start; the tag may be anywhere
+/// in it, in any case, bold or not; `Place: text` may follow on that line.
+/// Then come `> quote` lines, the finding's words and `Evidence:`, whose
+/// words run on to the item's end. Untagged items are left out.
 export function parseFindings(text: string): Finding[] {
-  const section = /^##\s+Needs you\s*$([\s\S]*?)(?=^##\s|(?![\s\S]))/m.exec(text)?.[1] ?? "";
-  const items = section.split(/^\s*\d+\.\s+/m).slice(1);
+  const section = /^##\s+Needs you\s*$([\s\S]*?)(?=^##\s|(?![\s\S]))/im.exec(text)?.[1] ?? "";
   const out: Finding[] = [];
+  // Where an item's lines go: its words, its evidence, or nowhere (an untagged item).
+  let into: "words" | "evidence" | "none" = "none";
 
-  for (const item of items) {
-    const head = /^\*\*\[(confirmed|plausible)\]\s*(.+?)\*\*\s*$/m.exec(item);
-    if (!head) continue;
+  for (const line of section.split("\n")) {
+    const t = line.trim();
+    const item = /^\S/.test(line) ? /^(?:\d+[.)]|-)\s+(.*)$/.exec(t) : null;
 
-    const lines = item.slice(head.index + head[0].length).split("\n").map(line => line.trim()).filter(Boolean);
-    const quote = lines.filter(line => line.startsWith(">")).map(line => line.replace(/^>\s?/, "")).join(" ");
-    const evidence = lines.find(line => /^evidence:/i.test(line))?.replace(/^evidence:\s*/i, "") ?? "";
-    const words = lines.filter(line => !line.startsWith(">") && !/^evidence:/i.test(line)).join(" ");
-    out.push({ tag: head[1] === "confirmed" ? "confirmed" : "plausible", place: head[2].trim(), quote: plain(quote), text: words, evidence });
+    if (item) {
+      const head = item[1].replace(/\*\*/g, "");
+      const tag = /\[(confirmed|plausible)\]/i.exec(head);
+      if (!tag) { into = "none"; continue; }
+
+      const after = head.slice(tag.index + tag[0].length).trim(), colon = after.indexOf(":");
+      const [place, words] = colon < 0 ? [after, ""] : [after.slice(0, colon).trim(), after.slice(colon + 1).trim()];
+      out.push({ tag: tag[1].toLowerCase() === "confirmed" ? "confirmed" : "plausible", place, quote: "", text: words, evidence: "" });
+      into = "words";
+      continue;
+    }
+
+    const f = out.at(-1);
+    if (!f || into === "none" || !t) continue;
+
+    const evidence = /^(?:\*\*)?evidence:(?:\*\*)?\s*(.*)$/i.exec(t);
+    if (t.startsWith(">") && (!f.quote || !f.text)) f.quote = plain(`${f.quote} ${t.replace(/^>\s?/, "")}`);
+    else if (evidence) { f.evidence = evidence[1].trim(); into = "evidence"; }
+    else if (into === "evidence") f.evidence = `${f.evidence} ${t}`.trim();
+    else f.text = `${f.text} ${t}`.trim();
   }
 
   return out;
