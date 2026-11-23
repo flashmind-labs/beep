@@ -7,8 +7,7 @@
   and remove its session and copy, then how many findings it left.
 - Android: a challenger that asks you something shows "Challenger asks you" in
   place of the spinner. One that stops without its report, fails to start, or
-  whose session is deleted shows "Challenge failed", with the reason on hover,
-  Open, and Again to pick a model and challenge once more.
+  whose session is deleted shows "Challenge failed", with the reason under the header, Open, and Again to pick a model and challenge once more.
 - Android: its findings arrive as review drafts under the claims they dispute,
   headed Challenge with a CONFIRMED (it ran something) or PLAUSIBLE (it read the
   code) badge, their words, and their evidence on a line of its own, with code
