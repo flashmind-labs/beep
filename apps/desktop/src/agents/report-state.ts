@@ -3,6 +3,7 @@
 // It opens with its outcome (`Done`, `Partly done`, `Blocked`), then the
 // headline, then `##` sections the view draws as parts.
 import { Element, Text, htmlToDOM, type DOMNode } from "html-react-parser";
+import { createStore } from "zustand";
 
 // By type, not class: the parser's CommonJS and ES builds each load domhandler's.
 const isTag = (node: { type: string } | undefined): node is Element => node?.type === "tag" || node?.type === "script" || node?.type === "style";
@@ -51,23 +52,46 @@ export function readingTime(text: string) {
 export type Report = { kind: "shaped"; words: number; minutes: number; shaped: Shaped } | { kind: "long"; words: number; minutes: number; nodes: DOMNode[] };
 
 /// The reply with sanitized `html` and source `text` as a report, or null
-/// when it is neither in the shape nor long.
-export function reportOf(html: string, text: string): Report | null {
+/// when it is neither in the shape nor `minWords` long.
+export function reportOf(html: string, text: string, minWords = REPORT_MIN_WORDS): Report | null {
   const { words, minutes } = readingTime(text);
   const nodes = htmlToDOM(html);
   const shaped = readReport(nodes);
   if (shaped) return { kind: "shaped", words, minutes, shaped };
-  return words >= REPORT_MIN_WORDS ? { kind: "long", words, minutes, nodes } : null;
+  return words >= minWords ? { kind: "long", words, minutes, nodes } : null;
 }
 
 /// What Summarize asks the session's agent about its report `text`: the
 /// same report, shorter, naming the report by how it starts.
 export function summaryPrompt(text: string) {
-  const first = text.split("\n").map(line => line.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim()).find(Boolean) ?? "";
-  const opening = first.length > 60 ? `${first.slice(0, 60).trimEnd()}…` : first;
-  return `Summarize your report that starts "${opening}" even further, for a reader with one minute. `
+  return `${SUMMARY_ASK}"${openingOf(text)}" even further, for a reader with one minute. `
     + "Keep its first line, the outcome and the result. Then at most three one-line bullets: only what I must decide or know before it ships. "
     + "No sections, no files you read, nothing already said.";
+}
+
+const SUMMARY_ASK = "Summarize your report that starts ";
+
+/// The opening a Summarize message names, or null for any other message.
+export function summaryAsked(prompt: string): string | null {
+  if (!prompt.startsWith(SUMMARY_ASK)) return null;
+  const quoted = /^"(.*)" even further,/.exec(prompt.slice(SUMMARY_ASK.length));
+  return quoted ? quoted[1] : null;
+}
+
+/// How a report starts, to name it: its first line without Markdown marks, cut short.
+export function openingOf(text: string) {
+  const first = text.split("\n").map(line => line.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim()).find(Boolean) ?? "";
+  return first.length > 60 ? `${first.slice(0, 60).trimEnd()}…` : first;
+}
+
+/// Which reports show their original over the summary Summarize brought, by
+/// the summary's id. A report with a summary shows the summary by default.
+export const reportViews = createStore<{ original: ReadonlySet<string> }>(() => ({ original: new Set() }));
+
+export function toggleOriginal(id: string) {
+  const original = new Set(reportViews.getState().original);
+  if (!original.delete(id)) original.add(id);
+  reportViews.setState({ original });
 }
 
 /// `nodes` read as a report, or null when they don't open with an outcome.

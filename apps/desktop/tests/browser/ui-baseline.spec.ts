@@ -22,6 +22,7 @@ import { EMPTY } from "../../src/settings/flsh-state.ts";
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, openStartForm, projectName } from "./harness.ts";
 import { audit, auditing } from "./ui-audit.ts";
+import { summaryPrompt } from "../../src/agents/report-state.ts";
 
 /// The frozen wall clock every state renders at.
 const NOW = Date.UTC(2026, 0, 15, 12, 0, 0);
@@ -691,10 +692,11 @@ test("agent session transcript", async ({ page }) => {
   await expect(page.getByText(summary, { exact: true })).toBeVisible();
 });
 
+const reportText = "Done: the redirect keeps the query string. Sign-in lands where it started.\n\n## Needs you\n1. **Old links:** keep `?next=` working for a release. The mobile app still sends it.\n\n## Changed\n- **Query string kept** (`src/login.ts:42`): it was dropped when `next` was read.\n- **Test for an empty `next`** (`src/login.test.ts:18`).\n\n## Checked\n- **`npm test`:** passes (48 tests).\n- **Old mobile build:** fails to sign in without `?next=`.\n- **Not checked:** Safari's private mode, and sign-in through the old single sign-on page.";
+const reportHtml = "<p>Done: the redirect keeps the query string. Sign-in lands where it started.</p>\n<h2>Needs you</h2>\n<ol>\n<li><strong>Old links:</strong> keep <code>?next=</code> working for a release. The mobile app still sends it.</li>\n</ol>\n<h2>Changed</h2>\n<ul>\n<li><strong>Query string kept</strong> (<code>src/login.ts:42</code>): it was dropped when <code>next</code> was read.</li>\n<li><strong>Test for an empty <code>next</code></strong> (<code>src/login.test.ts:18</code>).</li>\n</ul>\n<h2>Checked</h2>\n<ul>\n<li><strong><code>npm test</code>:</strong> passes (48 tests).</li>\n<li><strong>Old mobile build:</strong> fails to sign in without <code>?next=</code>.</li>\n<li><strong>Not checked:</strong> Safari's private mode, and sign-in through the old single sign-on page.</li>\n</ul>";
+
 test("agent report", async ({ page }) => {
-  const text = "Done: the redirect keeps the query string. Sign-in lands where it started.\n\n## Needs you\n1. **Old links:** keep `?next=` working for a release. The mobile app still sends it.\n\n## Changed\n- **Query string kept** (`src/login.ts:42`): it was dropped when `next` was read.\n- **Test for an empty `next`** (`src/login.test.ts:18`).\n\n## Checked\n- **`npm test`:** passes (48 tests).\n- **Old mobile build:** fails to sign in without `?next=`.\n- **Not checked:** Safari's private mode, and sign-in through the old single sign-on page.";
-  const html = "<p>Done: the redirect keeps the query string. Sign-in lands where it started.</p>\n<h2>Needs you</h2>\n<ol>\n<li><strong>Old links:</strong> keep <code>?next=</code> working for a release. The mobile app still sends it.</li>\n</ol>\n<h2>Changed</h2>\n<ul>\n<li><strong>Query string kept</strong> (<code>src/login.ts:42</code>): it was dropped when <code>next</code> was read.</li>\n<li><strong>Test for an empty <code>next</code></strong> (<code>src/login.test.ts:18</code>).</li>\n</ul>\n<h2>Checked</h2>\n<ul>\n<li><strong><code>npm test</code>:</strong> passes (48 tests).</li>\n<li><strong>Old mobile build:</strong> fails to sign in without <code>?next=</code>.</li>\n<li><strong>Not checked:</strong> Safari's private mode, and sign-in through the old single sign-on page.</li>\n</ul>";
-  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text, html }];
+  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }];
   await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries } });
   const report = page.locator(".dcoderen.report");
   await expect(report.locator(".report-outcome")).toHaveText("Done");
@@ -705,6 +707,36 @@ test("agent report", async ({ page }) => {
   // Summarize asks the session's agent for a shorter version, naming the report.
   await report.getByRole("button", { name: "Summarize" }).click();
   await expect(page.getByText(/^Summarize your report that starts "Done: the redirect keeps the query string\./)).toBeVisible();
+});
+
+test("agent report summarized in place", async ({ page }) => {
+  const summary = "Done: the redirect keeps the query string.\n\n- Keep `?next=` for one release: the mobile app sends it.";
+  const summaryHtml = "<p>Done: the redirect keeps the query string.</p>\n<ul>\n<li>Keep <code>?next=</code> for one release: the mobile app sends it.</li>\n</ul>";
+  const asked = { kind: "user", text: summaryPrompt(reportText) };
+  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }, asked, { kind: "agent", text: summary, html: summaryHtml }];
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries } });
+  const report = page.locator(".dcoderen.report");
+  // The summary takes the report's place; the message that asked for it is not drawn.
+  await expect(report).toHaveCount(1);
+  await expect(report.locator(".report-label")).toHaveText("Summary");
+  await expect(report.getByText("Keep ?next= for one release", { exact: false })).toBeVisible();
+  await expect(page.getByText(/^Summarize your report/)).toHaveCount(0);
+  await baseline(page, "agent-report-summary");
+
+  await report.getByRole("button", { name: "Original" }).click();
+  await expect(report.locator(".report-label")).toHaveText("Report");
+  await expect(report.locator('li[data-check="fail"]')).toContainText("Old mobile build");
+  await report.getByRole("button", { name: "Summary" }).click();
+  await expect(report.locator(".report-label")).toHaveText("Summary");
+});
+
+test("agent report being summarized", async ({ page }) => {
+  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }, { kind: "user", text: summaryPrompt(reportText) }];
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "working", question: null }, entries } });
+  const report = page.locator(".dcoderen.report");
+  await expect(report.locator(".report-busy")).toHaveText("Summarizing…");
+  await expect(report.locator(".report-label")).toHaveText("Report");
+  await expect(page.getByText(/^Summarize your report/)).toHaveCount(0);
 });
 
 test("agent composer with a draft", async ({ page }) => {

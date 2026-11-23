@@ -252,7 +252,7 @@ body.cbody
                                 div.said
                                   p "Report on the fix."
                             div style(display)
-                              div.agent.dcoderen.md.report [data-row="8"]
+                              div.agent.dcoderen.md.report [data-row="8" data-view="report"]
                                 button.dbtn.quiet.reply-copy.small [aria-label="Copy" title="Copy" type="button"]
                                   svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                                 div.report-head

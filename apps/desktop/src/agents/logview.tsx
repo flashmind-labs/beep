@@ -45,7 +45,8 @@ import { olderNote } from "./older-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { batchComposerUi, showAgentControl, showAgentControlFor, showAgentStop } from "./composer-ui.tsx";
 import { AgentStatus } from "./mode-view.tsx";
-import type { BlockedRow, ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
+import type { BlockedRow, ContextRow, PromptRow, ReplyRow, Summary } from "./reply-view.tsx";
+import { openingOf, summaryAsked } from "./report-state.ts";
 import { sessionBody } from "./session-frame.tsx";
 import { glide } from "../ui/motion.ts";
 
@@ -602,9 +603,40 @@ function agentReply(en: AgentEntry, at: number): (ReplyRow | BlockedRow)[] {
   const html = en.html ?? esc(text);
   const block = blockedReply(text, html);
   const body = block?.html ?? html;
-  const replies: (ReplyRow | BlockedRow)[] = body || pics ? [{ kind: "reply", sentAt: en.sent_at ?? null, row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(body)) : linked(body)) + pics, text: (block ? text.slice(0, text.lastIndexOf(block.error)) : text).trim(), copy: false, final: false, idle: false }] : [];
+  const replies: (ReplyRow | BlockedRow)[] = body || pics ? [{ kind: "reply", sentAt: en.sent_at ?? null, row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(body)) : linked(body)) + pics, text: (block ? text.slice(0, text.lastIndexOf(block.error)) : text).trim(), copy: false, final: false, idle: false, summary: null }] : [];
   if (block) replies.push({ kind: "blocked", id: `${at}:blocked`, message: block.error });
   return replies;
+}
+
+/// The summaries Summarize asked for, by the entry of the report each is
+/// for, and the turns that asked, which are drawn in their report's card
+/// rather than as turns. A turn that ended without a reply stays a turn.
+function summariesOf(turns: Turn[], prompt: (t: Turn) => string | null, entry: (at: number) => AgentEntry, running: Turn | null | undefined, session: string) {
+  const summaries = new Map<number, Summary>(), hidden = new Set<number>();
+  const finalReply = (t: Turn) => { const at = t.answer.at(-1); return at != null && entry(at).kind === "agent" && entry(at).text.trim() ? at : null; };
+
+  turns.forEach((t, i) => {
+    const opening = summaryAsked(prompt(t) ?? "");
+    if (opening == null) return;
+
+    const report = turns.slice(0, i).map(finalReply).findLast(at => at != null && openingOf(entry(at).text) === opening);
+    if (report == null) return;
+
+    const reply = finalReply(t);
+    const made = reply == null ? null : agentReply(entry(reply), reply).find(row => row.kind === "reply");
+    if (t === running) summaries.set(report, { state: "writing" });
+    else if (made?.kind === "reply") summaries.set(report, { state: "done", id: `${session}:${reply}`, html: made.html, text: made.text });
+    else return;
+
+    hidden.add(t.key);
+  });
+
+  return { summaries, hidden };
+}
+
+/// A turn's rows with the summary of its report, as copies: kept rows stay as they were drawn.
+function withSummaries(rows: () => readonly TranscriptRow[], summaries: Map<number, Summary>) {
+  return () => rows().map(row => row.kind === "reply" && summaries.has(Number(row.row)) ? { ...row, summary: summaries.get(Number(row.row)) ?? null } : row);
 }
 
 /// Calls of one kind in a row as one line, the first few targets beside
@@ -663,7 +695,11 @@ function turnUnits(p: AgentPage, news: boolean): Unit[] {
   const prompt = (t: Turn) => { const said = t.user == null ? null : entry(t.user); return said?.kind === "user" && said.text.trim() ? said.text.trim() : null; };
   const m = noteTurns(AG.open?.session ?? s.id, turns, prompt, active && lastTurn ? lastTurn.key : null);
   liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
-  return turns.map(t => ({ key: `t${t.key}`, rows: t === lastTurn ? turnRows(t) : keptTurn(t, turnRows(t)), prompt: prompt(t) }));
+  const { summaries, hidden } = summariesOf(turns, prompt, entry, active ? lastTurn : null, s.id);
+  return turns.filter(t => !hidden.has(t.key)).map(t => {
+    const rows = t === lastTurn ? turnRows(t) : keptTurn(t, turnRows(t));
+    return { key: `t${t.key}`, rows: summaries.size ? withSummaries(rows, summaries) : rows, prompt: prompt(t) };
+  });
 
   /// The rows of a turn before the last: those it had while its entries stay, once none runs.
   function keptTurn(t: Turn, rows: () => TranscriptRow[]): () => readonly TranscriptRow[] {

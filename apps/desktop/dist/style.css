@@ -740,6 +740,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .report-label { color: var(--muted) }
 .report-length::before { content: "·"; margin-inline-end: 8px }
 .report-acts { display: flex; gap: 4px; margin-inline-start: auto }
+.report-busy { display: flex; align-items: center; gap: 6px; color: var(--dim) }
+@media (prefers-reduced-motion: no-preference) { .dcoderen.report > .reply-body.swapped { animation: report-swap .18s ease-out } }
+@keyframes report-swap { from { opacity: 0; transform: translateY(3px) } }
 .report-outcome { padding: 0 6px; border-radius: var(--radius-sm); font-weight: 500 }
 .report-outcome[data-outcome="done"] { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent) }
 .report-outcome[data-outcome="partly"] { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent) }

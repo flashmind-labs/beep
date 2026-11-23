@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { htmlToDOM, type Element, type DOMNode } from "html-react-parser";
-import { checkOf, outcomeOf, readReport, readingTime, summaryPrompt } from "../src/agents/report-state.ts";
+import { checkOf, outcomeOf, readReport, readingTime, summaryAsked, summaryPrompt, toggleOriginal, reportViews } from "../src/agents/report-state.ts";
 
 const text = (nodes: DOMNode[]): string => nodes.map(n => n.type === "text" ? n.data : n.type === "tag" ? text(n.children as DOMNode[]) : "").join("");
 const html = (nodes: DOMNode[]): string => nodes.map(n => n.type === "text" ? n.data : n.type === "tag" ? `<${n.name}${Object.entries(n.attribs).map(([k, v]) => ` ${k}="${v}"`).join("")}>${html(n.children as DOMNode[])}</${n.name}>` : "").join("");
@@ -58,4 +58,18 @@ test("Summarize names the report by how it starts", () => {
   const prompt = summaryPrompt("\n**Done:** retries work.\n\n## Changed\n- x");
   assert.match(prompt, /^Summarize your report that starts "Done: retries work\." even further/);
   assert.match(summaryPrompt(`Done: ${"word ".repeat(30)}`), /starts "Done: (word ){10}word…"/);
+});
+
+test("a Summarize message is told apart and names its report", () => {
+  const report = `**Done:** ${"long ".repeat(20)}`;
+  assert.equal(summaryAsked(summaryPrompt(report)), `Done: ${"long ".repeat(11).trim()}…`);
+  assert.equal(summaryAsked("Summarize the logs"), null);
+});
+
+test("a report shows its summary until its original is asked for", () => {
+  assert.equal(reportViews.getState().original.has("s:4"), false);
+  toggleOriginal("s:4");
+  assert.equal(reportViews.getState().original.has("s:4"), true);
+  toggleOriginal("s:4");
+  assert.equal(reportViews.getState().original.has("s:4"), false);
 });

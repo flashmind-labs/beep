@@ -4,10 +4,11 @@
 import { conversationBlocked } from "./turnrows.ts";
 import { memo, useMemo, useRef, type MouseEvent } from "react";
 import { domToReact, type DOMNode } from "html-react-parser";
-import { OUTCOME_LABEL, REPORT_MIN_WORDS, reportOf, type Report, type ReportSection } from "./report-state.ts";
+import { OUTCOME_LABEL, REPORT_MIN_WORDS, reportOf, reportViews, toggleOriginal, type Report, type ReportSection } from "./report-state.ts";
+import { useStore } from "zustand";
 import { plural } from "../ui/format.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
-import { Button, CopyButton, useHtml } from "../ui/kit.tsx";
+import { Button, CopyButton, Spinner, useHtml } from "../ui/kit.tsx";
 import { sessionMessageTitle, type PromptPart } from "./promptparts-state.ts";
 import { EntryTime } from "./turn-heading-view.tsx";
 import { SubIcon } from "./activity-view.tsx";
@@ -15,8 +16,13 @@ import { SubIcon } from "./activity-view.tsx";
 /// Replies already contain the sanitized Markdown produced by the node.
 /// `text` is the reply as the agent wrote it, which its copy button copies.
 /// `final` marks the last reply of a finished turn, which may be a report;
-/// `idle` that the session takes a message now, as a report's Summarize sends.
-export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string; text: string; copy: boolean; final: boolean; idle: boolean; sentAt?: number | null }
+/// `idle` that the session takes a message now, as a report's Summarize sends;
+/// `summary` the shorter version Summarize brought, drawn in its place.
+export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string; text: string; copy: boolean; final: boolean; idle: boolean; summary: Summary | null; sentAt?: number | null }
+
+/// A report's summary: being written by the session's agent, or its reply,
+/// whose `id` keeps the reader's choice between it and the original.
+export type Summary = { state: "writing" } | { state: "done"; id: string; html: string; text: string };
 export interface BlockedRow { kind: "blocked"; id: string; message: string }
 export interface PromptRow { kind: "prompt"; row: string; html: string; files: string[]; pictures: string; sentAt?: number | null }
 export type ContextRow = { kind: "context"; id: string; type: "context"; text: string } | { kind: "context"; id: string; type: "session"; name: string; project: string | null; html: string } | { kind: "context"; id: string; type: "child"; part: Extract<PromptPart, { kind: "child" }>; body: string; agent: string | null; name: string; project: string | null };
@@ -35,26 +41,46 @@ function PlainReply({ reply }: { reply: ReplyRow }) {
 }
 
 /// A report: its outcome, length and reading time over its headline and
-/// parts, its prose set at a reading measure.
+/// parts, its prose set at a reading measure. Once summarized, the summary
+/// takes its place, and the header's button turns between the two.
 function ReportReply({ reply, report }: { reply: ReplyRow; report: Report }) {
-  const outcome = report.kind === "shaped" ? report.shaped.outcome : null;
+  const summary = reply.summary;
+  const done = summary?.state === "done" ? summary : null;
+  const original = useStore(reportViews, views => done !== null && views.original.has(done.id));
+  const short = useMemo(() => done && reportOf(done.html, done.text, 0), [done?.html, done?.text]);
+  const shown = short && !original ? short : report;
+  const view = shown === report ? "report" : "summary";
+  // The text fades in when the view changes here, not when the card is drawn again.
+  const drawn = useRef(view);
+  const swapped = drawn.current !== view;
+  drawn.current = view;
+  const outcome = shown.kind === "shaped" ? shown.shaped.outcome : null;
 
-  return <div className="dcoderen agent md report" data-row={reply.row}>
+  return <div className="dcoderen agent md report" data-row={reply.row} data-view={view}>
     <EntryTime at={reply.sentAt ?? null} />
-    {reply.copy && <CopyButton text={reply.text} look="quiet" small icon className="reply-copy" />}
+    {reply.copy && <CopyButton text={shown === report ? reply.text : done?.text ?? reply.text} look="quiet" small icon className="reply-copy" />}
     <div className="report-head">
       {outcome && <span className="report-outcome" data-outcome={outcome}>{OUTCOME_LABEL[outcome]}</span>}
-      <span className="report-label">Report</span>
-      <span className="report-length">{`${plural(report.words, "word", "words")}, about ${report.minutes} min`}</span>
-      {reply.idle && report.words >= REPORT_MIN_WORDS && <span className="report-acts"><Button small look="quiet" data-report-summarize={reply.row} title="Ask the agent for a shorter version of this report">Summarize</Button></span>}
+      <span className="report-label">{shown === report ? "Report" : "Summary"}</span>
+      <span className="report-length">{`${plural(shown.words, "word", "words")}, about ${shown.minutes} min`}</span>
+      <span className="report-acts">
+        {summary?.state === "writing" ? <span className="report-busy"><Spinner />Summarizing…</span>
+          : done ? <Button small look="quiet" onClick={() => toggleOriginal(done.id)} title={original ? "Show the summary" : "Show the full report"}>{original ? "Summary" : "Original"}</Button>
+          : reply.idle && report.words >= REPORT_MIN_WORDS && <Button small look="quiet" data-report-summarize={reply.row} title="Ask the agent for a shorter version of this report">Summarize</Button>}
+      </span>
     </div>
-    <div className="reply-body">
-      {report.kind === "long" ? nodes(report.nodes) : <>
-        <p className="report-headline">{nodes(report.shaped.headline)}</p>
-        {nodes(report.shaped.intro)}
-        {report.shaped.sections.map((section, i) => <ReportPart key={i} section={section} />)}
-      </>}
-    </div>
+    <ReportBody key={view} report={shown} swapped={swapped} />
+  </div>;
+}
+
+/// A report's text: its headline, opening and parts.
+function ReportBody({ report, swapped }: { report: Report; swapped: boolean }) {
+  return <div className={`reply-body${swapped ? " swapped" : ""}`}>
+    {report.kind === "long" ? nodes(report.nodes) : <>
+      {report.shaped.headline.length > 0 && <p className="report-headline">{nodes(report.shaped.headline)}</p>}
+      {nodes(report.shaped.intro)}
+      {report.shaped.sections.map((section, i) => <ReportPart key={i} section={section} />)}
+    </>}
   </div>;
 }
 
