@@ -7,6 +7,12 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.25] - 2026-11-23
+
+### Added
+
+- Desktop: SVG and PDF downloads from HTML previews save on this device and open in a new Beep tab.
+
 ## [0.10.24] - 2026-11-23
 
 ### Changed
