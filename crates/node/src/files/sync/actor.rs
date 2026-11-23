@@ -6,6 +6,7 @@
 //! one at a time as `Op`s in a task the actor owns, not in the task of whoever
 //! asked. A caller that goes away leaves its change to finish.
 
+use crate::actor;
 use super::{FAILED, Inner, Running, STOPPING, Shared, Source, Syncs, halt};
 use anyhow::Result;
 use beep_proto::node::sync::{Project, ProjectStatus, Refused, State, SyncthingFiles};
@@ -19,7 +20,7 @@ use std::{
     },
 };
 use tokio::{
-    sync::{mpsc, oneshot, watch},
+    sync::{oneshot, watch},
     task::JoinSet,
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -96,6 +97,7 @@ impl Entry {
 }
 
 /// A change that waits, run one at a time, with the reply to its caller.
+#[derive(strum::IntoStaticStr)]
 pub(super) enum Op {
     Configure {
         projects: Vec<Project>,
@@ -129,6 +131,7 @@ pub(super) enum Op {
     },
 }
 
+#[derive(strum::IntoStaticStr)]
 enum Cmd {
     Op(Op),
     /// Sets the project's phase, whatever it was. A run brings its task.
@@ -165,7 +168,7 @@ enum Cmd {
 
 /// How the rest of the node talks to the actor.
 pub(super) struct Handle {
-    cmds: mpsc::Sender<Cmd>,
+    cmds: actor::Sender<Cmd>,
     seen: watch::Receiver<Seen>,
     /// Set once the shutdown began. A change in progress starts and
     /// forgets nothing from then on.
@@ -176,7 +179,7 @@ impl Handle {
     /// Starts the actor. It runs its changes as `inner`, which it holds
     /// only for the time of a change.
     pub(super) fn start(inner: Weak<Inner>) -> (Self, AbortOnDropHandle<()>) {
-        let (cmds, rx) = mpsc::channel(64);
+        let (cmds, rx) = actor::channel("sync", 64);
         let (seen_tx, seen) = watch::channel(Seen::default());
         let closing = Arc::new(AtomicBool::new(false));
         let actor = Actor {
@@ -305,11 +308,11 @@ struct Actor {
 }
 
 impl Actor {
-    async fn run(mut self, mut cmds: mpsc::Receiver<Cmd>) {
+    async fn run(mut self, mut cmds: actor::Receiver<Cmd>) {
         loop {
             tokio::select! {
                 cmd = cmds.recv() => match cmd {
-                    Some(cmd) => self.handle(cmd),
+                    Some((cmd, _timing)) => self.handle(cmd),
                     None => return,
                 },
                 Some(ended) = self.ops.join_next() => {
@@ -449,7 +452,9 @@ impl Actor {
             self.queue.clear();
             return;
         };
-        self.ops.spawn(Syncs { inner }.perform(op));
+        let label: &'static str = (&op).into();
+        self.ops
+            .spawn(actor::job("sync", label, Syncs { inner }.perform(op)));
     }
 
     /// After a change that ended early, leaves no project half way: one
