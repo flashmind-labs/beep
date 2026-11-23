@@ -1,7 +1,6 @@
 // A project in a window of its own.
 import type { MouseEventHandler } from "react";
 import type { PaneTarget } from "../bar/pane.ts";
-import type { AgentRow } from "../agents/agents.ts";
 import { windowPreferenceKey } from "../ui/window-layout.ts";
 import type { Location } from "../center/state.ts";
 
@@ -53,15 +52,6 @@ export function savedWindowSession(): { machine_id: string; id: string } | null 
     }
   } catch { /* the window opens on its project or chat */ }
   return null;
-}
-
-/// The view a window starts on: its project or chat (`chat`, its row as far as it is known)
-/// when it was opened on one, else what the bar or tray left waiting (null).
-export function startView(alone: Alone | null, chat: AgentRow | null): Location | null {
-  if (!alone) return null;
-  if (alone.kind === "project") return { view: "projects", arg: { project: alone.project } };
-  const row = chat ?? { machine_id: alone.machine_id, machine_name: "", id: alone.session, agent: "", cwd: "", status: "idle", external: false };
-  return { view: "pane", arg: { agent: row } };
 }
 
 /// The window's title: its project's name, the Assistant for a chat's, Beep for the main window.

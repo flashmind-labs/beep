@@ -330,3 +330,67 @@ test("a chat picks library skills for its folder and its threads", async ({ page
   const saved = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "chat_skills_set").map(call => call.args));
   expect(saved).toEqual([{ chat: "chat-one", picks: { tools: "All" } }]);
 });
+
+test("a restored chat loads its transcript and HTML preview after reconnecting", async ({ page }) => {
+  const label = "chat-restored";
+  const paneKey = `beep.projectView.${chat.machine_id}\n${chat.id}:${label}`;
+  await page.addInitScript(({ paneKey, folder }) => {
+    window.__BEEP_RESTORING_WINDOW__ = true;
+    if (!localStorage.getItem(paneKey)) localStorage.setItem(paneKey, JSON.stringify({
+      tabs: [{ root: folder, rel: "report.html", preview: true }], on: { right: "text:report.html" },
+    }));
+  }, { paneKey, folder });
+  await openDesktop(page, false, {
+    center_window_alone: { kind: "chat", machine_id: chat.machine_id, session: chat.id },
+    agent_sessions: [], agent_view: view(chat),
+    agent_tree_text: { size: 12, text: "<p>Hello</p>", cut: false, binary: false },
+    agent_artifact: { kind: "html", src: "data:text/html,%3Cp%3EHello%3C%2Fp%3E" },
+  }, label);
+
+  const waiting = page.getByText("Waiting for the machine to list this chat…");
+  await expect(waiting).toBeVisible();
+  const reconnect = () => page.evaluate(row => {
+    window.__navigation.respond("agent_sessions", [row]);
+    window.__navigation.emit("reconnected", null);
+  }, chat);
+  await page.evaluate(() => window.__navigation.rejectOnce("agent_tree_text", "Connection interrupted"));
+  await reconnect();
+  await expect(page.locator("#agbody")).toContainText("On it.");
+  await expect(page.getByText("Connection interrupted", { exact: true })).toBeVisible();
+  await expect(page.locator("#agtitle")).toHaveText(chat.title);
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_view" || call.command === "agent_follow"));
+  expect(reads.length).toBeGreaterThan(0);
+  expect(reads.every(call => call.args.agent === chat.agent && call.args.session === chat.id && call.args.machineId === chat.machine_id)).toBe(true);
+  const savedTabs = () => page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? "{}").tabs, paneKey);
+  expect(await savedTabs()).toEqual([{ root: folder, rel: "report.html", preview: true }]);
+
+  await reconnect();
+  const preview = page.frameLocator('iframe[title="Preview of report.html"]').locator("body");
+  await expect(preview).toHaveText("Hello");
+
+  await page.getByRole("button", { name: "Source", exact: true }).click();
+  expect(await savedTabs()).toEqual([{ root: folder, rel: "report.html", preview: false }]);
+  await page.reload();
+  await expect(waiting).toBeVisible();
+  await reconnect();
+  await expect(page.locator(".agcode:visible")).toContainText("<p>Hello</p>");
+});
+
+test("a restored thread stays selected when the parent chat connects first", async ({ page }) => {
+  const label = "chat-thread";
+  await page.addInitScript(({ label, machine, thread }) => {
+    window.__BEEP_RESTORING_WINDOW__ = true;
+    localStorage.setItem(`beep.windowSession:${label}`, JSON.stringify([machine, thread]));
+  }, { label, machine: research.machine_id, thread: research.id });
+  await openDesktop(page, false, {
+    center_window_alone: { kind: "chat", machine_id: chat.machine_id, session: chat.id },
+    agent_sessions: [chat], agent_view: view(research),
+  }, label);
+  await expect(page.getByRole("button", { name: "Open parent chat" })).toBeVisible();
+  await page.evaluate(rows => {
+    window.__navigation.respond("agent_sessions", rows);
+    window.__navigation.emit("sessions-changed", "");
+  }, [chat, research]);
+  await expect(page.locator("#agtitle")).toHaveText(research.title);
+  await expect(page.locator("#agbody")).toContainText("On it.");
+});

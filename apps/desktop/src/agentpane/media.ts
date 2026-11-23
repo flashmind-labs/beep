@@ -232,11 +232,8 @@ export function startPane(s: PaneSession) {
     for (const tab of saved.tabs) {
       if (!tab || typeof tab !== "object") continue;
       if (typeof tab.root === "string" && typeof tab.rel === "string") {
-        openIn(tab.root, tab.rel);
-        if (tab.preview === true) {
-          const opened = P.tabs.at(-1);
-          if (opened) previewTab(opened);
-        }
+        const opened = openIn(tab.root, tab.rel);
+        if (opened && (tab.preview === true || (tab.preview == null && hasPreview(tab.rel)))) previewTab(opened);
       } else if (typeof tab.id === "string" && "terminal" in tab) {
         const row = readTerminal(tab.terminal);
         if (row) open({ id: tab.id, kind: "term", name: typeof tab.name === "string" ? tab.name : row.name, path: null, url: null, existing: row });
@@ -395,7 +392,11 @@ export function previewWorkFile(rel: string) {
 
 export function previewTab(t: MediaTab) {
   if (t.kind !== "text" || t.preview?.active) return;
-  if (!t.text) { t.previewQueued = true; return; }
+  if (!t.text) {
+    t.previewQueued = true;
+    rememberPane();
+    return;
+  }
   void togglePreview(t);
 }
 
@@ -710,7 +711,7 @@ export function rememberPane() {
 
 function savedTab(t: MediaTab) {
   if (t.kind === "term") return { id: t.id, name: t.name, terminal: t.term?.row ?? t.existing ?? null };
-  if (t.rel && t.root) return { root: t.root, rel: t.rel, preview: t.preview?.active === true };
+  if (t.rel && t.root) return { root: t.root, rel: t.rel, preview: t.previewQueued === true || t.preview?.active === true };
   return { path: t.path, url: t.path ? null : t.url, name: t.name };
 }
 

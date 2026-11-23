@@ -120,9 +120,10 @@ export async function loadText(t: MediaTab) {
 
   if (P.tabs.includes(t)) {
     touchTab(t);
-    const queued = t.previewQueued;
-    t.previewQueued = false;
-    if (queued && t.text && !t.text.binary) void togglePreview(t);
+    if (t.previewQueued && t.text) {
+      t.previewQueued = false;
+      if (!t.text.binary) void togglePreview(t);
+    }
   }
 }
 

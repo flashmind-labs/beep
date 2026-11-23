@@ -30,7 +30,7 @@ const stubs = new Map(Object.entries({
   "center/state.ts": "export const { state } = globalThis.navigationTest; export const $ = selector => document.querySelector(selector);",
   "ui/tauri.ts": "export const invoke = async () => {}; export const recordTiming = () => {}; export const buildCapabilities = async () => ({ metrics_recording: false });",
   "ui/mesh-events.ts": "export const refreshTopicSubscriptions = () => {};",
-  "ui/active.ts": "export const SLOW_MS = 2000; export const shownChanged = () => {};",
+  "ui/active.ts": "export const SLOW_MS = 2000; export const shownChanged = () => {}; export const pageShown = () => true;",
   "center/sidebar.tsx": "export const drawSide = () => {}; export const openProjects = () => {}; export const projectWindowProps = () => ({ clicks: {}, menu: {} }); export const projectRows = () => [];",
   "project/projects-state.ts": "export const projectName = project => project.display_name ?? project.name;",
   "project/agent.ts": "export const shortName = name => name;",
@@ -40,7 +40,7 @@ const stubs = new Map(Object.entries({
   "project/page.tsx": page("export const projectsView = v('projects'); export const ProjectsPage = () => null;"),
   "terminals/view.tsx": page("export const terminalsView = v('terminals'); export const TerminalsPage = () => null;"),
   "bar/core.ts": "export const S = { view: null };",
-  "agents/sessions.ts": "export const sessions = [];",
+  "agents/sessions.ts": "export const sessions = []; export const loadSessions = async () => sessions; export const sessionsChanged = new Set();",
   "center/mobile.tsx": "export const syncMobile = () => {}; export const canGoBack = () => false;",
   // The window's tree without the router.
   "center/window-root.tsx": `import { createElement } from "react"; import { flushSync } from "react-dom"; import { createRoot } from "react-dom/client";
