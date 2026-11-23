@@ -7,6 +7,31 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.22] - 2026-11-23
+
+### Added
+
+- Desktop: The diff viewer colours code by its language, in both the
+  unified and side by side views.
+- Desktop: The diff filter marks every match in the code and shows its
+  position, such as 3/17. Enter and Shift+Enter, n and N, or the up and
+  down buttons jump to the next or previous match, scrolling to it and
+  unfolding its file.
+
+### Fixed
+
+- Desktop: Sidebar, project page and Done today lists no longer flash a
+  shorter list while a slower machine answers. Lists keep showing until
+  every machine replies; a failing machine keeps its sessions.
+- Desktop: a long project name in Home's idle list is cut with an ellipsis
+  instead of running into the time column.
+- Desktop: new agent launches keep their account and attachments when navigating.
+- Desktop: Stop All restores queued messages to the correct session and finishes after navigation.
+- Desktop: closing a terminal pane keeps it detached.
+- Desktop: queued machine list refreshes run as requested.
+- Desktop: cancelling Claude Code sign-in no longer cancels the next attempt.
+- Desktop: failed plugins stop consuming CPU, and interrupted plugin updates restore the previous version.
+
 ## [0.10.21] - 2026-11-23
 
 ### Added
