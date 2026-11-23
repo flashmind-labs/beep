@@ -113,7 +113,7 @@ impl Rows {
     ) -> impl Iterator<Item = &'a MachineSession> {
         self.machines
             .iter()
-            .filter(move |(machine, _)| shown.is_none_or(|shown| shown.contains(machine)))
+            .filter(move |(machine, _)| shown.is_none_or(|shown| shown.contains(*machine)))
             .flat_map(|(_, machine)| machine.beep.iter().chain(&machine.scans))
     }
 
