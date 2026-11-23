@@ -140,3 +140,84 @@ fn quick_requests_that_end_well_write_nothing_at_info() {
     assert!(text.contains("outcome=\"error\""), "{text}");
     assert!(text.contains("outcome=\"cancelled\""), "{text}");
 }
+
+fn trace_in(outcome: &'static str, stream: bool) -> RequestTrace {
+    let mut trace = RequestTrace::new("op");
+    trace.outcome = outcome;
+    trace.stream = stream;
+    trace
+}
+
+#[test]
+fn a_stream_ends_quietly_unless_it_failed() {
+    let long = SLOW_REQUEST * 10;
+    // A stream's end is not news, however long it lived.
+    assert!(trace_in("cancelled", true).ends_quietly(long));
+    assert!(trace_in("ok", true).ends_quietly(long));
+    assert!(!trace_in("error", true).ends_quietly(Duration::ZERO));
+    assert!(!trace_in("refused", true).ends_quietly(Duration::ZERO));
+    // A request is.
+    assert!(!trace_in("cancelled", false).ends_quietly(Duration::ZERO));
+    assert!(!trace_in("ok", false).ends_quietly(long));
+    assert!(trace_in("ok", false).ends_quietly(Duration::ZERO));
+}
+
+fn info_lines(run: impl FnOnce()) -> String {
+    let output = Captured::default();
+    let writer = output.clone();
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .event_format(TextLayout)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .with_filter(tracing_subscriber::filter::LevelFilter::INFO),
+    );
+    tracing::subscriber::with_default(subscriber, run);
+    let bytes = output.0.lock().unwrap();
+    String::from_utf8(bytes.clone()).unwrap()
+}
+
+#[test]
+fn a_refused_request_logs_its_reason_cut_short_and_a_failed_one_its_error() {
+    let text = info_lines(|| {
+        let mut refused = RequestTrace::new("InFoldersPage");
+        refused.refuse("x".repeat(500));
+        drop(refused);
+        let mut failed = RequestTrace::new("External");
+        failed.fail("the caller left");
+    });
+    let refused = text.lines().find(|line| line.contains("refused")).unwrap();
+    assert!(refused.contains(&"x".repeat(200)), "{text}");
+    assert!(!refused.contains(&"x".repeat(201)), "{text}");
+    assert!(text.contains("outcome=\"error\""), "{text}");
+    assert!(text.contains("reason=\"the caller left\""), "{text}");
+}
+
+#[tokio::test]
+async fn a_stream_that_ends_writes_nothing_at_info_and_its_error_one_line() {
+    let output = Captured::default();
+    let writer = output.clone();
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .event_format(TextLayout)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .with_filter(tracing_subscriber::filter::LevelFilter::INFO),
+    );
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    RequestTrace::new("FollowUsage")
+        .stream(async { Ok::<(), String>(()) })
+        .await
+        .unwrap();
+    assert!(output.0.lock().unwrap().is_empty());
+
+    RequestTrace::new("FollowUsage")
+        .stream(async { Err::<(), _>("the link reset") })
+        .await
+        .unwrap_err();
+    let bytes = output.0.lock().unwrap();
+    let text = std::str::from_utf8(&bytes).unwrap();
+    assert_eq!(text.lines().count(), 1, "{text}");
+    assert!(text.contains("reason=\"the link reset\""), "{text}");
+}
