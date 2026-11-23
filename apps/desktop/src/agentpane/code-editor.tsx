@@ -104,12 +104,20 @@ const vimBindings = vim({ status: true });
 const fileSearch = search({ top: true });
 const language = new Compartment();
 
-/// The token classes the read-only view colours, so both look the same.
+/// The read-only view's token classes, and the names, types and markup the parser sees.
 const tokens = HighlightStyle.define([
   { tag: t.keyword, class: "k" },
-  { tag: [t.string, t.special(t.string), t.regexp], class: "s" },
+  { tag: [t.string, t.special(t.string), t.regexp, t.character], class: "s" },
   { tag: t.comment, class: "c" },
-  { tag: [t.number, t.bool, t.null], class: "n" },
+  { tag: [t.number, t.bool, t.null, t.atom, t.constant(t.name), t.escape], class: "n" },
+  { tag: [t.typeName, t.className, t.namespace, t.attributeName], class: "ty" },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName, t.labelName], class: "fn" },
+  { tag: [t.propertyName, t.self], class: "pr" },
+  { tag: [t.tagName, t.meta, t.annotation], class: "tg" },
+  { tag: t.heading, class: "hd" },
+  { tag: [t.link, t.url], class: "lk" },
+  { tag: t.emphasis, class: "em" },
+  { tag: t.strong, class: "st" },
 ]);
 
 const theme = EditorView.theme({

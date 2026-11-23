@@ -12,6 +12,7 @@ import { EntryTime, Since, StepMarkView, type StepMark } from "./turn-heading-vi
 import { waitedFor, type WaitLine } from "./waiting-state.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
 import { Button } from "../ui/kit.tsx";
+import { highlight, languageOf } from "../agentpane/files-state.ts";
 
 /// What an opened tool call shows under its row.
 export type ToolBody =
@@ -156,7 +157,7 @@ function Details({ details }: { details: ToolDetails }) {
 /// that scrolls.
 function ToolOutput({ output }: { output: string }) {
   const diffs = diffBlocks(output), rest = diffs.length ? withoutDiffs(output) : output;
-  return <>{diffs.map((diff, index) => <div className="ddiff" key={index}><div className="dh">{diff.path}</div>{diff.lines.map((line, at) => <div key={at} className={line.mark === "+" ? "da" : line.mark === "-" ? "dr" : "dc"}>{line.mark + line.text || " "}</div>)}{diff.more > 0 && <div className="dm">{diff.more} more lines</div>}</div>)}{rest && <pre className="out box">{rest}</pre>}</>;
+  return <>{diffs.map((diff, index) => <div className="ddiff" key={index}><div className="dh">{diff.path}</div>{diff.lines.map((line, at) => <div key={at} className={line.mark === "+" ? "da" : line.mark === "-" ? "dr" : "dc"}><span className="dk">{line.mark || " "}</span><span dangerouslySetInnerHTML={{ __html: highlight(line.text, languageOf(diff.path)) }} /></div>)}{diff.more > 0 && <div className="dm">{diff.more} more lines</div>}</div>)}{rest && <pre className="out box">{rest}</pre>}</>;
 }
 
 function Note({ row }: { row: Extract<ActivityRow, { kind: "note" }> }) {
