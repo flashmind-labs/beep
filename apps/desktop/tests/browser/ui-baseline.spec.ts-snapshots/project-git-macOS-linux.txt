@@ -307,6 +307,9 @@ body.cbody
                       kbd "x"
                     span "filter"
                       kbd "/"
+                    span "next, previous match"
+                      kbd "n"
+                      kbd "N"
         form.cc-pjc
           div.box
             div.cx-layer [aria-hidden="true" hidden]

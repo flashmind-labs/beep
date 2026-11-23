@@ -780,6 +780,27 @@ test("agent changes", async ({ page }) => {
   await baseline(page, "agent-changes");
 });
 
+test("the diff filter marks what it finds in the code and steps between the places", async ({ page }) => {
+  await openAgent(page);
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  await expect(page.locator('.dv-file[data-path="sample.ts"] .dv-c span.k').first()).toHaveText("const");
+  const find = page.locator(".dv-find"), count = page.locator(".dv-found-n");
+  await find.fill("VALUE2");
+  const total = Number(await count.textContent());
+  expect(total).toBeGreaterThan(1);
+  await expect(page.locator(".dv-c mark").first()).toHaveText("value2");
+
+  await find.press("Enter");
+  await expect(count).toHaveText(`1/${total}`);
+  await expect(page.locator(".dv-c mark.cur")).toHaveCount(1);
+  await expect(page.locator(".dv-c mark.cur")).toBeInViewport();
+  await find.press("Shift+Enter");
+  await expect(count).toHaveText(`${total}/${total}`);
+  await page.getByRole("button", { name: "Next match" }).click();
+  await expect(count).toHaveText(`1/${total}`);
+  await page.screenshot({ path: "test-results/diff-filter-step.png" });
+});
+
 test("the changed files list shows only with the pane full size, and folds", async ({ page }) => {
   await page.setViewportSize({ width: 2400, height: 900 });
   await openAgent(page);

@@ -10,7 +10,7 @@ import { latest } from "../ui/active.ts";
 import { readView, writeView } from "../agentpane/view-memory.ts";
 import type { Feedback } from "./feedback.ts";
 import { loadDraft } from "./draftstore.ts";
-import { matchesFilter, placeComments, sameDiffFile, type DiffFile, type DiffView, type Extent, type ReviewComment } from "./diff-state.ts";
+import { filterHits, matchesFilter, placeComments, sameDiffFile, type DiffFile, type DiffView, type Extent, type Hit, type ReviewComment } from "./diff-state.ts";
 import type { DiffSource } from "./diff.tsx";
 
 /// Wider than this, the file list can show on the left.
@@ -39,6 +39,8 @@ export interface DiffState {
   /// A short line in the header, for two seconds.
   flash: string;
   filter: string;
+  /// The place the filter stepped to, marked apart from the others.
+  hit: Hit | null;
   /// Side by side is chosen; it shows only while the viewer is not narrow.
   split: boolean;
   /// The file list is open; it shows only while the viewer is wide, and in a
@@ -130,7 +132,7 @@ export class Viewer {
     }
 
     this.store = createStore<DiffState>(() => ({
-      view: null, list: [], loading: false, error: "", sending: false, flash: "", filter, split: loadFlag(SPLIT_KEY, false), files: loadFlag(FILES_KEY, true), narrow: false,
+      view: null, list: [], loading: false, error: "", sending: false, flash: "", filter, hit: null, split: loadFlag(SPLIT_KEY, false), files: loadFlag(FILES_KEY, true), narrow: false,
       uncommitted: false, folded, closedFolders: new Set(), filteredClosedFolders: new Set(), pending: new Set(), cur: null, revealTree: 0,
       draft: src.readOnly ? [] : loadDraft(src.review.key), editors: new Map(), orphaned: new Set(),
     }));
@@ -166,6 +168,18 @@ export function shown(s: Pick<DiffState, "view" | "filter">): readonly DiffFile[
 }
 
 const filtered = new WeakMap<DiffView, { filter: string; files: readonly DiffFile[] }>();
+
+/// Every place in the shown files holding the filter, kept like [`shown`].
+export function hits(s: Pick<DiffState, "view" | "filter">): readonly Hit[] {
+  if (!s.view) return [];
+  const kept = found.get(s.view);
+  if (kept?.filter === s.filter) return kept.hits;
+  const all = filterHits(shown(s), s.filter);
+  found.set(s.view, { filter: s.filter, hits: all });
+  return all;
+}
+
+const found = new WeakMap<DiffView, { filter: string; hits: readonly Hit[] }>();
 
 /// Whether the user's selection reaches into `box`: emptying it would lose the text.
 export function selected(box: Node) {

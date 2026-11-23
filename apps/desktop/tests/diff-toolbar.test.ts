@@ -19,9 +19,9 @@ test("diff toolbar preserves review controls and sends the current draft", async
   const props: Parameters<typeof DiffToolbar>[0] = {
     view: { root: "/srv/project", base: "main", merge_base: "", working_tree: false, additions: 0, deletions: 0, more: 0,
       files: [{ path: "sample.ts", old_path: null, status: "modified", additions: 0, deletions: 0, left_out: null, hunks: [] }] },
-    loading: false, filter: "", split: false, files: false, filesZoom: true, uncommitted: false, showUncommitted: true, allFolded: false,
+    loading: false, filter: "", found: 0, foundAt: -1, split: false, files: false, filesZoom: true, uncommitted: false, showUncommitted: true, allFolded: false,
     flash: "", comments: 2, sending: false, readOnly: false, feedback, findRef: null,
-    onFilter() {}, onFiles: () => { files++; }, onSplit() {}, onUncommitted: () => { toggled++; }, onFold() {}, onRefresh() {}, onSend: () => { sent++; },
+    onFilter() {}, onStep() {}, onFiles: () => { files++; }, onSplit() {}, onUncommitted: () => { toggled++; }, onFold() {}, onRefresh() {}, onSend: () => { sent++; },
   };
   const root = createRoot(host);
   try {

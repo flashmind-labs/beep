@@ -6,4 +6,4 @@ export function DiffMessage({ loading, view }: { loading: boolean; view: DiffVie
 }
 
 export function DiffMore({ count }: { count: number }) { return count ? <div className="dv-more">And {grouped(count)} more files not shown.</div> : null; }
-export function DiffKeys() { return <><span><kbd>j</kbd><kbd>k</kbd>next, previous file</span><span><kbd>x</kbd>fold the file</span><span><kbd>/</kbd>filter</span></>; }
+export function DiffKeys() { return <><span><kbd>j</kbd><kbd>k</kbd>next, previous file</span><span><kbd>x</kbd>fold the file</span><span><kbd>/</kbd>filter</span><span><kbd>n</kbd><kbd>N</kbd>next, previous match</span></>; }

@@ -1,14 +1,14 @@
 // CodeMirror for a text tab being edited; loaded in its own chunk on the first edit.
 import { indentWithTab } from "@codemirror/commands";
-import { HighlightStyle, LanguageDescription, syntaxHighlighting, toggleFold } from "@codemirror/language";
+import { LanguageDescription, syntaxHighlighting, toggleFold } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { openSearchPanel, search, searchKeymap, searchPanelOpen } from "@codemirror/search";
 import { Compartment, EditorState } from "@codemirror/state";
 import { drawSelection, EditorView, keymap, lineNumbers } from "@codemirror/view";
-import { tags as t } from "@lezer/highlight";
 import { getCM, Vim, vim } from "@replit/codemirror-vim";
 import { basicSetup } from "codemirror";
 import { useLayoutEffect, useRef } from "react";
+import { tokens } from "../ui/syntax.ts";
 import type { FileEdit } from "./media.ts";
 
 export default function CodeEditor({ edit, rel, changed, save, vimKeys, findRequest, closeSearch }: {
@@ -103,22 +103,6 @@ Vim.mapCommand("za", "action", "toggleFold", {}, { context: "normal" });
 const vimBindings = vim({ status: true });
 const fileSearch = search({ top: true });
 const language = new Compartment();
-
-/// The read-only view's token classes, and the names, types and markup the parser sees.
-const tokens = HighlightStyle.define([
-  { tag: t.keyword, class: "k" },
-  { tag: [t.string, t.special(t.string), t.regexp, t.character], class: "s" },
-  { tag: t.comment, class: "c" },
-  { tag: [t.number, t.bool, t.null, t.atom, t.constant(t.name), t.escape], class: "n" },
-  { tag: [t.typeName, t.className, t.namespace, t.attributeName], class: "ty" },
-  { tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName, t.labelName], class: "fn" },
-  { tag: [t.propertyName, t.self], class: "pr" },
-  { tag: [t.tagName, t.meta, t.annotation], class: "tg" },
-  { tag: t.heading, class: "hd" },
-  { tag: [t.link, t.url], class: "lk" },
-  { tag: t.emphasis, class: "em" },
-  { tag: t.strong, class: "st" },
-]);
 
 const theme = EditorView.theme({
   "&": { height: "100%", color: "var(--fg)", backgroundColor: "transparent", font: "11.5px/17px var(--mono)" },

@@ -2,11 +2,15 @@ import type { ReactNode, Ref } from "react";
 import { baseTitle, type DiffView } from "./diff-state.ts";
 import { DiffSummary } from "./diff-summary.tsx";
 import { Button } from "../ui/kit.tsx";
+import { Icon } from "../ui/icons.tsx";
 
 interface DiffToolbarProps {
   view: DiffView | null;
   loading: boolean;
   filter: string;
+  /// The places the filter finds, and which of them is current, or -1.
+  found: number;
+  foundAt: number;
   split: boolean;
   uncommitted: boolean;
   showUncommitted: boolean;
@@ -22,6 +26,7 @@ interface DiffToolbarProps {
   feedback: ReactNode;
   findRef: Ref<HTMLInputElement>;
   onFilter: (value: string) => void;
+  onStep: (step: 1 | -1) => void;
   onFiles: () => void;
   onSplit: () => void;
   onUncommitted: () => void;
@@ -41,6 +46,13 @@ export function DiffToolbar(props: DiffToolbarProps) {
     </span>
     <input ref={props.findRef} className="dv-find" placeholder="Filter files and lines" aria-label="Filter files and lines" spellCheck={false} disabled={none}
       value={props.filter} onChange={event => props.onFilter(event.currentTarget.value)} />
+    {props.filter.trim() && <span className="dv-found">
+      <span className="dv-found-n">{props.foundAt < 0 ? props.found : `${props.foundAt + 1}/${props.found}`}</span>
+      <Button look="plain" className="dv-btn icon" title="Previous match (Shift+Enter)" aria-label="Previous match" disabled={!props.found}
+        onClick={event => { event.stopPropagation(); props.onStep(-1); }}><Icon name="caretUp" size={12}/></Button>
+      <Button look="plain" className="dv-btn icon" title="Next match (Enter)" aria-label="Next match" disabled={!props.found}
+        onClick={event => { event.stopPropagation(); props.onStep(1); }}><Icon name="caretDown" size={12}/></Button>
+    </span>}
     <span className="dv-tools">
       <button type="button" className="dv-btn icon dv-filesbtn" title={filesTitle} aria-label={filesTitle} aria-pressed={props.files}
         onClick={event => { event.stopPropagation(); props.onFiles(); }}>

@@ -1,6 +1,7 @@
 // The diff viewer's data and the rules it draws by, apart from the DOM:
 // which files start folded, a hunk's rows with their line numbers, the
 // filter, and which file j and k go to.
+import type { Colour, Span } from "../ui/syntax.ts";
 
 /// A line as `work_diff` gives it: `k` is `+`, `-` or ` `, `e` set when
 /// the file ends after it without a newline.
@@ -185,26 +186,69 @@ export function matchesFilter(f: Pick<DiffFile, "path" | "old_path" | "hunks">, 
   return f.path.toLowerCase().includes(want) || !!f.old_path?.toLowerCase().includes(want) || lineMatches(f, q, 1).length > 0;
 }
 
-/// A line of the diff holding the filter, on the side its number is of.
-export interface LineMatch { side: "old" | "new"; line: number; text: string }
+/// A place in the diff holding the filter: a line, on the side its number
+/// is of, and the offset of the text found in it.
+export interface LineMatch { side: "old" | "new"; line: number; text: string; at: number }
 
-/// The lines of `f` holding the filter `q`, any case, at most `limit`.
+/// A place found in file `path`, the one the filter steps to.
+export interface Hit extends LineMatch { path: string }
+
+/// The lines of `f` holding the filter `q`, any case, at most `limit`, each
+/// with the first place it holds it.
 export function lineMatches(f: Pick<DiffFile, "hunks">, q: string, limit: number): LineMatch[] {
-  const want = q.trim().toLowerCase(), out: LineMatch[] = [];
-  if (!want) return out;
+  const out: LineMatch[] = [];
+
+  for (const match of everyMatch(f, q)) {
+    const last = out.at(-1);
+    if (last && last.side === match.side && last.line === match.line) continue;
+    if (out.push(match) >= limit) break;
+  }
+
+  return out;
+}
+
+/// Every place in the lines of `files` holding the filter `q`, any case, in order.
+export function filterHits(files: readonly DiffFile[], q: string): Hit[] {
+  return files.flatMap(f => [...everyMatch(f, q)].map(match => ({ ...match, path: f.path })));
+}
+
+export const sameHit = (a: Hit | null, b: Hit | null) =>
+  a === b || (!!a && !!b && a.path === b.path && a.side === b.side && a.line === b.line && a.at === b.at);
+
+function* everyMatch(f: Pick<DiffFile, "hunks">, q: string): Generator<LineMatch> {
+  const want = q.trim().toLowerCase();
+  if (!want) return;
 
   for (const h of f.hunks) {
     let old = h.old_lines ? h.old_start : h.old_start + 1;
     let now = h.new_lines ? h.new_start : h.new_start + 1;
 
     for (const l of h.lines) {
-      if (l.t.toLowerCase().includes(want)) {
-        out.push(l.k === "-" ? { side: "old", line: old, text: l.t } : { side: "new", line: now, text: l.t });
-        if (out.length >= limit) return out;
-      }
-
+      const side = l.k === "-" ? "old" : "new", line = l.k === "-" ? old : now;
+      for (const at of occurrences(l.t, want)) yield { side, line, text: l.t, at };
       if (l.k !== "+") old++;
       if (l.k !== "-") now++;
+    }
+  }
+}
+
+/// Where `text` holds `want`, already lower case, any case, without overlaps.
+export function occurrences(text: string, want: string): number[] {
+  const lower = text.toLowerCase(), out: number[] = [];
+  if (!want) return out;
+  for (let i = lower.indexOf(want); i >= 0; i = lower.indexOf(want, i + want.length)) out.push(i);
+  return out;
+}
+
+/// Each line's coloured spans by [`lineKey`]: each side of a hunk is
+/// coloured as one text, so a context line has spans on both sides.
+export function diffSpans(f: Pick<DiffFile, "hunks">, colour: Colour): Map<string, readonly Span[]> {
+  const out = new Map<string, readonly Span[]>();
+
+  for (const h of f.hunks) {
+    for (const side of ["old", "new"] as const) {
+      const lines = h.lines.filter(l => l.k !== (side === "old" ? "+" : "-")), first = side === "old" ? h.old_start : h.new_start;
+      colour(lines.map(l => l.t)).forEach((spans, i) => { if (spans.length) out.set(lineKey(side, first + i), spans); });
     }
   }
 

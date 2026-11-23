@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  type DiffFile, type DiffView, allFolded, baseTitle, changedLabel, compactFolders, diffRows, filesInTreeOrder, splitHeight, splitRows, withLoaded,
+  type DiffFile, type DiffView, allFolded, baseTitle, changedLabel, compactFolders, diffRows, diffSpans, filesInTreeOrder, filterHits, lineMatches,
+  splitHeight, splitRows, withLoaded,
 } from "../src/review/diff-state.ts";
+import { colourFor } from "../src/ui/syntax.ts";
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
   path, old_path: null, status: "modified", additions: 1, deletions: 1, hunks: [], left_out: null, ...o,
@@ -173,4 +175,28 @@ test("folder chains compact up to branches and direct files", () => {
     [["src/auth/", { dir: "", name: "src/auth" }]]);
   assert.equal(compactFolders(["README.md"]).size, 0);
   assert.equal(compactFolders([]).size, 0);
+});
+
+const found = file("src/metrics.rs", { hunks: [{ old_start: 10, old_lines: 2, new_start: 10, new_lines: 2, section: "", lines: [
+  { k: " ", t: "struct Metrics {" },
+  { k: "-", t: "  old: Metrics, metrics: u8," },
+  { k: "+", t: "  new: Metrics," },
+] }] });
+
+test("the filter finds every place in a line, and the tree lists each line once", () => {
+  const hits = filterHits([found], "METRICS");
+  assert.deepEqual(hits.map(h => [h.side, h.line, h.at]), [["new", 10, 7], ["old", 11, 7], ["old", 11, 16], ["new", 11, 7]]);
+  assert.ok(hits.every(h => h.path === "src/metrics.rs"));
+  assert.deepEqual(lineMatches(found, "metrics", 10).map(m => [m.side, m.line, m.at]), [["new", 10, 7], ["old", 11, 7], ["new", 11, 7]]);
+});
+
+test("each side of a hunk is coloured as one text, keyed by its own line numbers", async () => {
+  const colour = await colourFor("src/metrics.rs");
+  assert.ok(colour);
+  const spans = diffSpans(found, colour);
+  const text = (key: string, line: string) => (spans.get(key) ?? []).map(s => `${s.cls}:${line.slice(s.from, s.to)}`);
+  assert.deepEqual(text("old:10", "struct Metrics {"), ["k:struct", "ty:Metrics"]);
+  assert.deepEqual(text("new:10", "struct Metrics {"), ["k:struct", "ty:Metrics"]);
+  assert.ok(text("old:11", "  old: Metrics, metrics: u8,").includes("ty:u8"));
+  assert.ok(text("new:11", "  new: Metrics,").includes("ty:Metrics"));
 });

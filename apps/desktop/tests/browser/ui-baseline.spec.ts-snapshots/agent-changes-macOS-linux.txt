@@ -528,37 +528,51 @@ body.cbody
                                             span.dv-g
                                               span "17"
                                               span "17"
-                                            span.dv-c "const value17 = 17;"
+                                            span.dv-c "value17 = ;"
+                                              span.k "const"
+                                              span.n "17"
                                           div.dv-l [data-at="new:18"]
                                             span.dv-g
                                               span "18"
                                               span "18"
-                                            span.dv-c "const value18 = 18;"
+                                            span.dv-c "value18 = ;"
+                                              span.k "const"
+                                              span.n "18"
                                           div.dv-l [data-at="new:19"]
                                             span.dv-g
                                               span "19"
                                               span "19"
-                                            span.dv-c "const value19 = 19;"
+                                            span.dv-c "value19 = ;"
+                                              span.k "const"
+                                              span.n "19"
                                           div.dv-l [data-at="new:20"]
                                             span.dv-g
                                               span "20"
                                               span "20"
-                                            span.dv-c "const value20 = 20;"
+                                            span.dv-c "value20 = ;"
+                                              span.k "const"
+                                              span.n "20"
                                           div.dv-l [data-at="new:21"]
                                             span.dv-g
                                               span "21"
                                               span "21"
-                                            span.dv-c "const value21 = 21;"
+                                            span.dv-c "value21 = ;"
+                                              span.k "const"
+                                              span.n "21"
                                           div.dv-l [data-at="new:22"]
                                             span.dv-g
                                               span "22"
                                               span "22"
-                                            span.dv-c "const value22 = 22;"
+                                            span.dv-c "value22 = ;"
+                                              span.k "const"
+                                              span.n "22"
                                           div.dv-l [data-at="new:23"]
                                             span.dv-g
                                               span "23"
                                               span "23"
-                                            span.dv-c "const value23 = 23;"
+                                            span.dv-c "value23 = ;"
+                                              span.k "const"
+                                              span.n "23"
                                         div style(display)
                                           div.dv-context
                                             span.dv-context-g
@@ -573,6 +587,9 @@ body.cbody
                             kbd "x"
                           span "filter"
                             kbd "/"
+                          span "next, previous match"
+                            kbd "n"
+                            kbd "N"
               div#agpstrip-right.agpstrip.tabs [aria-orientation="vertical" data-dock="right" hidden role="tablist"]
               div#agdropzone.agdropzone [hidden]
         div.asst-list.pj-list [hidden]
