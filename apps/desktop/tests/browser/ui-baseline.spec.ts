@@ -709,6 +709,55 @@ test("agent report", async ({ page }) => {
   await expect(page.getByText(/^Summarize your report that starts "Done: the redirect keeps the query string\./)).toBeVisible();
 });
 
+test("agent report reviewed", async ({ page }) => {
+  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }];
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries } });
+  const report = page.locator(".dcoderen.report");
+  await expect(report).toBeVisible();
+
+  // Selecting part of a report's item offers Ask and Change.
+  await page.evaluate(() => {
+    const item = [...document.querySelectorAll(".report-part li")].find(li => li.textContent?.includes("it was dropped"));
+    const text = [...(item?.childNodes ?? [])].find(n => n.nodeType === Node.TEXT_NODE && n.textContent?.includes("it was dropped"));
+    if (!text?.textContent) throw new Error("no item");
+    const at = text.textContent.indexOf("it was dropped"), range = document.createRange();
+    range.setStart(text, at);
+    range.setEnd(text, at + "it was dropped when".length);
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(range);
+  });
+  const pop = page.getByRole("toolbar", { name: "Comment on the selection" });
+  await expect(pop).toBeVisible();
+  await pop.getByRole("button", { name: /^Change/ }).click();
+
+  // The comment is written in place of the composer, on the item it quotes.
+  const field = page.getByRole("group", { name: "Change on the selection" });
+  await expect(field).toContainText("on Changed 1");
+  await expect(field.locator(".rv-quote")).toHaveText("it was dropped when");
+  await expect(page.locator("#agfield")).toBeHidden();
+  await field.getByRole("textbox").fill("Also keep the fragment.");
+  await baseline(page, "agent-report-comment");
+  await field.getByRole("textbox").press("Enter");
+
+  // Saved, it waits under its item and over the composer.
+  await expect(page.locator("#agfield")).toBeVisible();
+  await expect(report.locator('.report-part[data-kind="changed"] .rv-note')).toContainText("Also keep the fragment.");
+  await expect(page.locator(".rv-bar")).toContainText("1 change · goes with your next message");
+  await page.locator(".rv-bar").getByRole("button", { name: "Show" }).click();
+  await expect(page.getByRole("list", { name: "Review drafts" })).toContainText("Changed 1");
+  await baseline(page, "agent-report-drafts");
+
+  // It goes with the next message, and shows as its comments.
+  await page.locator("#agmsg").fill("Then open a PR.");
+  await page.locator("#agmsg").press("Enter");
+  const sent = page.locator(".rv-sent");
+  await expect(sent).toContainText("1 comment on “Done: the redirect keeps the query string.");
+  await expect(sent.locator(".it")).toContainText("Change · Changed 1");
+  await expect(sent.locator(".also")).toHaveText("Then open a PR.");
+  await expect(page.locator(".rv-bar")).toHaveCount(0);
+  await baseline(page, "agent-report-review-sent");
+});
+
 test("agent report summarized in place", async ({ page }) => {
   const summary = "Done: the redirect keeps the query string.\n\n- Keep `?next=` for one release: the mobile app sends it.";
   const summaryHtml = "<p>Done: the redirect keeps the query string.</p>\n<ul>\n<li>Keep <code>?next=</code> for one release: the mobile app sends it.</li>\n</ul>";

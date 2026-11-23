@@ -331,7 +331,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agdiv:hover::after, .agdiv:focus-visible::after, .agdiv.active::after { background: var(--accent) }
 .agmain > .agdiv { width: auto; height: 7px; margin: -3px 0; cursor: row-resize }
 .agmain > .agdiv::after { inset: 3px 0 }
-.agdiv[hidden], .agpane[hidden], .agpstrip[hidden] { display: none }
+.agdiv[hidden], .agpane[hidden], .agpstrip[hidden], #agfield[hidden] { display: none }
 .agpane { flex: 0 0 42%; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: color-mix(in srgb, var(--ink) 35%, transparent) }
 .agpane-content { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column }
 .agphead { flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 8px; border-bottom: 1px solid var(--border) }
@@ -746,6 +746,40 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .report-busy { display: flex; align-items: center; gap: 6px; color: var(--dim) }
 @media (prefers-reduced-motion: no-preference) { .dcoderen.report > .reply-body.swapped { animation: report-swap .18s ease-out } }
 @keyframes report-swap { from { opacity: 0; transform: translateY(3px) } }
+
+/* Review comments on what an agent wrote (review-view.tsx): Ask and Change over a selection, the
+   comment written in place of the composer, the drafts that go with the next message, the drafts
+   under the passages they quote, and a sent review. Questions take the accent, changes amber. */
+.rv-pop { position: fixed; z-index: 45; display: flex; gap: 2px; padding: 3px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent); background: color-mix(in srgb, var(--elev) 92%, transparent); box-shadow: 0 10px 30px -8px rgb(0 0 0 / .5) }
+:is(.rv-pop, .rv-field) kbd { margin-inline-start: 6px; padding: 0 4px; border-radius: 3px; font: 10.5px var(--mono); color: var(--dim); background: color-mix(in srgb, var(--fg) 6%, transparent) }
+::highlight(review-question) { background-color: color-mix(in srgb, var(--accent) 24%, transparent) }
+::highlight(review-change) { background-color: color-mix(in srgb, var(--warn) 18%, transparent) }
+.rv-note { all: unset; display: grid; gap: 2px; box-sizing: border-box; width: 100%; max-width: var(--measure, none); margin: 6px 0 10px; padding: 7px 12px 8px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 5%, transparent); cursor: default }
+.rv-note:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--fg) 8%, transparent) }
+.rv-note .k, .rv-item .k, .rv-sent .k { font: 11px/16px var(--mono); color: var(--dim) }
+.rv-note .k b, .rv-sent .k b, .rv-field .h b { font-weight: 500 }
+:is(.rv-note, .rv-item, .rv-sent .it, .rv-field)[data-ask="question"] :is(.k b, .h b) { color: var(--accent) }
+:is(.rv-note, .rv-item, .rv-sent .it, .rv-field)[data-ask="change"] :is(.k b, .h b) { color: var(--warn) }
+.rv-item[data-ask="question"] .k { color: var(--accent) } .rv-item[data-ask="change"] .k { color: var(--warn) }
+.rv-quote { margin: 0; padding: 1px 0 1px 10px; border-left: 2px solid var(--warn); color: var(--muted); font-size: 13px; line-height: 19px; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
+[data-ask="question"] > .rv-quote { border-left-color: var(--accent) }
+.rv-field { display: grid; gap: 8px; margin-bottom: 6px; padding: 9px 10px 8px 12px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent); background: var(--elev) }
+.rv-field .h { display: flex; align-items: center; gap: 6px; font: 11.5px var(--mono); color: var(--dim) }
+.rv-field .sp, .rv-bar .sp { flex: 1 }
+.rv-field textarea { all: unset; display: block; min-height: 40px; font: 13.5px/20px var(--body); color: var(--fg); caret-color: var(--accent); white-space: pre-wrap }
+.rv-field textarea::placeholder { color: var(--dim) }
+.rv-drafts { display: grid; gap: 4px; margin-bottom: 6px }
+.rv-bar { display: flex; align-items: center; gap: 8px; padding: 2px 4px 2px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 5%, transparent); font: 11.5px var(--mono); color: var(--muted) }
+.rv-bar b { color: var(--fg); font-weight: 500 }
+.rv-list { display: grid; gap: 2px; max-height: 40vh; overflow-y: auto; padding: 4px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--fg) 12%, transparent); background: var(--elev) }
+.rv-item { display: flex; align-items: baseline; gap: 4px; border-radius: var(--radius-sm) }
+.rv-item:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
+.rv-open { all: unset; flex: 1; min-width: 0; display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 10px; padding: 6px 8px; cursor: default; font-size: 13px; line-height: 19px }
+.rv-open .w { display: grid; gap: 1px; min-width: 0 }
+.rv-open i { font-style: normal; color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.rv-sent { display: grid; gap: 8px; white-space: pre-wrap }
+.rv-sent .h { font: 11.5px var(--mono); color: var(--dim) } .rv-sent .h b { color: var(--fg); font-weight: 500 }
+.rv-sent .it { display: grid; gap: 2px }
 .report-outcome { padding: 0 6px; border-radius: var(--radius-sm); font-weight: 500 }
 .report-outcome[data-outcome="done"] { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent) }
 .report-outcome[data-outcome="partly"] { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent) }

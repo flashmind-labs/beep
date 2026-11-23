@@ -47,6 +47,8 @@ import { batchComposerUi, showAgentControl, showAgentControlFor, showAgentStop }
 import { AgentStatus } from "./mode-view.tsx";
 import type { BlockedRow, ContextRow, PromptRow, ReplyRow, Summary } from "./reply-view.tsx";
 import { openingOf, summaryAsked } from "./report-state.ts";
+import { parseReview } from "./review-state.ts";
+import { paintReviewMarks } from "./review-view.tsx";
 import { sessionBody } from "./session-frame.tsx";
 import { glide } from "../ui/motion.ts";
 
@@ -122,6 +124,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   if (redraw === "toggle") b.stuck = atBottom(b);
   fillLog(b, scroll === "bottom");
   drawnRows(b);
+  requestAnimationFrame(paintReviewMarks);
   syncJump(b);
 }
 
@@ -494,7 +497,7 @@ function userRows(en: AgentEntry, at: number): (PromptRow | ContextRow)[] {
   const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
   const attachments = promptAttachments(said);
   const originals = attachmentPictures(attachments.files, names.length);
-  const prompt: PromptRow = { sentAt: en.sent_at ?? null, kind: "prompt", row: String(at), html: attachments.html, files: attachments.files.filter(path => !originals.includes(path)), pictures: names.map((name, i) => entryPic(name, originals[i] ?? null)).join("") };
+  const prompt: PromptRow = { sentAt: en.sent_at ?? null, kind: "prompt", row: String(at), review: parseReview(words), html: attachments.html, files: attachments.files.filter(path => !originals.includes(path)), pictures: names.map((name, i) => entryPic(name, originals[i] ?? null)).join("") };
   return [...others, prompt];
 }
 

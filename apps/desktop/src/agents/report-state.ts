@@ -193,7 +193,8 @@ function markChecks(node: DOMNode): DOMNode {
   return new Element(node.name, { ...node.attribs }, children);
 }
 
-function textOf(node: DOMNode): string {
+/// The text of `node`, as read.
+export function textOf(node: DOMNode): string {
   if (isText(node)) return node.data;
   if (isTag(node)) return (node.children as DOMNode[]).map(textOf).join("");
   return "";

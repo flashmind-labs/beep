@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { attachmentPictures, promptAttachments } from "../src/agents/promptparts-state.ts";
 import { AgentPrompt } from "../src/agents/reply-view.tsx";
 
-const shown = (html: string, files: string[]) => renderToStaticMarkup(createElement(AgentPrompt, { prompt: { kind: "prompt", row: "1", html, files, pictures: "" } }));
+const shown = (html: string, files: string[]) => renderToStaticMarkup(createElement(AgentPrompt, { prompt: { kind: "prompt", row: "1", html, files, pictures: "", review: null } }));
 
 test("sent attachment paragraphs fold filenames while preserving full paths", () => {
   const paths = Array.from({ length: 28 }, (_, i) => `/path/to/uploads/batch-${i}/files/photo ${i}.jpg`);

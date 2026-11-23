@@ -24,6 +24,7 @@ import { reopened } from "./closing.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 import { shownQuestionsIn } from "./mode-view.tsx";
 import { closeMove } from "./move.ts";
+import { reviewKey, reviewOf, reviewPrompt, updateReview, type ReviewComment } from "./review-state.ts";
 
 export function disposeQueue() { disposeComposerUi(); closeMove(); }
 
@@ -357,12 +358,33 @@ async function sendOnce(o: OpenAgent, steer: Steer, seen: Seen | null): Promise<
 export async function sendAgentMessage() {
   const input = agentMessage.current, session = AG.open, state = currentMentions(), ended = AG.page?.session.status === "ended", prepared = prepareMessage(input);
   const draft = prepared instanceof Promise ? await prepared : prepared;
+  const review = session && reviewKey(session.machine_id, session.session);
+  const comments = review ? reviewOf(review).comments : [];
+  // Review drafts go with the message; with nothing typed they go alone.
+  if (!draft && review && comments.length && AG.open === session) return sendReview(review);
   if (!draft || !session) return;
   if (AG.open !== session) return sendBackground(session, draft, state, ended);
   const page = AG.page!;
-  return page.session.status === "ended"
-    ? continueAgent(input!, draft.text, draft.images, draft)
-    : sendMessage(input!, draft.text, draft.images, draft);
+  const text = comments.length ? reviewPrompt(comments, draft.text) : draft.text;
+  const sent = page.session.status === "ended"
+    ? await continueAgent(input!, text, draft.images, draft)
+    : await sendMessage(input!, text, draft.images, draft);
+  if (sent && review && comments.length) dropSent(review, comments);
+  return sent;
+}
+
+/// Sends the drafts of `review` as one message now, what is typed in the field staying there.
+export async function sendReview(review: string) {
+  const comments = reviewOf(review).comments;
+  if (!comments.length) return;
+
+  const why = await sendPrompt(reviewPrompt(comments, ""));
+  if (!why) dropSent(review, comments);
+}
+
+/// Drops the drafts that went, keeping any written meanwhile.
+function dropSent(review: string, sent: readonly ReviewComment[]) {
+  updateReview(review, r => ({ ...r, listed: false, comments: r.comments.filter(c => !sent.includes(c)) }));
 }
 
 /// Sends a prepared message, preserving it in the field if refused.
