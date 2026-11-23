@@ -732,6 +732,29 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoderen.agent.md > .reply-body > :first-child { margin-top: 0 } .dcoderen.agent.md > .reply-body > :last-child { margin-bottom: 0 }
 .dcoderen.agent.md pre { font-size: 12px; line-height: 18px }
 .dcoderen.agent.md img { max-width: 100%; height: auto }
+/* A turn's report (report-state.ts): its outcome and length over its headline and parts. Its prose
+   keeps to a reading measure, as a newspaper column does; code and tables take the full width. */
+.dcoderen.report { --measure: 68ch }
+.dcoderen.report .reply-body :is(p, li, blockquote, h2) { max-width: var(--measure) }
+.report-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; font: 11.5px/20px var(--mono); color: var(--dim) }
+.report-label { color: var(--muted) }
+.report-length::before { content: "·"; margin-inline-end: 8px }
+.report-outcome { padding: 0 6px; border-radius: var(--radius-sm); font-weight: 500 }
+.report-outcome[data-outcome="done"] { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent) }
+.report-outcome[data-outcome="partly"] { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent) }
+.report-outcome[data-outcome="blocked"] { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent) }
+.dcoderen.report .report-headline { margin: 0 0 8px; font-size: 1.14em; font-weight: 600; line-height: 1.4; color: var(--fg) }
+.report-part { margin-top: 18px }
+.dcoderen.agent.md .report-part > h2 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px }
+.report-part > h2 .n { color: var(--dim); font-weight: 400; font-variant-numeric: tabular-nums }
+.report-part > :last-child { margin-bottom: 0 }
+.report-part[data-kind="needs"] { padding: 10px 14px; border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 7%, transparent) }
+.dcoderen.agent.md .report-part[data-kind="needs"] > h2 { color: var(--warn) }
+.report-part li[data-check] { position: relative; list-style: none }
+.report-part li[data-check]::before { position: absolute; right: calc(100% + 6px); font-family: var(--mono) }
+.report-part li[data-check="pass"]::before { content: "✓"; color: var(--ok) }
+.report-part li[data-check="fail"]::before { content: "✗"; color: var(--err) }
+.report-part li[data-check="unchecked"]::before { content: "○"; color: var(--warn) }
 /* A tool call: its mark, its title in mono, then its output folded to a few lines. */
 .dcoderen.tool { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; column-gap: 8px; align-items: start; white-space: normal; font-size: 12px; line-height: 20px; color: var(--muted) }
 .dcoderen.tool + .dcoderen.tool { margin-top: -9px }

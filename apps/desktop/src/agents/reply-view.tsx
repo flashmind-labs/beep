@@ -2,7 +2,10 @@
 // reply and what came with a prompt (Beep's context, another session's
 // message, a child's reply). Their bodies are sanitized Markdown HTML.
 import { conversationBlocked } from "./turnrows.ts";
-import { memo, useRef, type MouseEvent } from "react";
+import { memo, useMemo, useRef, type MouseEvent } from "react";
+import { domToReact, type DOMNode } from "html-react-parser";
+import { OUTCOME_LABEL, reportOf, type Report, type ReportSection } from "./report-state.ts";
+import { plural } from "../ui/format.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { Button, CopyButton, useHtml } from "../ui/kit.tsx";
 import { sessionMessageTitle, type PromptPart } from "./promptparts-state.ts";
@@ -11,16 +14,57 @@ import { SubIcon } from "./activity-view.tsx";
 
 /// Replies already contain the sanitized Markdown produced by the node.
 /// `text` is the reply as the agent wrote it, which its copy button copies.
-export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string; text: string; copy: boolean; sentAt?: number | null }
+/// `final` marks the last reply of a finished turn, which may be a report.
+export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string; text: string; copy: boolean; final: boolean; sentAt?: number | null }
 export interface BlockedRow { kind: "blocked"; id: string; message: string }
 export interface PromptRow { kind: "prompt"; row: string; html: string; files: string[]; pictures: string; sentAt?: number | null }
 export type ContextRow = { kind: "context"; id: string; type: "context"; text: string } | { kind: "context"; id: string; type: "session"; name: string; project: string | null; html: string } | { kind: "context"; id: string; type: "child"; part: Extract<PromptPart, { kind: "child" }>; body: string; agent: string | null; name: string; project: string | null };
 
-/// Reconciled rather than set as HTML, so a streamed chunk leaves finished blocks, and their diagrams, in place.
+/// A turn's last reply that reads as a report is drawn as one.
 export const AgentReply = memo(function AgentReply({ reply }: { reply: ReplyRow }) {
+  const report = useMemo(() => reply.final && reply.markdown ? reportOf(reply.html, reply.text) : null, [reply.final, reply.markdown, reply.html, reply.text]);
+
+  return report ? <ReportReply reply={reply} report={report} /> : <PlainReply reply={reply} />;
+});
+
+/// Reconciled rather than set as HTML, so a streamed chunk leaves finished blocks, and their diagrams, in place.
+function PlainReply({ reply }: { reply: ReplyRow }) {
   const body = useHtml(reply.html);
   return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row}><EntryTime at={reply.sentAt ?? null} />{reply.copy && <CopyButton text={reply.text} look="quiet" small icon className="reply-copy" />}<div className="reply-body">{body}</div></div>;
-});
+}
+
+/// A report: its outcome, length and reading time over its headline and
+/// parts, its prose set at a reading measure.
+function ReportReply({ reply, report }: { reply: ReplyRow; report: Report }) {
+  const outcome = report.kind === "shaped" ? report.shaped.outcome : null;
+
+  return <div className="dcoderen agent md report" data-row={reply.row}>
+    <EntryTime at={reply.sentAt ?? null} />
+    {reply.copy && <CopyButton text={reply.text} look="quiet" small icon className="reply-copy" />}
+    <div className="report-head">
+      {outcome && <span className="report-outcome" data-outcome={outcome}>{OUTCOME_LABEL[outcome]}</span>}
+      <span className="report-label">Report</span>
+      <span className="report-length">{`${plural(report.words, "word", "words")}, about ${report.minutes} min`}</span>
+    </div>
+    <div className="reply-body">
+      {report.kind === "long" ? nodes(report.nodes) : <>
+        <p className="report-headline">{nodes(report.shaped.headline)}</p>
+        {nodes(report.shaped.intro)}
+        {report.shaped.sections.map((section, i) => <ReportPart key={i} section={section} />)}
+      </>}
+    </div>
+  </div>;
+}
+
+/// A report's `##` section: its title and item count over its body; Needs you as a callout.
+function ReportPart({ section }: { section: ReportSection }) {
+  return <section className="report-part" data-kind={section.kind}>
+    <h2>{section.title}{section.count > 0 && <span className="n">{section.count}</span>}</h2>
+    {nodes(section.nodes)}
+  </section>;
+}
+
+const nodes = (list: DOMNode[]) => list.length ? domToReact(list) : null;
 
 /// `switchModel` offers to run the failed prompt again on a model the user picks.
 export function AgentError({ message, switchModel = false }: { message: string; switchModel?: boolean }) {

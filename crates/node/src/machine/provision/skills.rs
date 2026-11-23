@@ -1,6 +1,7 @@
 //! Beep's GitHub and Forgejo agent skills, written by `install` into Beep's
 //! own skills folder, `beep_dir` (`~/.config/beep/skills`), never into an
-//! agent's. `brief` lists that folder's skills for the sessions Beep starts.
+//! agent's. `brief` lists that folder's skills for the sessions Beep starts,
+//! and gives them the `report` skill whole, as a rule for every task's end.
 
 use crate::agents::custom_agents::parse;
 use anyhow::{Context, Result};
@@ -38,7 +39,15 @@ pub(super) const SKILLS: &[Skill] = &[
         name: "forgejo",
         text: include_str!("../../../skills/forgejo/SKILL.md"),
     },
+    Skill {
+        name: REPORT,
+        text: include_str!("../../../skills/report/SKILL.md"),
+    },
 ];
+
+/// The skill every session ends its tasks with, which the desktop draws as
+/// a report.
+const REPORT: &str = "report";
 
 pub(crate) fn beep_dir() -> Option<PathBuf> {
     let home = dirs::home_dir();
@@ -47,6 +56,7 @@ pub(crate) fn beep_dir() -> Option<PathBuf> {
 }
 
 pub(crate) fn brief(dir: &Path) -> Option<String> {
+    let mut report = None;
     let mut lines: Vec<String> = fs::read_dir(dir)
         .ok()?
         .flatten()
@@ -57,6 +67,12 @@ pub(crate) fn brief(dir: &Path) -> Option<String> {
             let name = found
                 .name
                 .unwrap_or_else(|| entry.file_name().to_string_lossy().into_owned());
+
+            if name == REPORT {
+                report = Some(report_rule(&text));
+                return None;
+            }
+
             Some(format!(
                 "- {name}: {} (`{}`)",
                 found.description,
@@ -65,17 +81,39 @@ pub(crate) fn brief(dir: &Path) -> Option<String> {
         })
         .collect();
 
-    if lines.is_empty() {
-        return None;
-    }
-
     lines.sort();
-    Some(format!(
-        "Beep keeps skills of its own in `{}`, outside your own skills list. \
-         When a task fits one, read its SKILL.md and follow it:\n{}",
-        dir.display(),
-        lines.join("\n")
-    ))
+    let listed = (!lines.is_empty()).then(|| {
+        format!(
+            "Beep keeps skills of its own in `{}`, outside your own skills list. \
+             When a task fits one, read its SKILL.md and follow it:\n{}",
+            dir.display(),
+            lines.join("\n")
+        )
+    });
+
+    match (report, listed) {
+        (Some(report), Some(listed)) => Some(format!("{report}\n\n{listed}")),
+        (report, listed) => report.or(listed),
+    }
+}
+
+/// Has the agent end every task with a report written as the skill in
+/// `text` says, held in full so it is in mind from the start.
+fn report_rule(text: &str) -> String {
+    let body = text[front_matter_end(text)..]
+        .lines()
+        .filter(|line| !installed_by_beep(line))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        "When you finish a task, or stop before it is done, your last message is a report, \
+         written exactly as the `report` skill below says, every time, your reply to review \
+         comments too. Keep it in mind from the start. Another skill, the person or their \
+         review comments may say what to report: that decides what goes in, the skill \
+         decides the shape.\n\n<skill name=\"report\">\n{}\n</skill>",
+        body.trim()
+    )
 }
 
 /// The skill files the node has written, one path per line in a file of

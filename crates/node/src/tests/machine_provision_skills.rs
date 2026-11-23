@@ -108,3 +108,25 @@ fn the_brief_lists_each_skill_with_its_file() {
     assert!(brief.ends_with(&format!("\n{github}\n{notes}")), "{brief}");
     assert!(!brief.contains("empty"));
 }
+
+#[test]
+fn the_report_skill_is_a_rule_not_a_listing() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let report = SKILLS.iter().find(|skill| skill.name == REPORT).unwrap();
+    install(dir, report, &mut record(dir)).unwrap();
+
+    let text = brief(dir).unwrap();
+    assert!(text.starts_with("When you finish a task"), "{text}");
+    assert!(text.contains("<skill name=\"report\">\n# The report\n"), "{text}");
+    assert!(!text.contains("Installed by Beep"), "{text}");
+    assert!(!text.contains("Beep keeps skills of its own"), "{text}");
+
+    install(dir, &SKILL, &mut record(dir)).unwrap();
+    let text = brief(dir).unwrap();
+    assert!(text.contains("</skill>\n\nBeep keeps skills of its own"), "{text}");
+    assert!(!text.contains("- report:"), "{text}");
+
+    fs::remove_file(dir.join("report/SKILL.md")).unwrap();
+    assert!(!brief(dir).unwrap().contains("<skill"));
+}
