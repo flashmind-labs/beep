@@ -11,7 +11,7 @@ use crate::{
     agents::sessions::machine_sessions,
     center::{
         home::{HOME_CHANGED, mesh_imports},
-        lock,
+        lock, section,
         view_cache::{View, ViewCache, cache_view},
     },
     fleet::{AsyncMutex, Fleet},

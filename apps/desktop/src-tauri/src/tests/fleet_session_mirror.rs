@@ -183,8 +183,8 @@ async fn a_session_closed_on_this_mac_lists_as_ended_at_once() {
         rows.iter().any(|row| row.status == AgentStatus::Ended {})
     })
     .await;
-    let closed = rows.iter().find(|row| row.id == "s1".into()).unwrap();
-    let other = rows.iter().find(|row| row.id == "s2".into()).unwrap();
+    let closed = rows.iter().find(|row| row.id == "s1").unwrap();
+    let other = rows.iter().find(|row| row.id == "s2").unwrap();
 
     assert_eq!(closed.doing, None);
     assert_eq!(other.status, AgentStatus::Running {});

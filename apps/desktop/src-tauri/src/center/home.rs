@@ -280,9 +280,9 @@ async fn read_home(app: &AppHandle) -> Result<HomeView> {
         log::debug!("Home without the mesh: {e}");
     }
 
+    let mirror = app.state::<Arc<SessionMirror>>();
     let (rows, projects) = join!(
-        app.state::<Arc<SessionMirror>>()
-            .rows_when(|rows| !rows.is_empty(), WAIT),
+        mirror.rows_when(|rows| !rows.is_empty(), WAIT),
         mesh_imports(&fleet, &session),
     );
     let sessions = Ok(overlaid(app, &fleet, &rows));
