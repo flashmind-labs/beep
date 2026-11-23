@@ -1,7 +1,8 @@
 //! Hands one checkout between Beep and Syncthing without pausing its share.
 
-use super::{Held, Stopped, Syncs, halt, lock, open_target, spawn_blocking};
-use anyhow::Result;
+use super::{Op, Phase, STOPPING, Syncs, halt, lock, open_target, spawn_blocking};
+use anyhow::{Result, bail};
+use std::path::Path;
 use beep_proto::node::sync::SyncthingFiles;
 
 impl Syncs {
@@ -22,12 +23,36 @@ impl Syncs {
             return self.inner.syncthing.project_files(root.path(), None).await;
         }
 
-        let _one = self.inner.configuring.lock().await;
+        let done = self
+            .inner
+            .actor
+            .ask(|done| Op::SyncthingFiles {
+                root: root.path().to_owned(),
+                enabled: enabled == Some(true),
+                done,
+            })
+            .await;
+        done.unwrap_or_else(|| bail!(STOPPING))
+    }
+
+    /// Stops the projects in `root` before Syncthing may write it, lets it,
+    /// and starts them again unless Syncthing keeps the folder.
+    pub(super) async fn do_syncthing_files(
+        &self,
+        root: &Path,
+        enabled: bool,
+    ) -> Result<SyncthingFiles> {
+        let actor = &self.inner.actor;
         // Stop Beep before allowing Syncthing to write this checkout again.
-        let names: Vec<_> = if enabled == Some(true) {
-            lock(&self.inner.projects)
+        let names: Vec<_> = if enabled {
+            actor
+                .seen()
                 .iter()
-                .filter(|(_, running)| running.shared.root().starts_with(root.path()))
+                .filter(|(_, entry)| {
+                    entry
+                        .running()
+                        .is_some_and(|shared| shared.root().starts_with(root))
+                })
                 .map(|(name, _)| name.clone())
                 .collect()
         } else {
@@ -36,63 +61,45 @@ impl Syncs {
         let mut stopped = Vec::new();
 
         for name in names {
-            let running = lock(&self.inner.projects).remove(&name);
+            let entry = actor.seen().get(&name).cloned();
 
-            if let Some(running) = running {
-                let project = running.project.clone();
-                let from = running.from;
+            if let (Some(running), Some(entry)) = (actor.take(&name).await, entry) {
                 let shared = halt(running).await;
-                stopped.push((project, from, shared));
+                stopped.push((entry.project, entry.from, shared));
             }
         }
 
         let result = self
             .inner
             .syncthing
-            .project_files(root.path(), enabled)
+            .project_files(root, Some(enabled))
             .await;
+
         for (project, from, shared) in stopped {
             if let Some(managed) = self
                 .inner
                 .syncthing
-                .check(std::path::Path::new(&project.folder))
+                .check(Path::new(&project.folder))
                 .await
             {
                 // Syncthing writes the folder now: start from a fresh scan.
                 self.forget(&shared).await;
-                lock(&self.inner.held).insert(
-                    project.name.clone(),
-                    Held {
-                        project,
-                        from,
-                        managed,
-                    },
-                );
+                actor
+                    .put(&project, from, Phase::Held(managed.reason()))
+                    .await;
             } else {
                 match self.run(&project, from).await {
-                    Ok(running) => {
-                        lock(&self.inner.projects).insert(project.name, running);
-                    }
+                    Ok(running) => actor.start_run(&project, from, running).await,
                     Err(e) => {
                         let message = format!("{e:#}");
                         log::warn!("could not resume project sync: {message}");
-                        lock(&self.inner.stopped).insert(
-                            project.name.clone(),
-                            Stopped {
-                                project,
-                                from,
-                                message,
-                            },
-                        );
+                        actor.put(&project, from, Phase::Stopped(message)).await;
                     }
                 }
             }
         }
 
-        drop(_one);
-
-        self.check_syncthing().await;
-
+        self.do_check_syncthing().await;
         result
     }
 }

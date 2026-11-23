@@ -1,10 +1,11 @@
 //! Explicitly bringing uncommitted edits to another checkout.
 
 use super::{
-    Syncs,
+    STOPPING, Syncs,
+    actor::Op,
     gitdir::{self, Checkout, Repo, WriteGuard},
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::sync::HandoffSnapshot;
 use std::{fs, path::Path, process::Stdio};
 use tokio::task::spawn_blocking;
@@ -191,14 +192,38 @@ impl Syncs {
 
     /// Captures an explicit handoff without changing the source checkout.
     pub async fn handoff_snapshot(&self, project: &str) -> Result<HandoffSnapshot> {
-        let _one = self.inner.configuring.lock().await;
+        let project = project.to_owned();
+        self.inner
+            .actor
+            .ask(|done| Op::HandoffSnapshot { project, done })
+            .await
+            .unwrap_or_else(|| bail!(STOPPING))
+    }
+
+    pub(super) async fn do_handoff_snapshot(&self, project: &str) -> Result<HandoffSnapshot> {
         let root = self.handoff_root(project).await?;
         spawn_blocking(move || snapshot(&root)).await?
     }
 
     /// Applies a handoff only to a clean checkout at its exact base commit.
     pub async fn handoff_apply(&self, project: &str, snapshot: HandoffSnapshot) -> Result<()> {
-        let _one = self.inner.configuring.lock().await;
+        let project = project.to_owned();
+        self.inner
+            .actor
+            .ask(|done| Op::HandoffApply {
+                project,
+                snapshot,
+                done,
+            })
+            .await
+            .unwrap_or_else(|| bail!(STOPPING))
+    }
+
+    pub(super) async fn do_handoff_apply(
+        &self,
+        project: &str,
+        snapshot: HandoffSnapshot,
+    ) -> Result<()> {
         let root = self.handoff_root(project).await?;
         spawn_blocking(move || apply(&root, snapshot)).await??;
         Ok(())
