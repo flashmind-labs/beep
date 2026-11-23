@@ -96,3 +96,45 @@ test("fold a function with the gutter, keyboard and Vim", { tag: "@windows" }, a
   await expect(placeholder).toBeVisible();
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
 });
+
+test("complete a local name and insert a matching bracket", async ({ page }) => {
+  await openFile(page, true, "score.ts", "const totalScore = 42;\n");
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  const editor = page.locator(".agcm .cm-content");
+  await expect(editor.locator(".k")).toContainText("const");
+  await editor.press("ArrowDown");
+  await editor.pressSequentially("totalSc");
+  await editor.press("Control+Space");
+  await page.getByRole("option", { name: "totalScore", exact: true }).click();
+  await editor.pressSequentially("(");
+  await expect(editor.locator(".cm-line").last()).toHaveText("totalScore()");
+  await editor.press("Backspace");
+  await expect(editor.locator(".cm-line").last()).toHaveText("totalScore");
+});
+
+test("replace two occurrences with multiple cursors", async ({ page }) => {
+  await openFile(page, true, "notes.txt", "one two one");
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  const editor = page.locator(".agcm .cm-content");
+  await expect(editor).toBeFocused();
+  const modifier = await page.evaluate(() => /Mac/.test(navigator.platform) ? "Meta" : "Control");
+  await editor.press(`${modifier}+d`);
+  await editor.press(`${modifier}+d`);
+  await page.keyboard.type("three");
+  await expect(editor).toHaveText("three two three");
+});
+
+test("record and replay a Vim macro and substitute across the file", async ({ page }) => {
+  await openFile(page, true, "notes.txt", "one value\ntwo value");
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByRole("button", { name: "Vim", exact: true }).click();
+  const editor = page.locator(".agcm .cm-content");
+  await expect(editor).toBeFocused();
+  await page.keyboard.type("qa0ciwnew");
+  await page.keyboard.press("Escape");
+  await page.keyboard.type("qj@a");
+  await expect(editor.locator(".cm-line")).toHaveText(["new value", "new value"]);
+  await page.keyboard.type(":%s/value/score/g");
+  await page.keyboard.press("Enter");
+  await expect(editor.locator(".cm-line")).toHaveText(["new score", "new score"]);
+});

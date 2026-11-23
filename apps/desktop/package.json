@@ -41,6 +41,7 @@
     "@tanstack/react-router": "^1.170.46",
     "@tanstack/react-virtual": "^3.14.26",
     "buffer": "6.0.3",
+    "codemirror": "^6.0.2",
     "events": "3.3.0",
     "html-react-parser": "^6.1.9",
     "jmuxer": "2.1.4",

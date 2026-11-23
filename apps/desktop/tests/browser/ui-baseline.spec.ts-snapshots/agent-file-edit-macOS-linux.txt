@@ -536,7 +536,7 @@ body.cbody
                                   span [title="Unfold line"] "›"
                                 div.cm-activeLineGutter.cm-gutterElement style(height,margin-top)
                                   span [title="Fold line"] "⌄"
-                            div.cm-content [aria-multiline="true" autocapitalize="off" autocorrect="off" contenteditable="true" data-language="markdown" role="textbox" spellcheck="false" translate="no" writingsuggestions="false"] style(tab-size) (focused)
+                            div.cm-content [aria-autocomplete="list" aria-multiline="true" autocapitalize="off" autocorrect="off" contenteditable="true" data-language="markdown" role="textbox" spellcheck="false" translate="no" writingsuggestions="false"] style(tab-size) (focused)
                               div.cm-activeLine.cm-line "// noteconst value0 = 0;"
                               div.cm-line "const value1 = 1;"
                               div.cm-line "const value2 = 2;"

@@ -1,12 +1,13 @@
 // CodeMirror for a text tab being edited; loaded in its own chunk on the first edit.
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { bracketMatching, foldGutter, foldKeymap, HighlightStyle, indentOnInput, LanguageDescription, syntaxHighlighting, toggleFold } from "@codemirror/language";
+import { indentWithTab } from "@codemirror/commands";
+import { HighlightStyle, LanguageDescription, syntaxHighlighting, toggleFold } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
-import { highlightSelectionMatches, openSearchPanel, search, searchKeymap, searchPanelOpen } from "@codemirror/search";
+import { openSearchPanel, search, searchKeymap, searchPanelOpen } from "@codemirror/search";
 import { Compartment, EditorState } from "@codemirror/state";
-import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, keymap, lineNumbers } from "@codemirror/view";
+import { drawSelection, EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import { getCM, Vim, vim } from "@replit/codemirror-vim";
+import { basicSetup } from "codemirror";
 import { useLayoutEffect, useRef } from "react";
 import type { FileEdit } from "./media.ts";
 
@@ -75,7 +76,7 @@ export function SourceSearch({ text, findRequest, close }: { text: string; findR
     const parent = host.current;
     if (!parent) return;
     const view = new EditorView({ parent, doc: text, extensions: [
-      theme, lineNumbers(), drawSelection(), fileSearch, EditorState.readOnly.of(true), EditorView.editable.of(false),
+      theme, lineNumbers(), drawSelection(), fileSearch, keymap.of(searchKeymap), EditorState.readOnly.of(true), EditorView.editable.of(false),
       EditorView.updateListener.of(update => {
         if (searchPanelOpen(update.startState) && !searchPanelOpen(update.state)) {
           parent.closest<HTMLElement>(".agpane")?.focus({ preventScroll: true });
@@ -100,7 +101,7 @@ const bindings = new Compartment();
 Vim.defineAction("toggleFold", cm => { toggleFold(cm.cm6); });
 Vim.mapCommand("za", "action", "toggleFold", {}, { context: "normal" });
 const vimBindings = vim({ status: true });
-const fileSearch = [search({ top: true }), keymap.of(searchKeymap)];
+const fileSearch = search({ top: true });
 const language = new Compartment();
 
 /// The token classes the read-only view colours, so both look the same.
@@ -123,6 +124,8 @@ const theme = EditorView.theme({
   ".cm-searchMatch-selected": { backgroundColor: "color-mix(in srgb, var(--accent) 52%, transparent)" },
   ".cm-cursor": { borderLeftColor: "var(--fg)" },
   ".cm-gutters": { backgroundColor: "transparent", color: "var(--dim)", border: "none" },
+  ".cm-tooltip": { color: "var(--fg)", backgroundColor: "var(--glass-solid)", borderColor: "var(--border)" },
+  ".cm-tooltip-autocomplete ul li[aria-selected]": { backgroundColor: "var(--ctl-fill-hi)", color: "var(--ink)" },
   ".cm-foldPlaceholder": { backgroundColor: "var(--ctl-fill)", color: "var(--muted)", border: "none" },
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "var(--ctl-fill)" },
   // As specific as the base theme's selection, which is dark and hides the text on a light skin.
@@ -134,10 +137,9 @@ function setup(text: string, changed: () => void, save: () => void, closeSearch:
     // A file with Windows line ends keeps them.
     EditorState.lineSeparator.of(text.includes("\r\n") ? "\r\n" : "\n"),
     bindings.of([]), fileSearch,
-    lineNumbers(), foldGutter(), highlightActiveLineGutter(), highlightSpecialChars(), history(), drawSelection(),
-    indentOnInput(), bracketMatching(), highlightActiveLine(), highlightSelectionMatches(),
     syntaxHighlighting(tokens), language.of([]), theme,
-    keymap.of([{ key: "Mod-s", run: () => { save(); return true; }, preventDefault: true }, indentWithTab, ...foldKeymap, ...defaultKeymap, ...historyKeymap]),
+    keymap.of([{ key: "Mod-s", run: () => { save(); return true; }, preventDefault: true }, indentWithTab]),
+    basicSetup,
     EditorView.updateListener.of(update => {
       if (update.docChanged) changed();
       if (searchPanelOpen(update.startState) && !searchPanelOpen(update.state)) closeSearch();
