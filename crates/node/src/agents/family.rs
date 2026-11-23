@@ -18,7 +18,7 @@ use iroh::EndpointId;
 use std::{
     collections::HashMap,
     str::FromStr,
-    sync::{Arc, Mutex, OnceLock, atomic::Ordering},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 use tokio::sync::watch;
@@ -282,7 +282,7 @@ impl Agents {
     /// child does with it is the parent's to hear the end of, whoever began
     /// the turn it joins.
     pub(super) async fn tell_child(child: &Session, text: String) -> Result<(), String> {
-        child.user_turn.store(false, Ordering::Relaxed);
+        child.set_user_turn(false).await;
         child.order(Command::Steer(text.into())).await
     }
 
@@ -344,10 +344,12 @@ impl Agents {
 
         // Its prompt says what the parent knew: it has seen the parent so far.
         if let Some(parent) = parent {
-            session.see(
-                &parent.id,
-                watched::read(&parent.live, |live| Into::<Mark>::into(live)),
-            );
+            session
+                .see(vec![(
+                    parent.id.clone(),
+                    watched::read(&parent.live, |live| Into::<Mark>::into(live)),
+                )])
+                .await;
         }
 
         session.named_info().await?;

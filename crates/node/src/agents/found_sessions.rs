@@ -687,7 +687,7 @@ impl Agents {
 
         // Its first turn here is the user's, whose words begin it.
         if prompt.is_some() {
-            session.user_turn.store(true, Ordering::Relaxed);
+            session.set_user_turn(true).await;
         }
 
         self.said_on_resume(session, prompt).await

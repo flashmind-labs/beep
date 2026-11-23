@@ -32,7 +32,7 @@ use beep_proto::watched;
 use futures::stream::FuturesUnordered;
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     path::Path,
     sync::{
         Arc, Mutex,
@@ -147,6 +147,12 @@ pub(super) enum Command {
     /// Its parent ended for good, so it closes: unless it is moving, when
     /// its parent may have left first for the machine it goes to.
     ParentGone,
+    /// Notes what it now saw of relatives, by each one's `id` here.
+    Saw(Vec<(SessionId, Mark)>),
+    /// Sets whether the user's message began the turn that runs or ran last.
+    UserTurn(bool),
+    /// Gives that and clears it.
+    TakeUserTurn(oneshot::Sender<bool>),
 }
 
 /// A question the node asks in a session.
@@ -195,12 +201,6 @@ pub(super) struct Session {
     /// Messages from agents that are not its parent since the user last
     /// wrote, so two agents cannot keep each other talking.
     peer_messages: AtomicU32,
-    /// What it last saw of each relative in its chat (`family::changes`),
-    /// by the relative's `id` here. Not kept over a restart.
-    seen: Mutex<HashMap<SessionId, Mark>>,
-    /// The user's message began the turn that runs or ran last, so its end
-    /// is no news to its parent (`family::notes`).
-    pub(super) user_turn: Arc<AtomicBool>,
 }
 
 /// The most messages a session takes from other agents between two of the
@@ -576,8 +576,6 @@ impl Session {
             _task: AbortOnDropHandle::new(task),
             guards: Mutex::new(guard.into_iter().collect()),
             peer_messages: AtomicU32::new(0),
-            seen: Mutex::default(),
-            user_turn: Arc::default(),
         })
     }
 
@@ -609,15 +607,49 @@ impl Session {
             })
     }
 
-    /// Notes what it now saw of the relative `id`, and gives what it saw
-    /// of it before.
-    pub(super) fn see(&self, id: &SessionId, mark: Mark) -> Option<Mark> {
-        crate::lock(&self.seen).insert(id.clone(), mark)
+    /// Notes what it now saw of relatives, once the session's task has
+    /// taken it.
+    pub(super) async fn see(&self, marks: Vec<(SessionId, Mark)>) {
+        // Refused when the session ended, which keeps no more of it.
+        let _ = self.order(Command::Saw(marks)).await;
+    }
+
+    /// `see` for a caller that cannot wait. A full queue drops the notes, so
+    /// the relatives' news is told once more.
+    pub(super) fn see_soon(&self, marks: Vec<(SessionId, Mark)>) {
+        let (done, _) = oneshot::channel();
+        let _ = self.orders.try_send(Order {
+            command: Command::Saw(marks),
+            done,
+        });
     }
 
     /// What it last saw of the relative `id`.
     pub(super) fn saw(&self, id: &SessionId) -> Option<Mark> {
-        crate::lock(&self.seen).get(id).copied()
+        watched::read(&self.live, |live| live.seen.get(id).copied())
+    }
+
+    /// Marks whether the user's message began the turn that runs or ran
+    /// last, once the session's task has taken it.
+    pub(super) async fn set_user_turn(&self, user: bool) {
+        // Refused when the session ended, whose turns no longer end.
+        let _ = self.order(Command::UserTurn(user)).await;
+    }
+
+    /// Whether the user's message began the turn that runs or ran last.
+    pub(super) fn user_turn(&self) -> bool {
+        watched::read(&self.live, |live| live.user_turn)
+    }
+
+    /// Whether it did, and clears it for the next turn. A session that ended
+    /// takes no order: what it last published answers.
+    pub(super) async fn take_user_turn(&self) -> bool {
+        let (reply, taken) = oneshot::channel();
+
+        match self.order(Command::TakeUserTurn(reply)).await {
+            Ok(()) => taken.await.unwrap_or_else(|_| self.user_turn()),
+            Err(_) => self.user_turn(),
+        }
     }
 
     /// The user wrote: other agents may message the session again.
@@ -626,13 +658,28 @@ impl Session {
     }
 
     pub(super) fn info(&self) -> SessionInfo {
-        let mut info = watched::read(&self.live, |live| live.info.clone());
+        self.refiled(watched::read(&self.live, |live| live.info.clone()))
+    }
+
+    /// `info`, read from the session's state already, as its list shows it.
+    pub(super) fn listed(&self, info: SessionInfo) -> SessionInfo {
+        SessionInfo {
+            reviewer: self.reviewer,
+            ..self.refiled(info)
+        }
+    }
+
+    fn refiled(&self, mut info: SessionInfo) -> SessionInfo {
         if let Some(folder) = crate::lock(&self.moved_cwd).as_ref() {
             info.cwd.clone_from(folder);
         }
+
         info
     }
 
+    /// Shows the folder its conversation was refiled in. Only a closed
+    /// session is refiled (`relocate_session`), whose task has ended and
+    /// can take no order, so the handle keeps this one.
     pub(super) fn moved_to(&self, folder: &str) {
         *crate::lock(&self.moved_cwd) = Some(folder.to_owned());
     }

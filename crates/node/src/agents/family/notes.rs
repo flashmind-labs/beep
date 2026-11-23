@@ -25,10 +25,7 @@ use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
-    sync::{
-        Arc, Mutex, OnceLock, Weak,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, OnceLock, Weak},
 };
 use tokio::sync::watch;
 
@@ -167,7 +164,7 @@ impl Agents {
         let child = Child {
             id: session.id.clone(),
             live: session.live.clone(),
-            user_turn: session.user_turn.clone(),
+            session: Arc::downgrade(session),
         };
         let task = follow(child, to, self.family.membership.clone());
         session.keep(tokio::spawn(task));
@@ -248,8 +245,9 @@ struct Child {
     /// Its id on this node, which its parent here keeps what it saw of it by.
     id: SessionId,
     live: watch::Receiver<Live>,
-    /// Whether the user's message began its turn (`Session::user_turn`).
-    user_turn: Arc<AtomicBool>,
+    /// Whom `Session::take_user_turn` asks whether the user's message began
+    /// its turn. Weak: the session keeps this task.
+    session: Weak<Session>,
 }
 
 /// Follows a child's state and sends a note for each turn it finishes, each
@@ -258,7 +256,7 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
     let Child {
         id: key,
         mut live,
-        user_turn,
+        session,
     } = child;
     // A session counts its turns from its start, so one that ended before
     // this first look is told too.
@@ -268,6 +266,8 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
     while std::mem::take(&mut first) || live.changed().await.is_ok() {
         let mut ended = false;
         let mut quiet = false;
+        // The turn it ends is the user's if so marked, and the mark ends with it.
+        let mut take = false;
         let told = watched::read_and_update(&mut live, |now| {
             let note = match now.status() {
                 Status::Ended => {
@@ -277,7 +277,7 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
                 }
                 Status::Asking if !asking => {
                     asking = true;
-                    quiet = user_turn.load(Ordering::Relaxed);
+                    quiet = now.user_turn;
                     Some(note_of(now, NoteState::Asking))
                 }
                 Status::Asking => None,
@@ -291,11 +291,11 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
                         None
                     } else if now.info.state.last_stop == Some(StopReason::Cancelled) {
                         quiet = true;
-                        user_turn.store(false, Ordering::Relaxed);
+                        take = true;
                         now.stopped_by_user
                             .then(|| note_of(now, NoteState::Stopped))
                     } else if now.info.state.queued == 0 {
-                        quiet = user_turn.swap(false, Ordering::Relaxed);
+                        take = true;
                         Some(note_of(now, NoteState::Finished))
                     } else {
                         None
@@ -312,6 +312,14 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
                 mark: Into::<Mark>::into(&*now),
                 quiet,
             })
+        });
+        let user = take && match session.upgrade() {
+            Some(session) => session.take_user_turn().await,
+            None => false,
+        };
+        let told = told.map(|told| Told {
+            quiet: told.quiet || user,
+            ..told
         });
         let Some(Told { note, mark, quiet }) = told else {
             if ended {
@@ -405,7 +413,7 @@ async fn deliver(
             return Ok(());
         }
 
-        parent.see(seen.child, seen.mark);
+        parent.see(vec![(seen.child.clone(), seen.mark)]).await;
     }
 
     put(parent, idle, note.text_for(id)).await

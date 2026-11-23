@@ -122,6 +122,29 @@ impl Actor {
                 self.live.send_if_modified(|live| live.sending(sent));
                 Ok(Ok(()))
             }
+            // These three are read through the watch but wake nobody.
+            Command::Saw(marks) => {
+                self.live.send_if_modified(|live| {
+                    live.seen.extend(marks);
+                    false
+                });
+                Ok(Ok(()))
+            }
+            Command::UserTurn(user) => {
+                self.live.send_if_modified(|live| {
+                    live.user_turn = user;
+                    false
+                });
+                Ok(Ok(()))
+            }
+            Command::TakeUserTurn(reply) => {
+                self.live.send_if_modified(|live| {
+                    // The caller may have stopped waiting.
+                    let _ = reply.send(std::mem::take(&mut live.user_turn));
+                    false
+                });
+                Ok(Ok(()))
+            }
         }
     }
 

@@ -519,7 +519,7 @@ async fn news_for_a_message_a_session_did_not_take_comes_with_the_next() {
     })
     .await;
     // Worked out for a message the session then refuses: not seen yet.
-    let (refused, _) = rig.agents.heard(&parent, String::from("go").into());
+    let (refused, _) = rig.agents.heard(&parent, String::from("go").into()).await;
     assert!(refused.context.is_some());
     rig.agents
         .send_session("top", &parent.id, said("go"))
@@ -570,8 +570,6 @@ async fn the_words_that_resume_an_ended_thread_are_the_users() {
 
 #[tokio::test]
 async fn a_parents_message_makes_the_turn_its_own() {
-    use std::sync::atomic::Ordering;
-
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
@@ -583,12 +581,29 @@ async fn a_parents_message_makes_the_turn_its_own() {
         .send_session("kid", &child.id, said("hang on"))
         .await
         .expect("the thread takes the user's message");
-    assert!(child.user_turn.load(Ordering::Relaxed));
+    assert!(child.user_turn());
     // What the parent now asks of it is the parent's to hear the end of.
     Agents::tell_child(&child, "more".to_owned())
         .await
         .expect("the thread takes its parent's message");
-    assert!(!child.user_turn.load(Ordering::Relaxed));
+    assert!(!child.user_turn());
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_thread_that_ended_still_tells_whether_the_user_began_its_last_turn() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
+    until(&child, |live| {
+        live.info.turns == 1 && live.status() == Status::Idle
+    })
+    .await;
+    child.set_user_turn(true).await;
+    child.close().await;
+    // The session's task is gone, so the order is refused: the follower
+    // that asks after the turn still finds the turn the user's.
+    assert!(child.take_user_turn().await);
     rig.agents.shutdown().await;
 }
 

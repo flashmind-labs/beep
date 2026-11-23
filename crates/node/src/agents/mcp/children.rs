@@ -361,17 +361,24 @@ impl Reach<'_> {
 
     /// `child` as it stands on this machine, which the caller has now seen.
     fn view_here(&self, child: &Session) -> ChildView {
-        self.shown(child);
+        self.shown([child]);
         ChildView::of(&child.info(), &Agents::name_of(child)).named(&self.my_name())
     }
 
-    /// Notes that the caller was shown `child` as it stands, so its next
-    /// turn is not told of it again.
-    fn shown(&self, child: &Session) {
+    /// Notes that the caller was shown `children` as they stand, so its next
+    /// turn is not told of them again.
+    fn shown<'a>(&self, children: impl IntoIterator<Item = &'a Session>) {
         if let Some(caller) = self.agents.get(&self.who.session) {
-            caller.see(
-                &child.id,
-                watched::read(&child.live, |live| Into::<Mark>::into(live)),
+            caller.see_soon(
+                children
+                    .into_iter()
+                    .map(|child| {
+                        (
+                            child.id.clone(),
+                            watched::read(&child.live, |live| Into::<Mark>::into(live)),
+                        )
+                    })
+                    .collect(),
             );
         }
     }
@@ -763,12 +770,11 @@ impl Reach<'_> {
     /// Every child of the caller, here and elsewhere.
     async fn list(&self) -> Reply {
         let here = self.my_name();
-        let mut views: Vec<ChildView> = self
-            .agents
-            .children_of(self.who)
+        let children = self.agents.children_of(self.who);
+        self.shown(children.iter().map(|child| &**child));
+        let mut views: Vec<ChildView> = children
             .iter()
             .filter_map(|child| {
-                self.shown(child);
                 watched::read(&child.live, |live| {
                     let id = live.agent_session.as_ref()?;
                     Some(ChildView::of(&live.info, id).named(&here))

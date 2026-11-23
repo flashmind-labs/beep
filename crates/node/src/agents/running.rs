@@ -647,25 +647,17 @@ impl Agents {
             .lock()
             .values()
             .filter_map(|s| {
-                // Released before `info` reads the state again: a second read
-                // while this one is held waits behind any write queued in
-                // between, which waits on this one, and the node stops.
-                let listed = {
-                    watched::read(&s.live, |live| {
-                        live.agent_session.is_some()
-                            && id.is_none_or(|id| live.info.id == *id)
-                            && (!s.reviewer || reviewers && live.info.parent.is_some())
-                    })
-                };
+                // One read: a second while this one is held waits behind any
+                // write queued in between, which waits on this one, and the
+                // node stops.
+                let info = watched::read(&s.live, |live| {
+                    (live.agent_session.is_some()
+                        && id.is_none_or(|id| live.info.id == *id)
+                        && (!s.reviewer || reviewers && live.info.parent.is_some()))
+                    .then(|| live.info.clone())
+                })?;
 
-                if !listed {
-                    return None;
-                }
-
-                Some(SessionInfo {
-                    reviewer: s.reviewer,
-                    ..s.info()
-                })
+                Some(s.listed(info))
             })
             .collect();
         sessions.sort_by_key(|info| info.started_at);
