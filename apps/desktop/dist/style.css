@@ -19,7 +19,7 @@ button { font: inherit; color: inherit; cursor: default }
 .dinput .txt, .agtr .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 
 .dbody { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 2px 26px 16px 16px; display: flex; flex-direction: column; gap: 10px;
-  font-size: 14px; line-height: 21px; scrollbar-width: none; -webkit-user-select: text; user-select: text; cursor: auto }
+  font-size: 14px; line-height: 21px; scrollbar-width: none; cursor: auto }
 .dbody::-webkit-scrollbar { display: none }
 .dbody:empty { display: none }
 .dbody ul, .dbody ol { margin: 0 0 8px; padding-left: 18px; display: grid; gap: 2px }
@@ -1369,8 +1369,11 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 .attachment-gallery .att .nm { width: 100% }
 .agc .row > .ag-att { padding: 0 }
 
-/* Select conversation text and editable fields, keeping controls inert. */
-.dcoderlog, input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text }
+/* Keep selection on the text itself, so a click between messages cannot select the log. */
+.reply-body, .dcoderen.user .said, .sessionbody, .ag-plan > .md, .dthink .tx, .beepctx pre,
+.dcoderen.qa :is(.q, .a), .derrcard > span, [data-tool-content] pre,
+:is(dialog, [role="dialog"]) :is(p, pre, .am-os, .am-msg, div.am-sub, .fr-sub),
+input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text }
 :is(button, [role="button"], summary, select), :is(button, [role="button"], summary, select) *:not([data-tool-content], [data-tool-content] *) { -webkit-user-select: none !important; user-select: none !important }
 
 .entry-time { color: var(--dim); font-size: 10px; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; margin-inline-start: 6px; }
