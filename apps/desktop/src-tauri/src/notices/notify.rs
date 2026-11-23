@@ -8,9 +8,8 @@ use crate::{
     center::{self, AgentTarget, CenterTarget},
     chat::markdown::plain_text,
     error::{DesktopError, Result},
-    fleet::{Fleet, alerts},
+    fleet::Fleet,
     notices::history,
-    tray::waiting::WaitingList,
 };
 use beep_proto::{
     AgentNoticeKey, ApiError, Notice,
@@ -194,15 +193,7 @@ async fn answer(app: AppHandle, key: AgentNoticeKey, allow: bool) {
 /// answer to a question the session no longer asks, as a conflict.
 pub(crate) async fn answer_agent(app: &AppHandle, key: AgentNoticeKey, allow: bool) -> Result<()> {
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
-    let answered = if key.question.is_none() {
-        Ok(())
-    } else if alerts::reaches(&fleet, &key.machine_id) {
-        alerts::answer(&fleet, &key, agent_reply(allow)).await
-    } else {
-        Err(DesktopError::NotInMesh)
-    };
-    app.state::<WaitingList>().poke();
-    answered
+    crate::agents::outbox::answer(app, &fleet, "", &key, agent_reply(allow).to_owned()).await
 }
 
 /// The reply that picks the agent's allow-once or reject-once option.

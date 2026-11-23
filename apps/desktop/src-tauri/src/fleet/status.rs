@@ -398,6 +398,13 @@ impl Status {
         self.shared.peers().get(&machine)?.env.clone()
     }
 
+    /// The protocols `machine` last reported offering on `status/1`, once it has said.
+    pub fn last_offers(&self, machine: EndpointId) -> Option<Vec<String>> {
+        let peers = self.shared.peers();
+        let peer = peers.get(&machine)?;
+        (!peer.offers.is_empty()).then(|| peer.offers.clone())
+    }
+
     /// The apps, graphics cards and abilities of each machine; one that has
     /// not reported is listed empty.
     pub fn details(&self) -> Vec<MachineDetails> {

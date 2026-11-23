@@ -11,7 +11,9 @@ use crate::{
     peer::Peers,
 };
 use beep_proto::watched;
-use beep_proto::{HostedRuns, LabeledProjectLists, PlanLimits, ProjectRunDetail, SpendReport};
+use beep_proto::{
+    HostedRuns, LabeledProjectLists, PlanLimits, ProjectRunDetail, SpendPeriod, SpendReport,
+};
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -50,6 +52,27 @@ const RUN_DONE_FRESH: Duration = Duration::from_secs(3600);
 /// Runs' details kept, over every project.
 const MAX_RUN_DETAILS: usize = 64;
 
+fn empty_period() -> SpendPeriod {
+    SpendPeriod {
+        cost_usd: 0.0,
+        metered_tokens: 0,
+        subscription_tokens: 0,
+        projects: Vec::new(),
+        harnesses: Vec::new(),
+        daily: Vec::new(),
+    }
+}
+
+fn empty_spend() -> SpendReport {
+    SpendReport {
+        limits: Vec::new(),
+        today: empty_period(),
+        week: empty_period(),
+        month: empty_period(),
+        historical: Vec::new(),
+    }
+}
+
 /// What a background read changed, for the page that shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Changed {
@@ -59,6 +82,8 @@ pub enum Changed {
         lists: bool,
         runs: bool,
     },
+    /// One or more machines answered with updated project sync status.
+    Sync,
     /// The plans and spending: `Session::spend` gives more than before.
     Usage,
 }
@@ -160,6 +185,13 @@ impl<K: Hash + Eq + Clone, T: Clone> Cache<K, T> {
             .insert(key.clone())
     }
 
+    fn is_reading(&self, key: &K) -> bool {
+        self.reading
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(key)
+    }
+
     fn end(&self, key: &K) {
         self.reading
             .lock()
@@ -206,6 +238,8 @@ pub struct Session {
     /// Runs opened, by project, host and run id.
     run_details: Cache<(String, Option<String>, u64), ProjectRunDetail>,
     spend: Cache<(), SpendReport>,
+    /// True once a cold `spend(false)` already waited its initial fast window on a slow machine.
+    spend_waited: AtomicBool,
     /// The freshest plan of each agent any read heard, which `spend` gives: a machine's stream
     /// that still owes a plan adds it when the node sends it.
     plans: watch::Sender<Vec<PlanLimits>>,
@@ -239,16 +273,18 @@ impl Session {
             spend.hold((), report, None);
         }
 
+        let changed: Arc<dyn Fn(Changed) + Send + Sync> = Arc::new(changed);
         Ok(Arc::new(Self {
             options,
             peers,
-            hosts: DesktopHosts::new()?,
-            changed: Arc::new(changed),
+            hosts: DesktopHosts::new_with(Some(changed.clone()))?,
+            changed,
             lists: Cache::default(),
             runs: Cache::default(),
             run_reads: Mutex::default(),
             run_details: Cache::default(),
             spend,
+            spend_waited: AtomicBool::new(false),
             plans: watch::Sender::new(plans.unwrap_or_default()),
             following: AtomicUsize::new(0),
             epoch: AtomicU64::new(0),
@@ -512,6 +548,13 @@ impl Session {
 
                 held
             }
+            None if !refresh => {
+                if self.spend_waited.load(Ordering::Acquire) && self.spend.is_reading(&()) {
+                    empty_spend()
+                } else {
+                    self.read_cold_spend().await?
+                }
+            }
             _ => {
                 let (read, follows) = self.desk().await?.spend_and_follow().await?;
                 self.keep_spend(read.clone(), follows);
@@ -520,6 +563,47 @@ impl Session {
         };
         report.limits = watched::read_sent(&self.plans, Clone::clone);
         Ok(report)
+    }
+
+    async fn read_cold_spend(self: &Arc<Self>) -> Result<SpendReport> {
+        let cold_wait = self.options.settle + Duration::from_millis(800);
+        if !self.spend.begin(&()) {
+            return Ok(self
+                .spend
+                .get(&(), self.options.fresh)
+                .map_or_else(empty_spend, |(held, _)| held));
+        }
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let this = self.clone();
+        self.spawn(async move {
+            let result = async { this.desk().await?.spend_and_follow().await }.await;
+            let waited = this.spend_waited.swap(false, Ordering::AcqRel);
+            let out = match result {
+                Ok((read, follows)) => {
+                    this.keep_spend(read.clone(), follows);
+                    if waited {
+                        (this.changed)(Changed::Usage);
+                    }
+                    Ok(read)
+                }
+                Err(e) => {
+                    log::info!("the usage did not read on start: {e}");
+                    Err(e)
+                }
+            };
+            this.spend.end(&());
+            let _ = tx.send(out);
+        });
+
+        match timeout(cold_wait, rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Ok(empty_spend()),
+            Err(_) => {
+                self.spend_waited.store(true, Ordering::Release);
+                Ok(empty_spend())
+            }
+        }
     }
 
     fn read_spend_later(self: &Arc<Self>) {
@@ -533,6 +617,7 @@ impl Session {
 
             match async { this.desk().await?.spend_and_follow().await }.await {
                 Ok((read, follows)) => {
+                    this.spend_waited.store(false, Ordering::Release);
                     this.keep_spend(read, follows);
                     (this.changed)(Changed::Usage);
                 }
@@ -562,14 +647,32 @@ impl Session {
 
             let this = self.clone();
             self.spawn(async move {
+                let late_spend = Arc::new(AtomicBool::new(false));
+                let flag = late_spend.clone();
                 follow
-                    .run(|plan| {
-                        if this.hear(vec![plan]) {
-                            this.save_spend();
-                            (this.changed)(Changed::Usage);
-                        }
-                    })
+                    .run(
+                        |plan| {
+                            if this.hear(vec![plan]) {
+                                this.save_spend();
+                                (this.changed)(Changed::Usage);
+                            }
+                        },
+                        move || {
+                            flag.store(true, Ordering::Release);
+                        },
+                    )
                     .await;
+
+                if late_spend.load(Ordering::Acquire)
+                    && let Ok(desk) = this.desk().await
+                {
+                    let updated = desk.spend_from_cache();
+                    this.hear(updated.limits.clone());
+                    this.spend.put((), updated);
+                    this.save_spend();
+                    (this.changed)(Changed::Usage);
+                }
+
                 this.following.fetch_sub(1, Ordering::Relaxed);
             });
         }

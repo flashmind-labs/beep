@@ -14,6 +14,7 @@ pub(crate) mod events;
 pub(crate) mod files;
 #[cfg(desktop)]
 mod mesh;
+pub(crate) mod node_actor;
 mod parents;
 pub(crate) mod phone;
 mod presence;
@@ -204,6 +205,8 @@ pub struct Fleet {
     /// Native session reports, overlaid on the slower transcript scans.
     presence: presence::Presence,
     snapshots: Arc<events::Snapshots>,
+    projections: node_actor::Projections,
+    node_ops: Arc<node_actor::NodeOps>,
 }
 
 impl Fleet {
@@ -242,6 +245,8 @@ impl Fleet {
             parents: parents::Parents::default(),
             presence: presence::Presence::default(),
             snapshots: Arc::new(events::Snapshots::default()),
+            projections: node_actor::Projections::default(),
+            node_ops: Arc::new(node_actor::NodeOps::default()),
         }
     }
 
@@ -265,6 +270,8 @@ impl Fleet {
             parents: parents::Parents::default(),
             presence: presence::Presence::default(),
             snapshots: Arc::new(events::Snapshots::default()),
+            projections: node_actor::Projections::default(),
+            node_ops: Arc::new(node_actor::NodeOps::default()),
         }
     }
 
@@ -464,6 +471,14 @@ impl Fleet {
     /// The newest release of each tool a node installs.
     pub(crate) fn releases(&self) -> &ToolReleases {
         &self.releases
+    }
+
+    pub(crate) fn projections(&self) -> &node_actor::Projections {
+        &self.projections
+    }
+
+    pub(crate) fn node_ops(&self) -> &Arc<node_actor::NodeOps> {
+        &self.node_ops
     }
 
     pub fn id(&self) -> EndpointId {

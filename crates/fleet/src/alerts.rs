@@ -382,7 +382,11 @@ pub async fn answer(peers: &dyn Peers, key: &AgentNoticeKey, reply: &str) -> Res
     let client = peers.client(machine).await?;
     timeout(ANSWERING, attached(&client, key, question, reply))
         .await
-        .map_err(|_| FleetError::Refused("the machine did not answer in time".into()))?
+        .map_err(|elapsed| {
+            FleetError::Mesh(MeshError::Link(
+                anyhow::Error::new(elapsed).context("the machine did not answer in time"),
+            ))
+        })?
 }
 
 async fn attached(

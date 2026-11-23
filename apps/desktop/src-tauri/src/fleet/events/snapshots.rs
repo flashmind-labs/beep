@@ -347,6 +347,8 @@ fn error(message: &str) -> MeshError {
     MeshError::Link(anyhow::anyhow!(message.to_owned()))
 }
 
+const SNAPSHOT_WAIT: Duration = Duration::from_secs(3);
+
 struct Reader {
     snapshots: Arc<Snapshots>,
     id: EndpointId,
@@ -361,7 +363,7 @@ impl SnapshotReader for Reader {
             };
             Some(
                 match tokio::time::timeout(
-                    Duration::from_secs(30),
+                    SNAPSHOT_WAIT,
                     watched::wait_for(&mut current, Option::is_some),
                 )
                 .await

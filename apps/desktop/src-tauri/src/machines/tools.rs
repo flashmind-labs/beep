@@ -41,9 +41,9 @@ pub async fn tool_updates(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<ToolUpdate
         .into_iter()
         .filter(|machine| machine.online)
         .collect();
-    let fleet = fleet.inner().as_ref();
+    let fleet_arc = fleet.inner().clone();
     let (tools, coders) = tokio::join!(
-        node_updates(fleet, machines.clone()),
+        node_updates(fleet_arc, machines.clone()),
         agent_updates(&machines)
     );
 
@@ -53,27 +53,40 @@ pub async fn tool_updates(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<ToolUpdate
 }
 
 /// The `gh`, `teacli` and `flsh` updates each node found.
-async fn node_updates(fleet: &Fleet, machines: Vec<Machine>) -> Vec<ToolUpdate> {
+async fn node_updates(fleet: Arc<Fleet>, machines: Vec<Machine>) -> Vec<ToolUpdate> {
     stream::iter(machines)
-        .map(|machine| async move {
-            let Some(id) = fleet.member(&machine.id) else {
-                return Vec::new();
-            };
-            let Ok(client) = fleet.client(id).await else {
-                return Vec::new();
-            };
-            let Ok(updates) = beep_mesh::machine::tool_updates(&client).await else {
-                return Vec::new();
-            };
-            updates
-                .into_iter()
-                .map(|update| ToolUpdate {
-                    machine_id: machine.id.clone(),
-                    tool: update.tool.to_string(),
-                    version: update.version,
-                    latest: update.latest,
-                })
-                .collect::<Vec<_>>()
+        .map(|machine| {
+            let fleet = fleet.clone();
+            async move {
+                let Some(id) = fleet.member(&machine.id) else {
+                    return Vec::new();
+                };
+                let machine_id = machine.id;
+                let fleet_fetch = fleet.clone();
+                fleet
+                    .projections()
+                    .tool_updates
+                    .read_or_default(
+                        id,
+                        Vec::new,
+                        PartialEq::eq,
+                        || {},
+                        move || async move {
+                            let client = fleet_fetch.client(id).await?;
+                            let updates = beep_mesh::machine::tool_updates(&client).await?;
+                            Ok(updates
+                                .into_iter()
+                                .map(|update| ToolUpdate {
+                                    machine_id: machine_id.clone(),
+                                    tool: update.tool.to_string(),
+                                    version: update.version,
+                                    latest: update.latest,
+                                })
+                                .collect())
+                        },
+                    )
+                    .await
+            }
         })
         .buffer_unordered(4)
         .collect::<Vec<_>>()
@@ -199,6 +212,7 @@ pub async fn update_machine_tool(
         .map(|update| update.latest)
         .ok_or_else(|| DesktopError::BadRequest(format!("No update found for {named}.")))?;
     direct::update_tool(&fleet, machine, named, &latest).await?;
+    fleet.projections().tool_updates.forget(&machine);
     Ok(latest)
 }
 

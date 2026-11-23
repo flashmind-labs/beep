@@ -133,7 +133,7 @@ pub async fn session_move(
 ) -> Result<MoveView> {
     let from = machine(&machine_id)?;
     // The worktrees it created go along in the record, so the target keeps them.
-    let worktrees = direct::created_worktrees(&machines, from, &agent, &session).await;
+    let worktrees = direct::created_worktrees(&machines, from, &agent, &session).await?;
     let ask = MoveAsk {
         agent: &agent,
         id: &session,

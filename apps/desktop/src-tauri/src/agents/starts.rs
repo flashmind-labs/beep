@@ -768,7 +768,7 @@ pub async fn agent_begin(
         assistant: assistant.unwrap_or(false),
         account,
     };
-    let planned = direct::plan(&fleet, request, checked).await?;
+    let planned = direct::plan_fast(&fleet, request, checked).await?;
     let Request::Start {
         cwd,
         prompt,

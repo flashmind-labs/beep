@@ -121,14 +121,22 @@ export async function switchSessionModel(s: AgentRow, next: SessionPick, what: "
     return true;
   }
 
+  const hadWas = sessionPicks.has(s.id);
   const was = sessionPicks.get(s.id) ?? { model: "", effort: null, fast: null };
   const model = what === "model" || what === "both" ? next.model || null : null, effort = what === "effort" || what === "both" ? next.effort : null;
 
   const fast = what === "fast" ? next.fast : null;
   let switched = false;
   if (model || effort || fast !== null) {
+    sessionPicks.set(s.id, next);
+    drawModelPicker();
+    drawModelPill();
     switched = await steerAgent({ configure: { model, effort, fast } });
-    if (switched) sessionPicks.set(s.id, next);
+
+    if (!switched) {
+      if (hadWas) sessionPicks.set(s.id, was);
+      else sessionPicks.delete(s.id);
+    }
   } else if (what === "effort" ? was.effort : was.model) {
     AG.note = `A running session cannot go back to Default; pick ${what === "effort" ? "a level" : "a model"} by name.`;
     drawAgentBody();

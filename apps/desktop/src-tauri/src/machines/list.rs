@@ -75,6 +75,8 @@ struct HeldState<T> {
 pub struct Held<T> {
     state: Mutex<HeldState<T>>,
     refreshing: AtomicBool,
+    /// Set when another refresh is requested while one is still in flight on a slow machine.
+    again: AtomicBool,
 }
 
 impl<T> Default for Held<T> {
@@ -85,6 +87,7 @@ impl<T> Default for Held<T> {
                 read_at: None,
             }),
             refreshing: AtomicBool::new(false),
+            again: AtomicBool::new(false),
         }
     }
 }
@@ -109,9 +112,20 @@ impl<T: Clone + Send + 'static> Held<T> {
         change(&mut lock(&self.state).list);
     }
 
-    /// Allows a refresh, unless one runs: one at a time.
+    /// Allows a refresh, unless one runs: one at a time, with a follow-up pass queued if asked
+    /// again while a slow machine is still answering.
     fn begin(self: &Arc<Self>) -> Option<Refresh<T>> {
-        (!self.refreshing.swap(true, Ordering::Relaxed)).then(|| Refresh(self.clone()))
+        if self.refreshing.swap(true, Ordering::AcqRel) {
+            self.again.store(true, Ordering::Release);
+            None
+        } else {
+            self.again.store(false, Ordering::Release);
+            Some(Refresh(self.clone()))
+        }
+    }
+
+    fn take_again(&self) -> bool {
+        self.again.swap(false, Ordering::AcqRel)
     }
 
     /// Keeps `listed`; a list that could not be read keeps the last one.
@@ -140,12 +154,11 @@ impl<T: Clone + Send + 'static> Held<T> {
 
     /// Reads the list again with `ask` in the background, one at a time;
     /// the windows redraw when `same` tells the new list from the last.
-    fn refresh_with(
-        self: &Arc<Self>,
-        app: &AppHandle,
-        ask: impl Future<Output = Result<Vec<T>>> + Send + 'static,
-        same: fn(&T, &T) -> bool,
-    ) {
+    fn refresh_with<F, Fut>(self: &Arc<Self>, app: &AppHandle, mut ask: F, same: fn(&T, &T) -> bool)
+    where
+        F: FnMut() -> Fut + Send + 'static,
+        Fut: Future<Output = Result<Vec<T>>> + Send + 'static,
+    {
         let Some(refresh) = self.begin() else {
             return;
         };
@@ -153,37 +166,52 @@ impl<T: Clone + Send + 'static> Held<T> {
         // Ends with `ask`, which the caller bounds; nothing else owns it.
         tauri::async_runtime::spawn(async move {
             let _refresh = refresh;
-            let listed = ask.await;
 
-            if held.finish(listed, same)
-                && let Err(e) = app.emit(HOME_CHANGED, ())
-            {
-                log::warn!("telling the windows a list changed: {e}");
+            loop {
+                let listed = ask().await;
+
+                if held.finish(listed, same)
+                    && let Err(e) = app.emit(HOME_CHANGED, ())
+                {
+                    log::warn!("telling the windows a list changed: {e}");
+                }
+
+                if !held.take_again() {
+                    break;
+                }
             }
         });
     }
 
     /// What `ask` listed last, at once, and `ask` run again in the
     /// background for the next call.
-    pub(crate) fn refreshed(
+    pub(crate) fn refreshed<F, Fut>(
         self: &Arc<Self>,
         app: &AppHandle,
-        ask: impl Future<Output = Result<Vec<T>>> + Send + 'static,
+        ask: F,
         same: fn(&T, &T) -> bool,
-    ) -> Vec<T> {
+    ) -> Vec<T>
+    where
+        F: FnMut() -> Fut + Send + 'static,
+        Fut: Future<Output = Result<Vec<T>>> + Send + 'static,
+    {
         self.refresh_with(app, ask, same);
         self.last()
     }
 
     /// As `refreshed`, but `ask` runs only once the last read is `fresh`
     /// old, so the callers in between share it.
-    pub(crate) fn refreshed_after(
+    pub(crate) fn refreshed_after<F, Fut>(
         self: &Arc<Self>,
         app: &AppHandle,
-        ask: impl Future<Output = Result<Vec<T>>> + Send + 'static,
+        ask: F,
         same: fn(&T, &T) -> bool,
         fresh: Duration,
-    ) -> Vec<T> {
+    ) -> Vec<T>
+    where
+        F: FnMut() -> Fut + Send + 'static,
+        Fut: Future<Output = Result<Vec<T>>> + Send + 'static,
+    {
         if lock(&self.state)
             .read_at
             .is_none_or(|at| at.elapsed() >= fresh)

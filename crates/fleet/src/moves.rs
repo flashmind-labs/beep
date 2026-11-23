@@ -18,7 +18,15 @@ use beep_proto::{
     node::mesh_state::{ConversationMove, SessionMove, StateValue, SyncSpec},
 };
 use iroh::EndpointId;
-use std::path::{Component, Path};
+use std::{
+    path::{Component, Path},
+    sync::PoisonError,
+    time::Duration,
+};
+use tokio::time::timeout;
+
+/// How long a move capability probe or progress poll waits on one target machine.
+const MOVE_POLL_LIMIT: Duration = Duration::from_millis(1500);
 
 /// A session to move, as the desktop knows it from the source's list.
 pub struct MoveAsk<'a> {
@@ -221,6 +229,11 @@ impl Desk {
     async fn forget_old_moves(&self, now: u64) -> Result<()> {
         for (key, record) in scan::<SessionMove>(&self.mesh, "session-move/") {
             if now.saturating_sub(record.at) > KEEP_MOVES_MS {
+                self.hosts
+                    .move_states()
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .remove(&record.id);
                 self.mesh.set(key, None).await?;
             }
         }
@@ -231,17 +244,24 @@ impl Desk {
     /// Whether the node of `machine` takes part in moves: a node from before
     /// them does not, and a session must not be sent to it.
     pub async fn takes_moves(&self, machine: EndpointId) -> Result<bool> {
-        let client = self.peers.client(machine).await?;
-        Ok(!matches!(
-            move_progress(&client, &SessionId::from(PROBE)).await?,
-            MoveState::NeedsUpdate
-        ))
+        let probed = timeout(MOVE_POLL_LIMIT, async {
+            let client = self.peers.client(machine).await?;
+            Ok::<_, FleetError>(move_progress(&client, &SessionId::from(PROBE)).await?)
+        })
+        .await
+        .map_err(|_| FleetError::Refused("the machine did not answer in time".into()))??;
+        Ok(!matches!(probed, MoveState::NeedsUpdate))
     }
 
     /// Takes back the move of session `id`: the machines stop it unless
     /// the target already resumed the session.
     pub async fn cancel_move(&self, id: &SessionId) -> Result<()> {
         let _one = WRITES.lock().await;
+        self.hosts
+            .move_states()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(id);
         self.mesh.set(Key::SessionMove(id.clone()), None).await?;
         Ok(())
     }
@@ -258,8 +278,52 @@ impl Desk {
     pub async fn move_state(&self, id: &SessionId) -> Result<MoveState> {
         let record: SessionMove =
             read(&self.mesh, &Key::SessionMove(id.clone())).ok_or(FleetError::NotFound)?;
-        let client = self.peers.client(record.to).await?;
-        Ok(move_progress(&client, id).await?)
+        let asked = timeout(MOVE_POLL_LIMIT, async {
+            let client = self.peers.client(record.to).await?;
+            Ok::<_, FleetError>(move_progress(&client, id).await?)
+        })
+        .await;
+
+        match asked {
+            Ok(Ok(state)) => {
+                self.hosts
+                    .move_states()
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(id.clone(), state.clone());
+                Ok(state)
+            }
+            Ok(Err(err)) => {
+                if let Some(cached) = self
+                    .hosts
+                    .move_states()
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .get(id)
+                    .cloned()
+                {
+                    return Ok(cached);
+                }
+
+                Err(err)
+            }
+            Err(_) => {
+                if let Some(cached) = self
+                    .hosts
+                    .move_states()
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .get(id)
+                    .cloned()
+                {
+                    return Ok(cached);
+                }
+
+                Err(FleetError::Refused(
+                    "the target machine did not answer in time".into(),
+                ))
+            }
+        }
     }
 }
 

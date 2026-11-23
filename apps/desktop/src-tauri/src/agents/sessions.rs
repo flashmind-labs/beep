@@ -15,6 +15,7 @@ use crate::{
     fleet::{
         Fleet, Machines, SessionParent, agents as direct,
         asked::{ORDER_LIMIT, READ_LIMIT, SMALL_LIMIT},
+        node_actor::{FAST_JOB_WAIT, JobKind},
     },
     machines::list::MachineLists,
     projects::known,
@@ -426,6 +427,7 @@ pub(crate) async fn machine_changed(app: &AppHandle, machine: EndpointId) {
         break;
     }
 
+    fleet.projections().forget_project_sessions_on(machine);
     app.state::<Arc<AgentSessions>>().stale();
     app.state::<crate::palette::lists::PaletteCache>()
         .sessions_changed();
@@ -445,7 +447,10 @@ pub(crate) async fn machine_sessions(
         let f = fleet.clone();
         held.local.refreshed_after(
             app,
-            async move { Ok(direct::local_sessions(&f).await) },
+            move || {
+                let f = f.clone();
+                async move { Ok(direct::local_sessions(&f).await) }
+            },
             same_session,
             SESSIONS_FRESH,
         )
@@ -457,30 +462,33 @@ pub(crate) async fn machine_sessions(
     let (a, f, kept) = (app.clone(), fleet.clone(), held.sessions.clone());
     sessions.extend(held.sessions.refreshed_after(
         app,
-        async move {
-            let peers = direct::peer_sessions(&f).await;
-            let mut sessions = peers.sessions;
-            // A machine that did not say keeps its rows: one being connected
-            // to shows them as connecting, one that did not answer is asked
-            // again.
-            let unsaid: Vec<String> = peers
-                .unanswered
-                .iter()
-                .chain(&peers.connecting)
-                .map(ToString::to_string)
-                .collect();
-            sessions.extend(
-                kept.last()
-                    .into_iter()
-                    .filter(|session| unsaid.contains(&session.machine_id)),
-            );
+        move || {
+            let (a, f, kept) = (a.clone(), f.clone(), kept.clone());
+            async move {
+                let peers = direct::peer_sessions(&f).await;
+                let mut sessions = peers.sessions;
+                // A machine that did not say keeps its rows: one being connected
+                // to shows them as connecting, one that did not answer is asked
+                // again.
+                let unsaid: Vec<String> = peers
+                    .unanswered
+                    .iter()
+                    .chain(&peers.connecting)
+                    .map(ToString::to_string)
+                    .collect();
+                sessions.extend(
+                    kept.last()
+                        .into_iter()
+                        .filter(|session| unsaid.contains(&session.machine_id)),
+                );
 
-            for machine in peers.unanswered {
-                let a = a.clone();
-                tauri::async_runtime::spawn(async move { machine_changed(&a, machine).await });
+                for machine in peers.unanswered {
+                    let a = a.clone();
+                    tauri::async_runtime::spawn(async move { machine_changed(&a, machine).await });
+                }
+
+                Ok(sessions)
             }
-
-            Ok(sessions)
         },
         same_session,
         SESSIONS_FRESH,
@@ -488,11 +496,27 @@ pub(crate) async fn machine_sessions(
     let f = fleet.clone();
     sessions.extend(held.scans.refreshed_after(
         app,
-        async move { Ok(direct::scanned_sessions(&f).await) },
+        move || {
+            let f = f.clone();
+            async move { Ok(direct::scanned_sessions(&f).await) }
+        },
         same_session,
         SCAN_FRESH,
     ));
     fleet.apply_presence(&mut sessions);
+    sessions.retain(|session| {
+        !fleet
+            .node_ops()
+            .is_deleting_session(&session.machine_id, &session.id)
+    });
+    for session in &mut sessions {
+        if let Some(folder) = fleet
+            .node_ops()
+            .relocated_folder(&session.machine_id, &session.id)
+        {
+            session.cwd = folder;
+        }
+    }
 
     if let Some(mesh) = fleet.mesh() {
         for session in &mut sessions {
@@ -569,8 +593,20 @@ pub async fn agent_models(
         agent: agent.clone(),
     };
     let machine = fleet.machine(&machine_id)?;
+    let fleet_arc = fleet.inner().clone();
+    let key = (machine, agent.clone());
+    let fetched = fleet
+        .projections()
+        .models
+        .read(
+            key,
+            PartialEq::eq,
+            || {},
+            move || async move { direct::models(&fleet_arc, machine, &request).await },
+        )
+        .await;
 
-    match direct::models(&fleet, machine, &request).await {
+    match fetched {
         Ok(list) => Ok(Some(list)),
         Err(e) => {
             log::warn!("model lookup failed: machine={machine_id} harness={agent}: {e:#}");
@@ -633,6 +669,7 @@ pub fn agent_deletable(fleet: Machines<'_>, machine_id: String) -> bool {
 pub async fn agent_delete(
     app: AppHandle,
     fleet: Machines<'_>,
+    held: State<'_, MachineLists>,
     machine_id: String,
     agent: String,
     session: SessionId,
@@ -640,7 +677,32 @@ pub async fn agent_delete(
     let machine = fleet.member(&machine_id).ok_or_else(|| {
         DesktopError::BadRequest("Only a machine in the mesh can delete sessions.".into())
     })?;
-    direct::delete_session(&fleet, machine, &agent, &session).await?;
+    let fleet_arc = fleet.inner().clone();
+    fleet
+        .node_ops()
+        .submit(
+            Some(app.clone()),
+            fleet_arc,
+            machine,
+            JobKind::DeleteSession {
+                agent,
+                session: session.clone(),
+            },
+            FAST_JOB_WAIT,
+        )
+        .await?;
+
+    held.local.replace(Vec::new(), |s| {
+        s.machine_id == machine_id && s.id == session
+    });
+    held.sessions.replace(Vec::new(), |s| {
+        s.machine_id == machine_id && s.id == session
+    });
+    held.scans.replace(Vec::new(), |s| {
+        s.machine_id == machine_id && s.id == session
+    });
+    fleet.projections().forget_session(machine, &session);
+
     // The windows read their session lists again.
     if let Err(e) = app.emit("sessions-changed", session) {
         log::warn!("could not tell the windows a session was deleted: {e}");
@@ -920,15 +982,22 @@ pub async fn agent_relocate(
     let machine = fleet
         .member(&machine_id)
         .ok_or_else(|| DesktopError::BadRequest("The machine must be in the mesh.".into()))?;
-    let client = fleet.client(machine).await?;
-    let done =
-        beep_mesh::machine::sessions::relocate_session(&client, &agent, &session, &folder).await?;
-    match done {
-        beep_mesh::machine::sessions::NodeWork::Done(()) => {}
-        beep_mesh::machine::sessions::NodeWork::Refused(why) => {
-            return Err(DesktopError::BadRequest(why));
-        }
-    }
+    let fleet_arc = fleet.inner().clone();
+    fleet
+        .node_ops()
+        .submit(
+            Some(app.clone()),
+            fleet_arc,
+            machine,
+            JobKind::RelocateSession {
+                agent,
+                session: session.clone(),
+                folder,
+            },
+            FAST_JOB_WAIT,
+        )
+        .await?;
+    fleet.projections().forget_project_sessions_on(machine);
     app.emit("sessions-changed", session)
         .map_err(anyhow::Error::from)?;
     Ok(())

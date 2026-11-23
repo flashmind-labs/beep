@@ -54,8 +54,11 @@ fn texts(outbox: &Outbox, session: &str) -> Vec<String> {
 #[derive(Default)]
 struct Fake {
     sends: VecDeque<Result<Vec<String>>>,
+    orders: VecDeque<Result<()>>,
     checks: VecDeque<Result<bool>>,
     sent: Vec<String>,
+    ordered: Vec<OrderKind>,
+    events: Vec<String>,
     checked: Vec<String>,
     waits: usize,
     changes: Vec<Changed>,
@@ -67,6 +70,18 @@ impl Link for Fake {
 
         if answer.is_ok() {
             self.sent.push(message.text.clone());
+            self.events.push(format!("msg:{}", message.text));
+        }
+
+        answer
+    }
+
+    async fn order(&mut self, order: &Order) -> Result<()> {
+        let answer = self.orders.pop_front().unwrap_or(Ok(()));
+
+        if answer.is_ok() {
+            self.ordered.push(order.kind.clone());
+            self.events.push(format!("ord:{:?}", order.kind));
         }
 
         answer
@@ -376,4 +391,197 @@ fn an_image_only_message_is_found_by_its_image_lines() {
     assert!(holds(&log(&queued, 0, &[]), &message));
     assert!(holds(&log(&[], 5, &[user("[image: image-abc]")]), &message));
     assert!(!holds(&log(&[], 5, &[user("hello")]), &message));
+}
+
+#[tokio::test]
+async fn coalesced_orders_precede_later_messages_across_a_degraded_link() {
+    let (_dir, _, outbox) = outbox();
+    let s1 = key("s1");
+    let now = Instant::now();
+    let (r1, a1) = oneshot::channel();
+    let (r2, a2) = oneshot::channel();
+
+    outbox.with(|held| {
+        held.push_order(
+            &s1,
+            OrderKind::Configure {
+                model: Some(ModelId::from("opus")),
+                effort: None,
+                fast: None,
+            },
+            now,
+            Some(r1),
+        );
+        held.push_order(
+            &s1,
+            OrderKind::Configure {
+                model: None,
+                effort: Some(Effort::High),
+                fast: Some(true),
+            },
+            now,
+            Some(r2),
+        );
+        held.push(&s1, draft("run tests"), None);
+    });
+
+    // Two Configure orders before the prompt coalesce, superseding the first waiter immediately.
+    assert_eq!(a1.await, Ok(OrderAnswer::Queued));
+
+    let mut link = Fake {
+        orders: VecDeque::from([Err(DesktopError::Lost("build-box".into()))]),
+        ..Fake::default()
+    };
+    flush(&outbox, &s1, &mut link).await;
+
+    assert_eq!(a2.await, Ok(OrderAnswer::Queued));
+    assert_eq!(link.waits, 1);
+    assert_eq!(
+        link.ordered,
+        [OrderKind::Configure {
+            model: Some(ModelId::from("opus")),
+            effort: Some(Effort::High),
+            fast: Some(true),
+        }]
+    );
+    assert_eq!(link.sent, ["run tests"]);
+    assert_eq!(link.events.len(), 2);
+    assert!(link.events[0].starts_with("ord:Configure"));
+    assert_eq!(link.events[1], "msg:run tests");
+}
+
+#[tokio::test]
+async fn close_preserves_drafts_when_refused_and_drains_once_accepted() {
+    let (_dir, _, outbox) = outbox();
+    let s1 = key("s1");
+    let now = Instant::now();
+
+    push(&outbox, "s1", "pending prompt");
+    outbox.with(|held| {
+        held.push_order(&s1, OrderKind::Cancel, now, None);
+        let (_, changed, _) = held.push_order(&s1, OrderKind::Close, now, None);
+        assert!(
+            changed.is_none(),
+            "drafts stay persisted until close succeeds"
+        );
+    });
+    assert_eq!(texts(&outbox, "s1"), ["pending prompt"]);
+
+    // `Close` runs ahead of the queued prompt, and if the node refuses `Close`, the prompt stays waiting.
+    let step = outbox.with(|held| held.begin_step(&s1, now));
+    let Some(Step::Order(close_order)) = step else {
+        panic!("expected Close order first, got {step:?}");
+    };
+    assert_eq!(close_order.kind, OrderKind::Close);
+    outbox.with(|held| {
+        held.order_refused(close_order.id, "cannot close".into());
+    });
+    assert_eq!(texts(&outbox, "s1"), ["pending prompt"]);
+
+    // Once Close succeeds, the queued prompt is drained without being sent.
+    outbox.with(|held| {
+        held.push_order(&s1, OrderKind::Close, now, None);
+    });
+    let mut ok_link = Fake {
+        orders: VecDeque::from([
+            Ok(()),
+            Err(DesktopError::Api(ApiError::Conflict {
+                message: "already answered".into(),
+            })),
+        ]),
+        ..Fake::default()
+    };
+    let (reply, answer) = oneshot::channel();
+    let s2 = key("s2");
+    outbox.with(|held| {
+        held.push_order(
+            &s2,
+            OrderKind::Answer {
+                question: 7,
+                reply: "allow".into(),
+            },
+            now,
+            Some(reply),
+        );
+    });
+
+    flush(&outbox, &s1, &mut ok_link).await;
+    flush(&outbox, &s2, &mut ok_link).await;
+
+    assert!(texts(&outbox, "s1").is_empty());
+    assert!(ok_link.sent.is_empty(), "drained prompt must not be sent");
+    assert_eq!(ok_link.ordered, [OrderKind::Close]);
+    assert_eq!(answer.await, Ok(OrderAnswer::Sent));
+}
+
+#[tokio::test]
+async fn configure_stays_ordered_around_queued_prompts_and_stops_do_not_replay() {
+    let (_dir, _, outbox) = outbox();
+    let s1 = key("s1");
+    let now = Instant::now();
+
+    outbox.with(|held| {
+        held.push_order(
+            &s1,
+            OrderKind::Configure {
+                model: Some("model-a".into()),
+                effort: None,
+                fast: None,
+            },
+            now,
+            None,
+        );
+    });
+    push(&outbox, "s1", "prompt for model a");
+    outbox.with(|held| {
+        held.push_order(
+            &s1,
+            OrderKind::Configure {
+                model: Some("model-b".into()),
+                effort: None,
+                fast: None,
+            },
+            now,
+            None,
+        );
+        held.push_order(
+            &s1,
+            OrderKind::Configure {
+                model: Some("model-c".into()),
+                effort: None,
+                fast: None,
+            },
+            now,
+            None,
+        );
+    });
+
+    let mut link = Fake {
+        orders: VecDeque::from([Ok(()), Ok(())]),
+        sends: VecDeque::from([Ok(Vec::new())]),
+        ..Fake::default()
+    };
+    flush(&outbox, &s1, &mut link).await;
+
+    assert_eq!(
+        link.events,
+        [
+            "ord:Configure { model: Some(ModelId(\"model-a\")), effort: None, fast: None }",
+            "msg:prompt for model a",
+            "ord:Configure { model: Some(ModelId(\"model-c\")), effort: None, fast: None }",
+        ]
+    );
+
+    // A dropped ack on Cancel is treated as completed rather than replayed on a later turn.
+    let s2 = key("s2");
+    outbox.with(|held| {
+        held.push_order(&s2, OrderKind::Cancel, now, None);
+    });
+    let mut unsure_link = Fake {
+        orders: VecDeque::from([Err(DesktopError::Unsure("node".into()))]),
+        ..Fake::default()
+    };
+    flush(&outbox, &s2, &mut unsure_link).await;
+    assert_eq!(unsure_link.waits, 0, "Cancel must not wait to retry");
+    assert!(outbox.with(|held| held.begin_step(&s2, now).is_none()));
 }

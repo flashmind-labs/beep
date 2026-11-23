@@ -58,6 +58,9 @@ subscribeEach([topic("projects"), topic("machines"), topic("sync")], () => where
 // Home changes with every session's state and with moves.
 subscribeEach(topic("home"), () => sessionChanges.changed());
 for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, () => sessionChanges.changed());
+listen("project-git-changed", () => {
+  if (currentLocation()?.view === "projects" && state.picked) void readGit(state.picked, false);
+});
 subscribeEach(topic("terminals"), () => termChanges.changed());
 subscribeEach(topic("projects"), () => foundChanges.changed());
 

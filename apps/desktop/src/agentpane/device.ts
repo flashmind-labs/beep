@@ -4,7 +4,7 @@ import type JMuxer from "jmuxer";
 // device's live screen while the tab and the window show. Frames go
 // to the painter device-view.tsx registers; the rest is `deviceModel`.
 import { createStore } from "zustand";
-import { indexedChannel, invoke } from "../ui/tauri.ts";
+import { indexedChannel, invoke, listen } from "../ui/tauri.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import { paneSession, showDevice } from "./media.ts";
@@ -68,6 +68,7 @@ async function readDeviceHosts() {
 }
 
 subscribeChanges(topic("machines"), { deliver: "latest", receive: readDeviceHosts }, { when: paneShown, wait: AMBIENT_MS });
+listen("devices-changed", () => void readDevices());
 if (typeof window !== "undefined") {
   window.addEventListener("agent-pane-shown", () => void readDeviceHosts());
   queueMicrotask(() => void readDeviceHosts());

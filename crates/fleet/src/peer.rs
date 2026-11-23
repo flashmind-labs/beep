@@ -37,6 +37,12 @@ pub trait Peers: Send + Sync {
     fn last_env(&self, _machine: EndpointId) -> Option<EnvReport> {
         None
     }
+
+    /// The protocols `machine` last reported offering on `status/1`, when a background
+    /// status follower keeps them.
+    fn last_offers(&self, _machine: EndpointId) -> Option<Vec<String>> {
+        None
+    }
 }
 
 /// A shell on one machine, over its `shell/1` protocol. Scripts are POSIX sh, and on Windows

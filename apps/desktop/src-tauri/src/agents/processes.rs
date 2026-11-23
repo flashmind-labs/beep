@@ -3,14 +3,19 @@
 
 use crate::{
     error::{DesktopError, Result},
-    fleet::{Machines, asked::SMALL_LIMIT},
+    fleet::{
+        Machines,
+        asked::SMALL_LIMIT,
+        node_actor::{FAST_JOB_WAIT, JobKind},
+    },
 };
 use beep_mesh::MeshError;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{RunningProcess, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest};
 use serde::Serialize;
 use std::time::Duration;
-use tokio::time::error::Elapsed;
+use tauri::AppHandle;
+use tokio::time::{error::Elapsed, timeout};
 
 #[derive(Serialize)]
 pub struct ProcessesView {
@@ -54,6 +59,7 @@ pub async fn agent_processes(
 
 #[tauri::command]
 pub async fn agent_stop_process(
+    app: AppHandle,
     fleet: Machines<'_>,
     machine_id: String,
     session: SessionId,
@@ -62,22 +68,18 @@ pub async fn agent_stop_process(
     let machine = fleet.member(&machine_id).ok_or_else(|| {
         DesktopError::BadRequest("The session's machine is not in the mesh.".into())
     })?;
-    let reply = fleet
-        .client(machine)
-        .await?
-        .call_within::<_, SessionsReply>(
-            Duration::from_secs(10),
-            SESSIONS_PROTOCOL,
-            &SessionsRequest::StopProcess { session, pid },
+    let fleet_arc = fleet.inner().clone();
+    fleet
+        .node_ops()
+        .submit(
+            Some(app),
+            fleet_arc,
+            machine,
+            JobKind::StopProcess { session, pid },
+            FAST_JOB_WAIT,
         )
-        .await?;
-    match reply {
-        SessionsReply::ProcessStopped {} => Ok(()),
-        SessionsReply::Error { message } => Err(DesktopError::BadRequest(message)),
-        _ => Err(DesktopError::BadRequest(
-            "The machine cannot stop running commands yet.".into(),
-        )),
-    }
+        .await
+        .map(|_| ())
 }
 
 /// Ends the process running `agent`'s session `session` outside Beep, which
@@ -92,11 +94,17 @@ pub async fn agent_close_external(
     let machine = fleet.member(&machine_id).ok_or_else(|| {
         DesktopError::BadRequest("The session's machine is not in the mesh.".into())
     })?;
-    let reply = fleet
-        .client(machine)
-        .await?
+    let client = timeout(Duration::from_secs(3), fleet.client(machine))
+        .await
+        .map_err(|_| {
+            DesktopError::TimedOut(format!(
+                "{} did not answer in time.",
+                fleet.name_of(machine)
+            ))
+        })??;
+    let reply = client
         .call_within::<_, SessionsReply>(
-            Duration::from_secs(20),
+            Duration::from_secs(5),
             SESSIONS_PROTOCOL,
             &SessionsRequest::CloseExternal { agent, session },
         )

@@ -7,6 +7,7 @@ use beep_proto::SessionId;
 use beep_proto::node::agent::{MoveProgress, SessionsReply, SessionsRequest, Worktree};
 
 /// What a node says of a session's move to it.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MoveState {
     Known(MoveProgress),
     /// The node knows of no such move.

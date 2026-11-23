@@ -4,7 +4,7 @@
 use crate::{
     agents::{
         kept_transcripts::SessionKey,
-        outbox,
+        outbox::{self, OrderKind},
         sessions::closed,
         starts::{self, StartId},
     },
@@ -23,7 +23,10 @@ use beep_proto::{
 use iroh::EndpointId;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tauri::{AppHandle, Manager, WebviewWindow};
+
+const DROP_STEERS_LIMIT: Duration = Duration::from_secs(3);
 
 /// What `agent_steer` does to a session, as the page sends it.
 #[derive(Clone, Debug, Deserialize)]
@@ -196,7 +199,7 @@ pub(crate) fn uploads(images: Vec<PastedImage>) -> Result<Vec<Upload>> {
 }
 
 /// The last node that reads no `StopAll`.
-const BEFORE_STOP_ALL: Version = Version::new(0, 5, 0);
+pub(crate) const BEFORE_STOP_ALL: Version = Version::new(0, 5, 0);
 /// The last node that reads no `SetDevice`.
 pub(crate) const BEFORE_SET_DEVICE: Version = Version::new(0, 6, 28);
 /// The last released node, which starts no home assistant. This computer's
@@ -248,6 +251,22 @@ pub async fn agent_steer(
         return outbox::send(&app, window.label(), key, steer, seen).await;
     }
 
+    if let Some(kind) = actor_order(&fleet, &machine_id, &steer)? {
+        let close = matches!(kind, OrderKind::Close);
+        let key = SessionKey {
+            machine_id: machine_id.clone(),
+            agent,
+            session: session.clone(),
+        };
+        outbox::send_order(&app, window.label(), key, kind).await?;
+
+        if close {
+            closed(&app, &machine_id, &session);
+        }
+
+        return Ok(Vec::new());
+    }
+
     Ok(sent(
         app,
         window.label(),
@@ -258,6 +277,46 @@ pub async fn agent_steer(
         steer,
     )
     .await?)
+}
+
+fn actor_order(fleet: &Machines<'_>, machine_id: &str, steer: &Steer) -> Result<Option<OrderKind>> {
+    if matches!(
+        steer,
+        Steer::DropSteers | Steer::Prompt { .. } | Steer::InTurn { .. }
+    ) {
+        return Ok(None);
+    }
+
+    let machine = fleet.machine(machine_id)?;
+    let version = fleet.status().version(machine);
+
+    Ok(Some(match steer {
+        Steer::Configure {
+            model,
+            effort,
+            fast,
+        } => OrderKind::Configure {
+            model: model.clone(),
+            effort: *effort,
+            fast: *fast,
+        },
+        Steer::Mode { mode } => OrderKind::Mode { mode: mode.clone() },
+        Steer::Device { device } => {
+            if !newer_than(version.as_deref(), &BEFORE_SET_DEVICE) {
+                return Err(DesktopError::BadRequest(
+                    "beep-node there is too old to keep a session's device".into(),
+                ));
+            }
+            OrderKind::Device {
+                device: device.clone().map(SessionDevice::try_from).transpose()?,
+            }
+        }
+        Steer::Cancel => OrderKind::Cancel,
+        Steer::StopAll => OrderKind::StopAll,
+        Steer::Close => OrderKind::Close,
+        Steer::StopTask { task } => OrderKind::StopTask { task: task.clone() },
+        Steer::Prompt { .. } | Steer::InTurn { .. } | Steer::DropSteers => unreachable!(),
+    }))
 }
 
 // The arguments are those of `agent_steer`.
@@ -294,17 +353,27 @@ pub(crate) async fn sent(
         steer => steer,
     };
     let close = matches!(steer, AgentSteer::Close {});
+    let limit = if matches!(steer, AgentSteer::DropSteers {}) {
+        DROP_STEERS_LIMIT
+    } else {
+        ORDER_LIMIT
+    };
     let operation = beep_proto::node::events::Operation::Agent {
         agent: agent.clone(),
         session: session.clone(),
         request: beep_mesh::machine::node_request(steer.clone())?,
     };
+    let events = app.state::<crate::fleet::events::Events>();
+    let called = if window.is_empty() {
+        events.call_machine(machine, operation, limit).await?
+    } else {
+        match events.call(window, machine, operation.clone()).await? {
+            Some(reply) => Some(reply),
+            None => events.call_machine(machine, operation, limit).await?,
+        }
+    };
 
-    if let Some(reply) = app
-        .state::<crate::fleet::events::Events>()
-        .call(window, machine, operation)
-        .await?
-    {
+    if let Some(reply) = called {
         let beep_proto::node::events::CallReply::Agent { .. } = reply else {
             return Err(DesktopError::BadRequest(
                 "unexpected session acknowledgement".into(),
@@ -326,13 +395,7 @@ pub(crate) async fn sent(
     };
     let sent = direct::steer(&fleet, machine, order);
     let opened = fleet
-        .asked(
-            machine,
-            &session,
-            "sending to the session",
-            ORDER_LIMIT,
-            sent,
-        )
+        .asked(machine, &session, "sending to the session", limit, sent)
         .await?;
 
     if close {

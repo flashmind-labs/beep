@@ -315,7 +315,7 @@ async fn ask_online(fleet: &Fleet, request: Request) -> Vec<(String, Reply)> {
                 fleet
                     .client(machine)
                     .await?
-                    .call::<_, Reply>(PROTOCOL, request)
+                    .call_within::<_, Reply>(Duration::from_secs(5), PROTOCOL, request)
                     .await
                     .map_err(DesktopError::from)
             }

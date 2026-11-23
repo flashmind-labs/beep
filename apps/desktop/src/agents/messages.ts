@@ -454,7 +454,16 @@ export async function resumeEndedSession(session: OpenAgent, prompt: string | nu
   if (configure && pick) {
     const target = where(openOf(started.session));
     await invoke("agent_steer", { ...target, steer: { configure } }, AGENT_SEND_WAIT_MS);
-    if (prompt !== null) await invoke("agent_steer", { ...target, steer: { prompt: { text: prompt } } }, AGENT_SEND_WAIT_MS);
+
+    if (prompt !== null) {
+      try {
+        await invoke("agent_steer", { ...target, steer: { prompt: { text: prompt } } }, AGENT_SEND_WAIT_MS);
+      } catch (e) {
+        const failed = sendError(e);
+        if (failed.kind !== "waiting" && failed.kind !== "timeout") throw e;
+      }
+    }
+
     sessionPicks.set(started.session.id, pick);
   }
   resumePicks.delete(session.session);

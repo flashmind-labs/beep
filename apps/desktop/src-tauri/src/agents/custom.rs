@@ -51,6 +51,18 @@ pub async fn custom_agents(
     machine_id: String,
     folder: String,
 ) -> Result<Vec<CustomAgentRow>> {
-    let agents = direct::custom_agents(&fleet, fleet.machine(&machine_id)?, &folder).await?;
+    let machine = fleet.machine(&machine_id)?;
+    let fleet_arc = fleet.inner().clone();
+    let folder_key = folder.clone();
+    let agents = fleet
+        .projections()
+        .custom_agents
+        .read(
+            (machine, folder_key),
+            PartialEq::eq,
+            || {},
+            move || async move { direct::custom_agents(&fleet_arc, machine, &folder).await },
+        )
+        .await?;
     Ok(agents.into_iter().map(CustomAgentRow::from).collect())
 }

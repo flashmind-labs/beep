@@ -367,22 +367,38 @@ pub(crate) async fn device(
 }
 
 /// The linked worktrees session `session` of `agent` created, as its node
-/// keeps them; none when the node cannot say.
+/// keeps them; empty when the source is offline or does not list the session,
+/// and an error when a connected source fails or times out answering so a move
+/// never silently drops existing worktrees.
 pub(crate) async fn created_worktrees(
     fleet: &Fleet,
     machine: EndpointId,
     agent: &str,
     session: &SessionId,
-) -> Vec<String> {
-    let read = async {
-        let client = fleet.client(machine).await?;
-        Ok::<_, DesktopError>(info(&client, agent, session).await?.worktrees)
+) -> Result<Vec<String>> {
+    let probe = async {
+        let client = match fleet.client(machine).await {
+            Ok(client) => client,
+            Err(DesktopError::Offline(_)) => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
+
+        match info(&client, agent, session).await {
+            Ok(info) => Ok(info.worktrees),
+            Err(DesktopError::Api(ApiError::NotFound {})) => Ok(Vec::new()),
+            Err(e) => Err(DesktopError::TimedOut(format!(
+                "Could not read the worktrees of session {session} from {}: {e}",
+                fleet.name_of(machine)
+            ))),
+        }
     };
 
-    read.await.unwrap_or_else(|e| {
-        log::warn!("could not read the worktrees of session {session}: {e}");
-        Vec::new()
-    })
+    timeout(Duration::from_secs(4), probe).await.map_err(|_| {
+        DesktopError::TimedOut(format!(
+            "Could not read the worktrees of session {session} from {}: did not answer in time",
+            fleet.name_of(machine)
+        ))
+    })?
 }
 
 pub(crate) async fn modes(
@@ -458,6 +474,25 @@ pub(crate) async fn plan(
     start: StartAgentSession,
     images: Vec<Upload>,
 ) -> Result<Planned> {
+    plan_within(fleet, start, images, Duration::from_secs(5)).await
+}
+
+/// Like [`plan`], bounding Auto's per-machine probes tightly so starting a session never blocks
+/// on a degraded node before returning its `start:<uuid>` handle.
+pub(crate) async fn plan_fast(
+    fleet: &Fleet,
+    start: StartAgentSession,
+    images: Vec<Upload>,
+) -> Result<Planned> {
+    plan_within(fleet, start, images, Duration::from_millis(500)).await
+}
+
+async fn plan_within(
+    fleet: &Fleet,
+    start: StartAgentSession,
+    images: Vec<Upload>,
+    limit: Duration,
+) -> Result<Planned> {
     let prompt = start.prompt.trim().to_owned();
 
     if prompt.is_empty() && images.is_empty() {
@@ -478,7 +513,7 @@ pub(crate) async fn plan(
             };
             (host, String::new())
         }
-        None => pick(fleet, &start, &prompt).await?,
+        None => pick(fleet, &start, &prompt, limit).await?,
     };
     let machine = fleet.member(&host.machine_id).ok_or_else(not_found)?;
     let agent = machine::pick_agent(&host, start.agent.as_deref())?;
@@ -621,8 +656,8 @@ async fn pick(
     fleet: &Fleet,
     start: &StartAgentSession,
     prompt: &str,
+    limit: Duration,
 ) -> Result<(AgentHost, String)> {
-    let mut asking = Vec::new();
     let candidates = if start.assistant {
         for_assistant(hosts(fleet), |host| runs_assistant(fleet, host))?
     } else {
@@ -636,15 +671,34 @@ async fn pick(
         return Ok((here, "It is this computer.".to_owned()));
     }
 
-    for host in candidates {
-        let machine = fleet.member(&host.machine_id).ok_or_else(not_found)?;
-        asking.push(AutoHost {
-            client: fleet.client(machine).await?,
-            host,
-        });
+    let mut asking = Vec::new();
+    let mut last_error = None;
+    let clients = futures::future::join_all(candidates.into_iter().map(|host| async move {
+        let Some(machine) = fleet.member(&host.machine_id) else {
+            return Err(not_found());
+        };
+        match timeout(limit, fleet.client(machine)).await {
+            Ok(Ok(client)) => Ok(AutoHost { client, host }),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(DesktopError::TimedOut(host.machine_name)),
+        }
+    }))
+    .await;
+
+    for candidate in clients {
+        match candidate {
+            Ok(auto) => asking.push(auto),
+            Err(e) => last_error = Some(e),
+        }
     }
 
-    let choice = machine::auto::pick(&asking, start, prompt).await?;
+    if asking.is_empty()
+        && let Some(e) = last_error
+    {
+        return Err(e);
+    }
+
+    let choice = machine::auto::pick_within(&asking, start, prompt, limit).await?;
     let host = asking
         .into_iter()
         .nth(choice.at)
@@ -732,26 +786,6 @@ pub(crate) async fn resume(
             ))
         })?;
     Ok(started(&fleet.host_of(machine), opened.info, String::new()))
-}
-
-/// Deletes the ended session `session` of `agent` from a machine; the node
-/// refuses one that runs, saying why.
-pub(crate) async fn delete_session(
-    fleet: &Fleet,
-    machine: EndpointId,
-    agent: &str,
-    session: &SessionId,
-) -> Result<()> {
-    let client = fleet.client(machine).await?;
-    let done = sessions::delete_session(&client, agent, session)
-        .await
-        .map_err(|e| {
-            DesktopError::BadRequest(format!(
-                "Could not delete the session on {}: {e:#}",
-                fleet.name_of(machine)
-            ))
-        })?;
-    work(fleet, machine, done)
 }
 
 /// Orders a running session, and gives back its stream, still attached.
@@ -1094,14 +1128,35 @@ pub(super) fn work<T>(fleet: &Fleet, machine: EndpointId, done: NodeWork<T>) -> 
 
 /// What a machine finds of each harness, with the shared settings; `refresh` looks versions up again.
 pub(crate) async fn harnesses(
-    fleet: &Fleet,
+    fleet: &std::sync::Arc<Fleet>,
     machine: EndpointId,
     refresh: bool,
 ) -> Result<AgentHarnesses> {
+    if !refresh {
+        let fleet_arc = fleet.clone();
+        let report = fleet
+            .projections()
+            .harnesses
+            .read(
+                machine,
+                PartialEq::eq,
+                || {},
+                move || async move {
+                    let client = fleet_arc.client(machine).await?;
+                    sessions::harnesses(&client, false)
+                        .await?
+                        .ok_or_else(|| too_old(&fleet_arc, machine))
+                },
+            )
+            .await?;
+        return Ok(harnesses_view(fleet, machine, report));
+    }
+
     let client = fleet.client(machine).await?;
-    let report = sessions::harnesses(&client, refresh)
+    let report = sessions::harnesses(&client, true)
         .await?
         .ok_or_else(|| too_old(fleet, machine))?;
+    fleet.projections().harnesses.put(machine, report.clone());
     Ok(harnesses_view(fleet, machine, report))
 }
 
@@ -1123,17 +1178,9 @@ pub(crate) async fn update_harness(
             ))
         })?
         .ok_or_else(|| too_old(fleet, machine))?;
+    fleet.projections().harnesses.put(machine, report.clone());
+    fleet.projections().forget_models_on(machine);
     Ok(harnesses_view(fleet, machine, report))
-}
-
-/// Makes a machine install the ACP adapters its agents lack now.
-pub(crate) async fn install_adapters(fleet: &Fleet, machine: EndpointId) -> Result<()> {
-    let client = fleet.client(machine).await?;
-    if sessions::install_adapters(&client).await? {
-        Ok(())
-    } else {
-        Err(too_old(fleet, machine))
-    }
 }
 
 fn too_old(fleet: &Fleet, machine: EndpointId) -> DesktopError {

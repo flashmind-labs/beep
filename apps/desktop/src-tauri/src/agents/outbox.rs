@@ -13,21 +13,32 @@ use crate::{
     agents::{
         kept_folder::{KeptFolder, KeptImage, Write, forget_images, image_writes},
         kept_transcripts::SessionKey,
-        steer::{PastedImage, Steer, SteerError, sent},
+        sessions::closed,
+        steer::{BEFORE_STOP_ALL, PastedImage, Steer, SteerError, newer_than, sent},
     },
     error::{DesktopError, Result},
-    fleet::{Fleet, agents as direct, asked::READ_LIMIT},
+    fleet::{
+        Fleet, agents as direct, alerts,
+        asked::{ORDER_LIMIT, READ_LIMIT},
+        events::Events,
+    },
+    machines::list::MachineLists,
 };
 use beep_mesh::RETRY;
 use beep_proto::SessionId;
-use beep_proto::{AgentEntry, AgentEntryKind, ApiError, GetAgentSession};
+use beep_proto::{
+    AgentEntry, AgentEntryKind, AgentNoticeKey, AgentStatus, AgentSteer, ApiError, GetAgentSession,
+    ModelId, SteerAgentSession,
+    node::agent::{Effort, Request as AgentRequest, SessionDevice},
+    node::events::{CallReply, Operation, Topic},
+};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Mutex, PoisonError},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::{
@@ -39,9 +50,12 @@ use tokio::{
 const CHANGED: &str = "outbox-changed";
 /// How many entries a check after a dropped send reads.
 const CHECK_LAST: u32 = 60;
-/// How long the window that sent a message waits for its first try, within
-/// the page's own 40 s; after that it waits in the outbox, shown there.
-const ANSWER_WAIT: Duration = Duration::from_secs(30);
+/// How long a send or session order waits for a healthy local/fast node before handing
+/// off to the session's background actor so a degraded link never stalls the UI.
+const ANSWER_WAIT: Duration = Duration::from_millis(250);
+/// How long transient interrupt orders (`Cancel`, `StopAll`, `StopTask`) stay queued if
+/// a machine remains unreachable.
+const ORDER_TTL: Duration = Duration::from_secs(60);
 
 /// How a message goes to the session: a prompt for its next turn, or a
 /// message for the running turn.
@@ -177,16 +191,83 @@ pub(crate) enum Answer {
     Refused(String),
 }
 
-/// The kept messages, and what is being done with them.
+/// A non-message session control action or question answer handled by the session actor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum OrderKind {
+    Configure {
+        model: Option<ModelId>,
+        effort: Option<Effort>,
+        fast: Option<bool>,
+    },
+    Mode {
+        mode: String,
+    },
+    Device {
+        device: Option<SessionDevice>,
+    },
+    Cancel,
+    StopAll,
+    Close,
+    StopTask {
+        task: String,
+    },
+    Answer {
+        question: u32,
+        reply: String,
+    },
+}
+
+impl OrderKind {
+    fn ttl(&self) -> Option<Duration> {
+        match self {
+            Self::Cancel | Self::StopAll | Self::StopTask { .. } => Some(ORDER_TTL),
+            Self::Configure { .. }
+            | Self::Mode { .. }
+            | Self::Device { .. }
+            | Self::Close
+            | Self::Answer { .. } => None,
+        }
+    }
+}
+
+/// One transient control order queued for a session in memory.
+#[derive(Clone, Debug)]
+pub(crate) struct Order {
+    pub(crate) id: u64,
+    pub(crate) key: SessionKey,
+    pub(crate) kind: OrderKind,
+    pub(crate) sending: bool,
+    pub(crate) deadline: Option<Instant>,
+}
+
+/// Outcome of submitting an [`Order`] to the session actor.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum OrderAnswer {
+    Sent,
+    Queued,
+    Refused(String),
+}
+
+/// Next unit of work for a session's actor, in causal `id` order.
+#[derive(Clone, Debug)]
+pub(crate) enum Step {
+    Order(Order),
+    Message(Message),
+}
+
+/// The kept messages, transient session orders, and what is being done with them.
 #[derive(Default)]
 pub(crate) struct Held {
     messages: Vec<Message>,
+    orders: Vec<Order>,
     next: u64,
     /// Sessions whose flusher runs.
     flushing: HashSet<SessionKey>,
     /// The windows waiting on a message's first try. A message with one is
     /// not shown in the outbox: the window shows it as sending.
     replies: HashMap<u64, oneshot::Sender<Answer>>,
+    /// Callers waiting briefly on an order's first try.
+    order_replies: HashMap<u64, oneshot::Sender<OrderAnswer>>,
     /// Folder changes not yet handed to the writer, and whether the
     /// messages' file changed.
     writes: Vec<Write>,
@@ -227,9 +308,7 @@ impl Held {
 
         self.writes.extend(image_writes(id, &images));
 
-        let stuck = self.messages.iter().any(|m| {
-            m.key() == *key && m.state == Stage::Waiting && !self.replies.contains_key(&m.id)
-        });
+        let stuck = self.is_stuck(key);
         self.messages.push(Message {
             id,
             machine_id: key.machine_id.clone(),
@@ -253,6 +332,314 @@ impl Held {
         }
 
         (id, self.flushing.insert(key.clone()))
+    }
+
+    fn is_stuck(&self, key: &SessionKey) -> bool {
+        self.messages.iter().any(|m| {
+            m.key() == *key && m.state == Stage::Waiting && !self.replies.contains_key(&m.id)
+        }) || self
+            .orders
+            .iter()
+            .any(|o| o.key == *key && !o.sending && !self.order_replies.contains_key(&o.id))
+    }
+
+    /// Enqueues or coalesces a control `Order` for `key`, ordered with any queued messages.
+    pub(crate) fn push_order(
+        &mut self,
+        key: &SessionKey,
+        kind: OrderKind,
+        now: Instant,
+        reply: Option<oneshot::Sender<OrderAnswer>>,
+    ) -> (u64, Option<Changed>, bool) {
+        let outbox_changed = None;
+        let after_message = self
+            .messages
+            .iter()
+            .filter(|m| m.key() == *key && m.state == Stage::Waiting)
+            .map(|m| m.id)
+            .max();
+
+        match &kind {
+            OrderKind::Configure {
+                model,
+                effort,
+                fast,
+            } => {
+                if let Some(existing) = self.orders.iter_mut().find(|o| {
+                    o.key == *key
+                        && !o.sending
+                        && after_message.is_none_or(|mid| o.id > mid)
+                        && matches!(o.kind, OrderKind::Configure { .. })
+                }) {
+                    if let OrderKind::Configure {
+                        model: prev_model,
+                        effort: prev_effort,
+                        fast: prev_fast,
+                    } = &mut existing.kind
+                    {
+                        if model.is_some() {
+                            *prev_model = model.clone();
+                        }
+                        if effort.is_some() {
+                            *prev_effort = *effort;
+                        }
+                        if fast.is_some() {
+                            *prev_fast = *fast;
+                        }
+                    }
+                    let id = existing.id;
+                    self.replace_order_reply(id, reply, false);
+                    return (id, None, self.flushing.insert(key.clone()));
+                }
+            }
+            OrderKind::Mode { mode } => {
+                if let Some(existing) = self.orders.iter_mut().find(|o| {
+                    o.key == *key
+                        && !o.sending
+                        && after_message.is_none_or(|mid| o.id > mid)
+                        && matches!(o.kind, OrderKind::Mode { .. })
+                }) {
+                    existing.kind = OrderKind::Mode { mode: mode.clone() };
+                    let id = existing.id;
+                    self.replace_order_reply(id, reply, false);
+                    return (id, None, self.flushing.insert(key.clone()));
+                }
+            }
+            OrderKind::Device { device } => {
+                if let Some(existing) = self.orders.iter_mut().find(|o| {
+                    o.key == *key
+                        && !o.sending
+                        && after_message.is_none_or(|mid| o.id > mid)
+                        && matches!(o.kind, OrderKind::Device { .. })
+                }) {
+                    existing.kind = OrderKind::Device {
+                        device: device.clone(),
+                    };
+                    let id = existing.id;
+                    self.replace_order_reply(id, reply, false);
+                    return (id, None, self.flushing.insert(key.clone()));
+                }
+            }
+            OrderKind::Answer {
+                question,
+                reply: text,
+            } => {
+                if let Some(existing) = self.orders.iter_mut().find(|o| {
+                    o.key == *key
+                        && !o.sending
+                        && matches!(o.kind, OrderKind::Answer { question: q, .. } if q == *question)
+                }) {
+                    existing.kind = OrderKind::Answer {
+                        question: *question,
+                        reply: text.clone(),
+                    };
+                    let id = existing.id;
+                    self.replace_order_reply(id, reply, false);
+                    return (id, None, self.flushing.insert(key.clone()));
+                }
+            }
+            OrderKind::StopAll => {
+                let drop_ids: Vec<u64> = self
+                    .orders
+                    .iter()
+                    .filter(|o| {
+                        o.key == *key
+                            && !o.sending
+                            && matches!(o.kind, OrderKind::Cancel | OrderKind::StopAll)
+                    })
+                    .map(|o| o.id)
+                    .collect();
+
+                for drop_id in drop_ids {
+                    self.remove_order(drop_id, OrderAnswer::Queued);
+                }
+            }
+            OrderKind::Close => {
+                let drop_ids: Vec<u64> = self
+                    .orders
+                    .iter()
+                    .filter(|o| o.key == *key && !o.sending)
+                    .map(|o| o.id)
+                    .collect();
+
+                for drop_id in drop_ids {
+                    self.remove_order(drop_id, OrderAnswer::Queued);
+                }
+            }
+            OrderKind::Cancel | OrderKind::StopTask { .. } => {}
+        }
+
+        let stuck = self.is_stuck(key);
+        let id = self.next;
+        self.next += 1;
+        let deadline = kind.ttl().map(|ttl| now + ttl);
+        self.orders.push(Order {
+            id,
+            key: key.clone(),
+            kind,
+            sending: false,
+            deadline,
+        });
+        self.replace_order_reply(id, reply, stuck);
+
+        (id, outbox_changed, self.flushing.insert(key.clone()))
+    }
+
+    fn replace_order_reply(
+        &mut self,
+        id: u64,
+        reply: Option<oneshot::Sender<OrderAnswer>>,
+        stuck: bool,
+    ) {
+        if let Some(prev) = self.order_replies.remove(&id) {
+            let _ = prev.send(OrderAnswer::Queued);
+        }
+
+        if let Some(reply) = reply {
+            if stuck {
+                let _ = reply.send(OrderAnswer::Queued);
+            } else {
+                self.order_replies.insert(id, reply);
+            }
+        }
+    }
+
+    fn remove_order(&mut self, id: u64, answer: OrderAnswer) {
+        if let Some(at) = self.orders.iter().position(|o| o.id == id) {
+            self.orders.remove(at);
+        }
+
+        if let Some(waiter) = self.order_replies.remove(&id) {
+            let _ = waiter.send(answer);
+        }
+    }
+
+    /// Next order or message for `key` in `id` order; `None` ends its flusher.
+    pub(crate) fn begin_step(&mut self, key: &SessionKey, now: Instant) -> Option<Step> {
+        let expired: Vec<u64> = self
+            .orders
+            .iter()
+            .filter(|o| o.key == *key && !o.sending && o.deadline.is_some_and(|d| now >= d))
+            .map(|o| o.id)
+            .collect();
+
+        for id in expired {
+            self.remove_order(id, OrderAnswer::Queued);
+        }
+
+        if let Some(close_id) = self
+            .orders
+            .iter()
+            .find(|o| o.key == *key && !o.sending && matches!(o.kind, OrderKind::Close))
+            .map(|o| o.id)
+        {
+            return self.begin_order(close_id).map(Step::Order);
+        }
+
+        let order_id = self
+            .orders
+            .iter()
+            .find(|o| o.key == *key && !o.sending)
+            .map(|o| o.id);
+        let msg_id = self
+            .messages
+            .iter()
+            .find(|m| m.key() == *key && m.state == Stage::Waiting)
+            .map(|m| m.id);
+
+        match (order_id, msg_id) {
+            (Some(oid), Some(mid)) if oid < mid => self.begin_order(oid).map(Step::Order),
+            (Some(oid), None) => self.begin_order(oid).map(Step::Order),
+            (_, Some(_)) => self.begin(key).map(Step::Message),
+            (None, None) => {
+                self.flushing.remove(key);
+                None
+            }
+        }
+    }
+
+    fn begin_order(&mut self, id: u64) -> Option<Order> {
+        let order = self.orders.iter_mut().find(|o| o.id == id && !o.sending)?;
+        order.sending = true;
+        Some(order.clone())
+    }
+
+    pub(crate) fn order_sent(&mut self, id: u64) -> Option<Changed> {
+        let close_key = self
+            .orders
+            .iter()
+            .find(|o| o.id == id && matches!(o.kind, OrderKind::Close))
+            .map(|o| o.key.clone());
+        self.remove_order(id, OrderAnswer::Sent);
+
+        if let Some(key) = close_key {
+            let (drained, changed) = self.drain(&key);
+            if !drained.is_empty() {
+                return Some(changed);
+            }
+        }
+
+        None
+    }
+
+    pub(crate) fn order_wait(&mut self, id: u64, now: Instant) -> Option<Changed> {
+        let key = self.orders.iter().find(|o| o.id == id)?.key.clone();
+
+        if let Some(order) = self.orders.iter_mut().find(|o| o.id == id) {
+            if order.deadline.is_some_and(|d| now >= d) {
+                self.remove_order(id, OrderAnswer::Queued);
+            } else {
+                order.sending = false;
+            }
+        }
+
+        let order_ids: Vec<u64> = self
+            .orders
+            .iter()
+            .filter(|o| o.key == key)
+            .map(|o| o.id)
+            .collect();
+
+        for oid in order_ids {
+            if let Some(waiter) = self.order_replies.remove(&oid) {
+                let _ = waiter.send(OrderAnswer::Queued);
+            }
+        }
+
+        let msg_ids: Vec<u64> = self
+            .messages
+            .iter()
+            .filter(|m| m.key() == key)
+            .map(|m| m.id)
+            .collect();
+        let mut handed_message = false;
+
+        for mid in msg_ids {
+            if let Some(waiter) = self.replies.remove(&mid) {
+                let _ = waiter.send(Answer::Waiting);
+                handed_message = true;
+            }
+        }
+
+        handed_message.then(|| self.changed(&key))
+    }
+
+    /// Removes a refused order; returns `true` if no foreground caller was still waiting.
+    pub(crate) fn order_refused(&mut self, id: u64, reason: String) -> bool {
+        if let Some(at) = self.orders.iter().position(|o| o.id == id) {
+            self.orders.remove(at);
+        }
+
+        if let Some(waiter) = self.order_replies.remove(&id) {
+            let _ = waiter.send(OrderAnswer::Refused(reason));
+            false
+        } else {
+            true
+        }
+    }
+
+    pub(crate) fn detach_order(&mut self, id: u64) {
+        self.order_replies.remove(&id);
     }
 
     /// The oldest message of `key` to send, marked as sending; `None` ends
@@ -506,12 +893,18 @@ fn read_messages(folder: &KeptFolder) -> Vec<Message> {
 pub(crate) trait Link {
     /// Sends `message`.
     async fn send(&mut self, message: &Message) -> Result<Vec<String>>;
+    /// Sends `order`.
+    async fn order(&mut self, _order: &Order) -> Result<()> {
+        Ok(())
+    }
     /// Whether the session, read again, shows the machine has `message`.
     async fn took(&mut self, message: &Message) -> Result<bool>;
     /// Returns when the machine may answer again.
     async fn reachable(&mut self);
     /// Tells the windows what the session's outbox holds now.
     fn changed(&mut self, changed: Changed);
+    /// Runs after an order finished or was refused in the background.
+    fn order_settled(&mut self, _order: &Order, _refused: Option<&str>) {}
 }
 
 /// What became of one try at the oldest waiting message.
@@ -521,28 +914,90 @@ enum Tried {
     Refused(String),
 }
 
-/// Sends `key`'s waiting messages oldest first, until none is left. One
-/// that could not reach the machine waits for it to be reachable, and
+enum TriedOrder {
+    Sent,
+    Lost,
+    Refused(String),
+}
+
+/// Sends `key`'s waiting orders and messages oldest first, until none is left.
+/// One that could not reach the machine waits for it to be reachable, and
 /// those after it wait behind it. One the machine refused keeps its reason
 /// and the next goes.
 pub(crate) async fn flush(outbox: &Outbox, key: &SessionKey, link: &mut impl Link) {
-    while let Some(message) = outbox.with(|held| held.begin(key)) {
-        let id = message.id;
-        let tried = try_once(link, &message).await;
-        let lost = matches!(tried, Tried::Lost { .. });
-        let change = outbox.with(|held| match tried {
-            Tried::Sent(keys) => held.sent(id, keys),
-            Tried::Lost { unsure } => held.wait(id, unsure),
-            Tried::Refused(reason) => held.refused(id, reason),
-        });
+    while let Some(step) = outbox.with(|held| held.begin_step(key, Instant::now())) {
+        match step {
+            Step::Message(message) => {
+                let id = message.id;
+                let tried = try_once(link, &message).await;
+                let lost = matches!(tried, Tried::Lost { .. });
+                let change = outbox.with(|held| match tried {
+                    Tried::Sent(keys) => held.sent(id, keys),
+                    Tried::Lost { unsure } => held.wait(id, unsure),
+                    Tried::Refused(reason) => held.refused(id, reason),
+                });
 
-        if let Some(change) = change {
-            link.changed(change);
-        }
+                if let Some(change) = change {
+                    link.changed(change);
+                }
 
-        if lost {
-            link.reachable().await;
+                if lost {
+                    link.reachable().await;
+                }
+            }
+            Step::Order(order) => {
+                let id = order.id;
+                let tried = try_order(link, &order).await;
+                let lost = matches!(tried, TriedOrder::Lost);
+                let mut refused_bg = None;
+                let change = outbox.with(|held| match tried {
+                    TriedOrder::Sent => held.order_sent(id),
+                    TriedOrder::Lost => held.order_wait(id, Instant::now()),
+                    TriedOrder::Refused(reason) => {
+                        if held.order_refused(id, reason.clone()) {
+                            refused_bg = Some(reason);
+                        }
+                        None
+                    }
+                });
+
+                if let Some(change) = change {
+                    link.changed(change);
+                }
+
+                if lost {
+                    link.reachable().await;
+                } else {
+                    link.order_settled(&order, refused_bg.as_deref());
+                }
+            }
         }
+    }
+}
+
+async fn try_order(link: &mut impl Link, order: &Order) -> TriedOrder {
+    let at_most_once = matches!(order.kind, OrderKind::Cancel | OrderKind::StopAll);
+
+    match link.order(order).await {
+        Ok(()) => TriedOrder::Sent,
+        Err(DesktopError::Api(ApiError::Conflict { .. } | ApiError::NotFound {}))
+            if matches!(order.kind, OrderKind::Answer { .. } | OrderKind::Close) =>
+        {
+            TriedOrder::Sent
+        }
+        // `Cancel` and `StopAll` carry no turn identity, so never replay them after a
+        // dropped acknowledgement or across a reconnect where a newer turn may have started.
+        Err(DesktopError::Unsure(_) | DesktopError::TimedOut(_)) if at_most_once => {
+            TriedOrder::Sent
+        }
+        Err(e) if at_most_once => TriedOrder::Refused(e.to_string()),
+        Err(e)
+            if e.is_transport()
+                || matches!(e, DesktopError::Unsure(_) | DesktopError::TimedOut(_)) =>
+        {
+            TriedOrder::Lost
+        }
+        Err(e) => TriedOrder::Refused(e.to_string()),
     }
 }
 
@@ -595,6 +1050,10 @@ impl Link for MeshLink {
         Ok(keys)
     }
 
+    async fn order(&mut self, order: &Order) -> Result<()> {
+        send_node_order(&self.app, self.machine, order).await
+    }
+
     async fn took(&mut self, message: &Message) -> Result<bool> {
         let fleet = self.app.state::<Arc<Fleet>>();
         let request = GetAgentSession {
@@ -631,6 +1090,187 @@ impl Link for MeshLink {
     fn changed(&mut self, changed: Changed) {
         emit(&self.app, changed);
     }
+
+    fn order_settled(&mut self, order: &Order, refused: Option<&str>) {
+        if let Some(reason) = refused {
+            log::warn!(
+                "background session order refused machine={} session={}: {reason}",
+                order.key.machine_id,
+                order.key.session
+            );
+            let _ = self
+                .app
+                .emit("sessions-changed", order.key.session.as_ref());
+            crate::fleet::event_views::sessions_changed(self.app.clone(), Topic::new("agents"));
+            return;
+        }
+
+        match &order.kind {
+            OrderKind::Close => closed(&self.app, &order.key.machine_id, &order.key.session),
+            OrderKind::Answer { question, .. } => {
+                let notice = AgentNoticeKey {
+                    machine_id: order.key.machine_id.clone(),
+                    agent: order.key.agent.clone(),
+                    session: order.key.session.clone(),
+                    question: Some(*question),
+                    machine_name: String::new(),
+                };
+                answered_locally(&self.app, &notice);
+            }
+            _ => {}
+        }
+    }
+}
+
+async fn send_node_order(app: &AppHandle, machine: EndpointId, order: &Order) -> Result<()> {
+    let fleet = app.state::<Arc<Fleet>>();
+
+    if let OrderKind::Answer { question, reply } = &order.kind {
+        let operation = Operation::Agent {
+            agent: order.key.agent.clone(),
+            session: order.key.session.clone(),
+            request: AgentRequest::Answer {
+                question: *question,
+                reply: reply.clone(),
+            },
+        };
+
+        if let Some(ack) = app
+            .state::<Events>()
+            .call_machine(machine, operation, ORDER_LIMIT)
+            .await?
+        {
+            let CallReply::Agent { .. } = ack else {
+                return Err(DesktopError::BadRequest(
+                    "unexpected session acknowledgement".into(),
+                ));
+            };
+            return Ok(());
+        }
+
+        let notice = AgentNoticeKey {
+            machine_id: order.key.machine_id.clone(),
+            agent: order.key.agent.clone(),
+            session: order.key.session.clone(),
+            question: Some(*question),
+            machine_name: String::new(),
+        };
+        return alerts::answer(&fleet, &notice, reply).await;
+    }
+
+    let version = fleet.status().version(machine);
+    let steer = match &order.kind {
+        OrderKind::Configure {
+            model,
+            effort,
+            fast: None,
+        } => AgentSteer::Configure {
+            model: model.clone(),
+            effort: *effort,
+        },
+        OrderKind::Configure {
+            model,
+            effort,
+            fast: Some(fast),
+        } => AgentSteer::ConfigureFast {
+            model: model.clone(),
+            effort: *effort,
+            fast: *fast,
+        },
+        OrderKind::Mode { mode } => AgentSteer::SetMode { mode: mode.clone() },
+        OrderKind::Device { device } => AgentSteer::SetDevice {
+            device: device.clone(),
+        },
+        OrderKind::Cancel => AgentSteer::Cancel {},
+        OrderKind::StopAll if newer_than(version.as_deref(), &BEFORE_STOP_ALL) => {
+            AgentSteer::StopAll {}
+        }
+        OrderKind::StopAll => AgentSteer::Cancel {},
+        OrderKind::Close => AgentSteer::Close {},
+        OrderKind::StopTask { task } => AgentSteer::StopTask { task: task.clone() },
+        OrderKind::Answer { .. } => unreachable!(),
+    };
+    let close = matches!(steer, AgentSteer::Close {});
+    let operation = Operation::Agent {
+        agent: order.key.agent.clone(),
+        session: order.key.session.clone(),
+        request: beep_mesh::machine::node_request(steer.clone())?,
+    };
+
+    if let Some(ack) = app
+        .state::<Events>()
+        .call_machine(machine, operation, ORDER_LIMIT)
+        .await?
+    {
+        let CallReply::Agent { .. } = ack else {
+            return Err(DesktopError::BadRequest(
+                "unexpected session acknowledgement".into(),
+            ));
+        };
+        return Ok(());
+    }
+
+    let direct_order = SteerAgentSession {
+        machine_id: order.key.machine_id.clone(),
+        agent: order.key.agent.clone(),
+        session: order.key.session.clone(),
+        steer,
+    };
+    let sent = direct::steer(&fleet, machine, direct_order);
+    let opened = fleet
+        .asked(
+            machine,
+            &order.key.session,
+            "sending to the session",
+            ORDER_LIMIT,
+            sent,
+        )
+        .await?;
+
+    if close {
+        let fleet = fleet.inner().clone();
+        let app = app.clone();
+        let machine_id = order.key.machine_id.clone();
+        let session = order.key.session.clone();
+        tauri::async_runtime::spawn(async move {
+            direct::until_ended(&fleet, machine, opened).await;
+            closed(&app, &machine_id, &session);
+        });
+    }
+
+    Ok(())
+}
+
+/// Clears a session's answered question locally at once so Home, notifications, and the tray
+/// do not stay stuck waiting on a slow node link.
+pub(crate) fn answered_locally(app: &AppHandle, key: &AgentNoticeKey) {
+    crate::notices::history::answered(app, key);
+
+    if let Some(lists) = app.try_state::<MachineLists>() {
+        let clear = |rows: &mut [beep_proto::MachineSession]| {
+            for row in rows {
+                if row.machine_id == key.machine_id
+                    && row.id == key.session
+                    && key
+                        .question
+                        .is_none_or(|qid| row.question.as_ref().is_some_and(|q| q.id == qid))
+                {
+                    row.question = None;
+                    if matches!(row.status, AgentStatus::Asking {}) {
+                        row.status = AgentStatus::Working {};
+                    }
+                }
+            }
+        };
+        lists.local.edit(clear);
+        lists.sessions.edit(clear);
+    }
+
+    if let Some(waiting) = app.try_state::<crate::tray::waiting::WaitingList>() {
+        waiting.poke();
+    }
+
+    crate::fleet::event_views::sessions_changed(app.clone(), Topic::new("agents"));
 }
 
 /// The part of a session read back after a dropped send.
@@ -802,6 +1442,76 @@ pub(crate) async fn send(
             message: "Waiting for the connection".into(),
         }),
     }
+}
+
+/// Submits a session control order to `key`'s actor: returns immediately once a fast node
+/// acknowledges or refuses, or hands off to the background actor after `ANSWER_WAIT` when a
+/// node link is degraded.
+pub(crate) async fn send_order(
+    app: &AppHandle,
+    window: &str,
+    key: SessionKey,
+    kind: OrderKind,
+) -> Result<OrderAnswer> {
+    let (reply, mut answer) = oneshot::channel();
+    let outbox = app.state::<Arc<Outbox>>();
+    let (id, changed, flusher) =
+        outbox.with(|held| held.push_order(&key, kind, Instant::now(), Some(reply)));
+
+    if let Some(changed) = changed {
+        emit(app, changed);
+    }
+
+    if flusher {
+        start(app, key, window.to_string());
+    }
+
+    let outcome = match timeout(ANSWER_WAIT, &mut answer).await {
+        Ok(Ok(outcome)) => outcome,
+        Ok(Err(_)) => OrderAnswer::Queued,
+        Err(_) => {
+            outbox.with(|held| held.detach_order(id));
+            answer.try_recv().unwrap_or(OrderAnswer::Queued)
+        }
+    };
+
+    match outcome {
+        OrderAnswer::Refused(message) => Err(DesktopError::BadRequest(message)),
+        other => Ok(other),
+    }
+}
+
+/// Answers a coding-agent question through the session's actor, clearing local prompt state
+/// at once when accepted or queued behind a degraded link.
+pub(crate) async fn answer(
+    app: &AppHandle,
+    fleet: &Arc<Fleet>,
+    window: &str,
+    key: &AgentNoticeKey,
+    reply: String,
+) -> Result<()> {
+    let Some(question) = key.question else {
+        return Ok(());
+    };
+
+    if !alerts::reaches(fleet, &key.machine_id) {
+        return Err(DesktopError::NotInMesh);
+    }
+
+    let session_key = SessionKey {
+        machine_id: key.machine_id.clone(),
+        agent: key.agent.clone(),
+        session: key.session.clone(),
+    };
+    send_order(
+        app,
+        window,
+        session_key,
+        OrderKind::Answer { question, reply },
+    )
+    .await?;
+    answered_locally(app, key);
+    Ok(())
 }
 
 /// The messages waiting on this device for a session.

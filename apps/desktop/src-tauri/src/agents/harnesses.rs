@@ -5,6 +5,7 @@ use crate::{
     error::Result,
     fleet::{
         Machines, agents as direct,
+        node_actor::{FAST_JOB_WAIT, JobKind},
         projects::{FleetState, desk},
     },
     settings::credentials::plain,
@@ -13,6 +14,7 @@ use beep_proto::{
     AgentHarnesses, AgentSlug, HarnessSettings, MachineHarnessSettings, ModelId,
     node::harness::{AutoCompact, HarnessDriver, ModelCompact},
 };
+use tauri::AppHandle;
 
 /// The harnesses on `machine_id`. `refresh` looks the newest versions up
 /// again.
@@ -32,6 +34,7 @@ pub async fn agent_harnesses(
 #[tauri::command]
 pub async fn harness_settings_save(
     fleet: FleetState<'_>,
+    machines: Machines<'_>,
     machine_id: String,
     agent: String,
     settings: HarnessSettings,
@@ -40,6 +43,9 @@ pub async fn harness_settings_save(
         .await?
         .save_harness_settings(&machine_id, &agent, settings)
         .await?;
+    if let Some(machine) = machines.member(&machine_id) {
+        machines.projections().forget_models_on(machine);
+    }
     Ok(())
 }
 
@@ -59,8 +65,24 @@ pub async fn agent_harness_update(
 /// Try again: `machine_id` installs the ACP adapters its agents lack now;
 /// how it goes comes with the machine's next report.
 #[tauri::command]
-pub async fn agent_adapters_install(fleet: Machines<'_>, machine_id: String) -> Result<()> {
-    direct::install_adapters(&fleet, fleet.machine(&machine_id)?).await
+pub async fn agent_adapters_install(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    machine_id: String,
+) -> Result<()> {
+    let machine = fleet.machine(&machine_id)?;
+    let fleet_arc = fleet.inner().clone();
+    fleet
+        .node_ops()
+        .submit(
+            Some(app),
+            fleet_arc,
+            machine,
+            JobKind::InstallAdapters,
+            FAST_JOB_WAIT,
+        )
+        .await
+        .map(|_| ())
 }
 
 /// The settings of `agent` on each of the user's machines.

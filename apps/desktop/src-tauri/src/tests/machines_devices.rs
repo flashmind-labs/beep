@@ -45,7 +45,9 @@ async fn frames_and_acknowledgements_run_while_input_is_blocked() {
     let view = Uuid::new_v4();
     let (input, up) = mpsc::channel(UP_QUEUE);
     let (drawn, draws) = watch::channel(());
-    attached.follow(view, "window", DeviceControls { input, drawn });
+    let controls = DeviceControls::new(input, drawn);
+    let reader = InputReader::new(up, controls.overflow_up.clone(), controls.wake.clone());
+    attached.follow(view, "window", controls);
     let input = attached.get(&view, "device").unwrap().input;
     let text = || Input::Text {
         text: "a".repeat(MAX_TEXT),
@@ -63,7 +65,7 @@ async fn frames_and_acknowledgements_run_while_input_is_blocked() {
     let following = follow_screen(
         tx,
         rx,
-        up,
+        reader,
         draws,
         |event| {
             shown.send(event).unwrap();
@@ -145,7 +147,7 @@ async fn video_preserves_every_chunk_and_does_not_block_input_while_waiting_for_
     let (input, up) = mpsc::channel(UP_QUEUE);
     let (drawn, draws) = watch::channel(());
     let (shown, mut events) = mpsc::unbounded_channel();
-    let following = follow_video(tx, rx, up, draws, |event| {
+    let following = follow_video(tx, rx, InputReader::from_channel(up), draws, |event| {
         shown.send(event).unwrap();
         Ok(())
     });
@@ -213,4 +215,135 @@ fn encoded_ipc_has_a_distinct_header_and_preserves_the_native_bytes() {
     assert_eq!(&bytes[..4], &VIDEO_TAG.to_le_bytes());
     assert_eq!(&bytes[4..8], &1u32.to_le_bytes());
     assert_eq!(&bytes[8..], &[0, 0, 1, 0x65]);
+}
+
+#[tokio::test]
+async fn consecutive_touch_moves_coalesce_without_dropping_touch_up() {
+    let (tx, rx) = mpsc::channel(16);
+    tx.send(Input::Touch {
+        phase: TouchPhase::Down,
+        x: 0.1,
+        y: 0.1,
+    })
+    .await
+    .unwrap();
+    tx.send(Input::Touch {
+        phase: TouchPhase::Move,
+        x: 0.2,
+        y: 0.2,
+    })
+    .await
+    .unwrap();
+    tx.send(Input::Touch {
+        phase: TouchPhase::Move,
+        x: 0.4,
+        y: 0.5,
+    })
+    .await
+    .unwrap();
+    tx.send(Input::Touch {
+        phase: TouchPhase::Move,
+        x: 0.8,
+        y: 0.9,
+    })
+    .await
+    .unwrap();
+    tx.send(Input::Touch {
+        phase: TouchPhase::Up,
+        x: 0.8,
+        y: 0.9,
+    })
+    .await
+    .unwrap();
+    drop(tx);
+
+    let mut reader = InputReader::from_channel(rx);
+    assert_eq!(
+        reader.next().await,
+        Some(Input::Touch {
+            phase: TouchPhase::Down,
+            x: 0.1,
+            y: 0.1,
+        })
+    );
+    assert_eq!(
+        reader.next().await,
+        Some(Input::Touch {
+            phase: TouchPhase::Move,
+            x: 0.8,
+            y: 0.9,
+        })
+    );
+    assert_eq!(
+        reader.next().await,
+        Some(Input::Touch {
+            phase: TouchPhase::Up,
+            x: 0.8,
+            y: 0.9,
+        })
+    );
+    assert_eq!(reader.next().await, None);
+}
+
+#[tokio::test]
+async fn overflow_touch_up_waits_behind_queued_touch_down_without_blocking() {
+    let (tx, rx) = mpsc::channel(2);
+    let (drawn, _draws) = watch::channel(());
+    let controls = DeviceControls::new(tx, drawn);
+    let mut reader = InputReader::new(rx, controls.overflow_up.clone(), controls.wake.clone());
+
+    send_device_input(
+        &controls,
+        Input::Touch {
+            phase: TouchPhase::Down,
+            x: 0.2,
+            y: 0.3,
+        },
+    )
+    .await
+    .unwrap();
+    send_device_input(
+        &controls,
+        Input::Button {
+            button: beep_proto::node::device::Button::Home,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(controls.input.capacity(), 0);
+
+    // Queue is full, yet TouchPhase::Up returns immediately and delivers after queued items.
+    send_device_input(
+        &controls,
+        Input::Touch {
+            phase: TouchPhase::Up,
+            x: 0.2,
+            y: 0.3,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        reader.next().await,
+        Some(Input::Touch {
+            phase: TouchPhase::Down,
+            x: 0.2,
+            y: 0.3,
+        })
+    );
+    assert_eq!(
+        reader.next().await,
+        Some(Input::Button {
+            button: beep_proto::node::device::Button::Home,
+        })
+    );
+    assert_eq!(
+        reader.next().await,
+        Some(Input::Touch {
+            phase: TouchPhase::Up,
+            x: 0.2,
+            y: 0.3,
+        })
+    );
 }

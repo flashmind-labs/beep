@@ -87,3 +87,67 @@ fn daily_rows_group_by_local_day_and_project_and_only_charge_metered_usage() {
     assert_eq!(period.daily[0].cost_usd, 5.0);
     assert_eq!(period.cost_usd, 10.0);
 }
+
+#[test]
+fn partial_usage_pass_preserves_cached_sessions_until_complete_pass() {
+    let cache = UsageCache::default();
+    let machine = iroh::SecretKey::from_bytes(&[3; 32]).public();
+    let s1 = SessionId::from("s1");
+    let s2 = SessionId::from("s2");
+
+    let mut initial = HashMap::new();
+    let mut h1 = BTreeMap::new();
+    h1.insert((100, ModelId::new("m")), hour(Billing::Metered));
+    initial.insert(
+        (machine, AgentSlug::CLAUDE, s1.clone()),
+        Session {
+            machine,
+            cwd: "/work".into(),
+            agent: AgentSlug::CLAUDE,
+            hours: h1,
+            historical: Vec::new(),
+        },
+    );
+    let mut said = Said::default();
+    cache.merge_and_fill(machine, true, Vec::new(), initial, &mut said);
+    assert_eq!(said.sessions.len(), 1);
+
+    // A partial pass that only saw PlanUsage (or one new session) before timing out keeps `s1`.
+    let mut partial = HashMap::new();
+    let mut h2 = BTreeMap::new();
+    h2.insert((100, ModelId::new("m")), hour(Billing::Metered));
+    partial.insert(
+        (machine, AgentSlug::CLAUDE, s2.clone()),
+        Session {
+            machine,
+            cwd: "/work".into(),
+            agent: AgentSlug::CLAUDE,
+            hours: h2,
+            historical: Vec::new(),
+        },
+    );
+    let plan = PlanUsage {
+        agent: AgentSlug::CLAUDE,
+        at: 10,
+        ..Default::default()
+    };
+    let mut after_partial = Said::default();
+    cache.merge_and_fill(
+        machine,
+        false,
+        vec![("box".into(), plan)],
+        partial,
+        &mut after_partial,
+    );
+    assert_eq!(after_partial.sessions.len(), 2);
+    assert!(
+        after_partial
+            .sessions
+            .contains_key(&(machine, AgentSlug::CLAUDE, s1))
+    );
+    assert!(
+        after_partial
+            .sessions
+            .contains_key(&(machine, AgentSlug::CLAUDE, s2))
+    );
+}
