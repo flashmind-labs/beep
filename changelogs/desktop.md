@@ -7,6 +7,29 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.19] - 2026-11-23
+
+### Added
+
+- Desktop: Restores open project and chat windows with their layouts and virtual desktops after a restart or update on macOS, Windows and X11. Wayland placement remains controlled by the compositor.
+- Desktop: selected skills from Git libraries update automatically each day.
+
+### Changed
+
+- Desktop: usage has separate date, project, spend and token columns. Session totals with an unknown daily split appear in a historical table.
+- Desktop: Gemini CLI is no longer offered as a harness. Antigravity replaces
+  it in agent pickers, Settings and the sign-in list.
+
+### Fixed
+
+- Desktop: resuming an older flsh conversation no longer counts its lifetime cost as spending today.
+- Desktop: Cmd+K ranks projects with more path matches higher.
+
+### Performance
+
+- Desktop: Session actions, prompts, model switches, cleanup, terminal resizing, device power, and settings hand off in the background instead of stalling the UI on slow or unstable node connections.
+- Desktop: Project sync, Git status, session lists, pickers, devices, reviews, usage, and tool updates serve cached state immediately and isolate slow nodes so healthy machines never wait on degraded links.
+
 ## [0.10.18] - 2026-11-23
 
 ### Added

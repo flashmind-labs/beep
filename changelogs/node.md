@@ -2,6 +2,33 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.14] - 2026-11-23
+
+### Added
+
+- Node: discover and install root and nested skills independently from the same repository.
+- Node: reports whether Antigravity is signed in on its machine and runs
+  its sign-in for a desktop.
+- Node: the node reads and edits the MCP server list that Antigravity
+  keeps for the desktop.
+- Node: counts what Antigravity sessions spend, read from Antigravity's
+  own conversation history on this machine. Antigravity shows in the
+  Usage view's "By harness" and in per-session spend, as a subscription.
+  Requests from Antigravity's subagents count toward the session
+  that started them.
+
+### Changed
+
+- Node: dated usage and historical session totals are reported separately.
+- Node: Gemini CLI is no longer detected, installed or run as a harness. Use
+  Antigravity instead.
+
+### Fixed
+
+- Node: assistant usage includes billed OpenRouter costs across models and keeps each machine's share when a chat moves.
+- Node: resuming an older flsh conversation no longer counts its lifetime cost as spending today.
+- Node: watched folders report nested file edits, including changes that keep the same file size.
+
 ## [0.8.13] - 2026-11-22
 
 ### Added
