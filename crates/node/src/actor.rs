@@ -120,21 +120,31 @@ where
     /// The next message, with the timing of its handling: hold the guard
     /// until the message is dealt with.
     pub async fn recv(&mut self) -> Option<(M, Handling)> {
-        let Stamped { message, sent } = self.mailbox.recv().await?;
+        let stamped = self.mailbox.recv().await?;
+
+        Some(self.taken(stamped))
+    }
+
+    /// The next message if one is queued.
+    pub fn try_recv(&mut self) -> Option<(M, Handling)> {
+        let stamped = self.mailbox.try_recv().ok()?;
+
+        Some(self.taken(stamped))
+    }
+
+    fn taken(&self, Stamped { message, sent }: Stamped<M>) -> (M, Handling) {
         let waited = sent.elapsed();
         let label = Into::<&'static str>::into(&message);
         metrics::histogram!("beep_actor_wait_seconds", "actor" => self.actor, "message" => label)
             .record(waited.as_secs_f64());
+        let handling = Handling {
+            actor: self.actor,
+            message: label,
+            waited,
+            taken: Instant::now(),
+        };
 
-        Some((
-            message,
-            Handling {
-                actor: self.actor,
-                message: label,
-                waited,
-                taken: Instant::now(),
-            },
-        ))
+        (message, handling)
     }
 }
 

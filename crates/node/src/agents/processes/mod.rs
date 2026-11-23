@@ -1,5 +1,6 @@
 //! Processes a session started, including children that changed groups.
 
+use crate::actor;
 use beep_proto::{SessionId, node::{agent::RunningProcess, events::Topic}};
 use beep_proto::watched;
 use std::{
@@ -11,7 +12,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{mpsc, oneshot, watch},
+    sync::{oneshot, watch},
     time::{Instant, interval, sleep},
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -229,9 +230,15 @@ struct Poll {
     done: oneshot::Sender<Result<(), String>>,
 }
 
+impl From<&Poll> for &'static str {
+    fn from(_: &Poll) -> Self {
+        "Poll"
+    }
+}
+
 /// What the poll task takes over in `watch`.
 struct Inbox {
-    polls: mpsc::Receiver<Poll>,
+    polls: actor::Receiver<Poll>,
     publish: watch::Sender<Option<Published>>,
 }
 
@@ -243,7 +250,7 @@ const POLLS: usize = 8;
 pub(super) struct Processes {
     /// The agent's pid, leading its group; 0 until a bridge starts its CLI.
     root: AtomicU32,
-    polls: mpsc::Sender<Poll>,
+    polls: actor::Sender<Poll>,
     /// `None` until the first poll.
     published: watch::Receiver<Option<Published>>,
     inbox: Mutex<Option<Inbox>>,
@@ -291,7 +298,7 @@ impl Processes {
     /// The processes under `root`, the agent's pid; with none, under the
     /// CLI its bridge starts, once `set_root` names it.
     pub(super) fn new(root: Option<u32>) -> Arc<Self> {
-        let (polls, inbox) = mpsc::channel(POLLS);
+        let (polls, inbox) = actor::channel("processes", POLLS);
         let (publish, published) = watch::channel(None);
 
         Arc::new(Self {
@@ -331,13 +338,14 @@ impl Processes {
             let mut max_age = WATCHED;
             let mut ports_due = Instant::now() + PORTS;
             let mut followers = 0;
-            let mut asked: Vec<Poll> = Vec::new();
+            let mut asked: Vec<(Poll, actor::Handling)> = Vec::new();
 
             loop {
                 let forced = !asked.is_empty();
-                let forced_scan = asked.iter().any(|poll| poll.scan);
+                let forced_scan = asked.iter().any(|(poll, _)| poll.scan);
                 let age = if forced { Duration::ZERO } else { max_age };
-                let result = processes.refresh(&mut observed, age).await;
+                let result =
+                    actor::job("processes", "table", processes.refresh(&mut observed, age)).await;
                 let followers_now = watched::read_sent(&DEMAND, |demand| *demand);
                 let starting = observed
                     .changed_at
@@ -354,12 +362,12 @@ impl Processes {
 
                 if result.is_ok() && scan {
                     ports_due = Instant::now() + PORTS;
-                    observed.scan().await;
+                    actor::job("processes", "ports", observed.scan()).await;
                 }
 
                 processes.publish(&observed, &result, &publish, &session);
 
-                for poll in asked.drain(..) {
+                for (poll, _timing) in asked.drain(..) {
                     let _ = poll.done.send(result.clone());
                 }
 
@@ -371,7 +379,7 @@ impl Processes {
                     Some(poll) = polls.recv() => {
                         asked.push(poll);
                         // One read answers every poll that is waiting.
-                        while let Ok(poll) = polls.try_recv() {
+                        while let Some(poll) = polls.try_recv() {
                             asked.push(poll);
                         }
                     }
