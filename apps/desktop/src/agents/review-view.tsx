@@ -3,13 +3,13 @@
 // go with the next message, the drafts under the passages they quote, and
 // a sent review drawn as its comments. The state is in review-state.ts.
 import { createPortal } from "react-dom";
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "../ui/kit.tsx";
 import { AG } from "./agents.ts";
-import { attributesToProps, domToReact, type DOMNode, type HTMLReactParserOptions } from "html-react-parser";
-import { isTag, openingOf, textOf } from "./report-state.ts";
+import { Element as Tag, Text as TextNode, attributesToProps, domToReact, type DOMNode, type HTMLReactParserOptions } from "html-react-parser";
+import { isTag, isText, openingOf, textOf } from "./report-state.ts";
 import { keepWriting, reviewCount, reviewOf, reviews, updateReview, type Ask, type ReviewComment, type Review, type SentReview } from "./review-state.ts";
 
 const ASK_LABEL: Record<Ask, string> = { question: "Question", change: "Change" };
@@ -156,14 +156,81 @@ function CommentField({ reviewKey, review, sendNow }: { reviewKey: string; revie
 
 const norm = (text: string) => text.replace(/\s+/g, " ").trim();
 
-/// The open session's drafts on the reply at `entry`.
-export function useDrafts(entry: string) {
-  return useStore(reviews, useShallow(state => (state.open ? state.by[state.open]?.comments ?? [] : []).filter(c => String(c.entry) === entry)));
+/// The parts of the reply at `entry` with the open session's drafts on it,
+/// and the one being written, marked; and where each draft's card goes.
+export function useReviewed(entry: string, parts: readonly DOMNode[][]) {
+  const drafts = useStore(reviews, useShallow(state => (state.open ? state.by[state.open]?.comments ?? [] : []).filter(c => String(c.entry) === entry)));
+  const writing = useStore(reviews, useShallow(state => {
+    const w = state.open ? state.by[state.open]?.writing : null;
+    return w && String(w.entry) === entry ? { ask: w.ask, quote: w.quote } : null;
+  }));
+
+  return useMemo(() => {
+    const marked = markQuotes(parts, [...drafts, ...writing ? [writing] : []]);
+    return { parts: marked, ...placeDrafts(marked.flat(), drafts) };
+  }, [parts, drafts, writing]);
+}
+
+/// `parts` with each quote's words in a `mark` of its kind, found with
+/// spaces and line breaks counted as one space; quotes not found are left out.
+function markQuotes(parts: readonly DOMNode[][], quotes: readonly { ask: Ask; quote: string }[]): DOMNode[][] {
+  if (!quotes.length) return [...parts];
+
+  let flat = "", space = true;
+  const at: [TextNode, number][] = [];
+  const walk = (nodes: DOMNode[]) => {
+    for (const node of nodes) {
+      if (isTag(node)) walk(node.children as DOMNode[]);
+      if (!isText(node)) continue;
+
+      for (let i = 0; i < node.data.length; i++) {
+        const blank = /\s/.test(node.data[i]);
+        if (blank && space) continue;
+        flat += blank ? " " : node.data[i];
+        at.push([node, i]);
+        space = blank;
+      }
+    }
+  };
+  parts.forEach(walk);
+
+  // Each text node's characters, by the kind of quote they are in.
+  const asks = new Map<TextNode, (Ask | null)[]>();
+  for (const { ask, quote } of quotes) {
+    const wanted = norm(quote), from = wanted ? flat.indexOf(wanted) : -1;
+    if (from < 0) continue;
+
+    const spans = new Map<TextNode, [number, number]>();
+    for (const [node, i] of at.slice(from, from + wanted.length)) spans.set(node, [spans.get(node)?.[0] ?? i, i + 1]);
+    for (const [node, [start, end]] of spans) {
+      const kinds = asks.get(node) ?? Array<Ask | null>(node.data.length).fill(null);
+      kinds.fill(ask, start, end);
+      asks.set(node, kinds);
+    }
+  }
+
+  const rebuild = (nodes: DOMNode[]): DOMNode[] => nodes.flatMap(node => {
+    if (isTag(node)) {
+      const children = rebuild(node.children as DOMNode[]);
+      return children.every((child, i) => child === node.children[i]) ? [node] : [new Tag(node.name, { ...node.attribs }, children as Tag["children"])];
+    }
+    const kinds = isText(node) ? asks.get(node) : undefined;
+    if (!kinds || !isText(node)) return [node];
+
+    const runs: DOMNode[] = [];
+    for (let start = 0, end = 1; start < kinds.length; start = end, end = start + 1) {
+      while (end < kinds.length && kinds[end] === kinds[start]) end++;
+      const text = new TextNode(node.data.slice(start, end)), ask = kinds[start];
+      runs.push(ask ? new Tag("mark", { class: "rv-mark", "data-ask": ask }, [text]) : text);
+    }
+    return runs;
+  });
+  return parts.map(rebuild);
 }
 
 /// Where each draft goes: under the list item or top-level block that holds
 /// its quote whole, the innermost item first. Drafts no block holds go last.
-export function placeDrafts(list: DOMNode[], drafts: readonly ReviewComment[]) {
+function placeDrafts(list: DOMNode[], drafts: readonly ReviewComment[]) {
   const at = new Map<DOMNode, ReviewComment[]>(), rest: ReviewComment[] = [];
   const place = (c: ReviewComment, nodes: DOMNode[], top: boolean): boolean => {
     const node = nodes.find(n => isTag(n) && norm(textOf(n)).includes(norm(c.quote)));
@@ -180,13 +247,7 @@ export function placeDrafts(list: DOMNode[], drafts: readonly ReviewComment[]) {
 }
 
 /// `list` drawn with the drafts `at` puts under its blocks and list items.
-/// Each time it is drawn the marks are painted again, as a redrawn reply's
-/// text is new and the old marks are gone with it.
 export function WithDrafts({ list, at }: { list: DOMNode[]; at: ReadonlyMap<DOMNode, readonly ReviewComment[]> }) {
-  useEffect(() => {
-    const frame = requestAnimationFrame(paintReviewMarks);
-    return () => cancelAnimationFrame(frame);
-  });
   const options: HTMLReactParserOptions = {
     replace: node => {
       const drafts = at.get(node);
@@ -201,63 +262,21 @@ export function WithDrafts({ list, at }: { list: DOMNode[]; at: ReadonlyMap<DOMN
   </Fragment>)}</>;
 }
 
-/// Drafts under the passage they quote; a click opens one in the composer again.
+/// Drafts under the passage they quote: a click opens one in the composer
+/// again, × removes it.
 export function DraftNotes({ drafts }: { drafts: readonly ReviewComment[] }) {
   if (!drafts.length) return null;
 
-  const open = (c: ReviewComment) => {
+  const change = (edit: (review: Review) => Review) => {
     const key = reviews.getState().open;
-    if (key && !reviewOf(key).writing) updateReview(key, r => ({ ...r, writing: { ...c } }));
+    if (key && !reviewOf(key).writing) updateReview(key, edit);
   };
-  return <>{drafts.map(c => <button type="button" key={c.id} className="rv-note" data-ask={c.ask} onClick={() => open(c)} title="Change this comment">
-    <span className="k"><b>{ASK_LABEL[c.ask]}</b> · draft · click to change</span><span className="t">{c.text}</span>
-  </button>)}</>;
-}
-
-/// Marks the passages the open session's drafts quote, and the one being
-/// written, without changing the replies' markup.
-export function paintReviewMarks() {
-  if (typeof CSS === "undefined" || !("highlights" in CSS)) return;
-
-  const state = reviews.getState(), review = state.open ? state.by[state.open] : undefined;
-  const marks: Record<Ask, Range[]> = { question: [], change: [] };
-  for (const c of [...review?.comments ?? [], ...review?.writing ? [review.writing] : []]) {
-    const body = document.querySelector(`.dcoderen.agent[data-row="${c.entry}"] .reply-body`);
-    const range = body && rangeOf(body, c.quote);
-    if (range) marks[c.ask].push(range);
-  }
-
-  CSS.highlights.set("review-question", new Highlight(...marks.question));
-  CSS.highlights.set("review-change", new Highlight(...marks.change));
-}
-
-if (typeof requestAnimationFrame === "function") reviews.subscribe(() => requestAnimationFrame(paintReviewMarks));
-
-/// Where `quote` is in `root`'s text, spaces and line breaks counted as one space.
-function rangeOf(root: Element, quote: string) {
-  const wanted = norm(quote);
-  if (!wanted) return null;
-
-  const at: [Text, number][] = [];
-  let flat = "", space = true;
-  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  for (let node = walk.nextNode(); node instanceof Text; node = walk.nextNode()) {
-    for (let i = 0; i < node.data.length; i++) {
-      const blank = /\s/.test(node.data[i]);
-      if (blank && space) continue;
-      flat += blank ? " " : node.data[i];
-      at.push([node, i]);
-      space = blank;
-    }
-  }
-
-  const from = flat.indexOf(wanted);
-  if (from < 0) return null;
-
-  const range = document.createRange(), [start, offset] = at[from], [end, last] = at[from + wanted.length - 1];
-  range.setStart(start, offset);
-  range.setEnd(end, last + 1);
-  return range;
+  return <>{drafts.map(c => <div key={c.id} className="rv-note" data-ask={c.ask}>
+    <button type="button" className="rv-note-open" onClick={() => change(r => ({ ...r, writing: { ...c } }))} title="Change this comment">
+      <span className="k"><b>{ASK_LABEL[c.ask]}</b> · draft · click to change</span><span className="t">{c.text}</span>
+    </button>
+    <Button small look="quiet" className="rv-drop" aria-label="Remove this comment" title="Remove this comment" onClick={() => change(r => ({ ...r, comments: r.comments.filter(d => d.id !== c.id) }))}>×</Button>
+  </div>)}</>;
 }
 
 /// A review as sent: its comments, and what was typed with them.

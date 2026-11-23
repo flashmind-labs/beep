@@ -275,9 +275,10 @@ body.cbody
                                     h2 "Changed"
                                       span.n "2"
                                     ul
-                                      li "( ): it was dropped when was read."
+                                      li "( ): was read."
                                         strong "Query string kept"
                                         code.fref [data-file="src/login.ts:42" role="link" tabindex="0"] "src/login.ts:42"
+                                        mark.rv-mark [data-ask="change"] "it was dropped when"
                                         code "next"
                                       li "( )."
                                         strong "Test for an empty"

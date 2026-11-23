@@ -5,7 +5,7 @@ import { conversationBlocked } from "./turnrows.ts";
 import { memo, useMemo, useRef, type MouseEvent } from "react";
 import { Element, htmlToDOM, type DOMNode } from "html-react-parser";
 import { OUTCOME_LABEL, REPORT_MIN_WORDS, reportOf, reportViews, toggleOriginal, type Report, type ReportSection } from "./report-state.ts";
-import { DraftNotes, SentReviewCard, WithDrafts, placeDrafts, useDrafts } from "./review-view.tsx";
+import { DraftNotes, SentReviewCard, WithDrafts, useReviewed } from "./review-view.tsx";
 import type { ReviewComment, SentReview } from "./review-state.ts";
 import { useStore } from "zustand";
 import { plural } from "../ui/format.ts";
@@ -39,8 +39,8 @@ export const AgentReply = memo(function AgentReply({ reply }: { reply: ReplyRow 
 
 /// Reconciled rather than set as HTML, so a streamed chunk leaves finished blocks, and their diagrams, in place.
 function PlainReply({ reply }: { reply: ReplyRow }) {
-  const list = useMemo(() => htmlToDOM(reply.html), [reply.html]), drafts = useDrafts(reply.row);
-  const { at, rest } = useMemo(() => placeDrafts(list, drafts), [list, drafts]);
+  const parts = useMemo(() => [htmlToDOM(reply.html)], [reply.html]);
+  const { parts: [list], at, rest } = useReviewed(reply.row, parts);
   return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row}><EntryTime at={reply.sentAt ?? null} />{reply.copy && <CopyButton text={reply.text} look="quiet" small icon className="reply-copy" />}<div className="reply-body"><WithDrafts list={list} at={at} /><DraftNotes drafts={rest} /></div></div>;
 }
 
@@ -48,7 +48,7 @@ function PlainReply({ reply }: { reply: ReplyRow }) {
 /// parts, its prose set at a reading measure. Once summarized, the summary
 /// takes its place, and the header's button turns between the two.
 function ReportReply({ reply, report }: { reply: ReplyRow; report: Report }) {
-  const summary = reply.summary, drafts = useDrafts(reply.row);
+  const summary = reply.summary;
   const done = summary?.state === "done" ? summary : null;
   const original = useStore(reportViews, views => done !== null && views.original.has(done.id));
   const short = useMemo(() => done && reportOf(done.html, done.text, 0), [done?.html, done?.text]);
@@ -73,18 +73,18 @@ function ReportReply({ reply, report }: { reply: ReplyRow; report: Report }) {
           : reply.idle && report.words >= REPORT_MIN_WORDS && <Button small look="quiet" data-report-summarize={reply.row} title="Ask the agent for a shorter version of this report">Summarize</Button>}
       </span>
     </div>
-    <ReportBody key={view} report={shown} swapped={swapped} drafts={drafts} />
+    <ReportBody key={view} entry={reply.row} report={shown} swapped={swapped} />
   </div>;
 }
 
 /// A report's text: its headline, opening and parts, each draft under the
 /// paragraph or item it quotes.
-function ReportBody({ report, swapped, drafts }: { report: Report; swapped: boolean; drafts: readonly ReviewComment[] }) {
-  const parts = useMemo(() => report.kind === "long" ? [report.nodes] : [
+function ReportBody({ entry, report, swapped }: { entry: string; report: Report; swapped: boolean }) {
+  const shapedParts = useMemo(() => report.kind === "long" ? [report.nodes] : [
     [...report.shaped.headline.length ? [new Element("p", { class: "report-headline" }, report.shaped.headline as Element["children"])] : [], ...report.shaped.intro],
     ...report.shaped.sections.map(section => section.nodes),
   ], [report]);
-  const { at, rest } = useMemo(() => placeDrafts(parts.flat(), drafts), [parts, drafts]);
+  const { parts, at, rest } = useReviewed(entry, shapedParts);
 
   return <div className={`reply-body${swapped ? " swapped" : ""}`}>
     <WithDrafts list={parts[0]} at={at} />

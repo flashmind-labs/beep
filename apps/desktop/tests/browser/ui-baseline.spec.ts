@@ -758,6 +758,37 @@ test("agent report reviewed", async ({ page }) => {
   await baseline(page, "agent-report-review-sent");
 });
 
+test("agent report draft on a whole item", async ({ page }) => {
+  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }];
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries } });
+  const report = page.locator(".dcoderen.report");
+  const marked = () => report.locator('.rv-mark[data-ask="question"]').allTextContents().then(parts => parts.join(""));
+
+  // A whole item quoted stays marked once its card sits in the item.
+  await page.evaluate(() => {
+    const item = [...document.querySelectorAll(".report-part li")].find(li => li.textContent?.includes("it was dropped"));
+    if (!item) throw new Error("no item");
+    const range = document.createRange();
+    range.selectNodeContents(item);
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(range);
+  });
+  await page.getByRole("toolbar", { name: "Comment on the selection" }).getByRole("button", { name: /^Ask/ }).click();
+  const field = page.getByRole("group", { name: "Question on the selection" });
+  await field.getByRole("textbox").fill("Why here?");
+  await field.getByRole("textbox").press("Enter");
+  const note = report.locator(".rv-note");
+  await expect(note).toContainText("Why here?");
+  await expect.poll(marked).toBe("Query string kept (src/login.ts:42): it was dropped when next was read.");
+
+  // × on the card removes the draft and its mark.
+  await note.hover();
+  await note.getByRole("button", { name: "Remove this comment" }).click();
+  await expect(note).toHaveCount(0);
+  await expect.poll(marked).toBe("");
+  await expect(page.locator(".rv-bar")).toHaveCount(0);
+});
+
 test("agent report summarized in place", async ({ page }) => {
   const summary = "Done: the redirect keeps the query string.\n\n- Keep `?next=` for one release: the mobile app sends it.";
   const summaryHtml = "<p>Done: the redirect keeps the query string.</p>\n<ul>\n<li>Keep <code>?next=</code> for one release: the mobile app sends it.</li>\n</ul>";

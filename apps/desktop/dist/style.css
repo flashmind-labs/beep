@@ -752,10 +752,13 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
    under the passages they quote, and a sent review. Questions take the accent, changes amber. */
 .rv-pop { position: fixed; z-index: 45; display: flex; gap: 2px; padding: 3px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent); background: color-mix(in srgb, var(--elev) 92%, transparent); box-shadow: 0 10px 30px -8px rgb(0 0 0 / .5) }
 :is(.rv-pop, .rv-field) kbd { margin-inline-start: 6px; padding: 0 4px; border-radius: 3px; font: 10.5px var(--mono); color: var(--dim); background: color-mix(in srgb, var(--fg) 6%, transparent) }
-::highlight(review-question) { background-color: color-mix(in srgb, var(--accent) 26%, transparent); text-decoration: underline 2px var(--accent) }
-::highlight(review-change) { background-color: color-mix(in srgb, var(--warn) 24%, transparent); text-decoration: underline 2px var(--warn) }
-.rv-note { all: unset; display: grid; gap: 2px; box-sizing: border-box; width: 100%; max-width: var(--measure, none); margin: 6px 0 10px; padding: 7px 12px 8px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 5%, transparent); cursor: default }
-.rv-note:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--fg) 8%, transparent) }
+.rv-mark { --mark: var(--accent); color: inherit; background: color-mix(in srgb, var(--mark) 22%, transparent); text-decoration: underline 2px var(--mark); text-underline-offset: 3px; text-decoration-skip-ink: none }
+.rv-mark[data-ask="change"] { --mark: var(--warn) }
+.rv-note { position: relative; box-sizing: border-box; width: 100%; max-width: var(--measure, none); margin: 6px 0 10px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 5%, transparent) }
+.rv-note:is(:hover, :focus-within) { background: color-mix(in srgb, var(--fg) 8%, transparent) }
+.rv-note-open { all: unset; display: grid; gap: 2px; box-sizing: border-box; width: 100%; padding: 7px 36px 8px 12px; cursor: default }
+.rv-drop { position: absolute; top: 4px; right: 4px; opacity: 0 }
+.rv-note:is(:hover, :focus-within) .rv-drop { opacity: 1 }
 .rv-note .k, .rv-item .k, .rv-sent .k { font: 11px/16px var(--mono); color: var(--dim) }
 .rv-note .k b, .rv-sent .k b, .rv-field .h b { font-weight: 500 }
 :is(.rv-note, .rv-item, .rv-sent .it, .rv-field)[data-ask="question"] :is(.k b, .h b) { color: var(--accent) }

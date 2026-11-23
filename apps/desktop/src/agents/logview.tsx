@@ -48,7 +48,6 @@ import { AgentStatus } from "./mode-view.tsx";
 import type { BlockedRow, ContextRow, PromptRow, ReplyRow, Summary } from "./reply-view.tsx";
 import { openingOf, summaryAsked } from "./report-state.ts";
 import { parseReview } from "./review-state.ts";
-import { paintReviewMarks } from "./review-view.tsx";
 import { sessionBody } from "./session-frame.tsx";
 import { glide } from "../ui/motion.ts";
 
@@ -124,7 +123,6 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   if (redraw === "toggle") b.stuck = atBottom(b);
   fillLog(b, scroll === "bottom");
   drawnRows(b);
-  requestAnimationFrame(paintReviewMarks);
   syncJump(b);
 }
 
