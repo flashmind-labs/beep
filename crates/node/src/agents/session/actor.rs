@@ -331,7 +331,7 @@ impl Actor {
     pub(super) async fn run(
         mut self,
         agent: Started,
-        mut orders: mpsc::Receiver<Order>,
+        mut orders: crate::actor::Receiver<Order>,
         processes: Arc<super::Processes>,
     ) {
         let _cleanup = super::super::processes::Cleanup(processes.clone());
@@ -487,7 +487,7 @@ impl Actor {
         stderr: &mut mpsc::Receiver<String>,
         running: &mut Running,
         processes: &super::Processes,
-        orders: &mut mpsc::Receiver<Order>,
+        orders: &mut crate::actor::Receiver<Order>,
     ) -> Result<End> {
         let (events_tx, events) = mpsc::channel(EVENTS);
         let (oversized_tx, oversized) = mpsc::channel(1);
@@ -543,7 +543,7 @@ impl Actor {
         &mut self,
         cx: &ConnectionTo<Agent>,
         inputs: &mut Inputs<'_>,
-        orders: &mut mpsc::Receiver<Order>,
+        orders: &mut crate::actor::Receiver<Order>,
     ) -> Result<End> {
         let async_tasks = known(&self.agent).is_some_and(|known| known.async_tasks);
         let protocol = self.protocol;
@@ -579,7 +579,7 @@ impl Actor {
                     self.held_end.as_ref().map_or_else(tokio::time::Instant::now, |held| held.due)
                 ), if self.held_end.is_some() => self.subagents_quiet(),
                 order = orders.recv() => {
-                    let Some(Order { command, done }) = order else {
+                    let Some((Order { command, done }, _timing)) = order else {
                         return Ok(End::Closed);
                     };
 

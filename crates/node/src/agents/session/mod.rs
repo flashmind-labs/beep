@@ -40,7 +40,7 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{oneshot, watch};
 use tokio_util::task::AbortOnDropHandle;
 
 mod actor;
@@ -79,7 +79,7 @@ const STOP_WITHIN: Duration = Duration::from_secs(10);
 const MAX_RUNNING_TOOLS: usize = 256;
 
 /// What a stream asks of a session.
-#[derive(Debug)]
+#[derive(Debug, strum::IntoStaticStr)]
 pub(super) enum Command {
     RecoverCodexChildren(Vec<crate::agents::SubagentRun>),
     Prompt(Prompt),
@@ -177,11 +177,17 @@ struct Order {
     done: oneshot::Sender<Result<(), String>>,
 }
 
+impl From<&Order> for &'static str {
+    fn from(order: &Order) -> Self {
+        (&order.command).into()
+    }
+}
+
 pub(super) struct Session {
     /// Private handle for the process and its MCP connection, never a public session id.
     pub(super) id: SessionId,
     pub(super) agent: String,
-    orders: mpsc::Sender<Order>,
+    orders: crate::actor::Sender<Order>,
     pub(super) live: watch::Receiver<Live>,
     /// Where the retained live replay begins in Claude's saved transcript.
     pub(super) history: Option<crate::AsyncMutex<Option<super::running::History>>>,
@@ -279,7 +285,7 @@ pub(super) struct Start<'a> {
 }
 
 /// Closes a child session once its parent ends for good.
-async fn follow_parent(mut parent: watch::Receiver<Live>, orders: mpsc::Sender<Order>) {
+async fn follow_parent(mut parent: watch::Receiver<Live>, orders: crate::actor::Sender<Order>) {
     if super::family::parent_gone(&mut parent).await {
         let (done, _) = oneshot::channel();
         // Refused when the child ended first.
@@ -496,7 +502,7 @@ impl Session {
         // Known from the start, so a second takeover of it is refused.
         first.agent_session = resume.clone();
         let (live_tx, live) = watch::channel(first);
-        let (orders, orders_rx) = mpsc::channel(ORDERS);
+        let (orders, orders_rx) = crate::actor::channel("session", ORDERS);
         let history = (kind.name == "claude").then(Default::default);
         let actor = Actor {
             live: live_tx,

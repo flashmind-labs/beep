@@ -3,6 +3,7 @@
 //! send no message.
 
 use super::{MAX_KEPT, Session, running::new_id};
+use crate::actor;
 use anyhow::{Result, anyhow};
 use beep_proto::{
     SessionId,
@@ -14,7 +15,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, OnceLock, Weak},
 };
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{oneshot, watch};
 use tokio_util::task::AbortOnDropHandle;
 
 const WAITING: usize = 64;
@@ -31,7 +32,7 @@ pub(super) struct Sessions {
 }
 
 struct Started {
-    orders: mpsc::Sender<Order>,
+    orders: actor::Sender<Order>,
     _task: AbortOnDropHandle<()>,
 }
 
@@ -41,9 +42,10 @@ struct Started {
 pub(super) struct Reservation {
     pub(super) id: SessionId,
     held: Arc<()>,
-    place: mpsc::OwnedPermit<Order>,
+    place: actor::Place<Order>,
 }
 
+#[derive(strum::IntoStaticStr)]
 enum Order {
     /// Picks the id of a start and refuses a second takeover of one session.
     Reserve {
@@ -145,7 +147,7 @@ impl Sessions {
 
     fn started(&self) -> &Started {
         self.started.get_or_init(|| {
-            let (orders, ordered) = mpsc::channel(WAITING);
+            let (orders, ordered) = actor::channel("sessions", WAITING);
             Started {
                 orders,
                 _task: AbortOnDropHandle::new(tokio::spawn(supervise(
@@ -164,10 +166,10 @@ struct Pending {
     held: Weak<()>,
 }
 
-async fn supervise(map: watch::Sender<Arc<Map>>, mut orders: mpsc::Receiver<Order>) {
+async fn supervise(map: watch::Sender<Arc<Map>>, mut orders: actor::Receiver<Order>) {
     let mut pending: Vec<Pending> = Vec::new();
 
-    while let Some(order) = orders.recv().await {
+    while let Some((order, _timing)) = orders.recv().await {
         // A start that was dropped before it inserted gives its id back.
         pending.retain(|start| start.held.strong_count() > 0);
 
