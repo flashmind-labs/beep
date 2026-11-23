@@ -10,7 +10,7 @@ use crate::{
 use beep_proto::SessionId;
 use beep_proto::{
     AgentSlug, ModelId,
-    node::usage::{Billing, HourSpend, MAX_SESSION_HOURS, SessionSpend},
+    node::usage::{Billing, HistoricalSpend, HourSpend, MAX_SESSION_HOURS, SessionSpend},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -79,6 +79,8 @@ impl Bucket {
 /// What one session spent in one log.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(super) struct Part {
+    #[serde(default)]
+    pub(super) historical: Option<HistoricalSpend>,
     pub(super) cwd: String,
     /// A list in JSON, whose map keys are strings only.
     #[serde(with = "entries")]
@@ -214,7 +216,7 @@ pub(super) struct Database {
     pub(super) billed_stamp: Option<Stamp>,
     /// Older flsh caches used file modification time for undated turns.
     #[serde(default)]
-    pub(super) uses_transcript_dates: bool,
+    pub(super) separates_historical_usage: bool,
     pub(super) parts: BTreeMap<SessionId, Part>,
     /// For a flsh session file that moved here: what it had spent on the
     /// machine it came from.
@@ -299,10 +301,12 @@ impl Ledger {
             .filter_map(|(_, parts)| parts.get(&key.session));
         let mut cwd = String::new();
         let mut buckets: BTreeMap<&BucketKey, Bucket> = BTreeMap::new();
+        let mut historical = Vec::new();
         let mut any = false;
 
         for part in parts {
             any = true;
+            historical.extend(part.historical.iter().cloned());
 
             if cwd.is_empty() {
                 cwd.clone_from(&part.cwd);
@@ -342,6 +346,7 @@ impl Ledger {
             cwd,
             since,
             hours,
+            historical,
         })
     }
 
@@ -362,8 +367,13 @@ impl Ledger {
     pub(super) fn last_hour(&self, key: &SessionKey) -> u64 {
         self.all_parts()
             .filter_map(|(_, parts)| parts.get(&key.session))
-            .filter_map(|part| part.buckets.keys().next_back())
-            .map(|bucket| bucket.hour)
+            .filter_map(|part| {
+                part.buckets
+                    .keys()
+                    .next_back()
+                    .map(|key| key.hour)
+                    .max(part.historical.as_ref().and_then(|usage| usage.last))
+            })
             .max()
             .unwrap_or(0)
     }

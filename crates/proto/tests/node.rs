@@ -1017,6 +1017,10 @@ mod usage {
             session: "0f3c2a9e-1111-4222-8333-944455556666".into(),
             cwd: "/srv/project".into(),
             since: 1_789_000_000,
+            historical: vec![HistoricalSpend {
+                cost_usd: 2.5,
+                ..Default::default()
+            }],
             hours: vec![HourSpend {
                 hour: 1_789_995_600,
                 model: "claude-opus-4-1".into(),
@@ -1029,6 +1033,17 @@ mod usage {
                 billing: Billing::Metered,
             }],
         };
+        let legacy = (
+            &spend.agent,
+            &spend.session,
+            &spend.cwd,
+            spend.since,
+            &spend.hours,
+        );
+        let compact = rmp_serde::to_vec(&legacy).unwrap();
+        let old: SessionSpend = beep_proto::lenient::from_slice(&compact).unwrap();
+        assert!(old.historical.is_empty());
+        assert_eq!(old.hours, spend.hours);
         let body = rmp_serde::to_vec_named(&spend).unwrap();
         assert_eq!(rmp_serde::from_slice::<SessionSpend>(&body).unwrap(), spend);
         assert_eq!(spend.hours[0].tokens(), 370);

@@ -74,6 +74,20 @@ pub struct SessionSpend {
     pub since: u64,
     /// What it spent each hour with each model.
     pub hours: Vec<HourSpend>,
+    /// Session totals without dated usage, replaced in full on every report.
+    #[serde(default)]
+    pub historical: Vec<HistoricalSpend>,
+}
+
+/// The remaining undated usage and its known transcript bounds, in Unix seconds.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HistoricalSpend {
+    pub first: Option<u64>,
+    pub last: Option<u64>,
+    pub tokens: u64,
+    pub cost_usd: f64,
+    pub billing: Billing,
 }
 
 /// What one session spent with one model in one hour.

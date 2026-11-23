@@ -1,0 +1,16 @@
+- table "Historical spend (daily split unknown)":
+  - caption: Historical spend (daily split unknown)
+  - rowgroup:
+    - row "Session dates Project Harness Spend Tokens":
+      - columnheader "Session dates"
+      - columnheader "Project"
+      - columnheader "Harness"
+      - columnheader "Spend"
+      - columnheader "Tokens"
+  - rowgroup:
+    - row "Mar 3 – 4 acme/legacy flsh $3.25 7K":
+      - cell "Mar 3 – 4"
+      - cell "acme/legacy"
+      - cell "flsh"
+      - cell "$3.25"
+      - cell "7K"

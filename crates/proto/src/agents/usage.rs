@@ -59,6 +59,8 @@ wire_structs! {
         pub week: SpendPeriod,
         /// From the first of the month.
         pub month: SpendPeriod,
+        #[serde(default)]
+        pub historical: Vec<UsageTableRow>,
     }
 
     /// What coding agents spent over one period, metered use apart from use a
@@ -76,6 +78,18 @@ wire_structs! {
         /// By harness and billing, the most expensive first, then the most
         /// tokens, only those that spent.
         pub harnesses: Vec<HarnessBill>,
+        #[serde(default)]
+        pub daily: Vec<UsageTableRow>,
+    }
+
+    /// A daily project total or an undated session balance with known local dates.
+    pub struct UsageTableRow {
+        pub first: Option<String>,
+        pub last: Option<String>,
+        pub project: Option<String>,
+        pub agent: Option<AgentSlug>,
+        pub cost_usd: f64,
+        pub tokens: u64,
     }
 
     /// What coding agents spent in one project.

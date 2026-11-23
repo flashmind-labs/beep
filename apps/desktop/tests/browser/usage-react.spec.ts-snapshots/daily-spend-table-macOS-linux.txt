@@ -1,0 +1,19 @@
+- table "Daily usage":
+  - caption: Daily usage
+  - rowgroup:
+    - row "Date Project Spend Tokens":
+      - columnheader "Date"
+      - columnheader "Project"
+      - columnheader "Spend"
+      - columnheader "Tokens"
+  - rowgroup:
+    - row "Mar 6 acme/widget $0.00 38M":
+      - cell "Mar 6"
+      - cell "acme/widget"
+      - cell "$0.00"
+      - cell "38M"
+    - row "Mar 6 acme/relay $0.00 1.3M":
+      - cell "Mar 6"
+      - cell "acme/relay"
+      - cell "$0.00"
+      - cell "1.3M"

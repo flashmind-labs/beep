@@ -9,8 +9,11 @@ use super::{
 use crate::agents::claude::unix_seconds;
 use crate::agents::found::{Agent, open_database};
 use crate::agents::prices::Tokens;
-use crate::agents::window::head_lines;
-use beep_proto::{ModelId, SessionId, node::usage::Billing};
+use crate::agents::window::{head_lines, tail_lines};
+use beep_proto::{
+    ModelId, SessionId,
+    node::usage::{Billing, HistoricalSpend},
+};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path};
 
@@ -35,10 +38,11 @@ const OPENCODE: &str = "SELECT m.session_id, s.directory, (m.time_created / 3600
      LIMIT ?2";
 
 /// Each session's totals, `session_meta.total_usage` (`input_tokens`
-/// counting cached input, `total_cost` a decimal string), counted in the
-/// hour of its last entry: the database keeps no turns.
+/// counting cached input, `total_cost` a decimal string), with the
+/// session's date range: the database keeps no dated usage.
 const FLSH: &str = "SELECT m.chat_key, m.working_dir, COALESCE(m.model, ''), m.total_usage,
-        (SELECT MAX(s.created_at) FROM sessions s WHERE s.chat_key = m.chat_key) AS last
+        (SELECT MAX(s.created_at) FROM sessions s WHERE s.chat_key = m.chat_key) AS last,
+        (SELECT MIN(s.created_at) FROM sessions s WHERE s.chat_key = m.chat_key)
      FROM session_meta m
      WHERE m.total_usage IS NOT NULL AND m.working_dir IS NOT NULL AND m.working_dir != ''
        AND last >= ?1
@@ -142,7 +146,8 @@ pub(super) fn flsh(
             model: row.get(2)?,
             totals,
             turns: Vec::new(),
-            legacy_at: last.map(count),
+            first: row.get::<_, Option<i64>>(5)?.map(count),
+            last: last.map(count),
         };
         add_flsh(&mut parts, session, None, accounts);
     }
@@ -153,7 +158,7 @@ pub(super) fn flsh(
 /// What a flsh session file spent beyond `counted`, which was counted
 /// where it ran before it moved here: each turn of its header's
 /// `usage_log` in its own hour, and what its `total_usage` has beyond them
-/// at the first dated message or turn. flsh rewrites the file on resume.
+/// as a historical total with transcript bounds.
 pub(super) fn flsh_file(
     path: &Path,
     counted: Option<&Counted>,
@@ -164,7 +169,15 @@ pub(super) fn flsh_file(
     if let Some(session) = flsh_header(path)? {
         let id = session.id.clone();
         let cwd = session.cwd.clone();
+        let routed = flsh_provider(&session.model) == Some("openrouter");
         add_flsh(&mut parts, session, counted, accounts);
+        if let Some(legacy) = parts.get_mut(&id).and_then(|p| p.historical.as_mut())
+            && legacy.last.is_none()
+        {
+            legacy.last = tail_lines(path, MAX_HEADER)?
+                .filter_map(message_time)
+                .last();
+        }
         let billed = path.with_extension("openrouter.json");
         match std::fs::File::open(billed) {
             Ok(file) => {
@@ -172,7 +185,7 @@ pub(super) fn flsh_file(
                     serde_json::from_reader(std::io::BufReader::new(file))?;
                 let part = parts.entry(id).or_default();
                 part.cwd = cwd;
-                replace_billed_hours(part, hours)?;
+                replace_billed_hours(part, hours, routed)?;
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e),
@@ -194,14 +207,41 @@ struct BilledUsage {
 fn replace_billed_hours(
     part: &mut Part,
     hours: BTreeMap<u64, BTreeMap<String, BilledUsage>>,
+    routed: bool,
 ) -> std::io::Result<()> {
     for (hour, models) in hours {
         if !hour.is_multiple_of(3600) || models.is_empty() {
             return Err(std::io::Error::other("invalid OpenRouter billing hour"));
         }
-        part.buckets.retain(|key, _| {
-            key.hour != hour || flsh_provider(key.model.as_ref()) != Some("openrouter")
+        let mut replaced_tokens = 0_u64;
+        let mut replaced_cost = 0.0;
+        part.buckets.retain(|key, bucket| {
+            let replace =
+                key.hour == hour && flsh_provider(key.model.as_ref()) == Some("openrouter");
+            if replace {
+                replaced_tokens = replaced_tokens.saturating_add(bucket.tokens.total());
+                replaced_cost += bucket.cost_usd;
+            }
+            !replace
         });
+        if routed
+            && let Some(legacy) = &mut part.historical
+            && legacy.first.is_none_or(|first| first / 3600 <= hour / 3600)
+            && legacy.last.is_none_or(|last| last / 3600 >= hour / 3600)
+        {
+            let billed = models.values().fold(0_u64, |sum, u| {
+                sum.saturating_add(u.input).saturating_add(u.output)
+            });
+            let extra = billed.saturating_sub(replaced_tokens);
+            if extra > 0 {
+                legacy.tokens = legacy.tokens.saturating_sub(extra);
+                let cost: f64 = models.values().map(|u| u.usd).sum();
+                legacy.cost_usd = (legacy.cost_usd - (cost - replaced_cost).max(0.0)).max(0.0);
+                if legacy.tokens == 0 {
+                    part.historical = None;
+                }
+            }
+        }
         for (model, usage) in models {
             if model.is_empty()
                 || usage.cached > usage.input
@@ -243,14 +283,7 @@ fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
     let Some(Ok(header)) = lines.next().map(|l| serde_json::from_str::<FlshHeader>(&l)) else {
         return Ok(None);
     };
-    let started = lines.find_map(|line| {
-        let message: FlshMessage = serde_json::from_str(&line).ok()?;
-        // flsh can replace the system prompt when a conversation resumes.
-        match message.kind.as_str() {
-            "user" | "assistant" | "tool" => unix_seconds(&message.timestamp),
-            _ => None,
-        }
-    });
+    let first = lines.find_map(message_time);
     let Some(cwd) = header.metadata.working_dir else {
         return Ok(None);
     };
@@ -260,8 +293,18 @@ fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
         model: header.metadata.model.unwrap_or_default(),
         totals: header.metadata.total_usage.unwrap_or_default(),
         turns: header.metadata.usage_log,
-        legacy_at: started,
+        first,
+        last: None,
     }))
+}
+
+/// System prompts can be rewritten on resume.
+fn message_time(line: String) -> Option<u64> {
+    let message: FlshMessage = serde_json::from_str(&line).ok()?;
+    match message.kind.as_str() {
+        "user" | "assistant" | "tool" => unix_seconds(&message.timestamp),
+        _ => None,
+    }
 }
 
 /// The longest flsh header read.
@@ -364,14 +407,14 @@ struct FlshSession {
     model: String,
     totals: FlshTotals,
     turns: Vec<FlshTurn>,
-    /// First dated file message, or last entry for a database that only keeps totals.
-    legacy_at: Option<u64>,
+    /// Transcript bounds, when recorded.
+    first: Option<u64>,
+    last: Option<u64>,
 }
 
 /// Adds what `session` spent beyond `counted` to `parts`: each turn in its
 /// hour, and what the totals have beyond the turns, spent before flsh
-/// logged turns, at the earliest known time. Undated totals have no reporting
-/// hour. `counted` is taken from the oldest spend first.
+/// logged turns, as a historical balance. `counted` is taken from the oldest spend first.
 fn add_flsh(
     parts: &mut BTreeMap<SessionId, Part>,
     session: FlshSession,
@@ -384,7 +427,8 @@ fn add_flsh(
         model,
         totals,
         turns,
-        legacy_at,
+        first,
+        last,
     } = session;
 
     let mut logged = Counted::default();
@@ -394,23 +438,30 @@ fn add_flsh(
     }
 
     let (earlier, _) = Counted::from(&totals).beyond(logged);
-    let first = legacy_at
-        .into_iter()
-        .chain(turns.iter().map(|turn| turn.at))
-        .min();
-    let spends =
-        std::iter::once((first, model.clone(), earlier, None)).chain(turns.iter().map(|turn| {
-            let model = turn.model.clone().unwrap_or_else(|| model.clone());
-            (Some(turn.at), model, Counted::from(turn), turn.cost_known)
-        }));
-    let mut before = counted.copied().unwrap_or_default();
+    let (legacy, mut before) = earlier.beyond(counted.copied().unwrap_or_default());
     let part = parts.entry(id.clone()).or_default();
     part.cwd.clone_from(&cwd);
+    if legacy.input != 0 || legacy.output != 0 || legacy.cost > 0.0 {
+        part.historical = Some(HistoricalSpend {
+            first,
+            last: turns.iter().map(|turn| turn.at).min().or(last),
+            tokens: legacy.input.saturating_add(legacy.output),
+            cost_usd: legacy.cost,
+            billing: accounts.resolve(
+                Agent::Flsh,
+                Billing::Unknown,
+                flsh_provider(&model),
+                Some(&cwd),
+            ),
+        });
+    }
 
-    for (at, model, spend, cost_known) in spends {
-        let (spend, left) = spend.beyond(before);
+    for turn in &turns {
+        let at = turn.at;
+        let model = turn.model.clone().unwrap_or_else(|| model.clone());
+        let cost_known = turn.cost_known;
+        let (spend, left) = Counted::from(turn).beyond(before);
         before = left;
-        let Some(at) = at else { continue };
         let cached = spend.cached.min(spend.input);
         let tokens = Tokens {
             input: spend.input - cached,
@@ -456,7 +507,7 @@ fn add_flsh(
         }
     }
 
-    if part.buckets.is_empty() {
+    if part.buckets.is_empty() && part.historical.is_none() {
         parts.remove(&id);
     }
 }
@@ -496,8 +547,8 @@ pub(super) mod tests {
         fs::write(&path, usage(1000, 400, "0.42")).expect("a session file");
         let accounts = &mut Accounts::default();
         let parts = flsh_file(&path, None, accounts).expect("the session");
-        let bucket = parts["c1"].buckets.values().next().expect("a bucket");
-        assert_eq!((bucket.tokens.input, bucket.tokens.cache_read), (600, 400));
+        let bucket = parts["c1"].historical.as_ref().expect("historical total");
+        assert_eq!(bucket.tokens, 1050);
         assert!((bucket.cost_usd - 0.42).abs() < 1e-9);
         assert_eq!(parts["c1"].cwd, "/srv/project");
 
@@ -505,9 +556,8 @@ pub(super) mod tests {
         let counted = flsh_counted(&path).expect("read").expect("totals");
         fs::write(&path, usage(1500, 500, "0.52")).expect("more");
         let parts = flsh_file(&path, Some(&counted), accounts).expect("the session");
-        let bucket = parts["c1"].buckets.values().next().expect("a bucket");
-        assert_eq!((bucket.tokens.input, bucket.tokens.cache_read), (400, 100));
-        assert_eq!(bucket.tokens.output, 0);
+        let bucket = parts["c1"].historical.as_ref().expect("historical total");
+        assert_eq!(bucket.tokens, 500);
         assert!((bucket.cost_usd - 0.10).abs() < 1e-9);
     }
 
@@ -545,12 +595,8 @@ pub(super) mod tests {
         };
         assert_eq!(
             costs(None),
-            [
-                (1_793_433_600, 0.10),
-                (1_793_520_000, 0.20),
-                (1_793_606_400, 0.30)
-            ],
-            "the earlier spend counts at the session's start"
+            [(1_793_520_000, 0.20), (1_793_606_400, 0.30)],
+            "only dated turns count toward daily spend"
         );
 
         // It moved here after the first turn: only the second counts.
@@ -567,7 +613,7 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn flsh_sessions_count_their_totals_at_their_last_entry() {
+    fn flsh_database_totals_keep_their_session_range() {
         let dir = tempfile::tempdir().expect("a temp folder");
         let path = dir.path().join("sessions.db");
         let conn = Connection::open(&path).expect("a database");
@@ -587,12 +633,14 @@ pub(super) mod tests {
         .expect("the schema");
         let accounts = &mut Accounts::default();
         let parts = flsh(&path, 1_793_000_000, accounts).expect("the sessions");
-        let (key, bucket) = parts["c1"].buckets.iter().next().expect("a bucket");
-        assert_eq!(key.hour, 1_793_613_600);
-        assert_eq!(key.billing, Billing::Metered);
-        assert_eq!(bucket.tokens.cache_read, 400);
-        assert_eq!(bucket.tokens.input, 600);
-        assert!((bucket.cost_usd - 0.42).abs() < 1e-9);
+        let usage = parts["c1"].historical.as_ref().unwrap();
+        assert_eq!(
+            (usage.first, usage.last),
+            (Some(1793600000), Some(1793614500))
+        );
+        assert_eq!(usage.billing, Billing::Metered);
+        assert_eq!(usage.tokens, 1050);
+        assert!((usage.cost_usd - 0.42).abs() < 1e-9);
         assert!(
             flsh(&path, 1_793_700_000, accounts)
                 .expect("none")

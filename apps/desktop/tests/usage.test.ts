@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hasUsage, harnessLine, harnessName, modelTotals, pillPlans, projectExtra, resetName, showsDollars, todayLine, windowUsed } from "../src/center/usage.tsx";
+import { hasUsage, harnessCost, harnessName, modelTotals, pillPlans, resetName, showsDollars, todayLine, windowUsed } from "../src/center/usage.tsx";
 import { creditAmount, creditScope } from "../src/ui/credits.ts";
 import { tokenCount } from "../src/ui/format.ts";
 
@@ -12,12 +12,11 @@ test("a window's used share is clamped to 0 to 100", () => {
 test("subscription use shows as tokens under its own line", () => {
   const covered = { agent: "claude", subscription: true, cost_usd: null, tokens: 1_023_500_000, models: [] };
   assert.equal(harnessName(covered), "Claude Code, subscription");
-  assert.equal(harnessLine(covered), "1B");
-  assert.equal(harnessLine({ ...covered, cost_usd: 361.58 }), "~$362 · 1B");
-  assert.equal(harnessLine({ ...covered, cost_usd: 0 }), "1B");
-  assert.equal(harnessLine({ ...covered, subscription: false, cost_usd: 5.85, tokens: 600_000 }), "$5.85 · 0.6M");
-  const project = { project: "widget", cost_usd: 2.1, unpriced: [], metered_tokens: 800_000, subscription: [{ name: "claude", tokens: 210_000_000 }] };
-  assert.equal(projectExtra(project), "210.8M");
+  assert.equal(harnessCost(covered), "");
+  assert.equal(harnessCost({ ...covered, cost_usd: 361.58 }), "~$362");
+  assert.equal(harnessCost({ ...covered, cost_usd: 0 }), "");
+  assert.equal(harnessCost({ ...covered, subscription: false, cost_usd: 5.85, tokens: 600_000 }), "$5.85");
+
 });
 
 test("token counts move up a unit before they read 1000", () => {
@@ -49,8 +48,8 @@ test("credits preserve zero, precision and unknown balances without counting as 
   assert.equal(creditAmount(credit, credit.used), "$42.123456");
   assert.equal(creditAmount(credit, credit.total), "unavailable");
   assert.equal(creditScope("api_key"), "API key limit");
-  const empty = { total: { project: "", cost_usd: 0, unpriced: [] }, tokens: 0, projects: [], harnesses: [] };
-  assert.ok(hasUsage({ limits: [{ agent: "flsh", account: null, plan: null, machine_name: "build-box", as_of: 0, windows: [], credits: [credit] }], today: empty, week: empty, month: empty }));
+  const empty = { total: { project: "", cost_usd: 0, unpriced: [] }, tokens: 0, projects: [], daily: [], harnesses: [] };
+  assert.ok(hasUsage({ historical: [], limits: [{ agent: "flsh", account: null, plan: null, machine_name: "build-box", as_of: 0, windows: [], credits: [credit] }], today: empty, week: empty, month: empty }));
 });
 
 test("the pill shows each plan's binding window, the one most used", () => {
@@ -80,9 +79,9 @@ test("a plan with only grouped windows shows its most-used group under the harne
 test("the note on dollars shows only when a row shows dollars", () => {
   const total = { project: "", cost_usd: 0, unpriced: [] };
   const covered = { agent: "claude", subscription: true, cost_usd: null, tokens: 5_000, models: [] };
-  assert.equal(showsDollars({ total, tokens: 5_000, projects: [], harnesses: [covered] }), false);
-  assert.equal(showsDollars({ total, tokens: 5_000, projects: [], harnesses: [{ ...covered, cost_usd: 61 }] }), true);
-  assert.equal(showsDollars({ total: { ...total, cost_usd: 1.5 }, tokens: 0, projects: [], harnesses: [] }), true);
+  assert.equal(showsDollars({ total, tokens: 5_000, projects: [], daily: [], harnesses: [covered] }), false);
+  assert.equal(showsDollars({ total, tokens: 5_000, projects: [], daily: [], harnesses: [{ ...covered, cost_usd: 61 }] }), true);
+  assert.equal(showsDollars({ total: { ...total, cost_usd: 1.5 }, tokens: 0, projects: [], daily: [], harnesses: [] }), true);
 });
 
 test("a reset reads as a countdown down to the minute", () => {

@@ -1,10 +1,11 @@
+import { Button } from "../ui/kit.tsx";
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { agentLabel } from "../project/projects-state.ts";
 import { creditAmount, creditScope, providerName } from "../ui/credits.ts";
 import { harnessMark, providerMark } from "../ui/icons.tsx";
 import { money, tokenCount } from "../ui/format.ts";
 import { useDialogRef } from "../ui/parts.tsx";
-import { asOf, harnessLine, harnessName, modelTotals, PERIODS, pillPlans, planName, projectExtra, resetName, shortName, showsDollars, todayLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageView } from "./usage.tsx";
+import { asOf, harnessCost, harnessName, modelTotals, PERIODS, pillPlans, planName, resetName, shortName, showsDollars, todayLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageTableRow, type UsageView } from "./usage.tsx";
 
 function Bar({ used }: { used: number }) { return <span className="bar"><i className={used > WARN_USED ? "warn" : ""} style={{ width: `${used}%` }} /></span>; }
 /// A harness's mark, else its short name: never a letter tile.
@@ -24,18 +25,73 @@ function Limits({ plan, now }: { plan: PlanLimits; now: number }) {
     {credits.map((credit, index) => <Fragment key={index}><div className="us-row"><span>{single ? creditScope(credit.scope) : `${providerName(credit.provider)} · ${creditScope(credit.scope)}`}</span><span>{credit.remaining_full ?? creditAmount(credit, credit.remaining)} remaining</span></div><div className="us-row"><small>{credit.resets ? `Resets ${credit.resets}` : ""}</small><small>{credit.used_full ?? creditAmount(credit, credit.used)} used · {credit.total_full ?? creditAmount(credit, credit.total)} total</small></div>{credit.provider === "openrouter" && credit.scope === "api_key" && credit.remaining == null && <div className="us-note">Account balance unavailable.</div>}</Fragment>)}
   </div>;
 }
-function SpendRow({ name, cost, extra, strong = false, title }: { name: React.ReactNode; cost: string; extra: string; strong?: boolean; title?: string }) {
-  const Tag = strong ? "b" : "span";
-  return <div className="us-row" title={title}>{typeof name === "string" ? <Tag>{name}</Tag> : name}<Tag className="us-r">{cost}{extra && <small>{cost ? " · " : ""}{extra}</small>}</Tag></div>;
+const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+
+function sessionDates(row: UsageTableRow) {
+  const first = row.first && new Date(row.first), last = row.last && new Date(row.last);
+  if (first && last && first <= last) return row.first === row.last ? shortDate.format(first) : shortDate.formatRange(first, last);
+  if (first) return `From ${shortDate.format(first)}`;
+  if (last) return `Through ${shortDate.format(last)}`;
+  return "Unknown";
 }
-function Period({ view, periodKey, allProjects, pick, more }: { view: UsageView; periodKey: PeriodKey; allProjects: boolean; pick(key: PeriodKey): void; more(): void }) {
-  const period = view[periodKey], shown = allProjects ? period.projects : period.projects.slice(0, 5), extra = period.projects.length - 5;
-  const models = modelTotals(period.harnesses), tokens = period.tokens ? tokenCount(period.tokens) : "", paid = period.total.cost_usd > 0 || !tokens;
-  return <div><div className="us-seg">{PERIODS.map(p => <button type="button" key={p.key} className={p.key === periodKey ? "on" : ""} aria-pressed={p.key === periodKey} onClick={() => pick(p.key)}>{p.label}</button>)}</div>
-    {period.projects.length ? <><h5><span>By project</span></h5>{shown.map((spend, i) => <SpendRow key={i} name={spend.project} cost={spend.cost_usd > 0 ? money(spend.cost_usd) : ""} extra={projectExtra(spend)} />)}{extra > 0 && <button type="button" className="us-more" onClick={more}>{allProjects ? "Show less" : `Show ${extra} more`}</button>}</> : periodKey === "today" && <div className="us-row"><small>Nothing yet today</small></div>}
-    {!!period.harnesses.length && <><h5 className={period.projects.length ? "us-sub" : ""}><span>By harness</span></h5>{period.harnesses.map((spend, i) => <SpendRow key={i} title={spend.models.length ? spend.models.map(m => `${m.name}: ${tokenCount(m.tokens)} tokens`).join("\n") : undefined} name={<small>{harnessName(spend)}</small>} cost="" extra={harnessLine(spend)} />)}</>}
-    {!!models.length && <><h5 className="us-sub"><span>By model</span></h5>{models.map(model => <SpendRow key={model.name} name={<small>{model.name}</small>} cost="" extra={tokenCount(model.tokens)} />)}</>}
-    {(period.total.cost_usd > 0 || !!tokens) && <SpendRow name="Total" cost={paid ? money(period.total.cost_usd) : ""} extra={tokens} strong />}
+
+function ProjectTable({ rows, historical = false, expanded, toggle }: {
+  rows: UsageTableRow[]; historical?: boolean; expanded: boolean; toggle(): void;
+}) {
+  const shown = expanded ? rows : rows.slice(0, 5);
+  return <>
+    <table className="us-table">
+      <caption>{historical ? "Historical spend (daily split unknown)" : "Daily usage"}</caption>
+      <thead><tr>
+        <th scope="col">{historical ? "Session dates" : "Date"}</th>
+        <th scope="col">Project</th>
+        {historical && <th scope="col">Harness</th>}
+        <th scope="col" className="num">Spend</th>
+        <th scope="col" className="num">Tokens</th>
+      </tr></thead>
+      <tbody>{shown.map((row, i) => <tr key={i}>
+        <td>{sessionDates(row)}</td>
+        <td>{row.project ?? "Other projects"}</td>
+        {historical && <td>{row.agent && agentLabel(row.agent)}</td>}
+        <td className="num">{money(row.cost_usd)}</td>
+        <td className="num">{tokenCount(row.tokens)}</td>
+      </tr>)}</tbody>
+    </table>
+    {rows.length > 5 && <Button look="plain" className="us-more" onClick={toggle} aria-expanded={expanded}>
+      {expanded ? "Show less" : `Show ${rows.length - 5} more`}
+    </Button>}
+  </>;
+}
+
+function Period({ view, periodKey, allProjects, pick, more }: {
+  view: UsageView; periodKey: PeriodKey; allProjects: boolean; pick(key: PeriodKey): void; more(): void;
+}) {
+  const period = view[periodKey], daily = period.daily ?? [], historical = view.historical ?? [];
+  const models = modelTotals(period.harnesses);
+  const [showHistory, setShowHistory] = useState(false);
+  const hasSpend = period.tokens > 0 || period.total.cost_usd > 0;
+
+  return <div>
+    <div className="us-seg">{PERIODS.map(p =>
+      <Button look="plain" key={p.key} className={p.key === periodKey ? "on" : ""} aria-pressed={p.key === periodKey} onClick={() => pick(p.key)}>{p.label}</Button>
+    )}</div>
+    {daily.length > 0
+      ? <ProjectTable rows={daily} expanded={allProjects} toggle={more} />
+      : periodKey === "today" && <div className="us-row"><small>{hasSpend ? "Daily breakdown unavailable" : "Nothing yet today"}</small></div>}
+    {(period.harnesses.length > 0 || hasSpend) && <table className="us-table">
+      <caption>By harness</caption>
+      <thead><tr><th scope="col">Harness</th><th scope="col" className="num">Spend</th><th scope="col" className="num">Tokens</th></tr></thead>
+      <tbody>{period.harnesses.map(spend => <tr key={`${spend.agent}:${spend.subscription}`}>
+        <td>{harnessName(spend)}</td><td className="num">{harnessCost(spend)}</td><td className="num">{tokenCount(spend.tokens)}</td>
+      </tr>)}</tbody>
+      <tfoot><tr><th scope="row">Total</th><td className="num">{money(period.total.cost_usd)}</td><td className="num">{tokenCount(period.tokens)}</td></tr></tfoot>
+    </table>}
+    {models.length > 0 && <table className="us-table">
+      <caption>By model</caption>
+      <thead><tr><th scope="col">Model</th><th scope="col" className="num">Tokens</th></tr></thead>
+      <tbody>{models.map(model => <tr key={model.name}><td>{model.name}</td><td className="num">{tokenCount(model.tokens)}</td></tr>)}</tbody>
+    </table>}
+    {historical.length > 0 && <ProjectTable rows={historical} historical expanded={showHistory} toggle={() => setShowHistory(!showHistory)} />}
   </div>;
 }
 export function UsageWidget({ view, open, period, allProjects, toggle, pick, more }: { view: UsageView; open: boolean; period: PeriodKey; allProjects: boolean; toggle(): void; pick(key: PeriodKey): void; more(): void }) {

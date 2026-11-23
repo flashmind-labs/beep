@@ -11,10 +11,10 @@ use beep_projects::imports::records::{ImportRow, imported_project_of};
 use beep_proto::SessionId;
 use beep_proto::{
     AccountName, AgentSlug, AgentTokens, HarnessBill, ModelId, ModelSpend, PlanLimits, PlanWindow,
-    ProjectBill, SpendPeriod, SpendReport,
+    ProjectBill, SpendPeriod, SpendReport, UsageTableRow,
     node::{
         agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
-        usage::{HourSpend, PlanUsage, SessionSpend},
+        usage::{HistoricalSpend, HourSpend, PlanUsage, SessionSpend},
     },
 };
 use chrono::{DateTime, Datelike, Local, NaiveDate, TimeZone};
@@ -83,6 +83,7 @@ struct Session {
     cwd: String,
     agent: AgentSlug,
     hours: BTreeMap<(u64, ModelId), HourSpend>,
+    historical: Vec<HistoricalSpend>,
 }
 
 /// What the nodes said.
@@ -149,6 +150,7 @@ impl Desk {
                                 cwd: usage.cwd.clone(),
                                 agent: usage.agent.clone(),
                                 hours: BTreeMap::new(),
+                                historical: Vec::new(),
                             }),
                             usage,
                         );
@@ -225,6 +227,7 @@ impl Desk {
             today: bill(&rows(today)),
             week: bill(&rows(week)),
             month: bill(&rows(month)),
+            historical: historical_rows(&said, &imports),
         };
         Ok((report, follows))
     }
@@ -232,6 +235,7 @@ impl Desk {
 
 /// A report replaces the session's hours from `since` on.
 fn absorb(session: &mut Session, usage: SessionSpend) {
+    session.historical = usage.historical;
     session.hours.retain(|(hour, _), _| *hour < usage.since);
 
     for hour in usage.hours {
@@ -272,6 +276,72 @@ fn rows_since<'a>(said: &'a Said, imports: &[ImportRow], from: i64) -> Vec<Row<'
                     hour,
                 })
         })
+        .collect()
+}
+
+fn local_date(at: u64) -> Option<NaiveDate> {
+    DateTime::from_timestamp(i64::try_from(at).ok()?, 0)
+        .map(|time| time.with_timezone(&Local).date_naive())
+}
+
+fn historical_rows(said: &Said, imports: &[ImportRow]) -> Vec<UsageTableRow> {
+    let mut rows = Vec::new();
+    for session in said.sessions.values() {
+        let project = imported_project_of(&session.machine, &session.cwd, imports);
+        for usage in &session.historical {
+            rows.push(UsageTableRow {
+                first: usage
+                    .first
+                    .and_then(local_date)
+                    .map(|date| date.to_string()),
+                last: usage.last.and_then(local_date).map(|date| date.to_string()),
+                project: project.clone(),
+                agent: Some(session.agent.clone()),
+                cost_usd: if usage.billing.on_subscription(&session.agent) {
+                    0.0
+                } else {
+                    usage.cost_usd
+                },
+                tokens: usage.tokens,
+            });
+        }
+    }
+    rows.sort_by(|a, b| {
+        b.last
+            .cmp(&a.last)
+            .then(b.first.cmp(&a.first))
+            .then(a.project.cmp(&b.project))
+            .then_with(|| cmp_cost(a.cost_usd, b.cost_usd))
+            .then(b.tokens.cmp(&a.tokens))
+    });
+    rows
+}
+
+fn daily_rows(rows: &[Row<'_>]) -> Vec<UsageTableRow> {
+    let mut days = BTreeMap::new();
+    for row in rows {
+        let Some(day) = local_date(row.hour.hour) else {
+            continue;
+        };
+        let entry = days
+            .entry((std::cmp::Reverse(day), &row.project))
+            .or_insert((0.0, 0_u64));
+        if metered(row) {
+            entry.0 += row.hour.cost_usd;
+        }
+        entry.1 = entry.1.saturating_add(row.hour.tokens());
+    }
+    days.into_iter()
+        .map(
+            |((std::cmp::Reverse(day), project), (cost_usd, tokens))| UsageTableRow {
+                first: Some(day.to_string()),
+                last: Some(day.to_string()),
+                project: project.clone(),
+                agent: None,
+                cost_usd,
+                tokens,
+            },
+        )
         .collect()
 }
 
@@ -468,6 +538,7 @@ fn bill(rows: &[Row<'_>]) -> SpendPeriod {
         subscription_tokens: tokens(&all, true),
         projects,
         harnesses,
+        daily: daily_rows(rows),
     }
 }
 

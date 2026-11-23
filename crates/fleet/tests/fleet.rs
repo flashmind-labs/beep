@@ -813,6 +813,13 @@ async fn usage_sums_every_machine() {
             session: session.into(),
             cwd: "/home/user/widget".into(),
             since: 0,
+            historical: vec![beep_proto::node::usage::HistoricalSpend {
+                first: Some(now - 172800),
+                last: Some(now - 86400),
+                cost_usd: 1.25,
+                tokens: 1000,
+                billing: beep_proto::node::usage::Billing::Metered,
+            }],
             hours: vec![HourSpend {
                 hour: now - now % 3600,
                 model: "claude-opus-4-1".into(),
@@ -838,7 +845,11 @@ async fn usage_sums_every_machine() {
         },
     };
     let build = Arc::new(FakeNode {
-        usage: vec![spend("a", 1.5, 100), plan(now - 60, 10.0)],
+        usage: vec![
+            spend("a", 0.5, 80),
+            spend("a", 1.5, 100),
+            plan(now - 60, 10.0),
+        ],
         ..FakeNode::default()
     });
     let mac = Arc::new(FakeNode {
@@ -851,6 +862,10 @@ async fn usage_sums_every_machine() {
     let bill = studio.spend().await.expect("the bill reads");
     assert_eq!(bill.today.cost_usd, 3.5);
     assert_eq!(bill.today.metered_tokens, 150);
+    assert_eq!(bill.today.daily.len(), 1);
+    assert_eq!(bill.today.daily[0].cost_usd, 3.5);
+    assert_eq!(bill.historical.len(), 2);
+    assert!(bill.historical.iter().all(|row| row.cost_usd == 1.25));
     assert_eq!(bill.week.cost_usd, 3.5);
     assert_eq!(bill.today.harnesses.len(), 1);
     // The freshest plan reading of an agent wins, and names the machine that read it.

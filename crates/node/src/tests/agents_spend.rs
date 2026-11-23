@@ -445,21 +445,49 @@ fn resuming_a_legacy_flsh_session_corrects_its_cached_hour() {
     database
         .as_object_mut()
         .unwrap()
-        .remove("uses_transcript_dates");
-    database["parts"]["chat"]["buckets"][0][0]["hour"] = NOW.into();
+        .remove("separates_historical_usage");
+    database["parts"]["chat"]
+        .as_object_mut()
+        .unwrap()
+        .remove("historical");
+    database["parts"]["chat"]["buckets"] = serde_json::json!([[{"hour":NOW,"model":"openrouter:example","billing":"metered"},
+        {"tokens":{"input":40,"output":0,"cache_read":0,"cache_write":0,"cache_write_long":0},"cost_usd":0.5,"unpriced":0}]]);
+
     fs::write(&fixture.ledger, serde_json::to_vec(&cache).unwrap()).unwrap();
 
     let spend = Spend::at(fixture.roots, fixture.ledger);
     let corrected = spend.pass(NOW);
     let chat = by_session(&corrected)["chat"];
-    assert_eq!(chat.hours.len(), 1);
-    assert_eq!(chat.hours[0].hour, NOW - 86400);
-    assert_eq!(cost(chat), 0.50);
+    assert!(chat.hours.is_empty());
+    assert_eq!(chat.historical[0].cost_usd, 0.5);
+    assert_eq!(chat.historical[0].first, Some(NOW - 86400 + 240));
     spend.sent(chat);
 
     append(
         &path,
         "{\"type\":\"user\",\"timestamp\":\"2026-11-03T09:03:00Z\"}\n",
     );
-    assert!(spend.pass(NOW).is_empty());
+    let resumed = spend.pass(NOW);
+    let chat = by_session(&resumed)["chat"];
+    assert!(chat.hours.is_empty());
+    assert_eq!(chat.historical[0].last, Some(NOW + 180));
+    assert_eq!(chat.historical[0].cost_usd, 0.5);
+
+    let receipt = |input: u64, usd: f64| {
+        serde_json::json!({
+            NOW.to_string(): {"example": {"input":input, "cached":0, "output":0, "usd":usd}}
+        })
+    };
+    let sidecar = path.with_extension("openrouter.json");
+    fs::write(&sidecar, receipt(20, 0.30).to_string()).unwrap();
+    let partial = spend.pass(NOW);
+    let chat = by_session(&partial)["chat"];
+    assert_eq!(cost(chat), 0.30);
+    assert_eq!(chat.historical[0].tokens, 20);
+    assert!((chat.historical[0].cost_usd - 0.20).abs() < 1e-9);
+    fs::write(&sidecar, receipt(40, 0.45).to_string()).unwrap();
+    let complete = spend.pass(NOW);
+    let chat = by_session(&complete)["chat"];
+    assert_eq!(cost(chat), 0.45);
+    assert!(chat.historical.is_empty());
 }

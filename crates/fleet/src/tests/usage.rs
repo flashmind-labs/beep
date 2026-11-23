@@ -63,3 +63,27 @@ fn a_credit_only_plan_reaches_the_usage_view_without_becoming_spend() {
     assert!(limits.windows.is_empty());
     assert_eq!(limits.credits, [credits]);
 }
+
+#[test]
+fn daily_rows_group_by_local_day_and_project_and_only_charge_metered_usage() {
+    let day = NaiveDate::from_ymd_opt(2026, 3, 9).unwrap();
+    let midnight = start(day) as u64;
+    let mut yesterday = hour(Billing::Metered);
+    yesterday.hour = midnight - 3600;
+    let mut today = hour(Billing::Metered);
+    today.hour = midnight;
+    let mut covered = hour(Billing::Subscription);
+    covered.hour = midnight + 3600;
+    let rows = [&yesterday, &today, &covered].map(|hour| Row {
+        project: Some("sample".to_owned()),
+        agent: &AgentSlug::CLAUDE,
+        hour,
+    });
+    let period = bill(&rows);
+    assert_eq!(period.daily.len(), 2);
+    assert_eq!(period.daily[0].first.as_deref(), Some("2026-03-09"));
+    assert_eq!(period.daily[1].first.as_deref(), Some("2026-03-08"));
+    assert_eq!(period.daily[0].tokens, 2_000);
+    assert_eq!(period.daily[0].cost_usd, 5.0);
+    assert_eq!(period.cost_usd, 10.0);
+}

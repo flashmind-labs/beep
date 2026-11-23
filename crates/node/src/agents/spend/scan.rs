@@ -378,7 +378,7 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
         if previous.is_some_and(|read| {
             read.stamp == stamp
                 && read.billed_stamp == billed_stamp
-                && (!flsh_file || read.uses_transcript_dates)
+                && (*agent != Agent::Flsh || read.separates_historical_usage)
         }) {
             continue;
         }
@@ -403,7 +403,7 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
 
         match read {
             Ok(parts) => {
-                entry.uses_transcript_dates = flsh_file;
+                entry.separates_historical_usage = *agent == Agent::Flsh;
                 for session in changed_sessions(&entry.parts, &parts) {
                     ledger.unsent.insert(SessionKey {
                         agent: *agent,
